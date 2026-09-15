@@ -117,9 +117,15 @@ func replaceWorkspaceNameInFocusState(oldName: String, newName: String) {
 /// WINMUX_WORKSPACE env before accessing the global focus.
 @MainActor var focus: LiveFocus { _focus.live }
 
+@MainActor private(set) var focusChangeGeneration: UInt64 = 0
+
 @MainActor func setFocus(to newFocus: LiveFocus) -> Bool {
     if _focus == newFocus.frozen {
-        return newFocus.workspace.isVisible || newFocus.workspace.workspaceMonitor.setActiveWorkspace(newFocus.workspace)
+        let status = newFocus.workspace.isVisible || newFocus.workspace.workspaceMonitor.setActiveWorkspace(newFocus.workspace)
+        // Selecting the current target is still a focus choice that supersedes a pending
+        // new-window presentation, even though the logical focus value does not change.
+        if status { focusChangeGeneration &+= 1 }
+        return status
     }
     let oldFocus = focus
     let status = newFocus.workspace.workspaceMonitor.setActiveWorkspace(newFocus.workspace)
@@ -131,6 +137,7 @@ func replaceWorkspaceNameInFocusState(oldName: String, newName: String) {
     }
 
     _focus = newFocus.frozen
+    focusChangeGeneration &+= 1
     newFocus.windowOrNil?.markAsMostRecentChild()
     return true
 }

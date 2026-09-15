@@ -3,6 +3,7 @@ import Common
 
 final class MacWindow: Window {
     let macApp: MacApp
+    private var popupPresentationState: PopupWindowPresentationState
     private var prevUnhiddenProportionalPositionInsideWorkspaceRect: CGPoint?
     /// The corner the window is parked in, together with the monitor rect it was parked
     /// against: when the monitor's geometry changes (or the workspace moves to another
@@ -11,8 +12,9 @@ final class MacWindow: Window {
     private var hiddenInCorner: (corner: OptimalHideCorner, monitorVisibleRect: Rect)?
 
     @MainActor
-    private init(_ id: UInt32, _ actor: MacApp, lastFloatingSize: CGSize?, parent: NonLeafTreeNodeObject, adaptiveWeight: CGFloat, index: Int) {
+    private init(_ id: UInt32, _ actor: MacApp, lastFloatingSize: CGSize?, parent: NonLeafTreeNodeObject, adaptiveWeight: CGFloat, index: Int, firstSeenInActiveApp: Bool) {
         self.macApp = actor
+        self.popupPresentationState = PopupWindowPresentationState(firstSeenDuringStartup: isStartup, firstSeenInActiveApp: firstSeenInActiveApp, wasInitiallyPopup: parent is MacosPopupWindowsContainer)
         super.init(id: id, actor, lastFloatingSize: lastFloatingSize, parent: parent, adaptiveWeight: adaptiveWeight, index: index)
     }
 
@@ -28,6 +30,7 @@ final class MacWindow: Window {
             // resized AX events invalidate it and consumers re-fetch on demand.
             return existing
         }
+        let firstSeenInActiveApp = macApp.nsApp.isActive
         let rect = try await macApp.getAxRect(windowId)
         let data = try await unbindAndGetBindingDataForNewWindow(
             windowId,
@@ -40,17 +43,29 @@ final class MacWindow: Window {
 
         // atomic synchronous section
         if let existing = allWindowsMap[windowId] { return existing }
-        let window = MacWindow(windowId, macApp, lastFloatingSize: rect?.size, parent: data.parent, adaptiveWeight: data.adaptiveWeight, index: data.index)
+        let window = MacWindow(windowId, macApp, lastFloatingSize: rect?.size, parent: data.parent, adaptiveWeight: data.adaptiveWeight, index: data.index, firstSeenInActiveApp: firstSeenInActiveApp)
         window.recordAuthoritativeActualRect(rect)
         allWindowsMap[windowId] = window
 
         try await debugWindowsIfRecording(window)
+        let focusBeforeDetectionCallbacks = focusChangeGeneration
         let didRestorePersistedFrozenWorld = try await restorePersistedFrozenWorldIfNeeded(newlyDetectedWindow: window)
         let didRestoreClosedWindowsCache = try await restoreClosedWindowsCacheIfNeeded(newlyDetectedWindow: window)
+        window.popupPresentationState.wasRestored = didRestorePersistedFrozenWorld || didRestoreClosedWindowsCache
         if !didRestorePersistedFrozenWorld && !didRestoreClosedWindowsCache {
             try await tryOnWindowDetected(window)
         }
+        newFloatingWindowPresentation?.recordDetection(
+            window,
+            wasRestored: didRestorePersistedFrozenWorld || didRestoreClosedWindowsCache,
+            focusGenerationBeforeCallbacks: focusBeforeDetectionCallbacks,
+        )
         return window
+    }
+
+    @MainActor
+    func consumePendingPopupPresentation() -> Bool {
+        popupPresentationState.consume()
     }
 
     // var description: String {

@@ -125,67 +125,75 @@ func runRefreshSessionBlocking(
     if !TrayMenuModel.shared.isEnabled { return }
     let focusSnapshot = captureRefreshSessionFocusSnapshot()
     debugFocusLog("runRefreshSessionBlocking begin event=\(event) snapshot=\(debugDescribe(focusSnapshot))")
-    try await $refreshSessionEvent.withValue(event) {
-        try await $_isStartup.withValue(event.isStartup) {
-            try await $_refreshSessionFocusSnapshot.withValue(focusSnapshot) {
-                let frontmostActivationPolicy = NSWorkspace.shared.frontmostApplication?.activationPolicy
-                let nativeObservation = try await getNativeFocusObservation()
-                let nativeFocused = nativeObservation.window
-                try checkCancellation()
-                if let nativeFocused { try await debugWindowsIfRecording(nativeFocused) }
-                await updateNativeFullscreenChromeSuppression(nativeFocused: nativeFocused)
-                if !nativeObservation.isTransient { updateFocusCache(nativeFocused) }
-                try checkCancellation()
-
-                if shouldLayoutWorkspaces && optimisticallyPreLayoutWorkspaces { try await layoutWorkspaces() }
-                try checkCancellation()
-
-                refreshModel()
-                if event.requiresWindowRefreshBarrier {
-                    if let refreshOverrideForTests {
-                        try await refreshOverrideForTests()
-                    } else {
-                        try await refresh()
-                    }
+    let presentation = NewFloatingWindowPresentation(isStartup: event.isStartup, frontmostAppPid: NSWorkspace.shared.frontmostApplication?.processIdentifier)
+    try await $newFloatingWindowPresentation.withValue(presentation) {
+        try await $refreshSessionEvent.withValue(event) {
+            try await $_isStartup.withValue(event.isStartup) {
+                try await $_refreshSessionFocusSnapshot.withValue(focusSnapshot) {
+                    let frontmostActivationPolicy = NSWorkspace.shared.frontmostApplication?.activationPolicy
+                    let nativeObservation = try await getNativeFocusObservation()
+                    let nativeFocused = nativeObservation.window
                     try checkCancellation()
-                    gcMonitors()
-                }
-
-                if event.requiresLayoutReasonNormalization {
-                    if let normalizeLayoutReasonOverrideForTests {
-                        try await normalizeLayoutReasonOverrideForTests()
-                    } else {
-                        try await normalizeLayoutReason()
-                    }
+                    if let nativeFocused { try await debugWindowsIfRecording(nativeFocused) }
+                    await updateNativeFullscreenChromeSuppression(nativeFocused: nativeFocused)
+                    if !nativeObservation.isTransient { updateFocusCache(nativeFocused, preserveLogicalFocus: presentation.callbacksChangedFocus) }
+                    presentation.recordNativeFocusBeforeLayout(nativeFocused)
                     try checkCancellation()
+
+                    if shouldLayoutWorkspaces && optimisticallyPreLayoutWorkspaces { try await layoutWorkspaces() }
+                    try checkCancellation()
+
                     refreshModel()
-                }
-                updateTrayText()
-                await updateWorkspaceSidebarModel()
-                SecureInputPanel.shared.refresh()
-                if shouldLayoutWorkspaces {
-                    try await layoutWorkspaces()
-                    try checkCancellation()
-                    if shouldSyncFocusBackToMacOs(
-                        nativeFocused: nativeFocused,
-                        frontmostActivationPolicy: frontmostActivationPolicy,
-                        nativeFocusIsTransient: nativeObservation.isTransient,
-                    ) {
-                        let logicalFocused = focus.windowOrNil
-                        if logicalFocused?.windowId != nativeFocused?.windowId {
-                            debugFocusLog(
-                                "runRefreshSessionBlocking syncFocus event=\(event) nativeFocused=\(nativeFocused?.windowId.description ?? "nil") logicalFocused=\(logicalFocused?.windowId.description ?? "nil")"
-                            )
-                            logicalFocused?.nativeFocus()
+                    if event.requiresWindowRefreshBarrier {
+                        if let refreshOverrideForTests {
+                            try await refreshOverrideForTests()
                         } else {
-                            debugFocusLog(
-                                "runRefreshSessionBlocking skipSyncFocus event=\(event) nativeFocused=\(nativeFocused?.windowId.description ?? "nil") logicalFocused=\(logicalFocused?.windowId.description ?? "nil")"
-                            )
+                            try await refresh()
+                        }
+                        try checkCancellation()
+                        gcMonitors()
+                    }
+
+                    if event.requiresLayoutReasonNormalization {
+                        if let normalizeLayoutReasonOverrideForTests {
+                            try await normalizeLayoutReasonOverrideForTests()
+                        } else {
+                            try await normalizeLayoutReason()
+                        }
+                        try checkCancellation()
+                        refreshModel()
+                    }
+                    updateTrayText()
+                    await updateWorkspaceSidebarModel()
+                    SecureInputPanel.shared.refresh()
+                    if shouldLayoutWorkspaces {
+                        try await layoutWorkspaces()
+                        try checkCancellation()
+                        var didPresentFloatingWindow = false
+                        if !nativeObservation.isTransient {
+                            didPresentFloatingWindow = try await presentation.presentAfterLayout()
+                        }
+                        if !didPresentFloatingWindow && !presentation.suppressFocusSync && shouldSyncFocusBackToMacOs(
+                            nativeFocused: nativeFocused,
+                            frontmostActivationPolicy: frontmostActivationPolicy,
+                            nativeFocusIsTransient: nativeObservation.isTransient,
+                        ) {
+                            let logicalFocused = focus.windowOrNil
+                            if logicalFocused?.windowId != nativeFocused?.windowId {
+                                debugFocusLog(
+                                    "runRefreshSessionBlocking syncFocus event=\(event) nativeFocused=\(nativeFocused?.windowId.description ?? "nil") logicalFocused=\(logicalFocused?.windowId.description ?? "nil")"
+                                )
+                                logicalFocused?.nativeFocus()
+                            } else {
+                                debugFocusLog(
+                                    "runRefreshSessionBlocking skipSyncFocus event=\(event) nativeFocused=\(nativeFocused?.windowId.description ?? "nil") logicalFocused=\(logicalFocused?.windowId.description ?? "nil")"
+                                )
+                            }
                         }
                     }
+                    await updateWindowTabModel()
+                    debugFocusLog("runRefreshSessionBlocking end event=\(event) nativeFocused=\(nativeFocused?.windowId.description ?? "nil") focus=\(debugDescribe(focus))")
                 }
-                await updateWindowTabModel()
-                debugFocusLog("runRefreshSessionBlocking end event=\(event) nativeFocused=\(nativeFocused?.windowId.description ?? "nil") focus=\(debugDescribe(focus))")
             }
         }
     }
@@ -208,39 +216,48 @@ func runLightSession<T>(
     activeScheduledRefreshGeneration += 1
     let focusSnapshot = captureRefreshSessionFocusSnapshot()
     debugFocusLog("runLightSession begin event=\(event) snapshot=\(debugDescribe(focusSnapshot))")
-    return try await $refreshSessionEvent.withValue(event) {
-        try await $_isStartup.withValue(event.isStartup) {
-            try await $_refreshSessionFocusSnapshot.withValue(focusSnapshot) {
-                let nativeObservation = try await getNativeFocusObservation()
-                let nativeFocused = nativeObservation.window
-                try checkCancellation()
-                if let nativeFocused { try await debugWindowsIfRecording(nativeFocused) }
-                await updateNativeFullscreenChromeSuppression(nativeFocused: nativeFocused)
-                if !nativeObservation.isTransient { updateFocusCache(nativeFocused) }
-                try checkCancellation()
-                let focusBefore = focus.windowOrNil
+    let presentation = NewFloatingWindowPresentation(isStartup: event.isStartup, frontmostAppPid: NSWorkspace.shared.frontmostApplication?.processIdentifier)
+    return try await $newFloatingWindowPresentation.withValue(presentation) {
+        return try await $refreshSessionEvent.withValue(event) {
+            try await $_isStartup.withValue(event.isStartup) {
+                try await $_refreshSessionFocusSnapshot.withValue(focusSnapshot) {
+                    let nativeObservation = try await getNativeFocusObservation()
+                    let nativeFocused = nativeObservation.window
+                    try checkCancellation()
+                    if let nativeFocused { try await debugWindowsIfRecording(nativeFocused) }
+                    await updateNativeFullscreenChromeSuppression(nativeFocused: nativeFocused)
+                    if !nativeObservation.isTransient { updateFocusCache(nativeFocused, preserveLogicalFocus: presentation.callbacksChangedFocus) }
+                    presentation.recordNativeFocusBeforeLayout(nativeFocused)
+                    try checkCancellation()
+                    let focusBefore = focus.windowOrNil
 
-                refreshModel()
-                let result = try await body()
-                try checkCancellation()
-                refreshModel()
+                    refreshModel()
+                    let result = try await body()
+                    try checkCancellation()
+                    refreshModel()
 
-                let focusAfter = focus.windowOrNil
+                    let focusAfter = focus.windowOrNil
 
-                updateTrayText()
-                await updateWorkspaceSidebarModel()
-                SecureInputPanel.shared.refresh()
-                try await layoutWorkspaces()
-                try checkCancellation()
-                await updateWindowTabModel()
-                if !nativeObservation.isTransient && focusBefore != focusAfter {
-                    focusAfter?.nativeFocus() // syncFocusToMacOs
+                    updateTrayText()
+                    await updateWorkspaceSidebarModel()
+                    SecureInputPanel.shared.refresh()
+                    try await layoutWorkspaces()
+                    try checkCancellation()
+                    var didPresentFloatingWindow = false
+                    if !nativeObservation.isTransient {
+                        didPresentFloatingWindow = try await presentation.presentAfterLayout()
+                    }
+                    await updateWindowTabModel()
+                    let callbackChoseDifferentNativeFocus = presentation.callbacksChangedFocus && focusAfter != nativeFocused
+                    if !nativeObservation.isTransient && !didPresentFloatingWindow && !presentation.suppressFocusSync && (focusBefore != focusAfter || callbackChoseDifferentNativeFocus) {
+                        focusAfter?.nativeFocus() // syncFocusToMacOs
+                    }
+                    if shouldSchedulePostRefresh {
+                        scheduleRefreshSession(event)
+                    }
+                    debugFocusLog("runLightSession end event=\(event) nativeFocused=\(nativeFocused?.windowId.description ?? "nil") focusBefore=\(focusBefore?.windowId.description ?? "nil") focusAfter=\(focusAfter?.windowId.description ?? "nil") logicalFocus=\(debugDescribe(focus))")
+                    return result
                 }
-                if shouldSchedulePostRefresh {
-                    scheduleRefreshSession(event)
-                }
-                debugFocusLog("runLightSession end event=\(event) nativeFocused=\(nativeFocused?.windowId.description ?? "nil") focusBefore=\(focusBefore?.windowId.description ?? "nil") focusAfter=\(focusAfter?.windowId.description ?? "nil") logicalFocus=\(debugDescribe(focus))")
-                return result
             }
         }
     }

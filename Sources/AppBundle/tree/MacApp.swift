@@ -220,6 +220,10 @@ final class MacApp: AbstractApp {
         switch try await queryFocusedWindowId() {
             case .window(let windowId):
                 hasActiveTransientNativeFocus = false
+                // Registration can run focus-changing callbacks or classify this native
+                // window as a popup that is promoted later. Keep the observed ID honest
+                // so a callback's target cannot use an incorrect activation-only shortcut.
+                lastNativeFocusedWindowId = windowId
                 return try await MacWindow.getOrRegister(windowId: windowId, macApp: self)
             case .transient, .unresolvedWindow:
                 hasActiveTransientNativeFocus = true
@@ -243,7 +247,7 @@ final class MacApp: AbstractApp {
         lastNativeFocusedWindowId.flatMap { Window.get(byId: $0) }
     }
 
-    @MainActor func nativeFocus(_ windowId: UInt32) {
+    @MainActor func nativeFocus(_ windowId: UInt32, forceRaise: Bool = false, expectedNativeFocusedWindowId: UInt32? = nil) {
         if serverArgs.isReadOnly { return }
         MacApp.focusJob?.cancel()
         // Performance optimization. If possible avoid doing AX requests
@@ -254,6 +258,7 @@ final class MacApp: AbstractApp {
                 targetWindowId: windowId,
                 lastNativeFocusedWindowId: lastNativeFocusedWindowId,
                 logicalWindowsCount: logicalWindowCount,
+                forceRaise: forceRaise,
             )
         debugFocusLog(
             "MacApp.nativeFocus app=\(nsApp.localizedName ?? rawAppBundleId ?? String(pid)) target=\(windowId) lastNative=\(lastNativeFocusedWindowId?.description ?? "nil") logicalWindowsCount=\(logicalWindowCount) windowsCount=\(windowsCount) strategy=\(useActivationOnly ? "activate" : "ax-focus")"
@@ -262,7 +267,16 @@ final class MacApp: AbstractApp {
         {
             nsApp.activate(options: .activateIgnoringOtherApps)
         } else {
-            MacApp.focusJob = withWindowAsync(windowId) { [nsApp, axApp] window, job in
+            MacApp.focusJob = withWindowAsync(windowId) { [nsApp, axApp, axAppFastTimeout] window, job in
+                if forceRaise {
+                    _ = performNewFloatingWindowPresentation(
+                        windowId: windowId, window: window, app: nsApp,
+                        axApp: axApp.threadGuarded, axAppFastTimeout: axAppFastTimeout.threadGuarded,
+                        expectedNativeWindowId: expectedNativeFocusedWindowId,
+                        isCancelled: { job.isCancelled },
+                    )
+                    return
+                }
                 AXUIElementSetAttributeValue(axApp.threadGuarded, kAXFocusedWindowAttribute as CFString, window)
                 // Raise firstly to make sure that by the time we activate the app, the window would be already on top
                 window.set(Ax.isMainAttr, true)
@@ -270,6 +284,22 @@ final class MacApp: AbstractApp {
                 nsApp.activate(options: .activateIgnoringOtherApps)
             }
         }
+    }
+
+    @MainActor
+    func presentNewFloatingWindow(_ windowId: UInt32, expectedNativeFocusedWindowId: UInt32) async throws -> Bool {
+        guard !serverArgs.isReadOnly else { return false }
+        MacApp.focusJob?.cancel()
+        let presentationJob = RunLoopJob()
+        MacApp.focusJob = presentationJob
+        return try await withWindow(windowId) { [nsApp, axApp, axAppFastTimeout] window, job in
+            performNewFloatingWindowPresentation(
+                windowId: windowId, window: window, app: nsApp,
+                axApp: axApp.threadGuarded, axAppFastTimeout: axAppFastTimeout.threadGuarded,
+                expectedNativeWindowId: expectedNativeFocusedWindowId,
+                isCancelled: { job.isCancelled || presentationJob.isCancelled },
+            )
+        } ?? false
     }
 
     func setAxFrame(_ windowId: UInt32, _ topLeft: CGPoint?, _ size: CGSize?) {
@@ -528,6 +558,59 @@ func shouldUseActivationOnlyForNativeFocus(
     targetWindowId: UInt32,
     lastNativeFocusedWindowId: UInt32?,
     logicalWindowsCount: Int,
+    forceRaise: Bool = false,
 ) -> Bool {
-    lastNativeFocusedWindowId == targetWindowId || logicalWindowsCount == 1
+    !forceRaise && (lastNativeFocusedWindowId == targetWindowId || logicalWindowsCount == 1)
+}
+
+private func focusedWindowForFloatingPresentation(_ axApp: AXUIElement) -> NativeFocusedWindowObservation {
+    var raw: AnyObject?
+    guard AXUIElementCopyAttributeValue(axApp, kAXFocusedWindowAttribute as CFString, &raw) == .success,
+          let raw
+    else { return .unavailable }
+    let element = raw as! AXUIElement
+    AXUIElementSetMessagingTimeout(element, 1.0)
+    if element.isAttachedTransientHeuristic() { return .transient }
+    return element.containingWindowId().map { .window($0) } ?? .unavailable
+}
+
+private func performNewFloatingWindowPresentation(
+    windowId: UInt32,
+    window: AXUIElement,
+    app: NSRunningApplication,
+    axApp: AXUIElement,
+    axAppFastTimeout: AXUIElement,
+    expectedNativeWindowId: UInt32?,
+    isCancelled: () -> Bool,
+) -> Bool {
+    // Validate in the queued AX job, immediately before mutating native focus. An app
+    // switch, a same-app focus choice, a new sheet, or a newer focus job cancels this raise.
+    guard app.isActive, !isCancelled(),
+          shouldPerformNewFloatingWindowPresentation(
+              targetWindowId: windowId,
+              expectedNativeWindowId: expectedNativeWindowId,
+              currentNativeObservation: focusedWindowForFloatingPresentation(axAppFastTimeout),
+              isAppActive: app.isActive,
+          ), !isCancelled()
+    else { return false }
+    // Some apps expose AXFocusedWindow as read-only but honor AXMain/AXRaise. Attempt
+    // all three, then verify the resulting native focus before committing logical focus.
+    AXUIElementSetAttributeValue(axApp, kAXFocusedWindowAttribute as CFString, window)
+    window.set(Ax.isMainAttr, true)
+    guard AXUIElementPerformAction(window, kAXRaiseAction as CFString) == .success,
+          case .window(let focusedWindowId) = focusedWindowForFloatingPresentation(axAppFastTimeout)
+    else { return false }
+    return focusedWindowId == windowId
+}
+
+func shouldPerformNewFloatingWindowPresentation(
+    targetWindowId: UInt32,
+    expectedNativeWindowId: UInt32?,
+    currentNativeObservation: NativeFocusedWindowObservation,
+    isAppActive: Bool,
+) -> Bool {
+    guard isAppActive, let expectedNativeWindowId,
+          case .window(let currentNativeWindowId) = currentNativeObservation
+    else { return false }
+    return currentNativeWindowId == expectedNativeWindowId || currentNativeWindowId == targetWindowId
 }

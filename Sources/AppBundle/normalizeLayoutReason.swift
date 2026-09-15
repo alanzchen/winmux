@@ -15,7 +15,10 @@ private func validateStillPopups() async throws {
         let windowLevel = getWindowLevel(for: popup.windowId)
         if try await popup.isWindowHeuristic(windowLevel) {
             try await popup.relayoutWindow(on: focus.workspace)
-            try await tryOnWindowDetected(popup)
+            // Relayout rechecks classification after AX suspension points. Leave
+            // eligibility intact if the element is still a popup for now.
+            guard !(popup.parent is MacosPopupWindowsContainer) else { continue }
+            try await runCallbacksAfterPopupPromotion(popup, mayPresent: popup.consumePendingPopupPresentation())
         }
     }
 }
