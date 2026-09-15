@@ -3,10 +3,17 @@ import Common
 import SwiftUI
 
 @MainActor
-final class WorkspaceSidebarPanel: NSPanelHud {
+final class WorkspaceSidebarPanel: NSPanelHud, WorkspaceSidebarInputOwner {
     static let shared = WorkspaceSidebarPanel(monitor: mainMonitor)
     private static var panelsByMonitorScopeId: [String: WorkspaceSidebarPanel] = [:]
-    static weak var activeInlineTextEditingPanel: WorkspaceSidebarPanel?
+    static let inputSession = WorkspaceSidebarInputSession()
+    static var activeInlineTextEditingPanel: WorkspaceSidebarPanel? {
+        inputSession.owner as? WorkspaceSidebarPanel
+    }
+    var canCaptureSidebarInput: Bool {
+        inlineTextEditingActive && isVisible && isKeyWindow && NSApp.isActive &&
+            config.workspaceSidebar.enabled && TrayMenuModel.shared.isEnabled
+    }
 
     let viewModel: TrayMenuModel
     let hostingView: WorkspaceSidebarHostingView
@@ -19,11 +26,14 @@ final class WorkspaceSidebarPanel: NSPanelHud {
     var menuTrackingDepth = 0
     var menuTrackingGraceUntil: Date = .distantPast
     var inlineTextEditingActive = false
+    var inlineTextEditingGeneration = 0
+    var inlineTextEditingPreviousApplication: NSRunningApplication?
     var inlineTextEditingLocksExpansion = true
     var inlineTextEditingCancelsOnPointerExit = true
     var inlineTextEditingCancel: (@MainActor () -> Void)?
     var inlineTextEditingKeyDown: (@MainActor (WorkspaceSidebarInlineTextKey) -> Void)?
     var inlineTextEditingEventMonitors: [Any] = []
+    var inlineTextEditingActivationObserver: NSObjectProtocol?
     var inlineTextEditingKeyEventTap: CFMachPort?
     var inlineTextEditingKeyEventTapRunLoopSource: CFRunLoopSource?
     var inlineTextEditingStartedAt: Date = .distantPast
@@ -173,6 +183,7 @@ final class WorkspaceSidebarPanel: NSPanelHud {
     override func resignKey() {
         debugWorkspaceSidebarRenameLog("panel resignKey isKey=\(isKeyWindow) firstResponder=\(String(describing: firstResponder))")
         super.resignKey()
+        cancelInlineTextEditing()
     }
 
     override func keyDown(with event: NSEvent) {

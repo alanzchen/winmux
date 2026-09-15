@@ -78,11 +78,19 @@ extension WorkspaceSidebarPanel {
         scheduleHoverRecheckSoon()
     }
 
-    func expandSidebar(to expandedWidth: CGFloat) {
+    func expandSidebar(to expandedWidth: CGFloat, reason: WorkspaceSidebarExpansionReason = .passive) {
         debugWorkspaceSidebarHoverLog("expandSidebar panel=\(monitorScopeId) target=\(expandedWidth) visible=\(viewModel.workspaceSidebarVisibleWidth) frame=\(frame) mouse=\(NSEvent.mouseLocation)")
         pendingExpand?.cancel()
         pendingExpand = nil
-        NotificationCenter.default.post(name: workspaceSidebarWillExpandNotification, object: self)
+        NotificationCenter.default.post(
+            name: workspaceSidebarWillExpandNotification,
+            object: self,
+            userInfo: [workspaceSidebarExpansionStartsSearchKey: reason.startsSearch(
+                alwaysExpanded: config.workspaceSidebar.alwaysExpanded,
+                isDragging: isMouseWindowDragInProgress() || isWorkspaceSidebarItemDragActive(),
+                isTrackingMenu: menuTrackingDepth > 0 || Date() < menuTrackingGraceUntil,
+            )],
+        )
         viewModel.isWorkspaceSidebarExpanded = true
         if !isVisible {
             refresh()
@@ -262,10 +270,10 @@ private let workspaceSidebarInlineTextEventTapCallback: CGEventTapCallBack = { _
     if case .ignored = key {
         return Unmanaged.passUnretained(event)
     }
-    DispatchQueue.main.async {
-        _ = WorkspaceSidebarPanel.activeInlineTextEditingPanel?.handleInlineTextEditingKey(key)
-    }
-    return nil
+    // Installed on the main run loop: decide before swallowing the event, not in
+    // a deferred task that may run after the user has switched applications.
+    let handled = MainActor.assumeIsolated { WorkspaceSidebarPanel.inputSession.handle(key) }
+    return handled ? nil : Unmanaged.passUnretained(event)
 }
 
 private func workspaceSidebarInlineTextKey(from event: CGEvent) -> WorkspaceSidebarInlineTextKey {
@@ -356,10 +364,16 @@ extension WorkspaceSidebarPanel {
         onKeyDown: (@MainActor (WorkspaceSidebarInlineTextKey) -> Void)? = nil
     ) {
         debugWorkspaceSidebarRenameLog("beginInlineTextEditing isKeyBefore=\(isKeyWindow) firstResponder=\(String(describing: firstResponder)) mouseInside=\(isMouseInsideVisibleRegion())")
+        WorkspaceSidebarPanel.inputSession.acquire(self)
+        if !inlineTextEditingActive {
+            let frontmost = NSWorkspace.shared.frontmostApplication
+            inlineTextEditingPreviousApplication = frontmost?.processIdentifier != ProcessInfo.processInfo.processIdentifier
+                ? frontmost : (focus.windowOrNil?.app as? MacApp)?.nsApp
+        }
         inlineTextEditingActive = true
+        inlineTextEditingGeneration += 1
         inlineTextEditingLocksExpansion = locksExpansion
         inlineTextEditingCancelsOnPointerExit = cancelsOnPointerExit
-        WorkspaceSidebarPanel.activeInlineTextEditingPanel = self
         inlineTextEditingCancel = onCancel
         inlineTextEditingKeyDown = onKeyDown
         inlineTextEditingStartedAt = .now
@@ -375,14 +389,15 @@ extension WorkspaceSidebarPanel {
         inlineTextEditingActive = false
         inlineTextEditingLocksExpansion = true
         inlineTextEditingCancelsOnPointerExit = true
-        if WorkspaceSidebarPanel.activeInlineTextEditingPanel === self {
-            WorkspaceSidebarPanel.activeInlineTextEditingPanel = nil
-        }
+        WorkspaceSidebarPanel.inputSession.release(self)
         inlineTextEditingCancel = nil
         inlineTextEditingKeyDown = nil
         inlineTextEditingPointerEnteredVisibleRegion = false
+        inlineTextEditingPreviousApplication = nil
         removeInlineTextEditingEventMonitors()
         removeInlineTextEditingKeyEventTap()
+        clearWorkspaceSidebarCommandInputState(self)
+        NotificationCenter.default.post(name: workspaceSidebarInputDidEndNotification, object: self)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.04) { [weak self] in
             self?.updateHoverStateFromMousePosition()
         }
@@ -403,7 +418,9 @@ extension WorkspaceSidebarPanel {
     func cancelInlineTextEditing() {
         guard inlineTextEditingActive else { return }
         debugWorkspaceSidebarRenameLog("cancelInlineTextEditing isKey=\(isKeyWindow) firstResponder=\(String(describing: firstResponder))")
-        inlineTextEditingCancel?()
+        let cancel = inlineTextEditingCancel
+        endInlineTextEditing()
+        cancel?()
     }
 
     func handleInlineTextEditingKey(_ key: WorkspaceSidebarInlineTextKey) -> Bool {
@@ -417,20 +434,14 @@ extension WorkspaceSidebarPanel {
     }
 
     func shouldCancelInlineTextEditingForOutsidePointer(isMouseDown: Bool) -> Bool {
-        guard inlineTextEditingCancelsOnPointerExit else { return false }
-        if isMouseInsideVisibleRegion() {
-            inlineTextEditingPointerEnteredVisibleRegion = true
-            return false
-        }
-        if inlineTextEditingPointerEnteredVisibleRegion {
-            debugWorkspaceSidebarRenameLog("outsidePointerCancel afterEntered isMouseDown=\(isMouseDown)")
-            return true
-        }
-        let shouldCancel = isMouseDown && Date().timeIntervalSince(inlineTextEditingStartedAt) > 0.25
-        if shouldCancel {
-            debugWorkspaceSidebarRenameLog("outsidePointerCancel clickGraceElapsed")
-        }
-        return shouldCancel
+        let inside = isMouseInsideVisibleRegion()
+        if inside { inlineTextEditingPointerEnteredVisibleRegion = true }
+        return shouldCancelWorkspaceSidebarInputForPointer(
+            isInside: inside,
+            isMouseDown: isMouseDown,
+            cancelsOnPointerExit: inlineTextEditingCancelsOnPointerExit,
+            pointerHasEntered: inlineTextEditingPointerEnteredVisibleRegion,
+        )
     }
 
     func installInlineTextEditingEventMonitors() {
@@ -471,6 +482,13 @@ extension WorkspaceSidebarPanel {
             }
         }
         inlineTextEditingEventMonitors = [localMouseDown, localMouseMove, globalMouseDown, globalMouseMove].compactMap { $0 }
+        inlineTextEditingActivationObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main
+        ) { [weak self] notification in
+            guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
+                  app.processIdentifier != ProcessInfo.processInfo.processIdentifier else { return }
+            MainActor.assumeIsolated { self?.cancelInlineTextEditing() }
+        }
     }
 
     func removeInlineTextEditingEventMonitors() {
@@ -478,6 +496,10 @@ extension WorkspaceSidebarPanel {
             NSEvent.removeMonitor(monitor)
         }
         inlineTextEditingEventMonitors = []
+        if let observer = inlineTextEditingActivationObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(observer)
+            inlineTextEditingActivationObserver = nil
+        }
     }
 
     func installInlineTextEditingKeyEventTap() {
@@ -641,7 +663,7 @@ extension WorkspaceSidebarPanel {
             guard self.isMouseInsideHoverRegion(),
                   self.isMouseDeepEnoughToExpand()
             else { return }
-            self.expandSidebar(to: expandedWidth)
+            self.expandSidebar(to: expandedWidth, reason: .hover)
         }
         pendingExpand = expand
         DispatchQueue.main.asyncAfter(deadline: .now() + hoverOpenDelay, execute: expand)
@@ -979,6 +1001,8 @@ extension WorkspaceSidebarPanel {
     }
 
     func resetHiddenSidebarState() {
+        cancelInlineTextEditing()
+        cancelExpansionWork()
         // Runs for every inactive panel on every refreshAll — guard the shared-model writes so
         // they don't invalidate every observer each session.
         workspaceSidebarDropTargets = []

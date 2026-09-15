@@ -12,7 +12,7 @@ func openWorkspaceSidebarFromCommand() {
     if panel.inlineTextEditingActive ||
         (panel.viewModel.isWorkspaceSidebarExpanded && !config.workspaceSidebar.alwaysExpanded)
     {
-        closeWorkspaceSidebarFromCommand(panel)
+        closeWorkspaceSidebarFromCommand(panel, restorePreviousApplication: true)
         return
     }
     panel.commandExpansionLocksCollapse = true
@@ -29,7 +29,7 @@ func openWorkspaceSidebarFromCommand() {
         onKeyDown: { key in
             switch key {
                 case .cancel:
-                    closeWorkspaceSidebarFromCommand(panel)
+                    closeWorkspaceSidebarFromCommand(panel, restorePreviousApplication: true)
                 case .ignored:
                     break
                 default:
@@ -48,7 +48,8 @@ func openWorkspaceSidebarFromCommand() {
 }
 
 @MainActor
-func closeWorkspaceSidebarFromCommand(_ panel: WorkspaceSidebarPanel) {
+func closeWorkspaceSidebarFromCommand(_ panel: WorkspaceSidebarPanel, restorePreviousApplication: Bool = false) {
+    let previousApp = panel.inlineTextEditingPreviousApplication
     panel.endInlineTextEditing()
     panel.pendingExpand?.cancel()
     panel.pendingExpand = nil
@@ -59,13 +60,21 @@ func closeWorkspaceSidebarFromCommand(_ panel: WorkspaceSidebarPanel) {
     if !config.workspaceSidebar.alwaysExpanded {
         NotificationCenter.default.post(name: workspaceSidebarWillCollapseNotification, object: panel)
     }
+    clearWorkspaceSidebarCommandInputState(panel)
+    panel.animateVisibleSidebarWidth(workspaceSidebarRestingWidth(config.workspaceSidebar), animation: .easeInOut(duration: panel.animationDuration))
+    panel.viewModel.isWorkspaceSidebarExpanded = config.workspaceSidebar.alwaysExpanded
+    panel.updateMousePassthrough()
+    if restorePreviousApplication, NSApp.isActive {
+        previousApp?.activate(options: .activateIgnoringOtherApps)
+    }
+}
+
+@MainActor
+func clearWorkspaceSidebarCommandInputState(_ panel: WorkspaceSidebarPanel) {
     panel.commandExpansionLocksCollapse = false
     panel.shouldLockNextSidebarSearchExpansion = false
     panel.bufferedCommandSidebarSearchKeys = []
     removeWorkspaceSidebarCommandMouseUnlockMonitor(panel)
-    panel.animateVisibleSidebarWidth(workspaceSidebarRestingWidth(config.workspaceSidebar), animation: .easeInOut(duration: panel.animationDuration))
-    panel.viewModel.isWorkspaceSidebarExpanded = config.workspaceSidebar.alwaysExpanded
-    panel.updateMousePassthrough()
 }
 
 @MainActor

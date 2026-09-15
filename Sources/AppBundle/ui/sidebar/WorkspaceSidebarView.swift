@@ -58,7 +58,6 @@ struct WorkspaceSidebarView: View {
             }
             if visibleWidth >= expandedWidth - 0.5 {
                 isSidebarExpanding = false
-                beginSidebarSearchIfNeeded()
             }
         }
         .onChange(of: snapshot.activeProjectId) { projectId in
@@ -115,10 +114,14 @@ struct WorkspaceSidebarView: View {
             guard notificationPanel(from: notification)?.monitorScopeId == snapshot.targetMonitorScopeId else { return }
             isSidebarCollapsing = false
             isSidebarExpanding = true
-            let panel = notificationPanel(from: notification)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) {
+            if notification.userInfo?[workspaceSidebarExpansionStartsSearchKey] as? Bool == true,
+               let panel = notificationPanel(from: notification) {
                 beginSidebarSearchIfNeeded(panel: panel)
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: workspaceSidebarInputDidEndNotification)) { notification in
+            guard let panel = notificationPanel(from: notification), searchEditingPanel === panel else { return }
+            finishSidebarSearch(clearText: true)
         }
         .onReceive(NotificationCenter.default.publisher(for: workspaceSidebarCommandSearchKeyNotification)) { notification in
             guard let panel = notificationPanel(from: notification),
@@ -257,8 +260,7 @@ struct WorkspaceSidebarView: View {
                 activateSelectedSearchTarget()
             case .cancel:
                 let panel = searchEditingPanel ?? WorkspaceSidebarPanel.shared
-                finishSidebarSearch(clearText: true)
-                closeWorkspaceSidebarFromCommand(panel)
+                closeWorkspaceSidebarFromCommand(panel, restorePreviousApplication: true)
             case .moveUp:
                 moveSearchSelection(delta: -1)
             case .moveDown:

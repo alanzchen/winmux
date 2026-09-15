@@ -51,7 +51,10 @@ extension WorkspaceSidebarView {
                 )
             }
 
-            if !isCompact, !searchText.isEmpty {
+            if !isCompact, !isSearchEditing, searchText.isEmpty {
+                sidebarSearchButton(leadingInset: leadingInset, trailingInset: trailingInset)
+            }
+            if !isCompact, isSearchEditing || !searchText.isEmpty {
                 sidebarSearchSection(
                     expansionProgress: expansionProgress,
                     leadingInset: leadingInset,

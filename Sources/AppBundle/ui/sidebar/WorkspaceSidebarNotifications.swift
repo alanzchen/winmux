@@ -10,3 +10,6 @@ let workspaceSidebarDragPointerEndedNotification = Notification.Name("WorkspaceS
 let workspaceSidebarDragPointerUserInfoKey = "pointer"
 let workspaceSidebarCommandSearchPanelUserInfoKey = "panel"
 let workspaceSidebarCommandSearchKeyUserInfoKey = "key"
+
+let workspaceSidebarExpansionStartsSearchKey = "startsSearch"
+let workspaceSidebarInputDidEndNotification = Notification.Name("WorkspaceSidebarInputDidEndNotification")

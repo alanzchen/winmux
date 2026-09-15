@@ -142,6 +142,8 @@ struct WorkspaceSidebarProjectRenameField: View {
     let onCommit: @MainActor @Sendable () -> Void
     let onCancel: @MainActor @Sendable () -> Void
     @State private var shouldReplaceSelection = true
+    @State private var editingPanel: WorkspaceSidebarPanel?
+    @State private var editingGeneration: Int?
 
     var body: some View {
         WorkspaceSidebarProjectRenameTextField(
@@ -168,14 +170,15 @@ struct WorkspaceSidebarProjectRenameField: View {
             }
             .onDisappear {
                 debugWorkspaceSidebarRenameLog("renameField onDisappear project=\(project.id.rawValue) text=\(text)")
-                WorkspaceSidebarPanel.activeInlineTextEditingPanel?.endInlineTextEditing()
+                if let editingPanel, editingPanel.inlineTextEditingGeneration == editingGeneration {
+                    editingPanel.endInlineTextEditing()
+                }
             }
     }
 
     @MainActor
     private func startInlineTextEditing(on panel: WorkspaceSidebarPanel) {
         guard WorkspaceSidebarPanel.activeInlineTextEditingPanel !== panel else { return }
-        WorkspaceSidebarPanel.activeInlineTextEditingPanel?.endInlineTextEditing()
         panel.beginInlineTextEditing(
             locksExpansion: true,
             cancelsOnPointerExit: true,
@@ -184,6 +187,8 @@ struct WorkspaceSidebarProjectRenameField: View {
                 handleInlineTextKey(key)
             }
         )
+        editingPanel = panel
+        editingGeneration = panel.inlineTextEditingGeneration
     }
 
     @MainActor
@@ -237,6 +242,8 @@ struct WorkspaceSidebarWorkspaceRenameField: View {
     let onCommit: @MainActor @Sendable () -> Void
     let onCancel: @MainActor @Sendable () -> Void
     @State private var shouldReplaceSelection = true
+    @State private var editingPanel: WorkspaceSidebarPanel?
+    @State private var editingGeneration: Int?
 
     var body: some View {
         WorkspaceSidebarProjectRenameTextField(
@@ -264,7 +271,9 @@ struct WorkspaceSidebarWorkspaceRenameField: View {
         }
         .onDisappear {
             debugWorkspaceSidebarRenameLog("workspaceRenameField onDisappear workspace=\(workspaceName) text=\(text)")
-            WorkspaceSidebarPanel.activeInlineTextEditingPanel?.endInlineTextEditing()
+            if let editingPanel, editingPanel.inlineTextEditingGeneration == editingGeneration {
+                editingPanel.endInlineTextEditing()
+            }
         }
     }
 
@@ -272,7 +281,6 @@ struct WorkspaceSidebarWorkspaceRenameField: View {
     private func startInlineTextEditing(on panel: WorkspaceSidebarPanel) {
         debugWorkspaceSidebarRenameLog("workspaceRenameField startInline workspace=\(workspaceName) panelScope=\(panel.monitorScopeId) panelVisibleWidth=\(panel.viewModel.workspaceSidebarVisibleWidth) activePanelSame=\(WorkspaceSidebarPanel.activeInlineTextEditingPanel === panel)")
         guard WorkspaceSidebarPanel.activeInlineTextEditingPanel !== panel else { return }
-        WorkspaceSidebarPanel.activeInlineTextEditingPanel?.endInlineTextEditing()
         panel.beginInlineTextEditing(
             locksExpansion: true,
             cancelsOnPointerExit: true,
@@ -281,6 +289,8 @@ struct WorkspaceSidebarWorkspaceRenameField: View {
                 handleInlineTextKey(key)
             }
         )
+        editingPanel = panel
+        editingGeneration = panel.inlineTextEditingGeneration
     }
 
     @MainActor
