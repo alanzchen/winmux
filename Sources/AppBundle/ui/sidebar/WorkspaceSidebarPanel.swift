@@ -948,6 +948,7 @@ extension WorkspaceSidebarPanel {
     }
 
     func refresh(on monitor: Monitor) {
+        applyWorkspaceSidebarLayer(stayOnTop: config.workspaceSidebar.stayOnTop)
         guard let layout = currentSidebarPanelLayout(on: monitor) else {
             cancelExpansionWork()
             resetHiddenSidebarState()

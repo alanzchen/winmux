@@ -1,6 +1,17 @@
 # Issue fixes validation
 
-Scope: #18, #19, #23, and #21, based on upstream v0.5.4 (`e0ad328e`). #20 is deferred. CLI commands and TOML keys are unchanged.
+Scope: #18, #19, #23, and #21, based on upstream v0.5.4 (`e0ad328e`), combined with all four commits from the fork's `feature/configurable-sidebar-layer` branch through `a1719026`. #20 is deferred.
+
+## Preserved fork features
+
+- `7fdfcf08`: configurable sidebar window level (`workspace-sidebar.stay-on-top`).
+- `e96e6fa0`: **Keep sidebar above Dock** settings toggle.
+- `1a298626`: settings retain scroll position across reloads.
+- `a1719026`: expanded CLI/project automation, explicit agent stdin, stable world IDs, socket protocol negotiation, and matched app/CLI packaging.
+
+The sidebar level applies both when a panel is created and when it refreshes. It coexists with the issue fixes for passive expansion, keyboard ownership, monitor selection, and Override prompts. Upstream's window-pair settings also remain available.
+
+The original issue-fixes-only DMG omitted this feature branch and is superseded by the combined fork build. Use the app and CLI from the same new DMG: the fork's socket protocol v1 rejects incompatible older clients before executing commands. See the [CLI guide](cli.md).
 
 ## Reproducible checks
 
@@ -9,17 +20,20 @@ Use Swift **6.2.4**, as pinned in `.swift-version`:
 ```sh
 swift test --filter 'AxTransientWindowTest|TransientNativeFocusTest'
 swift test --filter 'NewFloatingWindowPresentationTest|PopupWindowPresentationTest|WorkspaceSidebarInputSessionTest|WorkspaceSidebarMultiMonitorTest|WorkspaceSidebarRenderingTest'
+swift test --filter 'WorkspaceSidebar|ConfigTest|Agent|Cli|ProjectLifecycle|SocketProtocol|NewFloatingWindowPresentation|PopupWindowPresentation|AxTransient|TransientNative'
 swift test
 swift build
+python3 -B script/test_validate_appcast.py
 ```
 
 Validation ran on macOS 26.6.2 (25G83), Apple Silicon.
 
 Final results on September 15, 2026:
 
-- **45 focused regression tests passed.**
-- **604 tests passed** in the complete `AppBundleTests` suite, with zero failures.
+- **248 focused fork/issue regression tests passed.**
+- **649 tests passed** in the complete `AppBundleTests` suite, with zero failures.
 - **`swift build` passed** for the debug application and CLI.
+- **5 appcast validation tests passed**, and shell syntax checks passed for the merged release recipes. Both the fork's app/CLI pairing guards and upstream's isolated appcast staging/version checks are retained.
 - **`git diff --check` passed.**
 
 Validation used a repository-local Swiftly installation under `.build/issue-fixes-tools`; the system toolchain and shell profile were unchanged. The application build is the SwiftPM debug app and CLI, not a signed release archive.
@@ -36,6 +50,8 @@ Validation used a repository-local Swiftly installation under `.build/issue-fixe
 The sidebar rendering checks use native `NSHostingView`/`ImageRenderer` without opening windows. Compact display controls fit 28- and 44-point rails. Override/Cancel controls fit a 96-point card inside the minimum 120-point sidebar, and a 216-point card inside the default 240-point sidebar.
 
 ## Zen native reproduction
+
+The native checks below were performed on the issue-fix build before integrating the fork branch. The classification and native presentation implementations are unchanged by that merge; the combined code was rechecked with the full automated suite. Native settings scroll retention was not reverified interactively.
 
 Zen **1.21.16b** ran with an isolated profile and local test page. The actual Save As sheet and service accessibility identities are preserved in the [anonymized fixture](../test-fixtures/accessibility/zen-1.21.16b-save-panel.json); [capture details and integration results](../test-fixtures/accessibility/README.md) explain the failure mechanism.
 
