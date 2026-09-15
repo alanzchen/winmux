@@ -8,6 +8,7 @@ extension WorkspaceSidebarView {
         let leadingInset = workspaceSidebarOuterLeadingPadding(isCompact: isCompact)
         let trailingInset = workspaceSidebarOuterTrailingPadding(isCompact: isCompact)
         let showsMonitorSelector = !isCompact && shouldShowTopFilterBar
+        let showsCompactMonitorSelector = isCompact && shouldShowCompactMonitorSelector
         let projectSwipeDirection = workspaceSidebarProjectSwipeDirection(
             horizontalTranslation: projectSwipeTranslation,
             verticalTranslation: 0,
@@ -43,7 +44,13 @@ extension WorkspaceSidebarView {
         )
 
         return VStack(alignment: .leading, spacing: 0) {
-            if showsMonitorSelector {
+            if showsCompactMonitorSelector {
+                compactMonitorSelectorSection(
+                    expansionProgress: expansionProgress,
+                    leadingInset: leadingInset,
+                    trailingInset: trailingInset,
+                )
+            } else if showsMonitorSelector {
                 monitorSelectorSection(
                     expansionProgress: expansionProgress,
                     leadingInset: leadingInset,
@@ -66,7 +73,7 @@ extension WorkspaceSidebarView {
                 expansionProgress: expansionProgress,
                 leadingInset: leadingInset,
                 trailingInset: trailingInset,
-                topPadding: showsMonitorSelector ? 0 : snapshot.configuration.topPadding,
+                topPadding: showsMonitorSelector || showsCompactMonitorSelector ? 0 : snapshot.configuration.topPadding,
                 visibleWorkspacesByProject: filteredWorkspacesByProject,
                 swipeDirection: projectSwipeDirection,
             )
@@ -138,7 +145,7 @@ extension WorkspaceSidebarView {
     var shouldShowTopFilterBar: Bool {
         let hasFocusFilter = snapshot.monitorScopes.contains { $0.id == workspaceSidebarFocusedScopeId }
         let hasOtherProjects = snapshot.projects.contains { $0.id != snapshot.activeProjectId }
-        return hasFocusFilter || hasOtherProjects
+        return hasFocusFilter || hasOtherProjects || shouldShowCompactMonitorSelector
     }
 
     func workspaceSidebarSplitSectionWidth(expansionProgress: CGFloat) -> CGFloat {

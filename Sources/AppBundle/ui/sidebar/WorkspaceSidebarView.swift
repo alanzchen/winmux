@@ -103,6 +103,7 @@ struct WorkspaceSidebarView: View {
                 isSidebarCollapsing = false
                 return
             }
+            activeInUseOverrideWorkspaceName = nil
             finishSidebarSearch(clearText: true)
             withAnimation(.easeOut(duration: 0.08)) {
                 isProjectMenuOpen = false
@@ -122,6 +123,15 @@ struct WorkspaceSidebarView: View {
         .onReceive(NotificationCenter.default.publisher(for: workspaceSidebarInputDidEndNotification)) { notification in
             guard let panel = notificationPanel(from: notification), searchEditingPanel === panel else { return }
             finishSidebarSearch(clearText: true)
+        }
+        .onChange(of: snapshot.selectedMonitorScopeId) { _ in
+            activeInUseOverrideWorkspaceName = nil
+        }
+        .onChange(of: snapshot.workspaces) { workspaces in
+            if let name = activeInUseOverrideWorkspaceName,
+               !workspaces.contains(where: { $0.name == name }) {
+                activeInUseOverrideWorkspaceName = nil
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: workspaceSidebarCommandSearchKeyNotification)) { notification in
             guard let panel = notificationPanel(from: notification),

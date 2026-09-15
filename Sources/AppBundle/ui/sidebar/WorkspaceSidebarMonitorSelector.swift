@@ -63,7 +63,16 @@ struct WorkspaceSidebarMonitorSelector: View {
     var body: some View {
         HStack(spacing: 3) {
             ForEach(Array(quickScopes.enumerated()), id: \.element.id) { index, scope in
-                monitorScopePill(scope)
+                if hasMultipleMonitors && scope.id == workspaceSidebarDefaultScopeId {
+                    WorkspaceSidebarCompactMonitorSelector(
+                        scopes: scopes,
+                        selectedScopeId: selectedScopeId,
+                        sectionWidth: workspaceSidebarDropdownHeight,
+                        onSelectScope: onSelectScope,
+                    )
+                } else {
+                    monitorScopePill(scope)
+                }
                 if index == quickScopes.count - 1, !browsableProjects.isEmpty {
                     projectSelector
                 }

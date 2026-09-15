@@ -41,14 +41,19 @@ struct WorkspaceSidebarWorkspaceSection: View {
     var isCompact: Bool { expansionProgress < workspaceSidebarRowsRevealProgress }
     var showsWindowRows: Bool { expansionProgress >= workspaceSidebarRowsRevealProgress }
     var sectionMinHeight: CGFloat? {
-        if !isCompact, allowsWorkspaceActivation, isInUseOnOtherDisplay, workspace.items.isEmpty {
-            return workspaceSidebarInUseOverrideEmptySectionMinHeight
+        if !isCompact, allowsWorkspaceActivation, isInUseOnOtherDisplay,
+           workspace.items.isEmpty || isShowingInUseOverlay
+        {
+            return workspaceSidebarInUseOverrideMinHeight(sectionWidth: sectionWidth)
         }
         return nil
     }
     var isDropTarget: Bool { dragPreview?.targetWorkspaceName == workspace.name }
     var activeSidebarDragSourceWindowId: UInt32? { dragPreview?.sourceWindowId }
     var isShowingInUseOverlay: Bool { activeInUseOverrideWorkspaceName == workspace.name }
+    var showsInUseOverride: Bool {
+        expansionProgress >= 1 && allowsWorkspaceActivation && isInUseOnOtherDisplay && isShowingInUseOverlay
+    }
     var isSearchSelectedWorkspace: Bool { selectedSearchTarget == .workspace(workspace.name) }
     var isRenamingWorkspace: Bool { renamingWorkspaceName == workspace.name }
     var inUseOverrideText: String {
@@ -113,10 +118,18 @@ struct WorkspaceSidebarWorkspaceSection: View {
                 }
             }
             .overlay(alignment: .center) {
-                inUseOverrideOverlay
-                    .opacity(allowsWorkspaceActivation && isShowingInUseOverlay ? 1 : 0)
-                    .allowsHitTesting(allowsWorkspaceActivation && isShowingInUseOverlay)
-                    .zIndex(5)
+                if showsInUseOverride {
+                    inUseOverrideOverlay
+                        .zIndex(5)
+                }
+            }
+            .onChange(of: isInUseOnOtherDisplay) { isInUse in
+                if !isInUse, isShowingInUseOverlay {
+                    activeInUseOverrideWorkspaceName = nil
+                }
+            }
+            .onChange(of: workspace.monitorScopeId) { _ in
+                cancelWorkspaceOverride()
             }
             .shadow(
                 color: isDropTarget ? Color.white.opacity(0.16) : .clear,
@@ -137,16 +150,31 @@ struct WorkspaceSidebarWorkspaceSection: View {
 }
 extension WorkspaceSidebarWorkspaceSection {
     func handleSectionClick() {
-        guard allowsWorkspaceActivation else { return }
+        guard allowsWorkspaceActivation,
+              shouldHandleWorkspaceSidebarActivation(
+                isEditing: isRenamingWorkspace,
+                isSidebarDragInProgress: isWorkspaceSidebarDragInProgress(),
+              )
+        else { return }
         if isInUseOnOtherDisplay {
             activeInUseOverrideWorkspaceName = workspace.name
+            if expansionProgress < 1 {
+                actions.send(.expandForWorkspaceOverride)
+            }
             return
         }
-        if shouldHandleWorkspaceSidebarActivation(
-            isEditing: false,
-            isSidebarDragInProgress: isWorkspaceSidebarDragInProgress()
-        ) {
-            actions.send(.selectWorkspace(workspace.name))
+        actions.send(.selectWorkspace(workspace.name))
+    }
+
+    func commitWorkspaceOverride() {
+        guard showsInUseOverride else { return }
+        activeInUseOverrideWorkspaceName = nil
+        actions.send(.overrideWorkspaceInUse(workspace.name))
+    }
+
+    func cancelWorkspaceOverride() {
+        if isShowingInUseOverlay {
+            activeInUseOverrideWorkspaceName = nil
         }
     }
 
@@ -281,10 +309,11 @@ extension WorkspaceSidebarWorkspaceSection {
     }
 
     var inUseOverrideOverlay: some View {
-        WorkspaceSidebarInUseOverrideOverlay(text: inUseOverrideText) {
-            activeInUseOverrideWorkspaceName = nil
-            actions.send(.overrideWorkspaceInUse(workspace.name))
-        }
+        WorkspaceSidebarInUseOverrideOverlay(
+            text: inUseOverrideText,
+            onOverride: commitWorkspaceOverride,
+            onCancel: cancelWorkspaceOverride,
+        )
     }
 }
 extension WorkspaceSidebarWorkspaceSection {

@@ -605,6 +605,7 @@ extension WorkspaceSidebarPanel {
 }
 extension WorkspaceSidebarPanel {
     func setHovering(_ isHovering: Bool) {
+        guard menuTrackingDepth == 0 else { return }
         let expandedWidth = CGFloat(config.workspaceSidebar.width)
         let collapsedWidth = workspaceSidebarRestingWidth(config.workspaceSidebar)
         if viewModel.workspaceSidebarVisibleWidth > collapsedWidth + 0.5 || pendingCollapse != nil {
@@ -800,7 +801,7 @@ extension WorkspaceSidebarPanel {
         let center = NotificationCenter.default
         menuTrackingObservers = [
             center.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: .main) { [weak self] _ in
-                Task { @MainActor in self?.beginMenuTrackingIfNeeded() }
+                MainActor.assumeIsolated { self?.beginMenuTrackingIfNeeded() }
             },
             center.addObserver(forName: NSMenu.didEndTrackingNotification, object: nil, queue: .main) { [weak self] _ in
                 Task { @MainActor in self?.endMenuTrackingIfNeeded() }
@@ -815,11 +816,8 @@ extension WorkspaceSidebarPanel {
         else { return }
         menuTrackingDepth += 1
         menuTrackingGraceUntil = .distantFuture
-        pendingCollapse?.cancel()
-        pendingCollapse = nil
-        pendingCollapseFinalize?.cancel()
-        pendingCollapseFinalize = nil
-        expandSidebar(to: CGFloat(config.workspaceSidebar.width))
+        // Keep the compact Menu mounted while AppKit tracks its popup.
+        cancelExpansionWork()
     }
 
     func endMenuTrackingIfNeeded() {
