@@ -10,6 +10,10 @@ extension [UInt32: AxWindow] {
     ) throws -> AxWindow? {
         if let existing = self[id] { return existing }
         if isLeftMouseButtonDown { return nil }
+        if nsApp.bundleIdentifier == KnownBundleId.openAndSavePanelService.rawValue || axWindow.isAttachedTransientHeuristic() {
+            debugTransientAxReference(axWindow, appBundleId: nsApp.bundleIdentifier, source: "window-enumeration")
+            return nil
+        }
 
         if let window = try AxWindow.new(windowId: id, axWindow, nsApp, job) {
             self[id] = window

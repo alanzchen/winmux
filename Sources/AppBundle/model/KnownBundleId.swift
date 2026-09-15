@@ -21,6 +21,7 @@ enum KnownBundleId: String, Equatable {
     case wezterm = "com.github.wez.wezterm"
     case xcode = "com.apple.dt.Xcode"
     case zenBrowser = "app.zen-browser.zen"
+    case openAndSavePanelService = "com.apple.appkit.xpc.openAndSavePanelService"
     case zoom = "us.zoom.xos"
 
     case mozillaFirefox = "org.mozilla.firefox"

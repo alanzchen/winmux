@@ -20,5 +20,17 @@ private var focusedApp: (any AbstractApp)? {
 
 @MainActor
 func getNativeFocusedWindow() async throws -> Window? {
-    try await focusedApp?.getFocusedWindow()
+    try await getNativeFocusObservation().window
+}
+
+struct NativeFocusObservation {
+    let window: Window?
+    let isTransient: Bool
+}
+
+@MainActor
+func getNativeFocusObservation() async throws -> NativeFocusObservation {
+    let app = try await focusedApp
+    let window = try await app?.getFocusedWindow()
+    return NativeFocusObservation(window: window, isTransient: app?.hasActiveTransientNativeFocus == true)
 }

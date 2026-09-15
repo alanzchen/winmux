@@ -28,6 +28,7 @@ final class TestApp: AbstractApp {
     }
 
     private var _focusedWindow: Window? = nil
+    @MainActor var hasActiveTransientNativeFocus = false
     var focusedWindow: Window? {
         get { _focusedWindow }
         set {

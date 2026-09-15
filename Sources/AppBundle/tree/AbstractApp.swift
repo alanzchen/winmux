@@ -5,12 +5,15 @@ protocol AbstractApp: AnyObject, Hashable, WinMuxAny {
     var rawAppBundleId: String? { get }
 
     @MainActor func getFocusedWindow() async throws -> Window?
+    @MainActor var hasActiveTransientNativeFocus: Bool { get }
     var name: String? { get }
     var execPath: String? { get }
     var bundlePath: String? { get }
 }
 
 extension AbstractApp {
+    @MainActor var hasActiveTransientNativeFocus: Bool { false }
+
     static func == (lhs: Self, rhs: Self) -> Bool {
         if lhs.pid == rhs.pid {
             check(lhs === rhs)

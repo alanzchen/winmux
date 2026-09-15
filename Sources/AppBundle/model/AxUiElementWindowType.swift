@@ -15,7 +15,7 @@ enum AxUiElementWindowType: String {
     }
 }
 
-// Covered by tests in ./axDumps in the repo root
+// AppBundleTests covers synthetic AX trees and the native Zen capture in test-fixtures/accessibility.
 extension AxUiElementMock {
     // 'isDialogHeuristic' function name is referenced in the guide
     func isDialogHeuristic(
@@ -104,6 +104,7 @@ extension AxUiElementMock {
         _ activationPolicy: NSApplication.ActivationPolicy,
         _ windowLevel: MacOsWindowLevel?,
     ) -> Bool {
+        if id == .openAndSavePanelService || isAttachedTransientHeuristic() { return false }
         if windowLevel != .normalWindow &&
             // Slowly roll out windowLevel for applications for which we have the appropriate dumps
             (id == .slack || id == .chrome || id?.isFirefox == true || id == .braveBrowser || id == .screenstudio || id == .cleanshotx || id == .iterm2)

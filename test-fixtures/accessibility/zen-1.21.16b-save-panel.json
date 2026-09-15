@@ -1,0 +1,163 @@
+{
+  "provenance": {
+    "kind": "actual native accessibility capture",
+    "capturedOn": "2026-09-15",
+    "zenVersion": "1.21.16b",
+    "zenBuild": "126.8.28",
+    "macOS": "26.6.2",
+    "macOSBuild": "25G83",
+    "source": "Official zen-browser/desktop release, isolated task profile and local HTML page",
+    "normalization": "Window IDs and process IDs replaced with stable integers. Titles, page content, user paths, and unrelated processes omitted.",
+    "limitation": "Captured with Zen standalone before the read-only WinMux integration check. The Format menu is visible in native AX UI; these snapshots record the application focused-window references, which remain the save sheet."
+  },
+  "browserBeforeSave": {
+    "AXRole": "AXWindow",
+    "AXSubrole": "AXStandardWindow",
+    "AXFocused": false,
+    "AXMain": true,
+    "AXModal": false,
+    "windowButtons": [
+      "AXCloseButton",
+      "AXFullScreenButton",
+      "AXMinimizeButton",
+      "AXZoomButton"
+    ],
+    "windowId": 1,
+    "elementPid": 1,
+    "parent": {
+      "AXRole": "AXApplication",
+      "windowButtons": [],
+      "windowId": null,
+      "elementPid": 1
+    }
+  },
+  "browserWithSavePanel": {
+    "AXRole": "AXWindow",
+    "AXSubrole": "AXStandardWindow",
+    "AXFocused": false,
+    "AXMain": true,
+    "AXModal": false,
+    "windowButtons": [
+      "AXCloseButton",
+      "AXMinimizeButton",
+      "AXZoomButton"
+    ],
+    "windowId": 1,
+    "elementPid": 1,
+    "parent": {
+      "AXRole": "AXApplication",
+      "windowButtons": [],
+      "windowId": null,
+      "elementPid": 1
+    }
+  },
+  "saveSheet": {
+    "AXRole": "AXSheet",
+    "AXIdentifier": "save-panel",
+    "AXFocused": false,
+    "windowButtons": [],
+    "windowId": 2,
+    "elementPid": 1,
+    "parent": {
+      "AXRole": "AXWindow",
+      "AXSubrole": "AXStandardWindow",
+      "AXFocused": false,
+      "AXMain": true,
+      "AXModal": false,
+      "windowButtons": [
+        "AXCloseButton",
+        "AXMinimizeButton",
+        "AXZoomButton"
+      ],
+      "windowId": 1,
+      "elementPid": 1,
+      "parent": {
+        "AXRole": "AXApplication",
+        "windowButtons": [],
+        "windowId": null,
+        "elementPid": 1
+      }
+    },
+    "AXWindow": {
+      "AXRole": "AXWindow",
+      "AXSubrole": "AXStandardWindow",
+      "AXFocused": false,
+      "AXMain": true,
+      "AXModal": false,
+      "windowButtons": [
+        "AXCloseButton",
+        "AXMinimizeButton",
+        "AXZoomButton"
+      ],
+      "windowId": 1,
+      "elementPid": 1
+    }
+  },
+  "formatSheet": {
+    "AXRole": "AXSheet",
+    "AXIdentifier": "save-panel",
+    "AXFocused": false,
+    "windowButtons": [],
+    "windowId": 2,
+    "elementPid": 1,
+    "parent": {
+      "AXRole": "AXWindow",
+      "AXSubrole": "AXStandardWindow",
+      "AXFocused": false,
+      "AXMain": true,
+      "AXModal": false,
+      "windowButtons": [
+        "AXCloseButton",
+        "AXMinimizeButton",
+        "AXZoomButton"
+      ],
+      "windowId": 1,
+      "elementPid": 1,
+      "parent": {
+        "AXRole": "AXApplication",
+        "windowButtons": [],
+        "windowId": null,
+        "elementPid": 1
+      }
+    },
+    "AXWindow": {
+      "AXRole": "AXWindow",
+      "AXSubrole": "AXStandardWindow",
+      "AXFocused": false,
+      "AXMain": true,
+      "AXModal": false,
+      "windowButtons": [
+        "AXCloseButton",
+        "AXMinimizeButton",
+        "AXZoomButton"
+      ],
+      "windowId": 1,
+      "elementPid": 1
+    }
+  },
+  "savePanelServiceWindow": {
+    "AXRole": "AXWindow",
+    "AXSubrole": "AXSystemDialog",
+    "AXIdentifier": "SavePanel",
+    "AXFocused": false,
+    "AXMain": true,
+    "AXModal": false,
+    "windowButtons": [],
+    "windowId": 3,
+    "elementPid": 1,
+    "parent": {
+      "AXRole": "AXApplication",
+      "windowButtons": [],
+      "windowId": null,
+      "elementPid": 2
+    }
+  },
+  "saveSheetIsCanonicalAppWindow": false,
+  "formatSheetIsCanonicalAppWindow": false,
+  "nativeLevels": {
+    "browser": 0,
+    "saveSheet": 0,
+    "savePanelServiceWindow": 0,
+    "formatMenuAppearingWindow": 101
+  }
+}

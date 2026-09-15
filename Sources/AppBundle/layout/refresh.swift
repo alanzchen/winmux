@@ -39,7 +39,9 @@ private func shouldDropScheduledRefresh(_ newEvent: RefreshSessionEvent, activeE
 func shouldSyncFocusBackToMacOs(
     nativeFocused: Window?,
     frontmostActivationPolicy: NSApplication.ActivationPolicy?,
+    nativeFocusIsTransient: Bool = false,
 ) -> Bool {
+    if nativeFocusIsTransient { return false }
     if nativeFocused?.participatesInWorkspaceFocus == false {
         return false
     }
@@ -127,11 +129,12 @@ func runRefreshSessionBlocking(
         try await $_isStartup.withValue(event.isStartup) {
             try await $_refreshSessionFocusSnapshot.withValue(focusSnapshot) {
                 let frontmostActivationPolicy = NSWorkspace.shared.frontmostApplication?.activationPolicy
-                let nativeFocused = try await getNativeFocusedWindow()
+                let nativeObservation = try await getNativeFocusObservation()
+                let nativeFocused = nativeObservation.window
                 try checkCancellation()
                 if let nativeFocused { try await debugWindowsIfRecording(nativeFocused) }
                 await updateNativeFullscreenChromeSuppression(nativeFocused: nativeFocused)
-                updateFocusCache(nativeFocused)
+                if !nativeObservation.isTransient { updateFocusCache(nativeFocused) }
                 try checkCancellation()
 
                 if shouldLayoutWorkspaces && optimisticallyPreLayoutWorkspaces { try await layoutWorkspaces() }
@@ -166,6 +169,7 @@ func runRefreshSessionBlocking(
                     if shouldSyncFocusBackToMacOs(
                         nativeFocused: nativeFocused,
                         frontmostActivationPolicy: frontmostActivationPolicy,
+                        nativeFocusIsTransient: nativeObservation.isTransient,
                     ) {
                         let logicalFocused = focus.windowOrNil
                         if logicalFocused?.windowId != nativeFocused?.windowId {
@@ -207,11 +211,12 @@ func runLightSession<T>(
     return try await $refreshSessionEvent.withValue(event) {
         try await $_isStartup.withValue(event.isStartup) {
             try await $_refreshSessionFocusSnapshot.withValue(focusSnapshot) {
-                let nativeFocused = try await getNativeFocusedWindow()
+                let nativeObservation = try await getNativeFocusObservation()
+                let nativeFocused = nativeObservation.window
                 try checkCancellation()
                 if let nativeFocused { try await debugWindowsIfRecording(nativeFocused) }
                 await updateNativeFullscreenChromeSuppression(nativeFocused: nativeFocused)
-                updateFocusCache(nativeFocused)
+                if !nativeObservation.isTransient { updateFocusCache(nativeFocused) }
                 try checkCancellation()
                 let focusBefore = focus.windowOrNil
 
@@ -228,7 +233,7 @@ func runLightSession<T>(
                 try await layoutWorkspaces()
                 try checkCancellation()
                 await updateWindowTabModel()
-                if focusBefore != focusAfter {
+                if !nativeObservation.isTransient && focusBefore != focusAfter {
                     focusAfter?.nativeFocus() // syncFocusToMacOs
                 }
                 if shouldSchedulePostRefresh {

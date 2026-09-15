@@ -244,11 +244,15 @@ final class MacWindow: Window {
     }
 
     override func getAxRect() async throws -> Rect? {
-        let observationToken = await nativeStateObservationToken()
-        let rect = try await macApp.getAxRect(windowId)
         let windowId = self.windowId
-        await MainActor.run {
-            Window.get(byId: windowId)?.recordObservedActualRect(rect, token: observationToken)
+        let observationToken = await MainActor.run {
+            Window.get(byId: windowId)?.nativeStateObservationToken()
+        }
+        let rect = try await macApp.getAxRect(windowId)
+        if let observationToken {
+            await MainActor.run {
+                Window.get(byId: windowId)?.recordObservedActualRect(rect, token: observationToken)
+            }
         }
         return rect
     }

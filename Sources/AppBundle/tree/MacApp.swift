@@ -1,6 +1,12 @@
 import AppKit
 import Common
 
+enum NativeFocusedWindowObservation {
+    case window(UInt32)
+    case transient
+    case unavailable
+}
+
 // Potential alternative implementation
 // https://github.com/swiftlang/swift-evolution/blob/main/proposals/0392-custom-actor-executors.md
 // (only available since macOS 14)
@@ -19,6 +25,9 @@ final class MacApp: AbstractApp {
     private let windows: ThreadGuardedValue<[UInt32: AxWindow]> = .init([:])
     private var windowsCount = 0
     var lastNativeFocusedWindowId: UInt32? = nil
+    // Also holds synchronization while a noncanonical focused reference awaits
+    // enumeration; restoring logical focus then could dismiss its native panel.
+    @MainActor private(set) var hasActiveTransientNativeFocus = false
     private var thread: Thread?
     private var setFrameJobs: [UInt32: RunLoopJob] = [:]
     @MainActor private static var focusJob: RunLoopJob? = nil
@@ -139,12 +148,15 @@ final class MacApp: AbstractApp {
 
     private enum FocusedWindowQuery {
         case window(UInt32)
+        case transient
+        case unresolvedWindow
         case noFocusedWindow
         case timedOut
     }
 
-    private func queryFocusedWindowId() async throws -> FocusedWindowQuery {
-        try await thread?.runInLoop { [nsApp, axAppFastTimeout, windows] job -> FocusedWindowQuery in
+    private func queryFocusedWindowId(registerIfNeeded: Bool = true) async throws -> FocusedWindowQuery {
+        try await thread?.runInLoop { [nsApp, axAppFastTimeout, windows, appId] job -> FocusedWindowQuery in
+            if appId == .openAndSavePanelService { return .transient }
             var raw: AnyObject?
             let error = AXUIElementCopyAttributeValue(axAppFastTimeout.threadGuarded, kAXFocusedWindowAttribute as CFString, &raw)
             switch error {
@@ -154,10 +166,38 @@ final class MacApp: AbstractApp {
                     // Fresh elements use the 6s global default; bound follow-up traffic like
                     // every other window element.
                     AXUIElementSetMessagingTimeout(element, 1.0)
-                    guard let windowId = element.containingWindowId(),
-                          let registered = try windows.threadGuarded.getOrRegisterAxWindow(windowId: windowId, element, nsApp, job)
-                    else { return .noFocusedWindow }
-                    return .window(registered.windowId)
+                    if let windowId = element.containingWindowId(),
+                       let existing = windows.threadGuarded[windowId], CFEqual(existing.ax, element)
+                    {
+                        // Preserve the known-window fast path without querying role,
+                        // ancestry or AXWindows on every key press. Aliased child
+                        // references still go through classification below.
+                        return .window(windowId)
+                    }
+                    let resolution = resolveAxFocusedWindow(
+                        element,
+                        isRegistered: { windows.threadGuarded[$0] != nil },
+                        appWindows: {
+                            (axAppFastTimeout.threadGuarded.get(Ax.windowsAttr) ?? []).map {
+                                (windowId: $0.windowId, ax: $0.ax as any AxUiElementMock)
+                            }
+                        },
+                    )
+                    switch resolution {
+                        case .existing(let windowId):
+                            return .window(windowId)
+                        case .newWindow(let windowId, let canonical):
+                            if !registerIfNeeded { return .window(windowId) }
+                            guard let registered = try windows.threadGuarded.getOrRegisterAxWindow(windowId: windowId, canonical.cast, nsApp, job)
+                            else { return .noFocusedWindow }
+                            return .window(registered.windowId)
+                        case .transient:
+                            debugTransientAxReference(element, appBundleId: nsApp.bundleIdentifier, source: "focused-window")
+                            return .transient
+                        case .unavailable:
+                            debugTransientAxReference(element, appBundleId: nsApp.bundleIdentifier, source: "unresolved-focused-window")
+                            return .unresolvedWindow
+                    }
                 case .cannotComplete:
                     return .timedOut
                 default:
@@ -166,12 +206,26 @@ final class MacApp: AbstractApp {
         } ?? .noFocusedWindow
     }
 
+    /// Recheck native focus without registering windows or executing callbacks.
+    func observeFocusedWindowId() async throws -> NativeFocusedWindowObservation {
+        switch try await queryFocusedWindowId(registerIfNeeded: false) {
+            case .window(let windowId): return .window(windowId)
+            case .transient: return .transient
+            case .noFocusedWindow, .unresolvedWindow, .timedOut: return .unavailable
+        }
+    }
+
     // todo merge together with detectNewWindows
     func getFocusedWindow() async throws -> Window? {
         switch try await queryFocusedWindowId() {
             case .window(let windowId):
+                hasActiveTransientNativeFocus = false
                 return try await MacWindow.getOrRegister(windowId: windowId, macApp: self)
+            case .transient, .unresolvedWindow:
+                hasActiveTransientNativeFocus = true
+                return nil
             case .noFocusedWindow:
+                hasActiveTransientNativeFocus = false
                 return nil
             case .timedOut:
                 // The app is too busy to answer AX right now. A stalled app cannot change its
@@ -180,7 +234,7 @@ final class MacApp: AbstractApp {
                 // session — is still accurate. Using it beats both stalling the session for
                 // the full messaging timeout and the old behavior of treating the timeout as
                 // "no window is focused".
-                return lastNativeFocusedWindow()
+                return hasActiveTransientNativeFocus ? nil : lastNativeFocusedWindow()
         }
     }
 

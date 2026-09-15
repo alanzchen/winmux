@@ -58,6 +58,7 @@ func setUpWorkspacesForTests() {
     cancelManipulatedWithMouseState()
     clearPendingWindowDragIntent()
     TestApp.shared.focusedWindow = nil
+    TestApp.shared.hasActiveTransientNativeFocus = false
     TestApp.shared.windows = []
 }
 

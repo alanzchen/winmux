@@ -200,6 +200,10 @@ enum Ax {
         key: kAXIdentifierAttribute,
         getter: { $0 as? String },
     )
+    static let parentAttr = ReadableAttrImpl<any AxUiElementMock>(
+        key: kAXParentAttribute,
+        getter: castToAxUiElementMock,
+    )
     // static let modalAttr = ReadableAttrImpl<Bool>(
     //     key: kAXModalAttribute,
     //     getter: { $0 as? Bool },
