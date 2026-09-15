@@ -23,7 +23,8 @@ targets:
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         LSUIElement: true
         SUEnableAutomaticChecks: true
-        SUFeedURL: https://github.com/ZimengXiong/winmux/releases/latest/download/appcast.xml
+        SUAutomaticallyUpdate: true
+        SUFeedURL: ${XCODEGEN_WINMUX_UPDATE_FEED_URL}
         SUPublicEDKey: $(SPARKLE_PUBLIC_KEY)
     sources:
       - "Sources/WinMuxApp"
@@ -40,7 +41,8 @@ targets:
         MARKETING_VERSION: ${XCODEGEN_WINMUX_VERSION}
         CURRENT_PROJECT_VERSION: ${XCODEGEN_WINMUX_VERSION}
         SPARKLE_PUBLIC_KEY: ${XCODEGEN_WINMUX_SPARKLE_PUBLIC_KEY}
-        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_STYLE: ${XCODEGEN_WINMUX_CODE_SIGN_STYLE}
+        ENABLE_HARDENED_RUNTIME: YES
         CODE_SIGN_IDENTITY: ${XCODEGEN_WINMUX_CODE_SIGN_IDENTITY}
         DEVELOPMENT_TEAM: ${XCODEGEN_WINMUX_DEVELOPMENT_TEAM}
       configs:

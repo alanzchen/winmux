@@ -1,0 +1,159 @@
+name: Build and publish signed release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing stable version tag (vMAJOR.MINOR.PATCH)
+        required: true
+        type: string
+
+# Serialize different versions too: an older build must never replace the latest feed.
+concurrency:
+  group: signed-release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    if: github.repository == 'alanzchen/winmux'
+    runs-on: macos-26
+    timeout-minutes: 90
+    environment: release
+    permissions:
+      contents: write
+    env:
+      RELEASE_REPOSITORY: alanzchen/winmux
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+      TOOLCHAINS: com.apple.dt.toolchain.XcodeDefault
+      DEVELOPMENT_TEAM: ${{ vars.APPLE_TEAM_ID }}
+      SPARKLE_PUBLIC_KEY: ${{ vars.SPARKLE_PUBLIC_KEY }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out the existing release tag
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: refs/tags/${{ inputs.tag || github.ref_name }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Validate tag and publication order
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 -B script/ci-release.py check "$RELEASE_TAG" "$RELEASE_REPOSITORY"
+          printf 'VERSION=%s\n' "${RELEASE_TAG#v}" >> "$GITHUB_ENV"
+
+      - name: Verify the pinned compiler and signing configuration
+        run: |
+          set -euo pipefail
+          test -d "$DEVELOPER_DIR"
+          xcodebuild -version
+          xcrun swift --version
+          expected="$(cat .swift-version)"
+          actual="$(xcrun swift --version | sed -nE 's/.*Swift version ([0-9]+\.[0-9]+\.[0-9]+).*/\1/p')"
+          test "$actual" = "$expected"
+          test -n "$DEVELOPMENT_TEAM" || { echo 'Set release environment variable APPLE_TEAM_ID.' >&2; exit 1; }
+          test -n "$SPARKLE_PUBLIC_KEY" || { echo 'Set release environment variable SPARKLE_PUBLIC_KEY.' >&2; exit 1; }
+
+      - name: Run regression tests and build
+        run: |
+          set -euo pipefail
+          mkdir -p .build
+          xcrun swift test 2>&1 | tee .build/release-ci-tests.log
+          xcrun swift build
+          python3 -B -m unittest discover -s script -p 'test_*.py'
+
+      - name: Import Developer ID and notarization credentials
+        env:
+          BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
+          P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: bash script/ci-signing.sh prepare
+
+      - name: Build, sign, notarize, and generate the signed update feed
+        run: |
+          set -euo pipefail
+          make release \
+            VERSION="$VERSION" RELEASE_TAG="$RELEASE_TAG" \
+            RELEASE_REPOSITORY="$RELEASE_REPOSITORY" \
+            CODESIGN_IDENTITY="$CODESIGN_IDENTITY" \
+            EXPECTED_CODESIGN_AUTHORITY_PREFIX='Authority=Developer ID Application:' \
+            DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" CODESIGN_STYLE=Manual \
+            SPARKLE_PUBLIC_KEY="$SPARKLE_PUBLIC_KEY" \
+            SPARKLE_PRIVATE_KEY_FILE="$SPARKLE_PRIVATE_KEY_FILE" \
+            NOTARIZE=1 NOTARYTOOL_PROFILE=winmux-ci \
+            NOTARYTOOL_KEYCHAIN="$NOTARYTOOL_KEYCHAIN" \
+            GENERATE_APPCAST=1 PUBLISH=0
+
+      - name: Verify distribution artifacts
+        run: |
+          set -euo pipefail
+          (cd .release && shasum -a 256 --check SHA256SUMS)
+          hdiutil verify ".release/WinMux-$VERSION.dmg"
+          python3 -B script/validate-appcast.py ".release/appcast.xml" "$VERSION" \
+            "https://github.com/$RELEASE_REPOSITORY/releases/download/$RELEASE_TAG/WinMux-$VERSION.zip"
+          verify_dir="$(mktemp -d "$RUNNER_TEMP/winmux-verify.XXXXXX")"
+          trap 'rm -rf "$verify_dir"' EXIT
+          ditto -x -k ".release/WinMux-$VERSION.zip" "$verify_dir"
+          app="$verify_dir/WinMux.app"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          codesign --verify --strict --verbose=2 "$app/Contents/MacOS/winmux"
+          xcrun stapler validate "$app"
+          spctl --assess --type execute --verbose=4 "$app"
+          test "$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$app/Contents/Info.plist")" = "$VERSION"
+          test "$(/usr/libexec/PlistBuddy -c 'Print SUFeedURL' "$app/Contents/Info.plist")" = "https://github.com/$RELEASE_REPOSITORY/releases/latest/download/appcast.xml"
+          test "$(/usr/libexec/PlistBuddy -c 'Print SUPublicEDKey' "$app/Contents/Info.plist")" = "$SPARKLE_PUBLIC_KEY"
+          for executable in "$app/Contents/MacOS/WinMux" "$app/Contents/MacOS/winmux"; do
+            archs="$(lipo -archs "$executable")"
+            case " $archs " in *' arm64 '*) ;; *) exit 1 ;; esac
+            case " $archs " in *' x86_64 '*) ;; *) exit 1 ;; esac
+            signature="$(codesign -dv --verbose=4 "$executable" 2>&1)"
+            printf '%s\n' "$signature" | grep -Fx "TeamIdentifier=$DEVELOPMENT_TEAM"
+          done
+          "$app/Contents/MacOS/winmux" --version
+
+      - name: Retain verified release artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: WinMux-${{ env.VERSION }}-signed
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 30
+          path: |
+            .release/WinMux-${{ env.VERSION }}.zip
+            .release/WinMux-${{ env.VERSION }}-macOS.zip
+            .release/WinMux-${{ env.VERSION }}.dmg
+            .release/appcast.xml
+            .release/SHA256SUMS
+
+      - name: Publish the complete release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash script/publish-release.sh
+
+      - name: Retain failure logs
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: WinMux-release-failure-${{ github.run_id }}
+          include-hidden-files: true
+          retention-days: 7
+          path: |
+            .build/release-ci-tests.log
+            .release/*xcodebuild.log
+            .release/*notary*.json
+
+      - name: Remove signing credentials
+        if: always()
+        run: bash script/ci-signing.sh cleanup

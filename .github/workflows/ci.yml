@@ -1,0 +1,39 @@
+name: Build and test
+
+on:
+  push:
+    branches: [main, codex/issue-fixes]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: macos-26
+    timeout-minutes: 30
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+      TOOLCHAINS: com.apple.dt.toolchain.XcodeDefault
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Verify pinned compiler
+        run: |
+          set -euo pipefail
+          xcodebuild -version
+          xcrun swift --version
+          expected="$(cat .swift-version)"
+          actual="$(xcrun swift --version | sed -nE 's/.*Swift version ([0-9]+\.[0-9]+\.[0-9]+).*/\1/p')"
+          test "$actual" = "$expected"
+      - name: Test and build
+        run: |
+          set -euo pipefail
+          xcrun swift test
+          xcrun swift build
+          python3 -B -m unittest discover -s script -p 'test_*.py'

@@ -151,20 +151,18 @@ end tell
 ```
 
 ## Installation
-Install WinMux with Homebrew:
+Download a published fork build from [alanzchen/winmux releases](https://github.com/alanzchen/winmux/releases).
+Open its DMG and copy `WinMux.app` to `/Applications`. Install the included `bin/winmux`
+launcher on your PATH for CLI access. The upstream Homebrew tap distributes upstream builds.
 
-```shell
-brew tap ZimengXiong/homebrew https://github.com/ZimengXiong/homebrew
-brew trust ZimengXiong/homebrew
-brew install --cask winmux
-xattr -cr /Applications/WinMux.app
-```
+The fork release workflow requires your Developer ID Application certificate and Apple
+notarization credentials; it publishes only after signature and notarization checks pass.
+Older debug/ad-hoc DMGs are development builds and do not have this distribution signature.
 
-Or download the latest binary from releases and launch.
-
-Release builds are signed with the project's Apple Development certificate. They are not notarized, so macOS may require you to right-click the app and choose **Open** the first time you launch it.
-
-WinMux checks GitHub Releases for signed updates automatically. You can also select **Check for Updates…** from the menu bar.
+Fork release builds use this repository's signed update feed. Automatic checks and installation
+on quit are enabled by default; existing update preferences are respected. You can also select
+**Check for Updates…** from the menu bar. The first migration from upstream or an older debug
+build requires a manual installation to establish the fork's signing keys and paired CLI.
 
 ### Command-line client
 
@@ -186,14 +184,15 @@ make cli-release VERSION=<version>
 
 `make install VERSION=<version>` builds and installs the app and client as one versioned
 pair under `.local/install/releases/`, updates `.local/install/current`, installs the app in
-`/Applications`, and makes the paired client available to local wrapper integrations at:
+`/Applications`, and makes a launcher for that app's embedded client available at:
 
 ```text
 .local/install/current/bin/winmux
 ```
 
-Release builds also produce `WinMux-<version>-macOS.zip`, containing both `WinMux.app`
-and `bin/winmux`; the app-only zip remains separate for Sparkle updates. A local ad-hoc
+Release builds also produce `WinMux-<version>-macOS.zip`, containing `WinMux.app`
+and the `bin/winmux` launcher. The app contains the signed CLI, so the Sparkle app ZIP
+updates both executables together. A local ad-hoc
 build can be installed without the publishing key using:
 
 ```shell
@@ -256,15 +255,16 @@ connecting a new CLI to a legacy server reports an upgrade error instead of wait
 
 ### Release updates
 
-`make release VERSION=<version>` currently builds locally without publishing or generating
-an appcast. During the socket protocol-v1 migration, an app-only Sparkle update would leave
-an older CLI behind, so appcast generation is refused unless the maintainer deliberately sets
-`GENERATE_APPCAST=1 ALLOW_APP_ONLY_PROTOCOL_UPDATE=1`. Prefer the combined archive containing
-both `WinMux.app` and `bin/winmux`. When app-only updates are compatible again, Sparkle signs
-the appcast with the Ed25519 key in the local login Keychain. The matching public key is set
-through `SPARKLE_PUBLIC_KEY`; keep the private key in the Keychain and do not commit or share it.
+Pushing a stable `vMAJOR.MINOR.PATCH` tag runs the signed release workflow. It builds a universal
+app and embedded CLI with the pinned compiler, notarizes the app and DMG, signs the final
+update archive with the fork's Sparkle key, and publishes all verified assets together.
 
-Publishing a stable GitHub release also updates `Casks/winmux.rb` in `ZimengXiong/homebrew`. Before the first release, add a `HOMEBREW_TAP_TOKEN` repository secret to this repository. The token must have read and write access to the contents of `ZimengXiong/homebrew`.
+The update feed is
+`https://github.com/alanzchen/winmux/releases/latest/download/appcast.xml`.
+The fork does not update the upstream Homebrew tap. See [release setup](docs/releasing.md)
+for Apple account secrets, local build commands, and the one-time migration steps.
+`make release VERSION=<version>` still builds locally by default; publishing requires explicit
+`NOTARIZE=1 GENERATE_APPCAST=1 PUBLISH=1` and an existing version tag.
 
 ## Migrating
 ### From AeroSpace

@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   update-cask:
-    if: ${{ !github.event.release.prerelease }}
+    if: ${{ github.repository == 'ZimengXiong/winmux' && !github.event.release.prerelease }}
     runs-on: ubuntu-latest
     steps:
       - name: Check out the Homebrew tap

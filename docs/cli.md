@@ -32,6 +32,37 @@ Built-in help is the authoritative syntax reference for the installed build.
 
 ## Quick start
 
+Fork releases include the matching client inside
+`WinMux.app/Contents/MacOS/winmux`. Their `bin/winmux` is a launcher that executes
+that embedded client, so updating the app with Sparkle also updates the CLI.
+Replace any older standalone client on `PATH` with this launcher when first
+installing the fork build.
+
+After copying the app to `/Applications`, copy the release's launcher into a
+directory on `PATH`, for example from the extracted release directory:
+
+```sh
+mkdir -p "$HOME/.local/bin"
+install -m 755 bin/winmux "$HOME/.local/bin/winmux"
+```
+
+Add `$HOME/.local/bin` to `PATH` if needed. Copy the launcher itself: a symlink
+back into the extracted release selects that release's sibling portable app.
+
+The launcher uses `WINMUX_APP_PATH` when explicitly set, then an adjacent
+`winmux-app-path` file created by `make install`. Otherwise it uses a sibling
+`../WinMux.app` in an extracted release, or `/Applications/WinMux.app`. Configured
+paths must be absolute. A missing configured app fails instead of running a
+stale client. For a custom location:
+
+```sh
+WINMUX_APP_PATH="$HOME/Applications/WinMux.app" winmux --version
+```
+
+`make install` preserves the existing `.local/install/current/bin/winmux` path
+for integrations; its launcher targets the live installed app, so future
+Sparkle updates do not leave those integrations on an archived client.
+
 Confirm that the client is on `PATH` and that the running app accepts commands:
 
 ```sh
