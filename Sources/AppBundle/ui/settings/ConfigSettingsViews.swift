@@ -133,7 +133,22 @@ struct ShortcutAppearanceSettingsView: View {
                 }
                 .disabled(chromeStyle != .liquidGlass)
                 SettingsStepper("Expanded width", value: $sidebarWidth, range: 120...480, help: "Width of the fully expanded sidebar.") { sidebarInt("width", sidebarWidth) }
-                SettingsStepper("Collapsed width", value: $collapsedWidth, range: 28...120, help: "Width of the compact sidebar rail.") { sidebarInt("collapsed-width", collapsedWidth) }
+                if showAppIcons {
+                    HStack {
+                        Text("Compact width")
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        Text("\(WorkspaceSidebarConfig.dockCompactWidth) pt (fixed)")
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.horizontal, 14)
+                    .frame(minHeight: 38)
+                    .help("Dock-style app icons use a fixed compact width. Your previous width is restored when app icons are turned off.")
+                    .overlay(alignment: .bottom) {
+                        Divider().padding(.leading, 14)
+                    }
+                } else {
+                    SettingsStepper("Collapsed width", value: $collapsedWidth, range: 28...120, help: "Width of the compact sidebar rail.") { sidebarInt("collapsed-width", collapsedWidth) }
+                }
                 SettingsStepper("Menu bar reserve", value: $menuBarReserveHeight, range: 0...72, help: "Use 0 px when the macOS menu bar auto-hides.") { sidebarInt("menu-bar-reserve-height", menuBarReserveHeight) }
                 SettingsPicker("Deleting projects", selection: $projectDeletionAction, help: "Choose what happens to the project's windows.") {
                     Text("Close project windows").tag(WorkspaceProjectDeletionAction.closeWindows)

@@ -39,15 +39,38 @@ struct WorkspaceSidebarView: View {
             min(1, (snapshot.visibleWidth - collapsedWidth) / max(expandedWidth - collapsedWidth, 1)),
         )
         
-        ZStack(alignment: .leading) {
+        GeometryReader { geometry in
+            let surfaceFrame = workspaceSidebarSurfaceFrame(
+                availableSize: geometry.size,
+                visibleWidth: snapshot.visibleWidth,
+                compactHeight: compactDockContentHeight,
+                expansionProgress: expansionProgress,
+                // Editing can begin before the width animation, and drag previews change
+                // while the pointer stays still. Only width drives the surface morph;
+                // additional rows stay inside the existing scroll viewport.
+                fitsDockContent: snapshot.configuration.showAppIcons
+            )
             sidebarContent(expansionProgress: expansionProgress)
-                .frame(width: max(snapshot.visibleWidth, 0), alignment: .leading)
+                .frame(width: surfaceFrame.width, height: surfaceFrame.height, alignment: .leading)
                 .mask(alignment: .leading) {
                     Rectangle()
                         .frame(width: max(snapshot.visibleWidth, 0))
                 }
+                .background {
+                    GeometryReader { surface in
+                        Color.clear.preference(
+                            key: WorkspaceSidebarSurfaceFramePreferenceKey.self,
+                            value: surface.frame(in: .named("workspaceSidebarContent"))
+                        )
+                    }
+                }
+                .position(x: surfaceFrame.midX, y: surfaceFrame.midY)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        .coordinateSpace(name: "workspaceSidebarContent")
+        .onPreferenceChange(WorkspaceSidebarSurfaceFramePreferenceKey.self) { frame in
+            if let frame { actions.setSurfaceFrame(frame) }
+        }
         .background(Color.clear)
         .onChange(of: snapshot.visibleWidth) { visibleWidth in
             if visibleWidth <= collapsedWidth + 0.5 {
@@ -778,20 +801,36 @@ extension WorkspaceSidebarView {
     }
 }
 extension WorkspaceSidebarView {
+    var dockSurfaceProgress: CGFloat {
+        guard snapshot.configuration.showAppIcons else { return 1 }
+        let collapsed = snapshot.configuration.collapsedWidth
+        return min(max((snapshot.visibleWidth - collapsed) / max(snapshot.configuration.expandedWidth - collapsed, 1), 0), 1)
+    }
+
     var sidebarShape: some Shape {
-        WorkspaceSidebarPanelShape(rightCornerRadius: workspaceSidebarPanelRightCornerRadius)
+        WorkspaceSidebarPanelShape(
+            leftCornerRadius: snapshot.configuration.showAppIcons ? 16 * (1 - dockSurfaceProgress) : 0,
+            rightCornerRadius: snapshot.configuration.showAppIcons
+                ? 16 + (workspaceSidebarPanelRightCornerRadius - 16) * dockSurfaceProgress
+                : workspaceSidebarPanelRightCornerRadius
+        )
     }
 
     func sidebarSurface<S: Shape>(in shape: S) -> some View {
-        // The sidebar meets the display edge, so an outline around all four sides reads as a
-        // second, lighter panel behind the content. Keep the material flat and use only the
-        // trailing separator to define its boundary.
-        GlassSurface(
-            shape: shape,
-            hasBorder: false,
-            style: snapshot.configuration.chromeStyle,
-            solidColor: snapshot.configuration.resolvedSolidChromeColor,
-        )
+        // Morph the rounded compact Dock into the expanded sidebar's flat edge chrome.
+        ZStack {
+            if snapshot.configuration.showAppIcons {
+                WorkspaceSidebarDockSurface(shape: shape, configuration: snapshot.configuration)
+                    .opacity(Double(1 - dockSurfaceProgress))
+            }
+            GlassSurface(
+                shape: shape,
+                hasBorder: false,
+                style: snapshot.configuration.chromeStyle,
+                solidColor: snapshot.configuration.resolvedSolidChromeColor,
+            )
+            .opacity(Double(dockSurfaceProgress))
+        }
         // This panel has no safe-area inset. Expanding the material here gives the native
         // glass backing layer a rectangular area outside the rounded trailing corners.
         .clipShape(shape)
@@ -822,13 +861,23 @@ extension WorkspaceSidebarView {
 }
 
 private struct WorkspaceSidebarPanelShape: Shape {
-    let rightCornerRadius: CGFloat
+    var leftCornerRadius: CGFloat
+    var rightCornerRadius: CGFloat
+
+    var animatableData: AnimatablePair<CGFloat, CGFloat> {
+        get { AnimatablePair(leftCornerRadius, rightCornerRadius) }
+        set {
+            leftCornerRadius = newValue.first
+            rightCornerRadius = newValue.second
+        }
+    }
 
     func path(in rect: CGRect) -> Path {
         let radius = min(rightCornerRadius, rect.width / 2, rect.height / 2)
+        let leftRadius = min(leftCornerRadius, rect.width / 2, rect.height / 2)
 
         var path = Path()
-        path.move(to: CGPoint(x: rect.minX, y: rect.minY))
+        path.move(to: CGPoint(x: rect.minX + leftRadius, y: rect.minY))
         path.addLine(to: CGPoint(x: rect.maxX - radius, y: rect.minY))
         path.addQuadCurve(
             to: CGPoint(x: rect.maxX, y: rect.minY + radius),
@@ -839,7 +888,16 @@ private struct WorkspaceSidebarPanelShape: Shape {
             to: CGPoint(x: rect.maxX - radius, y: rect.maxY),
             control: CGPoint(x: rect.maxX, y: rect.maxY)
         )
-        path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.minX + leftRadius, y: rect.maxY))
+        path.addQuadCurve(
+            to: CGPoint(x: rect.minX, y: rect.maxY - leftRadius),
+            control: CGPoint(x: rect.minX, y: rect.maxY)
+        )
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.minY + leftRadius))
+        path.addQuadCurve(
+            to: CGPoint(x: rect.minX + leftRadius, y: rect.minY),
+            control: CGPoint(x: rect.minX, y: rect.minY)
+        )
         path.closeSubpath()
         return path
     }
@@ -900,84 +958,92 @@ extension WorkspaceSidebarView {
         let pinnedWorkspace = showsPinnedActiveWorkspace
             ? pinnedActiveWorkspace(displayedProjectId: projectId, pageWorkspaces: workspaces)
             : nil
-        return ScrollView {
-            VStack(alignment: .leading, spacing: 6) {
-                if let pinnedWorkspace {
-                    workspaceSection(
-                        workspace: pinnedWorkspace,
-                        expansionProgress: expansionProgress,
-                        emitsDropTarget: true,
-                        allowsWorkspaceActivation: false,
-                        isPinnedActiveWorkspace: true,
-                        projectContextLabel: projectName(snapshot.activeProjectId),
-                        projectContextColor: projectColor(snapshot.activeProjectId)
-                    )
-                }
-                ForEach(workspaces) { workspace in
-                    workspaceSection(
-                        workspace: workspace,
-                        expansionProgress: expansionProgress,
-                        emitsDropTarget: true,
-                        allowsWorkspaceActivation: allowsActivation ?? allowsWorkspaceActivation(projectId: projectId),
-                        isPinnedActiveWorkspace: false,
-                        projectContextLabel: browsedProjectId != nil && projectId != snapshot.activeProjectId ? projectName(projectId) : nil,
-                        projectContextColor: browsedProjectId != nil && projectId != snapshot.activeProjectId ? projectColor(projectId) : nil
-                    )
-                    .overlay(alignment: .topLeading) {
-                        if snapshot.configuration.showAppIcons,
-                           pinnedWorkspace != nil || workspace.id != workspaces.first?.id
-                        {
-                            WorkspaceSidebarDockSeparator(
-                                expansionProgress: expansionProgress,
-                                layout: snapshot.configuration
-                            )
-                            .offset(y: -3)
+        return GeometryReader { viewport in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 6) {
+                    if let pinnedWorkspace {
+                        workspaceSection(
+                            workspace: pinnedWorkspace,
+                            expansionProgress: expansionProgress,
+                            emitsDropTarget: true,
+                            allowsWorkspaceActivation: false,
+                            isPinnedActiveWorkspace: true,
+                            projectContextLabel: projectName(snapshot.activeProjectId),
+                            projectContextColor: projectColor(snapshot.activeProjectId)
+                        )
+                    }
+                    ForEach(workspaces) { workspace in
+                        workspaceSection(
+                            workspace: workspace,
+                            expansionProgress: expansionProgress,
+                            emitsDropTarget: true,
+                            allowsWorkspaceActivation: allowsActivation ?? allowsWorkspaceActivation(projectId: projectId),
+                            isPinnedActiveWorkspace: false,
+                            projectContextLabel: browsedProjectId != nil && projectId != snapshot.activeProjectId ? projectName(projectId) : nil,
+                            projectContextColor: browsedProjectId != nil && projectId != snapshot.activeProjectId ? projectColor(projectId) : nil
+                        )
+                        .overlay(alignment: .topLeading) {
+                            if snapshot.configuration.showAppIcons,
+                               pinnedWorkspace != nil || workspace.id != workspaces.first?.id
+                            {
+                                WorkspaceSidebarDockSeparator(
+                                    expansionProgress: expansionProgress,
+                                    layout: snapshot.configuration
+                                )
+                                .offset(y: -3)
+                            }
                         }
                     }
+                    if showsCreateWorkspace && workspaceSidebarShowsCreateWorkspace(selectedScopeId: snapshot.selectedMonitorScopeId) {
+                        let createMonitorScopeId = workspaceSidebarWorkspaceCreateScope(
+                            selectedScopeId: snapshot.selectedMonitorScopeId,
+                            targetMonitorScopeId: snapshot.targetMonitorScopeId,
+                            focusedScopeId: snapshot.focusedMonitorScopeId,
+                        )
+                        WorkspaceSidebarCreateWorkspaceSection(
+                            projectId: projectId,
+                            monitorScopeId: createMonitorScopeId,
+                            dragPreview: snapshot.dropPreview,
+                            expansionProgress: expansionProgress,
+                            layout: snapshot.configuration,
+                            emitsDropTarget: true,
+                            onCreateWorkspace: {
+                                actions.send(.createWorkspace(
+                                    projectId: projectId,
+                                    monitorScopeId: createMonitorScopeId
+                                ))
+                            },
+                            onDropPayload: { payload in
+                                switch payload {
+                                    case .window(let windowId):
+                                        actions.send(.moveWindowToNewWorkspace(
+                                            windowId,
+                                            projectId: projectId,
+                                            monitorScopeId: createMonitorScopeId,
+                                        ))
+                                    case .tabGroup(let representativeWindowId):
+                                        actions.send(.moveTabGroupToNewWorkspace(
+                                            representativeWindowId,
+                                            projectId: projectId,
+                                            monitorScopeId: createMonitorScopeId,
+                                        ))
+                                }
+                            },
+                            actions: actions,
+                        )
+                    }
                 }
-                if showsCreateWorkspace && workspaceSidebarShowsCreateWorkspace(selectedScopeId: snapshot.selectedMonitorScopeId) {
-                    let createMonitorScopeId = workspaceSidebarWorkspaceCreateScope(
-                        selectedScopeId: snapshot.selectedMonitorScopeId,
-                        targetMonitorScopeId: snapshot.targetMonitorScopeId,
-                        focusedScopeId: snapshot.focusedMonitorScopeId,
-                    )
-                    WorkspaceSidebarCreateWorkspaceSection(
-                        projectId: projectId,
-                        monitorScopeId: createMonitorScopeId,
-                        dragPreview: snapshot.dropPreview,
-                        expansionProgress: expansionProgress,
-                        layout: snapshot.configuration,
-                        emitsDropTarget: true,
-                        onCreateWorkspace: {
-                            actions.send(.createWorkspace(
-                                projectId: projectId,
-                                monitorScopeId: createMonitorScopeId
-                            ))
-                        },
-                        onDropPayload: { payload in
-                            switch payload {
-                                case .window(let windowId):
-                                    actions.send(.moveWindowToNewWorkspace(
-                                        windowId,
-                                        projectId: projectId,
-                                        monitorScopeId: createMonitorScopeId,
-                                    ))
-                                case .tabGroup(let representativeWindowId):
-                                    actions.send(.moveTabGroupToNewWorkspace(
-                                        representativeWindowId,
-                                        projectId: projectId,
-                                        monitorScopeId: createMonitorScopeId,
-                                    ))
-                            }
-                        },
-                        actions: actions,
-                    )
-                }
+                .padding(.leading, leadingInset)
+                .padding(.trailing, trailingInset)
+                .padding(.top, topPadding)
+                .padding(.bottom, 10)
             }
-            .padding(.leading, leadingInset)
-            .padding(.trailing, trailingInset)
-            .padding(.top, topPadding)
-            .padding(.bottom, 10)
+            .transformPreference(WorkspaceSidebarDropTargetPreferenceKey.self) { targets in
+                targets = workspaceSidebarClippedDropTargets(
+                    targets,
+                    to: viewport.frame(in: .named("workspaceSidebarContent"))
+                )
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
@@ -1115,5 +1181,43 @@ extension WorkspaceSidebarView {
 
     private func workspaceIsActiveOnTargetMonitor(_ workspace: WorkspaceSidebarWorkspaceViewModel) -> Bool {
         workspace.isVisible && workspace.monitorScopeId == snapshot.targetMonitorScopeId
+    }
+
+    var compactDockContentHeight: CGFloat {
+        let visibleByProject = workspaceSidebarVisibleWorkspacesByProject(
+            workspaces: snapshot.workspaces,
+            selectedScopeId: snapshot.selectedMonitorScopeId,
+            focusedMonitorScopeId: snapshot.focusedMonitorScopeId,
+            browsedProjectId: browsedProjectId
+        )
+        var projectIds = [snapshot.activeProjectId]
+        if let index = projectPagerDisplayIndex, snapshot.projects.indices.contains(index) {
+            projectIds = [snapshot.projects[index].id]
+            if let direction = workspaceSidebarProjectSwipeDirection(
+                horizontalTranslation: projectSwipeTranslation,
+                verticalTranslation: 0,
+                minimumDistance: 1
+            ), let nextIndex = workspaceSidebarProjectIndexAfterSwipe(
+                currentIndex: index,
+                projectCount: snapshot.projects.count,
+                direction: direction
+            ) {
+                projectIds.append(snapshot.projects[nextIndex].id)
+            }
+        }
+        return projectIds.map { projectId in
+            var workspaces = visibleByProject[projectId] ?? []
+            if showsPinnedActiveWorkspaceForBrowsedProject,
+               let pinned = pinnedActiveWorkspace(displayedProjectId: projectId, pageWorkspaces: workspaces) {
+                workspaces.insert(pinned, at: 0)
+            }
+            return workspaceSidebarDockContentHeight(
+                appCounts: workspaces.map { $0.apps.count },
+                configuration: snapshot.configuration,
+                showsCreateWorkspace: browsedProjectId == nil && workspaceSidebarShowsCreateWorkspace(selectedScopeId: snapshot.selectedMonitorScopeId),
+                showsMonitorSelector: shouldShowCompactMonitorSelector,
+                projectCount: snapshot.projects.count
+            )
+        }.max() ?? 0
     }
 }

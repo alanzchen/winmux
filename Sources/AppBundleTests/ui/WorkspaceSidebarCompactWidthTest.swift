@@ -88,7 +88,7 @@ final class WorkspaceSidebarCompactWidthTest: XCTestCase {
         }
     }
 
-    func testAppIconModeKeepsConfiguredLayoutInsetsIncludingAutoHideAndPinnedSidebar() {
+    func testDockModeUsesFixedPanelAndLayoutWidthsAndRestoresLegacyWidth() {
         let previousConfig = config
         setUpWorkspacesForTests()
         defer {
@@ -106,7 +106,6 @@ final class WorkspaceSidebarCompactWidthTest: XCTestCase {
         setMonitorsForTests([monitor])
         config.workspaceSidebar.enabled = true
         config.workspaceSidebar.monitor = [.main]
-        config.workspaceSidebar.collapsedWidth = 44
         config.workspaceSidebar.width = 240
         config.gaps = .zero
 
@@ -115,27 +114,33 @@ final class WorkspaceSidebarCompactWidthTest: XCTestCase {
             for index in 0 ..< windowCount {
                 TestWindow.new(id: UInt32(index + 1), parent: focus.workspace.rootTilingContainer)
             }
-            for showAppIcons in [false, true] {
-                config.workspaceSidebar.showAppIcons = showAppIcons
-                for (autoHide, alwaysExpanded, expectedInset, expectedContentWidth) in [
-                    (false, false, CGFloat(44), CGFloat(44)),
-                    (true, false, CGFloat(0), CGFloat(0)),
-                    (false, true, CGFloat(240), CGFloat(44)),
-                    (true, true, CGFloat(240), CGFloat(44)),
-                ] {
-                    config.workspaceSidebar.autoHide = autoHide
-                    config.workspaceSidebar.alwaysExpanded = alwaysExpanded
-                    let snapshot = workspaceSidebarConfiguration()
-                    XCTAssertEqual(snapshot.collapsedWidth, expectedContentWidth)
-                    XCTAssertEqual(snapshot.compactRailWidth, 44, "Auto-hide must retain the configured compact icon layout width")
-                    XCTAssertEqual(snapshot.expandedWidth, 240)
-                    XCTAssertEqual(monitor.workspaceSidebarInset, expectedInset)
-                    XCTAssertEqual(monitor.visibleRectPaddedByOuterGaps.topLeftX, expectedInset)
-                    XCTAssertEqual(monitor.visibleRectPaddedByOuterGaps.width, 1920 - expectedInset)
-                    XCTAssertEqual(
-                        workspaceSidebarHoverActivationWidth(config.workspaceSidebar),
-                        alwaysExpanded ? 240 : 44,
-                    )
+            for storedWidth in [28, 44, 120] {
+                config.workspaceSidebar.collapsedWidth = storedWidth
+                for showAppIcons in [false, true, false] {
+                    config.workspaceSidebar.showAppIcons = showAppIcons
+                    let railWidth = CGFloat(showAppIcons ? 64 : storedWidth)
+                    for (autoHide, alwaysExpanded, expectedInset, expectedContentWidth) in [
+                        (false, false, railWidth, railWidth),
+                        (true, false, CGFloat(0), CGFloat(0)),
+                        (false, true, CGFloat(240), railWidth),
+                        (true, true, CGFloat(240), railWidth),
+                    ] {
+                        config.workspaceSidebar.autoHide = autoHide
+                        config.workspaceSidebar.alwaysExpanded = alwaysExpanded
+                        let snapshot = workspaceSidebarConfiguration()
+                        XCTAssertEqual(snapshot.collapsedWidth, expectedContentWidth)
+                        XCTAssertEqual(snapshot.compactRailWidth, railWidth, "Auto-hide must retain the resolved compact layout width")
+                        XCTAssertEqual(snapshot.expandedWidth, 240)
+                        XCTAssertEqual(workspaceSidebarRestingWidth(config.workspaceSidebar), expectedInset)
+                        XCTAssertEqual(monitor.workspaceSidebarInset, expectedInset)
+                        XCTAssertEqual(monitor.visibleRectPaddedByOuterGaps.topLeftX, expectedInset)
+                        XCTAssertEqual(monitor.visibleRectPaddedByOuterGaps.width, 1920 - expectedInset)
+                        XCTAssertEqual(
+                            workspaceSidebarHoverActivationWidth(config.workspaceSidebar),
+                            alwaysExpanded ? 240 : railWidth,
+                        )
+                        XCTAssertEqual(config.workspaceSidebar.collapsedWidth, storedWidth)
+                    }
                 }
             }
         }

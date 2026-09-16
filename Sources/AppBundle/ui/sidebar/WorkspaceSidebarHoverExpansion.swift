@@ -8,15 +8,15 @@ func workspaceSidebarRestingWidth(_ sidebarConfig: WorkspaceSidebarConfig) -> CG
     if sidebarConfig.alwaysExpanded {
         return CGFloat(sidebarConfig.width)
     }
-    return sidebarConfig.autoHide ? 0 : CGFloat(sidebarConfig.collapsedWidth)
+    return sidebarConfig.autoHide ? 0 : CGFloat(sidebarConfig.effectiveCollapsedWidth)
 }
 
 func workspaceSidebarHoverActivationWidth(_ sidebarConfig: WorkspaceSidebarConfig) -> CGFloat {
-    sidebarConfig.alwaysExpanded ? CGFloat(sidebarConfig.width) : CGFloat(sidebarConfig.collapsedWidth)
+    sidebarConfig.alwaysExpanded ? CGFloat(sidebarConfig.width) : CGFloat(sidebarConfig.effectiveCollapsedWidth)
 }
 
 func workspaceSidebarCollapsedContentWidth(_ sidebarConfig: WorkspaceSidebarConfig) -> CGFloat {
-    sidebarConfig.autoHide && !sidebarConfig.alwaysExpanded ? 0 : CGFloat(sidebarConfig.collapsedWidth)
+    sidebarConfig.autoHide && !sidebarConfig.alwaysExpanded ? 0 : CGFloat(sidebarConfig.effectiveCollapsedWidth)
 }
 
 func workspaceSidebarPersistentVisibleWidth(

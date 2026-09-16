@@ -107,16 +107,21 @@ struct WorkspaceSidebarCreateWorkspaceSection: View {
                 alignment: isCompact ? .center : .leading,
             )
             .background {
-                sectionShape.fill(Color.white.opacity(0.012))
+                if !layout.showAppIcons || !isCompact {
+                    sectionShape.fill(Color.white.opacity(0.012))
+                }
             }
             .overlay {
-                sectionShape.strokeBorder(
-                    Color.white.opacity(0.10),
-                    style: StrokeStyle(lineWidth: 0.5, dash: [3, 2.5])
-                )
+                if !layout.showAppIcons || !isCompact {
+                    sectionShape.strokeBorder(
+                        Color.white.opacity(0.10),
+                        style: StrokeStyle(lineWidth: 0.5, dash: [3, 2.5])
+                    )
+                }
             }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityLabel("Create workspace")
     }
 }

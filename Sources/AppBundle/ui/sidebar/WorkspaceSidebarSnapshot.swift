@@ -43,7 +43,7 @@ struct WorkspaceSidebarConfiguration: Equatable {
     var solidChromeCustomColor: String
     var showAppIcons: Bool = false
     var glassOpacity: Double = 1
-    // Auto-hide makes collapsedWidth zero; the compact icon layout still uses this width.
+    // Auto-hide makes collapsedWidth zero; the compact layout retains its resolved rail width.
     var configuredCollapsedWidth: CGFloat? = nil
 
     var compactRailWidth: CGFloat { configuredCollapsedWidth ?? collapsedWidth }
@@ -94,6 +94,7 @@ enum WorkspaceSidebarAction: Equatable {
 struct WorkspaceSidebarActions {
     var send: @MainActor (WorkspaceSidebarAction) -> Void
     var setDropTargets: @MainActor ([WorkspaceSidebarDropTargetFrame]) -> Void
+    var setSurfaceFrame: @MainActor (CGRect) -> Void
     var hoverWorkspace: @MainActor (String, Bool) -> Void
     var windowDragChanged: @MainActor (UInt32, CGPoint) -> Void
     var windowDragEnded: @MainActor (UInt32, CGPoint) -> Void
@@ -103,6 +104,7 @@ struct WorkspaceSidebarActions {
     init(
         send: @escaping @MainActor (WorkspaceSidebarAction) -> Void = { _ in },
         setDropTargets: @escaping @MainActor ([WorkspaceSidebarDropTargetFrame]) -> Void = { _ in },
+        setSurfaceFrame: @escaping @MainActor (CGRect) -> Void = { _ in },
         hoverWorkspace: @escaping @MainActor (String, Bool) -> Void = { _, _ in },
         windowDragChanged: @escaping @MainActor (UInt32, CGPoint) -> Void = { _, _ in },
         windowDragEnded: @escaping @MainActor (UInt32, CGPoint) -> Void = { _, _ in },
@@ -111,6 +113,7 @@ struct WorkspaceSidebarActions {
     ) {
         self.send = send
         self.setDropTargets = setDropTargets
+        self.setSurfaceFrame = setSurfaceFrame
         self.hoverWorkspace = hoverWorkspace
         self.windowDragChanged = windowDragChanged
         self.windowDragEnded = windowDragEnded

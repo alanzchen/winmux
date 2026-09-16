@@ -49,6 +49,8 @@ final class WorkspaceSidebarPanel: NSPanelHud, WorkspaceSidebarInputOwner {
     var edgeTrapSuppressedUntil: TimeInterval = 0
     var splitBrowseCollapseSuppressedUntil: Date = .distantPast
     var persistentExpansionWidth: CGFloat?
+    var visibleSurfaceFrame: CGRect?
+    var localDropTargetFrames: [WorkspaceSidebarDropTargetFrame] = []
     let hoverExitTolerance: CGFloat = 20
     let hoverPollInterval: TimeInterval = 1.0 / 30.0
     let hoverOpenDelay: TimeInterval = 0.05
@@ -99,8 +101,8 @@ final class WorkspaceSidebarPanel: NSPanelHud, WorkspaceSidebarInputOwner {
         panelsByMonitorScopeId[monitorScopeId]
     }
 
-    static func updateVisibleDropTargets(_ targets: [WorkspaceSidebarDropTargetFrame]) {
-        workspaceSidebarDropTargets = visiblePanels.flatMap { $0.convertDropTargets(targets) }
+    static func updateVisibleDropTargets() {
+        workspaceSidebarDropTargets = visiblePanels.flatMap { $0.convertDropTargets($0.localDropTargetFrames) }
     }
 
     static func refreshAll() {

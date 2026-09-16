@@ -176,10 +176,11 @@ extension ConfigTest {
         XCTAssertTrue(invalidErrors[0].description.contains("workspace-sidebar.show-app-icons"))
     }
 
-    func testWorkspaceSidebarAppIconSettingRoundTripsWithoutChangingLabelsOrOpacity() {
+    func testWorkspaceSidebarAppIconSettingRoundTripsWithoutChangingLegacyWidthLabelsOrOpacity() {
         let original = """
             [workspace-sidebar]
                 show-app-icons = false
+                collapsed-width = 120
                 glass-opacity = 0.65
                 stay-on-top = false
 
@@ -199,6 +200,8 @@ extension ConfigTest {
 
             assertEquals(errors, [])
             XCTAssertEqual(parsed.workspaceSidebar.showAppIcons, enabled)
+            XCTAssertEqual(parsed.workspaceSidebar.collapsedWidth, 120)
+            XCTAssertEqual(parsed.workspaceSidebar.effectiveCollapsedWidth, enabled ? 64 : 120)
             XCTAssertEqual(parsed.workspaceSidebar.glassOpacity, 0.65)
             XCTAssertFalse(parsed.workspaceSidebar.stayOnTop)
             XCTAssertEqual(parsed.workspaceSidebar.workspaceLabels, ["2": "Web"])

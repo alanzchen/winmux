@@ -10,7 +10,12 @@ func makeWorkspaceSidebarActionsAdapter(
             handleWorkspaceSidebarAction(action, viewModel: viewModel, targetMonitorScopeId: targetMonitorScopeId)
         },
         setDropTargets: { targets in
-            WorkspaceSidebarPanel.updateVisibleDropTargets(targets)
+            let scopeId = targetMonitorScopeId ?? viewModel.workspaceSidebarTargetMonitorScopeId
+            WorkspaceSidebarPanel.panel(for: scopeId)?.updateDropTargets(targets)
+        },
+        setSurfaceFrame: { frame in
+            let scopeId = targetMonitorScopeId ?? viewModel.workspaceSidebarTargetMonitorScopeId
+            WorkspaceSidebarPanel.panel(for: scopeId)?.updateSurfaceFrame(frame)
         },
         hoverWorkspace: { name, isHovering in
             TrayMenuModel.shared.setIfChanged(\.workspaceSidebarHoveredWorkspaceName, nextWorkspaceSidebarHoveredWorkspaceName(

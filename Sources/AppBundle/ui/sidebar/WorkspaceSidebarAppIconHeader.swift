@@ -49,6 +49,12 @@ struct WorkspaceSidebarAppIconHeader: View {
         }
         .frame(width: layout.itemSize, height: layout.itemSize)
         .modifier(WorkspaceSidebarMorphAnchor(element: .compactApp(app.id), isEnabled: morphTargets.contains(app.id)))
+        .overlay(alignment: .leading) {
+            Circle()
+                .fill(Color.white.opacity(0.82))
+                .frame(width: 2.5, height: 2.5)
+                .offset(x: -5)
+        }
         .accessibilityHidden(true)
     }
 }

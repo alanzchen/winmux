@@ -120,7 +120,6 @@ extension WorkspaceSidebarView {
                     showsClock: snapshot.configuration.showsClock,
                 ))
         }
-        .coordinateSpace(name: "workspaceSidebarContent")
         .onPreferenceChange(WorkspaceSidebarDropTargetPreferenceKey.self) { frames in
             actions.setDropTargets(frames)
         }
@@ -136,6 +135,7 @@ extension WorkspaceSidebarView {
             Rectangle()
                 .fill(Color.white.opacity(GlassToken.separatorOpacity))
                 .frame(width: 0.5)
+                .opacity(Double(dockSurfaceProgress))
         }
         .clipShape(sidebarShape)
         .overlay {

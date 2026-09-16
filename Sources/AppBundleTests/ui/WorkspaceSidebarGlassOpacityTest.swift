@@ -6,9 +6,15 @@ import XCTest
 @MainActor
 final class WorkspaceSidebarGlassOpacityTest: XCTestCase {
     func testOpacityChangesGlassBackgroundWithoutFadingForeground() throws {
-        let transparent = try render(opacity: 0)
-        let translucent = try render(opacity: 0.4)
-        let original = try render(opacity: 1)
+        for dockMode in [false, true] {
+            try verifyGlassOpacity(dockMode: dockMode)
+        }
+    }
+
+    private func verifyGlassOpacity(dockMode: Bool) throws {
+        let transparent = try render(opacity: 0, dockMode: dockMode)
+        let translucent = try render(opacity: 0.4, dockMode: dockMode)
+        let original = try render(opacity: 1, dockMode: dockMode)
 
         let clearBackground = try color(transparent, at: CGPoint(x: 10, y: 10))
         let partialBackground = try color(translucent, at: CGPoint(x: 10, y: 10))
@@ -29,9 +35,11 @@ final class WorkspaceSidebarGlassOpacityTest: XCTestCase {
     }
 
     func testSolidSidebarKeepsItsOpacity() throws {
-        for opacity in [0.0, 0.4, 1.0] {
-            let bitmap = try render(opacity: opacity, style: .solid)
-            XCTAssertEqual(try color(bitmap, at: CGPoint(x: 10, y: 10)).alphaComponent, 1, accuracy: 0.01)
+        for dockMode in [false, true] {
+            for opacity in [0.0, 0.4, 1.0] {
+                let bitmap = try render(opacity: opacity, style: .solid, dockMode: dockMode)
+                XCTAssertEqual(try color(bitmap, at: CGPoint(x: 10, y: 10)).alphaComponent, 1, accuracy: 0.01)
+            }
         }
     }
 
@@ -45,10 +53,11 @@ final class WorkspaceSidebarGlassOpacityTest: XCTestCase {
         XCTAssertTrue(snapshot.showAppIcons)
     }
 
-    private func render(opacity: Double, style: ChromeStyle = .liquidGlass) throws -> NSBitmapImageRep {
+    private func render(opacity: Double, style: ChromeStyle = .liquidGlass, dockMode: Bool = false) throws -> NSBitmapImageRep {
         var snapshot = WorkspaceSidebarSnapshot.empty
         snapshot.configuration.chromeStyle = style
         snapshot.configuration.glassOpacity = opacity
+        snapshot.configuration.showAppIcons = dockMode
         let sidebar = WorkspaceSidebarView(snapshot: snapshot)
         let content = ZStack {
             sidebar.sidebarSurface(in: Rectangle())

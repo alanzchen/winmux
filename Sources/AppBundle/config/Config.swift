@@ -78,6 +78,8 @@ enum ShortcutsPreset: String, Equatable, Sendable {
 }
 
 struct WorkspaceSidebarConfig: ConvenienceCopyable, Equatable, Sendable {
+    static let dockCompactWidth = 64
+
     var enabled: Bool = false
     var enableFocus: Bool = false
     var stayOnTop: Bool = true
@@ -101,6 +103,9 @@ struct WorkspaceSidebarConfig: ConvenienceCopyable, Equatable, Sendable {
     var workspaceLabels: [String: String] = [:]
     var projectLabels: [String: String] = [:]
     var projectColors: [String: String] = [:]
+
+    // Dock mode uses a fixed rail without overwriting the width saved for legacy mode.
+    var effectiveCollapsedWidth: Int { showAppIcons ? Self.dockCompactWidth : collapsedWidth }
 }
 
 enum ChromeStyle: String, CaseIterable, Identifiable, Sendable {

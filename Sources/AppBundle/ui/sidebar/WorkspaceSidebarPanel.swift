@@ -114,11 +114,35 @@ extension WorkspaceSidebarPanel {
 }
 extension WorkspaceSidebarPanel {
     func updateDropTargets(_ targets: [WorkspaceSidebarDropTargetFrame]) {
-        workspaceSidebarDropTargets = convertDropTargets(targets)
+        localDropTargetFrames = targets
+        Self.updateVisibleDropTargets()
+    }
+
+    func updateSurfaceFrame(_ nextFrame: CGRect) {
+        guard nextFrame != visibleSurfaceFrame else { return }
+        visibleSurfaceFrame = nextFrame
+        // This cache is native state, not an observed SwiftUI model. Updating hit regions
+        // from the rendered frame therefore cannot create a layout measurement loop.
+        updateMousePassthrough()
+        Self.updateVisibleDropTargets()
+        scheduleHoverRecheckSoon()
+    }
+
+    var visibleSurfaceFrameInHostingView: CGRect {
+        visibleSurfaceFrame ?? CGRect(
+            x: 0,
+            y: 0,
+            width: max(viewModel.workspaceSidebarVisibleWidth, 0),
+            height: hostingView.bounds.height
+        )
+    }
+
+    var visibleSurfaceFrameOnScreen: CGRect {
+        convertToScreen(hostingView.convert(visibleSurfaceFrameInHostingView, to: nil))
     }
 
     func convertDropTargets(_ targets: [WorkspaceSidebarDropTargetFrame]) -> [WorkspaceSidebarDropTarget] {
-        targets.compactMap { target in
+        workspaceSidebarClippedDropTargets(targets, to: visibleSurfaceFrameInHostingView).map { target in
             let windowRect = hostingView.convert(target.frame, to: nil)
             let screenRect = convertToScreen(windowRect)
             return WorkspaceSidebarDropTarget(kind: target.kind, rect: screenRect.monitorFrameNormalized())
@@ -126,13 +150,8 @@ extension WorkspaceSidebarPanel {
     }
 
     func visibleScreenRectNormalized() -> Rect? {
-        guard isVisible, viewModel.workspaceSidebarVisibleWidth > 0 else { return nil }
-        return CGRect(
-            x: frame.minX,
-            y: frame.minY,
-            width: min(viewModel.workspaceSidebarVisibleWidth, frame.width),
-            height: frame.height,
-        ).monitorFrameNormalized()
+        guard isVisible, !visibleSurfaceFrameOnScreen.isEmpty else { return nil }
+        return visibleSurfaceFrameOnScreen.monitorFrameNormalized()
     }
 }
 extension WorkspaceSidebarPanel {
@@ -167,6 +186,13 @@ extension WorkspaceSidebarPanel {
               viewModel.workspaceSidebarVisibleWidth <= collapsedWidth + 0.5
         else {
             debugWorkspaceSidebarEdgeTrapLog("skipPreconditions panel=\(monitorScopeId)")
+            edgeTrapStartedAt = nil
+            lastEdgeTrapSample = sample
+            return
+        }
+
+        let surface = visibleSurfaceFrameOnScreen.monitorFrameNormalized()
+        guard sample.point.y >= surface.minY, sample.point.y < surface.maxY else {
             edgeTrapStartedAt = nil
             lastEdgeTrapSample = sample
             return
@@ -547,13 +573,7 @@ extension WorkspaceSidebarPanel {
 
     func isScreenPointInsideVisibleRegion(_ point: CGPoint) -> Bool {
         guard isVisible else { return false }
-        let visibleRegion = NSRect(
-            x: frame.minX,
-            y: frame.minY,
-            width: viewModel.workspaceSidebarVisibleWidth,
-            height: frame.height,
-        )
-        return visibleRegion.contains(point)
+        return visibleSurfaceFrameOnScreen.contains(point)
     }
 }
 struct WorkspaceSidebarPanelLayout {
@@ -910,11 +930,12 @@ extension WorkspaceSidebarPanel {
 
     func isMouseInsideHoverRegion() -> Bool {
         guard isVisible else { return false }
+        let surface = visibleSurfaceFrameOnScreen
         let hoverWidth = max(
-            viewModel.workspaceSidebarVisibleWidth,
+            surface.width,
             workspaceSidebarHoverActivationWidth(config.workspaceSidebar),
         ) + hoverExitTolerance
-        let hoverRegion = NSRect(x: frame.minX, y: frame.minY, width: hoverWidth, height: frame.height)
+        let hoverRegion = NSRect(x: surface.minX, y: surface.minY, width: hoverWidth, height: surface.height)
         let inside = hoverRegion.contains(NSEvent.mouseLocation)
         if viewModel.workspaceSidebarVisibleWidth > workspaceSidebarRestingWidth(config.workspaceSidebar) + 0.5 || pendingCollapse != nil {
             debugWorkspaceSidebarHoverLog("hoverRegion panel=\(monitorScopeId) inside=\(inside) hoverWidth=\(hoverWidth) visibleWidth=\(viewModel.workspaceSidebarVisibleWidth) frame=\(frame) mouse=\(NSEvent.mouseLocation) suppressUntil=\(splitBrowseCollapseSuppressedUntil)")
@@ -923,14 +944,7 @@ extension WorkspaceSidebarPanel {
     }
 
     func isMouseInsideVisibleRegion() -> Bool {
-        guard isVisible else { return false }
-        let visibleRegion = NSRect(
-            x: frame.minX,
-            y: frame.minY,
-            width: viewModel.workspaceSidebarVisibleWidth,
-            height: frame.height,
-        )
-        return visibleRegion.contains(NSEvent.mouseLocation)
+        isScreenPointInsideVisibleRegion(NSEvent.mouseLocation)
     }
 
     func isMouseDeepEnoughToExpand() -> Bool {
@@ -989,6 +1003,9 @@ extension WorkspaceSidebarPanel {
         }
         updateMousePassthrough()
         orderFrontRegardless()
+        // Moving or showing the native panel does not necessarily change any local SwiftUI
+        // frames. Reproject cached local targets even when no geometry preference fires.
+        Self.updateVisibleDropTargets()
         // Panel geometry may have just changed under a stationary cursor; hover is otherwise
         // event-driven from the pointer monitors.
         scheduleHoverRecheckSoon()
@@ -1004,12 +1021,14 @@ extension WorkspaceSidebarPanel {
         cancelExpansionWork()
         // Runs for every inactive panel on every refreshAll — guard the shared-model writes so
         // they don't invalidate every observer each session.
-        workspaceSidebarDropTargets = []
+        localDropTargetFrames = []
+        visibleSurfaceFrame = nil
         setWorkspaceSidebarDropPreviewIfChanged(nil)
         TrayMenuModel.shared.setIfChanged(\.workspaceSidebarHoveredWorkspaceName, nil)
         viewModel.setIfChanged(\.workspaceSidebarVisibleWidth, 0)
         if isVisible {
             orderOut(nil)
         }
+        Self.updateVisibleDropTargets()
     }
 }

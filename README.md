@@ -64,11 +64,14 @@ show a vertical Dock-style compact rail. Each workspace starts with a numbered
 app-shaped tile, followed by equally sized app icons; horizontal lines separate
 workspaces. Named workspaces use their initial on the tile.
 Each app appears once, including apps in floating windows and nested tab groups.
-An overflow tile marks additional apps. The compact rail keeps the configured
-**Collapsed width** as its contents change. Expanding smoothly moves the workspace
-tile and app icons into the individual window list as the separators fade;
-collapsing restores the same
-compact layout. Reduce Motion uses an immediate transition.
+An overflow tile marks additional apps. The compact rail uses a fixed **64 pt**
+width, a rounded glass surface, and small running-app indicators. The stored
+**Collapsed width** setting is preserved for the default sidebar mode.
+The rail fits its contents and sits vertically centered; long lists scroll within
+the available screen height. Expanding grows it to the full sidebar height while
+the workspace tile and app icons move into the individual window list and the
+separators fade. Collapsing restores the compact layout. Reduce Motion uses an
+immediate transition.
 
 Use **Glass opacity** to adjust the sidebar's Liquid Glass background from 0–100%.
 Text, app icons, and selection indicators remain readable. This control applies
