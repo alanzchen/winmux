@@ -20,6 +20,7 @@ struct WorkspaceSidebarWindowRow: View {
     let style: Style
     let appBundleIds: [String?]
     let appBundlePaths: [String?]
+    var appIconMorphId: String? = nil
 
     private var isTabGroupHeader: Bool { style == .tabGroupHeader }
     private var isTabGroupChild: Bool { style == .tabGroupChild }
@@ -72,7 +73,7 @@ struct WorkspaceSidebarWindowRow: View {
     }
 
     private var appIconInputs: [(String?, String?)] {
-        Array(zip(appBundleIds, appBundlePaths)).filter { $0.0 != nil || $0.1 != nil }
+        Array(zip(appBundleIds, appBundlePaths)).filter { $0.0 != nil || $0.1 != nil || appIconMorphId != nil }
     }
 
     private func appIcon(_ input: (String?, String?)) -> some View {
@@ -84,8 +85,16 @@ struct WorkspaceSidebarWindowRow: View {
                     .frame(width: workspaceSidebarAppIconSize, height: workspaceSidebarAppIconSize)
                     .cornerRadius(3)
                     .opacity(rowIconOpacity)
+            } else if appIconMorphId != nil {
+                Image(systemName: "app")
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .foregroundStyle(Color.white.opacity(0.75))
+                    .frame(width: workspaceSidebarAppIconSize, height: workspaceSidebarAppIconSize)
+                    .opacity(rowIconOpacity)
             }
         }
+        .modifier(WorkspaceSidebarMorphAnchor(element: .expandedApp(appIconMorphId ?? ""), isEnabled: appIconMorphId != nil))
     }
 
     private var rowTextColor: Color {

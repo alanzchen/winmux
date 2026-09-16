@@ -2,10 +2,10 @@ import AppKit
 import Common
 import SwiftUI
 
-struct WorkspaceSidebarWorkspaceSection: View {
+struct WorkspaceSidebarWorkspaceSection: View, Animatable {
     let workspace: WorkspaceSidebarWorkspaceViewModel
     let dragPreview: WorkspaceSidebarDropPreviewViewModel?
-    let expansionProgress: CGFloat
+    nonisolated var expansionProgress: CGFloat
     let layout: WorkspaceSidebarConfiguration
     let emitsDropTarget: Bool
     let isFromOtherDisplay: Bool
@@ -33,6 +33,17 @@ struct WorkspaceSidebarWorkspaceSection: View {
     @State var isDropSettling = false
     @Environment(\.accessibilityReduceMotion) var reduceMotion
 
+    nonisolated var animatableData: CGFloat {
+        get { expansionProgress }
+        set { expansionProgress = newValue }
+    }
+
+    var morphProgress: CGFloat { min(max(expansionProgress, 0), 1) }
+    var compactCardWidth: CGFloat { max(layout.compactRailWidth - workspaceSidebarCompactRailHorizontalInset * 2, 1) }
+    var compactInnerInset: CGFloat {
+        min(workspaceSidebarSectionInnerHorizontalInset, max((compactCardWidth - WorkspaceSidebarAppIconLayout.iconSize) / 2, 0))
+    }
+
     var headerHeight: CGFloat {
         if isCompact, layout.showAppIcons {
             return WorkspaceSidebarAppIconLayout(appCount: workspace.apps.count, availableWidth: appSummaryWidth).height
@@ -46,17 +57,24 @@ struct WorkspaceSidebarWorkspaceSection: View {
         guard layout.showAppIcons else { return workspaceSidebarSectionWidth(expansionProgress, layout: layout) }
         let compact = max(layout.collapsedWidth - workspaceSidebarCompactRailHorizontalInset * 2, 1)
         let expanded = workspaceSidebarExpandedSectionWidth(layout: layout)
-        return compact + (expanded - compact) * expansionProgress
+        return compact + (expanded - compact) * morphProgress
     }
     var sectionInnerInset: CGFloat {
-        isCompact && layout.showAppIcons
-            ? min(workspaceSidebarSectionInnerHorizontalInset, max((sectionWidth - WorkspaceSidebarAppIconLayout.iconSize) / 2, 0))
+        layout.showAppIcons
+            ? compactInnerInset + (workspaceSidebarSectionInnerHorizontalInset - compactInnerInset) * morphProgress
             : workspaceSidebarSectionInnerHorizontalInset
     }
-    var appSummaryWidth: CGFloat { max(sectionWidth - sectionInnerInset * 2, 1) }
+    var appSummaryWidth: CGFloat { max(compactCardWidth - compactInnerInset * 2, 1) }
     var isCompact: Bool { expansionProgress < workspaceSidebarRowsRevealProgress }
     var showsWindowRows: Bool { expansionProgress >= workspaceSidebarRowsRevealProgress }
     var sectionMinHeight: CGFloat? {
+        if layout.showAppIcons, allowsWorkspaceActivation, isInUseOnOtherDisplay,
+           workspace.items.isEmpty || isShowingInUseOverlay
+        {
+            let compactHeight = WorkspaceSidebarAppIconLayout(appCount: workspace.apps.count, availableWidth: appSummaryWidth).height + 6
+            let expandedHeight = workspaceSidebarInUseOverrideMinHeight(sectionWidth: workspaceSidebarExpandedSectionWidth(layout: layout))
+            return compactHeight + (expandedHeight - compactHeight) * morphProgress
+        }
         if !isCompact, allowsWorkspaceActivation, isInUseOnOtherDisplay,
            workspace.items.isEmpty || isShowingInUseOverlay
         {
@@ -84,7 +102,7 @@ struct WorkspaceSidebarWorkspaceSection: View {
 
     var body: some View {
         interactiveSectionContent
-            .padding(.vertical, isCompact ? 3 : 4)
+            .padding(.vertical, layout.showAppIcons ? 3 + morphProgress : (isCompact ? 3 : 4))
             .padding(.horizontal, sectionInnerInset)
             .frame(width: sectionWidth, alignment: .leading)
             .frame(minHeight: sectionMinHeight, alignment: .top)
@@ -120,7 +138,7 @@ struct WorkspaceSidebarWorkspaceSection: View {
             .help(isInUseOnOtherDisplay ? inUseOverrideText : (layout.showAppIcons ? workspaceSidebarAppSummaryLabel(workspace) : workspace.displayName))
             .zIndex(isDropTarget ? 1 : 0)
             .animation(.spring(response: 0.2, dampingFraction: 0.82), value: dragPreview)
-            .animation(.spring(response: 0.2, dampingFraction: 0.82), value: expansionProgress)
+            .modifier(WorkspaceSidebarLegacyExpansionAnimation(isEnabled: !layout.showAppIcons, reduceMotion: reduceMotion, progress: expansionProgress))
             .animation(reduceMotion ? workspaceSidebarReducedMotionHoverAnimation : workspaceSidebarHoverAnimation, value: isHovered)
             .animation(reduceMotion ? workspaceSidebarReducedMotionHoverAnimation : workspaceSidebarHoverAnimation, value: hoveredWindowId)
             .animation(reduceMotion ? workspaceSidebarReducedMotionHoverAnimation : workspaceSidebarHoverAnimation, value: hoveredTabGroupId)
@@ -128,9 +146,9 @@ struct WorkspaceSidebarWorkspaceSection: View {
             .background {
                 ZStack {
                     sectionBackground
-                if !isCompact && allowsWorkspaceActivation {
-                    sectionActivationButton
-                }
+                    if (layout.showAppIcons || !isCompact) && allowsWorkspaceActivation {
+                        sectionActivationButton
+                    }
                 }
             }
             .overlay(alignment: .center) {
@@ -165,6 +183,78 @@ struct WorkspaceSidebarWorkspaceSection: View {
     }
 }
 extension WorkspaceSidebarWorkspaceSection {
+    var morphsTitle: Bool { layout.showAppIcons && !isRenamingWorkspace }
+
+    /// Only pair the icons shown in the fixed compact grid with rows actually rendered below.
+    var appMorphTargets: [String: WorkspaceSidebarAppMorphTarget] {
+        guard layout.showAppIcons else { return [:] }
+        let count = WorkspaceSidebarAppIconLayout(appCount: workspace.apps.count, availableWidth: appSummaryWidth).visibleAppCount
+        let visibleAppIds = Set(workspace.apps.prefix(count).map(\.id))
+        var targets: [String: WorkspaceSidebarAppMorphTarget] = [:]
+        for item in workspace.items {
+            let windows: [WorkspaceSidebarWindowViewModel]
+            let opacity: Double
+            switch item.kind {
+                case .window(let window):
+                    windows = [window]
+                    opacity = 1
+                case .tabGroup(let group):
+                    windows = group.searchVisibleTabs ?? group.tabs
+                    opacity = 0.56
+            }
+            for window in windows {
+                let id = WorkspaceSidebarAppViewModel(name: window.appName, bundleId: window.appBundleId, bundlePath: window.appBundlePath).id
+                if visibleAppIds.contains(id), targets[id] == nil {
+                    targets[id] = WorkspaceSidebarAppMorphTarget(windowId: window.windowId, opacity: opacity)
+                }
+            }
+        }
+        return targets
+    }
+
+    func morphAppId(for window: WorkspaceSidebarWindowViewModel, targets: [String: WorkspaceSidebarAppMorphTarget]? = nil) -> String? {
+        (targets ?? appMorphTargets).first { $0.value.windowId == window.windowId }?.key
+    }
+
+    var morphingSectionContent: some View {
+        let targets = appMorphTargets
+        return WorkspaceSidebarMorphLayout(progress: morphProgress, compactWidth: appSummaryWidth) {
+            VStack(alignment: .leading, spacing: 3) {
+                WorkspaceSidebarAppIconHeader(
+                    workspace: workspace,
+                    availableWidth: appSummaryWidth,
+                    isActive: isActiveOnTargetMonitor,
+                    morphTargets: Set(targets.keys),
+                    morphsTitle: morphsTitle,
+                )
+                dropPreviewRow
+            }
+            .opacity(1 - Double(morphProgress))
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: 3) {
+                expandedHeader.frame(height: workspaceSidebarWorkspaceSectionHeaderHeight)
+                windowRows
+                dropPreviewRow
+            }
+            .opacity(Double(morphProgress))
+            .allowsHitTesting(morphProgress >= 1)
+            .accessibilityHidden(morphProgress < 1)
+        }
+        .overlayPreferenceValue(WorkspaceSidebarMorphPreference.self) { anchors in
+            WorkspaceSidebarMorphOverlay(
+                anchors: anchors,
+                progress: morphProgress,
+                workspace: workspace,
+                targets: targets,
+                isActive: isActiveOnTargetMonitor,
+                morphsTitle: morphsTitle,
+            )
+        }
+        .modifier(WorkspaceSidebarReadOnlySummary(isEnabled: !allowsWorkspaceActivation, label: workspaceSidebarAppSummaryLabel(workspace)))
+    }
+
     func handleSectionClick() {
         guard allowsWorkspaceActivation,
               shouldHandleWorkspaceSidebarActivation(
@@ -209,6 +299,35 @@ extension WorkspaceSidebarWorkspaceSection {
     }
 }
 
+private struct WorkspaceSidebarLegacyExpansionAnimation: ViewModifier {
+    let isEnabled: Bool
+    let reduceMotion: Bool
+    let progress: CGFloat
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if isEnabled {
+            content.animation(reduceMotion ? nil : .spring(response: 0.2, dampingFraction: 0.82), value: progress)
+        } else {
+            content
+        }
+    }
+}
+
+private struct WorkspaceSidebarReadOnlySummary: ViewModifier {
+    let isEnabled: Bool
+    let label: String
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if isEnabled {
+            content.accessibilityElement(children: .contain).accessibilityLabel(label)
+        } else {
+            content
+        }
+    }
+}
+
 @MainActor
 private func workspaceSidebarPayload(_ payload: WorkspaceSidebarDragPayload, comesFromWorkspace workspaceName: String) -> Bool {
     switch payload {
@@ -227,7 +346,7 @@ extension WorkspaceSidebarWorkspaceSection {
             .overlay {
                 if isActiveWorkspaceSelection {
                     sectionShape
-                        .strokeBorder(Color.white.opacity(isCompact ? 0.30 : 0.20), lineWidth: StrokeToken.control)
+                        .strokeBorder(Color.white.opacity(layout.showAppIcons ? 0.30 - 0.10 * Double(morphProgress) : (isCompact ? 0.30 : 0.20)), lineWidth: StrokeToken.control)
                 }
                 if isPinnedActiveWorkspace && !isSearchFiltering {
                     sectionShape
@@ -306,7 +425,9 @@ extension WorkspaceSidebarWorkspaceSection {
         if isActiveOnTargetMonitor {
             let compactOpacity: Double = workspace.isFocused ? 0.24 : 0.14
             let expandedOpacity: Double = workspace.isFocused ? 0.12 : 0.07
-            return Color.white.opacity(isCompact ? compactOpacity : expandedOpacity)
+            return Color.white.opacity(layout.showAppIcons
+                ? compactOpacity + (expandedOpacity - compactOpacity) * Double(morphProgress)
+                : (isCompact ? compactOpacity : expandedOpacity))
         }
         if isFromOtherDisplay {
             return Color(nsColor: .systemPink).opacity(isHovered ? 0.10 : 0.05)
@@ -322,7 +443,8 @@ extension WorkspaceSidebarWorkspaceSection {
     }
 
     var compactFocusOpacity: Double {
-        isCompact && !isOnFocusedMonitor ? 0.72 : 1
+        if layout.showAppIcons, !isOnFocusedMonitor { return 0.72 + 0.28 * Double(morphProgress) }
+        return isCompact && !isOnFocusedMonitor ? 0.72 : 1
     }
 
     var inUseOverrideOverlay: some View {
@@ -405,7 +527,7 @@ extension WorkspaceSidebarWorkspaceSection {
 
     var expandedHeader: some View {
         HStack(spacing: workspaceSidebarHeaderSpacing) {
-            if isRenamingWorkspace {
+            if isRenamingWorkspace && (!layout.showAppIcons || morphProgress >= 1) {
                 WorkspaceSidebarWorkspaceRenameField(
                     text: $renamingWorkspaceText,
                     workspaceName: workspace.name,
@@ -414,10 +536,11 @@ extension WorkspaceSidebarWorkspaceSection {
                 )
             } else {
                 Text(workspace.displayName)
-                    .font(.system(size: 15, weight: isActiveOnTargetMonitor ? .bold : .semibold))
+                    .font(expandedTitleFont)
                     .foregroundStyle(isActiveOnTargetMonitor ? Color.white : Color.white.opacity(0.85))
                     .lineLimit(1)
                     .truncationMode(.tail)
+                    .modifier(WorkspaceSidebarMorphAnchor(element: .expandedTitle, isEnabled: morphsTitle))
             }
             if let projectContextLabel, let projectContextColor {
                 Text(projectContextLabel)
@@ -441,14 +564,20 @@ extension WorkspaceSidebarWorkspaceSection {
         .padding(.trailing, workspaceSidebarRowHorizontalPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
+
+    var expandedTitleFont: Font {
+        let font = Font.system(size: 15, weight: isActiveOnTargetMonitor ? .bold : .semibold)
+        return layout.showAppIcons ? font.monospacedDigit() : font
+    }
 }
 extension WorkspaceSidebarWorkspaceSection {
     @ViewBuilder
     var windowRows: some View {
-        if showsWindowRows, !workspace.items.isEmpty {
+        let targets = appMorphTargets
+        if (layout.showAppIcons || showsWindowRows), !workspace.items.isEmpty {
             VStack(alignment: .leading, spacing: 1) {
                 ForEach(workspace.items) { item in
-                    workspaceItemView(item)
+                    workspaceItemView(item, morphTargets: targets)
                 }
             }
             .padding(.leading, workspaceSidebarWindowRowsLeadingIndent)
@@ -456,12 +585,12 @@ extension WorkspaceSidebarWorkspaceSection {
     }
 
     @ViewBuilder
-    func workspaceItemView(_ item: WorkspaceSidebarItemViewModel) -> some View {
+    func workspaceItemView(_ item: WorkspaceSidebarItemViewModel, morphTargets: [String: WorkspaceSidebarAppMorphTarget]) -> some View {
         switch item.kind {
             case .window(let window):
-                workspaceWindowButton(window, allowsDrag: true)
+                workspaceWindowButton(window, allowsDrag: true, appIconMorphId: morphAppId(for: window, targets: morphTargets))
             case .tabGroup(let group):
-                workspaceTabGroupView(group)
+                workspaceTabGroupView(group, morphTargets: morphTargets)
         }
     }
 
@@ -479,7 +608,9 @@ extension WorkspaceSidebarWorkspaceSection {
 extension WorkspaceSidebarWorkspaceSection {
     @ViewBuilder
     var interactiveSectionContent: some View {
-        if isCompact {
+        if layout.showAppIcons {
+            morphingSectionContent
+        } else if isCompact {
             Button(action: handleSectionClick) {
                 sectionContent
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
@@ -498,7 +629,7 @@ extension WorkspaceSidebarWorkspaceSection {
             Color.clear.contentShape(sectionShape)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(workspace.displayName)
+        .accessibilityLabel(layout.showAppIcons && morphProgress < 1 ? workspaceSidebarAppSummaryLabel(workspace) : workspace.displayName)
     }
 
     var sectionContent: some View {
@@ -518,17 +649,17 @@ extension WorkspaceSidebarWorkspaceSection {
     }
 }
 extension WorkspaceSidebarWorkspaceSection {
-    func workspaceTabGroupView(_ group: WorkspaceSidebarTabGroupViewModel) -> some View {
+    func workspaceTabGroupView(_ group: WorkspaceSidebarTabGroupViewModel, morphTargets: [String: WorkspaceSidebarAppMorphTarget]) -> some View {
         let isDragging = activeSidebarDragSourceWindowId == group.representativeWindowId
         return VStack(alignment: .leading, spacing: 1) {
             tabGroupHeaderButton(group)
-            tabGroupTabs(group, isDragging: isDragging)
+            tabGroupTabs(group, isDragging: isDragging, morphTargets: morphTargets)
         }
         .padding(.vertical, 1)
         .animation(.spring(response: 0.2, dampingFraction: 0.78), value: isDragging)
     }
 
-    func tabGroupTabs(_ group: WorkspaceSidebarTabGroupViewModel, isDragging: Bool) -> some View {
+    func tabGroupTabs(_ group: WorkspaceSidebarTabGroupViewModel, isDragging: Bool, morphTargets: [String: WorkspaceSidebarAppMorphTarget]) -> some View {
         VStack(alignment: .leading, spacing: 1) {
             ForEach(group.searchVisibleTabs ?? group.tabs) { tab in
                 workspaceWindowButton(
@@ -536,6 +667,7 @@ extension WorkspaceSidebarWorkspaceSection {
                     allowsDrag: true,
                     subject: .window,
                     leadingHitInset: workspaceSidebarTabGroupChildLeadingIndent,
+                    appIconMorphId: morphAppId(for: tab, targets: morphTargets),
                 )
             }
         }
@@ -592,6 +724,7 @@ extension WorkspaceSidebarWorkspaceSection {
         allowsDrag: Bool,
         subject: WindowDragSubject = .window,
         leadingHitInset: CGFloat = 0,
+        appIconMorphId: String? = nil,
     ) -> some View {
         Button {
             guard allowsWorkspaceActivation else { return }
@@ -613,6 +746,7 @@ extension WorkspaceSidebarWorkspaceSection {
                 style: leadingHitInset > 0 ? .tabGroupChild : .window,
                 appBundleIds: [window.appBundleId],
                 appBundlePaths: [window.appBundlePath],
+                appIconMorphId: appIconMorphId,
             )
             .padding(.leading, leadingHitInset)
             .frame(maxWidth: .infinity, alignment: .leading)

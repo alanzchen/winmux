@@ -70,7 +70,7 @@ let workspaceSidebarProjectColorPresets: [WorkspaceSidebarProjectColorPreset] = 
 extension WorkspaceSidebarPanel {
     func animateVisibleSidebarWidth(_ width: CGFloat, animation: Animation) {
         debugWorkspaceSidebarHoverLog("animateWidth panel=\(monitorScopeId) from=\(viewModel.workspaceSidebarVisibleWidth) to=\(width) frame=\(frame) mouse=\(NSEvent.mouseLocation) ignores=\(ignoresMouseEvents) expanded=\(viewModel.isWorkspaceSidebarExpanded)")
-        withAnimation(animation) {
+        withAnimation(NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? nil : animation) {
             viewModel.workspaceSidebarVisibleWidth = width
         }
         updateMousePassthrough()

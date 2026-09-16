@@ -43,6 +43,10 @@ struct WorkspaceSidebarConfiguration: Equatable {
     var solidChromeCustomColor: String
     var showAppIcons: Bool = false
     var glassOpacity: Double = 1
+    // Auto-hide makes collapsedWidth zero; the compact icon layout still uses this width.
+    var configuredCollapsedWidth: CGFloat? = nil
+
+    var compactRailWidth: CGFloat { configuredCollapsedWidth ?? collapsedWidth }
 
     var effectiveGlassOpacity: Double {
         chromeStyle == .liquidGlass ? glassOpacity : 1

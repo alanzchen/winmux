@@ -5,6 +5,8 @@ struct WorkspaceSidebarAppIconHeader: View {
     let workspace: WorkspaceSidebarWorkspaceViewModel
     let availableWidth: CGFloat
     let isActive: Bool
+    var morphTargets: Set<String> = []
+    var morphsTitle: Bool = false
 
     var layout: WorkspaceSidebarAppIconLayout {
         WorkspaceSidebarAppIconLayout(appCount: workspace.apps.count, availableWidth: availableWidth)
@@ -57,6 +59,7 @@ struct WorkspaceSidebarAppIconHeader: View {
             .lineLimit(1)
             .minimumScaleFactor(0.35)
             .frame(width: min(WorkspaceSidebarAppIconLayout.badgeHeight, availableWidth), height: WorkspaceSidebarAppIconLayout.badgeHeight)
+            .modifier(WorkspaceSidebarMorphAnchor(element: .compactTitle, isEnabled: morphsTitle))
     }
 
     private func appIcon(_ app: WorkspaceSidebarAppViewModel) -> some View {
@@ -73,6 +76,7 @@ struct WorkspaceSidebarAppIconHeader: View {
             }
         }
         .frame(width: min(WorkspaceSidebarAppIconLayout.iconSize, availableWidth), height: WorkspaceSidebarAppIconLayout.iconSize)
+        .modifier(WorkspaceSidebarMorphAnchor(element: .compactApp(app.id), isEnabled: morphTargets.contains(app.id)))
         .accessibilityHidden(true)
     }
 

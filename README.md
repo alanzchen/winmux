@@ -63,7 +63,10 @@ In **Settings → Appearance → Sidebar**, enable **Show workspace app icons** 
 show each workspace's number or label together with its apps in the compact rail.
 Narrow rails stack the icons below the number; wider rails show them beside it.
 Each app appears once, including apps in floating windows and nested tab groups.
-An overflow count marks additional apps. Expand the sidebar for individual windows.
+An overflow count marks additional apps. The compact rail keeps the configured
+**Collapsed width** as its contents change. Expanding smoothly moves the workspace
+label and app icons into the individual window list; collapsing restores the same
+compact layout. Reduce Motion uses an immediate transition.
 
 Use **Glass opacity** to adjust the sidebar's Liquid Glass background from 0–100%.
 Text, app icons, and selection indicators remain readable. This control applies

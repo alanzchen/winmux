@@ -9,8 +9,8 @@ are in the [README](../README.md#workspace-app-icons-and-glass-opacity).
 
 Validated on September 16, 2026 with Swift **6.2.4**:
 
-- **168 focused sidebar/configuration tests passed.**
-- **679 tests passed** in the complete application suite.
+- **181 focused sidebar/configuration tests passed.**
+- **692 tests passed** in the complete application suite.
 - Debug application/CLI build and `git diff --check` passed.
 
 ```sh
@@ -25,6 +25,12 @@ deduplication, search preservation, numeric labels, overflow, and accessibility
 labels. Review also checked that optimistic workspace selection keeps app summaries
 and that the new layout does not resize shared monitor/project controls.
 
+The app-icon rail keeps its configured collapsed width and grid through expansion,
+including auto-hide. Shared workspace labels and app icons move to their expanded
+row positions while measured card heights interpolate. Regression coverage includes
+widths 28/44/120, empty and crowded workspaces, duplicate apps, filtered tab groups,
+summary-only apps, and both sides of the former row-reveal threshold.
+
 ## Native rendering
 
 Detached `NSHostingView` tests rendered the actual compact header at 28-, 44-, and
@@ -32,11 +38,19 @@ Detached `NSHostingView` tests rendered the actual compact header at 28-, 44-, a
 The full workspace-card preview was visually inspected:
 `.build/sidebar-appearance-ui/workspace-app-icons-preview.png`.
 
+Actual workspace cards were also rendered at six intermediate expansion positions.
+Anchor checks verified fixed compact icon geometry and mounted destinations;
+height checks verified continuous expansion for empty, single-window, and grouped
+workspaces. A pixel regression verifies numeric labels remain readable at all five
+preview positions. Numeric and long workspace labels were visually inspected in the morph
+preview: `.build/sidebar-morph-ui/workspace-app-icons-morph-preview.png`.
+
 The actual sidebar surface was rendered at 0%, 40%, and 100% opacity. Its background
 alpha changed while the foreground pixels stayed unchanged. Solid surfaces remained
 opaque at all three values. Workspace card glass uses the same configured opacity.
 
 These checks open no windows and change no user configuration. Live backdrop blur
 and mouse/VoiceOver operation of the settings controls have not been manually
-smoke tested in a running application. Existing search, rename, drag, Override,
+smoke tested in a running application. Live hover/reverse animation timing and
+multi-monitor movement remain manual checks. Existing search, rename, drag, Override,
 sidebar layering, and settings scroll-retention code paths remain in place.
