@@ -49,12 +49,6 @@ struct WorkspaceSidebarAppIconHeader: View {
         }
         .frame(width: layout.itemSize, height: layout.itemSize)
         .modifier(WorkspaceSidebarMorphAnchor(element: .compactApp(app.id), isEnabled: morphTargets.contains(app.id)))
-        .overlay(alignment: .leading) {
-            Circle()
-                .fill(Color.white.opacity(0.82))
-                .frame(width: 2.5, height: 2.5)
-                .offset(x: -5)
-        }
         .accessibilityHidden(true)
     }
 }
@@ -76,6 +70,22 @@ struct WorkspaceSidebarWorkspaceIcon: View {
                     .padding(.horizontal, size * 0.13)
             }
             .frame(width: size, height: size)
+            .overlay(alignment: .bottom) {
+                if isActive {
+                    WorkspaceSidebarActiveWorkspaceIndicator()
+                        .offset(y: 2)
+                }
+            }
+    }
+}
+
+struct WorkspaceSidebarActiveWorkspaceIndicator: View {
+    var body: some View {
+        Circle()
+            .fill(Color.white.opacity(0.82))
+            .frame(width: 2.5, height: 2.5)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
     }
 }
 
