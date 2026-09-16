@@ -204,10 +204,34 @@ prompt. Apple accepted the app (`1dffc480-d9bf-4afd-be9f-e959b88abe75`) and DMG
 both ZIPs, the read-only mounted DMG, matching app/CLI metadata, launcher, and
 checksums passed verification.
 
-The current local package is
+The previous local package is
 `.build/developer-id-validation-fe0962ab/WinMux-0.5.5.dmg`; it supersedes `a75368c9`.
 It has not been published or installed. Live multi-monitor interaction, tagged CI
 signing, and installed version-to-version updates remain unverified as described above.
+
+### Clickable Dock icons build — September 16, 2026
+
+Local WinMux **0.5.5**, built from `23b55258`, replaces per-app dots with one dot
+under the active workspace number. Clicking a compact app icon selects a matching
+window and raises it after layout; occupied workspaces keep the explicit Override
+prompt and retain the selected app. The current window is preferred, followed by
+the workspace's existing tree focus order.
+
+All **176 focused tests**, **715 application tests**, the debug and universal
+release builds, independent code review, and [CI](https://github.com/alanzchen/winmux/actions/runs/35163648568)
+passed. Saved signing credentials were reused without a new approval prompt.
+Apple accepted the app (`dd23f326-5612-4df5-b464-d22f834c9e4e`) and DMG
+(`8a939e90-8c7f-45e7-a21a-676b36db797f`). Developer ID signatures, stapling,
+Gatekeeper, the Sparkle signature, both ZIPs, the read-only mounted DMG, matching
+universal app/CLI metadata, launcher, and checksums passed verification.
+
+The current local package is
+`.build/developer-id-validation-23b55258/WinMux-0.5.5.dmg`; it supersedes `fe0962ab`.
+It has not been published or installed. Live pointer/VoiceOver verification is
+pending because the Mac was locked; detached rendering tests do not establish
+input behavior. See [sidebar validation](sidebar-appearance-validation.md#dock-icon-actions).
+The existing multi-monitor, tagged CI signing, and installed-update checks remain
+outstanding.
 
 ## References
 

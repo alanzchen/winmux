@@ -12,9 +12,9 @@ Validated on September 16, 2026 with Swift **6.2.4**:
 - **176 focused sidebar/floating-window tests passed.**
 - **715 tests passed** in the complete application suite.
 - Debug application/CLI build and `git diff --check` passed.
-- The previous build's [CI passed for `fe0962ab`](https://github.com/alanzchen/winmux/actions/runs/35155610377).
-- The previous universal Developer ID-signed and notarized DMG passed distribution checks;
-  see the [release validation record](releasing.md#dockset-reference-build--september-16-2026).
+- [CI passed for `23b55258`](https://github.com/alanzchen/winmux/actions/runs/35163648568).
+- The universal Developer ID-signed and notarized DMG passed distribution checks;
+  see the [release validation record](releasing.md#clickable-dock-icons-build--september-16-2026).
 
 ```sh
 swift test --filter 'WorkspaceSidebar|NewFloatingWindowPresentation'
@@ -46,8 +46,9 @@ showing, including same-size display rearrangements.
 
 ## Dock icon actions
 
-Clicking an app icon selects its current or most recently used eligible window in
-that workspace and raises it after layout and ordinary focus synchronization.
+Clicking an app icon selects its current eligible window, or a matching window
+using the workspace's tree focus order, and raises it after layout and ordinary
+focus synchronization.
 The action resolves live windows, including nested tab groups and floating windows.
 An occupied workspace retains the clicked app through the existing **Override**
 prompt; cancellation leaves its monitor assignment unchanged. Clicking a workspace

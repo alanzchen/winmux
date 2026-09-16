@@ -64,8 +64,9 @@ show a vertical Dock-style compact rail. Each workspace starts with a numbered
 app-shaped tile, followed by equally sized app icons; horizontal lines separate
 workspaces. Named workspaces use their initial on the tile.
 Each app appears once, including apps in floating windows and nested tab groups.
-Click an app icon to focus its most recently used window in that workspace. A
-workspace on another display keeps the **Override** prompt; confirming it also
+Click an app icon to focus a window in that workspace: the current window is
+preferred, followed by the workspace's focus order. A workspace on another display
+keeps the **Override** prompt; confirming it also
 focuses the app you clicked. Clicking the numbered tile selects the workspace.
 An overflow tile marks additional apps. The compact rail uses a fixed **64 pt**
 width, a rounded glass surface, and a dot below the active workspace's number tile.
