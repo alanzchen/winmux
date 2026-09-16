@@ -60,12 +60,14 @@ the month and day, and the weekday; for example, `show-date = false` with
 ### Workspace app icons and glass opacity
 
 In **Settings → Appearance → Sidebar**, enable **Show workspace app icons** to
-show each workspace's number or label together with its apps in the compact rail.
-Narrow rails stack the icons below the number; wider rails show them beside it.
+show a vertical Dock-style compact rail. Each workspace starts with a numbered
+app-shaped tile, followed by equally sized app icons; horizontal lines separate
+workspaces. Named workspaces use their initial on the tile.
 Each app appears once, including apps in floating windows and nested tab groups.
-An overflow count marks additional apps. The compact rail keeps the configured
+An overflow tile marks additional apps. The compact rail keeps the configured
 **Collapsed width** as its contents change. Expanding smoothly moves the workspace
-label and app icons into the individual window list; collapsing restores the same
+tile and app icons into the individual window list as the separators fade;
+collapsing restores the same
 compact layout. Reduce Motion uses an immediate transition.
 
 Use **Glass opacity** to adjust the sidebar's Liquid Glass background from 0–100%.

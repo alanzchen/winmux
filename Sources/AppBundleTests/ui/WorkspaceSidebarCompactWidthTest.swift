@@ -65,7 +65,7 @@ final class WorkspaceSidebarCompactWidthTest: XCTestCase {
         }
     }
 
-    func testAppSummaryKeepsItsCompactGridWhileSidebarMorphsIntoExpandedMode() {
+    func testAppSummaryKeepsItsCompactColumnWhileSidebarMorphsIntoExpandedMode() {
         for railWidth: CGFloat in [28, 44, 120] {
             for appCount in [0, 1, 6, 104] {
                 let compact = section(railWidth: railWidth, progress: 0, appCount: appCount, windowCount: 8)
@@ -79,8 +79,7 @@ final class WorkspaceSidebarCompactWidthTest: XCTestCase {
                         accuracy: 0.001,
                         "Compact app icons must not reflow as the sidebar expands",
                     )
-                    XCTAssertEqual(icons.columns, compactIcons.columns)
-                    XCTAssertEqual(icons.isInline, compactIcons.isInline)
+                    XCTAssertEqual(icons.itemSize, compactIcons.itemSize, accuracy: 0.001)
                     XCTAssertEqual(icons.height, compactIcons.height, accuracy: 0.001)
                     XCTAssertEqual(icons.visibleAppCount, compactIcons.visibleAppCount)
                     XCTAssertEqual(icons.overflowCount, compactIcons.overflowCount)

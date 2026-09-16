@@ -13,53 +13,23 @@ struct WorkspaceSidebarAppIconHeader: View {
     }
 
     var body: some View {
-        Group {
-            if layout.isInline {
-                HStack(spacing: 6) {
-                    badge
-                    if layout.visibleAppCount > 0 {
-                        HStack(spacing: WorkspaceSidebarAppIconLayout.spacing) {
-                            ForEach(workspace.apps.prefix(layout.visibleAppCount)) { app in
-                                appIcon(app)
-                            }
-                            if layout.overflowCount > 0 { overflow }
-                        }
-                    }
-                }
-            } else {
-                VStack(spacing: 4) {
-                    badge
-                    VStack(spacing: WorkspaceSidebarAppIconLayout.spacing) {
-                        ForEach(0 ..< gridRowCount, id: \.self) { row in
-                            HStack(spacing: WorkspaceSidebarAppIconLayout.spacing) {
-                                ForEach(gridIndices(for: row), id: \.self) { index in
-                                    if index < layout.visibleAppCount {
-                                        appIcon(workspace.apps[index])
-                                    } else {
-                                        overflow
-                                            .frame(width: min(WorkspaceSidebarAppIconLayout.iconSize, availableWidth))
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+        VStack(spacing: WorkspaceSidebarAppIconLayout.spacing) {
+            WorkspaceSidebarWorkspaceIcon(
+                identifier: workspaceSidebarAppSummaryIdentifier(workspace),
+                isActive: isActive,
+                size: layout.itemSize
+            )
+            .modifier(WorkspaceSidebarMorphAnchor(element: .compactTitle, isEnabled: morphsTitle))
+            ForEach(workspace.apps.prefix(layout.visibleAppCount)) { app in
+                appIcon(app)
+            }
+            if layout.overflowCount > 0 {
+                WorkspaceSidebarWorkspaceIcon(identifier: "+\(layout.overflowCount)", isActive: false, size: layout.itemSize)
             }
         }
         .frame(width: availableWidth, height: layout.height, alignment: .center)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(workspaceSidebarAppSummaryLabel(workspace))
-    }
-
-    private var badge: some View {
-        Text(workspaceSidebarAppSummaryIdentifier(workspace))
-            .font(.system(size: 18, weight: isActive ? .bold : .semibold))
-            .monospacedDigit()
-            .foregroundStyle(Color.white.opacity(isActive ? 1 : 0.70))
-            .lineLimit(1)
-            .minimumScaleFactor(0.35)
-            .frame(width: min(WorkspaceSidebarAppIconLayout.badgeHeight, availableWidth), height: WorkspaceSidebarAppIconLayout.badgeHeight)
-            .modifier(WorkspaceSidebarMorphAnchor(element: .compactTitle, isEnabled: morphsTitle))
     }
 
     private func appIcon(_ app: WorkspaceSidebarAppViewModel) -> some View {
@@ -69,37 +39,64 @@ struct WorkspaceSidebarAppIconHeader: View {
                     .resizable()
                     .aspectRatio(contentMode: .fit)
             } else {
-                Image(systemName: "app")
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .foregroundStyle(Color.white.opacity(0.75))
+                WorkspaceSidebarWorkspaceIconBackground(isActive: false)
+                    .overlay {
+                        Image(systemName: "app.dashed")
+                            .font(.system(size: layout.itemSize * 0.50, weight: .regular))
+                            .foregroundStyle(Color.white.opacity(0.85))
+                    }
             }
         }
-        .frame(width: min(WorkspaceSidebarAppIconLayout.iconSize, availableWidth), height: WorkspaceSidebarAppIconLayout.iconSize)
+        .frame(width: layout.itemSize, height: layout.itemSize)
         .modifier(WorkspaceSidebarMorphAnchor(element: .compactApp(app.id), isEnabled: morphTargets.contains(app.id)))
         .accessibilityHidden(true)
     }
+}
 
-    private var overflow: some View {
-        Text("+\(layout.overflowCount)")
-            .font(.system(size: 10, weight: .medium))
-            .monospacedDigit()
-            .foregroundStyle(Color.white.opacity(0.65))
-            .lineLimit(1)
-            .minimumScaleFactor(0.4)
-            .frame(height: WorkspaceSidebarAppIconLayout.iconSize)
+struct WorkspaceSidebarWorkspaceIcon: View {
+    let identifier: String
+    let isActive: Bool
+    let size: CGFloat
+
+    var body: some View {
+        WorkspaceSidebarWorkspaceIconBackground(isActive: isActive)
+            .overlay {
+                Text(identifier)
+                    .font(.system(size: size * 0.55, weight: .semibold))
+                    .monospacedDigit()
+                    .foregroundStyle(Color.white.opacity(0.98))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.25)
+                    .padding(.horizontal, size * 0.13)
+            }
+            .frame(width: size, height: size)
     }
+}
 
-    private var gridItemCount: Int {
-        layout.visibleAppCount + (layout.overflowCount > 0 ? 1 : 0)
-    }
+/// A standard app-icon silhouette; the numeral has the same footprint as its apps.
+struct WorkspaceSidebarWorkspaceIconBackground: View {
+    let isActive: Bool
 
-    private var gridRowCount: Int {
-        (gridItemCount + layout.columns - 1) / layout.columns
-    }
-
-    private func gridIndices(for row: Int) -> Range<Int> {
-        let start = row * layout.columns
-        return start ..< min(start + layout.columns, gridItemCount)
+    var body: some View {
+        GeometryReader { geometry in
+            let side = min(geometry.size.width, geometry.size.height)
+            RoundedRectangle(cornerRadius: side * 0.22, style: .continuous)
+                .fill(LinearGradient(
+                    colors: isActive
+                        ? [Color(red: 0.37, green: 0.64, blue: 0.96), Color(red: 0.16, green: 0.38, blue: 0.78)]
+                        : [Color(red: 0.47, green: 0.51, blue: 0.57), Color(red: 0.26, green: 0.29, blue: 0.35)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                ))
+                .overlay {
+                    RoundedRectangle(cornerRadius: side * 0.22, style: .continuous)
+                        .strokeBorder(LinearGradient(
+                            colors: [Color.white.opacity(0.38), Color.white.opacity(0.08)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        ), lineWidth: 0.5)
+                }
+                .padding(side * 0.07)
+        }
     }
 }

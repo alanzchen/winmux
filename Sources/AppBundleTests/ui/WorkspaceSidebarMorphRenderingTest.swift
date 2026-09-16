@@ -8,12 +8,14 @@ final class WorkspaceSidebarMorphRenderingTest: XCTestCase {
     private let progressValues: [CGFloat] = [0, 0.25, 0.57, 0.59, 0.75, 1]
 
     func testNativeSectionHeightMorphsContinuouslyForEmptySingleAndGroupedWorkspaces() throws {
-        let fixtures: [(String, WorkspaceSidebarWorkspaceViewModel, CGFloat, CGFloat)] = [
-            ("empty", workspace(appCount: 0), 38, 40),
-            ("single", workspace(appCount: 1), 46, 67),
-            ("grouped", workspace(appCount: 6, tabGroup: true), 97, 219),
+        let fixtures: [(String, WorkspaceSidebarWorkspaceViewModel)] = [
+            ("empty", workspace(appCount: 0)),
+            ("single", workspace(appCount: 1)),
+            ("grouped", workspace(appCount: 6, tabGroup: true)),
         ]
-        for (name, workspace, compactHeight, expandedHeight) in fixtures {
+        for (name, workspace) in fixtures {
+            let compactHeight = renderSection(workspace, progress: 0).size.height
+            let expandedHeight = renderSection(workspace, progress: 1).size.height
             var heights: [CGFloat: CGFloat] = [:]
             for progress in progressValues {
                 let sample = renderSection(workspace, progress: progress)
@@ -39,30 +41,42 @@ final class WorkspaceSidebarMorphRenderingTest: XCTestCase {
     }
 
     func testNativeCompactWidthAndIconAnchorsStayFixedThroughoutExpansion() throws {
-        for appCount in [1, 3, 6] {
-            let workspace = workspace(appCount: appCount, tabGroup: appCount > 3)
-            let compact = renderSection(workspace, progress: 0)
-            XCTAssertEqual(compact.size.width + 14, 44, accuracy: 0.01)
-            let compactTitle = try XCTUnwrap(compact.frames[.compactTitle])
-            let visibleApps = workspace.apps.prefix(3)
-            for progress in progressValues {
-                let sample = renderSection(workspace, progress: progress)
-                let title = try XCTUnwrap(sample.frames[.compactTitle])
-                XCTAssertEqual(title.width, compactTitle.width, accuracy: 0.01)
-                XCTAssertEqual(title.height, compactTitle.height, accuracy: 0.01)
+        for railWidth: CGFloat in [28, 44, 120] {
+            for appCount in [1, 3, 6] {
+                let workspace = workspace(appCount: appCount, tabGroup: appCount > 3)
+                let compact = renderSection(workspace, progress: 0, railWidth: railWidth)
+                XCTAssertEqual(compact.size.width + 14, railWidth, accuracy: 0.01)
+                let compactTitle = try XCTUnwrap(compact.frames[.compactTitle])
+                XCTAssertEqual(compactTitle.width, compactTitle.height, accuracy: 0.01, "Workspace numbers occupy a square app tile")
+                let visibleApps = workspace.apps.prefix(3)
+                var previousTile = compactTitle
                 for app in visibleApps {
-                    let initial = try XCTUnwrap(compact.frames[.compactApp(app.id)])
-                    let current = try XCTUnwrap(sample.frames[.compactApp(app.id)])
-                    let destination = try XCTUnwrap(sample.frames[.expandedApp(app.id)])
-                    XCTAssertEqual(current.width, initial.width, accuracy: 0.01)
-                    XCTAssertEqual(current.height, initial.height, accuracy: 0.01)
-                    XCTAssertEqual(current.midX - title.midX, initial.midX - compactTitle.midX, accuracy: 0.01)
-                    XCTAssertEqual(current.midY - title.midY, initial.midY - compactTitle.midY, accuracy: 0.01)
-                    XCTAssertGreaterThan(destination.width, 0)
-                    XCTAssertGreaterThan(destination.height, 0)
-                    XCTAssertTrue(destination.midX.isFinite && destination.midY.isFinite)
+                    let tile = try XCTUnwrap(compact.frames[.compactApp(app.id)])
+                    XCTAssertEqual(tile.width, compactTitle.width, accuracy: 0.01)
+                    XCTAssertEqual(tile.height, compactTitle.height, accuracy: 0.01)
+                    XCTAssertEqual(tile.midX, compactTitle.midX, accuracy: 0.01)
+                    XCTAssertGreaterThan(tile.minY, previousTile.maxY, "Dock app tiles form one non-overlapping vertical column")
+                    previousTile = tile
                 }
-                XCTAssertNotNil(sample.frames[.expandedTitle], "Both title endpoints must remain mounted")
+                for progress in progressValues {
+                    let sample = renderSection(workspace, progress: progress, railWidth: railWidth)
+                    let title = try XCTUnwrap(sample.frames[.compactTitle])
+                    XCTAssertEqual(title.width, compactTitle.width, accuracy: 0.01)
+                    XCTAssertEqual(title.height, compactTitle.height, accuracy: 0.01)
+                    for app in visibleApps {
+                        let initial = try XCTUnwrap(compact.frames[.compactApp(app.id)])
+                        let current = try XCTUnwrap(sample.frames[.compactApp(app.id)])
+                        let destination = try XCTUnwrap(sample.frames[.expandedApp(app.id)])
+                        XCTAssertEqual(current.width, initial.width, accuracy: 0.01)
+                        XCTAssertEqual(current.height, initial.height, accuracy: 0.01)
+                        XCTAssertEqual(current.midX - title.midX, initial.midX - compactTitle.midX, accuracy: 0.01)
+                        XCTAssertEqual(current.midY - title.midY, initial.midY - compactTitle.midY, accuracy: 0.01)
+                        XCTAssertGreaterThan(destination.width, 0)
+                        XCTAssertGreaterThan(destination.height, 0)
+                        XCTAssertTrue(destination.midX.isFinite && destination.midY.isFinite)
+                    }
+                    XCTAssertNotNil(sample.frames[.expandedTitle], "Both title endpoints must remain mounted")
+                }
             }
         }
     }
@@ -102,11 +116,13 @@ final class WorkspaceSidebarMorphRenderingTest: XCTestCase {
             sample.host.cacheDisplay(in: sample.host.bounds, to: bitmap)
             let scaleX = CGFloat(bitmap.pixelsWide) / sample.host.bounds.width
             let scaleY = CGFloat(bitmap.pixelsHigh) / sample.host.bounds.height
+            // Keep the tile's decorative rim outside the numeral measurement.
+            let numeralRect = titleRect.insetBy(dx: 2, dy: 2)
             let pixelRect = CGRect(
-                x: titleRect.minX * scaleX,
-                y: titleRect.minY * scaleY,
-                width: titleRect.width * scaleX,
-                height: titleRect.height * scaleY,
+                x: numeralRect.minX * scaleX,
+                y: numeralRect.minY * scaleY,
+                width: numeralRect.width * scaleX,
+                height: numeralRect.height * scaleY,
             ).integral.intersection(CGRect(x: 0, y: 0, width: CGFloat(bitmap.pixelsWide), height: CGFloat(bitmap.pixelsHigh)))
             var brightRows: [Int] = []
             for y in Int(pixelRect.minY) ..< Int(pixelRect.maxY) {
@@ -123,7 +139,7 @@ final class WorkspaceSidebarMorphRenderingTest: XCTestCase {
                 brightRows.last.map { CGFloat($0 - first + 1) / scaleY }
             } ?? 0
             // Numerals have tall strokes; a substituted ellipsis paints only a few bottom rows.
-            // Requiring opaque, bright pixels excludes the translucent card edge and background.
+            // Requiring opaque, bright pixels also excludes the number tile's muted background.
             XCTAssertGreaterThan(
                 textSpan,
                 6,
@@ -175,11 +191,11 @@ final class WorkspaceSidebarMorphRenderingTest: XCTestCase {
         }
         .padding(24)
         .foregroundStyle(.white)
-        .frame(width: 930, height: 430, alignment: .topLeading)
+        .frame(width: 930, height: 530, alignment: .topLeading)
         .background(Color(red: 0.045, green: 0.05, blue: 0.065))
         .environment(\.colorScheme, .dark)
         let host = NSHostingView(rootView: preview)
-        host.frame = NSRect(x: 0, y: 0, width: 930, height: 430)
+        host.frame = NSRect(x: 0, y: 0, width: 930, height: 530)
         host.layoutSubtreeIfNeeded()
         XCTAssertNil(host.window)
         let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
@@ -194,8 +210,9 @@ final class WorkspaceSidebarMorphRenderingTest: XCTestCase {
         _ workspace: WorkspaceSidebarWorkspaceViewModel,
         progress: CGFloat,
         expandedWidth: CGFloat = 240,
+        railWidth: CGFloat = 44,
     ) -> NativeSectionSample {
-        let section = section(workspace, progress: progress, expandedWidth: expandedWidth)
+        let section = section(workspace, progress: progress, expandedWidth: expandedWidth, railWidth: railWidth)
         let probe = MorphAnchorProbe()
         let content = section
             .frame(width: section.sectionWidth)
@@ -217,9 +234,10 @@ final class WorkspaceSidebarMorphRenderingTest: XCTestCase {
         _ workspace: WorkspaceSidebarWorkspaceViewModel,
         progress: CGFloat,
         expandedWidth: CGFloat = 240,
+        railWidth: CGFloat = 44,
     ) -> WorkspaceSidebarWorkspaceSection {
         var layout = WorkspaceSidebarConfiguration.empty
-        layout.collapsedWidth = 44
+        layout.collapsedWidth = railWidth
         layout.expandedWidth = expandedWidth
         layout.showAppIcons = true
         layout.chromeStyle = .solid

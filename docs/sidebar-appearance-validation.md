@@ -25,21 +25,25 @@ deduplication, search preservation, numeric labels, overflow, and accessibility
 labels. Review also checked that optimistic workspace selection keeps app summaries
 and that the new layout does not resize shared monitor/project controls.
 
-The app-icon rail keeps its configured collapsed width and grid through expansion,
-including auto-hide. Shared workspace labels and app icons move to their expanded
-row positions while measured card heights interpolate. Regression coverage includes
+The app-icon rail uses a vertical Dock-style column: equal-sized workspace number
+tiles and app icons, with horizontal separators between workspaces. Wider rails
+retain the column. It keeps its configured collapsed width through expansion,
+including auto-hide. Number tiles fade into workspace titles and app icons move to
+their expanded row positions while measured heights interpolate. Separators fade
+without changing row spacing. Regression coverage includes
 widths 28/44/120, empty and crowded workspaces, duplicate apps, filtered tab groups,
 summary-only apps, and both sides of the former row-reveal threshold.
 
 ## Native rendering
 
-Detached `NSHostingView` tests rendered the actual compact header at 28-, 44-, and
+Detached `NSHostingView` tests rendered actual workspace sections at 28-, 44-, and
 120-point rail widths with 0, 1, 3, 6, and 104 apps. Pixel bounds checks passed.
-The full workspace-card preview was visually inspected:
+The Dock preview includes real app icons, active and inactive workspaces, separators,
+and an empty workspace. It was visually inspected:
 `.build/sidebar-appearance-ui/workspace-app-icons-preview.png`.
 
 Actual workspace cards were also rendered at six intermediate expansion positions.
-Anchor checks verified fixed compact icon geometry and mounted destinations;
+Anchor checks verified equal square number/app tiles, a fixed compact column, and mounted destinations;
 height checks verified continuous expansion for empty, single-window, and grouped
 workspaces. A pixel regression verifies numeric labels remain readable at all five
 preview positions. Numeric and long workspace labels were visually inspected in the morph

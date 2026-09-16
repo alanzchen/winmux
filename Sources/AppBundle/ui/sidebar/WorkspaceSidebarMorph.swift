@@ -110,17 +110,25 @@ struct WorkspaceSidebarMorphOverlay: View {
                let compactAnchor = anchors[.compactTitle],
                let expandedAnchor = anchors[.expandedTitle]
             {
-                let rect = interpolatedRect(from: geometry[compactAnchor], to: geometry[expandedAnchor])
-                title(availableWidth: rect.width)
-                    .font(.system(size: titleFontSize, weight: isActive ? .bold : .semibold))
-                    .monospacedDigit()
-                    .foregroundStyle(Color.white.opacity(isActive ? 1 : Double(interpolate(0.70, 0.85, progress: progress))))
-                    .lineLimit(1)
-                    .minimumScaleFactor(interpolate(0.35, 1, progress: progress))
-                    .truncationMode(.tail)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(width: rect.width, height: rect.height)
-                    .position(x: rect.midX, y: rect.midY)
+                let compactRect = geometry[compactAnchor]
+                let rect = interpolatedRect(from: compactRect, to: geometry[expandedAnchor])
+                let fontSize = interpolate(compactRect.height * 0.55, 15, progress: progress)
+                let textWidth = max(rect.width - compactRect.width * 0.26 * (1 - clampedProgress), 1)
+                ZStack {
+                    WorkspaceSidebarWorkspaceIconBackground(isActive: isActive)
+                        .opacity(Double((1 - clampedProgress) * (1 - clampedProgress)))
+                    title(availableWidth: textWidth, fontSize: fontSize)
+                        .font(.system(size: fontSize, weight: .semibold))
+                        .monospacedDigit()
+                        .foregroundStyle(Color.white.opacity(Double(interpolate(0.98, isActive ? 1 : 0.85, progress: progress))))
+                        .lineLimit(1)
+                        .minimumScaleFactor(interpolate(0.25, 1, progress: progress))
+                        .truncationMode(.tail)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(width: textWidth, height: rect.height)
+                }
+                .frame(width: rect.width, height: rect.height)
+                .position(x: rect.midX, y: rect.midY)
             }
         }
         .allowsHitTesting(false)
@@ -128,12 +136,12 @@ struct WorkspaceSidebarMorphOverlay: View {
     }
 
     @ViewBuilder
-    private func title(availableWidth: CGFloat) -> some View {
+    private func title(availableWidth: CGFloat, fontSize: CGFloat) -> some View {
         let compactTitle = workspaceSidebarAppSummaryIdentifier(workspace)
         if compactTitle == workspace.displayName {
             Text(compactTitle)
                 .fixedSize()
-                .scaleEffect(min(1, availableWidth / max(unconstrainedTitleWidth(compactTitle), 1)))
+                .scaleEffect(min(1, availableWidth / max(unconstrainedTitleWidth(compactTitle, fontSize: fontSize), 1)))
         } else {
             ZStack(alignment: .leading) {
                 Text(compactTitle)
@@ -144,10 +152,8 @@ struct WorkspaceSidebarMorphOverlay: View {
         }
     }
 
-    private var titleFontSize: CGFloat { interpolate(18, 15, progress: progress) }
-
-    private func unconstrainedTitleWidth(_ title: String) -> CGFloat {
-        let font = NSFont.monospacedDigitSystemFont(ofSize: titleFontSize, weight: isActive ? .bold : .semibold)
+    private func unconstrainedTitleWidth(_ title: String, fontSize: CGFloat) -> CGFloat {
+        let font = NSFont.monospacedDigitSystemFont(ofSize: fontSize, weight: .semibold)
         return (title as NSString).size(withAttributes: [.font: font]).width
     }
 

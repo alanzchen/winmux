@@ -897,15 +897,14 @@ extension WorkspaceSidebarView {
         showsCreateWorkspace: Bool = true,
         allowsActivation: Bool? = nil,
     ) -> some View {
-        ScrollView {
+        let pinnedWorkspace = showsPinnedActiveWorkspace
+            ? pinnedActiveWorkspace(displayedProjectId: projectId, pageWorkspaces: workspaces)
+            : nil
+        return ScrollView {
             VStack(alignment: .leading, spacing: 6) {
-                if showsPinnedActiveWorkspace,
-                   let pinnedActiveWorkspace = pinnedActiveWorkspace(
-                    displayedProjectId: projectId,
-                    pageWorkspaces: workspaces
-                ) {
+                if let pinnedWorkspace {
                     workspaceSection(
-                        workspace: pinnedActiveWorkspace,
+                        workspace: pinnedWorkspace,
                         expansionProgress: expansionProgress,
                         emitsDropTarget: true,
                         allowsWorkspaceActivation: false,
@@ -924,6 +923,17 @@ extension WorkspaceSidebarView {
                         projectContextLabel: browsedProjectId != nil && projectId != snapshot.activeProjectId ? projectName(projectId) : nil,
                         projectContextColor: browsedProjectId != nil && projectId != snapshot.activeProjectId ? projectColor(projectId) : nil
                     )
+                    .overlay(alignment: .topLeading) {
+                        if snapshot.configuration.showAppIcons,
+                           pinnedWorkspace != nil || workspace.id != workspaces.first?.id
+                        {
+                            WorkspaceSidebarDockSeparator(
+                                expansionProgress: expansionProgress,
+                                layout: snapshot.configuration
+                            )
+                            .offset(y: -3)
+                        }
+                    }
                 }
                 if showsCreateWorkspace && workspaceSidebarShowsCreateWorkspace(selectedScopeId: snapshot.selectedMonitorScopeId) {
                     let createMonitorScopeId = workspaceSidebarWorkspaceCreateScope(

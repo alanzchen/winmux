@@ -127,7 +127,7 @@ struct ShortcutAppearanceSettingsView: View {
                 SettingsToggle("Keep sidebar above Dock", isOn: $sidebarStayOnTop, help: "Keep the sidebar above the Dock. Turn this off to let the Dock appear over it.") { sidebarBool("stay-on-top", sidebarStayOnTop) }
                 SettingsToggle("Reveal sidebar at the display edge", isOn: $sidebarAutoHide, help: "Hide the compact rail until the pointer reaches the left edge.") { sidebarBool("auto-hide", sidebarAutoHide) }
                 SettingsToggle("Keep sidebar expanded", isOn: $sidebarAlwaysExpanded, help: "Reserve the full sidebar width for tiled windows.") { sidebarBool("always-expanded", sidebarAlwaysExpanded) }
-                SettingsToggle("Show workspace app icons", isOn: $showAppIcons, help: "Show workspace numbers or labels with the apps they contain in the compact sidebar. Expand the sidebar for window details.") { sidebarBool("show-app-icons", showAppIcons) }
+                SettingsToggle("Show workspace app icons", isOn: $showAppIcons, help: "Show a Dock-style column of workspace number tiles and app icons, with lines separating workspaces. Expand the sidebar for window details.") { sidebarBool("show-app-icons", showAppIcons) }
                 SettingsPercentageSlider("Glass opacity", value: $glassOpacity, help: "Adjust the sidebar's Liquid Glass background while keeping text and icons readable. Available with Liquid Glass style.") {
                     persist("workspace-sidebar", "glass-opacity", "\(glassOpacity)")
                 }

@@ -40,9 +40,7 @@ struct WorkspaceSidebarWorkspaceSection: View, Animatable {
 
     var morphProgress: CGFloat { min(max(expansionProgress, 0), 1) }
     var compactCardWidth: CGFloat { max(layout.compactRailWidth - workspaceSidebarCompactRailHorizontalInset * 2, 1) }
-    var compactInnerInset: CGFloat {
-        min(workspaceSidebarSectionInnerHorizontalInset, max((compactCardWidth - WorkspaceSidebarAppIconLayout.iconSize) / 2, 0))
-    }
+    var compactInnerInset: CGFloat { 0 }
 
     var headerHeight: CGFloat {
         if isCompact, layout.showAppIcons {
@@ -185,7 +183,7 @@ struct WorkspaceSidebarWorkspaceSection: View, Animatable {
 extension WorkspaceSidebarWorkspaceSection {
     var morphsTitle: Bool { layout.showAppIcons && !isRenamingWorkspace }
 
-    /// Only pair the icons shown in the fixed compact grid with rows actually rendered below.
+    /// Only pair the icons shown in the fixed compact column with rows actually rendered below.
     var appMorphTargets: [String: WorkspaceSidebarAppMorphTarget] {
         guard layout.showAppIcons else { return [:] }
         let count = WorkspaceSidebarAppIconLayout(appCount: workspace.apps.count, availableWidth: appSummaryWidth).visibleAppCount
@@ -356,9 +354,10 @@ extension WorkspaceSidebarWorkspaceSection {
                         )
                 }
             }
+            .opacity(layout.showAppIcons ? (isDropTarget ? max(Double(morphProgress), 0.45) : Double(morphProgress)) : 1)
     }
 
-    /// The Apple-native container look for a workspace: a dimensional Liquid Glass card.
+    /// The Apple-native container look for an expanded workspace: a dimensional Liquid Glass card.
     /// A bare `.glassEffect` over the already-glassy panel reads flat, so this adds the three
     /// things that give real Liquid Glass its depth — a refractive edge, a specular top
     /// highlight, and a lift shadow — and renders inside a `GlassEffectContainer` (only glass,
