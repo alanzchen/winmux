@@ -56,6 +56,9 @@ The fork Sparkle key is stored locally under the Keychain account
 Generating a new key for each build would break installed clients' update trust.
 The `release` environment, Developer ID certificate, Apple notarization credentials,
 and Sparkle key are configured. Local notarization uses the Keychain profile `winmux`.
+Creating/exporting credentials and entering the app-specific password are one-time
+setup. Tagged GitHub releases reuse these secrets without desktop prompts; renew
+credentials when they expire or are revoked. Retain the existing Sparkle key.
 
 ## Publish a version
 
@@ -85,20 +88,33 @@ Each release contains `WinMux-VERSION.zip` (Sparkle app archive),
 
 ## Local signing and first installation
 
-With the same Developer ID identity and Sparkle key installed locally, save a
-notarization profile using `xcrun notarytool store-credentials winmux`, then build:
+With the same Developer ID identity and Sparkle key installed locally, save the
+notarization profile **once** in the login Keychain:
+
+```sh
+xcrun notarytool store-credentials winmux \
+  --keychain "$HOME/Library/Keychains/login.keychain-db"
+```
+
+For later builds, reuse that profile and its exact Keychain path:
 
 ```sh
 make release VERSION=0.6.0 \
   CODESIGN_IDENTITY='Developer ID Application: Your Name (YOURTEAMID)' \
   EXPECTED_CODESIGN_AUTHORITY_PREFIX='Authority=Developer ID Application:' \
   DEVELOPMENT_TEAM=YOURTEAMID CODESIGN_STYLE=Manual \
-  NOTARIZE=1 NOTARYTOOL_PROFILE=winmux GENERATE_APPCAST=1 PUBLISH=0
+  NOTARIZE=1 NOTARYTOOL_PROFILE=winmux \
+  NOTARYTOOL_KEYCHAIN="$HOME/Library/Keychains/login.keychain-db" \
+  GENERATE_APPCAST=1 PUBLISH=0
 ```
 
 The default key account is `winmux-alanzchen`. CI instead supplies
 `SPARKLE_PRIVATE_KEY_FILE` and `NOTARYTOOL_KEYCHAIN`. Keep `PUBLISH=0` for local
 verification; `PUBLISH=1` uses the same existing-tag and publication checks as CI.
+Local macOS Keychain access may still prompt for approval or unlocking. These
+desktop prompts do not apply to the temporary Keychain and secret files used in CI.
+For an existing profile in another Keychain, pass its original path; omit
+`NOTARYTOOL_KEYCHAIN` for a profile saved in the default data protection Keychain.
 
 Install the first signed fork build manually: quit WinMux, copy `WinMux.app` from
 the DMG into `/Applications`, and replace any old standalone CLI with the supplied
@@ -138,6 +154,26 @@ manifest evaluation used Xcode's compiler through `SWIFT_EXEC_MANIFEST`, because
 the standalone toolchain could not locate the linker during manifest evaluation.
 CI uses Xcode 26.3's bundled Swift 6.2.4 throughout. A tagged GitHub signing run and
 an installed version-to-version update remain separate validation steps.
+
+### Developer ID validation — September 16, 2026
+
+Local WinMux **0.5.5**, built from `8ea1daad`, passed distribution validation:
+
+- Universal arm64/x86_64 app and separate embedded CLI signed with Developer ID
+  Application for team `N9YEGD9WDP`; nested signatures and build metadata verified.
+- Apple accepted the app and DMG; stapling and Gatekeeper assessment passed.
+- The final Sparkle ZIP signature verified against the app's embedded public key.
+- Both ZIPs and the mounted DMG passed app/CLI signature, architecture, version,
+  notarization-ticket, launcher, and checksum checks. The DMG's Applications
+  shortcut was also verified.
+- The application suite passed **692 tests**, release tooling passed **42 tests**,
+  and [CI passed for the build commit](https://github.com/alanzchen/winmux/actions/runs/35131911843).
+
+Artifacts are in `.build/developer-id-validation-8ea1daad/`. No release was
+published and no app was installed. The first tagged GitHub signing job and an
+installed version-to-version Sparkle update remain untested. Native sidebar and
+multi-monitor interaction checks are tracked separately in
+[sidebar appearance validation](sidebar-appearance-validation.md).
 
 ## References
 
