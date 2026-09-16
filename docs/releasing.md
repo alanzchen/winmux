@@ -175,6 +175,20 @@ installed version-to-version Sparkle update remain untested. Native sidebar and
 multi-monitor interaction checks are tracked separately in
 [sidebar appearance validation](sidebar-appearance-validation.md).
 
+### Dock-style sidebar build — September 16, 2026
+
+Local WinMux **0.5.5**, built from `a75368c9`, includes the Dock-style workspace
+number tiles and separators. It passed the same Developer ID, notarization,
+stapling, Gatekeeper, Sparkle signature, universal app/CLI, ZIP, mounted-DMG, and
+checksum checks listed above. Signing reused the saved credentials without a new
+approval prompt. All **692 application tests** and the debug build passed;
+[CI also passed for this commit](https://github.com/alanzchen/winmux/actions/runs/35149181819).
+
+The current local package is
+`.build/developer-id-validation-a75368c9/WinMux-0.5.5.dmg`. It supersedes the
+earlier local preview. It has not been published or installed; the tagged CI and
+installed-update checks above remain outstanding.
+
 ## References
 
 - [GitHub: importing Apple signing certificates](https://docs.github.com/en/actions/how-tos/deploy/deploy-to-third-party-platforms/sign-xcode-applications)

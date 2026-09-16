@@ -12,6 +12,9 @@ Validated on September 16, 2026 with Swift **6.2.4**:
 - **181 focused sidebar/configuration tests passed.**
 - **692 tests passed** in the complete application suite.
 - Debug application/CLI build and `git diff --check` passed.
+- [CI passed for `a75368c9`](https://github.com/alanzchen/winmux/actions/runs/35149181819).
+- A universal Developer ID-signed and notarized DMG passed distribution checks;
+  see the [release validation record](releasing.md#dock-style-sidebar-build--september-16-2026).
 
 ```sh
 swift test --filter 'WorkspaceSidebar|ConfigTest'
