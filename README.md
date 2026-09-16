@@ -64,9 +64,12 @@ show a vertical Dock-style compact rail. Each workspace starts with a numbered
 app-shaped tile, followed by equally sized app icons; horizontal lines separate
 workspaces. Named workspaces use their initial on the tile.
 Each app appears once, including apps in floating windows and nested tab groups.
+Click an app icon to focus its most recently used window in that workspace. A
+workspace on another display keeps the **Override** prompt; confirming it also
+focuses the app you clicked. Clicking the numbered tile selects the workspace.
 An overflow tile marks additional apps. The compact rail uses a fixed **64 pt**
-width, a rounded glass surface, and a dot below the active workspace's number tile. The stored
-**Collapsed width** setting is preserved for the default sidebar mode.
+width, a rounded glass surface, and a dot below the active workspace's number tile.
+The stored **Collapsed width** setting is preserved for the default sidebar mode.
 The rail fits its contents and sits vertically centered; long lists scroll within
 the available screen height. Expanding grows it to the full sidebar height while
 the workspace tile and app icons move into the individual window list and the

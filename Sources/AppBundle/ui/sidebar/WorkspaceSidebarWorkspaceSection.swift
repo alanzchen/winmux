@@ -24,6 +24,7 @@ struct WorkspaceSidebarWorkspaceSection: View, Animatable {
     let selectedSearchTarget: WorkspaceSidebarSearchSelection?
     let isSearchFiltering: Bool
     @Binding var activeInUseOverrideWorkspaceName: String?
+    @Binding var pendingInUseOverrideAppId: String?
     let actions: WorkspaceSidebarActions
 
     @State var isHovered = false
@@ -241,14 +242,25 @@ extension WorkspaceSidebarWorkspaceSection {
             .accessibilityHidden(morphProgress < 1)
         }
         .overlayPreferenceValue(WorkspaceSidebarMorphPreference.self) { anchors in
-            WorkspaceSidebarMorphOverlay(
-                anchors: anchors,
-                progress: morphProgress,
-                workspace: workspace,
-                targets: targets,
-                isActive: isActiveOnTargetMonitor,
-                morphsTitle: morphsTitle,
-            )
+            ZStack {
+                WorkspaceSidebarMorphOverlay(
+                    anchors: anchors,
+                    progress: morphProgress,
+                    workspace: workspace,
+                    targets: targets,
+                    isActive: isActiveOnTargetMonitor,
+                    morphsTitle: morphsTitle,
+                )
+                if allowsWorkspaceActivation, !isRenamingWorkspace, morphProgress < 1 {
+                    WorkspaceSidebarDockAppButtons(
+                        anchors: anchors,
+                        progress: morphProgress,
+                        workspace: workspace,
+                        targets: targets,
+                        onSelectApp: handleAppClick
+                    )
+                }
+            }
         }
         .modifier(WorkspaceSidebarReadOnlySummary(isEnabled: !allowsWorkspaceActivation, label: workspaceSidebarAppSummaryLabel(workspace)))
     }
@@ -260,6 +272,7 @@ extension WorkspaceSidebarWorkspaceSection {
                 isSidebarDragInProgress: isWorkspaceSidebarDragInProgress(),
               )
         else { return }
+        pendingInUseOverrideAppId = nil
         if isInUseOnOtherDisplay {
             activeInUseOverrideWorkspaceName = workspace.name
             if expansionProgress < 1 {
@@ -270,14 +283,39 @@ extension WorkspaceSidebarWorkspaceSection {
         actions.send(.selectWorkspace(workspace.name))
     }
 
+    func handleAppClick(_ app: WorkspaceSidebarAppViewModel) {
+        guard allowsWorkspaceActivation,
+              shouldHandleWorkspaceSidebarActivation(
+                isEditing: isRenamingWorkspace,
+                isSidebarDragInProgress: isWorkspaceSidebarDragInProgress()
+              )
+        else { return }
+        if isInUseOnOtherDisplay {
+            pendingInUseOverrideAppId = app.id
+            activeInUseOverrideWorkspaceName = workspace.name
+            if expansionProgress < 1 { actions.send(.expandForWorkspaceOverride) }
+            return
+        }
+        pendingInUseOverrideAppId = nil
+        activeInUseOverrideWorkspaceName = nil
+        actions.send(.selectApp(workspaceName: workspace.name, appId: app.id))
+    }
+
     func commitWorkspaceOverride() {
         guard showsInUseOverride else { return }
+        let appId = pendingInUseOverrideAppId
+        pendingInUseOverrideAppId = nil
         activeInUseOverrideWorkspaceName = nil
-        actions.send(.overrideWorkspaceInUse(workspace.name))
+        if let appId {
+            actions.send(.overrideWorkspaceInUseAndSelectApp(workspaceName: workspace.name, appId: appId))
+        } else {
+            actions.send(.overrideWorkspaceInUse(workspace.name))
+        }
     }
 
     func cancelWorkspaceOverride() {
         if isShowingInUseOverlay {
+            pendingInUseOverrideAppId = nil
             activeInUseOverrideWorkspaceName = nil
         }
     }
@@ -678,6 +716,7 @@ extension WorkspaceSidebarWorkspaceSection {
         Button {
             guard allowsWorkspaceActivation else { return }
             guard shouldHandleWorkspaceSidebarActivation(isEditing: false, isSidebarDragInProgress: isWorkspaceSidebarDragInProgress()) else { return }
+            pendingInUseOverrideAppId = nil
             if isInUseOnOtherDisplay {
                 activeInUseOverrideWorkspaceName = workspace.name
                 return
@@ -728,6 +767,7 @@ extension WorkspaceSidebarWorkspaceSection {
         Button {
             guard allowsWorkspaceActivation else { return }
             guard shouldHandleWorkspaceSidebarActivation(isEditing: false, isSidebarDragInProgress: isWorkspaceSidebarDragInProgress()) else { return }
+            pendingInUseOverrideAppId = nil
             if isInUseOnOtherDisplay {
                 activeInUseOverrideWorkspaceName = workspace.name
                 return

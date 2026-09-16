@@ -324,6 +324,7 @@ final class WorkspaceSidebarCompactWidthTest: XCTestCase {
             selectedSearchTarget: nil,
             isSearchFiltering: false,
             activeInUseOverrideWorkspaceName: .constant(nil),
+            pendingInUseOverrideAppId: .constant(nil),
             actions: .init(),
         )
     }

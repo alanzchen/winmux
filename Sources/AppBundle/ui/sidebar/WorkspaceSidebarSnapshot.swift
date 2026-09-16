@@ -73,6 +73,8 @@ enum WorkspaceSidebarAction: Equatable {
     case overrideWorkspaceInUse(String)
     case expandForWorkspaceOverride
     case selectWindow(UInt32)
+    case selectApp(workspaceName: String, appId: String)
+    case overrideWorkspaceInUseAndSelectApp(workspaceName: String, appId: String)
     case selectProject(WorkspaceProjectId)
     case createProject
     case renameProject(WorkspaceProjectId, displayName: String)

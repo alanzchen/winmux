@@ -268,7 +268,9 @@ final class MacApp: AbstractApp {
             nsApp.activate(options: .activateIgnoringOtherApps)
         } else {
             MacApp.focusJob = withWindowAsync(windowId) { [nsApp, axApp, axAppFastTimeout] window, job in
-                if forceRaise {
+                // Automatic presentation revalidates native focus. An explicit sidebar
+                // click has no expected ID and must also activate a background app.
+                if forceRaise, expectedNativeFocusedWindowId != nil {
                     _ = performNewFloatingWindowPresentation(
                         windowId: windowId, window: window, app: nsApp,
                         axApp: axApp.threadGuarded, axAppFastTimeout: axAppFastTimeout.threadGuarded,

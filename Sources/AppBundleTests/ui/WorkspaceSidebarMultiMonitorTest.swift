@@ -114,6 +114,79 @@ final class WorkspaceSidebarMultiMonitorTest: XCTestCase {
         XCTAssertTrue(sent.isEmpty)
     }
 
+    func testCompactAppClickSelectsTheAppWithoutSelectingTheWorkspaceBackground() {
+        resetWorkspaceSidebarItemDrag()
+        let app = sidebarAppIconsTestApps(count: 1)[0]
+        var sent: [WorkspaceSidebarAction] = []
+        section(
+            progress: 0,
+            isInUse: false,
+            pending: .constant(nil),
+            actions: WorkspaceSidebarActions(send: { sent.append($0) })
+        ).handleAppClick(app)
+        XCTAssertEqual(sent, [.selectApp(workspaceName: "other", appId: app.id)])
+    }
+
+    func testCompactAppClickRemembersItsTargetUntilExplicitOverride() {
+        resetWorkspaceSidebarItemDrag()
+        let app = sidebarAppIconsTestApps(count: 1)[0]
+        var pending: String?
+        var pendingApp: String?
+        var sent: [WorkspaceSidebarAction] = []
+        let binding = Binding(get: { pending }, set: { pending = $0 })
+        let appBinding = Binding(get: { pendingApp }, set: { pendingApp = $0 })
+        let actions = WorkspaceSidebarActions(send: { sent.append($0) })
+        let compact = section(progress: 0, pending: binding, pendingApp: appBinding, actions: actions)
+        compact.handleAppClick(app)
+        XCTAssertEqual(pending, "other")
+        XCTAssertEqual(pendingApp, app.id)
+        XCTAssertEqual(sent, [.expandForWorkspaceOverride])
+        compact.commitWorkspaceOverride()
+        XCTAssertEqual(sent.count, 1, "A compact prompt cannot move a workspace")
+
+        section(progress: 1, pending: binding, pendingApp: appBinding, actions: actions).commitWorkspaceOverride()
+        XCTAssertNil(pending)
+        XCTAssertNil(pendingApp)
+        XCTAssertEqual(sent, [.expandForWorkspaceOverride, .overrideWorkspaceInUseAndSelectApp(workspaceName: "other", appId: app.id)])
+    }
+
+    func testCancellingOrSelectingWorkspaceNumberClearsPendingApp() {
+        resetWorkspaceSidebarItemDrag()
+        let app = sidebarAppIconsTestApps(count: 1)[0]
+        var pending: String?
+        var pendingApp: String?
+        var sent: [WorkspaceSidebarAction] = []
+        let view = section(
+            progress: 1,
+            pending: Binding(get: { pending }, set: { pending = $0 }),
+            pendingApp: Binding(get: { pendingApp }, set: { pendingApp = $0 }),
+            actions: WorkspaceSidebarActions(send: { sent.append($0) })
+        )
+        view.handleAppClick(app)
+        view.cancelWorkspaceOverride()
+        view.commitWorkspaceOverride()
+        XCTAssertNil(pendingApp)
+        XCTAssertTrue(sent.isEmpty)
+        view.handleAppClick(app)
+        view.handleSectionClick()
+        XCTAssertNil(pendingApp)
+        view.commitWorkspaceOverride()
+        XCTAssertEqual(sent, [.overrideWorkspaceInUse("other")])
+    }
+
+    func testAppClickDuringDragDoesNotFocusOrOpenOverride() {
+        resetWorkspaceSidebarItemDrag()
+        beginWorkspaceSidebarItemDrag()
+        defer { resetWorkspaceSidebarItemDrag() }
+        var sent: [WorkspaceSidebarAction] = []
+        section(
+            progress: 0,
+            pending: .constant(nil),
+            actions: WorkspaceSidebarActions(send: { sent.append($0) })
+        ).handleAppClick(sidebarAppIconsTestApps(count: 1)[0])
+        XCTAssertTrue(sent.isEmpty)
+    }
+
     private func scope(_ id: String) -> WorkspaceSidebarMonitorScopeViewModel {
         WorkspaceSidebarMonitorScopeViewModel(
             id: id,
@@ -128,6 +201,7 @@ final class WorkspaceSidebarMultiMonitorTest: XCTestCase {
         progress: CGFloat,
         isInUse: Bool = true,
         pending: Binding<String?>,
+        pendingApp: Binding<String?> = .constant(nil),
         actions: WorkspaceSidebarActions,
     ) -> WorkspaceSidebarWorkspaceSection {
         var layout = WorkspaceSidebarConfiguration.empty
@@ -166,6 +240,7 @@ final class WorkspaceSidebarMultiMonitorTest: XCTestCase {
             selectedSearchTarget: nil,
             isSearchFiltering: false,
             activeInUseOverrideWorkspaceName: pending,
+            pendingInUseOverrideAppId: pendingApp,
             actions: actions,
         )
     }

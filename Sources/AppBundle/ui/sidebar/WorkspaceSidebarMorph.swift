@@ -22,13 +22,14 @@ struct WorkspaceSidebarMorphPreference: PreferenceKey {
 struct WorkspaceSidebarMorphAnchor: ViewModifier {
     let element: WorkspaceSidebarMorphElement
     var isEnabled: Bool = true
+    var hidesContent: Bool = true
 
     @ViewBuilder
     func body(content: Content) -> some View {
         if isEnabled {
             content
                 .anchorPreference(key: WorkspaceSidebarMorphPreference.self, value: .bounds) { [element: $0] }
-                .opacity(0)
+                .opacity(hidesContent ? 0 : 1)
         } else {
             content
         }
@@ -182,13 +183,17 @@ struct WorkspaceSidebarMorphOverlay: View {
     private var clampedProgress: CGFloat { min(max(progress, 0), 1) }
 
     private func interpolatedRect(from compact: CGRect, to expanded: CGRect) -> CGRect {
-        CGRect(
-            x: interpolate(compact.minX, expanded.minX, progress: progress),
-            y: interpolate(compact.minY, expanded.minY, progress: progress),
-            width: interpolate(compact.width, expanded.width, progress: progress),
-            height: interpolate(compact.height, expanded.height, progress: progress)
-        )
+        workspaceSidebarInterpolatedMorphRect(from: compact, to: expanded, progress: progress)
     }
+}
+
+func workspaceSidebarInterpolatedMorphRect(from compact: CGRect, to expanded: CGRect, progress: CGFloat) -> CGRect {
+    CGRect(
+        x: interpolate(compact.minX, expanded.minX, progress: progress),
+        y: interpolate(compact.minY, expanded.minY, progress: progress),
+        width: interpolate(compact.width, expanded.width, progress: progress),
+        height: interpolate(compact.height, expanded.height, progress: progress)
+    )
 }
 
 private func interpolate(_ compact: CGFloat, _ expanded: CGFloat, progress: CGFloat) -> CGFloat {

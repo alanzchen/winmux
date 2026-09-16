@@ -55,6 +55,15 @@ func handleWorkspaceSidebarAction(
             WorkspaceSidebarPanel.panel(for: scopeId)?.expandSidebar(to: CGFloat(config.workspaceSidebar.width))
         case .selectWindow(let windowId):
             focusWindowFromSidebar(windowId)
+        case .selectApp(let workspaceName, let appId):
+            focusAppFromSidebar(workspaceName: workspaceName, appId: appId, targetMonitorScopeId: targetMonitorScopeId)
+        case .overrideWorkspaceInUseAndSelectApp(let workspaceName, let appId):
+            focusAppFromSidebar(
+                workspaceName: workspaceName,
+                appId: appId,
+                targetMonitorScopeId: targetMonitorScopeId,
+                overrideWorkspaceInUse: true,
+            )
         case .selectProject(let projectId):
             debugWorkspaceSidebarProjectLog(
                 "adapterSelectProject project=\(projectId.rawValue) targetScope=\(targetMonitorScopeId ?? "nil") modelActive=\(viewModel.workspaceSidebarActiveProjectId.rawValue)"

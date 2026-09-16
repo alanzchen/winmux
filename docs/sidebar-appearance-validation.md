@@ -9,15 +9,15 @@ are in the [README](../README.md#workspace-app-icons-and-glass-opacity).
 
 Validated on September 16, 2026 with Swift **6.2.4**:
 
-- **187 focused sidebar/configuration tests passed.**
-- **698 tests passed** in the complete application suite.
+- **176 focused sidebar/floating-window tests passed.**
+- **715 tests passed** in the complete application suite.
 - Debug application/CLI build and `git diff --check` passed.
-- [CI passed for `fe0962ab`](https://github.com/alanzchen/winmux/actions/runs/35155610377).
-- The universal Developer ID-signed and notarized DMG passed distribution checks;
+- The previous build's [CI passed for `fe0962ab`](https://github.com/alanzchen/winmux/actions/runs/35155610377).
+- The previous universal Developer ID-signed and notarized DMG passed distribution checks;
   see the [release validation record](releasing.md#dockset-reference-build--september-16-2026).
 
 ```sh
-swift test --filter 'WorkspaceSidebar|ConfigTest'
+swift test --filter 'WorkspaceSidebar|NewFloatingWindowPresentation'
 swift test
 swift build
 ```
@@ -43,6 +43,28 @@ tall scrolling content, clock/display/project reserves, clipping invisible drag 
 and keeping the original target under the pointer when a drag preview appears.
 Each native panel caches its own local targets and reprojects them after moving or
 showing, including same-size display rearrangements.
+
+## Dock icon actions
+
+Clicking an app icon selects its current or most recently used eligible window in
+that workspace and raises it after layout and ordinary focus synchronization.
+The action resolves live windows, including nested tab groups and floating windows.
+An occupied workspace retains the clicked app through the existing **Override**
+prompt; cancellation leaves its monitor assignment unchanged. Clicking a workspace
+number continues to select the workspace. Hit targets follow the rendered icons
+during expansion; ordinary window rows take over when fully expanded.
+
+Seventeen new regressions cover app identity and recency, hidden and occupied
+workspaces, explicit Override, cancellation, dragging, monitor removal, stale
+windows, logical-focus equality, and native focus ordering. Final native focus
+revalidates the target so a closed, moved, hidden, or newly ineligible window is
+not raised.
+
+Live pointer and VoiceOver activation remain unverified because the Mac was locked.
+A detached `NSHostingView` exposed no native accessibility children, including for
+the existing workspace buttons, so that experiment was not counted as an input
+verification pass. The automated action and geometry checks do not substitute for
+clicking icons in the running app.
 
 ## Native rendering
 

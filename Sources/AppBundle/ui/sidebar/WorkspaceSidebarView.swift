@@ -11,6 +11,7 @@ struct WorkspaceSidebarView: View {
     @State var projectPagerWidth: CGFloat = 0
     @State var browseMode: WorkspaceSidebarBrowseMode = .activeProject
     @State var activeInUseOverrideWorkspaceName: String? = nil
+    @State var pendingInUseOverrideAppId: String? = nil
     @State var isProjectMenuOpen = false
     @State var isSidebarCollapsing = false
     @State var isSidebarExpanding = false
@@ -72,6 +73,9 @@ struct WorkspaceSidebarView: View {
             if let frame { actions.setSurfaceFrame(frame) }
         }
         .background(Color.clear)
+        .onChange(of: activeInUseOverrideWorkspaceName) { name in
+            if name == nil { pendingInUseOverrideAppId = nil }
+        }
         .onChange(of: snapshot.visibleWidth) { visibleWidth in
             if visibleWidth <= collapsedWidth + 0.5 {
                 resetTransientSidebarState()
@@ -1138,6 +1142,7 @@ extension WorkspaceSidebarView {
             selectedSearchTarget: searchText.isEmpty ? nil : selectedSearchTarget,
             isSearchFiltering: !searchText.isEmpty,
             activeInUseOverrideWorkspaceName: $activeInUseOverrideWorkspaceName,
+            pendingInUseOverrideAppId: $pendingInUseOverrideAppId,
             actions: actions,
         )
     }

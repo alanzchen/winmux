@@ -73,13 +73,18 @@ func overrideWorkspaceInUseFromSidebar(_ workspaceName: String, targetMonitorSco
 }
 
 @MainActor
-func runWorkspaceSidebarSession(_ body: @escaping @MainActor () async throws -> Void) {
-    guard let token: RunSessionGuard = .isServerEnabled else { return }
-    Task { @MainActor in
+@discardableResult
+func runWorkspaceSidebarSession(
+    afterLayout: @escaping @MainActor () -> Void = {},
+    _ body: @escaping @MainActor () async throws -> Void
+) -> Task<Void, Never>? {
+    guard let token: RunSessionGuard = .isServerEnabled else { return nil }
+    return Task { @MainActor in
         do {
             try await runLightSession(.menuBarButton, token) {
                 try await body()
             }
+            afterLayout()
         } catch {
             showWorkspaceSidebarError(error.localizedDescription)
         }
