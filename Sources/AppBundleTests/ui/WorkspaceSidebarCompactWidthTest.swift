@@ -7,7 +7,7 @@ import XCTest
 final class WorkspaceSidebarCompactWidthTest: XCTestCase {
     func testCompactRailKeepsConfiguredWidthAsAppsAndWindowsChange() {
         for railWidth: CGFloat in [28, 44, 120] {
-            for expandedWidth: CGFloat in [160, 240, 480] {
+            for expandedWidth: CGFloat in [120, 160, 240, 480] {
                 for appCount in [0, 1, 6, 104] {
                     for windowCount in [0, 1, 8] {
                         let compact = section(

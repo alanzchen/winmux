@@ -69,7 +69,7 @@ final class WorkspaceSidebarMorphRenderingTest: XCTestCase {
 
     func testNativeLongWorkspaceNamesFitMinimumAndDefaultExpandedWidths() throws {
         let workspace = workspace(appCount: 3, displayName: "Research and Development")
-        for expandedWidth: CGFloat in [160, 240] {
+        for expandedWidth: CGFloat in [120, 160, 240] {
             for progress in progressValues {
                 let sample = renderSection(workspace, progress: progress, expandedWidth: expandedWidth)
                 let compactTitle = try XCTUnwrap(sample.frames[.compactTitle])
