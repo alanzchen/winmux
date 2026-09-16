@@ -9,6 +9,7 @@ struct WorkspaceSidebarWorkspaceViewModel: Hashable, Identifiable {
     let isFocused: Bool
     let isVisible: Bool
     let items: [WorkspaceSidebarItemViewModel]
+    var apps: [WorkspaceSidebarAppViewModel] = []
 
     var id: String { name }
 }

@@ -46,6 +46,8 @@ on-mode-changed = []
     auto-hide = false
     # Keep the full sidebar open and reserve its width for tiled windows.
     always-expanded = false
+    # Show workspace numbers or labels with contained app icons in the compact rail.
+    show-app-icons = false
     collapsed-width = 50
     width = 280
     # Omit monitor to show an independent sidebar on every display.
@@ -60,6 +62,8 @@ on-mode-changed = []
     show-weekday = true
     # Apply this style to sidebar, tab groups, and switcher chrome. Use 'solid' for opaque color.
     chrome-style = 'liquid-glass'
+    # Sidebar glass background opacity from 0.0 to 1.0. Text and icons stay readable.
+    glass-opacity = 1.0
     # Used when chrome-style = 'solid'. Choose from the Appearance palette, or use 'custom'.
     solid-chrome-color = 'midnight'
     # Used when solid-chrome-color = 'custom'.

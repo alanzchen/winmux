@@ -795,6 +795,7 @@ extension WorkspaceSidebarView {
         // This panel has no safe-area inset. Expanding the material here gives the native
         // glass backing layer a rectangular area outside the rounded trailing corners.
         .clipShape(shape)
+        .opacity(snapshot.configuration.effectiveGlassOpacity)
     }
 
     func sidebarSwipeCaptureOverlay(expansionProgress: CGFloat) -> some View {

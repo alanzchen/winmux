@@ -7,6 +7,7 @@ private let workspaceSidebarParser: [String: any ParserProtocol<WorkspaceSidebar
     "stay-on-top": Parser(\.stayOnTop, parseBool),
     "auto-hide": Parser(\.autoHide, parseBool),
     "always-expanded": Parser(\.alwaysExpanded, parseBool),
+    "show-app-icons": Parser(\.showAppIcons, parseBool),
     "collapsed-width": Parser(\.collapsedWidth, parseWorkspaceSidebarWidth),
     "width": Parser(\.width, parseWorkspaceSidebarWidth),
     "monitor": Parser(\.monitor) { value, backtrace, errors in
@@ -18,6 +19,7 @@ private let workspaceSidebarParser: [String: any ParserProtocol<WorkspaceSidebar
     "show-date": Parser(\.showDate, parseBool),
     "show-weekday": Parser(\.showWeekday, parseBool),
     "chrome-style": Parser(\.chromeStyle, parseChromeStyle),
+    "glass-opacity": Parser(\.glassOpacity, parseWorkspaceSidebarGlassOpacity),
     "solid-chrome-color": Parser(\.solidChromeColor, parseChromeSolidColor),
     "solid-chrome-custom-color": Parser(\.solidChromeCustomColor, parseChromeSolidCustomColor),
     "use-liquid-glass": Parser(\.chromeStyle) { raw, backtrace in
@@ -65,6 +67,13 @@ private func parseChromeStyle(_ raw: TOMLValueConvertible, _ backtrace: TomlBack
             "Possible values: \(ChromeStyle.allCases.map(\.rawValue).joined(separator: ", "))",
         ))
     }
+}
+
+private func parseWorkspaceSidebarGlassOpacity(_ raw: TOMLValueConvertible, _ backtrace: TomlBacktrace) -> ParsedToml<Double> {
+    let value = raw.double ?? raw.int.map(Double.init)
+    return value
+        .orFailure(.semantic(backtrace, "Must be a number from 0 to 1"))
+        .filter(.semantic(backtrace, "Must be a finite number from 0 to 1")) { $0.isFinite && (0...1).contains($0) }
 }
 
 private func parseChromeSolidColor(_ raw: TOMLValueConvertible, _ backtrace: TomlBacktrace) -> ParsedToml<ChromeSolidColor> {

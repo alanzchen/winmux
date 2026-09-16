@@ -34,6 +34,7 @@ private func optimisticallyMarkWorkspaceFocusedInSidebar(_ workspaceName: String
             isFocused: isFocused,
             isVisible: isVisible,
             items: w.items,
+            apps: w.apps,
         )
     }
     WorkspaceSidebarPanel.syncVisiblePanelModelsFromShared()

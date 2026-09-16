@@ -41,6 +41,12 @@ struct WorkspaceSidebarConfiguration: Equatable {
     var chromeStyle: ChromeStyle
     var solidChromeColor: ChromeSolidColor
     var solidChromeCustomColor: String
+    var showAppIcons: Bool = false
+    var glassOpacity: Double = 1
+
+    var effectiveGlassOpacity: Double {
+        chromeStyle == .liquidGlass ? glassOpacity : 1
+    }
 
     static let empty = WorkspaceSidebarConfiguration(
         collapsedWidth: 0,

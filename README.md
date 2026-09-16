@@ -57,6 +57,26 @@ The sidebar clock can be configured independently:
 the month and day, and the weekday; for example, `show-date = false` with
 `show-weekday = true` leaves a weekday-only calendar label in the expanded sidebar.
 
+### Workspace app icons and glass opacity
+
+In **Settings → Appearance → Sidebar**, enable **Show workspace app icons** to
+show each workspace's number or label together with its apps in the compact rail.
+Narrow rails stack the icons below the number; wider rails show them beside it.
+Each app appears once, including apps in floating windows and nested tab groups.
+An overflow count marks additional apps. Expand the sidebar for individual windows.
+
+Use **Glass opacity** to adjust the sidebar's Liquid Glass background from 0–100%.
+Text, app icons, and selection indicators remain readable. This control applies
+only to the sidebar and is disabled when the chrome style is **Solid color**.
+
+```toml
+[workspace-sidebar]
+    show-app-icons = true
+    glass-opacity = 0.65
+```
+
+Both settings are optional: existing configurations keep their current appearance.
+
 ### Window and sidebar spacing
 
 The `[gaps]` settings control the visible borders around tiled windows. `inner.horizontal`

@@ -35,6 +35,7 @@ private func makeWorkspaceSidebarWorkspaceViewModel(
         isFocused: currentFocus.workspace == workspace,
         isVisible: workspace.isVisible,
         items: await buildWorkspaceSidebarItems(for: workspace, currentFocus: currentFocus),
+        apps: buildWorkspaceSidebarAppSummaries(for: workspace),
     )
 }
 

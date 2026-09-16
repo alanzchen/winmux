@@ -33,11 +33,27 @@ struct WorkspaceSidebarWorkspaceSection: View {
     @State var isDropSettling = false
     @Environment(\.accessibilityReduceMotion) var reduceMotion
 
-    let headerHeight: CGFloat = workspaceSidebarWorkspaceSectionHeaderHeight
+    var headerHeight: CGFloat {
+        if isCompact, layout.showAppIcons {
+            return WorkspaceSidebarAppIconLayout(appCount: workspace.apps.count, availableWidth: appSummaryWidth).height
+        }
+        return workspaceSidebarWorkspaceSectionHeaderHeight
+    }
     let rowHeight: CGFloat = workspaceSidebarWorkspaceRowHeight
 
     var contentWidth: CGFloat { workspaceSidebarContentWidth(expansionProgress, layout: layout) }
-    var sectionWidth: CGFloat { workspaceSidebarSectionWidth(expansionProgress, layout: layout) }
+    var sectionWidth: CGFloat {
+        guard layout.showAppIcons else { return workspaceSidebarSectionWidth(expansionProgress, layout: layout) }
+        let compact = max(layout.collapsedWidth - workspaceSidebarCompactRailHorizontalInset * 2, 1)
+        let expanded = workspaceSidebarExpandedSectionWidth(layout: layout)
+        return compact + (expanded - compact) * expansionProgress
+    }
+    var sectionInnerInset: CGFloat {
+        isCompact && layout.showAppIcons
+            ? min(workspaceSidebarSectionInnerHorizontalInset, max((sectionWidth - WorkspaceSidebarAppIconLayout.iconSize) / 2, 0))
+            : workspaceSidebarSectionInnerHorizontalInset
+    }
+    var appSummaryWidth: CGFloat { max(sectionWidth - sectionInnerInset * 2, 1) }
     var isCompact: Bool { expansionProgress < workspaceSidebarRowsRevealProgress }
     var showsWindowRows: Bool { expansionProgress >= workspaceSidebarRowsRevealProgress }
     var sectionMinHeight: CGFloat? {
@@ -69,7 +85,7 @@ struct WorkspaceSidebarWorkspaceSection: View {
     var body: some View {
         interactiveSectionContent
             .padding(.vertical, isCompact ? 3 : 4)
-            .padding(.horizontal, workspaceSidebarSectionInnerHorizontalInset)
+            .padding(.horizontal, sectionInnerInset)
             .frame(width: sectionWidth, alignment: .leading)
             .frame(minHeight: sectionMinHeight, alignment: .top)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -101,7 +117,7 @@ struct WorkspaceSidebarWorkspaceSection: View {
                 isTargeted: $isDropTargeted,
                 isSettling: $isDropSettling,
             ))
-            .help(isInUseOnOtherDisplay ? inUseOverrideText : workspace.displayName)
+            .help(isInUseOnOtherDisplay ? inUseOverrideText : (layout.showAppIcons ? workspaceSidebarAppSummaryLabel(workspace) : workspace.displayName))
             .zIndex(isDropTarget ? 1 : 0)
             .animation(.spring(response: 0.2, dampingFraction: 0.82), value: dragPreview)
             .animation(.spring(response: 0.2, dampingFraction: 0.82), value: expansionProgress)
@@ -257,6 +273,7 @@ extension WorkspaceSidebarWorkspaceSection {
                 }
             }
             .glassShadow(.resting)
+            .opacity(layout.effectiveGlassOpacity)
         } else if layout.chromeStyle == .solid {
             sectionShape
                 .fill(layout.resolvedSolidChromeColor.opacity(0.38))
@@ -369,9 +386,17 @@ extension WorkspaceSidebarWorkspaceSection {
     var header: some View {
         Group {
             if isCompact {
-                workspaceBadge
-                    .frame(width: workspaceSidebarBadgeWidth, height: workspaceSidebarBadgeWidth)
-                    .frame(maxWidth: .infinity, alignment: .center)
+                if layout.showAppIcons {
+                    WorkspaceSidebarAppIconHeader(
+                        workspace: workspace,
+                        availableWidth: appSummaryWidth,
+                        isActive: isActiveOnTargetMonitor,
+                    )
+                } else {
+                    workspaceBadge
+                        .frame(width: workspaceSidebarBadgeWidth, height: workspaceSidebarBadgeWidth)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                }
             } else {
                 expandedHeader
             }

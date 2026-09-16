@@ -13,6 +13,7 @@ extension ConfigTest {
                 stay-on-top = false
                 auto-hide = true
                 always-expanded = true
+                show-app-icons = true
                 width = 280
                 monitor = ['secondary', 2]
                 show-status-pills = false
@@ -44,6 +45,7 @@ extension ConfigTest {
                 stayOnTop: false,
                 autoHide: true,
                 alwaysExpanded: true,
+                showAppIcons: true,
                 collapsedWidth: 44,
                 width: 280,
                 monitor: [.secondary, .sequenceNumber(2)],
@@ -69,7 +71,9 @@ extension ConfigTest {
         )
         assertEquals(backwardCompatibleErrors, [])
         XCTAssertFalse(backwardCompatible.workspaceSidebar.alwaysExpanded)
+        XCTAssertFalse(backwardCompatible.workspaceSidebar.showAppIcons)
         XCTAssertTrue(backwardCompatible.workspaceSidebar.stayOnTop)
+        XCTAssertEqual(backwardCompatible.workspaceSidebar.glassOpacity, 1.0)
 
         let (solidChrome, solidChromeErrors) = parseConfig(
             """
@@ -154,6 +158,138 @@ extension ConfigTest {
         assertEquals(actionErrors.descriptions, [
             "workspace-sidebar.project-deletion-action: Possible values: close-windows, move-windows-to-fallback",
         ])
+    }
+
+    func testWorkspaceSidebarAppIconsCanBeDisabledAndRejectInvalidTypes() {
+        let (parsed, errors) = parseConfig("""
+            [workspace-sidebar]
+                show-app-icons = false
+            """)
+        assertEquals(errors, [])
+        XCTAssertFalse(parsed.workspaceSidebar.showAppIcons)
+
+        let (_, invalidErrors) = parseConfig("""
+            [workspace-sidebar]
+                show-app-icons = 'true'
+            """)
+        XCTAssertEqual(invalidErrors.count, 1)
+        XCTAssertTrue(invalidErrors[0].description.contains("workspace-sidebar.show-app-icons"))
+    }
+
+    func testWorkspaceSidebarAppIconSettingRoundTripsWithoutChangingLabelsOrOpacity() {
+        let original = """
+            [workspace-sidebar]
+                show-app-icons = false
+                glass-opacity = 0.65
+                stay-on-top = false
+
+            [workspace-sidebar.workspace-labels]
+                2 = 'Web'
+            """
+
+        var updated = original
+        for enabled in [true, false] {
+            updated = updateSettingsScalarConfig(
+                in: updated,
+                section: "workspace-sidebar",
+                key: "show-app-icons",
+                renderedValue: enabled ? "true" : "false",
+            )
+            let (parsed, errors) = parseConfig(updated)
+
+            assertEquals(errors, [])
+            XCTAssertEqual(parsed.workspaceSidebar.showAppIcons, enabled)
+            XCTAssertEqual(parsed.workspaceSidebar.glassOpacity, 0.65)
+            XCTAssertFalse(parsed.workspaceSidebar.stayOnTop)
+            XCTAssertEqual(parsed.workspaceSidebar.workspaceLabels, ["2": "Web"])
+        }
+    }
+
+    func testParseWorkspaceSidebarGlassOpacity() {
+        for (rawValue, expected) in [("0", 0.0), ("1", 1.0), ("0.0", 0.0), ("1.0", 1.0), ("0.35", 0.35)] {
+            let (parsed, errors) = parseConfig("""
+                [workspace-sidebar]
+                    glass-opacity = \(rawValue)
+                """)
+
+            assertEquals(errors, [])
+            XCTAssertEqual(parsed.workspaceSidebar.glassOpacity, expected)
+        }
+    }
+
+    func testParseWorkspaceSidebarGlassOpacityRejectsOutOfRangeAndNonfiniteNumbers() {
+        for rawValue in ["-1", "2", "-0.01", "1.01", "inf", "+inf", "-inf", "nan", "+nan", "-nan"] {
+            let (_, errors) = parseConfig("""
+                [workspace-sidebar]
+                    glass-opacity = \(rawValue)
+                """)
+
+            assertEquals(errors.descriptions, [
+                "workspace-sidebar.glass-opacity: Must be a finite number from 0 to 1",
+            ])
+        }
+    }
+
+    func testParseWorkspaceSidebarGlassOpacityRejectsNonnumericValues() {
+        for rawValue in ["'0.5'", "true", "[]", "{}"] {
+            let (_, errors) = parseConfig("""
+                [workspace-sidebar]
+                    glass-opacity = \(rawValue)
+                """)
+
+            assertEquals(errors.descriptions, [
+                "workspace-sidebar.glass-opacity: Must be a number from 0 to 1",
+            ])
+        }
+    }
+
+    func testWorkspaceSidebarGlassOpacitySettingPreservesForkOptionsAndOtherSections() {
+        let updated = updateSettingsScalarConfig(
+            in: """
+                [workspace-sidebar]
+                    stay-on-top = false
+                    always-expanded = true
+                    # Background only
+                    glass-opacity = 1.0
+                    chrome-style = 'solid'
+
+                [workspace-sidebar.workspace-labels]
+                    1 = 'Code'
+
+                [window-tabs]
+                    enabled = false
+                """,
+            section: "workspace-sidebar",
+            key: "glass-opacity",
+            renderedValue: "0.42",
+        )
+        let (parsed, errors) = parseConfig(updated)
+
+        assertEquals(errors, [])
+        XCTAssertEqual(parsed.workspaceSidebar.glassOpacity, 0.42)
+        XCTAssertFalse(parsed.workspaceSidebar.stayOnTop)
+        XCTAssertTrue(parsed.workspaceSidebar.alwaysExpanded)
+        XCTAssertEqual(parsed.workspaceSidebar.chromeStyle, .solid)
+        XCTAssertEqual(parsed.workspaceSidebar.workspaceLabels, ["1": "Code"])
+        XCTAssertFalse(parsed.windowTabs.enabled)
+        XCTAssertTrue(updated.contains("# Background only"), updated)
+    }
+
+    func testWorkspaceSidebarGlassOpacitySettingAddsMissingKey() {
+        let updated = updateSettingsScalarConfig(
+            in: """
+                [workspace-sidebar]
+                    enabled = true
+                """,
+            section: "workspace-sidebar",
+            key: "glass-opacity",
+            renderedValue: "0.6",
+        )
+        let (parsed, errors) = parseConfig(updated)
+
+        assertEquals(errors, [])
+        XCTAssertEqual(parsed.workspaceSidebar.glassOpacity, 0.6)
+        XCTAssertTrue(parsed.workspaceSidebar.enabled)
     }
 
     func testParseWindowTabs() {

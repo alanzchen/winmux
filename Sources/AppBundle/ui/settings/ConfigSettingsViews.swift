@@ -82,12 +82,14 @@ struct ShortcutAppearanceSettingsView: View {
     @State private var sidebarStayOnTop = config.workspaceSidebar.stayOnTop
     @State private var sidebarAutoHide = config.workspaceSidebar.autoHide
     @State private var sidebarAlwaysExpanded = config.workspaceSidebar.alwaysExpanded
+    @State private var showAppIcons = config.workspaceSidebar.showAppIcons
     @State private var showStatusPills = config.workspaceSidebar.showStatusPills
     @State private var showClock = config.workspaceSidebar.showClock
     @State private var showSeconds = config.workspaceSidebar.showSeconds
     @State private var showDate = config.workspaceSidebar.showDate
     @State private var showWeekday = config.workspaceSidebar.showWeekday
     @State private var chromeStyle = config.workspaceSidebar.chromeStyle
+    @State private var glassOpacity = config.workspaceSidebar.glassOpacity
     @State private var solidChromeColor = config.workspaceSidebar.solidChromeColor
     @State private var solidChromeCustomColor = config.workspaceSidebar.solidChromeCustomColor
     @State private var sidebarWidth = config.workspaceSidebar.width
@@ -125,6 +127,11 @@ struct ShortcutAppearanceSettingsView: View {
                 SettingsToggle("Keep sidebar above Dock", isOn: $sidebarStayOnTop, help: "Keep the sidebar above the Dock. Turn this off to let the Dock appear over it.") { sidebarBool("stay-on-top", sidebarStayOnTop) }
                 SettingsToggle("Reveal sidebar at the display edge", isOn: $sidebarAutoHide, help: "Hide the compact rail until the pointer reaches the left edge.") { sidebarBool("auto-hide", sidebarAutoHide) }
                 SettingsToggle("Keep sidebar expanded", isOn: $sidebarAlwaysExpanded, help: "Reserve the full sidebar width for tiled windows.") { sidebarBool("always-expanded", sidebarAlwaysExpanded) }
+                SettingsToggle("Show workspace app icons", isOn: $showAppIcons, help: "Show workspace numbers or labels with the apps they contain in the compact sidebar. Expand the sidebar for window details.") { sidebarBool("show-app-icons", showAppIcons) }
+                SettingsPercentageSlider("Glass opacity", value: $glassOpacity, help: "Adjust the sidebar's Liquid Glass background while keeping text and icons readable. Available with Liquid Glass style.") {
+                    persist("workspace-sidebar", "glass-opacity", "\(glassOpacity)")
+                }
+                .disabled(chromeStyle != .liquidGlass)
                 SettingsStepper("Expanded width", value: $sidebarWidth, range: 120...480, help: "Width of the fully expanded sidebar.") { sidebarInt("width", sidebarWidth) }
                 SettingsStepper("Collapsed width", value: $collapsedWidth, range: 28...120, help: "Width of the compact sidebar rail.") { sidebarInt("collapsed-width", collapsedWidth) }
                 SettingsStepper("Menu bar reserve", value: $menuBarReserveHeight, range: 0...72, help: "Use 0 px when the macOS menu bar auto-hides.") { sidebarInt("menu-bar-reserve-height", menuBarReserveHeight) }
@@ -323,6 +330,63 @@ private struct SettingsStepper: View {
             Divider().padding(.leading, 14)
         }
         .onChange(of: value) { _ in save() }
+    }
+}
+
+private struct SettingsPercentageSlider: View {
+    let title: String
+    @Binding var value: Double
+    let help: String
+    let save: () -> Void
+    @State private var isEditing = false
+    @State private var lastSavedValue: Double
+
+    init(_ title: String, value: Binding<Double>, help: String, save: @escaping () -> Void) {
+        self.title = title
+        _value = value
+        self.help = help
+        self.save = save
+        _lastSavedValue = State(initialValue: value.wrappedValue)
+    }
+
+    private var percentage: String { "\(Int((value * 100).rounded()))%" }
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Text(title)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Slider(value: $value, in: 0...1, step: 0.01) { editing in
+                isEditing = editing
+                if !editing { commit() }
+            }
+            .accessibilityLabel(title)
+            .accessibilityValue(percentage)
+            .frame(width: 96)
+            Text(percentage)
+                .monospacedDigit()
+                .frame(width: 44, alignment: .trailing)
+            Stepper(title, value: $value, in: 0...1, step: 0.01)
+                .labelsHidden()
+                .accessibilityValue(percentage)
+                .controlSize(.small)
+        }
+        .padding(.horizontal, 14)
+        .frame(minHeight: 38)
+        .help(help)
+        .overlay(alignment: .bottom) {
+            Divider().padding(.leading, 14)
+        }
+        .onChange(of: value) { _ in
+            // A drag updates the percentage immediately, then saves once on release.
+            // Keyboard and accessibility adjustments commit without a drag session.
+            if !isEditing { commit() }
+        }
+    }
+
+    private func commit() {
+        guard value != lastSavedValue else { return }
+        lastSavedValue = value
+        save()
     }
 }
 

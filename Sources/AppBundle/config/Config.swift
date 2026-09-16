@@ -83,6 +83,7 @@ struct WorkspaceSidebarConfig: ConvenienceCopyable, Equatable, Sendable {
     var stayOnTop: Bool = true
     var autoHide: Bool = false
     var alwaysExpanded: Bool = false
+    var showAppIcons: Bool = false
     var collapsedWidth: Int = 44
     var width: Int = 240
     var monitor: [MonitorDescription] = []
@@ -92,6 +93,7 @@ struct WorkspaceSidebarConfig: ConvenienceCopyable, Equatable, Sendable {
     var showDate: Bool = true
     var showWeekday: Bool = true
     var chromeStyle: ChromeStyle = .liquidGlass
+    var glassOpacity: Double = 1.0
     var solidChromeColor: ChromeSolidColor = .midnight
     var solidChromeCustomColor: String = "#191B20"
     var menuBarReserveHeight: Int = 28
