@@ -64,8 +64,11 @@ xcodebuild-pretty "$release_dir/WinMux-$VERSION-xcodebuild.log" \
     CODE_SIGN_STYLE="$CODESIGN_STYLE" archive
 test -d "$app"
 
-# The CLI is nested executable code, so insert it before the final bundle signature.
-/usr/bin/install -m 755 "$cli" "$app/Contents/MacOS/winmux"
+# Keep the CLI outside MacOS: WinMux and winmux alias on default macOS volumes.
+# Insert the independently signed helper before the final bundle signature.
+mkdir -p "$app/Contents/Helpers"
+/usr/bin/install -m 755 "$cli" "$app/Contents/Helpers/winmux"
+python3 -B script/verify-bundle-executables.py "$app"
 sign_args=(--force --sign "$CODESIGN_IDENTITY")
 if [[ "$CODESIGN_IDENTITY" != - ]]; then sign_args+=(--options runtime --timestamp); fi
 codesign "${sign_args[@]}" --entitlements resources/WinMux.entitlements "$app"
@@ -84,13 +87,14 @@ PY
     xcodebuild-pretty "$release_dir/WinMux-$VERSION-export.log" \
         -exportArchive -archivePath "$archive" -exportPath "$export_dir" \
         -exportOptionsPlist "$export_plist"
-    test -x "$export_dir/WinMux.app/Contents/MacOS/winmux"
+    test -x "$export_dir/WinMux.app/Contents/Helpers/winmux"
     rm -rf "$app"
     ditto "$export_dir/WinMux.app" "$app"
 elif [[ "$NOTARIZE" == 1 || "$GENERATE_APPCAST" == 1 || "$PUBLISH" == 1 ]]; then
     echo "Distribution updates require a Developer ID Application signature" >&2
     exit 1
 fi
+python3 -B script/verify-bundle-executables.py "$app"
 
 verify_code() {
     codesign --verify --strict --verbose=2 "$1"
@@ -103,13 +107,13 @@ verify_code() {
 }
 codesign --verify --deep --strict --verbose=2 "$app"
 verify_code "$app"
-verify_code "$app/Contents/MacOS/winmux"
+verify_code "$app/Contents/Helpers/winmux"
 if [[ "$archive_signature" == *"Authority=Developer ID Application:"* ]]; then
     while IFS= read -r -d '' nested; do
         verify_code "$nested"
     done < <(find "$app/Contents" -type d \( -name '*.framework' -o -name '*.xpc' -o -name '*.app' \) -print0)
 fi
-for executable in "$app/Contents/MacOS/WinMux" "$app/Contents/MacOS/winmux"; do
+for executable in "$app/Contents/MacOS/WinMux" "$app/Contents/Helpers/winmux"; do
     archs="$(lipo -archs "$executable")"
     [[ " $archs " == *" arm64 "* && " $archs " == *" x86_64 "* ]] || { echo "Missing universal slices: $executable" >&2; exit 1; }
 done
@@ -127,11 +131,14 @@ for key, value in expected.items():
 PY
 generated_hash="$(sed -n 's/^public let gitHash = "\(.*\)"/\1/p' Sources/Common/gitHashGenerated.swift)"
 test "$generated_hash" = "$(git rev-parse HEAD)"
-for executable in "$app/Contents/MacOS/WinMux" "$app/Contents/MacOS/winmux"; do
+for executable in "$app/Contents/MacOS/WinMux" "$app/Contents/Helpers/winmux"; do
     # Avoid running the window manager during packaging.
     strings "$executable" | grep -Fx "$VERSION" >/dev/null
     strings "$executable" | grep -Fx "$generated_hash" >/dev/null
 done
+# Preserve and validate the exact exported CLI before any notarization upload.
+/usr/bin/install -m 755 "$app/Contents/Helpers/winmux" "$cli"
+verify_code "$cli"
 ditto -c -k --sequesterRsrc --keepParent "$app" "$app_zip"
 notary_args=(--keychain-profile "$NOTARYTOOL_PROFILE" --wait)
 if [[ -n "$NOTARYTOOL_KEYCHAIN" ]]; then notary_args+=(--keychain "$NOTARYTOOL_KEYCHAIN"); fi
@@ -145,8 +152,6 @@ if [[ "$NOTARIZE" == 1 ]]; then
     ditto -c -k --sequesterRsrc --keepParent "$app" "$app_zip"
 fi
 
-# Preserve the exact exported CLI for install-staged's pair verification.
-/usr/bin/install -m 755 "$app/Contents/MacOS/winmux" "$cli"
 mkdir -p "$dist/bin" "$dist/docs"
 ditto "$app" "$dist/WinMux.app"
 /usr/bin/install -m 755 script/winmux-launcher.sh "$dist/bin/winmux"

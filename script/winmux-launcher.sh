@@ -44,7 +44,7 @@ case "$app_path" in
 '*) printf '%s\n' 'winmux: the app path must contain a single line' >&2; exit 127 ;;
 esac
 
-bundled_cli=$app_path/Contents/MacOS/winmux
+bundled_cli=$app_path/Contents/Helpers/winmux
 if [ ! -f "$bundled_cli" ] || [ ! -x "$bundled_cli" ]; then
     printf 'winmux: bundled CLI not found: %s\n' "$bundled_cli" >&2
     printf '%s\n' 'Install the matching fork app, or set WINMUX_APP_PATH to its absolute bundle path.' >&2

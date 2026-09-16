@@ -54,8 +54,8 @@ or passwords to Git, build artifacts, issue comments, or chat messages.
 The fork Sparkle key is stored locally under the Keychain account
 `winmux-alanzchen`. Back up this key securely and retain it across releases.
 Generating a new key for each build would break installed clients' update trust.
-The `release` environment and Sparkle key are configured; Apple signing and
-notarization credentials must be supplied before the first signed release can run.
+The `release` environment, Developer ID certificate, Apple notarization credentials,
+and Sparkle key are configured. Local notarization uses the Keychain profile `winmux`.
 
 ## Publish a version
 
@@ -118,25 +118,26 @@ Upstream releases trust a different key/feed; old ad-hoc development DMGs do not
 establish this fork's release trust. They cannot migrate automatically through this
 new feed. Recheck macOS Accessibility permission after changing signing identities.
 
-No Developer ID build, notarization, or end-to-end update is validated until the
-account credentials are supplied and the first tagged release completes. Before
-calling the update path verified, install that build and update to a second signed
-version, then compare the app and `winmux --version`.
+Validate local Developer ID signing and notarization before publishing. The first
+tagged release must also pass the GitHub workflow. Before calling the installed
+update path verified, install that build and update to a second signed version,
+then compare the app and `winmux --version`.
 
 ## Validation of the release tooling
 
 Local checks on September 15, 2026 passed: 649 application tests, 34 release-tool
-tests, workflow lint, and shell syntax checks. A universal Xcode archive and DMG
-built with ad-hoc signing. The mounted app and embedded CLI passed signature,
-architecture, version, launcher, fork-feed, and public-key checks. Sparkle generated
-and cryptographically verified a signature for the actual archive; the temporary
-private-key export was removed. This test did not publish a release or install the app.
+tests, workflow lint, and shell syntax checks. The initial ad-hoc package passed
+signature and metadata checks, but later native validation exposed a packaging
+error: `Contents/MacOS/WinMux` and `Contents/MacOS/winmux` refer to the same file
+on case-insensitive volumes. Those packages are superseded and must not be installed.
+The CLI now lives in `Contents/Helpers/winmux`; packaging verifies distinct app/CLI
+files and validates the CLI signature again after copying it outside the bundle.
 
 Application sources used Swift 6.2.4. On the local Xcode 26.5 host, only package
 manifest evaluation used Xcode's compiler through `SWIFT_EXEC_MANIFEST`, because
 the standalone toolchain could not locate the linker during manifest evaluation.
-CI uses Xcode 26.3's bundled Swift 6.2.4 throughout. Apple signing, notarization, and
-an installed version-to-version update still require the account setup above.
+CI uses Xcode 26.3's bundled Swift 6.2.4 throughout. A tagged GitHub signing run and
+an installed version-to-version update remain separate validation steps.
 
 ## References
 

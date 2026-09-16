@@ -26,7 +26,11 @@ class WinMuxLauncherTest(unittest.TestCase):
         self.environment.pop("WINMUX_APP_PATH", None)
 
     def app(self, path, version, exit_code=0):
-        executable = path / "Contents" / "MacOS" / "winmux"
+        gui = path / "Contents" / "MacOS" / "WinMux"
+        gui.parent.mkdir(parents=True)
+        gui.write_text("#!/bin/sh\nprintf '%s\\n' 'GUI must not run as CLI' >&2\nexit 97\n")
+        gui.chmod(0o755)
+        executable = path / "Contents" / "Helpers" / "winmux"
         executable.parent.mkdir(parents=True)
         executable.write_text(
             "#!/bin/sh\n"
@@ -49,7 +53,9 @@ class WinMuxLauncherTest(unittest.TestCase):
         )
 
     def test_portable_pair_uses_adjacent_app_and_preserves_call(self):
-        self.app(self.pair / "WinMux.app", "portable", exit_code=19)
+        app = self.app(self.pair / "WinMux.app", "portable", exit_code=19)
+        gui = app / "Contents" / "MacOS" / "WinMux"
+        original_gui = gui.read_bytes()
         arguments = ["agent", "--stdin", "", "a b", "$(touch unexpected)", "a'b"]
         result = self.invoke(*arguments, stdin=b"input\nwith\x00bytes\n")
         self.assertEqual(result.returncode, 19)
@@ -60,6 +66,17 @@ class WinMuxLauncherTest(unittest.TestCase):
         )
         self.assertEqual(result.stderr, b"")
         self.assertFalse((self.root / "unexpected").exists())
+        self.assertEqual(gui.read_bytes(), original_gui)
+        self.assertFalse(gui.samefile(app / "Contents" / "Helpers" / "winmux"))
+
+    def test_missing_helper_never_falls_back_to_gui_case_variant(self):
+        app = self.app(self.pair / "WinMux.app", "portable")
+        (app / "Contents" / "Helpers" / "winmux").unlink()
+        result = self.invoke("--version")
+        self.assertEqual(result.returncode, 127)
+        self.assertEqual(result.stdout, b"")
+        self.assertIn(b"bundled CLI not found", result.stderr)
+        self.assertNotIn(b"GUI must not run as CLI", result.stderr)
 
     def test_installed_config_follows_atomic_app_replacement(self):
         self.app(self.pair / "WinMux.app", "old archive")
@@ -112,7 +129,7 @@ class WinMuxLauncherTest(unittest.TestCase):
 
     def test_nonexecutable_embedded_cli_is_rejected(self):
         app = self.app(self.pair / "WinMux.app", "portable")
-        (app / "Contents" / "MacOS" / "winmux").chmod(0o644)
+        (app / "Contents" / "Helpers" / "winmux").chmod(0o644)
         self.assertEqual(self.invoke().returncode, 127)
 
 

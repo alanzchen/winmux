@@ -185,13 +185,14 @@ install-staged:
 	fi; \
 	test -d "$$pair_path/$$app_name.app"; \
 	test -x "$$pair_path/bin/winmux"; \
+	python3 -B script/verify-bundle-executables.py "$$pair_path/$$app_name.app"; \
 	codesign --verify --deep --strict --verbose=2 "$$pair_path/$$app_name.app"; \
-	codesign --verify --strict --verbose=2 "$$pair_path/$$app_name.app/Contents/MacOS/winmux"; \
+	codesign --verify --strict --verbose=2 "$$pair_path/$$app_name.app/Contents/Helpers/winmux"; \
 	cmp -s "$$pair_path/$$app_name.app/Contents/MacOS/$$app_name" "$$app_path/Contents/MacOS/$$app_name"; \
-	cmp -s "$$pair_path/$$app_name.app/Contents/MacOS/winmux" "$$cli_path"; \
+	cmp -s "$$pair_path/$$app_name.app/Contents/Helpers/winmux" "$$cli_path"; \
 	cmp -s "$$pair_path/bin/winmux" script/winmux-launcher.sh; \
 	test "$$(cat "$$pair_path/bin/winmux-app-path")" = "$$install_path"; \
-	for executable in "$$pair_path/$$app_name.app/Contents/MacOS/$$app_name" "$$pair_path/$$app_name.app/Contents/MacOS/winmux"; do \
+	for executable in "$$pair_path/$$app_name.app/Contents/MacOS/$$app_name" "$$pair_path/$$app_name.app/Contents/Helpers/winmux"; do \
 	    archs="$$(/usr/bin/lipo -archs "$$executable")"; \
 	    case " $$archs " in *" arm64 "*) ;; *) echo "$$executable is missing arm64" >&2; exit 1;; esac; \
 	    case " $$archs " in *" x86_64 "*) ;; *) echo "$$executable is missing x86_64" >&2; exit 1;; esac; \
@@ -326,8 +327,9 @@ verify-installed:
 	test -L "$$current_path"; \
 	test -x "$$current_path/bin/winmux"; \
 	test -d "$$install_path"; \
+	python3 -B script/verify-bundle-executables.py "$$install_path"; \
 	/usr/bin/codesign --verify --deep --strict --verbose=2 "$$install_path"; \
-	/usr/bin/codesign --verify --strict --verbose=2 "$$install_path/Contents/MacOS/winmux"; \
+	/usr/bin/codesign --verify --strict --verbose=2 "$$install_path/Contents/Helpers/winmux"; \
 	cmp -s "$$current_path/bin/winmux" script/winmux-launcher.sh; \
 	test "$$(cat "$$current_path/bin/winmux-app-path")" = "$$install_path"; \
 	if ! version_output="$$(/usr/bin/env -u WINMUX_APP_PATH "$$current_path/bin/winmux" --version 2>&1)"; then \

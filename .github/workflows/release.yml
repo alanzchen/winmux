@@ -107,21 +107,22 @@ jobs:
           trap 'rm -rf "$verify_dir"' EXIT
           ditto -x -k ".release/WinMux-$VERSION.zip" "$verify_dir"
           app="$verify_dir/WinMux.app"
+          python3 -B script/verify-bundle-executables.py "$app"
           codesign --verify --deep --strict --verbose=2 "$app"
-          codesign --verify --strict --verbose=2 "$app/Contents/MacOS/winmux"
+          codesign --verify --strict --verbose=2 "$app/Contents/Helpers/winmux"
           xcrun stapler validate "$app"
           spctl --assess --type execute --verbose=4 "$app"
           test "$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$app/Contents/Info.plist")" = "$VERSION"
           test "$(/usr/libexec/PlistBuddy -c 'Print SUFeedURL' "$app/Contents/Info.plist")" = "https://github.com/$RELEASE_REPOSITORY/releases/latest/download/appcast.xml"
           test "$(/usr/libexec/PlistBuddy -c 'Print SUPublicEDKey' "$app/Contents/Info.plist")" = "$SPARKLE_PUBLIC_KEY"
-          for executable in "$app/Contents/MacOS/WinMux" "$app/Contents/MacOS/winmux"; do
+          for executable in "$app/Contents/MacOS/WinMux" "$app/Contents/Helpers/winmux"; do
             archs="$(lipo -archs "$executable")"
             case " $archs " in *' arm64 '*) ;; *) exit 1 ;; esac
             case " $archs " in *' x86_64 '*) ;; *) exit 1 ;; esac
             signature="$(codesign -dv --verbose=4 "$executable" 2>&1)"
             printf '%s\n' "$signature" | grep -Fx "TeamIdentifier=$DEVELOPMENT_TEAM"
           done
-          "$app/Contents/MacOS/winmux" --version
+          "$app/Contents/Helpers/winmux" --version
 
       - name: Retain verified release artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7

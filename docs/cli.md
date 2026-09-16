@@ -33,10 +33,14 @@ Built-in help is the authoritative syntax reference for the installed build.
 ## Quick start
 
 Fork releases include the matching client inside
-`WinMux.app/Contents/MacOS/winmux`. Their `bin/winmux` is a launcher that executes
+`WinMux.app/Contents/Helpers/winmux`. Their `bin/winmux` is a launcher that executes
 that embedded client, so updating the app with Sparkle also updates the CLI.
 Replace any older standalone client on `PATH` with this launcher when first
 installing the fork build.
+
+The GUI executable remains at `WinMux.app/Contents/MacOS/WinMux`. Keeping the CLI
+in `Contents/Helpers` avoids a filename collision on case-insensitive filesystems;
+the user-facing command remains `winmux`.
 
 After copying the app to `/Applications`, copy the release's launcher into a
 directory on `PATH`, for example from the extracted release directory:
