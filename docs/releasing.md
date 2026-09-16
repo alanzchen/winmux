@@ -184,10 +184,30 @@ checksum checks listed above. Signing reused the saved credentials without a new
 approval prompt. All **692 application tests** and the debug build passed;
 [CI also passed for this commit](https://github.com/alanzchen/winmux/actions/runs/35149181819).
 
-The current local package is
+The previous local package is
 `.build/developer-id-validation-a75368c9/WinMux-0.5.5.dmg`. It supersedes the
 earlier local preview. It has not been published or installed; the tagged CI and
 installed-update checks above remain outstanding.
+
+### Dockset reference build — September 16, 2026
+
+Local WinMux **0.5.5**, built from `fe0962ab`, adds the fixed 64-point Dockset-inspired
+rail, centered content-fitting height, rounded glass, and running-app indicators.
+The app and embedded CLI are universal. All **698 application tests**, the debug
+build, independent code review, and [CI](https://github.com/alanzchen/winmux/actions/runs/35155610377)
+passed. Real native preview captures and comparison details are in the
+[sidebar validation guide](sidebar-appearance-validation.md#dockset-reference-comparison).
+
+Developer ID signing reused the existing credentials without another approval
+prompt. Apple accepted the app (`1dffc480-d9bf-4afd-be9f-e959b88abe75`) and DMG
+(`e7ca3f8c-809e-469c-b88e-22b536e05269`). Stapling, Gatekeeper, Sparkle signature,
+both ZIPs, the read-only mounted DMG, matching app/CLI metadata, launcher, and
+checksums passed verification.
+
+The current local package is
+`.build/developer-id-validation-fe0962ab/WinMux-0.5.5.dmg`; it supersedes `a75368c9`.
+It has not been published or installed. Live multi-monitor interaction, tagged CI
+signing, and installed version-to-version updates remain unverified as described above.
 
 ## References
 

@@ -12,8 +12,9 @@ Validated on September 16, 2026 with Swift **6.2.4**:
 - **187 focused sidebar/configuration tests passed.**
 - **698 tests passed** in the complete application suite.
 - Debug application/CLI build and `git diff --check` passed.
-- Previous build `a75368c9` passed CI and distribution checks; its DMG predates
-  the Dockset refinements below. See the [release validation record](releasing.md#dock-style-sidebar-build--september-16-2026).
+- [CI passed for `fe0962ab`](https://github.com/alanzchen/winmux/actions/runs/35155610377).
+- The universal Developer ID-signed and notarized DMG passed distribution checks;
+  see the [release validation record](releasing.md#dockset-reference-build--september-16-2026).
 
 ```sh
 swift test --filter 'WorkspaceSidebar|ConfigTest'
