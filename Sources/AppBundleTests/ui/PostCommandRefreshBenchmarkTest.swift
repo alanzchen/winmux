@@ -16,7 +16,7 @@ final class PostCommandRefreshBenchmarkTest: XCTestCase {
 
         var scheduledRefreshCount = 0
         let refreshDelayNanoseconds: UInt64 = 100_000_000
-        setScheduledRefreshOverrideForTests { _, _ in
+        setScheduledRefreshOverrideForTests { _, _, _ in
             scheduledRefreshCount += 1
             try await Task.sleep(nanoseconds: refreshDelayNanoseconds)
         }

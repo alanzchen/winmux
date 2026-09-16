@@ -4,13 +4,16 @@ import Common
 @TaskLocal
 var newFloatingWindowPresentation: NewFloatingWindowPresentation? = nil
 
-/// New-window presentation belongs to the refresh that discovered the window. A cancelled
-/// refresh, a restore, or a later focus choice must not leave a raise request for another session.
+/// Presentation belongs to the refresh that discovered a window or observed app activation.
+/// A cancelled refresh or a later focus choice must not leave a raise for another session.
 @MainActor
 final class NewFloatingWindowPresentation {
     private let isStartup: Bool
     private let frontmostAppPid: Int32?
+    private let activatedAppPid: Int32?
     private var candidates: [UInt32: Window] = [:]
+    private var activatedWindow: Window?
+    private var detectedDuringRefresh: Set<UInt32> = []
     private var detectedWindowIds: Set<UInt32> = []
     private var nativeWindowIdBeforeLayout: UInt32?
     private var focusGenerationBeforeLayout: UInt64?
@@ -18,13 +21,17 @@ final class NewFloatingWindowPresentation {
     private var wasConsumed = false
     private(set) var suppressFocusSync = false
 
-    init(isStartup: Bool, frontmostAppPid: Int32?) {
+    init(isStartup: Bool, frontmostAppPid: Int32?, activatedAppPid: Int32? = nil) {
         self.isStartup = isStartup
         self.frontmostAppPid = frontmostAppPid
+        self.activatedAppPid = activatedAppPid
     }
 
     func recordDetection(_ window: Window, wasRestored: Bool, focusGenerationBeforeCallbacks: UInt64) {
-        guard !isStartup, !wasRestored, !wasConsumed else { return }
+        guard !wasConsumed else { return }
+        detectedDuringRefresh.insert(window.windowId)
+        if activatedWindow === window { activatedWindow = nil }
+        guard !isStartup, !wasRestored else { return }
         if focusChangeGeneration != focusGenerationBeforeCallbacks {
             callbacksChangedFocus = true
             return
@@ -40,6 +47,15 @@ final class NewFloatingWindowPresentation {
     func recordNativeFocusBeforeLayout(_ window: Window?) {
         nativeWindowIdBeforeLayout = window?.windowId
         focusGenerationBeforeLayout = focusChangeGeneration
+        // Apps such as System Settings reuse an existing floating window when another app
+        // opens them. Matching focus IDs say nothing about stacking; activation still needs
+        // one raise after layout. Do not override a callback or a project focus hold.
+        if !isStartup, !wasConsumed, let window,
+           activatedAppPid == frontmostAppPid, window.app.pid == activatedAppPid,
+           !detectedDuringRefresh.contains(window.windowId),
+           focus.windowOrNil === window, window.isFloating, window.nodeWorkspace?.isVisible == true {
+            activatedWindow = window
+        }
     }
 
     func consumeCandidate(frontmostAppPid currentAppPid: Int32?, nativeObservation: NativeFocusedWindowObservation) -> Window? {
@@ -48,6 +64,8 @@ final class NewFloatingWindowPresentation {
         defer {
             candidates.removeAll()
             detectedWindowIds.removeAll()
+            detectedDuringRefresh.removeAll()
+            activatedWindow = nil
         }
         guard !Task.isCancelled, !callbacksChangedFocus,
               focusGenerationBeforeLayout == focusChangeGeneration
@@ -71,12 +89,16 @@ final class NewFloatingWindowPresentation {
             suppressFocusSync = true
             return nil
         }
-        guard eligible.count == 1 else { return nil }
-        return eligible.first
+        if eligible.count == 1 { return eligible.first }
+        guard eligible.isEmpty, let activatedWindow,
+              activatedWindow.windowId == nativeWindowId,
+              Window.get(byId: nativeWindowId) === activatedWindow, isEligible(activatedWindow)
+        else { return nil }
+        return activatedWindow
     }
 
     func presentAfterLayout() async throws -> Bool {
-        guard let app = candidates.values.first?.app as? MacApp else { return false }
+        guard let app = (candidates.values.first?.app ?? activatedWindow?.app) as? MacApp else { return false }
         let observation = try await app.observeFocusedWindowId()
         try checkCancellation()
         let currentApp = NSWorkspace.shared.frontmostApplication

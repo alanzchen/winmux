@@ -14,10 +14,13 @@ enum GlobalObserver {
             return
         }
         let notifName = notification.name.rawValue
+        let activatedAppPid = notifName == NSWorkspace.didActivateApplicationNotification.rawValue
+            ? (notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication)?.processIdentifier
+            : nil
         Task { @MainActor in
             if !TrayMenuModel.shared.isEnabled { return }
             if notifName == NSWorkspace.didActivateApplicationNotification.rawValue {
-                scheduleRefreshSession(.globalObserver(notifName), optimisticallyPreLayoutWorkspaces: true)
+                scheduleRefreshSession(.globalObserver(notifName), optimisticallyPreLayoutWorkspaces: true, activatedAppPid: activatedAppPid)
             } else {
                 scheduleRefreshSession(.globalObserver(notifName))
             }

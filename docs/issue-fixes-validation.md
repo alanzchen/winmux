@@ -20,6 +20,7 @@ Use Swift **6.2.4**, as pinned in `.swift-version`:
 ```sh
 swift test --filter 'AxTransientWindowTest|TransientNativeFocusTest'
 swift test --filter 'NewFloatingWindowPresentationTest|PopupWindowPresentationTest|WorkspaceSidebarInputSessionTest|WorkspaceSidebarMultiMonitorTest|WorkspaceSidebarRenderingTest'
+swift test --filter 'ActivatedFloatingWindowPresentationTest|NewFloatingWindowPresentationTest|PopupWindowPresentationTest|TransientNativeFocusTest|AxRefreshFastPathTest|PostCommandRefreshBenchmarkTest'
 swift test --filter 'WorkspaceSidebar|ConfigTest|Agent|Cli|ProjectLifecycle|SocketProtocol|NewFloatingWindowPresentation|PopupWindowPresentation|AxTransient|TransientNative'
 swift test
 swift build
@@ -68,6 +69,16 @@ A disposable two-window AppKit helper and a harness linked against the productio
 - A request made while the helper was hidden/inactive did not activate it.
 
 The helper was closed after the checks. Automated refresh tests separately verify that rejection leaves logical focus intact through modal dismissal and that callback-selected focus wins.
+
+## Reused floating windows on app activation
+
+The September 16 follow-up addresses an existing floating window appearing behind another app when its application activates, including the reported System Settings case. Detection-only presentation did not cover reused windows. The activation notification's process ID now survives refresh coalescing and authorizes one post-layout raise of that application's native focused floating window. This preserves configured layout/routing and does not add a System Settings exception.
+
+- **39 focused presentation, transient-focus, and refresh tests passed**, including 12 new activation regressions.
+- **661 tests passed** in the complete suite; Swift **6.2.4** debug app/CLI build and `git diff --check` passed.
+- Coverage includes reused windows with matching focus IDs, one-time consumption, new-window priority, stale activation identity, transient focus, startup and same-session restoration, hidden routing, minimization/fullscreen, callbacks, later focus choices, coalesced activation events, and command cancellation.
+
+The precise application/action that opens System Settings and its native stacking behavior remain **unverified**. The existing native smoke above validates the shared AX raise primitive, but predates this activation change. Repeat the actual prompt/open-Settings action with Settings both closed and already open; verify foreground application, focused window, and CG stacking order. Requests that never activate Settings or produce an activation notification are outside the reproduced evidence and must not be reported as fixed.
 
 ## Keyboard smoke limitation
 
