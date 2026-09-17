@@ -10,17 +10,42 @@ on:
         required: true
         type: string
 
-# Serialize different versions too: an older build must never replace the latest feed.
-concurrency:
-  group: signed-release
-  cancel-in-progress: false
-
 permissions:
   contents: read
 
 jobs:
-  release:
+  classify-tag:
     if: github.repository == 'alanzchen/winmux'
+    runs-on: ubuntu-latest
+    outputs:
+      stable: ${{ steps.classify.outputs.stable }}
+    steps:
+      - id: classify
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = workflow_dispatch ]; then
+            echo 'stable=true' >> "$GITHUB_OUTPUT"
+          else
+            kind="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" --jq '.object.type')"
+            # Preview allocators reserve lightweight tags; stable pushes use git tag -a.
+            if [ "$kind" = tag ]; then
+              echo 'stable=true' >> "$GITHUB_OUTPUT"
+            else
+              echo 'stable=false' >> "$GITHUB_OUTPUT"
+            fi
+          fi
+
+  release:
+    needs: classify-tag
+    if: needs.classify-tag.outputs.stable == 'true'
+    # Preview reservations must not enter or displace the signed-release queue.
+    concurrency:
+      group: signed-release
+      cancel-in-progress: false
     runs-on: macos-26
     timeout-minutes: 90
     environment: release

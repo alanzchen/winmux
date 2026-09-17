@@ -63,7 +63,9 @@ continue to produce signed prereleases entirely on GitHub.
 `.github/workflows/ci.yml` tests and builds pushes to `main` and `codex/issue-fixes`
 and pull requests. It has no signing credentials.
 
-`.github/workflows/release.yml` remains available for explicitly pushed stable tags.
+`.github/workflows/release.yml` remains available for explicitly pushed annotated
+stable tags (`git tag -a`). Lightweight preview reservations skip its signing job;
+manual dispatch remains available for an existing stable tag.
 Choose a version newer than all existing preview and stable versions in that series.
 This stable-release workflow uses `https://github.com/alanzchen/winmux/releases/latest/download/appcast.xml`.
 It runs all Swift tests and release-tool regressions, builds universal arm64/x86_64
