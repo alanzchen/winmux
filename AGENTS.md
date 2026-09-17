@@ -52,3 +52,16 @@ notarize, upload, and advance the preview feed from this Mac. A failed local bui
 must not trigger a hosted fallback. Verify the published assets and update feed,
 and link the prerelease when delivering it. Never replace published version assets
 or move the feed backwards.
+
+## Headless Signing
+
+Routine local releases must build, sign, and notarize without Keychain prompts.
+Reuse the existing Developer ID certificate, `winmux` notarization profile, and
+Sparkle signing key; credential provisioning is a separate one-time setup.
+
+- The default Sparkle key is `~/Library/Application Support/WinMux/ReleaseCredentials/sparkle-ed25519.key`, outside Git. Keep it owned by the current user with mode `600` or `400`.
+- Override with `SPARKLE_PRIVATE_KEY_FILE` or inject `SPARKLE_PRIVATE_KEY`; never set both. Never print secrets, put them in command-line arguments, or commit them.
+- Preflight with `python3 -B script/sign-sparkle-update.py --check-credentials` and `python3 -B script/check-signing-keychain.py`.
+- Missing credentials or a locked/unavailable signing Keychain must fail clearly. Do not fall back to interactive prompts or export keys during routine builds.
+
+See [Headless local signing](docs/releasing.md#headless-local-signing) for setup and troubleshooting.
