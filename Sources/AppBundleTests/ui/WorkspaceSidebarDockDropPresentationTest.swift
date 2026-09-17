@@ -65,6 +65,7 @@ final class WorkspaceSidebarDockDropPresentationTest: XCTestCase {
         XCTAssertEqual(snapshot.dropPreview, drag.destination)
         XCTAssertTrue(snapshot.workspaces[0].apps.isEmpty)
         XCTAssertEqual(snapshot.workspaces[1].apps, [app])
+        XCTAssertEqual(snapshot.dockRestingAppCounts, ["1": 1, "2": 0])
 
         // Another window from the same app must not finish the handoff early.
         model.workspaceSidebarWorkspaces = [workspace("1", windowIds: [42]), workspace("2", windowIds: [99])]
@@ -75,6 +76,7 @@ final class WorkspaceSidebarDockDropPresentationTest: XCTestCase {
         snapshot = workspaceSidebarSnapshot(from: model)
         XCTAssertNil(snapshot.dropPreview)
         XCTAssertNil(snapshot.dockDrag)
+        XCTAssertNil(snapshot.dockRestingAppCounts)
         XCTAssertEqual(snapshot.workspaces[0].apps, [app])
     }
 

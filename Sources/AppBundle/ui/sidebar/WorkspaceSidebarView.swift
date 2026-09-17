@@ -48,20 +48,23 @@ struct WorkspaceSidebarView: View {
             min(1, (snapshot.visibleWidth - collapsedWidth) / max(expandedWidth - collapsedWidth, 1)),
         )
         
-        WorkspaceSidebarDockAnimationHost(
-            configuration: snapshot.configuration,
-            visibleWidth: snapshot.visibleWidth,
-            compactHeight: compactDockContentHeight,
-            expansionProgress: expansionProgress,
-            allowsMagnification: allowsDockMagnification,
-            overflow: dockMagnificationOverflow,
-            shape: sidebarShape,
-            hitRegions: dockHitRegions,
-            motion: dockMotion,
-            growth: dockColumnGrowth,
-            content: sidebarContent(expansionProgress: expansionProgress)
-                .environment(\.workspaceSidebarDockDrag, snapshot.dockDrag)
-        )
+        GeometryReader { viewport in
+            let layout = dockLayout(availableHeight: viewport.size.height)
+            WorkspaceSidebarDockAnimationHost(
+                configuration: layout,
+                visibleWidth: snapshot.visibleWidth,
+                compactHeight: compactDockContentHeight(layout: layout),
+                expansionProgress: expansionProgress,
+                allowsMagnification: allowsDockMagnification,
+                overflow: dockMagnificationOverflow,
+                shape: sidebarShape,
+                hitRegions: dockHitRegions,
+                motion: dockMotion,
+                growth: dockColumnGrowth(layout: layout),
+                content: sidebarContent(expansionProgress: expansionProgress, layout: layout)
+                    .environment(\.workspaceSidebarDockDrag, snapshot.dockDrag)
+            )
+        }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         .coordinateSpace(name: "workspaceSidebarContent")
         .onPreferenceChange(WorkspaceSidebarDockColumnOriginPreference.self) { dockColumnOrigins = $0 }
@@ -419,6 +422,7 @@ struct WorkspaceSidebarContainerView: View {
 extension WorkspaceSidebarView {
     @ViewBuilder
     func projectPagerContent(
+        layout: WorkspaceSidebarConfiguration,
         expansionProgress: CGFloat,
         leadingInset: CGFloat,
         trailingInset: CGFloat,
@@ -430,6 +434,7 @@ extension WorkspaceSidebarView {
            browsedProjectId != snapshot.activeProjectId
         {
             splitWorkspacePage(
+                layout: layout,
                 activeProjectId: snapshot.activeProjectId,
                 browsedProjectId: browsedProjectId,
                 expansionProgress: expansionProgress,
@@ -440,6 +445,7 @@ extension WorkspaceSidebarView {
             )
         } else if snapshot.projects.isEmpty {
             workspacePage(
+                layout: layout,
                 projectId: snapshot.activeProjectId,
                 workspaces: visibleWorkspacesByProject[snapshot.activeProjectId] ?? [],
                 expansionProgress: expansionProgress,
@@ -453,6 +459,7 @@ extension WorkspaceSidebarView {
             )
         } else {
             projectPagerPages(
+                layout: layout,
                 expansionProgress: expansionProgress,
                 leadingInset: leadingInset,
                 trailingInset: trailingInset,
@@ -464,6 +471,7 @@ extension WorkspaceSidebarView {
     }
 
     func projectPagerPages(
+        layout: WorkspaceSidebarConfiguration,
         expansionProgress: CGFloat,
         leadingInset: CGFloat,
         trailingInset: CGFloat,
@@ -484,6 +492,7 @@ extension WorkspaceSidebarView {
             HStack(alignment: .top, spacing: 0) {
                 ForEach(Array(snapshot.projects.enumerated()), id: \.element.id) { index, project in
                     projectPageSlot(
+                        layout: layout,
                         index: index,
                         project: project,
                         displayIndex: displayIndex,
@@ -947,6 +956,7 @@ private struct WorkspaceSidebarPanelShape: Shape {
 extension WorkspaceSidebarView {
     @ViewBuilder
     func projectPageSlot(
+        layout: WorkspaceSidebarConfiguration,
         index: Int,
         project: WorkspaceSidebarProjectViewModel,
         displayIndex: Int,
@@ -965,6 +975,7 @@ extension WorkspaceSidebarView {
             projectCount: snapshot.projects.count,
         ) {
             workspacePage(
+                layout: layout,
                 projectId: project.id,
                 workspaces: visibleWorkspacesByProject[project.id] ?? [],
                 expansionProgress: expansionProgress,
@@ -986,6 +997,7 @@ extension WorkspaceSidebarView {
     }
 
     func workspacePage(
+        layout: WorkspaceSidebarConfiguration,
         projectId: WorkspaceProjectId,
         workspaces: [WorkspaceSidebarWorkspaceViewModel],
         expansionProgress: CGFloat,
@@ -1010,8 +1022,8 @@ extension WorkspaceSidebarView {
                 let activePointer = context.pointer
                 let column = WorkspaceSidebarDockColumnMagnification(
                     appCounts: appCounts,
-                    itemSize: snapshot.configuration.dockIconSize,
-                    amount: snapshot.configuration.dockMagnificationAmount,
+                    itemSize: layout.dockIconSize,
+                    amount: layout.dockMagnificationAmount,
                     pointerY: allowsDockMagnification && expansionProgress == 0 && isInteractive
                         ? activePointer.map { $0.y - restingOrigin } : nil,
                     strength: context.strength
@@ -1019,9 +1031,10 @@ extension WorkspaceSidebarView {
                 ScrollView {
                     // Preserve section/gesture identity when a preview changes the
                     // app count or the Dock morphs between compact and expanded.
-                    WorkspaceSidebarWorkspaceStack(isLazy: snapshot.configuration.showAppIcons) {
+                    WorkspaceSidebarWorkspaceStack(isLazy: layout.showAppIcons) {
                         if let pinnedWorkspace {
                             workspaceSection(
+                                layout: layout,
                                 workspace: pinnedWorkspace,
                                 expansionProgress: expansionProgress,
                                 emitsDropTarget: true,
@@ -1034,6 +1047,7 @@ extension WorkspaceSidebarView {
                         }
                         ForEach(Array(workspaces.enumerated()), id: \.element.id) { index, workspace in
                             workspaceSection(
+                                layout: layout,
                                 workspace: workspace,
                                 expansionProgress: expansionProgress,
                                 emitsDropTarget: true,
@@ -1044,12 +1058,12 @@ extension WorkspaceSidebarView {
                             )
                             .environment(\.workspaceSidebarDockSectionMagnification, column.sections[index + (pinnedWorkspace == nil ? 0 : 1)])
                             .overlay(alignment: .topLeading) {
-                                if snapshot.configuration.showAppIcons,
+                                if layout.showAppIcons,
                                    pinnedWorkspace != nil || workspace.id != workspaces.first?.id
                                 {
                                     WorkspaceSidebarDockSeparator(
                                         expansionProgress: expansionProgress,
-                                        layout: snapshot.configuration
+                                        layout: layout
                                     )
                                     .offset(y: -3)
                                 }
@@ -1066,7 +1080,7 @@ extension WorkspaceSidebarView {
                                 monitorScopeId: createMonitorScopeId,
                                 dragPreview: snapshot.dropPreview,
                                 expansionProgress: expansionProgress,
-                                layout: snapshot.configuration,
+                                layout: layout,
                                 emitsDropTarget: true,
                                 onCreateWorkspace: {
                                     actions.send(.createWorkspace(
@@ -1125,6 +1139,7 @@ extension WorkspaceSidebarView {
     }
 
     func splitWorkspacePage(
+        layout: WorkspaceSidebarConfiguration,
         activeProjectId: WorkspaceProjectId,
         browsedProjectId: WorkspaceProjectId,
         expansionProgress: CGFloat,
@@ -1133,9 +1148,10 @@ extension WorkspaceSidebarView {
         topPadding: CGFloat,
         visibleWorkspacesByProject: [WorkspaceProjectId: [WorkspaceSidebarWorkspaceViewModel]],
     ) -> some View {
-        let sectionWidth = workspaceSidebarSectionWidth(expansionProgress, layout: snapshot.configuration)
+        let sectionWidth = workspaceSidebarSectionWidth(expansionProgress, layout: layout)
         return HStack(alignment: .top, spacing: workspaceSidebarSplitPaneGap) {
             workspacePage(
+                layout: layout,
                 projectId: activeProjectId,
                 workspaces: visibleWorkspacesByProject[activeProjectId] ?? [],
                 expansionProgress: expansionProgress,
@@ -1150,6 +1166,7 @@ extension WorkspaceSidebarView {
             .frame(width: sectionWidth + leadingInset, alignment: .topLeading)
 
             workspacePage(
+                layout: layout,
                 projectId: browsedProjectId,
                 workspaces: visibleWorkspacesByProject[browsedProjectId] ?? [],
                 expansionProgress: expansionProgress,
@@ -1171,6 +1188,7 @@ extension WorkspaceSidebarView {
 
     @ViewBuilder
     private func workspaceSection(
+        layout: WorkspaceSidebarConfiguration,
         workspace: WorkspaceSidebarWorkspaceViewModel,
         expansionProgress: CGFloat,
         emitsDropTarget: Bool,
@@ -1190,7 +1208,7 @@ extension WorkspaceSidebarView {
             workspace: workspace,
             dragPreview: snapshot.dropPreview,
             expansionProgress: expansionProgress,
-            layout: snapshot.configuration,
+            layout: layout,
             emitsDropTarget: emitsDropTarget,
             isFromOtherDisplay: isFromOtherDisplay,
             isInUseOnOtherDisplay: isInUseOnOtherDisplay,
@@ -1281,7 +1299,7 @@ extension WorkspaceSidebarView {
         return pointer
     }
 
-    var dockColumnGrowth: (CGPoint?, CGFloat, CGRect) -> CGFloat {
+    func dockColumnGrowth(layout: WorkspaceSidebarConfiguration) -> (CGPoint?, CGFloat, CGRect) -> CGFloat {
         guard allowsDockMagnification, dockSurfaceProgress == 0 else { return { _, _, _ in 0 } }
         let projectId = projectPagerDisplayIndex.flatMap { snapshot.projects.indices.contains($0) ? snapshot.projects[$0].id : nil } ?? snapshot.activeProjectId
         var workspaces = currentFilteredProjectWorkspaces()
@@ -1291,8 +1309,8 @@ extension WorkspaceSidebarView {
         }
         // Filtering and grouping depend on the snapshot, not the display frame.
         let appCounts = workspaces.map { $0.apps.count }
-        let itemSize = snapshot.configuration.dockIconSize
-        let amount = snapshot.configuration.dockMagnificationAmount
+        let itemSize = layout.dockIconSize
+        let amount = layout.dockMagnificationAmount
         let origin = dockColumnOrigins[projectId] ?? (shouldShowCompactMonitorSelector ? 0 : snapshot.configuration.topPadding)
         return { pointer, strength, restingSurface in
             guard let pointer else { return 0 }
@@ -1302,6 +1320,38 @@ extension WorkspaceSidebarView {
     }
 
     var compactDockContentHeight: CGFloat {
+        compactDockContentHeight(layout: snapshot.configuration)
+    }
+
+    func compactDockContentHeight(layout: WorkspaceSidebarConfiguration) -> CGFloat {
+        dockSizingPages.map { workspaces in
+            workspaceSidebarDockContentHeight(
+                appCounts: workspaces.map { $0.apps.count },
+                configuration: layout,
+                showsCreateWorkspace: browsedProjectId == nil && workspaceSidebarShowsCreateWorkspace(selectedScopeId: snapshot.selectedMonitorScopeId),
+                showsMonitorSelector: shouldShowCompactMonitorSelector,
+                projectCount: snapshot.projects.count
+            )
+        }.max() ?? 0
+    }
+
+    func dockLayout(availableHeight: CGFloat) -> WorkspaceSidebarConfiguration {
+        var layout = snapshot.configuration
+        guard layout.showAppIcons else { return layout }
+        let sizes = dockSizingPages.map { workspaces in
+            workspaceSidebarFittedDockIconSize(
+                appCounts: workspaces.map { snapshot.dockRestingAppCounts?[$0.name] ?? $0.apps.count },
+                configuration: layout, availableHeight: availableHeight,
+                showsCreateWorkspace: browsedProjectId == nil && workspaceSidebarShowsCreateWorkspace(selectedScopeId: snapshot.selectedMonitorScopeId),
+                showsMonitorSelector: shouldShowCompactMonitorSelector,
+                projectCount: snapshot.projects.count
+            )
+        }
+        layout.dockIconSize = sizes.min() ?? layout.dockIconSize
+        return layout
+    }
+
+    private var dockSizingPages: [[WorkspaceSidebarWorkspaceViewModel]] {
         let visibleByProject = workspaceSidebarVisibleWorkspacesByProject(
             workspaces: snapshot.workspaces,
             selectedScopeId: snapshot.selectedMonitorScopeId,
@@ -1329,13 +1379,7 @@ extension WorkspaceSidebarView {
                let pinned = pinnedActiveWorkspace(displayedProjectId: projectId, pageWorkspaces: workspaces) {
                 workspaces.insert(pinned, at: 0)
             }
-            return workspaceSidebarDockContentHeight(
-                appCounts: workspaces.map { $0.apps.count },
-                configuration: snapshot.configuration,
-                showsCreateWorkspace: browsedProjectId == nil && workspaceSidebarShowsCreateWorkspace(selectedScopeId: snapshot.selectedMonitorScopeId),
-                showsMonitorSelector: shouldShowCompactMonitorSelector,
-                projectCount: snapshot.projects.count
-            )
-        }.max() ?? 0
+            return workspaces
+        }
     }
 }

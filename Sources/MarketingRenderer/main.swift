@@ -44,7 +44,7 @@ struct MarketingRendererCommand {
               --expanded-width N   Fully expanded sidebar width (default: 240)
               --expansion N        Expansion progress from 0 to 1 (default: 0)
               --height POINTS      Window height (default: 360)
-              --icon-size POINTS   Dock icon size, 24...48 (default: 48)
+              --icon-size POINTS   Maximum Dock icon size, 24...48 (default: 48); shrinks to fit
               --magnification N    Enable Dock magnification: 0 or 1 (default: 0)
               --magnification-amount N  Magnification strength, 0...1 (default: 0.5)
               --pointer-y POINTS   Simulated pointer in sidebar coordinates for capture

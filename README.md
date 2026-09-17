@@ -90,15 +90,18 @@ The stored **Collapsed width** setting is preserved for the default sidebar mode
 default. Adjust it from **0–24 pt** in Appearance, or set `dock-left-gap` in TOML.
 It applies in light and dark appearances and updates immediately, including the
 space reserved for tiled windows. Sidebar mode remains flush with the edge.
-The rail fits its contents and sits vertically centered; long lists scroll within
-the available screen height. Expanding grows it to the full sidebar height while
+The rail fits its contents and sits vertically centered. When space is tight,
+app icons and workspace numbers shrink together to fit the available height,
+accounting for separators, the clock, and other controls. They grow back as space
+opens, up to the configured icon size. Icons stop shrinking at 16 pt; more crowded
+lists remain scrollable. Expanding grows it to the full sidebar height while
 the workspace tile and app icons move into the individual window list and the
 separators fade. Collapsing restores the compact layout. Reduce Motion uses an
 immediate transition.
 
-**Dock icon size** controls app icons and number tiles together, from **24–48 pt**
+**Dock icon size** sets the maximum for app icons and number tiles, from **24–48 pt**
 (default **48 pt**). App artwork includes transparent padding, so the default
-paints about 39–41 pt inside the 64 pt rail. Icon canvases have a 4 pt gap.
+paints about 39–41 pt inside the 64 pt rail when space permits. Icon canvases have a 4 pt gap.
 Optional **Magnify Dock
 icons on hover** smoothly enlarges nearby tiles beyond the fixed-width glass
 background. Icons keep their left edges aligned as they grow to the right; the active

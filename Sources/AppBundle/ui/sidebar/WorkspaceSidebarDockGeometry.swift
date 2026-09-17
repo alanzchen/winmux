@@ -1,6 +1,33 @@
 import CoreGraphics
 import SwiftUI
 
+/// Fit the resting column before hover animation runs. The configured size remains
+/// a ceiling; very crowded columns keep scrolling at a usable 16-point minimum.
+@MainActor
+func workspaceSidebarFittedDockIconSize(
+    appCounts: [Int],
+    configuration: WorkspaceSidebarConfiguration,
+    availableHeight: CGFloat,
+    showsCreateWorkspace: Bool,
+    showsMonitorSelector: Bool,
+    projectCount: Int
+) -> CGFloat {
+    guard configuration.showAppIcons else { return configuration.dockIconSize }
+    let maximum = min(configuration.dockIconSize,
+                      max(configuration.compactRailWidth - workspaceSidebarCompactRailHorizontalInset * 2, 1))
+    let iconCount = appCounts.reduce(0) { $0 + 1 + max($1, 0) }
+    guard iconCount > 0, availableHeight.isFinite else { return maximum }
+    let height = workspaceSidebarDockContentHeight(
+        appCounts: appCounts, configuration: configuration,
+        showsCreateWorkspace: showsCreateWorkspace, showsMonitorSelector: showsMonitorSelector,
+        projectCount: projectCount
+    )
+    guard height > availableHeight else { return maximum }
+    // Everything except icon canvases (separators, spacing, controls) stays fixed.
+    let fitted = maximum - (height - max(availableHeight, 0)) / CGFloat(iconCount)
+    return min(maximum, max(min(16, maximum), floor(fitted * 2) / 2))
+}
+
 /// The compact column uses fixed-size tiles and controls, so its ideal height does not
 /// require a second offscreen sidebar or a feedback loop through ScrollView measurement.
 @MainActor

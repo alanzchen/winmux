@@ -13,6 +13,8 @@ struct WorkspaceSidebarSnapshot: Equatable {
     var dropPreview: WorkspaceSidebarDropPreviewViewModel?
     var configuration: WorkspaceSidebarConfiguration
     var dockDrag: WorkspaceSidebarDockDragPresentation? = nil
+    // Unprojected counts keep drag-hover previews from resizing their own targets.
+    var dockRestingAppCounts: [String: Int]? = nil
 
     static let empty = WorkspaceSidebarSnapshot(
         workspaces: [],

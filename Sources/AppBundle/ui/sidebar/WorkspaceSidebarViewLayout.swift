@@ -3,13 +3,13 @@ import Common
 import SwiftUI
 
 extension WorkspaceSidebarView {
-    func sidebarContent(expansionProgress: CGFloat) -> some View {
+    func sidebarContent(expansionProgress: CGFloat, layout: WorkspaceSidebarConfiguration) -> some View {
         let isCompact = expansionProgress < workspaceSidebarRowsRevealProgress
         let progress = min(max(expansionProgress, 0), 1)
-        let leadingInset = snapshot.configuration.showAppIcons
+        let leadingInset = layout.showAppIcons
             ? workspaceSidebarOuterLeadingPadding(isCompact: true) + progress * (workspaceSidebarOuterLeadingPadding(isCompact: false) - workspaceSidebarOuterLeadingPadding(isCompact: true))
             : workspaceSidebarOuterLeadingPadding(isCompact: isCompact)
-        let trailingInset = snapshot.configuration.showAppIcons
+        let trailingInset = layout.showAppIcons
             ? workspaceSidebarOuterTrailingPadding(isCompact: true) + progress * (workspaceSidebarOuterTrailingPadding(isCompact: false) - workspaceSidebarOuterTrailingPadding(isCompact: true))
             : workspaceSidebarOuterTrailingPadding(isCompact: isCompact)
         let showsMonitorSelector = !isCompact && shouldShowTopFilterBar
@@ -75,10 +75,11 @@ extension WorkspaceSidebarView {
             }
 
             projectPagerContent(
+                layout: layout,
                 expansionProgress: expansionProgress,
                 leadingInset: leadingInset,
                 trailingInset: trailingInset,
-                topPadding: showsMonitorSelector || showsCompactMonitorSelector ? 0 : snapshot.configuration.topPadding,
+                topPadding: showsMonitorSelector || showsCompactMonitorSelector ? 0 : layout.topPadding,
                 visibleWorkspacesByProject: filteredWorkspacesByProject,
                 swipeDirection: projectSwipeDirection,
             )
@@ -88,7 +89,7 @@ extension WorkspaceSidebarView {
             )
             .frame(maxHeight: .infinity, alignment: .topLeading)
 
-            if isCompact, snapshot.configuration.dockMagnification {
+            if isCompact, layout.dockMagnification {
                 Button {
                     guard !isWorkspaceSidebarDragInProgress() else { return }
                     dockMotion.reset()
@@ -124,7 +125,7 @@ extension WorkspaceSidebarView {
                 )
             }
 
-            if snapshot.configuration.showsClock {
+            if layout.showsClock {
                 statusSection(
                     expansionProgress: expansionProgress,
                     isCompact: isCompact,
@@ -135,7 +136,7 @@ extension WorkspaceSidebarView {
 
             Color.clear
                 .frame(height: workspaceSidebarFooterBottomPadding(
-                    showsClock: snapshot.configuration.showsClock,
+                    showsClock: layout.showsClock,
                 ))
         }
         .onPreferenceChange(WorkspaceSidebarDropTargetPreferenceKey.self) { frames in

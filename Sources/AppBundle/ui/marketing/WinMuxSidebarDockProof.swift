@@ -45,6 +45,16 @@ public func showWinMuxSidebarDockProof(
     }
 
     let size = CGSize(width: visibleWidth + overflow, height: height)
+    let snapshot = sidebarDockProofSnapshot(
+        compactWidth: width,
+        expandedWidth: expandedWidth,
+        visibleWidth: visibleWidth,
+        iconSize: iconSize,
+        magnification: magnification,
+        magnificationAmount: magnificationAmount,
+        glassOpacity: glassOpacity,
+        dockMode: presentationMode == "dock"
+    )
     let content = ZStack(alignment: .topLeading) {
         if let backdrop {
             // The caller supplies a matching wallpaper crop. Stretch it to the requested
@@ -54,16 +64,7 @@ public func showWinMuxSidebarDockProof(
                 .interpolation(.high)
                 .frame(width: size.width, height: height)
         }
-        WorkspaceSidebarView(snapshot: sidebarDockProofSnapshot(
-            compactWidth: width,
-            expandedWidth: expandedWidth,
-            visibleWidth: visibleWidth,
-            iconSize: iconSize,
-            magnification: magnification,
-            magnificationAmount: magnificationAmount,
-            glassOpacity: glassOpacity,
-            dockMode: presentationMode == "dock"
-        ), actions: .init())
+        WorkspaceSidebarView(snapshot: snapshot, actions: .init())
             .frame(width: size.width, height: height)
     }
     .frame(width: size.width, height: height)
@@ -121,6 +122,7 @@ public func showWinMuxSidebarDockProof(
         "holdSeconds": holdDuration,
         "hasBackdrop": backdrop != nil,
         "iconSize": iconSize,
+        "effectiveIconSize": WorkspaceSidebarView(snapshot: snapshot).dockLayout(availableHeight: height).dockIconSize,
         "magnification": magnification,
         "magnificationAmount": magnificationAmount,
         "glassOpacity": glassOpacity,

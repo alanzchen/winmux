@@ -22,5 +22,8 @@ func workspaceSidebarSnapshot(from model: TrayMenuModel) -> WorkspaceSidebarSnap
         dropPreview: preview,
         configuration: model.workspaceSidebarAppearance,
         dockDrag: drag,
+        dockRestingAppCounts: drag != nil || preview != nil
+            ? Dictionary(uniqueKeysWithValues: model.workspaceSidebarWorkspaces.map { ($0.name, $0.apps.count) })
+            : nil,
     )
 }
