@@ -144,7 +144,7 @@ struct WorkspaceSidebarWorkspaceSection: View, Animatable {
             ))
             .help(isInUseOnOtherDisplay ? inUseOverrideText : (layout.showAppIcons ? workspaceSidebarAppSummaryLabel(workspace) : workspace.displayName))
             .zIndex(isDropTarget ? 1 : 0)
-            .animation(.spring(response: 0.2, dampingFraction: 0.82), value: dragPreview)
+            .animation(reduceMotion ? nil : (layout.showAppIcons ? workspaceSidebarDockSettleAnimation : .spring(response: 0.2, dampingFraction: 0.82)), value: dragPreview)
             .modifier(WorkspaceSidebarLegacyExpansionAnimation(isEnabled: !layout.showAppIcons, reduceMotion: reduceMotion, progress: expansionProgress))
             .animation(reduceMotion ? workspaceSidebarReducedMotionHoverAnimation : workspaceSidebarHoverAnimation, value: isHovered)
             .animation(reduceMotion ? workspaceSidebarReducedMotionHoverAnimation : workspaceSidebarHoverAnimation, value: hoveredWindowId)

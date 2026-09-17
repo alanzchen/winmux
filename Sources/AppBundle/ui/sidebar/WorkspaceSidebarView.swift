@@ -56,6 +56,7 @@ struct WorkspaceSidebarView: View {
                 fitsDockContent: snapshot.configuration.showAppIcons
             )
             sidebarContent(expansionProgress: expansionProgress)
+                .environment(\.workspaceSidebarDockDrag, snapshot.dockDrag)
                 .environment(\.workspaceSidebarDockPointer, dockMagnificationPointer(inheritedDockPointer ?? dockPointer, in: surfaceFrame))
                 .frame(width: surfaceFrame.width, height: surfaceFrame.height, alignment: .leading)
                 .mask(alignment: .leading) {
@@ -81,6 +82,8 @@ struct WorkspaceSidebarView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         .coordinateSpace(name: "workspaceSidebarContent")
+        .animation(snapshot.configuration.showAppIcons && !reduceDockMotion ? workspaceSidebarDockSettleAnimation : nil,
+                   value: WorkspaceSidebarDockLayoutState(snapshot))
         .onReceive(NotificationCenter.default.publisher(for: workspaceSidebarDragPointerChangedNotification)) { _ in
             dockPointer = nil
         }

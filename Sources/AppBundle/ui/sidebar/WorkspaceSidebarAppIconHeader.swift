@@ -12,6 +12,7 @@ struct WorkspaceSidebarAppIconHeader: View {
     var iconSize: CGFloat = WorkspaceSidebarAppIconLayout.iconSize
     @Environment(\.workspaceSidebarDockPointer) private var pointer
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.workspaceSidebarDockDrag) private var dockDrag
 
     var layout: WorkspaceSidebarAppIconLayout {
         WorkspaceSidebarAppIconLayout(appCount: workspace.apps.count, availableWidth: availableWidth, magnificationEnabled: magnificationEnabled, iconSize: iconSize)
@@ -35,12 +36,15 @@ struct WorkspaceSidebarAppIconHeader: View {
                 ForEach(Array(workspace.apps.prefix(layout.visibleAppCount).enumerated()), id: \.element.id) { index, app in
                     let rect = frames[index + 1]
                     appIcon(app, size: rect.width)
+                        .opacity(dockDrag?.hidesIcon(workspaceName: workspace.name, appId: app.id) == true ? 0 : 1)
                         .position(x: rect.midX, y: rect.midY)
+                        .transition(.opacity)
                 }
             }
         }
         .frame(width: availableWidth, height: layout.height, alignment: .center)
         .animation(reduceMotion ? nil : .spring(response: 0.18, dampingFraction: 0.85), value: pointer)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: dockDrag?.id)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(workspaceSidebarAppSummaryLabel(workspace))
     }

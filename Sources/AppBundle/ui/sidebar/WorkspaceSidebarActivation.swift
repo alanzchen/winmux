@@ -37,6 +37,9 @@ func beginActiveWorkspaceSidebarDrag(windowId: UInt32, subject: WindowDragSubjec
     if let activeWorkspaceSidebarDrag,
        activeWorkspaceSidebarDrag.windowId == windowId,
        activeWorkspaceSidebarDrag.subject == subject { return }
+    if let previous = TrayMenuModel.shared.workspaceSidebarDockDrag {
+        finishWorkspaceSidebarDockLift(id: previous.id)
+    }
     activeWorkspaceSidebarDrag = ActiveWorkspaceSidebarDrag(windowId: windowId, subject: subject, previewStyle: previewStyle)
 }
 
@@ -48,6 +51,9 @@ func currentActiveWorkspaceSidebarDrag() -> ActiveWorkspaceSidebarDrag? {
 @MainActor
 func clearActiveWorkspaceSidebarDrag() {
     activeWorkspaceSidebarDrag = nil
+    if let drag = TrayMenuModel.shared.workspaceSidebarDockDrag, drag.destination == nil {
+        finishWorkspaceSidebarDockLift(id: drag.id)
+    }
 }
 
 func shouldLockWorkspaceSidebarExpansion(

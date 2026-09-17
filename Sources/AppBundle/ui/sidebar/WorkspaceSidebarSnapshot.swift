@@ -12,6 +12,7 @@ struct WorkspaceSidebarSnapshot: Equatable {
     var hoveredWorkspaceName: String?
     var dropPreview: WorkspaceSidebarDropPreviewViewModel?
     var configuration: WorkspaceSidebarConfiguration
+    var dockDrag: WorkspaceSidebarDockDragPresentation? = nil
 
     static let empty = WorkspaceSidebarSnapshot(
         workspaces: [],

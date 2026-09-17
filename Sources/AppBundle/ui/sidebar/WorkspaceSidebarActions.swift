@@ -258,8 +258,9 @@ func moveTabGroupToNewWorkspaceFromSidebar(_ windowId: UInt32, projectId: Worksp
 }
 
 @MainActor
-private func moveSidebarSource(_ windowId: UInt32, subject: WindowDragSubject, toWorkspace workspaceName: String) {
-    runWorkspaceSidebarSession {
+private func moveSidebarSource(_ windowId: UInt32, subject: WindowDragSubject, toWorkspace workspaceName: String, settlingId: UUID? = nil) {
+    let task = runWorkspaceSidebarSession {
+        defer { if let settlingId { finishWorkspaceSidebarDockLift(id: settlingId) } }
         guard let sourceWindow = Window.get(byId: windowId),
               let targetWorkspace = Workspace.existing(byName: workspaceName)
         else { return }
@@ -269,6 +270,7 @@ private func moveSidebarSource(_ windowId: UInt32, subject: WindowDragSubject, t
         applySidebarWorkspaceMove(sourceNode: sourceNode, sourceWindow: sourceWindow, targetWorkspace: targetWorkspace)
         await updateWorkspaceSidebarModel()
     }
+    if task == nil, let settlingId { finishWorkspaceSidebarDockLift(id: settlingId) }
 }
 
 @MainActor
@@ -277,8 +279,10 @@ private func moveSidebarSourceToNewWorkspace(
     subject: WindowDragSubject,
     projectId: WorkspaceProjectId,
     monitorScopeId: String,
+    settlingId: UUID? = nil,
 ) {
-    runWorkspaceSidebarSession {
+    let task = runWorkspaceSidebarSession {
+        defer { if let settlingId { finishWorkspaceSidebarDockLift(id: settlingId) } }
         guard let sourceWindow = Window.get(byId: windowId) else { return }
         let sourceNode = dragSubjectNode(for: sourceWindow, subject: subject)
         let targetMonitor = workspaceSidebarTargetMonitor(
@@ -295,6 +299,7 @@ private func moveSidebarSourceToNewWorkspace(
         sourceNode.bind(to: targetContainer, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
         await updateWorkspaceSidebarModel()
     }
+    if task == nil, let settlingId { finishWorkspaceSidebarDockLift(id: settlingId) }
 }
 
 @MainActor
@@ -594,6 +599,7 @@ func updateSidebarWindowDrag(_ windowId: UInt32, subject: WindowDragSubject = .w
         return
     }
     beginActiveWorkspaceSidebarDrag(windowId: window.windowId, subject: subject, previewStyle: previewStyle)
+    beginWorkspaceSidebarDockLift(source: window)
     let point = MousePointerTracker.shared.currentSample.point
     updateActiveWorkspaceSidebarDragPreview(sourceWindow: window, subject: subject)
     beginWindowMoveWithMouseSessionIfNeeded(
@@ -698,22 +704,18 @@ private func commitActiveWorkspaceSidebarDragIfPossible() -> Bool {
         WindowDragCursorProxyPanel.shared.hide()
         return false
     }
+    previewWorkspaceSidebarDrop(sourceWindow.windowId, subject: activeDrag.subject, target: target)
+    let settlingId = settleWorkspaceSidebarDockLift()
     clearWorkspaceSidebarDropPreview()
     WindowDragCursorProxyPanel.shared.hide()
     switch target {
         case .workspace(let workspaceName):
-            if activeDrag.subject == .group {
-                moveTabGroupFromSidebar(sourceWindow.windowId, toWorkspace: workspaceName)
-            } else {
-                moveWindowFromSidebar(sourceWindow.windowId, toWorkspace: workspaceName)
-            }
+            moveSidebarSource(sourceWindow.windowId, subject: activeDrag.subject,
+                toWorkspace: workspaceName, settlingId: settlingId)
             return true
         case .newWorkspace(let projectId, let monitorScopeId):
-            if activeDrag.subject == .group {
-                moveTabGroupToNewWorkspaceFromSidebar(sourceWindow.windowId, projectId: projectId, monitorScopeId: monitorScopeId)
-            } else {
-                moveWindowToNewWorkspaceFromSidebar(sourceWindow.windowId, projectId: projectId, monitorScopeId: monitorScopeId)
-            }
+            moveSidebarSourceToNewWorkspace(sourceWindow.windowId, subject: activeDrag.subject,
+                projectId: projectId, monitorScopeId: monitorScopeId, settlingId: settlingId)
             return true
         case .monitor:
             return false

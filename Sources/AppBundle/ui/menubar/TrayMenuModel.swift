@@ -21,6 +21,7 @@ public final class TrayMenuModel: ObservableObject {
     @Published var workspaceSidebarFocusedMonitorScopeId: String = ""
     @Published var workspaceSidebarShowsMonitorSelector: Bool = false
     @Published var workspaceSidebarDropPreview: WorkspaceSidebarDropPreviewViewModel? = nil
+    @Published var workspaceSidebarDockDrag: WorkspaceSidebarDockDragPresentation? = nil
     @Published var windowTabStrips: [WindowTabStripViewModel] = []
     @Published var isWorkspaceSidebarExpanded: Bool = false
     @Published var workspaceSidebarVisibleWidth: CGFloat = 0

@@ -225,3 +225,24 @@ The preview renderer supports `--mode sidebar|dock` for the next native check.
 
 Per user request, this work is local only: no release or release workflow was
 triggered, and the preview update feed remains on the existing published version.
+
+### Dock lift and drop handoff — local, not released
+
+Compact icon drags hide the source icon while retaining its layout slot, including
+icons rendered through the compact/expanded morph overlay. Cancellation restores
+the source. A committed drop keeps its visual destination placeholder across the
+asynchronous workspace update; arrival is matched by window ID, not app identity.
+The updated app list, placeholder removal, and Dock height share a 0.28-second
+spring. Reduce Motion disables movement. The underlying window-move semantics
+remain unchanged, including one-window moves for apps with multiple windows.
+
+Visual handoffs are scoped to a gesture ID. Completion, cancellation, a newer drag,
+disabled sidebar state, or a bounded failure timeout clear them; old completion
+callbacks cannot clear a newer drag. Sidebar mode does not use this presentation.
+
+Validation: **743 tests, zero failures, one native-glass skip**, plus a successful
+debug build. Six new regressions exercise source-icon pixel visibility with stable
+layout, destination arrival, same-app/different-window handling, new workspaces,
+cancellation, superseded gestures, and Sidebar-mode isolation. Live animation timing
+and an interactive native drag still require a smoke check. Nothing was pushed or
+released.
