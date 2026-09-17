@@ -94,7 +94,7 @@ Used the live [Dockset website](https://dockset.app/) in **Custom Dock → Left 
 Dark/Glass** as the reference. Its measured rail was approximately 62.8 pixels wide,
 with 15.4-pixel corners, a 19.6 × 1-pixel divider, and 2.8-pixel running dots.
 WinMux uses 64-point width, 16-point corners, 20 × 1-point dividers, and 2.5-point dots.
-The current indicator is a single dot beneath the active workspace number, following
+The current indicator is a single dot to the left of the active workspace number, following
 the number and fading during expansion. App icons have no dots. The comparison
 captures below predate this indicator adjustment.
 The native compact glass uses a neutral dark tint and a subtle upper-edge highlight.

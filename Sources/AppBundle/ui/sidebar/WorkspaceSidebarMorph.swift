@@ -129,10 +129,10 @@ struct WorkspaceSidebarMorphOverlay: View {
                         .frame(width: textWidth, height: rect.height)
                 }
                 .frame(width: rect.width, height: rect.height)
-                .overlay(alignment: .bottom) {
+                .overlay(alignment: .leading) {
                     if isActive {
                         WorkspaceSidebarActiveWorkspaceIndicator()
-                            .offset(y: 2)
+                            .offset(x: -2)
                             .opacity(Double(1 - clampedProgress))
                     }
                 }

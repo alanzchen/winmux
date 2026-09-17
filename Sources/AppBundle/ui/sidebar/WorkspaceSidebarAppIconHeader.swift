@@ -70,10 +70,10 @@ struct WorkspaceSidebarWorkspaceIcon: View {
                     .padding(.horizontal, size * 0.13)
             }
             .frame(width: size, height: size)
-            .overlay(alignment: .bottom) {
+            .overlay(alignment: .leading) {
                 if isActive {
                     WorkspaceSidebarActiveWorkspaceIndicator()
-                        .offset(y: 2)
+                        .offset(x: -2)
                 }
             }
     }

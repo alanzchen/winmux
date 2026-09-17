@@ -69,7 +69,7 @@ preferred, followed by the workspace's focus order. A workspace on another displ
 keeps the **Override** prompt; confirming it also
 focuses the app you clicked. Clicking the numbered tile selects the workspace.
 An overflow tile marks additional apps. The compact rail uses a fixed **64 pt**
-width, a rounded glass surface, and a dot below the active workspace's number tile.
+width, a rounded glass surface, and a dot to the left of the active workspace's number tile.
 The stored **Collapsed width** setting is preserved for the default sidebar mode.
 The rail fits its contents and sits vertically centered; long lists scroll within
 the available screen height. Expanding grows it to the full sidebar height while

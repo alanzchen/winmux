@@ -6,7 +6,7 @@ import XCTest
 @MainActor
 final class WorkspaceSidebarAppIconsRenderingTest: XCTestCase {
     func testNativePreviewShowsDockWorkspaceGroupsAtAllSupportedWidths() throws {
-        let widths: [CGFloat] = [28, 44, 120]
+        let widths: [CGFloat] = [28, 44, 64, 120]
         let apps = [
             WorkspaceSidebarAppViewModel(name: "Safari", bundleId: "com.apple.Safari", bundlePath: nil),
             WorkspaceSidebarAppViewModel(name: "Terminal", bundleId: "com.apple.Terminal", bundlePath: nil),
@@ -16,7 +16,7 @@ final class WorkspaceSidebarAppIconsRenderingTest: XCTestCase {
         ]
         let preview = VStack(alignment: .leading, spacing: 16) {
             Text("Workspace Dock").font(.system(size: 20, weight: .semibold))
-            Text("Compact rail: 28, 44, and 120 points").font(.system(size: 12)).foregroundStyle(.secondary)
+            Text("Compact rail: 28, 44, 64 (production), and 120 points").font(.system(size: 12)).foregroundStyle(.secondary)
             HStack(alignment: .top, spacing: 32) {
                 ForEach(widths, id: \.self) { width in
                     VStack(spacing: 12) {
@@ -36,11 +36,11 @@ final class WorkspaceSidebarAppIconsRenderingTest: XCTestCase {
         }
         .padding(24)
         .foregroundStyle(.white)
-        .frame(width: 380, height: 480, alignment: .topLeading)
+        .frame(width: 480, height: 480, alignment: .topLeading)
         .background(Color(red: 0.045, green: 0.05, blue: 0.065))
         .environment(\.colorScheme, .dark)
         let host = NSHostingView(rootView: preview)
-        host.frame = NSRect(x: 0, y: 0, width: 380, height: 480)
+        host.frame = NSRect(x: 0, y: 0, width: 480, height: 480)
         host.layoutSubtreeIfNeeded()
         XCTAssertNil(host.window)
         let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
@@ -49,7 +49,7 @@ final class WorkspaceSidebarAppIconsRenderingTest: XCTestCase {
     }
 
     func testCompactAppSummaryFitsMinimumDefaultAndWideRails() throws {
-        for railWidth: CGFloat in [28, 44, 120] {
+        for railWidth: CGFloat in [28, 44, 64, 120] {
             for appCount in [0, 1, 3, 6, 104] {
                 let section = section(width: railWidth, identifier: "104", apps: sidebarAppIconsTestApps(count: appCount))
                 let content = section
