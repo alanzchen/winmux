@@ -23,16 +23,15 @@ def feed(version):
 
 
 class PreviewTest(unittest.TestCase):
-    def test_retries_and_later_runs_have_increasing_numeric_versions(self):
-        versions = [preview.preview_version("0.6", 1, 1), preview.preview_version("0.6", 1, 99),
-                    preview.preview_version("0.6", 2, 1)]
-        self.assertEqual(versions, ["0.6.1", "0.6.99", "0.6.101"])
-        self.assertEqual(sorted(versions, key=lambda v: preview.release.version_tuple("v" + v)), versions)
+    def test_local_and_hosted_builds_share_increasing_numeric_versions(self):
+        self.assertEqual(preview.preview_version("0.6", []), "0.6.1")
+        self.assertEqual(preview.preview_version("0.6", ["v0.6.1", "v0.6.301", "v0.5.9", "unrelated"]), "0.6.302")
+        self.assertEqual(preview.preview_version("0.7", ["v0.6.302"]), "0.7.1")
 
-    def test_invalid_prefix_or_run_is_rejected(self):
-        for args in [("0.6-beta", 1, 1), ("01.6", 1, 1), ("0.6", 0, 1), ("0.6", 1, 100)]:
-            with self.subTest(args=args), self.assertRaises(ValueError):
-                preview.preview_version(*args)
+    def test_invalid_prefix_is_rejected(self):
+        for prefix in ["0.6-beta", "01.6", "0.6.1", "0.6\n"]:
+            with self.subTest(prefix=prefix), self.assertRaises(ValueError):
+                preview.preview_version(prefix, [])
 
     def test_old_preview_cannot_replace_newer_preview_or_stable(self):
         for prerelease in (False, True):
@@ -100,6 +99,7 @@ class PreviewTest(unittest.TestCase):
             draft = record("v0.6.1", draft=True)
             with patch.dict("os.environ", {"RELEASE_TAG": "v0.6.1", "RELEASE_DIR": directory}), \
                     patch.object(preview, "check_context"), patch.object(preview.release, "check_tag"), \
+                    patch.object(preview, "published_for_commit", return_value=None), \
                     patch.object(preview.release, "release_assets", return_value=[path]), \
                     patch.object(preview.appcast, "validate_appcast"), \
                     patch.object(preview.release, "read_releases", return_value=[draft]), \
@@ -110,6 +110,63 @@ class PreviewTest(unittest.TestCase):
                     preview.publish()
                 self.assertFalse(any("edit" in call.args for call in run.call_args_list))
                 advance.assert_not_called()
+
+    def test_hosted_build_skips_a_commit_already_published_locally(self):
+        with tempfile.TemporaryDirectory() as directory:
+            environment = Path(directory) / "env"
+            with patch.dict("os.environ", {"GITHUB_ENV": str(environment)}), \
+                    patch.object(preview, "check_context", return_value="commit"), \
+                    patch.object(preview, "published_for_commit", return_value=record("v0.6.302")), \
+                    patch.object(preview, "repair_published_feed") as repair, \
+                    patch.object(preview, "api") as api:
+                self.assertEqual(preview.prepare(), ("v0.6.302", True))
+                self.assertIn("SKIP_RELEASE=true", environment.read_text())
+                repair.assert_called_once()
+                api.assert_not_called()
+
+    def test_new_draft_uses_creation_response_when_listing_is_stale(self):
+        draft = record("v0.6.302", draft=True)
+        with patch.dict("os.environ", {"RELEASE_TAG": "v0.6.302"}), \
+                patch.object(preview, "check_context", return_value="commit"), \
+                patch.object(preview, "published_for_commit", return_value=None), \
+                patch.object(preview.release, "check_tag"), \
+                patch.object(preview.release, "release_assets", return_value=[]), \
+                patch.object(preview.appcast, "validate_appcast"), \
+                patch.object(preview.release, "read_releases", return_value=[]), \
+                patch.object(preview, "api", return_value=draft) as api, \
+                patch.object(preview.release, "verify_uploaded_assets"), \
+                patch.object(preview.release, "run"), patch.object(preview, "advance_feed"):
+            self.assertEqual(preview.publish(local=True), "v0.6.302")
+            self.assertEqual(api.call_args_list[0].args[:2], ("releases", "POST"))
+
+    def test_commit_lookup_ignores_noncanonical_release_tags(self):
+        tags = ["v0.6.302", "vexperimental"]
+        refs = [{"ref": f"refs/tags/{tag}", "object": {"type": "commit", "sha": "commit"}} for tag in tags]
+        with patch.object(preview, "api", return_value=refs), \
+                patch.object(preview.release, "read_releases", return_value=[record(tag) for tag in tags]):
+            self.assertEqual(preview.published_for_commit("commit")["tag_name"], "v0.6.302")
+
+    def test_losing_build_uses_existing_release_and_repairs_feed(self):
+        with patch.object(preview, "check_context", return_value="commit"), \
+                patch.object(preview, "published_for_commit", return_value=record("v0.6.302")), \
+                patch.object(preview, "repair_published_feed") as repair, \
+                patch.object(preview.release, "release_assets") as assets:
+            self.assertEqual(preview.publish(local=True), "v0.6.302")
+            repair.assert_called_once()
+            assets.assert_not_called()
+
+    def test_atomic_tag_collision_allocates_another_version(self):
+        refs = lambda tag: [{"ref": f"refs/tags/{tag}"}]
+        with patch.object(preview, "check_context", return_value="commit"), \
+                patch.object(preview, "published_for_commit", return_value=None), \
+                patch.object(preview.release, "read_releases", return_value=[]), \
+                patch.object(preview.release, "check_tag"), patch.object(preview.release, "run"), \
+                patch.object(Path, "read_text", return_value="0.6"), \
+                patch.object(preview, "api", side_effect=[
+                    refs("v0.6.301"), ValueError("already exists"), {"ref": "refs/tags/v0.6.302"},
+                    refs("v0.6.302"), {"ref": "refs/tags/v0.6.303"},
+                ]):
+            self.assertEqual(preview.prepare(local=True), ("v0.6.303", False))
 
 
 if __name__ == "__main__":

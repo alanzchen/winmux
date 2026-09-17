@@ -9,6 +9,8 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import tempfile
+import hashlib
 import xml.etree.ElementTree as ET
 
 
@@ -27,13 +29,18 @@ FEED_BRANCH = "updates"
 FEED_PATH = "prerelease.xml"
 
 
-def preview_version(prefix, run_number, attempt):
+def preview_version(prefix, tags):
     if not re.fullmatch(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)", prefix):
         raise ValueError("The prerelease version prefix must be MAJOR.MINOR.")
-    if run_number < 1 or not 1 <= attempt < 100:
-        raise ValueError("Invalid run number or attempt; at most 99 attempts are supported.")
-    # A retry gets a fresh immutable version; later runs always compare newer.
-    return f"{prefix}.{(run_number - 1) * 100 + attempt}"
+    versions = []
+    for tag in tags:
+        try:
+            version = release.version_tuple(tag)
+        except ValueError:
+            continue
+        if version[:2] == tuple(map(int, prefix.split("."))):
+            versions.append(version[2])
+    return f"{prefix}.{max(versions, default=0) + 1}"
 
 
 def check_order(tag, records, allow_current=False):
@@ -69,32 +76,67 @@ def api(path, method="GET", data=None):
     return json.loads(result.stdout) if result.stdout.strip() else None
 
 
-def check_context():
+def check_context(local=False):
+    if local:
+        branch = release.run("git", "branch", "--show-current")
+        if branch not in BRANCHES:
+            raise ValueError("Local previews must come from an integration branch.")
+        return release.run("git", "rev-parse", "HEAD")
     if os.environ.get("GITHUB_REPOSITORY") != REPOSITORY:
         raise ValueError("Prereleases are restricted to the configured fork.")
     if os.environ.get("GITHUB_REF") not in {f"refs/heads/{branch}" for branch in BRANCHES}:
         raise ValueError("Only integration branch pushes can publish prereleases.")
     if os.environ.get("GITHUB_SHA") != release.run("git", "rev-parse", "HEAD"):
         raise ValueError("Checkout does not match the triggering commit.")
+    return os.environ["GITHUB_SHA"]
 
 
-def prepare():
-    check_context()
-    version = preview_version(Path(".prerelease-version").read_text().strip(),
-                              int(os.environ["GITHUB_RUN_NUMBER"]), int(os.environ["GITHUB_RUN_ATTEMPT"]))
-    tag = f"v{version}"
-    check_order(tag, release.read_releases(REPOSITORY))
-    commit = os.environ["GITHUB_SHA"]
-    existing = api(f"git/ref/tags/{tag}")
-    if existing is None:
-        api("git/refs", "POST", {"ref": f"refs/tags/{tag}", "sha": commit})
-    elif existing["object"]["sha"] != commit:
-        raise ValueError("Prerelease tag already identifies another commit.")
+def published_for_commit(commit):
+    refs = api("git/matching-refs/tags/v") or []
+    tags = {ref["ref"].removeprefix("refs/tags/") for ref in refs
+            if ref["object"]["type"] == "commit" and ref["object"]["sha"] == commit}
+    records = []
+    for record in release.read_releases(REPOSITORY):
+        if record["tag_name"] not in tags or record["draft"] or not record["prerelease"]:
+            continue
+        try:
+            release.version_tuple(record["tag_name"])
+        except ValueError:
+            continue
+        records.append(record)
+    return max(records, key=lambda item: release.version_tuple(item["tag_name"]), default=None)
+
+
+def prepare(local=False):
+    commit = check_context(local=local)
+    published = published_for_commit(commit)
+    if published:
+        repair_published_feed(published)
+        if not local:
+            with open(os.environ["GITHUB_ENV"], "a") as output:
+                output.write("SKIP_RELEASE=true\n")
+        print(f"Already published: https://github.com/{REPOSITORY}/releases/tag/{published['tag_name']}")
+        return published["tag_name"], True
+    prefix = Path(".prerelease-version").read_text().strip()
+    # The atomic ref creation coordinates local and hosted builds without sharing credentials.
+    for attempt in range(5):
+        refs = api("git/matching-refs/tags/v") or []
+        version = preview_version(prefix, [ref["ref"].removeprefix("refs/tags/") for ref in refs])
+        tag = f"v{version}"
+        check_order(tag, release.read_releases(REPOSITORY))
+        try:
+            api("git/refs", "POST", {"ref": f"refs/tags/{tag}", "sha": commit})
+            break
+        except ValueError:
+            if attempt == 4 or api(f"git/ref/tags/{tag}") is None:
+                raise
     release.run("git", "fetch", "origin", f"refs/tags/{tag}:refs/tags/{tag}")
     release.check_tag(tag, REPOSITORY, allowed_branches=BRANCHES)
-    with open(os.environ["GITHUB_ENV"], "a") as output:
-        output.write(f"VERSION={version}\nRELEASE_TAG={tag}\n")
+    if not local:
+        with open(os.environ["GITHUB_ENV"], "a") as output:
+            output.write(f"VERSION={version}\nRELEASE_TAG={tag}\nSKIP_RELEASE=false\n")
     print(f"Prepared {tag} from {commit}.")
+    return tag, False
 
 
 def check_feed_order(current_xml, version):
@@ -113,7 +155,7 @@ def advance_feed(tag, path):
     if not published or published["draft"] or not published["prerelease"]:
         raise ValueError("Only a published prerelease can enter the preview feed.")
     if api(f"git/ref/heads/{FEED_BRANCH}") is None:
-        api("git/refs", "POST", {"ref": f"refs/heads/{FEED_BRANCH}", "sha": os.environ["GITHUB_SHA"]})
+        api("git/refs", "POST", {"ref": f"refs/heads/{FEED_BRANCH}", "sha": release.run("git", "rev-parse", "HEAD")})
     current = api(f"contents/{FEED_PATH}?ref={FEED_BRANCH}")
     payload = {
         "message": f"Update preview feed to {tag}",
@@ -130,8 +172,34 @@ def advance_feed(tag, path):
     api(f"contents/{FEED_PATH}", "PUT", payload)
 
 
-def publish():
-    check_context()
+def repair_published_feed(published):
+    tag = published["tag_name"]
+    try:
+        check_order(tag, release.read_releases(REPOSITORY), allow_current=True)
+    except ValueError:
+        # A newer release has superseded this commit; do not roll back its feed.
+        return
+    asset = next((asset for asset in published["assets"] if asset["name"] == "appcast.xml"), None)
+    if asset is None:
+        raise ValueError("Published preview is missing its appcast.")
+    with tempfile.TemporaryDirectory(prefix="winmux-feed-repair-") as directory:
+        release.run("gh", "release", "download", tag, "--repo", REPOSITORY,
+                    "--pattern", "appcast.xml", "--dir", directory)
+        path = Path(directory) / "appcast.xml"
+        if asset.get("digest") != "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest():
+            raise ValueError("Published appcast checksum does not match GitHub.")
+        appcast.validate_appcast(path, tag[1:],
+                                f"https://github.com/{REPOSITORY}/releases/download/{tag}/WinMux-{tag[1:]}.zip")
+        advance_feed(tag, path)
+
+
+def publish(local=False):
+    commit = check_context(local=local)
+    published = published_for_commit(commit)
+    if published:
+        repair_published_feed(published)
+        print(f"This commit is already published: https://github.com/{REPOSITORY}/releases/tag/{published['tag_name']}")
+        return published["tag_name"]
     tag = os.environ["RELEASE_TAG"]
     directory = Path(os.environ.get("RELEASE_DIR", ".release"))
     paths = release.release_assets(tag, directory)
@@ -141,10 +209,12 @@ def publish():
                             directory / f"WinMux-{tag[1:]}.zip")
     draft = check_order(tag, release.read_releases(REPOSITORY))
     if draft is None:
-        release.run("gh", "release", "create", tag, "--repo", REPOSITORY, "--verify-tag", "--draft",
-                    "--prerelease", "--latest=false", "--title", f"WinMux {tag[1:]} Preview", "--generate-notes")
-        draft = check_order(tag, release.read_releases(REPOSITORY))
-    if draft is None:
+        # Use the creation response: the releases list can briefly omit a new draft.
+        draft = api("releases", "POST", {
+            "tag_name": tag, "name": f"WinMux {tag[1:]} Preview", "draft": True,
+            "prerelease": True, "make_latest": "false", "generate_release_notes": True,
+        })
+    if not draft or not draft["draft"] or draft["tag_name"] != tag:
         raise ValueError("GitHub did not return the prerelease draft.")
     for asset in draft["assets"]:
         release.run("gh", "release", "delete-asset", tag, asset["name"], "--repo", REPOSITORY, "--yes")
@@ -159,6 +229,7 @@ def publish():
                 "--draft=false", "--prerelease=true", "--latest=false")
     advance_feed(tag, directory / "appcast.xml")
     print(f"Published preview https://github.com/{REPOSITORY}/releases/tag/{tag} and advanced the feed.")
+    return tag
 
 
 if __name__ == "__main__":

@@ -47,3 +47,5 @@ The automatic prerelease workflow tests, signs, notarizes, and publishes the app
 then advances the preview update feed. Check the workflow result and link the
 prerelease when delivering a feature. Never replace published version assets or
 manually move the feed backwards. Documentation-only changes do not trigger releases.
+Use `make prerelease-local` for faster local signing and publication when credentials
+are available; it keeps hosted CI as the fallback until publication succeeds.

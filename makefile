@@ -128,6 +128,10 @@ release:
 	$(MAKE) cli-release VERSION="$(VERSION)" CODESIGN_IDENTITY="$(CODESIGN_IDENTITY)" CLI_STAGE_PATH="$(CLI_STAGE_PATH)"
 	/bin/bash script/build-release.sh
 
+.PHONY: prerelease-local
+prerelease-local:
+	python3 -B script/local-prerelease.py
+
 install:
 	/bin/bash -lc 'cd "$(CURDIR)" && \
 	set -euo pipefail && \

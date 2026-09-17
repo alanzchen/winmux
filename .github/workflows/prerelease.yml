@@ -50,6 +50,7 @@ jobs:
           python3 -B script/ci-prerelease.py prepare
 
       - name: Verify the pinned compiler and signing configuration
+        if: env.SKIP_RELEASE != 'true'
         run: |
           set -euo pipefail
           test -d "$DEVELOPER_DIR"
@@ -62,6 +63,7 @@ jobs:
           test -n "$SPARKLE_PUBLIC_KEY" || { echo 'Set release environment variable SPARKLE_PUBLIC_KEY.' >&2; exit 1; }
 
       - name: Run regression tests and build
+        if: env.SKIP_RELEASE != 'true'
         run: |
           set -euo pipefail
           mkdir -p .build
@@ -70,6 +72,7 @@ jobs:
           python3 -B -m unittest discover -s script -p 'test_*.py'
 
       - name: Import Developer ID and notarization credentials
+        if: env.SKIP_RELEASE != 'true'
         env:
           BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
           P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
@@ -79,6 +82,7 @@ jobs:
         run: bash script/ci-signing.sh prepare
 
       - name: Build, sign, notarize, and generate the signed update feed
+        if: env.SKIP_RELEASE != 'true'
         run: |
           set -euo pipefail
           make release \
@@ -94,6 +98,7 @@ jobs:
             GENERATE_APPCAST=1 PUBLISH=0
 
       - name: Verify distribution artifacts
+        if: env.SKIP_RELEASE != 'true'
         run: |
           set -euo pipefail
           (cd .release && shasum -a 256 --check SHA256SUMS)
@@ -122,6 +127,7 @@ jobs:
           "$app/Contents/Helpers/winmux" --version
 
       - name: Retain verified release artifacts
+        if: env.SKIP_RELEASE != 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: WinMux-${{ env.VERSION }}-signed
@@ -136,6 +142,7 @@ jobs:
             .release/SHA256SUMS
 
       - name: Publish prerelease and advance the update feed
+        if: env.SKIP_RELEASE != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: python3 -B script/ci-prerelease.py publish

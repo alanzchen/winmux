@@ -16,15 +16,16 @@ That branch does not trigger another build. Pull requests and other branches hav
 no access to this publishing path.
 
 Versions are numeric for Sparkle ordering: `.prerelease-version` supplies the
-major/minor prefix, currently `0.6`; the patch is `(run_number - 1) * 100 + attempt`.
-Thus the first run is `0.6.1`, a retry is `0.6.2`, and the second run is `0.6.101`.
-Gaps are intentional. Reruns never replace signed archives. Older jobs cannot
+major/minor prefix, currently `0.6`. Both local builds and CI reserve the next patch
+number using an atomic GitHub tag creation. Failed or cancelled builds can leave
+gaps; their tags are never reused. Reruns never replace signed archives. Older jobs cannot
 replace a newer published version or move the feed backwards. Increase the prefix
-when starting a new version series; do not reset the workflow's version sequence.
+when starting a new version series.
 
 The feed advances only after GitHub confirms all uploaded asset hashes. Failed
 builds leave the previous update available. If publication succeeds but feed
-promotion fails, rerun the workflow to publish a fresh version. GitHub's stable
+promotion fails, rerun the workflow to repair the feed from the verified published
+appcast. GitHub's stable
 `releases/latest` endpoint excludes prereleases, so it is not used for this channel.
 
 Install a preview-channel build once to migrate from the earlier local `0.5.5`
@@ -33,6 +34,30 @@ normal background checks and installation behavior; **Check for Updates** reques
 an immediate check. User-disabled automatic updates remain respected. Downloading
 source with `git pull` is not part of app updates.
 
+## Faster local releases with CI fallback
+
+With the pinned Swift/Xcode toolchain and saved Developer ID, notarization, and
+Sparkle credentials configured, run from a clean, committed integration branch:
+
+```sh
+make prerelease-local \
+  CODESIGN_IDENTITY="Developer ID Application" DEVELOPMENT_TEAM=N9YEGD9WDP \
+  NOTARYTOOL_KEYCHAIN="$HOME/Library/Keychains/login.keychain-db"
+```
+
+The command pushes the commit so CI remains available, runs all tests, builds and
+notarizes locally, uploads the same verified release assets, and advances the same
+feed. Outputs stay in `.local/prereleases/vVERSION/`. It restores only its own
+generated version files and refuses publication if source files change during the
+build. `SPARKLE_PRIVATE_KEY_FILE` is supported when using a protected signing-key
+file instead of the saved Keychain account.
+
+After successful local publication it cancels the redundant prerelease job for
+that exact commit; ordinary CI tests continue. If the local build fails, CI keeps
+running. CI also skips already-published commits, and either publisher reuses a
+completed release if the other wins the race. Without a local build, normal pushes
+continue to produce signed prereleases entirely on GitHub.
+
 ## Automated builds
 
 `.github/workflows/ci.yml` tests and builds pushes to `main` and `codex/issue-fixes`
@@ -40,7 +65,7 @@ and pull requests. It has no signing credentials.
 
 `.github/workflows/release.yml` remains available for explicitly pushed stable tags.
 Choose a version newer than all existing preview and stable versions in that series.
-Stable builds use `https://github.com/alanzchen/winmux/releases/latest/download/appcast.xml`.
+This stable-release workflow uses `https://github.com/alanzchen/winmux/releases/latest/download/appcast.xml`.
 It runs all Swift tests and release-tool regressions, builds universal arm64/x86_64
 executables, signs with Developer ID, notarizes and staples the app and DMG, then
 signs the final update ZIP with Sparkle. The workflow validates signatures, bundle
