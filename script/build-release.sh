@@ -19,7 +19,11 @@ if [[ "$PUBLISH" == 1 && ( "$NOTARIZE" != 1 || "$GENERATE_APPCAST" != 1 ) ]]; th
     exit 1
 fi
 if [[ "${1:-}" == --check ]]; then
+    if [[ "$GENERATE_APPCAST" == 1 ]]; then
+        python3 -B script/sign-sparkle-update.py --check-credentials
+    fi
     if [[ "$CODESIGN_IDENTITY" != - ]]; then
+        python3 -B script/check-signing-keychain.py
         identities="$(security find-identity -v -p codesigning)"
         if ! printf '%s\n' "$identities" | grep -F -- "$CODESIGN_IDENTITY" >/dev/null; then
             echo "Install the signing certificate and private key for CODESIGN_IDENTITY before building." >&2
@@ -191,20 +195,12 @@ if [[ "$GENERATE_APPCAST" == 1 ]]; then
     sparkle_bin="$(find "$derived/SourcePackages/artifacts" -type f -name generate_appcast -print -quit)"
     test -n "$sparkle_bin"
     sparkle_dir="$(dirname "$sparkle_bin")"
-    key_args=(--account "$SPARKLE_ACCOUNT")
-    if [[ -n "$SPARKLE_PRIVATE_KEY_FILE" ]]; then key_args=(--ed-key-file "$SPARKLE_PRIVATE_KEY_FILE"); fi
     appcast_stage="$(mktemp -d "$release_dir/appcast-stage.XXXXXX")"
     cp "$app_zip" "$appcast_stage/"
-    "$sparkle_bin" "${key_args[@]}" --download-url-prefix "$download_prefix" -o "$appcast_stage/appcast.xml" "$appcast_stage"
+    python3 -B script/sign-sparkle-update.py --tools "$sparkle_dir" --stage "$appcast_stage" --download-prefix "$download_prefix"
     cp "$appcast_stage/appcast.xml" "$release_dir/appcast.xml"
     python3 -B script/validate-appcast.py "$release_dir/appcast.xml" "$VERSION" \
         "$download_prefix$(basename "$app_zip")" --archive "$app_zip" --require-arm64
-    signature="$(python3 - "$release_dir/appcast.xml" <<'PY'
-import sys, xml.etree.ElementTree as ET
-print(ET.parse(sys.argv[1]).find('channel/item/enclosure').get('{http://www.andymatuschak.org/xml-namespaces/sparkle}edSignature'))
-PY
-)"
-    "$sparkle_dir/sign_update" --verify "${key_args[@]}" "$app_zip" "$signature"
 fi
 (
     cd "$release_dir"

@@ -61,6 +61,8 @@ def main():
             output = subprocess.check_output(args, text=True)
             if not re.search(rf"Swift version {re.escape(pinned)}(?:\s|$)", output):
                 raise ValueError(f"Configure Swift and Xcode's TOOLCHAINS to use pinned Swift {pinned} before building locally.")
+        run("python3", "-B", "script/sign-sparkle-update.py", "--check-credentials")
+        run("python3", "-B", "script/check-signing-keychain.py")
         tag, already_published = preview.prepare(local=True)
         if not already_published:
             version = tag[1:]

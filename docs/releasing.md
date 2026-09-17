@@ -46,7 +46,7 @@ source with `git pull` is not part of app updates.
 ## Build and publish locally
 
 With the pinned Swift/Xcode toolchain and saved Developer ID, notarization, and
-Sparkle credentials configured, run from a clean, committed integration branch:
+headless Sparkle credentials configured, run from a clean, committed integration branch:
 
 ```sh
 make prerelease-local \
@@ -58,8 +58,11 @@ The command pushes the reviewed commit, runs all tests, builds and notarizes
 locally, uploads the verified release assets, and advances the
 feed. Outputs stay in `.local/prereleases/vVERSION/`. It restores only its own
 generated version files and refuses publication if source files change during the
-build. `SPARKLE_PRIVATE_KEY_FILE` is supported when using a protected signing-key
-file instead of the saved Keychain account.
+build. Local Sparkle signing reads the protected file
+`~/Library/Application Support/WinMux/ReleaseCredentials/sparkle-ed25519.key`
+by default. Override it with `SPARKLE_PRIVATE_KEY_FILE`, or supply
+`SPARKLE_PRIVATE_KEY` through your secret manager's environment. Do not set both.
+The release never falls back to an interactive Sparkle Keychain request.
 
 If a local build fails, fix it and rerun locally. There is no automatic hosted
 fallback. Already-published commits reuse their verified release and can repair
@@ -128,6 +131,34 @@ setup. Local releases reuse the saved Keychain credentials; optional hosted runs
 reuse the repository secrets. Renew expired or revoked credentials and retain the
 existing Sparkle key.
 
+### Headless local signing
+
+Export the **existing** Sparkle key once using an authorized `generate_keys`
+tool. This setup step can require Keychain approval; release builds do not invoke it:
+
+```sh
+credentials="$HOME/Library/Application Support/WinMux/ReleaseCredentials"
+mkdir -p "$credentials"
+chmod 700 "$credentials"
+umask 077
+/path/to/Sparkle/bin/generate_keys --account winmux-alanzchen \
+  -x "$credentials/sparkle-ed25519.key"
+chmod 600 "$credentials/sparkle-ed25519.key"
+```
+
+The credential file stays outside Git. Its contents are never passed on the
+command line or printed. Release tooling validates permissions and key format,
+passes the key to Sparkle over standard input, and suppresses signer error output
+that could contain key material. An injected `SPARKLE_PRIVATE_KEY` is supported;
+avoid storing the secret itself in shell history or a checked-in `.env` file.
+
+Run `python3 -B script/sign-sparkle-update.py --check-credentials` to check setup.
+Missing keys fail before reserving a preview version. Developer ID signing and
+notarization reuse the already-authorized certificate and saved profile; their
+Keychain must be unlocked before starting. A locked or missing Keychain fails
+preflight instead of initiating an interactive unlock. Initial certificate access
+authorization remains a one-time setup requirement.
+
 ## Publish a stable version locally
 
 Choose a reviewed commit containing the fork features, issue fixes, and release
@@ -178,11 +209,12 @@ make release VERSION=0.6.0 \
   GENERATE_APPCAST=1 PUBLISH=0
 ```
 
-The default key account is `winmux-alanzchen`. CI instead supplies
+The setup key account is `winmux-alanzchen`. CI supplies
 `SPARKLE_PRIVATE_KEY_FILE` and `NOTARYTOOL_KEYCHAIN`. Keep `PUBLISH=0` for local
 verification; `PUBLISH=1` uses the same existing-tag and publication checks as CI.
-Local macOS Keychain access may still prompt for approval or unlocking. These
-desktop prompts do not apply to the temporary Keychain and secret files used in CI.
+Complete certificate authorization and unlock the signing Keychain before running
+headlessly. Sparkle uses its protected file or environment key, and does not
+request Keychain access during a build.
 For an existing profile in another Keychain, pass its original path; omit
 `NOTARYTOOL_KEYCHAIN` for a profile saved in the default data protection Keychain.
 
