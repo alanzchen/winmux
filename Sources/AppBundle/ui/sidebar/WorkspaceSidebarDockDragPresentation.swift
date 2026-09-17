@@ -24,8 +24,38 @@ struct WorkspaceSidebarDockDragPresentation: Equatable {
         }
     }
 
-    func hidesIcon(workspaceName: String, appId: String) -> Bool {
-        sourceWorkspaceName == workspaceName && self.appId == appId
+}
+
+/// Project the drag into the same icon list used for layout and morph anchors. Hiding an
+/// image with opacity left a vacant slot; a separate preview row created a second spacing rule.
+func workspaceSidebarDockDragWorkspaces(
+    _ workspaces: [WorkspaceSidebarWorkspaceViewModel],
+    drag: WorkspaceSidebarDockDragPresentation?,
+    preview: WorkspaceSidebarDropPreviewViewModel?
+) -> [WorkspaceSidebarWorkspaceViewModel] {
+    workspaces.map { original in
+        var workspace = original
+        if let drag, workspace.name == drag.sourceWorkspaceName {
+            let hasRemainingAppWindow = workspace.items.contains { item in
+                let windows: [WorkspaceSidebarWindowViewModel] = switch item.kind {
+                    case .window(let window): [window]
+                    case .tabGroup(let group): group.tabs
+                }
+                return windows.contains { window in
+                    window.windowId != drag.windowId && WorkspaceSidebarAppViewModel(
+                        name: window.appName, bundleId: window.appBundleId, bundlePath: window.appBundlePath
+                    ).id == drag.appId
+                }
+            }
+            if !hasRemainingAppWindow { workspace.apps.removeAll { $0.id == drag.appId } }
+        }
+        if let preview, preview.targetWorkspaceName == workspace.name, !preview.targetsNewWorkspace {
+            let incoming: [WorkspaceSidebarAppViewModel] = preview.isTabGroup && !preview.tabItems.isEmpty
+                ? preview.tabItems.map { .init(name: $0.appName, bundleId: $0.appBundleIdentifier, bundlePath: $0.appBundlePath) }
+                : [.init(name: preview.appName, bundleId: preview.appBundleIdentifier, bundlePath: preview.appBundlePath)]
+            workspace.apps = uniqueWorkspaceSidebarApps(workspace.apps + incoming)
+        }
+        return workspace
     }
 }
 

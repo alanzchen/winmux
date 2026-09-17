@@ -101,6 +101,7 @@ struct WorkspaceSidebarConfig: ConvenienceCopyable, Equatable, Sendable {
     var dockMagnification: Bool = false
     var dockMagnificationAmount: Double = 0.5
     var dockIconSize: Int = 40
+    var dockLeftGap: Int = 2
     var collapsedWidth: Int = 44
     var width: Int = 240
     var monitor: [MonitorDescription] = []
@@ -121,6 +122,7 @@ struct WorkspaceSidebarConfig: ConvenienceCopyable, Equatable, Sendable {
 
     // Dock mode uses a fixed rail without overwriting the width saved for legacy mode.
     var effectiveCollapsedWidth: Int { showAppIcons ? Self.dockCompactWidth : collapsedWidth }
+    var effectiveLeftGap: Int { showAppIcons ? dockLeftGap : 0 }
     var usesDockMagnification: Bool { showAppIcons && dockMagnification && !alwaysExpanded }
 }
 

@@ -77,15 +77,19 @@ window stays fixed for the duration of the drag; other windows from that app sta
 in their original workspace. Expanded window rows remain individually draggable.
 Compact drags retain a full-size app icon at the pointer and at the drop target,
 including the new-workspace target; they do not show a clipped window title.
-Lifting hides the source icon while preserving its slot. On drop, the destination
-placeholder remains until the move reaches the workspace model, then the icons
-and Dock size settle together. Cancelling restores the source; Reduce Motion
+Lifting closes the source icon's slot; an app with other windows there keeps its
+icon. The destination preview occupies one normal, sorted app-icon slot until
+the move reaches the workspace model. Cancelling restores the source; Reduce Motion
 disables the movement animation.
 Every app in the workspace is shown; long columns scroll instead of hiding icons
 behind an overflow tile. The compact rail uses a fixed **64 pt**
 width, native Liquid Glass, and a 4-point dot centered in the left gap beside the
 active workspace's number tile.
 The stored **Collapsed width** setting is preserved for the default sidebar mode.
+**Dock left-edge gap** adds **2 pt** between the display edge and the Dock by
+default. Adjust it from **0–24 pt** in Appearance, or set `dock-left-gap` in TOML.
+It applies in light and dark appearances and updates immediately, including the
+space reserved for tiled windows. Sidebar mode remains flush with the edge.
 The rail fits its contents and sits vertically centered; long lists scroll within
 the available screen height. Expanding grows it to the full sidebar height while
 the workspace tile and app icons move into the individual window list and the
@@ -98,6 +102,9 @@ icons on hover** smoothly enlarges nearby tiles beyond the fixed-width glass
 background. Icons keep their left edges aligned as they grow to the right; the active
 workspace dot stays fixed in the left gutter. **Magnification amount** adjusts the
 strength from 0% (no growth) to 100% (2× size); the default 50% produces 1.5× icons.
+Magnification derives icon size and displacement from a shared sine-based edge
+mapping. Workspace separators keep their resting spacing; no workspace reserves
+empty room for future magnification. The shelf grows only while icons are enlarged.
 With magnification enabled, hovering keeps the rail compact: use the
 expand arrow or the sidebar command for window details. Magnification resets
 during drags, editing, and menus, and is disabled by Reduce Motion. The toggle is
@@ -115,6 +122,7 @@ background; workspace cards do not add more glass layers in Dock mode.
 [workspace-sidebar]
     mode = 'dock' # or 'sidebar'
     dock-icon-size = 40
+    dock-left-gap = 2
     dock-magnification = false
     dock-magnification-amount = 0.5
     glass-opacity = 0.65

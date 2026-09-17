@@ -293,3 +293,40 @@ Validation: **748 tests, zero failures, one native-glass skip**, and a successfu
 Swift 6.2.4 debug build. The new regression checks that expanding the Dock does not
 introduce a second dark surface. A native expanded-Dock fixture capture was reviewed;
 live mouse interaction was not repeated. Changes remain local and unreleased.
+# Dock left-edge gap (local validation)
+
+- Default: 2 pt; `workspace-sidebar.dock-left-gap` accepts integers from 0–24.
+- Applies to Dock in light and dark appearance, including expanded and pinned
+  states. The rail width and saved Sidebar width do not change.
+- Verify live changes with a stationary pointer, two displays (including one
+  left of the primary display), magnification, drag targets, and auto-hide reveal
+  from the physical screen edge. The empty gap must pass clicks through.
+- Tiled windows reserve the gap plus the visible resting width; an auto-hidden
+  Dock reserves no space. Sidebar ignores the saved Dock gap.
+- Regression coverage added in `WorkspaceSidebarDockGapTest` and the existing
+  compact-width tests. The local full suite passed after the user authorized a
+  local build: 760 tests, one skip, zero failures. Publishing remains on hold.
+
+## Drag slots and magnification spacing (local validation)
+
+This revision supersedes the earlier fixed-reserve and invisible-source-slot
+behavior described above. Compact drag presentation now projects into the same
+app list used for layout: lift closes the source slot, remaining windows retain
+their app icon, and the destination adds at most one sorted icon per app. The
+existing committed-handoff lifetime and cancellation cleanup remain in use.
+
+Magnification uses independently implemented sine-based tile-edge mapping,
+referencing [Apple US7434177B1, Figure 8](https://patents.google.com/patent/US7434177B1/en)
+and the latest **SwiftUI Dock Configuration** conversation. One resting coordinate
+system spans the workspace column, while fixed separator margins remain unchanged.
+The shelf height includes current enlargement only; a correction for its centered
+growth keeps the pointer reference stable. No Docky implementation code was copied.
+This is not a measured match to the current native Dock.
+
+Updated regression coverage checks source-slot removal, destination deduplication,
+cancellation, retained source windows, monotonic tile geometry, inactive height,
+cross-workspace influence, and the shelf's resting pointer reference. The full local Swift suite (760 tests, one skip) and debug build passed. The
+native anchor test allows half-point pixel rounding for its unattached 1x hosting
+view. Native interactive checks remain pending: verify entry/exit, scrolling a
+tall Dock, dragging across separators, and dropping into a new workspace before
+releasing. Publishing remains on hold.

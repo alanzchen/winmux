@@ -105,6 +105,7 @@ struct ShortcutAppearanceSettingsView: View {
     @State private var dockMagnification = config.workspaceSidebar.dockMagnification
     @State private var dockMagnificationAmount = config.workspaceSidebar.dockMagnificationAmount
     @State private var dockIconSize = config.workspaceSidebar.dockIconSize
+    @State private var dockLeftGap = config.workspaceSidebar.dockLeftGap
     @State private var showStatusPills = config.workspaceSidebar.showStatusPills
     @State private var showClock = config.workspaceSidebar.showClock
     @State private var showSeconds = config.workspaceSidebar.showSeconds
@@ -161,6 +162,7 @@ struct ShortcutAppearanceSettingsView: View {
                     }
                     .disabled(!dockMagnification || sidebarAlwaysExpanded)
                     SettingsStepper("Dock icon size", value: $dockIconSize, range: 24...48, help: "Size of app icons and workspace number tiles in points. Magnified icons can extend beyond the fixed-width glass rail.") { sidebarInt("dock-icon-size", dockIconSize) }
+                    SettingsStepper("Dock left-edge gap", value: $dockLeftGap, range: 0...24, help: "Space in points between the display's left edge and the Dock in both appearances. Zero places it against the edge.") { sidebarInt("dock-left-gap", dockLeftGap) }
                     SettingsPercentageSlider("Dock glass opacity", value: $glassOpacity, help: "Adjust only Dock mode's Liquid Glass background. Sidebar keeps its original dark appearance. Text and icons stay readable.") {
                         persist("workspace-sidebar", "glass-opacity", "\(glassOpacity)")
                     }

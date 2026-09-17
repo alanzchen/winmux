@@ -5,8 +5,12 @@ func workspaceSidebarSnapshot(from model: TrayMenuModel) -> WorkspaceSidebarSnap
     let drag = model.workspaceSidebarDockDrag.flatMap {
         model.workspaceSidebarAppearance.showAppIcons && !$0.hasArrived(in: model.workspaceSidebarWorkspaces) ? $0 : nil
     }
+    let preview = model.workspaceSidebarDropPreview ?? drag?.destination
+    let workspaces = model.workspaceSidebarAppearance.showAppIcons
+        ? workspaceSidebarDockDragWorkspaces(model.workspaceSidebarWorkspaces, drag: drag, preview: preview)
+        : model.workspaceSidebarWorkspaces
     return WorkspaceSidebarSnapshot(
-        workspaces: model.workspaceSidebarWorkspaces,
+        workspaces: workspaces,
         projects: model.workspaceSidebarProjects,
         activeProjectId: model.workspaceSidebarActiveProjectId,
         monitorScopes: model.workspaceSidebarMonitorScopes,
@@ -15,7 +19,7 @@ func workspaceSidebarSnapshot(from model: TrayMenuModel) -> WorkspaceSidebarSnap
         focusedMonitorScopeId: model.workspaceSidebarFocusedMonitorScopeId,
         visibleWidth: model.workspaceSidebarVisibleWidth,
         hoveredWorkspaceName: model.workspaceSidebarHoveredWorkspaceName,
-        dropPreview: model.workspaceSidebarDropPreview ?? drag?.destination,
+        dropPreview: preview,
         configuration: model.workspaceSidebarAppearance,
         dockDrag: drag,
     )

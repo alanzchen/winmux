@@ -86,8 +86,6 @@ struct WorkspaceSidebarAppMorphTarget {
 }
 
 struct WorkspaceSidebarMorphOverlay: View {
-    @Environment(\.workspaceSidebarDockDrag) private var dockDrag
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let anchors: [WorkspaceSidebarMorphElement: Anchor<CGRect>]
     let progress: CGFloat
     let workspace: WorkspaceSidebarWorkspaceViewModel
@@ -107,8 +105,7 @@ struct WorkspaceSidebarMorphOverlay: View {
                     let rect = interpolatedRect(from: geometry[compactAnchor], to: geometry[expandedAnchor])
                     appIcon(app)
                         .frame(width: rect.width, height: rect.height)
-                        .opacity(dockDrag?.hidesIcon(workspaceName: workspace.name, appId: app.id) == true
-                            ? 0 : Double(interpolate(1, CGFloat(target.opacity), progress: progress)))
+                        .opacity(Double(interpolate(1, CGFloat(target.opacity), progress: progress)))
                         .position(x: rect.midX, y: rect.midY)
                         .transition(.opacity)
                 }
@@ -149,7 +146,6 @@ struct WorkspaceSidebarMorphOverlay: View {
             }
         }
         .allowsHitTesting(false)
-        .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: dockDrag?.id)
         .accessibilityHidden(true)
     }
 

@@ -29,6 +29,9 @@ struct WorkspaceSidebarView: View {
     @State var dockPointer: CGPoint? = nil
     @State var dockMenuTracking = false
     @State var dockIconFrames: [CGRect] = []
+    @State private var dockColumnOrigins: [WorkspaceProjectId: CGFloat] = [:]
+    @State private var dockMagnificationGrowth: CGFloat = 0
+    @State private var dockSurfaceGeometry: WorkspaceSidebarDockSurfaceGeometry? = nil
     @Environment(\.accessibilityReduceMotion) var reduceDockMotion
     @Environment(\.workspaceSidebarDockPointer) var inheritedDockPointer
 
@@ -46,14 +49,20 @@ struct WorkspaceSidebarView: View {
         )
         
         GeometryReader { geometry in
-            let surfaceFrame = workspaceSidebarSurfaceFrame(
+            let restingSurfaceFrame = workspaceSidebarSurfaceFrame(
                 availableSize: geometry.size,
                 visibleWidth: snapshot.visibleWidth,
                 compactHeight: compactDockContentHeight,
                 expansionProgress: expansionProgress,
-                // Editing can begin before the width animation, and drag previews change
-                // while the pointer stays still. Only width drives the surface morph;
-                // additional rows stay inside the existing scroll viewport.
+                fitsDockContent: snapshot.configuration.showAppIcons
+            )
+            let surfaceFrame = workspaceSidebarSurfaceFrame(
+                availableSize: geometry.size,
+                visibleWidth: snapshot.visibleWidth,
+                compactHeight: compactDockContentHeight + (allowsDockMagnification ? dockMagnificationGrowth : 0),
+                expansionProgress: expansionProgress,
+                // Width drives compact-to-expanded morphing. Magnification contributes
+                // only its current growth, never a permanent reserve per workspace.
                 fitsDockContent: snapshot.configuration.showAppIcons
             )
             sidebarContent(expansionProgress: expansionProgress)
@@ -81,9 +90,14 @@ struct WorkspaceSidebarView: View {
                     }
                 }
                 .position(x: surfaceFrame.midX + dockMagnificationOverflow / 2, y: surfaceFrame.midY)
+                .preference(key: WorkspaceSidebarDockSurfaceGeometryPreference.self,
+                            value: .init(resting: restingSurfaceFrame, rendered: surfaceFrame))
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         .coordinateSpace(name: "workspaceSidebarContent")
+        .onPreferenceChange(WorkspaceSidebarDockColumnOriginPreference.self) { dockColumnOrigins = $0 }
+        .onPreferenceChange(WorkspaceSidebarDockGrowthPreference.self) { dockMagnificationGrowth = $0 }
+        .onPreferenceChange(WorkspaceSidebarDockSurfaceGeometryPreference.self) { dockSurfaceGeometry = $0 }
         .animation(snapshot.configuration.showAppIcons && !reduceDockMotion ? workspaceSidebarDockSettleAnimation : nil,
                    value: WorkspaceSidebarDockLayoutState(snapshot))
         .onReceive(NotificationCenter.default.publisher(for: workspaceSidebarDragPointerChangedNotification)) { _ in
@@ -1014,7 +1028,22 @@ extension WorkspaceSidebarView {
         let pinnedWorkspace = showsPinnedActiveWorkspace
             ? pinnedActiveWorkspace(displayedProjectId: projectId, pageWorkspaces: workspaces)
             : nil
+        let columnWorkspaces = (pinnedWorkspace.map { [$0] } ?? []) + workspaces
         return GeometryReader { viewport in
+            // Remove the shelf's vertical growth from the pointer reference. Otherwise
+            // growing the centered shelf moves the reference and feeds back into the lens.
+            let restingOrigin = (dockColumnOrigins[projectId] ?? viewport.frame(in: .named("workspaceSidebarContent")).minY + topPadding)
+                + (dockSurfaceGeometry?.restingOriginCorrection ?? 0)
+            let activePointer = dockSurfaceGeometry.flatMap {
+                dockMagnificationPointer(inheritedDockPointer ?? dockPointer, in: $0.rendered, iconFrames: dockIconFrames)
+            }
+            let column = WorkspaceSidebarDockColumnMagnification(
+                appCounts: columnWorkspaces.map { $0.apps.count },
+                itemSize: snapshot.configuration.dockIconSize,
+                amount: snapshot.configuration.dockMagnificationAmount,
+                pointerY: allowsDockMagnification && expansionProgress == 0 && isInteractive
+                    ? activePointer.map { $0.y - restingOrigin } : nil
+            )
             ScrollView {
                 VStack(alignment: .leading, spacing: 6) {
                     if let pinnedWorkspace {
@@ -1027,8 +1056,9 @@ extension WorkspaceSidebarView {
                             projectContextLabel: projectName(snapshot.activeProjectId),
                             projectContextColor: projectColor(snapshot.activeProjectId)
                         )
+                        .environment(\.workspaceSidebarDockSectionMagnification, column.sections[0])
                     }
-                    ForEach(workspaces) { workspace in
+                    ForEach(Array(workspaces.enumerated()), id: \.element.id) { index, workspace in
                         workspaceSection(
                             workspace: workspace,
                             expansionProgress: expansionProgress,
@@ -1038,6 +1068,7 @@ extension WorkspaceSidebarView {
                             projectContextLabel: browsedProjectId != nil && projectId != snapshot.activeProjectId ? projectName(projectId) : nil,
                             projectContextColor: browsedProjectId != nil && projectId != snapshot.activeProjectId ? projectColor(projectId) : nil
                         )
+                        .environment(\.workspaceSidebarDockSectionMagnification, column.sections[index + (pinnedWorkspace == nil ? 0 : 1)])
                         .overlay(alignment: .topLeading) {
                             if snapshot.configuration.showAppIcons,
                                pinnedWorkspace != nil || workspace.id != workspaces.first?.id
@@ -1089,6 +1120,12 @@ extension WorkspaceSidebarView {
                         )
                     }
                 }
+                .background {
+                    GeometryReader { content in
+                        Color.clear.preference(key: WorkspaceSidebarDockColumnOriginPreference.self,
+                            value: [projectId: content.frame(in: .named("workspaceSidebarContent")).minY])
+                    }
+                }
                 .padding(.leading, leadingInset)
                 .padding(.trailing, trailingInset)
                 .padding(.top, topPadding)
@@ -1096,6 +1133,7 @@ extension WorkspaceSidebarView {
                 .frame(width: viewport.size.width, alignment: .leading)
                 .padding(.trailing, dockMagnificationOverflow)
             }
+            .preference(key: WorkspaceSidebarDockGrowthPreference.self, value: column.growth)
             .frame(width: viewport.size.width + dockMagnificationOverflow, alignment: .leading)
             .transformPreference(WorkspaceSidebarDockIconFramesPreference.self) { frames in
                 let frame = viewport.frame(in: .named("workspaceSidebarContent"))

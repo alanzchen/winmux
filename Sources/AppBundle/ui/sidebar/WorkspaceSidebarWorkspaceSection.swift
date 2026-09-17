@@ -241,7 +241,7 @@ extension WorkspaceSidebarWorkspaceSection {
                     iconSize: layout.dockIconSize,
                     magnificationAmount: layout.dockMagnificationAmount,
                 )
-                dropPreviewRow(style: .appIcon(size: appIconLayout.itemSize))
+                // Incoming apps already occupy their ordinary compact icon slots.
             }
             .opacity(1 - Double(morphProgress))
             .allowsHitTesting(false)

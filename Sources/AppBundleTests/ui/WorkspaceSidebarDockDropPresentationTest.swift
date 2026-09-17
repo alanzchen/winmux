@@ -17,7 +17,8 @@ final class WorkspaceSidebarDockDropPresentationTest: XCTestCase {
         model.workspaceSidebarDropPreview = nil // Mouse-up clears driver intent immediately.
         var snapshot = workspaceSidebarSnapshot(from: model)
         XCTAssertEqual(snapshot.dropPreview, drag.destination)
-        XCTAssertTrue(snapshot.dockDrag?.hidesIcon(workspaceName: "1", appId: app.id) == true)
+        XCTAssertTrue(snapshot.workspaces[0].apps.isEmpty)
+        XCTAssertEqual(snapshot.workspaces[1].apps, [app])
 
         // Another window from the same app must not finish the handoff early.
         model.workspaceSidebarWorkspaces = [workspace("1", windowIds: [42]), workspace("2", windowIds: [99])]
@@ -37,7 +38,6 @@ final class WorkspaceSidebarDockDropPresentationTest: XCTestCase {
         XCTAssertFalse(drag.hasArrived(in: [workspace("1", windowIds: [42])]))
         XCTAssertFalse(drag.hasArrived(in: [workspace("new", windowIds: [99])]))
         XCTAssertTrue(drag.hasArrived(in: [workspace("new", windowIds: [42])]))
-        XCTAssertFalse(drag.hidesIcon(workspaceName: "2", appId: app.id))
     }
 
     func testCancellationRestoresSourceAndStaleCompletionCannotClearNewDrag() {
@@ -84,30 +84,24 @@ final class WorkspaceSidebarDockDropPresentationTest: XCTestCase {
         XCTAssertNil(TrayMenuModel.shared.workspaceSidebarDockDrag, "A new gesture supersedes the old handoff")
     }
 
-    func testLiftHidesOnlySourceIconWithoutChangingLayout() throws {
-        let workspace = workspace("1", windowIds: [42])
-        let layout = WorkspaceSidebarAppIconLayout(appCount: 1, availableWidth: 50)
-        func render(lift: WorkspaceSidebarDockDragPresentation?) throws -> NSBitmapImageRep {
-            let view = WorkspaceSidebarAppIconHeader(workspace: workspace, availableWidth: 50, isActive: true)
-                .environment(\.workspaceSidebarDockDrag, lift)
-            let host = NSHostingView(rootView: view)
-            host.frame = CGRect(x: 0, y: 0, width: 50, height: layout.height)
-            host.layoutSubtreeIfNeeded()
-            XCTAssertEqual(host.fittingSize.height, layout.height, accuracy: 1)
-            let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
-            host.cacheDisplay(in: host.bounds, to: bitmap)
-            return bitmap
-        }
-        let normal = try render(lift: nil)
-        let lifted = try render(lift: presentation())
-        let scale = CGFloat(normal.pixelsWide) / 50
-        let iconCenter = CGPoint(x: 25, y: 40 + 6 + 20)
-        func alpha(_ image: NSBitmapImageRep, _ point: CGPoint) throws -> CGFloat {
-            try XCTUnwrap(image.colorAt(x: Int(point.x * scale), y: Int(point.y * scale))).alphaComponent
-        }
-        XCTAssertGreaterThan(try alpha(normal, iconCenter), 0.1)
-        XCTAssertLessThan(try alpha(lifted, iconCenter), 0.01)
-        XCTAssertEqual(try alpha(normal, CGPoint(x: 25, y: 20)), try alpha(lifted, CGPoint(x: 25, y: 20)), accuracy: 0.01)
+    func testLiftClosesSourceSlotAndCancellationRestoresIt() {
+        let source = workspace("1", windowIds: [42])
+        let lifted = workspaceSidebarDockDragWorkspaces([source], drag: presentation(), preview: nil)
+        XCTAssertTrue(lifted[0].apps.isEmpty)
+        let before = WorkspaceSidebarAppIconLayout(appCount: source.apps.count, availableWidth: 50)
+        let after = WorkspaceSidebarAppIconLayout(appCount: lifted[0].apps.count, availableWidth: 50)
+        XCTAssertEqual(before.height - after.height, 46)
+        XCTAssertEqual(workspaceSidebarDockDragWorkspaces([source], drag: nil, preview: nil), [source])
+    }
+
+    func testOtherWindowsKeepTheirAppIconAndDestinationUsesOneNormalSlot() {
+        let source = workspace("1", windowIds: [42, 43])
+        let destination = workspace("2", windowIds: [99])
+        let projected = workspaceSidebarDockDragWorkspaces([source, destination], drag: presentation(), preview: preview())
+        XCTAssertEqual(projected[0].apps, [app])
+        XCTAssertEqual(projected[1].apps, [app], "An existing destination app must not gain a duplicate preview slot")
+        XCTAssertEqual(projected[0].items, source.items, "The drag projection must not move real windows")
+        XCTAssertEqual(projected[1].items, destination.items)
     }
 
     private func presentation() -> WorkspaceSidebarDockDragPresentation {
@@ -115,7 +109,7 @@ final class WorkspaceSidebarDockDropPresentationTest: XCTestCase {
     }
 
     private func preview(newWorkspace: Bool = false) -> WorkspaceSidebarDropPreviewViewModel {
-        .init(sourceWindowId: 42, label: "Document", appName: app.name,
+        .init(sourceWindowId: 42, label: "Document", appName: app.name, appBundleIdentifier: app.bundleId,
               targetWorkspaceName: newWorkspace ? nil : "2", targetsNewWorkspace: newWorkspace,
               targetProjectId: newWorkspace ? workspaceProjectDefaultId : nil, isTabGroup: false, windowCount: 1)
     }

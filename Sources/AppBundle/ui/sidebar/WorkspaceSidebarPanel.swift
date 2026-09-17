@@ -595,6 +595,23 @@ struct WorkspaceSidebarPanelLayout {
     let collapsedWidth: CGFloat
 }
 
+func workspaceSidebarPanelLayout(screenFrame: CGRect, sidebarConfig: WorkspaceSidebarConfig) -> WorkspaceSidebarPanelLayout? {
+    let expandedWidth = CGFloat(sidebarConfig.width)
+    let collapsedWidth = workspaceSidebarRestingWidth(sidebarConfig)
+    guard expandedWidth > 0, collapsedWidth >= 0 else { return nil }
+    let menuBarReserveHeight = min(CGFloat(sidebarConfig.menuBarReserveHeight), max(screenFrame.height - 1, 0))
+    return WorkspaceSidebarPanelLayout(
+        frame: NSRect(
+            x: screenFrame.minX + CGFloat(sidebarConfig.effectiveLeftGap),
+            y: screenFrame.minY,
+            width: expandedWidth * 2,
+            height: screenFrame.height - menuBarReserveHeight
+        ),
+        expandedWidth: expandedWidth,
+        collapsedWidth: collapsedWidth
+    )
+}
+
 extension WorkspaceSidebarPanel {
     func currentSidebarPanelLayout() -> WorkspaceSidebarPanelLayout? {
         currentSidebarPanelLayout(on: workspaceSidebarResolvedPanelMonitor())
@@ -607,23 +624,7 @@ extension WorkspaceSidebarPanel {
         else { return nil }
         guard !shouldSuppressWorkspaceSidebarForFullscreenContent() else { return nil }
 
-        let sidebarConfig = config.workspaceSidebar
-        let expandedWidth = CGFloat(sidebarConfig.width)
-        let maximumExpandedWidth = expandedWidth * 2
-        let collapsedWidth = workspaceSidebarRestingWidth(sidebarConfig)
-        guard expandedWidth > 0, collapsedWidth >= 0 else { return nil }
-
-        let menuBarReserveHeight = min(CGFloat(sidebarConfig.menuBarReserveHeight), max(screen.frame.height - 1, 0))
-        return WorkspaceSidebarPanelLayout(
-            frame: NSRect(
-                x: screen.frame.minX,
-                y: screen.frame.minY,
-                width: maximumExpandedWidth,
-                height: screen.frame.height - menuBarReserveHeight,
-            ),
-            expandedWidth: expandedWidth,
-            collapsedWidth: collapsedWidth,
-        )
+        return workspaceSidebarPanelLayout(screenFrame: screen.frame, sidebarConfig: config.workspaceSidebar)
     }
 
     func workspaceSidebarPanelScreen() -> NSScreen? {
@@ -964,14 +965,10 @@ extension WorkspaceSidebarPanel {
     func isMouseInsideHoverRegion() -> Bool {
         guard isVisible else { return false }
         let surface = visibleSurfaceFrameOnScreen
-        let hoverWidth = max(
-            surface.width,
-            workspaceSidebarHoverActivationWidth(config.workspaceSidebar),
-        ) + hoverExitTolerance
-        let hoverRegion = NSRect(x: surface.minX, y: surface.minY, width: hoverWidth, height: surface.height)
+        let hoverRegion = workspaceSidebarHoverRegion(surface: surface, sidebarConfig: config.workspaceSidebar, exitTolerance: hoverExitTolerance)
         let inside = hoverRegion.contains(NSEvent.mouseLocation) || isScreenPointInsideDockIcon(NSEvent.mouseLocation)
         if viewModel.workspaceSidebarVisibleWidth > workspaceSidebarRestingWidth(config.workspaceSidebar) + 0.5 || pendingCollapse != nil {
-            debugWorkspaceSidebarHoverLog("hoverRegion panel=\(monitorScopeId) inside=\(inside) hoverWidth=\(hoverWidth) visibleWidth=\(viewModel.workspaceSidebarVisibleWidth) frame=\(frame) mouse=\(NSEvent.mouseLocation) suppressUntil=\(splitBrowseCollapseSuppressedUntil)")
+            debugWorkspaceSidebarHoverLog("hoverRegion panel=\(monitorScopeId) inside=\(inside) hoverWidth=\(hoverRegion.width) visibleWidth=\(viewModel.workspaceSidebarVisibleWidth) frame=\(frame) mouse=\(NSEvent.mouseLocation) suppressUntil=\(splitBrowseCollapseSuppressedUntil)")
         }
         return inside
     }

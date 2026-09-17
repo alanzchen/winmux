@@ -85,13 +85,13 @@ final class WorkspaceSidebarDockMagnificationTest: XCTestCase {
                         XCTAssertLessThanOrEqual(frame.maxX + 7, 104.001)
                     }
                     XCTAssertGreaterThanOrEqual(frames[0].minY, -0.001)
-                    XCTAssertLessThanOrEqual(frames[4].maxY, layout.height + 0.001)
+                    XCTAssertLessThanOrEqual(frames[4].maxY, layout.renderedHeight(pointerY: layout.restingCenter(index)) + 0.001)
                 }
                 let appLayout = WorkspaceSidebarAppIconLayout(appCount: 4, availableWidth: 50,
                     magnificationEnabled: true, iconSize: CGFloat(size), magnificationAmount: amount)
                 XCTAssertEqual(appLayout.height, layout.height)
                 if amount == 0 {
-                    XCTAssertEqual(layout.reserve, 0)
+                    XCTAssertEqual(layout.renderedHeight(pointerY: 40), layout.height)
                     XCTAssertEqual(layout.frames(width: 50, pointerY: 40), resting)
                 }
             }
@@ -125,7 +125,7 @@ final class WorkspaceSidebarDockMagnificationTest: XCTestCase {
         XCTAssertEqual(WorkspaceSidebarView(snapshot: snapshot).dockSurfaceProgress, 1)
     }
 
-    func testPointerMagnifiesNeighborsWithoutChangingHeightOrOverlapping() {
+    func testEdgeMappingMagnifiesNeighborsWithoutOverlapOrRestingPadding() {
         for size: CGFloat in [24, 32, 40, 48] {
             for count in [1, 2, 3, 5, 10, 30] {
                 let layout = WorkspaceSidebarDockMagnification(itemSize: size, count: count, enabled: true)
@@ -133,15 +133,15 @@ final class WorkspaceSidebarDockMagnificationTest: XCTestCase {
                 for pointer in stride(from: CGFloat(-100), through: height + 100, by: 3) {
                     let frames = layout.frames(width: 50, pointerY: pointer)
                     XCTAssertGreaterThanOrEqual(frames.first!.minY, -0.001)
-                    XCTAssertLessThanOrEqual(frames.last!.maxY, height + 0.001)
+                    XCTAssertEqual(frames.last!.maxY, layout.renderedHeight(pointerY: pointer), accuracy: 0.001)
                     for frame in frames {
-                        XCTAssertGreaterThanOrEqual(frame.width, size)
+                        XCTAssertGreaterThanOrEqual(frame.width, size - 0.001)
                         XCTAssertLessThanOrEqual(frame.width, size * 1.5 + 0.001)
                         XCTAssertEqual(frame.minX, (50 - size) / 2, accuracy: 0.001)
                         XCTAssertLessThanOrEqual(frame.maxX + 7, 80.001, "Default magnification must fit the transparent panel beside the rail")
                     }
                     for pair in zip(frames, frames.dropFirst()) {
-                        XCTAssertEqual(pair.1.minY - pair.0.maxY, 6, accuracy: 0.001)
+                        XCTAssertGreaterThanOrEqual(pair.1.minY - pair.0.maxY, 6 - 0.001)
                     }
                     XCTAssertEqual(layout.height, height)
                 }
@@ -152,7 +152,7 @@ final class WorkspaceSidebarDockMagnificationTest: XCTestCase {
         let frames = layout.frames(width: 50, pointerY: layout.restingCenter(2))
         XCTAssertEqual(frames[2].width, 48, accuracy: 0.001)
         XCTAssertGreaterThan(frames[1].width, 32)
-        XCTAssertEqual(frames[0].width, 32, accuracy: 0.001)
+        XCTAssertLessThan(frames[0].width, frames[1].width)
         let disabled = WorkspaceSidebarDockMagnification(itemSize: 40, count: 3, enabled: false)
         XCTAssertEqual(disabled.frames(width: 50, pointerY: 30), disabled.frames(width: 50, pointerY: nil))
     }
@@ -169,6 +169,40 @@ final class WorkspaceSidebarDockMagnificationTest: XCTestCase {
                 let magnifiedDotCenter = magnifiedLeading + workspaceSidebarIndicatorLeadingOffset(tileSize: size, railWidth: 64) + 2
                 XCTAssertEqual(magnifiedDotCenter, dotCenter, accuracy: 0.001)
             }
+        }
+    }
+
+    func testRestingWorkspaceHeightsAndSeparatorGapsIgnoreMagnificationAmount() {
+        for amount in [0.0, 0.25, 0.5, 1.0] {
+            let column = WorkspaceSidebarDockColumnMagnification(appCounts: [2, 0, 5], itemSize: 40, amount: amount, pointerY: nil)
+            XCTAssertEqual(column.growth, 0)
+            XCTAssertTrue(column.sections.allSatisfy { $0.pointerY == nil })
+            let header = WorkspaceSidebarAppIconLayout(appCount: 2, availableWidth: 50,
+                magnificationEnabled: true, iconSize: 40, magnificationAmount: amount)
+            XCTAssertEqual(header.height, 132, "No per-workspace magnification reserve")
+        }
+    }
+
+    func testColumnUsesRestingCoordinatesAcrossWorkspaceSeparator() {
+        // First header: 3...89. Next header begins at 101, after the 12pt separator gap.
+        let column = WorkspaceSidebarDockColumnMagnification(appCounts: [1, 1], itemSize: 40, amount: 1, pointerY: 95)
+        XCTAssertEqual(column.sections[0].pointerY, 92)
+        XCTAssertEqual(column.sections[1].pointerY, -6)
+        let header = WorkspaceSidebarDockMagnification(itemSize: 40, count: 2, enabled: true, amount: 1)
+        let first = header.frames(width: 50, pointerY: column.sections[0].pointerY)
+        let second = header.frames(width: 50, pointerY: column.sections[1].pointerY)
+        XCTAssertGreaterThan(first[1].width, 40)
+        XCTAssertGreaterThan(second[0].width, 40)
+        XCTAssertEqual(first[1].width, second[0].width, accuracy: 0.001)
+        XCTAssertGreaterThan(column.growth, 0)
+    }
+
+    func testShelfGrowthDoesNotMoveTheRestingPointerReference() {
+        let resting = CGRect(x: 0, y: 200, width: 64, height: 400)
+        for growth: CGFloat in [0, 20, 80] {
+            let rendered = CGRect(x: 0, y: 200 - growth / 2, width: 64, height: 400 + growth)
+            let geometry = WorkspaceSidebarDockSurfaceGeometry(resting: resting, rendered: rendered)
+            XCTAssertEqual(rendered.minY + 12 + geometry.restingOriginCorrection, 212)
         }
     }
 
@@ -213,18 +247,21 @@ final class WorkspaceSidebarDockMagnificationTest: XCTestCase {
             .overlayPreferenceValue(WorkspaceSidebarMorphPreference.self) { anchors in
                 GeometryReader { geometry in probe.record(anchors.mapValues { geometry[$0] }) }
             }
-            .environment(\.workspaceSidebarDockPointer, CGPoint(x: 25, y: pointerY))
+            .environment(\.workspaceSidebarDockSectionMagnification, .init(pointerY: pointerY))
             .coordinateSpace(name: "workspaceSidebarContent")
         let host = NSHostingView(rootView: content)
-        host.frame = CGRect(x: 0, y: 0, width: 50, height: layout.height)
+        host.frame = CGRect(x: 0, y: 0, width: 50, height: layout.renderedHeight(pointerY: pointerY))
         host.layoutSubtreeIfNeeded()
         XCTAssertNil(host.window)
         let expected = layout.frames(width: 50, pointerY: pointerY)
+        // An unattached hosting view lays out on a 1x pixel grid. The sine mapping
+        // produces fractional sizes; rendered anchors may round by half a point.
+        let pixelRoundingTolerance: CGFloat = 0.501
         for (index, app) in workspace.apps.enumerated() {
             let frame = try XCTUnwrap(probe.frames[.compactApp(app.id)])
-            XCTAssertEqual(frame.width, expected[index + 1].width, accuracy: 0.1)
+            XCTAssertEqual(frame.width, expected[index + 1].width, accuracy: pixelRoundingTolerance)
             XCTAssertEqual(frame.minX, expected[index + 1].minX, accuracy: 0.1)
-            XCTAssertEqual(frame.midY, expected[index + 1].midY, accuracy: 0.1)
+            XCTAssertEqual(frame.midY, expected[index + 1].midY, accuracy: pixelRoundingTolerance)
         }
     }
 }

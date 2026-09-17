@@ -55,6 +55,8 @@ on-mode-changed = []
     dock-magnification-amount = 0.5
     # App and number tile size in points (24...48); the compact rail stays 64 points wide.
     dock-icon-size = 40
+    # Dock-only distance from the left display edge, in points (0-24).
+    dock-left-gap = 2
     collapsed-width = 50
     width = 280
     # Omit monitor to show an independent sidebar on every display.

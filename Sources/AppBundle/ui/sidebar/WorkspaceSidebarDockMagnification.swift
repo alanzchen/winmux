@@ -13,9 +13,9 @@ extension EnvironmentValues {
     }
 }
 
-/// Always evaluate distance against resting positions, never the magnified icon under the mouse.
-/// A two-pitch cosine envelope has at most two icon sizes of total weight, so the
-/// fixed reserve accommodates every pointer position without changing the rail height.
+/// Edge displacement based on the sine mapping described in US7434177B1, Fig. 8.
+/// Both size and position come from the same monotonic map of resting coordinates.
+/// This is an independent implementation, not a claim of exact current macOS geometry.
 struct WorkspaceSidebarDockMagnification {
     let itemSize: CGFloat
     let count: Int
@@ -27,25 +27,93 @@ struct WorkspaceSidebarDockMagnification {
         // Like the native Dock, icons may grow past the fixed-width glass background.
         itemSize * CGFloat(min(max(amount, 0), 1))
     }
-    var reserve: CGFloat { enabled ? min(CGFloat(count), 2) * maximumGrowth : 0 }
-    var height: CGFloat { CGFloat(count) * itemSize + CGFloat(max(count - 1, 0)) * WorkspaceSidebarAppIconLayout.spacing + reserve }
+    var height: CGFloat { CGFloat(count) * itemSize + CGFloat(max(count - 1, 0)) * WorkspaceSidebarAppIconLayout.spacing }
 
-    func restingCenter(_ index: Int) -> CGFloat { reserve / 2 + itemSize / 2 + CGFloat(index) * pitch }
+    func restingCenter(_ index: Int) -> CGFloat { itemSize / 2 + CGFloat(index) * pitch }
+
+    func mappedEdge(_ y: CGFloat, pointerY: CGFloat?) -> CGFloat {
+        guard enabled, let pointerY, itemSize > 0 else { return y }
+        let radius = 2 * pitch
+        let amplitude = maximumGrowth / (2 * sin(.pi * itemSize / (4 * radius)))
+        let distance = min(max((y - pointerY) / radius, -1), 1)
+        return y + amplitude * sin(.pi * distance / 2)
+    }
+
+    func renderedHeight(pointerY: CGFloat?) -> CGFloat {
+        mappedEdge(height, pointerY: pointerY) - mappedEdge(0, pointerY: pointerY)
+    }
 
     func frames(width: CGFloat, pointerY: CGFloat?) -> [CGRect] {
-        let sizes = (0..<count).map { index -> CGFloat in
-            guard enabled, let pointerY else { return itemSize }
-            let distance = abs(pointerY - restingCenter(index))
-            let weight = distance < 2 * pitch ? (1 + cos(.pi * distance / (2 * pitch))) / 2 : 0
-            return itemSize + maximumGrowth * weight
+        let origin = mappedEdge(0, pointerY: pointerY)
+        return (0..<max(count, 0)).map { index in
+            let lower = mappedEdge(CGFloat(index) * pitch, pointerY: pointerY)
+            let upper = mappedEdge(CGFloat(index) * pitch + itemSize, pointerY: pointerY)
+            let side = upper - lower
+            // Vertical Dock: the left baseline stays fixed; icons grow rightward.
+            return CGRect(x: (width - itemSize) / 2, y: lower - origin, width: side, height: side)
         }
-        let growth = sizes.reduce(0, +) - CGFloat(count) * itemSize
-        var y = (reserve - growth) / 2
-        return sizes.map { side in
-            defer { y += side + WorkspaceSidebarAppIconLayout.spacing }
-            // Keep the resting left edge fixed while the icon grows into the rail.
-            return CGRect(x: (width - itemSize) / 2, y: y, width: side, height: side)
+    }
+}
+
+struct WorkspaceSidebarDockSectionMagnification {
+    let pointerY: CGFloat?
+}
+
+private struct WorkspaceSidebarDockSectionMagnificationKey: EnvironmentKey {
+    static let defaultValue: WorkspaceSidebarDockSectionMagnification? = nil
+}
+
+extension EnvironmentValues {
+    var workspaceSidebarDockSectionMagnification: WorkspaceSidebarDockSectionMagnification? {
+        get { self[WorkspaceSidebarDockSectionMagnificationKey.self] }
+        set { self[WorkspaceSidebarDockSectionMagnificationKey.self] = newValue }
+    }
+}
+
+/// A shared resting coordinate system spans every workspace. Section growth never changes
+/// the pointer distance used by the next workspace, and separators keep their normal spacing.
+struct WorkspaceSidebarDockColumnMagnification {
+    let sections: [WorkspaceSidebarDockSectionMagnification]
+    let growth: CGFloat
+
+    init(appCounts: [Int], itemSize: CGFloat, amount: Double, pointerY: CGFloat?) {
+        var origin: CGFloat = 3 // Section's vertical padding.
+        var sections: [WorkspaceSidebarDockSectionMagnification] = []
+        var growth: CGFloat = 0
+        for count in appCounts {
+            let localPointer = pointerY.map { $0 - origin }
+            let layout = WorkspaceSidebarDockMagnification(itemSize: itemSize, count: 1 + count, enabled: true, amount: amount)
+            sections.append(.init(pointerY: localPointer))
+            growth += layout.renderedHeight(pointerY: localPointer) - layout.height
+            origin += layout.height + 12 // Section padding (6) + inter-section spacing (6).
         }
+        self.sections = sections
+        self.growth = max(growth, 0)
+    }
+}
+
+struct WorkspaceSidebarDockColumnOriginPreference: PreferenceKey {
+    static let defaultValue: [WorkspaceProjectId: CGFloat] = [:]
+    static func reduce(value: inout [WorkspaceProjectId: CGFloat], nextValue: () -> [WorkspaceProjectId: CGFloat]) {
+        value.merge(nextValue(), uniquingKeysWith: { first, _ in first })
+    }
+}
+
+struct WorkspaceSidebarDockGrowthPreference: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
+}
+
+struct WorkspaceSidebarDockSurfaceGeometry: Equatable {
+    let resting: CGRect
+    let rendered: CGRect
+    var restingOriginCorrection: CGFloat { resting.minY - rendered.minY }
+}
+
+struct WorkspaceSidebarDockSurfaceGeometryPreference: PreferenceKey {
+    static let defaultValue: WorkspaceSidebarDockSurfaceGeometry? = nil
+    static func reduce(value: inout WorkspaceSidebarDockSurfaceGeometry?, nextValue: () -> WorkspaceSidebarDockSurfaceGeometry?) {
+        value = nextValue() ?? value
     }
 }
 

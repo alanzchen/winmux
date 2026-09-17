@@ -14,6 +14,9 @@ private let workspaceSidebarParser: [String: any ParserProtocol<WorkspaceSidebar
     "dock-icon-size": Parser(\.dockIconSize) { raw, backtrace in
         parseInt(raw, backtrace).filter(.semantic(backtrace, "Must be between 24 and 48 points")) { (24...48).contains($0) }
     },
+    "dock-left-gap": Parser(\.dockLeftGap) { raw, backtrace in
+        parseInt(raw, backtrace).filter(.semantic(backtrace, "Must be between 0 and 24 points")) { (0...24).contains($0) }
+    },
     "collapsed-width": Parser(\.collapsedWidth, parseWorkspaceSidebarWidth),
     "width": Parser(\.width, parseWorkspaceSidebarWidth),
     "monitor": Parser(\.monitor) { value, backtrace, errors in
