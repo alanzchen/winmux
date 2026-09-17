@@ -5,6 +5,44 @@ import XCTest
 
 @MainActor
 final class WorkspaceSidebarDockGeometryTest: XCTestCase {
+    func testExitFromProtrudingIconKeepsShrinkingWithoutSnappingToRest() throws {
+        var snapshot = fixture()
+        snapshot.configuration.dockMagnification = true
+        snapshot.configuration.dockMagnificationAmount = 1
+        let sample = render(snapshot, height: 800)
+        let resting = try XCTUnwrap(sample.probe.icons.first)
+        func displayView(in view: NSView) -> WorkspaceSidebarDockDisplayLinkView? {
+            if let view = view as? WorkspaceSidebarDockDisplayLinkView { return view }
+            return view.subviews.lazy.compactMap { displayView(in: $0) }.first
+        }
+        let clock = try XCTUnwrap(displayView(in: sample.host))
+        clock.receive(CGPoint(x: resting.midX, y: resting.midY))
+        for step in 0..<60 { clock.advance(to: Double(step) / 120) }
+        sample.host.layoutSubtreeIfNeeded()
+        let magnified = try XCTUnwrap(sample.probe.icons.first)
+        let protrudingPoint = CGPoint(x: 75, y: resting.midY)
+        XCTAssertGreaterThan(magnified.maxX, protrudingPoint.x)
+        // This point starts inside the magnified icon, but will lie outside it
+        // partway through exit. That must not discard the remaining transition.
+        clock.receive(protrudingPoint)
+        for step in 60..<90 { clock.advance(to: Double(step) / 120) }
+        sample.host.layoutSubtreeIfNeeded()
+        clock.receive(nil)
+        var previousWidth = try XCTUnwrap(sample.probe.icons.first).width
+        for step in 90..<150 {
+            clock.advance(to: Double(step) / 120)
+            sample.host.needsLayout = true
+            sample.host.layoutSubtreeIfNeeded()
+            let width = try XCTUnwrap(sample.probe.icons.first).width
+            XCTAssertLessThanOrEqual(width, previousWidth + 0.001)
+            XCTAssertLessThan(previousWidth - width, 6, "Shrinking hit regions must not snap the icon back to rest")
+            XCTAssertEqual(width, resting.width + (magnified.width - resting.width) * clock.motion.frame.strength, accuracy: 0.001)
+            previousWidth = width
+        }
+        XCTAssertEqual(previousWidth, resting.width, accuracy: 0.001)
+        XCTAssertTrue(clock.motion.isSettled)
+    }
+
     func testMagnifiedIconsRenderOutsideGlassAndKeepExactNativeHitRegions() throws {
         var snapshot = fixture()
         snapshot.configuration.dockMagnification = true

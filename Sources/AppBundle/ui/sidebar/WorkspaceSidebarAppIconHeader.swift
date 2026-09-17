@@ -12,6 +12,7 @@ struct WorkspaceSidebarAppIconHeader: View {
     var railWidth: CGFloat = 64
     var iconSize: CGFloat = WorkspaceSidebarAppIconLayout.iconSize
     var magnificationAmount: Double = 0.5
+    var compactActions: WorkspaceSidebarDockCompactActions?
     @Environment(\.workspaceSidebarDockPointer) private var pointer
     @Environment(\.workspaceSidebarDockSectionMagnification) private var sectionMagnification
 
@@ -20,31 +21,65 @@ struct WorkspaceSidebarAppIconHeader: View {
     }
 
     var body: some View {
-        let magnification = WorkspaceSidebarDockMagnification(itemSize: layout.itemSize, count: 1 + layout.visibleAppCount, enabled: magnificationEnabled, amount: magnificationAmount)
+        let magnification = WorkspaceSidebarDockMagnification(itemSize: layout.itemSize, count: 1 + layout.visibleAppCount, enabled: magnificationEnabled, amount: magnificationAmount * (sectionMagnification?.strength ?? 1))
         GeometryReader { geometry in
-            let origin = geometry.frame(in: .named("workspaceSidebarContent")).minY
-            let localPointer = sectionMagnification != nil ? sectionMagnification?.pointerY : pointer.map { $0.y - origin }
+            let origin = geometry.frame(in: .named("workspaceSidebarContent")).origin
+            let localPointer = sectionMagnification != nil ? sectionMagnification?.pointerY : pointer.map { $0.y - origin.y }
             let frames = magnification.frames(width: availableWidth, pointerY: localPointer)
             ZStack(alignment: .topLeading) {
                 WorkspaceSidebarWorkspaceIcon(
                     identifier: workspaceSidebarAppSummaryIdentifier(workspace),
                     isActive: isActive,
-                    size: frames[0].width,
+                    size: layout.itemSize,
                     railWidth: railWidth,
-                    restingSize: layout.itemSize
+                    restingSize: layout.itemSize,
+                    showsIndicator: false
                 )
+                .scaleEffect(frames[0].width / layout.itemSize, anchor: .topLeading)
+                .frame(width: frames[0].width, height: frames[0].height, alignment: .topLeading)
+                .overlay(alignment: .leading) {
+                    if isActive {
+                        WorkspaceSidebarActiveWorkspaceIndicator()
+                            .offset(x: workspaceSidebarIndicatorLeadingOffset(tileSize: layout.itemSize, railWidth: railWidth))
+                    }
+                }
                 .modifier(WorkspaceSidebarMorphAnchor(element: .compactTitle, isEnabled: morphsTitle, hidesContent: hidesTitleForMorph))
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
                 .position(x: frames[0].midX, y: frames[0].midY)
                 ForEach(Array(workspace.apps.prefix(layout.visibleAppCount).enumerated()), id: \.element.id) { index, app in
                     let rect = frames[index + 1]
-                    appIcon(app, size: rect.width)
+                    appIcon(app, size: layout.itemSize)
+                        .scaleEffect(rect.width / layout.itemSize, anchor: .topLeading)
+                        .frame(width: rect.width, height: rect.height, alignment: .topLeading)
+                        .modifier(WorkspaceSidebarMorphAnchor(element: .compactApp(app.id), hidesContent: morphTargets.contains(app.id)))
+                        .allowsHitTesting(false)
                         .position(x: rect.midX, y: rect.midY)
                         .transition(.opacity)
                 }
+                if let compactActions {
+                    Button(action: compactActions.onSelectWorkspace) {
+                        Color.clear.frame(width: frames[0].width, height: frames[0].height)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Switch to workspace \(workspace.displayName)")
+                    .position(x: frames[0].midX, y: frames[0].midY)
+                    ForEach(Array(workspace.apps.enumerated()), id: \.element.id) { index, app in
+                        let rect = frames[index + 1]
+                        WorkspaceSidebarDockAppButton(app: app, workspaceName: workspace.name,
+                            workspaceDisplayName: workspace.displayName, size: rect.size,
+                            iconSize: rect.width, actions: compactActions.actions,
+                            onSelect: { compactActions.onSelectApp(app) })
+                            .position(x: rect.midX, y: rect.midY)
+                    }
+                }
             }
+            .preference(key: WorkspaceSidebarDockIconFramesPreference.self,
+                value: compactActions == nil ? [] : frames.map { $0.offsetBy(dx: origin.x, dy: origin.y) })
         }
         .frame(width: availableWidth, height: magnification.renderedHeight(pointerY: sectionMagnification?.pointerY), alignment: .center)
-        .accessibilityElement(children: .ignore)
+        .accessibilityElement(children: compactActions == nil ? .ignore : .contain)
         .accessibilityLabel(workspaceSidebarAppSummaryLabel(workspace))
     }
 
@@ -65,7 +100,6 @@ struct WorkspaceSidebarAppIconHeader: View {
         }
         .frame(width: size, height: size)
         .overlay { WorkspaceSidebarDockBadge(app: app) }
-        .modifier(WorkspaceSidebarMorphAnchor(element: .compactApp(app.id), hidesContent: morphTargets.contains(app.id)))
         .accessibilityHidden(true)
     }
 }
@@ -76,6 +110,7 @@ struct WorkspaceSidebarWorkspaceIcon: View {
     let size: CGFloat
     var railWidth: CGFloat = 64
     var restingSize: CGFloat? = nil
+    var showsIndicator = true
 
     var body: some View {
         WorkspaceSidebarWorkspaceIconBackground(isActive: isActive)
@@ -94,7 +129,7 @@ struct WorkspaceSidebarWorkspaceIcon: View {
             }
             .frame(width: size, height: size)
             .overlay(alignment: .leading) {
-                if isActive {
+                if isActive && showsIndicator {
                     WorkspaceSidebarActiveWorkspaceIndicator()
                         .offset(x: workspaceSidebarIndicatorLeadingOffset(tileSize: restingSize ?? size, railWidth: railWidth))
                 }

@@ -57,6 +57,7 @@ struct WorkspaceSidebarDockMagnification {
 
 struct WorkspaceSidebarDockSectionMagnification {
     let pointerY: CGFloat?
+    var strength: CGFloat = 1
 }
 
 private struct WorkspaceSidebarDockSectionMagnificationKey: EnvironmentKey {
@@ -76,14 +77,14 @@ struct WorkspaceSidebarDockColumnMagnification {
     let sections: [WorkspaceSidebarDockSectionMagnification]
     let growth: CGFloat
 
-    init(appCounts: [Int], itemSize: CGFloat, amount: Double, pointerY: CGFloat?) {
+    init(appCounts: [Int], itemSize: CGFloat, amount: Double, pointerY: CGFloat?, strength: CGFloat = 1) {
         var origin: CGFloat = 3 // Section's vertical padding.
         var sections: [WorkspaceSidebarDockSectionMagnification] = []
         var growth: CGFloat = 0
         for count in appCounts {
             let localPointer = pointerY.map { $0 - origin }
-            let layout = WorkspaceSidebarDockMagnification(itemSize: itemSize, count: 1 + count, enabled: true, amount: amount)
-            sections.append(.init(pointerY: localPointer))
+            let layout = WorkspaceSidebarDockMagnification(itemSize: itemSize, count: 1 + count, enabled: true, amount: amount * strength)
+            sections.append(.init(pointerY: localPointer, strength: strength))
             growth += layout.renderedHeight(pointerY: localPointer) - layout.height
             origin += layout.height + 12 // Section padding (6) + inter-section spacing (6).
         }
@@ -110,6 +111,7 @@ final class WorkspaceSidebarDockHitRegions {
 struct WorkspaceSidebarDockLayoutContext {
     var restingSurface: CGRect = .zero
     var pointer: CGPoint?
+    var strength: CGFloat = 1
 }
 
 private struct WorkspaceSidebarDockLayoutContextKey: EnvironmentKey {

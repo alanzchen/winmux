@@ -91,7 +91,7 @@ extension WorkspaceSidebarView {
             if isCompact, snapshot.configuration.dockMagnification {
                 Button {
                     guard !isWorkspaceSidebarDragInProgress() else { return }
-                    dockPointer = nil
+                    dockMotion.reset()
                     actions.send(.expandSidebar)
                 } label: {
                     Image(systemName: "chevron.right")

@@ -50,7 +50,13 @@ struct WorkspaceSidebarDockAppButtons: View {
     }
 }
 
-private struct WorkspaceSidebarDockAppButton: View {
+struct WorkspaceSidebarDockCompactActions {
+    let actions: WorkspaceSidebarActions
+    let onSelectApp: (WorkspaceSidebarAppViewModel) -> Void
+    let onSelectWorkspace: () -> Void
+}
+
+struct WorkspaceSidebarDockAppButton: View {
     let app: WorkspaceSidebarAppViewModel
     let workspaceName: String
     let workspaceDisplayName: String

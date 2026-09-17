@@ -1,5 +1,6 @@
 import AppKit
 @testable import AppBundle
+import QuartzCore
 import SwiftUI
 import XCTest
 
@@ -27,8 +28,98 @@ final class WorkspaceSidebarDockPerformanceTest: XCTestCase {
                 if step >= 20 { milliseconds.append((CFAbsoluteTimeGetCurrent() - start) * 1000) }
             }
             milliseconds.sort()
-            print("DOCK_BENCHMARK workspaces=\(workspaceCount) appsPerWorkspace=4 samples=\(milliseconds.count) p50_ms=\(milliseconds[milliseconds.count / 2]) p95_ms=\(milliseconds[Int(Double(milliseconds.count) * 0.95)]) geometryUpdates=\(geometryUpdates)")
+            print("DOCK_BENCHMARK workspaces=\(workspaceCount) appsPerWorkspace=4 samples=\(milliseconds.count) p50_ms=\(milliseconds[milliseconds.count / 2]) p95_ms=\(milliseconds[Int(Double(milliseconds.count) * 0.95)]) p99_ms=\(milliseconds[Int(Double(milliseconds.count) * 0.99)]) max_ms=\(milliseconds.last!) geometryUpdates=\(geometryUpdates)")
             XCTAssertGreaterThan(geometryUpdates, 1, "The benchmark must actually update magnified geometry")
+        }
+    }
+
+    /// Measures the real display-link path and layout deadlines in a visible glass Dock.
+    /// Callback cadence is not proof that the GPU presented every frame.
+    func testNativeDisplayPacingBenchmark() throws {
+        guard ProcessInfo.processInfo.environment["WINMUX_DOCK_NATIVE_BENCHMARK"] == "1" else {
+            throw XCTSkip("Run with WINMUX_DOCK_NATIVE_BENCHMARK=1 on a physical display")
+        }
+        guard CGDisplayIsAsleep(CGMainDisplayID()) == 0 else {
+            throw XCTSkip("Wake and unlock the display before measuring native frame pacing")
+        }
+        let screen = try XCTUnwrap(NSScreen.main)
+        let application = NSApplication.shared
+        application.setActivationPolicy(.accessory)
+        let stopRunLoop: @MainActor @Sendable () -> Void = {
+            application.stop(nil)
+            if let event = NSEvent.otherEvent(with: .applicationDefined, location: .zero,
+                modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil,
+                subtype: 0, data1: 0, data2: 0) {
+                application.postEvent(event, atStart: true)
+            }
+        }
+        for workspaceCount in [3, 8] {
+            let driver = DockBenchmarkPointer()
+            var snapshot = dockBenchmarkSnapshot(workspaceCount: workspaceCount)
+            snapshot.configuration.chromeStyle = .liquidGlass
+            let host = NSHostingView(rootView: DockBenchmarkRoot(snapshot: snapshot, actions: .init(), driver: driver))
+            let height = min(screen.visibleFrame.height - 40, 1_000)
+            let panel = NSPanel(contentRect: CGRect(x: screen.frame.maxX - 160, y: screen.visibleFrame.midY - height / 2,
+                width: 140, height: height), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+            panel.isReleasedWhenClosed = false
+            panel.isOpaque = false
+            panel.backgroundColor = .clear
+            panel.hasShadow = false
+            panel.level = .floating
+            panel.ignoresMouseEvents = true
+            panel.contentView = host
+            panel.orderFrontRegardless()
+            host.layoutSubtreeIfNeeded()
+            func displayView(in view: NSView) -> WorkspaceSidebarDockDisplayLinkView? {
+                if let view = view as? WorkspaceSidebarDockDisplayLinkView { return view }
+                return view.subviews.lazy.compactMap { displayView(in: $0) }.first
+            }
+            let clock = try XCTUnwrap(displayView(in: host))
+            defer {
+                clock.frameObserver = nil
+                clock.reset()
+                panel.close()
+            }
+            var timestamps: [Double] = []
+            var arrivals: [Double] = []
+            var layoutTimes: [Double] = []
+            var count = 0
+            clock.frameObserver = { timestamp in
+                let start = CACurrentMediaTime()
+                host.needsLayout = true
+                host.layoutSubtreeIfNeeded()
+                if count >= 30 {
+                    timestamps.append(timestamp)
+                    arrivals.append(start)
+                    layoutTimes.append((CACurrentMediaTime() - start) * 1_000)
+                }
+                count += 1
+                // A changing root snapshot exercises the occasional-update path too.
+                if count.isMultiple(of: 60) {
+                    snapshot.hoveredWorkspaceName = count.isMultiple(of: 120) ? "1" : "2"
+                    host.rootView = DockBenchmarkRoot(snapshot: snapshot, actions: .init(), driver: driver)
+                }
+                let phase = Double(count) / Double(max(screen.maximumFramesPerSecond, 1))
+                clock.receive(CGPoint(x: 32, y: 400 + 180 * sin(phase * 3)))
+                if count >= screen.maximumFramesPerSecond * 4 + 30 { stopRunLoop() }
+            }
+            clock.receive(CGPoint(x: 32, y: 400))
+            // Exercise AppKit's normal event loop while the visible fixture animates.
+            let timeout = Timer(timeInterval: 8, repeats: false) { _ in
+                MainActor.assumeIsolated { stopRunLoop() }
+            }
+            RunLoop.main.add(timeout, forMode: .common)
+            application.run()
+            timeout.invalidate()
+            XCTAssertGreaterThan(timestamps.count, 60, "The visible Dock must receive real display callbacks")
+            guard timestamps.count > 1 else { continue }
+            let intervals = zip(timestamps.dropFirst(), timestamps).map { ($0 - $1) * 1_000 }.sorted()
+            let deliveryIntervals = zip(arrivals.dropFirst(), arrivals).map { ($0 - $1) * 1_000 }.sorted()
+            layoutTimes.sort()
+            let budget = 1_000 / Double(screen.maximumFramesPerSecond)
+            let misses = intervals.filter { $0 > budget * 1.5 }.count
+            let fps = Double(timestamps.count - 1) / (timestamps.last! - timestamps.first!)
+            print("DOCK_NATIVE_BENCHMARK workspaces=\(workspaceCount) display_max_fps=\(screen.maximumFramesPerSecond) callbacks_fps=\(fps) missed_intervals=\(misses) samples=\(layoutTimes.count) layout_p95_ms=\(layoutTimes[Int(Double(layoutTimes.count) * 0.95)]) layout_p99_ms=\(layoutTimes[Int(Double(layoutTimes.count) * 0.99)]) layout_max_ms=\(layoutTimes.last!) interval_p99_ms=\(intervals[Int(Double(intervals.count) * 0.99)]) delivery_p99_ms=\(deliveryIntervals[Int(Double(deliveryIntervals.count) * 0.99)]) delivery_max_ms=\(deliveryIntervals.last!)")
         }
     }
 }

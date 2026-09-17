@@ -26,14 +26,13 @@ struct WorkspaceSidebarView: View {
     @State var lastProjectEdgeDragDirection: Int? = nil
     @State var lastProjectEdgeDragSwitchAt: Date = .distantPast
     @State var showsPinnedActiveWorkspaceForBrowsedProject = true
-    @State var dockPointer: CGPoint? = nil
+    @State var dockMotion = WorkspaceSidebarDockMotionController()
     @State var dockMenuTracking = false
     @State private var dockHitRegions = WorkspaceSidebarDockHitRegions()
     @State private var dockColumnOrigins: [WorkspaceProjectId: CGFloat] = [:]
     @Environment(\.accessibilityReduceMotion) private var systemReduceDockMotion
     private let reduceMotionOverride: Bool?
     var reduceDockMotion: Bool { reduceMotionOverride ?? systemReduceDockMotion }
-    @Environment(\.workspaceSidebarDockPointer) var inheritedDockPointer
 
     init(snapshot: WorkspaceSidebarSnapshot, actions: WorkspaceSidebarActions = WorkspaceSidebarActions(), reduceMotionOverride: Bool? = nil) {
         self.snapshot = snapshot
@@ -49,69 +48,37 @@ struct WorkspaceSidebarView: View {
             min(1, (snapshot.visibleWidth - collapsedWidth) / max(expandedWidth - collapsedWidth, 1)),
         )
         
-        GeometryReader { geometry in
-            let restingSurfaceFrame = workspaceSidebarSurfaceFrame(
-                availableSize: geometry.size,
-                visibleWidth: snapshot.visibleWidth,
-                compactHeight: compactDockContentHeight,
-                expansionProgress: expansionProgress,
-                fitsDockContent: snapshot.configuration.showAppIcons
-            )
-            let activePointer = dockMagnificationPointer(inheritedDockPointer ?? dockPointer,
-                in: dockHitRegions.surface ?? restingSurfaceFrame, iconFrames: dockHitRegions.icons)
-            let growth = dockColumnGrowth(pointer: activePointer, restingSurface: restingSurfaceFrame)
-            let surfaceFrame = workspaceSidebarSurfaceFrame(
-                availableSize: geometry.size,
-                visibleWidth: snapshot.visibleWidth,
-                compactHeight: compactDockContentHeight + growth,
-                expansionProgress: expansionProgress,
-                // Width drives compact-to-expanded morphing. Magnification contributes
-                // only its current growth, never a permanent reserve per workspace.
-                fitsDockContent: snapshot.configuration.showAppIcons
-            )
-            sidebarContent(expansionProgress: expansionProgress)
+        WorkspaceSidebarDockAnimationHost(
+            configuration: snapshot.configuration,
+            visibleWidth: snapshot.visibleWidth,
+            compactHeight: compactDockContentHeight,
+            expansionProgress: expansionProgress,
+            allowsMagnification: allowsDockMagnification,
+            overflow: dockMagnificationOverflow,
+            shape: sidebarShape,
+            hitRegions: dockHitRegions,
+            motion: dockMotion,
+            growth: { pointer, strength, resting in
+                dockColumnGrowth(pointer: pointer, restingSurface: resting, strength: strength)
+            },
+            content: sidebarContent(expansionProgress: expansionProgress)
                 .environment(\.workspaceSidebarDockDrag, snapshot.dockDrag)
-                .environment(\.workspaceSidebarDockLayoutContext,
-                    .init(restingSurface: restingSurfaceFrame, pointer: activePointer))
-                .coordinateSpace(name: "workspaceSidebarSurface")
-                .frame(width: surfaceFrame.width, height: surfaceFrame.height, alignment: .leading)
-                .background {
-                    GeometryReader { surface in
-                        Color.clear.preference(
-                            key: WorkspaceSidebarSurfaceFramePreferenceKey.self,
-                            value: surface.frame(in: .named("workspaceSidebarContent"))
-                        )
-                    }
-                }
-                .frame(width: surfaceFrame.width + dockMagnificationOverflow, alignment: .leading)
-                .mask(alignment: .leading) {
-                    Rectangle()
-                        .frame(width: max(snapshot.visibleWidth, 0) + dockMagnificationOverflow)
-                }
-                .onContinuousHover(coordinateSpace: .named("workspaceSidebarContent")) { phase in
-                    switch phase {
-                        case .active(let point):
-                            dockPointer = isWorkspaceSidebarDragInProgress() ? nil : dockMagnificationPointer(point, in: surfaceFrame, iconFrames: dockHitRegions.icons)
-                        case .ended: dockPointer = nil
-                    }
-                }
-                .position(x: surfaceFrame.midX + dockMagnificationOverflow / 2, y: surfaceFrame.midY)
-        }
+        )
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         .coordinateSpace(name: "workspaceSidebarContent")
         .onPreferenceChange(WorkspaceSidebarDockColumnOriginPreference.self) { dockColumnOrigins = $0 }
         .animation(snapshot.configuration.showAppIcons && !reduceDockMotion ? workspaceSidebarDockSettleAnimation : nil,
                    value: WorkspaceSidebarDockLayoutState(snapshot))
         .onReceive(NotificationCenter.default.publisher(for: workspaceSidebarDragPointerChangedNotification)) { _ in
-            dockPointer = nil
+            dockMotion.reset()
         }
         .onReceive(NotificationCenter.default.publisher(for: workspaceSidebarDockPointerExitedNotification)) { notification in
             guard notificationPanel(from: notification)?.monitorScopeId == snapshot.targetMonitorScopeId else { return }
-            dockPointer = nil
+            dockMotion.receive(nil)
         }
         .onReceive(NotificationCenter.default.publisher(for: NSMenu.didBeginTrackingNotification)) { _ in
             dockMenuTracking = true
-            dockPointer = nil
+            dockMotion.reset()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSMenu.didEndTrackingNotification)) { _ in
             dockMenuTracking = false
@@ -127,6 +94,7 @@ struct WorkspaceSidebarView: View {
             actions.setDockIconFrames(allowsDockMagnification ? frames : [])
         }
         .onChange(of: allowsDockMagnification) { allowed in
+            if !allowed { dockMotion.reset() }
             actions.setDockIconFrames(allowed ? dockHitRegions.icons : [])
         }
         .background(Color.clear)
@@ -134,7 +102,7 @@ struct WorkspaceSidebarView: View {
             if name == nil { pendingInUseOverrideAppId = nil }
         }
         .onChange(of: snapshot.visibleWidth) { visibleWidth in
-            dockPointer = nil
+            dockMotion.reset()
             if visibleWidth <= collapsedWidth + 0.5 {
                 resetTransientSidebarState()
                 finishSidebarSearch(clearText: true)
@@ -1045,7 +1013,8 @@ extension WorkspaceSidebarView {
                     itemSize: snapshot.configuration.dockIconSize,
                     amount: snapshot.configuration.dockMagnificationAmount,
                     pointerY: allowsDockMagnification && expansionProgress == 0 && isInteractive
-                        ? activePointer.map { $0.y - restingOrigin } : nil
+                        ? activePointer.map { $0.y - restingOrigin } : nil,
+                    strength: context.strength
                 )
                 ScrollView {
                     WorkspaceSidebarWorkspaceStack(isLazy: snapshot.configuration.showAppIcons && expansionProgress == 0) {
@@ -1310,7 +1279,7 @@ extension WorkspaceSidebarView {
         return pointer
     }
 
-    func dockColumnGrowth(pointer: CGPoint?, restingSurface: CGRect) -> CGFloat {
+    func dockColumnGrowth(pointer: CGPoint?, restingSurface: CGRect, strength: CGFloat = 1) -> CGFloat {
         guard allowsDockMagnification, dockSurfaceProgress == 0, let pointer else { return 0 }
         let projectId = projectPagerDisplayIndex.flatMap { snapshot.projects.indices.contains($0) ? snapshot.projects[$0].id : nil } ?? snapshot.activeProjectId
         var workspaces = currentFilteredProjectWorkspaces()
@@ -1322,7 +1291,8 @@ extension WorkspaceSidebarView {
             appCounts: workspaces.map { $0.apps.count },
             itemSize: snapshot.configuration.dockIconSize,
             amount: snapshot.configuration.dockMagnificationAmount,
-            pointerY: pointer.y - restingSurface.minY - (dockColumnOrigins[projectId] ?? 0)
+            pointerY: pointer.y - restingSurface.minY - (dockColumnOrigins[projectId] ?? 0),
+            strength: strength
         ).growth
     }
 

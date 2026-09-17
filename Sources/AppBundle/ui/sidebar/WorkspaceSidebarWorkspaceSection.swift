@@ -135,6 +135,15 @@ struct WorkspaceSidebarWorkspaceSection: View, Animatable {
                 }
             }
             .onHover { hover in
+                // Compact Dock has no workspace hover card. Publishing every crossing
+                // invalidates all panel snapshots while the magnification lens is moving.
+                if layout.showAppIcons && morphProgress == 0 {
+                    if !hover && isHovered {
+                        isHovered = false
+                        actions.hoverWorkspace(workspace.name, false)
+                    }
+                    return
+                }
                 isHovered = hover
                 actions.hoverWorkspace(workspace.name, hover)
             }
@@ -240,17 +249,10 @@ extension WorkspaceSidebarWorkspaceSection {
                 magnificationEnabled: layout.dockMagnification,
                 railWidth: layout.compactRailWidth,
                 iconSize: layout.dockIconSize,
-                magnificationAmount: layout.dockMagnificationAmount
+                magnificationAmount: layout.dockMagnificationAmount,
+                compactActions: allowsWorkspaceActivation && !isRenamingWorkspace
+                    ? .init(actions: actions, onSelectApp: handleAppClick, onSelectWorkspace: handleSectionClick) : nil
             )
-            .allowsHitTesting(false)
-            .overlayPreferenceValue(WorkspaceSidebarMorphPreference.self) { anchors in
-                if allowsWorkspaceActivation, !isRenamingWorkspace {
-                    WorkspaceSidebarDockAppButtons(
-                        anchors: anchors, progress: 0, workspace: workspace, targets: [:],
-                        actions: actions, onSelectApp: handleAppClick, onSelectWorkspace: handleSectionClick
-                    )
-                }
-            }
             .modifier(WorkspaceSidebarReadOnlySummary(isEnabled: !allowsWorkspaceActivation, label: workspaceSidebarAppSummaryLabel(workspace)))
         } else {
             transitioningSectionContent
