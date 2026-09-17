@@ -18,9 +18,7 @@ private func displayRefreshDriverCallback(
     let timestamp = displayRefreshHostClockFrequency > 0
         ? Double(now.pointee.hostTime) / displayRefreshHostClockFrequency
         : CACurrentMediaTime()
-    Task { @MainActor in
-        driver.fire(timestamp: timestamp)
-    }
+    driver.enqueue(timestamp: timestamp)
     return kCVReturnSuccess
 }
 
@@ -36,8 +34,16 @@ final class DisplayRefreshDriver: @unchecked Sendable {
     private var subscriptions: [ObjectIdentifier: Subscription] = [:]
     private var displayLink: CVDisplayLink?
     private var fallbackTimer: Timer?
+    nonisolated private let delivery = DisplayRefreshDelivery()
 
     private init() {}
+
+    nonisolated fileprivate func enqueue(timestamp: CFTimeInterval) {
+        guard delivery.offer(timestamp) else { return }
+        Task { @MainActor in
+            if let timestamp = delivery.takeLatest() { fire(timestamp: timestamp) }
+        }
+    }
 
     func add(owner: AnyObject, callback: @escaping (CFTimeInterval) -> Void) {
         subscriptions[ObjectIdentifier(owner)] = Subscription(owner: owner, callback: callback)
@@ -76,7 +82,7 @@ final class DisplayRefreshDriver: @unchecked Sendable {
 
     private func startFallbackTimer() {
         let timer = Timer(timeInterval: 1.0 / 60.0, repeats: true) { _ in
-            Task { @MainActor in
+            MainActor.assumeIsolated {
                 DisplayRefreshDriver.shared.fire(timestamp: CACurrentMediaTime())
             }
         }
@@ -120,6 +126,27 @@ final class DisplayRefreshDriver: @unchecked Sendable {
         }
     }
 
+}
+
+/// CVDisplayLink runs off the main thread. Keep one pending delivery containing
+/// the newest timestamp, rather than replaying obsolete frames after a UI stall.
+final class DisplayRefreshDelivery: @unchecked Sendable {
+    private let lock = NSLock()
+    private var timestamp: CFTimeInterval?
+
+    func offer(_ next: CFTimeInterval) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        let needsDelivery = timestamp == nil
+        timestamp = next
+        return needsDelivery
+    }
+
+    func takeLatest() -> CFTimeInterval? {
+        lock.lock()
+        defer { timestamp = nil; lock.unlock() }
+        return timestamp
+    }
 }
 
 func displayRefreshEaseInOut(_ progress: CGFloat) -> CGFloat {

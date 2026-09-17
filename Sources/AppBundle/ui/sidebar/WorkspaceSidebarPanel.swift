@@ -47,8 +47,6 @@ let workspaceSidebarProjectSwipeCreateThreshold: CGFloat = 104
 let workspaceSidebarProjectSwipeFormationStart: CGFloat = 22
 let workspaceSidebarHoverOpenThresholdFraction: CGFloat = 0.75
 let workspaceSidebarDisplayEdgeCompactionMargin: CGFloat = 12
-@MainActor
-var workspaceSidebarDropTargets: [WorkspaceSidebarDropTarget] = []
 
 struct WorkspaceSidebarProjectColorPreset: Hashable, Identifiable {
     let name: String
@@ -114,8 +112,8 @@ extension WorkspaceSidebarPanel {
 }
 extension WorkspaceSidebarPanel {
     func updateDropTargets(_ targets: [WorkspaceSidebarDropTargetFrame]) {
+        guard targets != localDropTargetFrames else { return }
         localDropTargetFrames = targets
-        Self.updateVisibleDropTargets()
     }
 
     func updateSurfaceFrame(_ nextFrame: CGRect) {
@@ -123,22 +121,20 @@ extension WorkspaceSidebarPanel {
         visibleSurfaceFrame = nextFrame
         // This cache is native state, not an observed SwiftUI model. Updating hit regions
         // from the rendered frame therefore cannot create a layout measurement loop.
-        updateMousePassthrough()
-        Self.updateVisibleDropTargets()
+        // Surface and icon preferences arrive separately in one layout pass.
+        // Recheck once with both current values, avoiding an intermediate exit.
         scheduleHoverRecheckSoon()
     }
 
     func updateDockIconFrames(_ frames: [CGRect]) {
         guard dockIconFrames != frames else { return }
         dockIconFrames = frames
-        updateMousePassthrough()
         scheduleHoverRecheckSoon()
     }
 
     func isScreenPointInsideDockIcon(_ point: CGPoint) -> Bool {
-        dockIconFrames.contains {
-            convertToScreen(hostingView.convert($0, to: nil)).contains(point)
-        }
+        let localPoint = hostingView.convert(convertPoint(fromScreen: point), from: nil)
+        return dockIconFrames.contains { $0.contains(localPoint) }
     }
 
     var visibleSurfaceFrameInHostingView: CGRect {
@@ -154,17 +150,21 @@ extension WorkspaceSidebarPanel {
         convertToScreen(hostingView.convert(visibleSurfaceFrameInHostingView, to: nil))
     }
 
-    func convertDropTargets(_ targets: [WorkspaceSidebarDropTargetFrame]) -> [WorkspaceSidebarDropTarget] {
-        workspaceSidebarClippedDropTargets(targets, to: visibleSurfaceFrameInHostingView).map { target in
-            let windowRect = hostingView.convert(target.frame, to: nil)
-            let screenRect = convertToScreen(windowRect)
-            return WorkspaceSidebarDropTarget(kind: target.kind, rect: screenRect.monitorFrameNormalized())
-        }
+    func dropTarget(atScreenPoint point: CGPoint, hitSlop: NSEdgeInsets) -> WorkspaceSidebarDropTarget? {
+        let localPoint = hostingView.convert(convertPoint(fromScreen: point), from: nil)
+        guard let target = workspaceSidebarLocalDropTarget(at: localPoint,
+            targets: localDropTargetFrames, surface: visibleSurfaceFrameInHostingView, hitSlop: hitSlop)
+        else { return nil }
+        // Convert only the winning target, on demand. Hover animation never needs
+        // to project every workspace on every display into screen coordinates.
+        let screenRect = convertToScreen(hostingView.convert(target.frame, to: nil))
+        return WorkspaceSidebarDropTarget(kind: target.kind, rect: screenRect.monitorFrameNormalized())
     }
 
     func visibleScreenRectNormalized() -> Rect? {
-        guard isVisible, !visibleSurfaceFrameOnScreen.isEmpty else { return nil }
-        return visibleSurfaceFrameOnScreen.monitorFrameNormalized()
+        guard isVisible else { return nil }
+        let surface = visibleSurfaceFrameOnScreen
+        return surface.isEmpty ? nil : surface.monitorFrameNormalized()
     }
 }
 extension WorkspaceSidebarPanel {
@@ -1037,9 +1037,6 @@ extension WorkspaceSidebarPanel {
         }
         updateMousePassthrough()
         orderFrontRegardless()
-        // Moving or showing the native panel does not necessarily change any local SwiftUI
-        // frames. Reproject cached local targets even when no geometry preference fires.
-        Self.updateVisibleDropTargets()
         // Panel geometry may have just changed under a stationary cursor; hover is otherwise
         // event-driven from the pointer monitors.
         scheduleHoverRecheckSoon()
@@ -1064,6 +1061,5 @@ extension WorkspaceSidebarPanel {
         if isVisible {
             orderOut(nil)
         }
-        Self.updateVisibleDropTargets()
     }
 }

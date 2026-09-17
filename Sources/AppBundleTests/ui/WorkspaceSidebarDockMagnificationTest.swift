@@ -197,6 +197,28 @@ final class WorkspaceSidebarDockMagnificationTest: XCTestCase {
         XCTAssertGreaterThan(column.growth, 0)
     }
 
+    func testSectionsOutsideLensKeepStableInputsAndRestingGeometry() {
+        let first = WorkspaceSidebarDockColumnMagnification(appCounts: [4, 4, 4, 4], itemSize: 40,
+            amount: 1, pointerY: 30, strength: 0.4)
+        let next = WorkspaceSidebarDockColumnMagnification(appCounts: [4, 4, 4, 4], itemSize: 40,
+            amount: 1, pointerY: 40, strength: 0.7)
+        XCTAssertNotEqual(first.sections[0], next.sections[0])
+        for index in 1..<4 {
+            XCTAssertEqual(first.sections[index], next.sections[index])
+            XCTAssertNil(next.sections[index].pointerY)
+        }
+        // Verify dropping the saturated translation preserves the original geometry.
+        let layout = WorkspaceSidebarDockMagnification(itemSize: 40, count: 5, enabled: true, amount: 1)
+        for pointer: CGFloat in [-1000, -92, layout.height + 92, layout.height + 1000] {
+            let original = layout.frames(width: 50, pointerY: pointer)
+            let resting = layout.frames(width: 50, pointerY: nil)
+            for (a, b) in zip(original, resting) {
+                XCTAssertEqual(a.minY, b.minY, accuracy: 0.000_001)
+                XCTAssertEqual(a.height, b.height, accuracy: 0.000_001)
+            }
+        }
+    }
+
     func testMagnificationRequiresPointerInsideVisibleDockSurface() {
         var snapshot = WorkspaceSidebarSnapshot.empty
         snapshot.configuration.showAppIcons = true

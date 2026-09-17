@@ -26,16 +26,29 @@ struct WorkspaceSidebarDropTargetPreferenceKey: PreferenceKey {
 
 @MainActor
 func workspaceSidebarDropTarget(at mouseLocation: CGPoint, hitSlop: NSEdgeInsets = NSEdgeInsets()) -> WorkspaceSidebarDropTarget? {
-    WorkspaceSidebarPanel.panel(containing: mouseLocation)
-        .flatMap { panel in
-            workspaceSidebarDropTargets.last(where: { target in
-                panel.visibleScreenRectNormalized()?.contains(target.rect.center) == true &&
-                    target.rect.expanded(
-                        left: hitSlop.left,
-                        right: hitSlop.right,
-                        top: hitSlop.top,
-                        bottom: hitSlop.bottom
-                    ).contains(mouseLocation)
-            })
+    let screenPoint = CGPoint(x: mouseLocation.x, y: mainMonitor.height - mouseLocation.y)
+    return WorkspaceSidebarPanel.visiblePanels.first { $0.visibleSurfaceFrameOnScreen.contains(screenPoint) }?
+        .dropTarget(atScreenPoint: screenPoint, hitSlop: hitSlop)
+}
+
+/// SwiftUI/hosting coordinates have their origin at the top left. Keep targets local
+/// so scrolling, panel moves and monitor removal never leave a stale screen-space cache.
+func workspaceSidebarLocalDropTarget(
+    at point: CGPoint,
+    targets: [WorkspaceSidebarDropTargetFrame],
+    surface: CGRect,
+    hitSlop: NSEdgeInsets = NSEdgeInsets()
+) -> WorkspaceSidebarDropTargetFrame? {
+    guard surface.contains(point) else { return nil }
+    for target in targets.reversed() {
+        let clipped = target.frame.intersection(surface)
+        guard !clipped.isNull, !clipped.isEmpty else { continue }
+        let hitRect = CGRect(x: clipped.minX - hitSlop.left, y: clipped.minY - hitSlop.top,
+            width: clipped.width + hitSlop.left + hitSlop.right,
+            height: clipped.height + hitSlop.top + hitSlop.bottom)
+        if hitRect.contains(point) {
+            return .init(kind: target.kind, frame: clipped)
         }
+    }
+    return nil
 }

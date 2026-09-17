@@ -111,4 +111,44 @@ final class WorkspaceSidebarDockMotionTest: XCTestCase {
         }
         XCTAssertEqual(WorkspaceSidebarDockDisplayLinkView.preferredRate(maximumFramesPerSecond: 0), 60)
     }
+
+    func testDelayedEntryFrameCannotSkipMostOfTheMagnificationRamp() {
+        var motion = WorkspaceSidebarDockMotion()
+        motion.receive(CGPoint(x: 32, y: 100))
+        let first = motion.advance(to: 1, initialInterval: 1 / 120)
+        let afterHitch = motion.advance(to: 1.050, initialInterval: 1 / 120)
+        XCTAssertGreaterThan(afterHitch.strength, first.strength)
+        XCTAssertLessThan(afterHitch.strength, 0.3, "A 50 ms stall must not teleport the icon to its enlarged pose")
+    }
+
+    func testHorizontalPointerMotionDoesNotRestartOrPublishTheVerticalLens() {
+        let view = WorkspaceSidebarDockDisplayLinkView()
+        var updates = 0
+        view.onFrame = { _ in updates += 1 }
+        view.receive(CGPoint(x: 32, y: 100))
+        for step in 0..<120 { view.advance(to: Double(step) / 120) }
+        let settledUpdates = updates
+        for step in 120..<240 {
+            view.receive(CGPoint(x: Double(step % 50), y: 100))
+            view.advance(to: Double(step) / 120)
+        }
+        XCTAssertEqual(updates, settledUpdates)
+        XCTAssertTrue(view.motion.isSettled)
+        view.receive(nil) // X-based native exit must still shrink the icons.
+        view.advance(to: 2)
+        XCTAssertGreaterThan(updates, settledUpdates)
+    }
+
+    func testLegacyDisplayDeliveryCoalescesStalledMainThreadFrames() {
+        let delivery = DisplayRefreshDelivery()
+        var scheduled = 0
+        for frame in 0..<1_000 {
+            if delivery.offer(Double(frame) / 120) { scheduled += 1 }
+        }
+        XCTAssertEqual(scheduled, 1)
+        XCTAssertEqual(delivery.takeLatest(), 999.0 / 120)
+        XCTAssertNil(delivery.takeLatest())
+        XCTAssertTrue(delivery.offer(10), "Delivery must re-arm after draining")
+        XCTAssertEqual(delivery.takeLatest(), 10)
+    }
 }

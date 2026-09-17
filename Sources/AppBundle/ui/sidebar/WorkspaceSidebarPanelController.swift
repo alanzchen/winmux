@@ -102,10 +102,6 @@ final class WorkspaceSidebarPanel: NSPanelHud, WorkspaceSidebarInputOwner {
         panelsByMonitorScopeId[monitorScopeId]
     }
 
-    static func updateVisibleDropTargets() {
-        workspaceSidebarDropTargets = visiblePanels.flatMap { $0.convertDropTargets($0.localDropTargetFrames) }
-    }
-
     static func refreshAll() {
         let activeMonitorScopeIds = Set(workspaceSidebarResolvedPanelMonitors().map { workspaceSidebarMonitorScopeId(for: $0) })
         for monitor in workspaceSidebarResolvedPanelMonitors() {

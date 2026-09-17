@@ -7,6 +7,9 @@ the view's display and requests that display's maximum refresh rate, including
 120 Hz and higher. macOS 13 retains the existing display-refresh driver. Pointer
 events only replace a target; display callbacks deliver one interpolated pose.
 The link pauses when the pose settles and is invalidated when the view detaches.
+Pure horizontal movement does not wake the vertical lens. After a missed deadline,
+the spring advances at most two display intervals (capped at 33 ms), avoiding a
+large jump on entry. The legacy driver also coalesces pending main-thread deliveries.
 
 A critically damped spring starts enlargement from zero velocity, reaching about
 91% after 100 ms. Sizes, neighboring positions, separator movement, and shelf
@@ -17,6 +20,9 @@ Motion, menu tracking, expansion, and dragging still suppress magnification.
 Per-frame state lives below the sidebar's root. Compact buttons share their icons'
 computed geometry instead of measuring a second overlay. Icons and badges scale
 from resting dimensions, and compact hover no longer publishes workspace models.
+Sections beyond the lens retain constant inputs. Dock columns keep their lazy stack
+through dragging and expansion, preserving section/gesture identity. Sidebar mode
+retains its original eager stack.
 
 ## Reproduce the checks
 
@@ -34,8 +40,9 @@ TOOLCHAINS=org.swift.624202602241a WINMUX_DOCK_NATIVE_BENCHMARK=1 \
 ```
 
 The pointer benchmark reports CPU/layout p50, p95, p99, and maximum durations.
-The native benchmark opens temporary glass Docks at the screen's right edge,
-drives real display callbacks, and includes periodic root-model updates. It
+The native benchmark opens temporary glass Docks at the screen's right edge using
+the registered production panel, its actions adapter, and installed app icons. It
+drives real display callbacks and includes periodic root-model updates. It
 reports callback cadence, missed display intervals, delivery jitter, and layout
 durations. Wake and unlock the display first. Neither benchmark measures GPU
 presentation; virtual-display timing cannot establish physical 120 Hz smoothness.
@@ -53,6 +60,8 @@ previews while retaining a committed destination until its workspace model arriv
 Provider drops clear the preview immediately even when the pointer stays over the
 target. Regression tests cover the missing gesture callback, duplicate mouse-up,
 and committed handoff retention.
+Cleanup also runs when a provider resets the native move before the final display
+callback. A regression test reproduced the stranded lift before this fix.
 
 ## Validation record — 2026-09-17
 
@@ -80,3 +89,10 @@ The native VM screenshot is `.local/vm-share/results/dock-120-native.png`.
 The connected physical display reports 60 Hz; its desktop was locked during the
 native checks. Physical 120 Hz presentation and a manual drag on the installed app
 remain unverified. These changes have not been installed or released.
+
+## CLI review follow-up — 2026-09-17
+
+See [Dock performance review](dock-performance-review.md) for the Claude Fable 5
+and Gemini 3.8 Flash review dispositions and subsequent measurements. The original
+native fixture above had empty panel callbacks; those measurements do not include
+the native hit-testing pipeline now exercised by the benchmark.

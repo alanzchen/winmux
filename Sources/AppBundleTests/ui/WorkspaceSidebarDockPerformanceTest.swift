@@ -43,6 +43,22 @@ final class WorkspaceSidebarDockPerformanceTest: XCTestCase {
             throw XCTSkip("Wake and unlock the display before measuring native frame pacing")
         }
         let screen = try XCTUnwrap(NSScreen.main)
+        let previousConfig = config
+        let previouslyEnabled = TrayMenuModel.shared.isEnabled
+        defer {
+            for panel in WorkspaceSidebarPanel.visiblePanels { panel.resetHiddenSidebarState() }
+            config = previousConfig
+            TrayMenuModel.shared.isEnabled = previouslyEnabled
+        }
+        config.workspaceSidebar.enabled = true
+        config.workspaceSidebar.mode = .dock
+        config.workspaceSidebar.alwaysExpanded = false
+        config.workspaceSidebar.autoHide = false
+        config.workspaceSidebar.dockMagnification = true
+        config.workspaceSidebar.dockMagnificationAmount = 1
+        TrayMenuModel.shared.isEnabled = true
+        WorkspaceSidebarPanel.refreshAll()
+        let panel = try XCTUnwrap(WorkspaceSidebarPanel.visiblePanels.first)
         let application = NSApplication.shared
         application.setActivationPolicy(.accessory)
         let stopRunLoop: @MainActor @Sendable () -> Void = {
@@ -54,20 +70,22 @@ final class WorkspaceSidebarDockPerformanceTest: XCTestCase {
             }
         }
         for workspaceCount in [3, 8] {
-            let driver = DockBenchmarkPointer()
-            var snapshot = dockBenchmarkSnapshot(workspaceCount: workspaceCount)
+            var snapshot = dockBenchmarkSnapshot(workspaceCount: workspaceCount, usesInstalledIcons: true)
             snapshot.configuration.chromeStyle = .liquidGlass
-            let host = NSHostingView(rootView: DockBenchmarkRoot(snapshot: snapshot, actions: .init(), driver: driver))
+            let model = panel.viewModel
+            model.workspaceSidebarWorkspaces = snapshot.workspaces
+            model.workspaceSidebarProjects = []
+            model.workspaceSidebarActiveProjectId = snapshot.activeProjectId
+            model.workspaceSidebarSelectedMonitorScopeId = snapshot.selectedMonitorScopeId
+            model.workspaceSidebarAppearance = snapshot.configuration
+            model.workspaceSidebarVisibleWidth = snapshot.visibleWidth
+            // Keep the production hosting view and actions adapter: preference changes
+            // must exercise native hit geometry and deferred hover/passthrough work.
+            let host = panel.hostingView
             let height = min(screen.visibleFrame.height - 40, 1_000)
-            let panel = NSPanel(contentRect: CGRect(x: screen.frame.maxX - 160, y: screen.visibleFrame.midY - height / 2,
-                width: 140, height: height), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
-            panel.isReleasedWhenClosed = false
-            panel.isOpaque = false
-            panel.backgroundColor = .clear
-            panel.hasShadow = false
-            panel.level = .floating
+            panel.setFrame(CGRect(x: screen.frame.maxX - 160, y: screen.visibleFrame.midY - height / 2,
+                width: 140, height: height), display: true)
             panel.ignoresMouseEvents = true
-            panel.contentView = host
             panel.orderFrontRegardless()
             host.layoutSubtreeIfNeeded()
             func displayView(in view: NSView) -> WorkspaceSidebarDockDisplayLinkView? {
@@ -78,7 +96,7 @@ final class WorkspaceSidebarDockPerformanceTest: XCTestCase {
             defer {
                 clock.frameObserver = nil
                 clock.reset()
-                panel.close()
+                panel.orderOut(nil)
             }
             var timestamps: [Double] = []
             var arrivals: [Double] = []
@@ -96,8 +114,7 @@ final class WorkspaceSidebarDockPerformanceTest: XCTestCase {
                 count += 1
                 // A changing root snapshot exercises the occasional-update path too.
                 if count.isMultiple(of: 60) {
-                    snapshot.hoveredWorkspaceName = count.isMultiple(of: 120) ? "1" : "2"
-                    host.rootView = DockBenchmarkRoot(snapshot: snapshot, actions: .init(), driver: driver)
+                    model.workspaceSidebarHoveredWorkspaceName = count.isMultiple(of: 120) ? "1" : "2"
                 }
                 let phase = Double(count) / Double(max(screen.maximumFramesPerSecond, 1))
                 clock.receive(CGPoint(x: 32, y: 400 + 180 * sin(phase * 3)))
@@ -111,6 +128,8 @@ final class WorkspaceSidebarDockPerformanceTest: XCTestCase {
             RunLoop.main.add(timeout, forMode: .common)
             application.run()
             timeout.invalidate()
+            XCTAssertFalse(panel.localDropTargetFrames.isEmpty, "Measure real native drop-target callbacks")
+            XCTAssertFalse(panel.dockIconFrames.isEmpty, "Measure real native icon-region callbacks")
             XCTAssertGreaterThan(timestamps.count, 60, "The visible Dock must receive real display callbacks")
             guard timestamps.count > 1 else { continue }
             let intervals = zip(timestamps.dropFirst(), timestamps).map { ($0 - $1) * 1_000 }.sorted()
@@ -119,7 +138,7 @@ final class WorkspaceSidebarDockPerformanceTest: XCTestCase {
             let budget = 1_000 / Double(screen.maximumFramesPerSecond)
             let misses = intervals.filter { $0 > budget * 1.5 }.count
             let fps = Double(timestamps.count - 1) / (timestamps.last! - timestamps.first!)
-            print("DOCK_NATIVE_BENCHMARK workspaces=\(workspaceCount) display_max_fps=\(screen.maximumFramesPerSecond) callbacks_fps=\(fps) missed_intervals=\(misses) samples=\(layoutTimes.count) layout_p95_ms=\(layoutTimes[Int(Double(layoutTimes.count) * 0.95)]) layout_p99_ms=\(layoutTimes[Int(Double(layoutTimes.count) * 0.99)]) layout_max_ms=\(layoutTimes.last!) interval_p99_ms=\(intervals[Int(Double(intervals.count) * 0.99)]) delivery_p99_ms=\(deliveryIntervals[Int(Double(deliveryIntervals.count) * 0.99)]) delivery_max_ms=\(deliveryIntervals.last!)")
+            print("DOCK_NATIVE_BENCHMARK real_panel=true workspaces=\(workspaceCount) display_max_fps=\(screen.maximumFramesPerSecond) callbacks_fps=\(fps) missed_intervals=\(misses) samples=\(layoutTimes.count) layout_p95_ms=\(layoutTimes[Int(Double(layoutTimes.count) * 0.95)]) layout_p99_ms=\(layoutTimes[Int(Double(layoutTimes.count) * 0.99)]) layout_max_ms=\(layoutTimes.last!) interval_p99_ms=\(intervals[Int(Double(intervals.count) * 0.99)]) delivery_p99_ms=\(deliveryIntervals[Int(Double(deliveryIntervals.count) * 0.99)]) delivery_max_ms=\(deliveryIntervals.last!)")
         }
     }
 }
@@ -140,7 +159,7 @@ private struct DockBenchmarkRoot: View {
 }
 
 @MainActor
-private func dockBenchmarkSnapshot(workspaceCount: Int) -> WorkspaceSidebarSnapshot {
+private func dockBenchmarkSnapshot(workspaceCount: Int, usesInstalledIcons: Bool = false) -> WorkspaceSidebarSnapshot {
     var snapshot = WorkspaceSidebarSnapshot.empty
     snapshot.visibleWidth = 64
     snapshot.configuration.collapsedWidth = 64
@@ -151,7 +170,13 @@ private func dockBenchmarkSnapshot(workspaceCount: Int) -> WorkspaceSidebarSnaps
     snapshot.configuration.dockMagnification = true
     snapshot.configuration.dockMagnificationAmount = 1
     snapshot.workspaces = (1...workspaceCount).map { index in
-        let apps = sidebarAppIconsTestApps(count: 4)
+        let apps = usesInstalledIcons ? [
+            ("Safari", "com.apple.Safari"), ("Terminal", "com.apple.Terminal"),
+            ("TextEdit", "com.apple.TextEdit"), ("Settings", "com.apple.systempreferences"),
+        ].map { name, bundle in
+            WorkspaceSidebarAppViewModel(name: name, bundleId: bundle,
+                bundlePath: NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundle)?.path)
+        } : sidebarAppIconsTestApps(count: 4)
         return WorkspaceSidebarWorkspaceViewModel(name: "\(index)", projectId: workspaceProjectDefaultId,
             displayName: "\(index)", sidebarLabel: "", isGeneratedName: false,
             monitorScopeId: workspaceSidebarDefaultScopeId, monitorName: nil,

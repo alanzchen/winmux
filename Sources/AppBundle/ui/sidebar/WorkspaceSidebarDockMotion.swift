@@ -28,7 +28,10 @@ struct WorkspaceSidebarDockMotion {
     mutating func reset() { self = .init() }
 
     mutating func advance(to timestamp: TimeInterval, initialInterval: TimeInterval) -> WorkspaceSidebarDockMotionFrame {
-        let dt = min(max(previousTimestamp.map { timestamp - $0 } ?? initialInterval, 0), 1.0 / 15)
+        // A missed deadline should slow entry, not jump across most of the spring
+        // in a single displayed frame. Normal cadence remains time-based.
+        let maximumStep = min(2 * initialInterval, 1.0 / 30)
+        let dt = min(max(previousTimestamp.map { timestamp - $0 } ?? initialInterval, 0), maximumStep)
         previousTimestamp = timestamp
         let strengthTarget = target == nil ? 0.0 : 1.0
         // Analytical critically damped spring: enter from zero velocity instead of
@@ -107,7 +110,9 @@ final class WorkspaceSidebarDockDisplayLinkView: NSView {
     }
 
     func receive(_ point: CGPoint?) {
-        guard point != motion.target else { return }
+        // The vertical lens depends only on Y. Native hit testing validates X
+        // before this call, and still sends nil when the pointer leaves the Dock.
+        guard point?.y != motion.target?.y else { return }
         motion.receive(point)
         if !motion.isSettled { start() }
     }

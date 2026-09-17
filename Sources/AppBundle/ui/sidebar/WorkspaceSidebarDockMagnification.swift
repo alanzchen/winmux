@@ -55,7 +55,7 @@ struct WorkspaceSidebarDockMagnification {
     }
 }
 
-struct WorkspaceSidebarDockSectionMagnification {
+struct WorkspaceSidebarDockSectionMagnification: Equatable {
     let pointerY: CGFloat?
     var strength: CGFloat = 1
 }
@@ -82,9 +82,15 @@ struct WorkspaceSidebarDockColumnMagnification {
         var sections: [WorkspaceSidebarDockSectionMagnification] = []
         var growth: CGFloat = 0
         for count in appCounts {
-            let localPointer = pointerY.map { $0 - origin }
             let layout = WorkspaceSidebarDockMagnification(itemSize: itemSize, count: 1 + count, enabled: true, amount: amount * strength)
-            sections.append(.init(pointerY: localPointer, strength: strength))
+            let localPointer = pointerY.flatMap { pointer -> CGFloat? in
+                let local = pointer - origin
+                let radius = 2 * layout.pitch
+                // Beyond the lens, both edges translate equally and cancel out.
+                // A stable environment value keeps those icon subtrees unchanged.
+                return strength > 0 && amount > 0 && local > -radius && local < layout.height + radius ? local : nil
+            }
+            sections.append(.init(pointerY: localPointer, strength: localPointer == nil ? 0 : strength))
             growth += layout.renderedHeight(pointerY: localPointer) - layout.height
             origin += layout.height + 12 // Section padding (6) + inter-section spacing (6).
         }

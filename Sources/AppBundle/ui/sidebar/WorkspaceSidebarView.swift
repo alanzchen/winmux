@@ -58,9 +58,7 @@ struct WorkspaceSidebarView: View {
             shape: sidebarShape,
             hitRegions: dockHitRegions,
             motion: dockMotion,
-            growth: { pointer, strength, resting in
-                dockColumnGrowth(pointer: pointer, restingSurface: resting, strength: strength)
-            },
+            growth: dockColumnGrowth,
             content: sidebarContent(expansionProgress: expansionProgress)
                 .environment(\.workspaceSidebarDockDrag, snapshot.dockDrag)
         )
@@ -1002,6 +1000,7 @@ extension WorkspaceSidebarView {
             ? pinnedActiveWorkspace(displayedProjectId: projectId, pageWorkspaces: workspaces)
             : nil
         let columnWorkspaces = (pinnedWorkspace.map { [$0] } ?? []) + workspaces
+        let appCounts = columnWorkspaces.map { $0.apps.count }
         return WorkspaceSidebarDockContextReader { context in
             GeometryReader { viewport in
                 // Measure scrolling in shelf-local coordinates. Magnification no longer feeds
@@ -1009,7 +1008,7 @@ extension WorkspaceSidebarView {
                 let restingOrigin = context.restingSurface.minY + (dockColumnOrigins[projectId] ?? topPadding)
                 let activePointer = context.pointer
                 let column = WorkspaceSidebarDockColumnMagnification(
-                    appCounts: columnWorkspaces.map { $0.apps.count },
+                    appCounts: appCounts,
                     itemSize: snapshot.configuration.dockIconSize,
                     amount: snapshot.configuration.dockMagnificationAmount,
                     pointerY: allowsDockMagnification && expansionProgress == 0 && isInteractive
@@ -1017,7 +1016,9 @@ extension WorkspaceSidebarView {
                     strength: context.strength
                 )
                 ScrollView {
-                    WorkspaceSidebarWorkspaceStack(isLazy: snapshot.configuration.showAppIcons && expansionProgress == 0) {
+                    // Preserve section/gesture identity when a preview changes the
+                    // app count or the Dock morphs between compact and expanded.
+                    WorkspaceSidebarWorkspaceStack(isLazy: snapshot.configuration.showAppIcons) {
                         if let pinnedWorkspace {
                             workspaceSection(
                                 workspace: pinnedWorkspace,
@@ -1279,21 +1280,24 @@ extension WorkspaceSidebarView {
         return pointer
     }
 
-    func dockColumnGrowth(pointer: CGPoint?, restingSurface: CGRect, strength: CGFloat = 1) -> CGFloat {
-        guard allowsDockMagnification, dockSurfaceProgress == 0, let pointer else { return 0 }
+    var dockColumnGrowth: (CGPoint?, CGFloat, CGRect) -> CGFloat {
+        guard allowsDockMagnification, dockSurfaceProgress == 0 else { return { _, _, _ in 0 } }
         let projectId = projectPagerDisplayIndex.flatMap { snapshot.projects.indices.contains($0) ? snapshot.projects[$0].id : nil } ?? snapshot.activeProjectId
         var workspaces = currentFilteredProjectWorkspaces()
         if showsPinnedActiveWorkspaceForBrowsedProject,
            let pinned = pinnedActiveWorkspace(displayedProjectId: projectId, pageWorkspaces: workspaces) {
             workspaces.insert(pinned, at: 0)
         }
-        return WorkspaceSidebarDockColumnMagnification(
-            appCounts: workspaces.map { $0.apps.count },
-            itemSize: snapshot.configuration.dockIconSize,
-            amount: snapshot.configuration.dockMagnificationAmount,
-            pointerY: pointer.y - restingSurface.minY - (dockColumnOrigins[projectId] ?? 0),
-            strength: strength
-        ).growth
+        // Filtering and grouping depend on the snapshot, not the display frame.
+        let appCounts = workspaces.map { $0.apps.count }
+        let itemSize = snapshot.configuration.dockIconSize
+        let amount = snapshot.configuration.dockMagnificationAmount
+        let origin = dockColumnOrigins[projectId] ?? (shouldShowCompactMonitorSelector ? 0 : snapshot.configuration.topPadding)
+        return { pointer, strength, restingSurface in
+            guard let pointer else { return 0 }
+            return WorkspaceSidebarDockColumnMagnification(appCounts: appCounts, itemSize: itemSize,
+                amount: amount, pointerY: pointer.y - restingSurface.minY - origin, strength: strength).growth
+        }
     }
 
     var compactDockContentHeight: CGFloat {
