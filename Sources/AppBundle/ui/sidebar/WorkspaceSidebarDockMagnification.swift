@@ -99,22 +99,34 @@ struct WorkspaceSidebarDockColumnOriginPreference: PreferenceKey {
     }
 }
 
-struct WorkspaceSidebarDockGrowthPreference: PreferenceKey {
-    static let defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
+/// Hit geometry is an input cache, not UI state: measurements must not invalidate the
+/// view tree which just produced them on every pointer sample.
+@MainActor
+final class WorkspaceSidebarDockHitRegions {
+    var surface: CGRect?
+    var icons: [CGRect] = []
 }
 
-struct WorkspaceSidebarDockSurfaceGeometry: Equatable {
-    let resting: CGRect
-    let rendered: CGRect
-    var restingOriginCorrection: CGFloat { resting.minY - rendered.minY }
+struct WorkspaceSidebarDockLayoutContext {
+    var restingSurface: CGRect = .zero
+    var pointer: CGPoint?
 }
 
-struct WorkspaceSidebarDockSurfaceGeometryPreference: PreferenceKey {
-    static let defaultValue: WorkspaceSidebarDockSurfaceGeometry? = nil
-    static func reduce(value: inout WorkspaceSidebarDockSurfaceGeometry?, nextValue: () -> WorkspaceSidebarDockSurfaceGeometry?) {
-        value = nextValue() ?? value
+private struct WorkspaceSidebarDockLayoutContextKey: EnvironmentKey {
+    static let defaultValue = WorkspaceSidebarDockLayoutContext()
+}
+
+extension EnvironmentValues {
+    var workspaceSidebarDockLayoutContext: WorkspaceSidebarDockLayoutContext {
+        get { self[WorkspaceSidebarDockLayoutContextKey.self] }
+        set { self[WorkspaceSidebarDockLayoutContextKey.self] = newValue }
     }
+}
+
+struct WorkspaceSidebarDockContextReader<Content: View>: View {
+    @Environment(\.workspaceSidebarDockLayoutContext) private var context
+    @ViewBuilder let content: (WorkspaceSidebarDockLayoutContext) -> Content
+    var body: some View { content(context) }
 }
 
 func workspaceSidebarIndicatorLeadingOffset(tileSize: CGFloat, railWidth: CGFloat) -> CGFloat {
@@ -161,5 +173,17 @@ extension WorkspaceSidebarConfiguration {
         let growth = WorkspaceSidebarDockMagnification(itemSize: dockIconSize, count: 1,
             enabled: true, amount: dockMagnificationAmount).maximumGrowth
         return max(growth - (compactRailWidth - dockIconSize) / 2, 0)
+    }
+}
+
+struct WorkspaceSidebarWorkspaceStack<Content: View>: View {
+    let isLazy: Bool
+    @ViewBuilder let content: () -> Content
+    var body: some View {
+        if isLazy {
+            LazyVStack(alignment: .leading, spacing: 6, content: content)
+        } else {
+            VStack(alignment: .leading, spacing: 6, content: content)
+        }
     }
 }

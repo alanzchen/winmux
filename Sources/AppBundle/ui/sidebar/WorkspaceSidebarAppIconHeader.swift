@@ -7,6 +7,7 @@ struct WorkspaceSidebarAppIconHeader: View {
     let isActive: Bool
     var morphTargets: Set<String> = []
     var morphsTitle: Bool = false
+    var hidesTitleForMorph: Bool = true
     var magnificationEnabled: Bool = false
     var railWidth: CGFloat = 64
     var iconSize: CGFloat = WorkspaceSidebarAppIconLayout.iconSize
@@ -32,7 +33,7 @@ struct WorkspaceSidebarAppIconHeader: View {
                     railWidth: railWidth,
                     restingSize: layout.itemSize
                 )
-                .modifier(WorkspaceSidebarMorphAnchor(element: .compactTitle, isEnabled: morphsTitle))
+                .modifier(WorkspaceSidebarMorphAnchor(element: .compactTitle, isEnabled: morphsTitle, hidesContent: hidesTitleForMorph))
                 .position(x: frames[0].midX, y: frames[0].midY)
                 ForEach(Array(workspace.apps.prefix(layout.visibleAppCount).enumerated()), id: \.element.id) { index, app in
                     let rect = frames[index + 1]

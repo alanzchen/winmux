@@ -5,7 +5,7 @@ import XCTest
 
 @MainActor
 final class WorkspaceSidebarMorphRenderingTest: XCTestCase {
-    private let progressValues: [CGFloat] = [0, 0.25, 0.57, 0.59, 0.75, 1]
+    private let progressValues: [CGFloat] = [0, 0.001, 0.25, 0.57, 0.59, 0.75, 1]
 
     func testNativeSectionHeightMorphsContinuouslyForEmptySingleAndGroupedWorkspaces() throws {
         let fixtures: [(String, WorkspaceSidebarWorkspaceViewModel)] = [
@@ -66,16 +66,24 @@ final class WorkspaceSidebarMorphRenderingTest: XCTestCase {
                     for app in visibleApps {
                         let initial = try XCTUnwrap(compact.frames[.compactApp(app.id)])
                         let current = try XCTUnwrap(sample.frames[.compactApp(app.id)])
-                        let destination = try XCTUnwrap(sample.frames[.expandedApp(app.id)])
                         XCTAssertEqual(current.width, initial.width, accuracy: 0.01)
                         XCTAssertEqual(current.height, initial.height, accuracy: 0.01)
                         XCTAssertEqual(current.midX - title.midX, initial.midX - compactTitle.midX, accuracy: 0.01)
                         XCTAssertEqual(current.midY - title.midY, initial.midY - compactTitle.midY, accuracy: 0.01)
-                        XCTAssertGreaterThan(destination.width, 0)
-                        XCTAssertGreaterThan(destination.height, 0)
-                        XCTAssertTrue(destination.midX.isFinite && destination.midY.isFinite)
+                        if progress > 0 {
+                            let destination = try XCTUnwrap(sample.frames[.expandedApp(app.id)])
+                            XCTAssertGreaterThan(destination.width, 0)
+                            XCTAssertGreaterThan(destination.height, 0)
+                            XCTAssertTrue(destination.midX.isFinite && destination.midY.isFinite)
+                        } else {
+                            XCTAssertNil(sample.frames[.expandedApp(app.id)], "Compact hover must not lay out hidden window rows")
+                        }
                     }
-                    XCTAssertNotNil(sample.frames[.expandedTitle], "Both title endpoints must remain mounted")
+                    if progress > 0 {
+                        XCTAssertNotNil(sample.frames[.expandedTitle], "Both endpoints must be mounted as soon as expansion starts")
+                    } else {
+                        XCTAssertNil(sample.frames[.expandedTitle])
+                    }
                 }
             }
         }
@@ -87,9 +95,9 @@ final class WorkspaceSidebarMorphRenderingTest: XCTestCase {
             for progress in progressValues {
                 let sample = renderSection(workspace, progress: progress, expandedWidth: expandedWidth)
                 let compactTitle = try XCTUnwrap(sample.frames[.compactTitle])
-                let expandedTitle = try XCTUnwrap(sample.frames[.expandedTitle])
                 XCTAssertGreaterThan(compactTitle.width, 0)
                 if progress == 1 {
+                    let expandedTitle = try XCTUnwrap(sample.frames[.expandedTitle])
                     XCTAssertGreaterThan(expandedTitle.width, 0)
                     XCTAssertLessThanOrEqual(expandedTitle.maxX, sample.size.width + 0.5)
                 }
@@ -105,7 +113,7 @@ final class WorkspaceSidebarMorphRenderingTest: XCTestCase {
         for progress: CGFloat in [0, 0.25, 0.5, 0.75, 1] {
             let sample = renderSection(workspace, progress: progress)
             let compact = try XCTUnwrap(sample.frames[.compactTitle])
-            let expanded = try XCTUnwrap(sample.frames[.expandedTitle])
+            let expanded = progress == 0 ? compact : try XCTUnwrap(sample.frames[.expandedTitle])
             let titleRect = CGRect(
                 x: compact.minX + (expanded.minX - compact.minX) * progress,
                 y: compact.minY + (expanded.minY - compact.minY) * progress,

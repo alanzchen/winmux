@@ -226,7 +226,38 @@ extension WorkspaceSidebarWorkspaceSection {
         (targets ?? appMorphTargets).first { $0.value.windowId == window.windowId }?.key
     }
 
+    @ViewBuilder
     var morphingSectionContent: some View {
+        if morphProgress == 0 {
+            // Hover only needs compact icons. Keeping hidden window rows and a second
+            // set of morph icons in this layout made every pointer sample expensive.
+            WorkspaceSidebarAppIconHeader(
+                workspace: workspace,
+                availableWidth: appSummaryWidth,
+                isActive: isActiveOnTargetMonitor,
+                morphsTitle: true,
+                hidesTitleForMorph: false,
+                magnificationEnabled: layout.dockMagnification,
+                railWidth: layout.compactRailWidth,
+                iconSize: layout.dockIconSize,
+                magnificationAmount: layout.dockMagnificationAmount
+            )
+            .allowsHitTesting(false)
+            .overlayPreferenceValue(WorkspaceSidebarMorphPreference.self) { anchors in
+                if allowsWorkspaceActivation, !isRenamingWorkspace {
+                    WorkspaceSidebarDockAppButtons(
+                        anchors: anchors, progress: 0, workspace: workspace, targets: [:],
+                        actions: actions, onSelectApp: handleAppClick, onSelectWorkspace: handleSectionClick
+                    )
+                }
+            }
+            .modifier(WorkspaceSidebarReadOnlySummary(isEnabled: !allowsWorkspaceActivation, label: workspaceSidebarAppSummaryLabel(workspace)))
+        } else {
+            transitioningSectionContent
+        }
+    }
+
+    var transitioningSectionContent: some View {
         let targets = appMorphTargets
         return WorkspaceSidebarMorphLayout(progress: morphProgress, compactWidth: appSummaryWidth) {
             VStack(alignment: .leading, spacing: 3) {

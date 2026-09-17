@@ -38,6 +38,37 @@ final class WorkspaceSidebarDockGeometryTest: XCTestCase {
         try XCTUnwrap(bitmap.representation(using: .png, properties: [:])).write(to: directory.appendingPathComponent("dock-native-magnification.png"))
     }
 
+    func testRepeatedHoverReturnsToStableGeometryWithoutLayoutFeedback() throws {
+        var snapshot = fixture()
+        snapshot.configuration.dockMagnification = true
+        snapshot.configuration.dockMagnificationAmount = 1
+        let resting = render(snapshot, height: 800)
+        let pointerY = try XCTUnwrap(resting.probe.icons.first).midY
+        let probe = DockGeometryProbe()
+        let actions = WorkspaceSidebarActions(setSurfaceFrame: { probe.surface = $0 }, setDockIconFrames: { probe.icons = $0 })
+        func content(_ y: CGFloat) -> some View {
+            WorkspaceSidebarView(snapshot: snapshot, actions: actions, reduceMotionOverride: false)
+                .environment(\.workspaceSidebarDockPointer, CGPoint(x: 32, y: y))
+        }
+        let host = NSHostingView(rootView: content(pointerY))
+        host.frame = CGRect(x: 0, y: 0, width: 240, height: 800)
+        host.layoutSubtreeIfNeeded()
+        let expectedSurface = try XCTUnwrap(probe.surface)
+        let expectedIcons = probe.icons
+        XCTAssertFalse(expectedIcons.isEmpty)
+        for _ in 0..<10 {
+            host.rootView = content(pointerY + 10)
+            host.needsLayout = true
+            host.layoutSubtreeIfNeeded()
+            XCTAssertNotEqual(probe.icons, expectedIcons, "The test must actually move the magnification lens")
+            host.rootView = content(pointerY)
+            host.needsLayout = true
+            host.layoutSubtreeIfNeeded()
+            XCTAssertEqual(probe.surface, expectedSurface, "Shelf growth cannot move the pointer's resting reference")
+            XCTAssertEqual(probe.icons, expectedIcons, "Repeated hover must not drift or oscillate")
+        }
+    }
+
     func testReduceMotionSuppressesMagnificationHitRegions() {
         var snapshot = fixture()
         snapshot.configuration.dockMagnification = true

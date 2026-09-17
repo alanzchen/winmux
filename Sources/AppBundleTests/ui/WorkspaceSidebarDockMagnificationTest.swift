@@ -197,15 +197,6 @@ final class WorkspaceSidebarDockMagnificationTest: XCTestCase {
         XCTAssertGreaterThan(column.growth, 0)
     }
 
-    func testShelfGrowthDoesNotMoveTheRestingPointerReference() {
-        let resting = CGRect(x: 0, y: 200, width: 64, height: 400)
-        for growth: CGFloat in [0, 20, 80] {
-            let rendered = CGRect(x: 0, y: 200 - growth / 2, width: 64, height: 400 + growth)
-            let geometry = WorkspaceSidebarDockSurfaceGeometry(resting: resting, rendered: rendered)
-            XCTAssertEqual(rendered.minY + 12 + geometry.restingOriginCorrection, 212)
-        }
-    }
-
     func testMagnificationRequiresPointerInsideVisibleDockSurface() {
         var snapshot = WorkspaceSidebarSnapshot.empty
         snapshot.configuration.showAppIcons = true
