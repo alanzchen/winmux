@@ -78,6 +78,31 @@ final class WorkspaceSidebarDockDropPresentationTest: XCTestCase {
         XCTAssertEqual(snapshot.workspaces[0].apps, [app])
     }
 
+    func testMissedMouseUpStillCleansLiftAfterGenericDriverWasReset() async throws {
+        let driver = WindowMouseInteractionDriver.shared
+        clearActiveWorkspaceSidebarDrag()
+        resetWorkspaceSidebarItemDrag()
+        driver.stop()
+        defer {
+            clearActiveWorkspaceSidebarDrag()
+            resetWorkspaceSidebarItemDrag()
+            driver.stop()
+        }
+        beginActiveWorkspaceSidebarDrag(windowId: 42, subject: .window, previewStyle: .appIcon(size: 40))
+        beginWorkspaceSidebarItemDrag()
+        TrayMenuModel.shared.workspaceSidebarDockDrag = presentation()
+        TrayMenuModel.shared.workspaceSidebarDropPreview = preview(newWorkspace: true)
+        driver.moveSession = .init(windowId: 42, subject: .window, detachOrigin: .window, startedInSidebar: true)
+        // Provider completion can reset the native move before the final display callback.
+        try await resetManipulatedWithMouseIfPossible()
+        XCTAssertNil(driver.moveSession)
+        driver.finishAfterMissedMouseUpIfNeeded()
+        XCTAssertNil(currentActiveWorkspaceSidebarDrag())
+        XCTAssertFalse(isWorkspaceSidebarItemDragActive())
+        XCTAssertNil(TrayMenuModel.shared.workspaceSidebarDockDrag)
+        XCTAssertNil(TrayMenuModel.shared.workspaceSidebarDropPreview)
+    }
+
     func testNewWorkspaceHandoffRequiresMovedWindowOutsideSource() {
         var drag = presentation()
         drag.destination = preview(newWorkspace: true)

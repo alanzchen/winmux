@@ -51,6 +51,8 @@ struct WorkspaceSidebarDropDelegate: DropDelegate {
             startedInSidebar: getCurrentMouseDragStartedInSidebar()
         ) {
             Task { @MainActor in
+                // Finish the sidebar handoff before reset stops its display loop.
+                finishWorkspaceSidebarDragAfterMouseUp()
                 try? await resetManipulatedWithMouseIfPossible()
             }
             return true

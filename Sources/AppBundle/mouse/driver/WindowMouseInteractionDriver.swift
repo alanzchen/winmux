@@ -67,6 +67,9 @@ extension WindowMouseInteractionDriver {
 
     func finishAfterMissedMouseUpIfNeeded() {
         guard resizeSession != nil || moveSession != nil else {
+            // A provider's completion may already have reset the native session.
+            // The lifted icon still needs cleanup when its source view disappeared.
+            finishWorkspaceSidebarDragAfterMouseUp()
             logWindowDragLive("resizePreview hide requested reason=displayLoop.idle mouseDown=\(isLeftMouseButtonDown)")
             DisplayRefreshDriver.shared.remove(owner: self)
             WindowResizePreviewPanel.shared.endStableFrame()
