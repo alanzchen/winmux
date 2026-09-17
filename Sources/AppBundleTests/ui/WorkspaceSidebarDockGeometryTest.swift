@@ -13,7 +13,7 @@ final class WorkspaceSidebarDockGeometryTest: XCTestCase {
         let restingTitle = try XCTUnwrap(resting.probe.icons.first)
         let probe = DockGeometryProbe()
         let view = WorkspaceSidebarView(snapshot: snapshot, actions: .init(
-            setSurfaceFrame: { probe.surface = $0 }, setDockIconFrames: { probe.icons = $0 }))
+            setSurfaceFrame: { probe.surface = $0 }, setDockIconFrames: { probe.icons = $0 }), reduceMotionOverride: false)
             .environment(\.workspaceSidebarDockPointer, CGPoint(x: 32, y: restingTitle.midY))
         let host = NSHostingView(rootView: view)
         host.frame = CGRect(x: 0, y: 0, width: 240, height: 800)
@@ -36,6 +36,14 @@ final class WorkspaceSidebarDockGeometryTest: XCTestCase {
             .deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent(".build/issue-fixes-ui")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         try XCTUnwrap(bitmap.representation(using: .png, properties: [:])).write(to: directory.appendingPathComponent("dock-native-magnification.png"))
+    }
+
+    func testReduceMotionSuppressesMagnificationHitRegions() {
+        var snapshot = fixture()
+        snapshot.configuration.dockMagnification = true
+        let sample = render(snapshot, height: 800, reduceMotion: true)
+        XCTAssertNotNil(sample.probe.surface)
+        XCTAssertTrue(sample.probe.icons.isEmpty)
     }
 
     func testTallMagnifiedDockClipsIconHitRegionsToScrollViewport() throws {
@@ -195,13 +203,15 @@ final class WorkspaceSidebarDockGeometryTest: XCTestCase {
         return snapshot
     }
 
-    private func render(_ snapshot: WorkspaceSidebarSnapshot, height: CGFloat) -> (host: NSHostingView<WorkspaceSidebarView>, probe: DockGeometryProbe) {
+    private func render(_ snapshot: WorkspaceSidebarSnapshot, height: CGFloat, reduceMotion: Bool = false) -> (host: NSHostingView<WorkspaceSidebarView>, probe: DockGeometryProbe) {
         let probe = DockGeometryProbe()
         let view = WorkspaceSidebarView(snapshot: snapshot, actions: .init(
             setDropTargets: { probe.targets = $0 },
             setSurfaceFrame: { probe.surface = $0 },
             setDockIconFrames: { probe.icons = $0 }
-        ))
+        ), reduceMotionOverride: reduceMotion)
+        // Headless macOS runners may enable Reduce Motion. Geometry tests must
+        // select their intended accessibility state instead of inheriting the host.
         let host = NSHostingView(rootView: view)
         host.frame = CGRect(x: 0, y: 0, width: 480, height: height)
         host.layoutSubtreeIfNeeded()

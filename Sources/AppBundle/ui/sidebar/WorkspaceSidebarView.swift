@@ -32,12 +32,15 @@ struct WorkspaceSidebarView: View {
     @State private var dockColumnOrigins: [WorkspaceProjectId: CGFloat] = [:]
     @State private var dockMagnificationGrowth: CGFloat = 0
     @State private var dockSurfaceGeometry: WorkspaceSidebarDockSurfaceGeometry? = nil
-    @Environment(\.accessibilityReduceMotion) var reduceDockMotion
+    @Environment(\.accessibilityReduceMotion) private var systemReduceDockMotion
+    private let reduceMotionOverride: Bool?
+    var reduceDockMotion: Bool { reduceMotionOverride ?? systemReduceDockMotion }
     @Environment(\.workspaceSidebarDockPointer) var inheritedDockPointer
 
-    init(snapshot: WorkspaceSidebarSnapshot, actions: WorkspaceSidebarActions = WorkspaceSidebarActions()) {
+    init(snapshot: WorkspaceSidebarSnapshot, actions: WorkspaceSidebarActions = WorkspaceSidebarActions(), reduceMotionOverride: Bool? = nil) {
         self.snapshot = snapshot
         self.actions = actions
+        self.reduceMotionOverride = reduceMotionOverride
     }
 
     var body: some View {
