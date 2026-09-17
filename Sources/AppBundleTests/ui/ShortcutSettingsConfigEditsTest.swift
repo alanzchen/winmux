@@ -2,6 +2,14 @@
 import XCTest
 
 final class ShortcutSettingsConfigEditsTest: XCTestCase {
+    func testCanonicalCommandsPreserveArgumentAndShellFormatting() {
+        XCTAssertEqual(canonicalConfigCommandScript("focus   left"), "focus left")
+        XCTAssertEqual(canonicalConfigCommandScript("workspace '2'"), "workspace 2")
+        XCTAssertEqual(canonicalConfigCommandScript("exec-and-forget open -a Xcode"), "exec-and-forget  open -a Xcode")
+        XCTAssertNil(canonicalConfigCommandScript("unknown-command"))
+        XCTAssertNil(canonicalConfigCommandScript("focus --help"))
+    }
+
     func testUpdateModeBindingConfigAddsMissingSection() {
         let updated = updateModeBindingConfig(
             in: """
