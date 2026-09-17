@@ -251,7 +251,7 @@ diagnostic information rather than a protocol gate. A debug client talks only to
 For everyday commands, shell automation, project workflows, and the complete command index,
 see the [CLI usage guide](docs/cli.md).
 
-Build a universal release client without installing it:
+Build an Apple Silicon (`arm64`) release client without installing it:
 
 ```shell
 make cli-release VERSION=<version>
@@ -331,18 +331,18 @@ connecting a new CLI to a legacy server reports an upgrade error instead of wait
 
 ### Release updates
 
-Feature pushes to `codex/issue-fixes` or `main` automatically publish signed prereleases.
-To build and upload from your Mac, use `make prerelease-local` with the saved signing
-credentials and pinned toolchain described in [release setup](docs/releasing.md).
-GitHub CI remains the fallback and its duplicate release job is cancelled only after
-local publication succeeds. Both paths build a universal app and embedded CLI,
-notarize the app and DMG, and sign the update archive with the fork's Sparkle key.
+Releases target Apple Silicon (`arm64`) only. To build and upload from your Mac,
+use `make prerelease-local` with the saved signing credentials and pinned toolchain
+described in [release setup](docs/releasing.md). GitHub builds require an explicit
+manual request; pushes and tags do not start builds. Both paths build an Apple
+Silicon app and embedded CLI, notarize the app and DMG, and sign the update archive
+with the fork's Sparkle key. The update feed marks new releases as requiring arm64.
 
 Preview builds use
 `https://raw.githubusercontent.com/alanzchen/winmux/updates/prerelease.xml`.
 Install a preview once to migrate from older local 0.5.5 builds; subsequent updates
 use that feed. Explicit annotated stable tags (`git tag -a vMAJOR.MINOR.PATCH`)
-retain their separate release workflow and stable update feed.
+use a separate, manually invoked release workflow and stable update feed.
 The fork does not update the upstream Homebrew tap. `make release VERSION=<version>`
 continues to build locally without publishing by default.
 

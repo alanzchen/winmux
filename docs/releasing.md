@@ -6,6 +6,16 @@ Release archives use this fork's Sparkle Ed25519 key. The application and its em
 CLI update together; the distributed `bin/winmux` launcher runs the CLI inside the
 installed application.
 
+## Supported architecture
+
+New app and CLI builds target **Apple Silicon (`arm64`) only**, both locally and
+on GitHub. `make build`, `make cli-release`, and `make release` select arm64
+explicitly; release and installation checks reject Intel and universal app/CLI
+executables. Sparkle generates an `arm64` hardware requirement in the update feed,
+and publication checks require it so Intel Macs are not offered these updates.
+Asset names and the preview feed URL stay the same. Earlier universal releases
+remain unchanged.
+
 ## Local feature prereleases
 
 Build, test, sign, and notarize on the local Mac. GitHub hosts the resulting
@@ -61,6 +71,8 @@ The workflow files accept only `workflow_dispatch`. They are also disabled in th
 fork's settings, preventing automatic runs from older refs that still contain
 event triggers. Enable and dispatch a hosted workflow only when the user explicitly
 requests it; leave it disabled otherwise.
+Disable the workflow again after dispatching the requested run; the accepted run
+continues while new triggers remain disabled.
 
 - `ci.yml`: tests and builds the selected ref, without signing credentials.
 - `prerelease.yml`: manually publishes a preview from an integration branch.
@@ -70,7 +82,8 @@ requests it; leave it disabled otherwise.
 - `update-homebrew-cask.yml`: an upstream-only manual cask update for a published
   stable tag; it is inactive in this fork.
 
-Hosted build workflows pin Xcode 26.3 on `macos-26` and check its compiler against
+Hosted build workflows use the [Apple Silicon `macos-26` runner](https://docs.github.com/en/actions/reference/runners/github-hosted-runners),
+pin Xcode 26.3, and check its compiler against
 `.swift-version` (6.2.4). A missing Xcode version or compiler mismatch fails the run;
 the workflow never silently switches toolchains.
 
@@ -133,7 +146,7 @@ make release VERSION=0.7.0 RELEASE_TAG=v0.7.0 \
 
 Run the full Swift and release-tool tests before publication. Tag creation itself
 starts no hosted build. The local publisher verifies signatures, notarization,
-architectures, archive checksums, and uploaded asset digests.
+the arm64 app/CLI architecture, archive checksums, and uploaded asset digests.
 
 A retry can replace an incomplete draft's assets. It cannot overwrite a published
 release, move a tag, or make an older stable version the latest update.

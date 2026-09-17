@@ -8,11 +8,15 @@ import xml.etree.ElementTree as ET
 SPARKLE = "{http://www.andymatuschak.org/xml-namespaces/sparkle}"
 
 
-def validate_appcast(path, version, archive_url, archive_path=None):
+def validate_appcast(path, version, archive_url, archive_path=None, *, require_arm64=False):
     items = ET.parse(path).findall("./channel/item")
     if len(items) != 1:
         raise ValueError("The release feed must contain exactly one update.")
     item = items[0]
+    if require_arm64:
+        requirements = item.findtext(SPARKLE + "hardwareRequirements", "")
+        if "arm64" not in {value.strip() for value in requirements.split(",")}:
+            raise ValueError("Apple Silicon updates must require arm64 hardware.")
     for key in ("version", "shortVersionString"):
         if item.findtext(SPARKLE + key) != version:
             raise ValueError(f"The update's {key} must match release {version}.")
@@ -44,8 +48,13 @@ if __name__ == "__main__":
         "--archive", type=Path,
         help="Check the enclosure length against this final release archive.",
     )
+    parser.add_argument(
+        "--require-arm64", action="store_true",
+        help="Reject updates that could be offered to Intel Macs.",
+    )
     args = parser.parse_args()
     try:
-        validate_appcast(args.appcast, args.version, args.archive_url, args.archive)
+        validate_appcast(args.appcast, args.version, args.archive_url, args.archive,
+                         require_arm64=args.require_arm64)
     except (OSError, ValueError, ET.ParseError) as error:
         parser.error(str(error))

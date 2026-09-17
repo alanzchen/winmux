@@ -85,7 +85,7 @@ def check_context(local=False):
     if os.environ.get("GITHUB_REPOSITORY") != REPOSITORY:
         raise ValueError("Prereleases are restricted to the configured fork.")
     if os.environ.get("GITHUB_REF") not in {f"refs/heads/{branch}" for branch in BRANCHES}:
-        raise ValueError("Only integration branch pushes can publish prereleases.")
+        raise ValueError("Only integration branches can publish prereleases.")
     if os.environ.get("GITHUB_SHA") != release.run("git", "rev-parse", "HEAD"):
         raise ValueError("Checkout does not match the triggering commit.")
     return os.environ["GITHUB_SHA"]
@@ -206,7 +206,7 @@ def publish(local=False):
     release.check_tag(tag, REPOSITORY, allowed_branches=BRANCHES)
     appcast.validate_appcast(directory / "appcast.xml", tag[1:],
                             f"https://github.com/{REPOSITORY}/releases/download/{tag}/WinMux-{tag[1:]}.zip",
-                            directory / f"WinMux-{tag[1:]}.zip")
+                            directory / f"WinMux-{tag[1:]}.zip", require_arm64=True)
     draft = check_order(tag, release.read_releases(REPOSITORY))
     if draft is None:
         # Use the creation response: the releases list can briefly omit a new draft.

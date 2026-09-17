@@ -37,6 +37,8 @@ targets:
     # https://developer.apple.com/documentation/xcode/build-settings-reference
     settings:
       base:
+        ARCHS: arm64
+        ONLY_ACTIVE_ARCH: "NO"
         SWIFT_VERSION: 6.2 # Swift Language Version
         MARKETING_VERSION: ${XCODEGEN_WINMUX_VERSION}
         CURRENT_PROJECT_VERSION: ${XCODEGEN_WINMUX_VERSION}

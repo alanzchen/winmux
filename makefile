@@ -54,12 +54,13 @@ build:
 	$(MAKE) generate VERSION="$(VERSION)"
 	/bin/bash -lc 'cd "$(CURDIR)" && \
 	source ./script/setup.sh && \
-	swift build && \
-	swift build --target AppBundleTests && \
+	swift build --arch arm64 && \
+	swift build --arch arm64 --target AppBundleTests && \
+	debug_build_dir="$$(swift build --arch arm64 --show-bin-path | /usr/bin/tail -n 1)" && \
 	rm -rf .debug && \
 	mkdir .debug && \
-	cp -r .build/debug/winmux .debug && \
-	cp -r .build/debug/WinMuxApp .debug'
+	cp -r "$$debug_build_dir/winmux" .debug && \
+	cp -r "$$debug_build_dir/WinMuxApp" .debug'
 
 build-clean:
 	/bin/bash -lc 'cd "$(CURDIR)" && rm -rf .build .debug'
@@ -106,8 +107,8 @@ cli-release:
 	/bin/bash -lc 'cd "$(CURDIR)" && \
 	set -euo pipefail && \
 	source ./script/setup.sh && \
-	swift build -c release --arch arm64 --arch x86_64 --product winmux -Xswiftc -warnings-as-errors && \
-	cli_build_dir="$$(swift build -c release --arch arm64 --arch x86_64 --show-bin-path | /usr/bin/tail -n 1)" && \
+	swift build -c release --arch arm64 --product winmux -Xswiftc -warnings-as-errors && \
+	cli_build_dir="$$(swift build -c release --arch arm64 --show-bin-path | /usr/bin/tail -n 1)" && \
 	cli_stage_path="$(CLI_STAGE_PATH)" && \
 	test -x "$$cli_build_dir/winmux" && \
 	mkdir -p "$$(dirname "$$cli_stage_path")" && \
@@ -119,8 +120,7 @@ cli-release:
 	fi && \
 	/usr/bin/codesign --verify --strict --verbose=2 "$$cli_stage_path" && \
 	archs="$$(/usr/bin/lipo -archs "$$cli_stage_path")" && \
-	case " $$archs " in *" arm64 "*) ;; *) echo "CLI is missing arm64" >&2; exit 1;; esac && \
-	case " $$archs " in *" x86_64 "*) ;; *) echo "CLI is missing x86_64" >&2; exit 1;; esac'
+	if [ "$$archs" != arm64 ]; then echo "CLI must contain only arm64; found $$archs" >&2; exit 1; fi'
 
 release:
 	/bin/bash script/build-release.sh --check
@@ -199,8 +199,7 @@ install-staged:
 	test "$$(cat "$$pair_path/bin/winmux-app-path")" = "$$install_path"; \
 	for executable in "$$pair_path/$$app_name.app/Contents/MacOS/$$app_name" "$$pair_path/$$app_name.app/Contents/Helpers/winmux"; do \
 	    archs="$$(/usr/bin/lipo -archs "$$executable")"; \
-	    case " $$archs " in *" arm64 "*) ;; *) echo "$$executable is missing arm64" >&2; exit 1;; esac; \
-	    case " $$archs " in *" x86_64 "*) ;; *) echo "$$executable is missing x86_64" >&2; exit 1;; esac; \
+	    if [ "$$archs" != arm64 ]; then echo "$$executable must contain only arm64; found $$archs" >&2; exit 1; fi; \
 	done; \
 	mkdir -p "$$install_dir"; \
 	current_path="$$local_install_root/current"; \

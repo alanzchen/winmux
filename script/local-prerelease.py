@@ -73,7 +73,7 @@ def main():
             directory.mkdir(parents=True, exist_ok=True)
             environment = dict(os.environ, VERSION=version, RELEASE_TAG=tag, RELEASE_DIR=str(directory.resolve()),
                                UPDATE_FEED_URL=f"https://raw.githubusercontent.com/{preview.REPOSITORY}/updates/prerelease.xml")
-            run("/bin/bash", "-c", "source script/setup.sh; swift test; swift build", env=environment)
+            run("/bin/bash", "-c", "source script/setup.sh; swift test --arch arm64; swift build --arch arm64", env=environment)
             run("python3", "-B", "-m", "unittest", "discover", "-s", "script", "-p", "test_*.py")
             run("make", "release", f"VERSION={version}", f"RELEASE_TAG={tag}",
                 f"RELEASE_DIR={directory.resolve()}", f"CLI_STAGE_PATH={directory.resolve() / 'winmux'}",

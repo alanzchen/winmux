@@ -59,7 +59,7 @@ if [[ "$CODESIGN_IDENTITY" == - ]]; then hardened_runtime=NO; fi
 xcodebuild-pretty "$release_dir/WinMux-$VERSION-xcodebuild.log" \
     -project WinMux.xcodeproj -scheme WinMux -configuration Release \
     -archivePath "$archive" -derivedDataPath "$derived" \
-    ARCHS="arm64 x86_64" ONLY_ACTIVE_ARCH=NO ENABLE_HARDENED_RUNTIME="$hardened_runtime" \
+    ARCHS=arm64 ONLY_ACTIVE_ARCH=NO ENABLE_HARDENED_RUNTIME="$hardened_runtime" \
     CODE_SIGN_IDENTITY="$CODESIGN_IDENTITY" DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" \
     CODE_SIGN_STYLE="$CODESIGN_STYLE" archive
 test -d "$app"
@@ -115,7 +115,7 @@ if [[ "$archive_signature" == *"Authority=Developer ID Application:"* ]]; then
 fi
 for executable in "$app/Contents/MacOS/WinMux" "$app/Contents/Helpers/winmux"; do
     archs="$(lipo -archs "$executable")"
-    [[ " $archs " == *" arm64 "* && " $archs " == *" x86_64 "* ]] || { echo "Missing universal slices: $executable" >&2; exit 1; }
+    [[ "$archs" == arm64 ]] || { echo "$executable must contain only arm64; found $archs" >&2; exit 1; }
 done
 
 python3 - "$app/Contents/Info.plist" "$VERSION" "$feed_url" "$SPARKLE_PUBLIC_KEY" <<'PY'
@@ -157,6 +157,7 @@ ditto "$app" "$dist/WinMux.app"
 /usr/bin/install -m 755 script/winmux-launcher.sh "$dist/bin/winmux"
 cp docs/cli.md docs/releasing.md "$dist/docs/"
 cat > "$dist/README.txt" <<'EOF'
+Requires an Apple Silicon Mac (arm64).
 Copy WinMux.app to /Applications. Install bin/winmux on your PATH to run the CLI
 inside the installed app. Sparkle updates replace the app and embedded CLI together.
 For a custom app location set WINMUX_APP_PATH to its absolute .app path.
@@ -197,7 +198,7 @@ if [[ "$GENERATE_APPCAST" == 1 ]]; then
     "$sparkle_bin" "${key_args[@]}" --download-url-prefix "$download_prefix" -o "$appcast_stage/appcast.xml" "$appcast_stage"
     cp "$appcast_stage/appcast.xml" "$release_dir/appcast.xml"
     python3 -B script/validate-appcast.py "$release_dir/appcast.xml" "$VERSION" \
-        "$download_prefix$(basename "$app_zip")" --archive "$app_zip"
+        "$download_prefix$(basename "$app_zip")" --archive "$app_zip" --require-arm64
     signature="$(python3 - "$release_dir/appcast.xml" <<'PY'
 import sys, xml.etree.ElementTree as ET
 print(ET.parse(sys.argv[1]).find('channel/item/enclosure').get('{http://www.andymatuschak.org/xml-namespaces/sparkle}edSignature'))

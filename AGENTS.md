@@ -12,15 +12,15 @@
 
 Develop on macOS with Swift **6.2.4**, pinned in `.swift-version`. Verify `swift --version`; use `swiftly run swift …` when managing toolchains with Swiftly.
 
-- `swift build`: build the debug app and CLI.
-- `swift test`: run the complete `AppBundleTests` suite.
-- `swift test --filter WorkspaceSidebar`: run focused sidebar regressions.
+- `swift build --arch arm64`: build the debug app and CLI.
+- `swift test --arch arm64`: run the complete `AppBundleTests` suite.
+- `swift test --arch arm64 --filter WorkspaceSidebar`: run focused sidebar regressions.
 - `make build`: generate version metadata and stage debug executables in `.debug/`.
 - `make run ARGS="--config-path /absolute/path/test.toml"`: build and launch with an explicit configuration.
 - `make cli ARGS="--help"`: build and inspect CLI usage.
 - `python3 -B script/test_validate_appcast.py`: test appcast validation.
 
-Release builds use Xcode via `make release VERSION=<version>`; SwiftPM executables are development builds.
+Build only for Apple Silicon (`arm64`), locally and on GitHub runners. Release builds use Xcode via `make release VERSION=<version>`; SwiftPM executables are development builds. App and CLI architecture checks must reject Intel and universal binaries.
 
 ## Coding Style & Naming Conventions
 
@@ -42,7 +42,7 @@ Preserve fork features when integrating upstream: sidebar layer settings, settin
 
 ## Feature Delivery
 
-Build and release locally. Do not invoke GitHub CI automatically. Hosted workflows
+Default to local builds and releases. Do not invoke GitHub CI automatically. Hosted workflows
 are manual-only and disabled in the fork's settings; enable or dispatch them only
 when the user explicitly requests a GitHub run.
 

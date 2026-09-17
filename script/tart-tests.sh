@@ -52,7 +52,7 @@ export PATH="/Volumes/My Shared Files/swift-toolchain/usr/bin:$PATH"
 export TOOLCHAINS=org.swift.624202602241a
 export SWIFT_EXEC_MANIFEST=/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc
 swift --version
-swift test
-swift build
+swift test --arch arm64
+swift build --arch arm64
 GUEST
 tart exec "$vm_name" /bin/bash "$guest_run_dir/test.sh" "$guest_run_dir/source.tar" 2>&1 | tee "$share_dir/results/tests.log"

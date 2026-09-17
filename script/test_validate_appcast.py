@@ -20,7 +20,7 @@ ITEM = f"""<item>
 
 
 class AppcastValidationTest(unittest.TestCase):
-    def validate(self, items, archive_bytes=None):
+    def validate(self, items, archive_bytes=None, *, require_arm64=False):
         with tempfile.TemporaryDirectory() as directory:
             feed = Path(directory) / "appcast.xml"
             feed.write_text(
@@ -31,10 +31,25 @@ class AppcastValidationTest(unittest.TestCase):
             if archive_bytes is not None:
                 archive = Path(directory) / "WinMux-0.5.3.zip"
                 archive.write_bytes(archive_bytes)
-            validator.validate_appcast(feed, "0.5.3", URL, archive)
+            validator.validate_appcast(feed, "0.5.3", URL, archive, require_arm64=require_arm64)
 
     def test_current_release_is_accepted(self):
         self.validate(ITEM)
+
+    def test_arm64_update_requires_apple_silicon_hardware(self):
+        item = ITEM.replace("</item>", "<sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements></item>")
+        self.validate(item, require_arm64=True)
+
+    def test_arm64_update_cannot_be_offered_without_hardware_requirement(self):
+        with self.assertRaisesRegex(ValueError, "arm64 hardware"):
+            self.validate(ITEM, require_arm64=True)
+
+    def test_non_arm64_hardware_requirement_is_rejected(self):
+        for requirement in ("", "x86_64", "arm64e"):
+            with self.subTest(requirement=requirement):
+                item = ITEM.replace("</item>", f"<sparkle:hardwareRequirements>{requirement}</sparkle:hardwareRequirements></item>")
+                with self.assertRaisesRegex(ValueError, "arm64 hardware"):
+                    self.validate(item, require_arm64=True)
 
     def test_stale_archive_cannot_add_phantom_update(self):
         with self.assertRaisesRegex(ValueError, "exactly one"):

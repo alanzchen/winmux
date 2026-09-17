@@ -24,6 +24,7 @@ jobs:
       - name: Verify pinned compiler
         run: |
           set -euo pipefail
+          test "$(uname -m)" = arm64
           xcodebuild -version
           xcrun swift --version
           expected="$(cat .swift-version)"
@@ -32,6 +33,6 @@ jobs:
       - name: Test and build
         run: |
           set -euo pipefail
-          xcrun swift test
-          xcrun swift build
+          xcrun swift test --arch arm64
+          xcrun swift build --arch arm64
           python3 -B -m unittest discover -s script -p 'test_*.py'

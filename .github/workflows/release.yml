@@ -53,6 +53,7 @@ jobs:
         run: |
           set -euo pipefail
           test -d "$DEVELOPER_DIR"
+          test "$(uname -m)" = arm64
           xcodebuild -version
           xcrun swift --version
           expected="$(cat .swift-version)"
@@ -65,8 +66,8 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p .build
-          xcrun swift test 2>&1 | tee .build/release-ci-tests.log
-          xcrun swift build
+          xcrun swift test --arch arm64 2>&1 | tee .build/release-ci-tests.log
+          xcrun swift build --arch arm64
           python3 -B -m unittest discover -s script -p 'test_*.py'
 
       - name: Import Developer ID and notarization credentials
@@ -99,7 +100,7 @@ jobs:
           (cd .release && shasum -a 256 --check SHA256SUMS)
           hdiutil verify ".release/WinMux-$VERSION.dmg"
           python3 -B script/validate-appcast.py ".release/appcast.xml" "$VERSION" \
-            "https://github.com/$RELEASE_REPOSITORY/releases/download/$RELEASE_TAG/WinMux-$VERSION.zip"
+            "https://github.com/$RELEASE_REPOSITORY/releases/download/$RELEASE_TAG/WinMux-$VERSION.zip" --require-arm64
           verify_dir="$(mktemp -d "$RUNNER_TEMP/winmux-verify.XXXXXX")"
           trap 'rm -rf "$verify_dir"' EXIT
           ditto -x -k ".release/WinMux-$VERSION.zip" "$verify_dir"
@@ -114,8 +115,7 @@ jobs:
           test "$(/usr/libexec/PlistBuddy -c 'Print SUPublicEDKey' "$app/Contents/Info.plist")" = "$SPARKLE_PUBLIC_KEY"
           for executable in "$app/Contents/MacOS/WinMux" "$app/Contents/Helpers/winmux"; do
             archs="$(lipo -archs "$executable")"
-            case " $archs " in *' arm64 '*) ;; *) exit 1 ;; esac
-            case " $archs " in *' x86_64 '*) ;; *) exit 1 ;; esac
+            test "$archs" = arm64
             signature="$(codesign -dv --verbose=4 "$executable" 2>&1)"
             printf '%s\n' "$signature" | grep -Fx "TeamIdentifier=$DEVELOPMENT_TEAM"
           done
