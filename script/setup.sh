@@ -32,7 +32,7 @@ if /bin/test -z "${NUKE_PATH:-}"; then
     add-optional-dep-to-bin swift
     add-optional-dep-to-bin swiftly
 
-    export PATH="${PWD}/.deps/bin:/bin:/usr/bin:/usr/local/bin:/opt/homebrew/bin:/opt/homebrew/sbin"
+    export PATH="${PWD}/.deps/bin:/bin:/usr/bin:/sbin:/usr/sbin:/usr/local/bin:/opt/homebrew/bin:/opt/homebrew/sbin"
     chmod +x .deps/bin/*
     export NUKE_PATH=1
 fi

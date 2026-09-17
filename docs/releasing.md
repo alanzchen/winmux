@@ -98,8 +98,8 @@ workflow. Use a new `vMAJOR.MINOR.PATCH` tag greater than every published stable
 version; prerelease and noncanonical tags are rejected.
 
 ```sh
-git tag -a v0.6.0 -m "WinMux 0.6.0"
-git push origin v0.6.0
+git tag -a v0.7.0 -m "WinMux 0.7.0"
+git push origin v0.7.0
 ```
 
 The tag push publishes automatically when validation succeeds. For a failed run,
@@ -107,7 +107,7 @@ rerun it in Actions. Once the workflow is on the default branch, manual dispatch
 also works, but its selected ref and input must both identify the same existing tag:
 
 ```sh
-gh workflow run release.yml --repo alanzchen/winmux --ref v0.6.0 -f tag=v0.6.0
+gh workflow run release.yml --repo alanzchen/winmux --ref v0.7.0 -f tag=v0.7.0
 ```
 
 A retry can replace an incomplete draft's assets. It cannot overwrite a published
