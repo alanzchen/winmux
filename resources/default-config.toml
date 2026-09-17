@@ -51,6 +51,8 @@ on-mode-changed = []
     # Legacy show-app-icons remains supported when mode is omitted.
     # Magnify compact Dock icons on hover; expand with the arrow or sidebar command.
     dock-magnification = false
+    # Magnification strength: 0 = none, 0.5 = 1.5x, 1 = 2x; icons grow beyond the glass rail.
+    dock-magnification-amount = 0.5
     # App and number tile size in points (24...48); the compact rail stays 64 points wide.
     dock-icon-size = 40
     collapsed-width = 50

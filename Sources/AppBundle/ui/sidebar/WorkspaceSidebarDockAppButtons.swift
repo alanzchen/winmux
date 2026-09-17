@@ -23,6 +23,7 @@ struct WorkspaceSidebarDockAppButtons: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Switch to workspace \(workspace.displayName)")
+                .modifier(WorkspaceSidebarDockIconFrameReporter())
                 .position(x: rect.midX, y: rect.midY)
             }
             ForEach(workspace.apps) { app in
@@ -41,6 +42,7 @@ struct WorkspaceSidebarDockAppButtons: View {
                         actions: actions,
                         onSelect: { onSelectApp(app) }
                     )
+                    .modifier(WorkspaceSidebarDockIconFrameReporter())
                     .position(x: rect.midX, y: rect.midY)
                 }
             }

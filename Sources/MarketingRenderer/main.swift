@@ -46,6 +46,7 @@ struct MarketingRendererCommand {
               --height POINTS      Window height (default: 360)
               --icon-size POINTS   Dock icon size, 24...48 (default: 40)
               --magnification N    Enable Dock magnification: 0 or 1 (default: 0)
+              --magnification-amount N  Magnification strength, 0...1 (default: 0.5)
               --pointer-y POINTS   Simulated pointer in sidebar coordinates for capture
               --glass-opacity N   Glass opacity, 0...1 (default: 1)
               --appearance NAME   light or dark (default: dark)
@@ -60,7 +61,7 @@ struct MarketingRendererCommand {
             """)
             return
         }
-        let allowed = Set(["--mode", "--width", "--expanded-width", "--expansion", "--height", "--origin-x", "--origin-y", "--hold-seconds", "--output", "--backdrop", "--icon-size", "--magnification", "--pointer-y", "--glass-opacity", "--appearance"])
+        let allowed = Set(["--mode", "--width", "--expanded-width", "--expansion", "--height", "--origin-x", "--origin-y", "--hold-seconds", "--output", "--backdrop", "--icon-size", "--magnification", "--magnification-amount", "--pointer-y", "--glass-opacity", "--appearance"])
         var options: [String: String] = [:]
         var index = 0
         while index < arguments.count {
@@ -90,11 +91,12 @@ struct MarketingRendererCommand {
         let holdDuration = try number("--hold-seconds", default: 30)
         let iconSize = try number("--icon-size", default: 40)
         let magnification = try number("--magnification", default: 0)
+        let magnificationAmount = try number("--magnification-amount", default: 0.5)
         let pointerY: Double? = try options["--pointer-y"].map { _ in try number("--pointer-y", default: 0) }
         let glassOpacity = try number("--glass-opacity", default: 1)
         let appearance = options["--appearance"] ?? "dark"
         guard (24...48).contains(iconSize), [0.0, 1.0].contains(magnification),
-              (0...1).contains(glassOpacity), ["light", "dark"].contains(appearance) else {
+              (0...1).contains(glassOpacity), (0...1).contains(magnificationAmount), ["light", "dark"].contains(appearance) else {
             throw ProofArgumentsError.invalid("Invalid icon size, magnification, glass opacity, or appearance.")
         }
         guard width > 0, height > 0, holdDuration >= 0 else {
@@ -126,6 +128,7 @@ struct MarketingRendererCommand {
             expansion: expansion,
             iconSize: iconSize,
             magnification: magnification == 1,
+            magnificationAmount: magnificationAmount,
             pointerY: pointerY.map { CGFloat($0) },
             glassOpacity: glassOpacity,
             darkAppearance: appearance == "dark",

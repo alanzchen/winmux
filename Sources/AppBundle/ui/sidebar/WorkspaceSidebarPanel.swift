@@ -128,6 +128,19 @@ extension WorkspaceSidebarPanel {
         scheduleHoverRecheckSoon()
     }
 
+    func updateDockIconFrames(_ frames: [CGRect]) {
+        guard dockIconFrames != frames else { return }
+        dockIconFrames = frames
+        updateMousePassthrough()
+        scheduleHoverRecheckSoon()
+    }
+
+    func isScreenPointInsideDockIcon(_ point: CGPoint) -> Bool {
+        dockIconFrames.contains {
+            convertToScreen(hostingView.convert($0, to: nil)).contains(point)
+        }
+    }
+
     var visibleSurfaceFrameInHostingView: CGRect {
         visibleSurfaceFrame ?? CGRect(
             x: 0,
@@ -573,7 +586,7 @@ extension WorkspaceSidebarPanel {
 
     func isScreenPointInsideVisibleRegion(_ point: CGPoint) -> Bool {
         guard isVisible else { return false }
-        return visibleSurfaceFrameOnScreen.contains(point)
+        return visibleSurfaceFrameOnScreen.contains(point) || isScreenPointInsideDockIcon(point)
     }
 }
 struct WorkspaceSidebarPanelLayout {
@@ -937,6 +950,14 @@ extension WorkspaceSidebarPanel {
         if ignoresMouseEvents != shouldIgnoreMouseEvents {
             debugWorkspaceSidebarHoverLog("mousePassthrough panel=\(monitorScopeId) ignores \(ignoresMouseEvents)->\(shouldIgnoreMouseEvents) insideVisible=\(inside) visibleWidth=\(viewModel.workspaceSidebarVisibleWidth) frame=\(frame) mouse=\(NSEvent.mouseLocation)")
             ignoresMouseEvents = shouldIgnoreMouseEvents
+            if shouldIgnoreMouseEvents {
+                // A pass-through panel may stop receiving SwiftUI hover events before
+                // .ended arrives. Clear magnification through the native exit as well.
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, self.ignoresMouseEvents else { return }
+                    NotificationCenter.default.post(name: workspaceSidebarDockPointerExitedNotification, object: self)
+                }
+            }
         }
     }
 
@@ -948,7 +969,7 @@ extension WorkspaceSidebarPanel {
             workspaceSidebarHoverActivationWidth(config.workspaceSidebar),
         ) + hoverExitTolerance
         let hoverRegion = NSRect(x: surface.minX, y: surface.minY, width: hoverWidth, height: surface.height)
-        let inside = hoverRegion.contains(NSEvent.mouseLocation)
+        let inside = hoverRegion.contains(NSEvent.mouseLocation) || isScreenPointInsideDockIcon(NSEvent.mouseLocation)
         if viewModel.workspaceSidebarVisibleWidth > workspaceSidebarRestingWidth(config.workspaceSidebar) + 0.5 || pendingCollapse != nil {
             debugWorkspaceSidebarHoverLog("hoverRegion panel=\(monitorScopeId) inside=\(inside) hoverWidth=\(hoverWidth) visibleWidth=\(viewModel.workspaceSidebarVisibleWidth) frame=\(frame) mouse=\(NSEvent.mouseLocation) suppressUntil=\(splitBrowseCollapseSuppressedUntil)")
         }
@@ -1039,6 +1060,7 @@ extension WorkspaceSidebarPanel {
         // they don't invalidate every observer each session.
         localDropTargetFrames = []
         visibleSurfaceFrame = nil
+        dockIconFrames = []
         setWorkspaceSidebarDropPreviewIfChanged(nil)
         TrayMenuModel.shared.setIfChanged(\.workspaceSidebarHoveredWorkspaceName, nil)
         viewModel.setIfChanged(\.workspaceSidebarVisibleWidth, 0)

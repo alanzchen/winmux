@@ -10,6 +10,7 @@ private let workspaceSidebarParser: [String: any ParserProtocol<WorkspaceSidebar
     "mode": Parser(\.mode, parseWorkspaceSidebarMode),
     "show-app-icons": Parser(\.showAppIcons, parseBool),
     "dock-magnification": Parser(\.dockMagnification, parseBool),
+    "dock-magnification-amount": Parser(\.dockMagnificationAmount, parseWorkspaceSidebarUnitInterval),
     "dock-icon-size": Parser(\.dockIconSize) { raw, backtrace in
         parseInt(raw, backtrace).filter(.semantic(backtrace, "Must be between 24 and 48 points")) { (24...48).contains($0) }
     },
@@ -24,7 +25,7 @@ private let workspaceSidebarParser: [String: any ParserProtocol<WorkspaceSidebar
     "show-date": Parser(\.showDate, parseBool),
     "show-weekday": Parser(\.showWeekday, parseBool),
     "chrome-style": Parser(\.chromeStyle, parseChromeStyle),
-    "glass-opacity": Parser(\.glassOpacity, parseWorkspaceSidebarGlassOpacity),
+    "glass-opacity": Parser(\.glassOpacity, parseWorkspaceSidebarUnitInterval),
     "solid-chrome-color": Parser(\.solidChromeColor, parseChromeSolidColor),
     "solid-chrome-custom-color": Parser(\.solidChromeCustomColor, parseChromeSolidCustomColor),
     "use-liquid-glass": Parser(\.chromeStyle) { raw, backtrace in
@@ -84,7 +85,7 @@ private func parseChromeStyle(_ raw: TOMLValueConvertible, _ backtrace: TomlBack
     }
 }
 
-private func parseWorkspaceSidebarGlassOpacity(_ raw: TOMLValueConvertible, _ backtrace: TomlBacktrace) -> ParsedToml<Double> {
+private func parseWorkspaceSidebarUnitInterval(_ raw: TOMLValueConvertible, _ backtrace: TomlBacktrace) -> ParsedToml<Double> {
     let value = raw.double ?? raw.int.map(Double.init)
     return value
         .orFailure(.semantic(backtrace, "Must be a number from 0 to 1"))

@@ -94,8 +94,11 @@ immediate transition.
 
 **Dock icon size** controls app icons and number tiles together, from **24–48 pt**
 (default **40 pt**; select 32 pt for the previous size). Optional **Magnify Dock
-icons on hover** smoothly enlarges nearby tiles up to 1.5×, capped at 52 pt to fit
-the rail. With magnification enabled, hovering keeps the rail compact: use the
+icons on hover** smoothly enlarges nearby tiles beyond the fixed-width glass
+background. Icons keep their left edges aligned as they grow to the right; the active
+workspace dot stays fixed in the left gutter. **Magnification amount** adjusts the
+strength from 0% (no growth) to 100% (2× size); the default 50% produces 1.5× icons.
+With magnification enabled, hovering keeps the rail compact: use the
 expand arrow or the sidebar command for window details. Magnification resets
 during drags, editing, and menus, and is disabled by Reduce Motion. The toggle is
 off by default and unavailable while **Keep sidebar expanded** is enabled.
@@ -110,6 +113,7 @@ of this setting. Window chrome settings continue to style tab groups and the swi
     mode = 'dock' # or 'sidebar'
     dock-icon-size = 40
     dock-magnification = false
+    dock-magnification-amount = 0.5
     glass-opacity = 0.65
 ```
 

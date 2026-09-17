@@ -99,6 +99,7 @@ struct WorkspaceSidebarConfig: ConvenienceCopyable, Equatable, Sendable {
         set { mode = newValue ? .dock : .sidebar }
     }
     var dockMagnification: Bool = false
+    var dockMagnificationAmount: Double = 0.5
     var dockIconSize: Int = 40
     var collapsedWidth: Int = 44
     var width: Int = 240

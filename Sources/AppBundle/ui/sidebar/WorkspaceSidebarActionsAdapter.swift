@@ -17,6 +17,10 @@ func makeWorkspaceSidebarActionsAdapter(
             let scopeId = targetMonitorScopeId ?? viewModel.workspaceSidebarTargetMonitorScopeId
             WorkspaceSidebarPanel.panel(for: scopeId)?.updateSurfaceFrame(frame)
         },
+        setDockIconFrames: { frames in
+            let scopeId = targetMonitorScopeId ?? viewModel.workspaceSidebarTargetMonitorScopeId
+            WorkspaceSidebarPanel.panel(for: scopeId)?.updateDockIconFrames(frames)
+        },
         hoverWorkspace: { name, isHovering in
             TrayMenuModel.shared.setIfChanged(\.workspaceSidebarHoveredWorkspaceName, nextWorkspaceSidebarHoveredWorkspaceName(
                 currentHoveredWorkspaceName: TrayMenuModel.shared.workspaceSidebarHoveredWorkspaceName,

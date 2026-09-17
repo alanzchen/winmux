@@ -84,6 +84,7 @@ struct ShortcutAppearanceSettingsView: View {
     @State private var sidebarAlwaysExpanded = config.workspaceSidebar.alwaysExpanded
     @State private var sidebarMode = config.workspaceSidebar.mode
     @State private var dockMagnification = config.workspaceSidebar.dockMagnification
+    @State private var dockMagnificationAmount = config.workspaceSidebar.dockMagnificationAmount
     @State private var dockIconSize = config.workspaceSidebar.dockIconSize
     @State private var showStatusPills = config.workspaceSidebar.showStatusPills
     @State private var showClock = config.workspaceSidebar.showClock
@@ -136,7 +137,11 @@ struct ShortcutAppearanceSettingsView: View {
                 if sidebarMode == .dock {
                     SettingsToggle("Magnify Dock icons on hover", isOn: $dockMagnification, help: "Enlarge nearby icons while keeping the Dock compact. Use the expand arrow or sidebar command for window details. Reduce Motion disables magnification.") { sidebarBool("dock-magnification", dockMagnification) }
                         .disabled(sidebarAlwaysExpanded)
-                    SettingsStepper("Dock icon size", value: $dockIconSize, range: 24...48, help: "Size of app icons and workspace number tiles in points. Hover magnification is limited to fit the fixed-width rail.") { sidebarInt("dock-icon-size", dockIconSize) }
+                    SettingsPercentageSlider("Magnification amount", value: $dockMagnificationAmount, help: "0% keeps the resting size; 50% grows icons to 1.5×; 100% doubles their size. Icons grow rightward beyond the fixed-width glass background.") {
+                        persist("workspace-sidebar", "dock-magnification-amount", "\(dockMagnificationAmount)")
+                    }
+                    .disabled(!dockMagnification || sidebarAlwaysExpanded)
+                    SettingsStepper("Dock icon size", value: $dockIconSize, range: 24...48, help: "Size of app icons and workspace number tiles in points. Magnified icons can extend beyond the fixed-width glass rail.") { sidebarInt("dock-icon-size", dockIconSize) }
                     SettingsPercentageSlider("Dock glass opacity", value: $glassOpacity, help: "Adjust only Dock mode's Liquid Glass background. Sidebar keeps its original dark appearance. Text and icons stay readable.") {
                         persist("workspace-sidebar", "glass-opacity", "\(glassOpacity)")
                     }

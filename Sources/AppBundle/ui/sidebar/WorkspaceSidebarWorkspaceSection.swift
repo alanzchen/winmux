@@ -47,7 +47,8 @@ struct WorkspaceSidebarWorkspaceSection: View, Animatable {
             appCount: workspace.apps.count,
             availableWidth: appSummaryWidth,
             magnificationEnabled: layout.dockMagnification,
-            iconSize: layout.dockIconSize
+            iconSize: layout.dockIconSize,
+            magnificationAmount: layout.dockMagnificationAmount
         )
     }
 
@@ -114,7 +115,9 @@ struct WorkspaceSidebarWorkspaceSection: View, Animatable {
             .frame(width: sectionWidth, alignment: .leading)
             .frame(minHeight: sectionMinHeight, alignment: .top)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .clipShape(Rectangle().inset(by: layout.showAppIcons ? -workspaceSidebarCompactRailHorizontalInset * (1 - morphProgress) : 0))
+            .modifier(WorkspaceSidebarTrailingOverflowModifier(
+                base: Rectangle().inset(by: layout.showAppIcons ? -workspaceSidebarCompactRailHorizontalInset * (1 - morphProgress) : 0),
+                overflow: morphProgress == 0 ? layout.dockMagnificationOverflow : 0))
             .opacity(compactFocusOpacity)
             .contentShape(Rectangle().inset(by: layout.showAppIcons ? -workspaceSidebarCompactRailHorizontalInset * (1 - morphProgress) : 0))
             .contextMenu {
@@ -236,6 +239,7 @@ extension WorkspaceSidebarWorkspaceSection {
                     magnificationEnabled: layout.dockMagnification,
                     railWidth: layout.compactRailWidth,
                     iconSize: layout.dockIconSize,
+                    magnificationAmount: layout.dockMagnificationAmount,
                 )
                 dropPreviewRow(style: .appIcon(size: appIconLayout.itemSize))
             }
@@ -262,6 +266,7 @@ extension WorkspaceSidebarWorkspaceSection {
                     isActive: isActiveOnTargetMonitor,
                     morphsTitle: morphsTitle,
                     railWidth: layout.compactRailWidth,
+                    restingIconSize: appIconLayout.itemSize,
                 )
                 if allowsWorkspaceActivation, !isRenamingWorkspace, morphProgress < 1 {
                     WorkspaceSidebarDockAppButtons(

@@ -5,6 +5,53 @@ import XCTest
 
 @MainActor
 final class WorkspaceSidebarDockGeometryTest: XCTestCase {
+    func testMagnifiedIconsRenderOutsideGlassAndKeepExactNativeHitRegions() throws {
+        var snapshot = fixture()
+        snapshot.configuration.dockMagnification = true
+        snapshot.configuration.dockMagnificationAmount = 1
+        let resting = render(snapshot, height: 800)
+        let restingTitle = try XCTUnwrap(resting.probe.icons.first)
+        let probe = DockGeometryProbe()
+        let view = WorkspaceSidebarView(snapshot: snapshot, actions: .init(
+            setSurfaceFrame: { probe.surface = $0 }, setDockIconFrames: { probe.icons = $0 }))
+            .environment(\.workspaceSidebarDockPointer, CGPoint(x: 32, y: restingTitle.midY))
+        let host = NSHostingView(rootView: view)
+        host.frame = CGRect(x: 0, y: 0, width: 240, height: 800)
+        host.layoutSubtreeIfNeeded()
+        let surface = try XCTUnwrap(probe.surface)
+        let title = try XCTUnwrap(probe.icons.first)
+        XCTAssertEqual(surface.width, 64)
+        XCTAssertEqual(title.minX, restingTitle.minX, accuracy: 0.1)
+        XCTAssertEqual(title.width, 80, accuracy: 0.1)
+        XCTAssertGreaterThan(title.maxX, surface.maxX)
+        let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        host.cacheDisplay(in: host.bounds, to: bitmap)
+        let scale = CGFloat(bitmap.pixelsWide) / host.bounds.width
+        func alpha(x: CGFloat, y: CGFloat) throws -> CGFloat {
+            try XCTUnwrap(bitmap.colorAt(x: Int(x * scale), y: Int(y * scale))).alphaComponent
+        }
+        XCTAssertGreaterThan(try alpha(x: 75, y: title.midY), 0.1, "Magnified pixels must survive every section, scroll, pager, and surface clip")
+        XCTAssertLessThan(try alpha(x: 110, y: title.midY), 0.01, "The glass background must keep its fixed width")
+        let directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent(".build/issue-fixes-ui")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try XCTUnwrap(bitmap.representation(using: .png, properties: [:])).write(to: directory.appendingPathComponent("dock-native-magnification.png"))
+    }
+
+    func testTallMagnifiedDockClipsIconHitRegionsToScrollViewport() throws {
+        var snapshot = fixture()
+        snapshot.configuration.dockMagnification = true
+        snapshot.configuration.dockMagnificationAmount = 1
+        snapshot.workspaces[0].apps = sidebarAppIconsTestApps(count: 12)
+        let sample = render(snapshot, height: 200)
+        XCTAssertFalse(sample.probe.icons.isEmpty)
+        XCTAssertLessThan(sample.probe.icons.count, 13)
+        for frame in sample.probe.icons {
+            XCTAssertGreaterThanOrEqual(frame.minY, 0)
+            XCTAssertLessThanOrEqual(frame.maxY, 200 - 32 - 6)
+        }
+    }
+
     func testCompactSurfaceCentersAndExpandsToFullHeightWithoutChangingWidth() {
         let available = CGSize(width: 480, height: 800)
         for progress: CGFloat in [0, 0.25, 0.57, 0.59, 0.75, 1] {
@@ -152,7 +199,8 @@ final class WorkspaceSidebarDockGeometryTest: XCTestCase {
         let probe = DockGeometryProbe()
         let view = WorkspaceSidebarView(snapshot: snapshot, actions: .init(
             setDropTargets: { probe.targets = $0 },
-            setSurfaceFrame: { probe.surface = $0 }
+            setSurfaceFrame: { probe.surface = $0 },
+            setDockIconFrames: { probe.icons = $0 }
         ))
         let host = NSHostingView(rootView: view)
         host.frame = CGRect(x: 0, y: 0, width: 480, height: height)
@@ -165,4 +213,5 @@ final class WorkspaceSidebarDockGeometryTest: XCTestCase {
 private final class DockGeometryProbe {
     var surface: CGRect?
     var targets: [WorkspaceSidebarDropTargetFrame] = []
+    var icons: [CGRect] = []
 }

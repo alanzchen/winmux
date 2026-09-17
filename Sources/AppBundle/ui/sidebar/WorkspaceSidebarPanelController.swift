@@ -50,6 +50,7 @@ final class WorkspaceSidebarPanel: NSPanelHud, WorkspaceSidebarInputOwner {
     var splitBrowseCollapseSuppressedUntil: Date = .distantPast
     var persistentExpansionWidth: CGFloat?
     var visibleSurfaceFrame: CGRect?
+    var dockIconFrames: [CGRect] = []
     var localDropTargetFrames: [WorkspaceSidebarDropTargetFrame] = []
     let hoverExitTolerance: CGFloat = 20
     let hoverPollInterval: TimeInterval = 1.0 / 30.0

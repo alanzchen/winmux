@@ -15,6 +15,7 @@ public func showWinMuxSidebarDockProof(
     expansion: CGFloat = 0,
     iconSize: CGFloat = 40,
     magnification: Bool = false,
+    magnificationAmount: Double = 0.5,
     pointerY: CGFloat? = nil,
     glassOpacity: Double = 1,
     darkAppearance: Bool = true,
@@ -23,10 +24,14 @@ public func showWinMuxSidebarDockProof(
     guard width.isFinite, width > 0, expandedWidth.isFinite, expandedWidth > width,
           height.isFinite, height > 0, expansion.isFinite, (0...1).contains(expansion),
           holdDuration.isFinite, holdDuration >= 0, (24...48).contains(iconSize),
-          (0...1).contains(glassOpacity), ["dock", "sidebar"].contains(presentationMode) else {
+          (0...1).contains(glassOpacity), (0...1).contains(magnificationAmount),
+          ["dock", "sidebar"].contains(presentationMode) else {
         throw SidebarDockProofError.invalidDimensions
     }
     let visibleWidth = width + (expandedWidth - width) * expansion
+    let growth = iconSize * CGFloat(magnificationAmount)
+    let overflow = presentationMode == "dock" && magnification && expansion == 0
+        ? max(growth - (width - iconSize) / 2, 0) : 0
     let backdrop = try backdropURL.map { url in
         guard let image = NSImage(contentsOf: url), image.isValid else {
             throw SidebarDockProofError.invalidBackdrop(url.path)
@@ -39,7 +44,7 @@ public func showWinMuxSidebarDockProof(
         application.finishLaunching()
     }
 
-    let size = CGSize(width: visibleWidth, height: height)
+    let size = CGSize(width: visibleWidth + overflow, height: height)
     let content = ZStack(alignment: .topLeading) {
         if let backdrop {
             // The caller supplies a matching wallpaper crop. Stretch it to the requested
@@ -47,7 +52,7 @@ public func showWinMuxSidebarDockProof(
             Image(nsImage: backdrop)
                 .resizable()
                 .interpolation(.high)
-                .frame(width: visibleWidth, height: height)
+                .frame(width: size.width, height: height)
         }
         WorkspaceSidebarView(snapshot: sidebarDockProofSnapshot(
             compactWidth: width,
@@ -55,12 +60,13 @@ public func showWinMuxSidebarDockProof(
             visibleWidth: visibleWidth,
             iconSize: iconSize,
             magnification: magnification,
+            magnificationAmount: magnificationAmount,
             glassOpacity: glassOpacity,
             dockMode: presentationMode == "dock"
         ), actions: .init())
-            .frame(width: visibleWidth, height: height)
+            .frame(width: size.width, height: height)
     }
-    .frame(width: visibleWidth, height: height)
+    .frame(width: size.width, height: height)
     .environment(\.workspaceSidebarDockPointer, pointerY.map { CGPoint(x: width / 2, y: $0) })
     .environment(\.colorScheme, darkAppearance ? .dark : .light)
     .allowsHitTesting(false)
@@ -116,6 +122,7 @@ public func showWinMuxSidebarDockProof(
         "hasBackdrop": backdrop != nil,
         "iconSize": iconSize,
         "magnification": magnification,
+        "magnificationAmount": magnificationAmount,
         "glassOpacity": glassOpacity,
         "darkAppearance": darkAppearance,
     ]
@@ -155,6 +162,7 @@ private func sidebarDockProofSnapshot(
     visibleWidth: CGFloat,
     iconSize: CGFloat,
     magnification: Bool,
+    magnificationAmount: Double,
     glassOpacity: Double,
     dockMode: Bool
 ) -> WorkspaceSidebarSnapshot {
@@ -192,6 +200,7 @@ private func sidebarDockProofSnapshot(
     configuration.showAppIcons = dockMode
     configuration.dockIconSize = iconSize
     configuration.dockMagnification = dockMode && magnification
+    configuration.dockMagnificationAmount = magnificationAmount
     configuration.glassOpacity = glassOpacity
     configuration.chromeStyle = .liquidGlass
     return WorkspaceSidebarSnapshot(

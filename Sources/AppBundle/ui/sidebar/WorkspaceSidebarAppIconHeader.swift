@@ -10,18 +10,19 @@ struct WorkspaceSidebarAppIconHeader: View {
     var magnificationEnabled: Bool = false
     var railWidth: CGFloat = 64
     var iconSize: CGFloat = WorkspaceSidebarAppIconLayout.iconSize
+    var magnificationAmount: Double = 0.5
     @Environment(\.workspaceSidebarDockPointer) private var pointer
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.workspaceSidebarDockDrag) private var dockDrag
 
     var layout: WorkspaceSidebarAppIconLayout {
-        WorkspaceSidebarAppIconLayout(appCount: workspace.apps.count, availableWidth: availableWidth, magnificationEnabled: magnificationEnabled, iconSize: iconSize)
+        WorkspaceSidebarAppIconLayout(appCount: workspace.apps.count, availableWidth: availableWidth, magnificationEnabled: magnificationEnabled, iconSize: iconSize, magnificationAmount: magnificationAmount)
     }
 
     var body: some View {
         GeometryReader { geometry in
             let count = 1 + layout.visibleAppCount
-            let magnification = WorkspaceSidebarDockMagnification(itemSize: layout.itemSize, count: count, enabled: magnificationEnabled)
+            let magnification = WorkspaceSidebarDockMagnification(itemSize: layout.itemSize, count: count, enabled: magnificationEnabled, amount: magnificationAmount)
             let origin = geometry.frame(in: .named("workspaceSidebarContent")).minY
             let frames = magnification.frames(width: availableWidth, pointerY: pointer.map { $0.y - origin })
             ZStack(alignment: .topLeading) {
@@ -29,7 +30,8 @@ struct WorkspaceSidebarAppIconHeader: View {
                     identifier: workspaceSidebarAppSummaryIdentifier(workspace),
                     isActive: isActive,
                     size: frames[0].width,
-                    railWidth: railWidth
+                    railWidth: railWidth,
+                    restingSize: layout.itemSize
                 )
                 .modifier(WorkspaceSidebarMorphAnchor(element: .compactTitle, isEnabled: morphsTitle))
                 .position(x: frames[0].midX, y: frames[0].midY)
@@ -75,6 +77,7 @@ struct WorkspaceSidebarWorkspaceIcon: View {
     let isActive: Bool
     let size: CGFloat
     var railWidth: CGFloat = 64
+    var restingSize: CGFloat? = nil
 
     var body: some View {
         WorkspaceSidebarWorkspaceIconBackground(isActive: isActive)
@@ -95,7 +98,7 @@ struct WorkspaceSidebarWorkspaceIcon: View {
             .overlay(alignment: .leading) {
                 if isActive {
                     WorkspaceSidebarActiveWorkspaceIndicator()
-                        .offset(x: workspaceSidebarIndicatorLeadingOffset(tileSize: size, railWidth: railWidth))
+                        .offset(x: workspaceSidebarIndicatorLeadingOffset(tileSize: restingSize ?? size, railWidth: railWidth))
                 }
             }
     }

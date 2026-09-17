@@ -17,12 +17,14 @@ final class WorkspaceSidebarDockMagnificationTest: XCTestCase {
         config.workspaceSidebar.showAppIcons = true
         config.workspaceSidebar.alwaysExpanded = false
         config.workspaceSidebar.dockMagnification = true
+        config.workspaceSidebar.dockMagnificationAmount = 0.35
         config.workspaceSidebar.dockIconSize = 48
         config.workspaceSidebar.glassOpacity = 0.27
         model.refreshWorkspaceSidebarAppearance()
         let snapshot = workspaceSidebarSnapshot(from: model)
         XCTAssertEqual(changes, 1)
         XCTAssertTrue(snapshot.configuration.dockMagnification)
+        XCTAssertEqual(snapshot.configuration.dockMagnificationAmount, 0.35)
         XCTAssertEqual(snapshot.configuration.dockIconSize, 48)
         XCTAssertEqual(snapshot.configuration.glassOpacity, 0.27)
         XCTAssertEqual(snapshot.visibleWidth, 64)
@@ -34,13 +36,16 @@ final class WorkspaceSidebarDockMagnificationTest: XCTestCase {
 
     func testDefaultsAndSettingsRoundTrip() {
         XCTAssertFalse(WorkspaceSidebarConfig().dockMagnification)
+        XCTAssertEqual(WorkspaceSidebarConfig().dockMagnificationAmount, 0.5)
         XCTAssertEqual(WorkspaceSidebarConfig().dockIconSize, 40)
         var text = "[workspace-sidebar]\nshow-app-icons = true\nstay-on-top = false\n"
         text = updateSettingsScalarConfig(in: text, section: "workspace-sidebar", key: "dock-magnification", renderedValue: "true")
+        text = updateSettingsScalarConfig(in: text, section: "workspace-sidebar", key: "dock-magnification-amount", renderedValue: "0.65")
         text = updateSettingsScalarConfig(in: text, section: "workspace-sidebar", key: "dock-icon-size", renderedValue: "48")
         let (parsed, errors) = parseConfig(text)
         XCTAssertTrue(errors.isEmpty)
         XCTAssertTrue(parsed.workspaceSidebar.usesDockMagnification)
+        XCTAssertEqual(parsed.workspaceSidebar.dockMagnificationAmount, 0.65)
         XCTAssertEqual(parsed.workspaceSidebar.dockIconSize, 48)
         XCTAssertEqual(parsed.workspaceSidebar.effectiveCollapsedWidth, 64)
         XCTAssertFalse(parsed.workspaceSidebar.stayOnTop)
@@ -51,6 +56,46 @@ final class WorkspaceSidebarDockMagnificationTest: XCTestCase {
         sidebar.alwaysExpanded = false
         sidebar.showAppIcons = false
         XCTAssertFalse(sidebar.usesDockMagnification)
+        XCTAssertEqual(sidebar.dockMagnificationAmount, 0.65)
+    }
+
+    func testMagnificationAmountValidation() {
+        for amount in ["-0.01", "1.01", "nan", "inf", "-inf", "true", "'high'"] {
+            let (_, errors) = parseConfig("[workspace-sidebar]\ndock-magnification-amount = \(amount)")
+            XCTAssertFalse(errors.isEmpty, amount)
+        }
+        for amount in ["0", "0.25", "1"] {
+            let (parsed, errors) = parseConfig("[workspace-sidebar]\ndock-magnification-amount = \(amount)")
+            XCTAssertTrue(errors.isEmpty, amount)
+            XCTAssertEqual(parsed.workspaceSidebar.dockMagnificationAmount, Double(amount))
+        }
+    }
+
+    func testMagnificationAmountScalesGrowthBeyondFixedGlassRail() {
+        for size in 24...48 {
+            let maximum = WorkspaceSidebarDockMagnification(itemSize: CGFloat(size), count: 5, enabled: true, amount: 1)
+            for amount in [0.0, 0.25, 0.5, 1.0] {
+                let layout = WorkspaceSidebarDockMagnification(itemSize: CGFloat(size), count: 5, enabled: true, amount: amount)
+                let resting = layout.frames(width: 50, pointerY: nil)
+                for index in 0..<5 {
+                    let frames = layout.frames(width: 50, pointerY: layout.restingCenter(index))
+                    XCTAssertEqual(frames[index].width - CGFloat(size), maximum.maximumGrowth * amount, accuracy: 0.001)
+                    for frame in frames {
+                        XCTAssertEqual(frame.minX, resting[0].minX, accuracy: 0.001)
+                        XCTAssertLessThanOrEqual(frame.maxX + 7, 104.001)
+                    }
+                    XCTAssertGreaterThanOrEqual(frames[0].minY, -0.001)
+                    XCTAssertLessThanOrEqual(frames[4].maxY, layout.height + 0.001)
+                }
+                let appLayout = WorkspaceSidebarAppIconLayout(appCount: 4, availableWidth: 50,
+                    magnificationEnabled: true, iconSize: CGFloat(size), magnificationAmount: amount)
+                XCTAssertEqual(appLayout.height, layout.height)
+                if amount == 0 {
+                    XCTAssertEqual(layout.reserve, 0)
+                    XCTAssertEqual(layout.frames(width: 50, pointerY: 40), resting)
+                }
+            }
+        }
     }
 
     func testInvalidIconSizesAreRejected() {
@@ -91,8 +136,9 @@ final class WorkspaceSidebarDockMagnificationTest: XCTestCase {
                     XCTAssertLessThanOrEqual(frames.last!.maxY, height + 0.001)
                     for frame in frames {
                         XCTAssertGreaterThanOrEqual(frame.width, size)
-                        XCTAssertLessThanOrEqual(frame.width, min(size * 1.5, 52) + 0.001)
-                        XCTAssertEqual(frame.midX, 25, accuracy: 0.001)
+                        XCTAssertLessThanOrEqual(frame.width, size * 1.5 + 0.001)
+                        XCTAssertEqual(frame.minX, (50 - size) / 2, accuracy: 0.001)
+                        XCTAssertLessThanOrEqual(frame.maxX + 7, 80.001, "Default magnification must fit the transparent panel beside the rail")
                     }
                     for pair in zip(frames, frames.dropFirst()) {
                         XCTAssertEqual(pair.1.minY - pair.0.maxY, 6, accuracy: 0.001)
@@ -112,11 +158,17 @@ final class WorkspaceSidebarDockMagnificationTest: XCTestCase {
     }
 
     func testDotRemainsCenteredInLeftGapAtEveryIconSize() {
-        for size: CGFloat in [24, 32, 40, 48, 52] {
+        for size: CGFloat in [24, 32, 40, 48] {
             let tileLeading = (64 - size) / 2
             let dotCenter = tileLeading + workspaceSidebarIndicatorLeadingOffset(tileSize: size, railWidth: 64) + 2
             XCTAssertEqual(dotCenter, tileLeading / 2, accuracy: 0.001)
             XCTAssertGreaterThanOrEqual(dotCenter - 2, 0)
+            let layout = WorkspaceSidebarDockMagnification(itemSize: size, count: 1, enabled: true)
+            for pointer in stride(from: CGFloat(0), through: layout.height, by: 3) {
+                let magnifiedLeading = layout.frames(width: 64, pointerY: pointer)[0].minX
+                let magnifiedDotCenter = magnifiedLeading + workspaceSidebarIndicatorLeadingOffset(tileSize: size, railWidth: 64) + 2
+                XCTAssertEqual(magnifiedDotCenter, dotCenter, accuracy: 0.001)
+            }
         }
     }
 
@@ -141,18 +193,23 @@ final class WorkspaceSidebarDockMagnificationTest: XCTestCase {
             XCTAssertEqual(layout.frames(width: 50, pointerY: pointer?.y).map(\.width), [40, 40, 40])
         }
         XCTAssertNil(view.dockMagnificationPointer(nil, in: surface))
+        let protrudingIcon = CGRect(x: 12, y: inside.y - 40, width: 80, height: 80)
+        let onIcon = CGPoint(x: 80, y: inside.y)
+        XCTAssertEqual(view.dockMagnificationPointer(onIcon, in: surface, iconFrames: [protrudingIcon]), onIcon)
+        XCTAssertNil(view.dockMagnificationPointer(CGPoint(x: 95, y: inside.y), in: surface, iconFrames: [protrudingIcon]))
+        XCTAssertNil(view.dockMagnificationPointer(CGPoint(x: 80, y: inside.y + 50), in: surface, iconFrames: [protrudingIcon]))
         snapshot.visibleWidth = 240
-        XCTAssertNil(WorkspaceSidebarView(snapshot: snapshot).dockMagnificationPointer(inside, in: surface))
+        XCTAssertNil(WorkspaceSidebarView(snapshot: snapshot).dockMagnificationPointer(inside, in: surface, iconFrames: [protrudingIcon]))
     }
 
     func testNativeIconAnchorsMatchMagnifiedRenderingForHitTargets() throws {
         var workspace = sidebarAppIconsTestWorkspace(displayName: "2")
         workspace.apps = sidebarAppIconsTestApps(count: 7)
-        let layout = WorkspaceSidebarDockMagnification(itemSize: 40, count: 8, enabled: true)
+        let layout = WorkspaceSidebarDockMagnification(itemSize: 40, count: 8, enabled: true, amount: 0.5)
         let pointerY = layout.restingCenter(1)
         let probe = DockAnchorProbe()
         let content = WorkspaceSidebarAppIconHeader(workspace: workspace, availableWidth: 50, isActive: true,
-            magnificationEnabled: true, railWidth: 64, iconSize: 40)
+            magnificationEnabled: true, railWidth: 64, iconSize: 40, magnificationAmount: 0.5)
             .overlayPreferenceValue(WorkspaceSidebarMorphPreference.self) { anchors in
                 GeometryReader { geometry in probe.record(anchors.mapValues { geometry[$0] }) }
             }
@@ -166,6 +223,7 @@ final class WorkspaceSidebarDockMagnificationTest: XCTestCase {
         for (index, app) in workspace.apps.enumerated() {
             let frame = try XCTUnwrap(probe.frames[.compactApp(app.id)])
             XCTAssertEqual(frame.width, expected[index + 1].width, accuracy: 0.1)
+            XCTAssertEqual(frame.minX, expected[index + 1].minX, accuracy: 0.1)
             XCTAssertEqual(frame.midY, expected[index + 1].midY, accuracy: 0.1)
         }
     }

@@ -44,6 +44,7 @@ struct WorkspaceSidebarConfiguration: Equatable {
     var solidChromeCustomColor: String
     var showAppIcons: Bool = false
     var dockMagnification: Bool = false
+    var dockMagnificationAmount: Double = 0.5
     var dockIconSize: CGFloat = 40
     var glassOpacity: Double = 1
     // Auto-hide makes collapsedWidth zero; the compact layout retains its resolved rail width.
@@ -105,6 +106,7 @@ struct WorkspaceSidebarActions {
     var send: @MainActor (WorkspaceSidebarAction) -> Void
     var setDropTargets: @MainActor ([WorkspaceSidebarDropTargetFrame]) -> Void
     var setSurfaceFrame: @MainActor (CGRect) -> Void
+    var setDockIconFrames: @MainActor ([CGRect]) -> Void
     var hoverWorkspace: @MainActor (String, Bool) -> Void
     var resolveAppDragWindow: @MainActor (String, String) -> UInt32?
     var windowDragChanged: @MainActor (UInt32, CGPoint) -> Void
@@ -117,6 +119,7 @@ struct WorkspaceSidebarActions {
         send: @escaping @MainActor (WorkspaceSidebarAction) -> Void = { _ in },
         setDropTargets: @escaping @MainActor ([WorkspaceSidebarDropTargetFrame]) -> Void = { _ in },
         setSurfaceFrame: @escaping @MainActor (CGRect) -> Void = { _ in },
+        setDockIconFrames: @escaping @MainActor ([CGRect]) -> Void = { _ in },
         hoverWorkspace: @escaping @MainActor (String, Bool) -> Void = { _, _ in },
         resolveAppDragWindow: @escaping @MainActor (String, String) -> UInt32? = { _, _ in nil },
         windowDragChanged: @escaping @MainActor (UInt32, CGPoint) -> Void = { _, _ in },
@@ -128,6 +131,7 @@ struct WorkspaceSidebarActions {
         self.send = send
         self.setDropTargets = setDropTargets
         self.setSurfaceFrame = setSurfaceFrame
+        self.setDockIconFrames = setDockIconFrames
         self.hoverWorkspace = hoverWorkspace
         self.resolveAppDragWindow = resolveAppDragWindow
         self.windowDragChanged = windowDragChanged

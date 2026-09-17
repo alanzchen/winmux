@@ -246,3 +246,30 @@ layout, destination arrival, same-app/different-window handling, new workspaces,
 cancellation, superseded gestures, and Sidebar-mode isolation. Live animation timing
 and an interactive native drag still require a smoke check. Nothing was pushed or
 released.
+
+### Magnification alignment and amount — local, not released
+
+Dock icons and workspace tiles keep their resting left edge while magnifying to
+the right. The active workspace dot stays in its original gutter position in both
+the header and morph overlay. Icons may protrude beyond the fixed 64-point glass
+rail, like the native Dock.
+Only the visible icons extend the hover and click region; empty space remains
+noninteractive. Scroll view clipping still hides offscreen icons.
+
+Appearance → Dock & Sidebar includes **Magnification amount**, from 0% (no growth)
+to 100% (2× size); the default 50% produces 1.5× icons. The saved TOML key is
+`dock-magnification-amount = 0.5`, accepting finite numbers from 0 to 1. The existing
+toggle remains separate; Sidebar and expanded mode retain the saved preference.
+Committed settings apply without interacting with the Dock. The preview renderer
+accepts `--magnification-amount 0.5` for default-strength captures.
+
+Regression coverage includes all 24–48-point icon sizes, four magnification amounts,
+stable left-edge/dot alignment, live configuration snapshots, parser validation,
+rendered pixels beyond the rail, native hit-region geometry, and offscreen clipping.
+A native WindowServer capture of the isolated preview confirms protruding icons;
+it uses fixture workspaces and an injected pointer. Interactive mouse movement,
+clicking the protruding portion, and multi-monitor behavior still need a live smoke
+check. No push or release was triggered.
+
+Validation: **747 tests, zero failures, one native-glass skip**, and a successful
+debug build with the pinned Swift 6.2.4 toolchain.

@@ -28,6 +28,7 @@ struct WorkspaceSidebarView: View {
     @State var showsPinnedActiveWorkspaceForBrowsedProject = true
     @State var dockPointer: CGPoint? = nil
     @State var dockMenuTracking = false
+    @State var dockIconFrames: [CGRect] = []
     @Environment(\.accessibilityReduceMotion) var reduceDockMotion
     @Environment(\.workspaceSidebarDockPointer) var inheritedDockPointer
 
@@ -57,12 +58,8 @@ struct WorkspaceSidebarView: View {
             )
             sidebarContent(expansionProgress: expansionProgress)
                 .environment(\.workspaceSidebarDockDrag, snapshot.dockDrag)
-                .environment(\.workspaceSidebarDockPointer, dockMagnificationPointer(inheritedDockPointer ?? dockPointer, in: surfaceFrame))
+                .environment(\.workspaceSidebarDockPointer, dockMagnificationPointer(inheritedDockPointer ?? dockPointer, in: surfaceFrame, iconFrames: dockIconFrames))
                 .frame(width: surfaceFrame.width, height: surfaceFrame.height, alignment: .leading)
-                .mask(alignment: .leading) {
-                    Rectangle()
-                        .frame(width: max(snapshot.visibleWidth, 0))
-                }
                 .background {
                     GeometryReader { surface in
                         Color.clear.preference(
@@ -71,20 +68,29 @@ struct WorkspaceSidebarView: View {
                         )
                     }
                 }
+                .frame(width: surfaceFrame.width + dockMagnificationOverflow, alignment: .leading)
+                .mask(alignment: .leading) {
+                    Rectangle()
+                        .frame(width: max(snapshot.visibleWidth, 0) + dockMagnificationOverflow)
+                }
                 .onContinuousHover(coordinateSpace: .named("workspaceSidebarContent")) { phase in
                     switch phase {
                         case .active(let point):
-                            dockPointer = isWorkspaceSidebarDragInProgress() ? nil : dockMagnificationPointer(point, in: surfaceFrame)
+                            dockPointer = isWorkspaceSidebarDragInProgress() ? nil : dockMagnificationPointer(point, in: surfaceFrame, iconFrames: dockIconFrames)
                         case .ended: dockPointer = nil
                     }
                 }
-                .position(x: surfaceFrame.midX, y: surfaceFrame.midY)
+                .position(x: surfaceFrame.midX + dockMagnificationOverflow / 2, y: surfaceFrame.midY)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         .coordinateSpace(name: "workspaceSidebarContent")
         .animation(snapshot.configuration.showAppIcons && !reduceDockMotion ? workspaceSidebarDockSettleAnimation : nil,
                    value: WorkspaceSidebarDockLayoutState(snapshot))
         .onReceive(NotificationCenter.default.publisher(for: workspaceSidebarDragPointerChangedNotification)) { _ in
+            dockPointer = nil
+        }
+        .onReceive(NotificationCenter.default.publisher(for: workspaceSidebarDockPointerExitedNotification)) { notification in
+            guard notificationPanel(from: notification)?.monitorScopeId == snapshot.targetMonitorScopeId else { return }
             dockPointer = nil
         }
         .onReceive(NotificationCenter.default.publisher(for: NSMenu.didBeginTrackingNotification)) { _ in
@@ -96,6 +102,13 @@ struct WorkspaceSidebarView: View {
         }
         .onPreferenceChange(WorkspaceSidebarSurfaceFramePreferenceKey.self) { frame in
             if let frame { actions.setSurfaceFrame(frame) }
+        }
+        .onPreferenceChange(WorkspaceSidebarDockIconFramesPreference.self) { frames in
+            if dockIconFrames != frames { dockIconFrames = frames }
+            actions.setDockIconFrames(allowsDockMagnification ? frames : [])
+        }
+        .onChange(of: allowsDockMagnification) { allowed in
+            actions.setDockIconFrames(allowed ? dockIconFrames : [])
         }
         .background(Color.clear)
         .onChange(of: activeInUseOverrideWorkspaceName) { name in
@@ -503,7 +516,7 @@ extension WorkspaceSidebarView {
             .onAppear { projectPagerWidth = pageWidth }
             .onChange(of: pageWidth) { projectPagerWidth = $0 }
         }
-        .clipped()
+        .modifier(WorkspaceSidebarTrailingOverflowModifier(base: Rectangle(), overflow: dockMagnificationOverflow))
     }
 }
 extension WorkspaceSidebarView {
@@ -1067,6 +1080,14 @@ extension WorkspaceSidebarView {
                 .padding(.trailing, trailingInset)
                 .padding(.top, topPadding)
                 .padding(.bottom, 10)
+                .frame(width: viewport.size.width, alignment: .leading)
+                .padding(.trailing, dockMagnificationOverflow)
+            }
+            .frame(width: viewport.size.width + dockMagnificationOverflow, alignment: .leading)
+            .transformPreference(WorkspaceSidebarDockIconFramesPreference.self) { frames in
+                let frame = viewport.frame(in: .named("workspaceSidebarContent"))
+                let visible = CGRect(x: frame.minX, y: frame.minY, width: frame.width + dockMagnificationOverflow, height: frame.height)
+                frames = frames.map { $0.intersection(visible) }.filter { !$0.isNull && !$0.isEmpty }
             }
             .transformPreference(WorkspaceSidebarDropTargetPreferenceKey.self) { targets in
                 targets = workspaceSidebarClippedDropTargets(
@@ -1218,14 +1239,19 @@ extension WorkspaceSidebarView {
         snapshot.configuration.showAppIcons && snapshot.configuration.dockMagnification &&
             snapshot.visibleWidth <= snapshot.configuration.compactRailWidth + 0.5 &&
             !reduceDockMotion && !dockMenuTracking && !isProjectMenuOpen && !isSearchEditing &&
-            renamingProjectId == nil && renamingWorkspaceName == nil && snapshot.dropPreview == nil
+            renamingProjectId == nil && renamingWorkspaceName == nil && snapshot.dropPreview == nil &&
+            projectSwipeTranslation == 0
     }
 
-    func dockMagnificationPointer(_ pointer: CGPoint?, in surfaceFrame: CGRect) -> CGPoint? {
+    var dockMagnificationOverflow: CGFloat {
+        dockSurfaceProgress == 0 && projectSwipeTranslation == 0 ? snapshot.configuration.dockMagnificationOverflow : 0
+    }
+
+    func dockMagnificationPointer(_ pointer: CGPoint?, in surfaceFrame: CGRect, iconFrames: [CGRect] = []) -> CGPoint? {
         // The panel also covers transparent space beside and above the compact Dock.
-        // Only the visible rounded surface owns hover magnification.
+        // Only the glass surface and actual protruding icons own hover magnification.
         guard allowsDockMagnification, let pointer,
-              sidebarShape.path(in: surfaceFrame).contains(pointer)
+              sidebarShape.path(in: surfaceFrame).contains(pointer) || iconFrames.contains(where: { $0.contains(pointer) })
         else { return nil }
         return pointer
     }

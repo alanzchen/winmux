@@ -155,7 +155,7 @@ extension WorkspaceSidebarView {
                 .frame(width: 0.5)
                 .opacity(Double(dockSurfaceProgress))
         }
-        .clipShape(sidebarShape)
+        .modifier(WorkspaceSidebarTrailingOverflowModifier(base: sidebarShape, overflow: dockMagnificationOverflow))
         .overlay {
             sidebarSwipeCaptureOverlay(expansionProgress: expansionProgress)
         }
