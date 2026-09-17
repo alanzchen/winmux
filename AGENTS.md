@@ -46,7 +46,8 @@ Default to local builds and releases. Do not invoke GitHub CI automatically. Hos
 are manual-only and disabled in the fork's settings; enable or dispatch them only
 when the user explicitly requests a GitHub run.
 
-After validation, push completed changes to `codex/issue-fixes` or `main`.
+Work directly on `main` unless the user explicitly specifies another branch.
+After validation, push completed changes to that branch.
 For authorized publication, use `make prerelease-local` to test, build, sign,
 notarize, upload, and advance the preview feed from this Mac. A failed local build
 must not trigger a hosted fallback. Verify the published assets and update feed,
