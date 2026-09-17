@@ -45,7 +45,7 @@ struct WorkspaceSidebarConfiguration: Equatable {
     var showAppIcons: Bool = false
     var dockMagnification: Bool = false
     var dockMagnificationAmount: Double = 0.5
-    var dockIconSize: CGFloat = 40
+    var dockIconSize: CGFloat = CGFloat(WorkspaceSidebarConfig.defaultDockIconSize)
     var glassOpacity: Double = 1
     // Auto-hide makes collapsedWidth zero; the compact layout retains its resolved rail width.
     var configuredCollapsedWidth: CGFloat? = nil

@@ -13,7 +13,7 @@ public func showWinMuxSidebarDockProof(
     backdropURL: URL? = nil,
     expandedWidth: CGFloat = 240,
     expansion: CGFloat = 0,
-    iconSize: CGFloat = 40,
+    iconSize: CGFloat = 48,
     magnification: Bool = false,
     magnificationAmount: Double = 0.5,
     pointerY: CGFloat? = nil,

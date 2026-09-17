@@ -37,16 +37,16 @@ final class WorkspaceSidebarDockMagnificationTest: XCTestCase {
     func testDefaultsAndSettingsRoundTrip() {
         XCTAssertFalse(WorkspaceSidebarConfig().dockMagnification)
         XCTAssertEqual(WorkspaceSidebarConfig().dockMagnificationAmount, 0.5)
-        XCTAssertEqual(WorkspaceSidebarConfig().dockIconSize, 40)
+        XCTAssertEqual(WorkspaceSidebarConfig().dockIconSize, 48)
         var text = "[workspace-sidebar]\nshow-app-icons = true\nstay-on-top = false\n"
         text = updateSettingsScalarConfig(in: text, section: "workspace-sidebar", key: "dock-magnification", renderedValue: "true")
         text = updateSettingsScalarConfig(in: text, section: "workspace-sidebar", key: "dock-magnification-amount", renderedValue: "0.65")
-        text = updateSettingsScalarConfig(in: text, section: "workspace-sidebar", key: "dock-icon-size", renderedValue: "48")
+        text = updateSettingsScalarConfig(in: text, section: "workspace-sidebar", key: "dock-icon-size", renderedValue: "40")
         let (parsed, errors) = parseConfig(text)
         XCTAssertTrue(errors.isEmpty)
         XCTAssertTrue(parsed.workspaceSidebar.usesDockMagnification)
         XCTAssertEqual(parsed.workspaceSidebar.dockMagnificationAmount, 0.65)
-        XCTAssertEqual(parsed.workspaceSidebar.dockIconSize, 48)
+        XCTAssertEqual(parsed.workspaceSidebar.dockIconSize, 40, "A saved icon size must override the larger default")
         XCTAssertEqual(parsed.workspaceSidebar.effectiveCollapsedWidth, 64)
         XCTAssertFalse(parsed.workspaceSidebar.stayOnTop)
         var sidebar = parsed.workspaceSidebar
@@ -141,7 +141,7 @@ final class WorkspaceSidebarDockMagnificationTest: XCTestCase {
                         XCTAssertLessThanOrEqual(frame.maxX + 7, 80.001, "Default magnification must fit the transparent panel beside the rail")
                     }
                     for pair in zip(frames, frames.dropFirst()) {
-                        XCTAssertGreaterThanOrEqual(pair.1.minY - pair.0.maxY, 6 - 0.001)
+                        XCTAssertGreaterThanOrEqual(pair.1.minY - pair.0.maxY, WorkspaceSidebarAppIconLayout.spacing - 0.001)
                     }
                     XCTAssertEqual(layout.height, height)
                 }
@@ -179,14 +179,14 @@ final class WorkspaceSidebarDockMagnificationTest: XCTestCase {
             XCTAssertTrue(column.sections.allSatisfy { $0.pointerY == nil })
             let header = WorkspaceSidebarAppIconLayout(appCount: 2, availableWidth: 50,
                 magnificationEnabled: true, iconSize: 40, magnificationAmount: amount)
-            XCTAssertEqual(header.height, 132, "No per-workspace magnification reserve")
+            XCTAssertEqual(header.height, 128, "No per-workspace magnification reserve")
         }
     }
 
     func testColumnUsesRestingCoordinatesAcrossWorkspaceSeparator() {
-        // First header: 3...89. Next header begins at 101, after the 12pt separator gap.
-        let column = WorkspaceSidebarDockColumnMagnification(appCounts: [1, 1], itemSize: 40, amount: 1, pointerY: 95)
-        XCTAssertEqual(column.sections[0].pointerY, 92)
+        // First header: 3...87. Next header begins at 99, after the 12pt separator gap.
+        let column = WorkspaceSidebarDockColumnMagnification(appCounts: [1, 1], itemSize: 40, amount: 1, pointerY: 93)
+        XCTAssertEqual(column.sections[0].pointerY, 90)
         XCTAssertEqual(column.sections[1].pointerY, -6)
         let header = WorkspaceSidebarDockMagnification(itemSize: 40, count: 2, enabled: true, amount: 1)
         let first = header.frames(width: 50, pointerY: column.sections[0].pointerY)

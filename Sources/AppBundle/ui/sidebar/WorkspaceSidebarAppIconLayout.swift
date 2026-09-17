@@ -1,8 +1,10 @@
 import CoreGraphics
 
 struct WorkspaceSidebarAppIconLayout {
-    static let iconSize: CGFloat = 40
-    static let spacing: CGFloat = 6
+    static let iconSize: CGFloat = CGFloat(WorkspaceSidebarConfig.defaultDockIconSize)
+    // With the default 48-point canvas, a 52-point pitch matches the reference's
+    // icon-center spacing relative to the fixed 64-point shelf.
+    static let spacing: CGFloat = 4
 
     let itemSize: CGFloat
     let visibleAppCount: Int

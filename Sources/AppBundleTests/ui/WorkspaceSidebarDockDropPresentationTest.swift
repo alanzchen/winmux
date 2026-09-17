@@ -161,7 +161,7 @@ final class WorkspaceSidebarDockDropPresentationTest: XCTestCase {
         XCTAssertTrue(lifted[0].apps.isEmpty)
         let before = WorkspaceSidebarAppIconLayout(appCount: source.apps.count, availableWidth: 50)
         let after = WorkspaceSidebarAppIconLayout(appCount: lifted[0].apps.count, availableWidth: 50)
-        XCTAssertEqual(before.height - after.height, 46)
+        XCTAssertEqual(before.height - after.height, before.itemSize + WorkspaceSidebarAppIconLayout.spacing)
         XCTAssertEqual(workspaceSidebarDockDragWorkspaces([source], drag: nil, preview: nil), [source])
     }
 

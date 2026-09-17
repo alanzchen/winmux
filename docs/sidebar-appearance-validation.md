@@ -1,5 +1,8 @@
 # Sidebar appearance validation
 
+For the current Dock defaults, see [Native Dock proportions and glass](dock-native-proportions.md).
+The dated checks below document earlier revisions.
+
 The optional compact app-icon mode and sidebar glass opacity control preserve the
 existing appearance by default (`show-app-icons = false`, `glass-opacity = 1.0`).
 Both controls are in **Settings → Appearance → Sidebar**; configuration examples

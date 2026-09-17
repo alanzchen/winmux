@@ -35,7 +35,8 @@ final class WorkspaceSidebarDockGeometryTest: XCTestCase {
             sample.host.layoutSubtreeIfNeeded()
             let width = try XCTUnwrap(sample.probe.icons.first).width
             XCTAssertLessThanOrEqual(width, previousWidth + 0.001)
-            XCTAssertLessThan(previousWidth - width, 6, "Shrinking hit regions must not snap the icon back to rest")
+            XCTAssertLessThan((previousWidth - width) / (magnified.width - resting.width), 0.15,
+                              "Shrinking hit regions must not snap the icon back to rest")
             XCTAssertEqual(width, resting.width + (magnified.width - resting.width) * clock.motion.frame.strength, accuracy: 0.001)
             previousWidth = width
         }
@@ -60,7 +61,7 @@ final class WorkspaceSidebarDockGeometryTest: XCTestCase {
         let title = try XCTUnwrap(probe.icons.first)
         XCTAssertEqual(surface.width, 64)
         XCTAssertEqual(title.minX, restingTitle.minX, accuracy: 0.1)
-        XCTAssertEqual(title.width, 80, accuracy: 0.1)
+        XCTAssertEqual(title.width, restingTitle.width * 2, accuracy: 0.1)
         XCTAssertGreaterThan(title.maxX, surface.maxX)
         let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
         host.cacheDisplay(in: host.bounds, to: bitmap)

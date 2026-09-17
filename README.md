@@ -97,7 +97,9 @@ separators fade. Collapsing restores the compact layout. Reduce Motion uses an
 immediate transition.
 
 **Dock icon size** controls app icons and number tiles together, from **24–48 pt**
-(default **40 pt**; select 32 pt for the previous size). Optional **Magnify Dock
+(default **48 pt**). App artwork includes transparent padding, so the default
+paints about 39–41 pt inside the 64 pt rail. Icon canvases have a 4 pt gap.
+Optional **Magnify Dock
 icons on hover** smoothly enlarges nearby tiles beyond the fixed-width glass
 background. Icons keep their left edges aligned as they grow to the right; the active
 workspace dot stays fixed in the left gutter. **Magnification amount** adjusts the
@@ -114,18 +116,20 @@ Use **Dock glass opacity** to adjust Dock mode’s Liquid Glass background from
 0–100%. Text and icons stay readable. This control is available only in Dock mode
 and is disabled for Solid color. Sidebar keeps its original dark material regardless
 of this setting. Window chrome settings continue to style tab groups and the switcher.
-Dock uses one untinted native `.regular` glass shelf through compact and expanded
-states, with continuous corners and plain icon buttons. Opacity affects only the
-background; workspace cards do not add more glass layers in Dock mode.
+Dock uses one untinted native `.clear` glass shelf through compact and expanded
+states, with continuous corners, a fine edge highlight, and plain icon buttons.
+The default 100% opacity retains the full glass effect. Opacity affects only the
+background; workspace cards do not add more glass layers in Dock mode. See the
+[native comparison](docs/dock-native-proportions.md) for proportions and captures.
 
 ```toml
 [workspace-sidebar]
     mode = 'dock' # or 'sidebar'
-    dock-icon-size = 40
+    dock-icon-size = 48
     dock-left-gap = 2
     dock-magnification = false
     dock-magnification-amount = 0.5
-    glass-opacity = 0.65
+    glass-opacity = 1.0
 ```
 
 The default mode is Sidebar. Existing `show-app-icons = true` configs select Dock

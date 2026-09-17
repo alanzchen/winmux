@@ -44,7 +44,7 @@ struct MarketingRendererCommand {
               --expanded-width N   Fully expanded sidebar width (default: 240)
               --expansion N        Expansion progress from 0 to 1 (default: 0)
               --height POINTS      Window height (default: 360)
-              --icon-size POINTS   Dock icon size, 24...48 (default: 40)
+              --icon-size POINTS   Dock icon size, 24...48 (default: 48)
               --magnification N    Enable Dock magnification: 0 or 1 (default: 0)
               --magnification-amount N  Magnification strength, 0...1 (default: 0.5)
               --pointer-y POINTS   Simulated pointer in sidebar coordinates for capture
@@ -89,7 +89,7 @@ struct MarketingRendererCommand {
         let expansion = try number("--expansion", default: 0)
         let height = try number("--height", default: 360)
         let holdDuration = try number("--hold-seconds", default: 30)
-        let iconSize = try number("--icon-size", default: 40)
+        let iconSize = try number("--icon-size", default: 48)
         let magnification = try number("--magnification", default: 0)
         let magnificationAmount = try number("--magnification-amount", default: 0.5)
         let pointerY: Double? = try options["--pointer-y"].map { _ in try number("--pointer-y", default: 0) }

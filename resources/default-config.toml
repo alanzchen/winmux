@@ -55,8 +55,8 @@ on-mode-changed = []
     dock-magnification = false
     # Magnification strength: 0 = none, 0.5 = 1.5x, 1 = 2x; icons grow beyond the glass rail.
     dock-magnification-amount = 0.5
-    # App and number tile size in points (24...48); the compact rail stays 64 points wide.
-    dock-icon-size = 40
+    # Icon canvas size (24...48 points); artwork has its own inset. The rail stays 64 points wide.
+    dock-icon-size = 48
     # Dock-only distance from the left display edge, in points (0-24).
     dock-left-gap = 2
     collapsed-width = 50
@@ -73,7 +73,7 @@ on-mode-changed = []
     show-weekday = true
     # Style for Dock, tab groups, and switcher. Sidebar retains its upstream dark material.
     chrome-style = 'liquid-glass'
-    # Dock-only glass opacity from 0.0 to 1.0. Sidebar is unaffected; icons stay readable.
+    # Dock-only clear glass opacity (0.0...1.0); 1.0 keeps the full native glass effect.
     glass-opacity = 1.0
     # Used when chrome-style = 'solid'. Choose from the Appearance palette, or use 'custom'.
     solid-chrome-color = 'midnight'

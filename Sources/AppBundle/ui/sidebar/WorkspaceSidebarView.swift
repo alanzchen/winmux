@@ -836,10 +836,11 @@ extension WorkspaceSidebarView {
     }
 
     var sidebarShape: some Shape {
-        WorkspaceSidebarPanelShape(
-            leftCornerRadius: snapshot.configuration.showAppIcons ? 16 * (1 - dockSurfaceProgress) : 0,
+        let compactRadius = snapshot.configuration.compactRailWidth / 3
+        return WorkspaceSidebarPanelShape(
+            leftCornerRadius: snapshot.configuration.showAppIcons ? compactRadius * (1 - dockSurfaceProgress) : 0,
             rightCornerRadius: snapshot.configuration.showAppIcons
-                ? 16 + (workspaceSidebarPanelRightCornerRadius - 16) * dockSurfaceProgress
+                ? compactRadius + (workspaceSidebarPanelRightCornerRadius - compactRadius) * dockSurfaceProgress
                 : workspaceSidebarPanelRightCornerRadius,
             continuous: snapshot.configuration.showAppIcons
         )

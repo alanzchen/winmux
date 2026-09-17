@@ -86,6 +86,9 @@ enum WorkspaceSidebarMode: String, CaseIterable, Identifiable, Sendable {
 
 struct WorkspaceSidebarConfig: ConvenienceCopyable, Equatable, Sendable {
     static let dockCompactWidth = 64
+    // macOS icon artwork includes transparent margins. A 48-point canvas paints
+    // roughly 40 points inside the 64-point rail, matching native Dock proportions.
+    static let defaultDockIconSize = 48
 
     var enabled: Bool = false
     var enableFocus: Bool = false
@@ -101,7 +104,7 @@ struct WorkspaceSidebarConfig: ConvenienceCopyable, Equatable, Sendable {
     var showAppBadges: Bool = false
     var dockMagnification: Bool = false
     var dockMagnificationAmount: Double = 0.5
-    var dockIconSize: Int = 40
+    var dockIconSize: Int = Self.defaultDockIconSize
     var dockLeftGap: Int = 2
     var collapsedWidth: Int = 44
     var width: Int = 240
