@@ -853,7 +853,7 @@ extension WorkspaceSidebarView {
             GlassSurface(
                 shape: shape,
                 hasBorder: false,
-                style: snapshot.configuration.chromeStyle,
+                style: snapshot.configuration.effectiveChromeStyle,
                 solidColor: snapshot.configuration.resolvedSolidChromeColor,
             )
             .opacity(Double(dockSurfaceProgress))

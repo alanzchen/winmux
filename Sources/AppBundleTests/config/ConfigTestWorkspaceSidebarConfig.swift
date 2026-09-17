@@ -45,7 +45,7 @@ extension ConfigTest {
                 stayOnTop: false,
                 autoHide: true,
                 alwaysExpanded: true,
-                showAppIcons: true,
+                mode: .dock,
                 collapsedWidth: 44,
                 width: 280,
                 monitor: [.secondary, .sequenceNumber(2)],

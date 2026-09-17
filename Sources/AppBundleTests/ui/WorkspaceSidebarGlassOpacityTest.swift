@@ -5,8 +5,15 @@ import XCTest
 
 @MainActor
 final class WorkspaceSidebarGlassOpacityTest: XCTestCase {
-    func testOpacityChangesGlassBackgroundWithoutFadingForeground() throws {
-        try verifyGlassOpacity(dockMode: false)
+    func testSidebarKeepsOriginalDarkMaterialRegardlessOfDockOpacityOrStyle() throws {
+        let original = try render(opacity: 1, dockMode: false)
+        let originalData = try XCTUnwrap(original.tiffRepresentation)
+        for style: ChromeStyle in [.liquidGlass, .solid] {
+            for opacity in [0.0, 0.4, 1.0] {
+                let bitmap = try render(opacity: opacity, style: style, dockMode: false)
+                XCTAssertEqual(try XCTUnwrap(bitmap.tiffRepresentation), originalData)
+            }
+        }
     }
 
     func testNativeDockOpacityAndForeground() throws {
@@ -39,12 +46,10 @@ final class WorkspaceSidebarGlassOpacityTest: XCTestCase {
         XCTAssertGreaterThan(originalBackground.alphaComponent, partialBackground.alphaComponent + 0.1)
     }
 
-    func testSolidSidebarKeepsItsOpacity() throws {
-        for dockMode in [false, true] {
-            for opacity in [0.0, 0.4, 1.0] {
-                let bitmap = try render(opacity: opacity, style: .solid, dockMode: dockMode)
-                XCTAssertEqual(try color(bitmap, at: CGPoint(x: 10, y: 10)).alphaComponent, 1, accuracy: 0.01)
-            }
+    func testSolidDockKeepsItsOpacity() throws {
+        for opacity in [0.0, 0.4, 1.0] {
+            let bitmap = try render(opacity: opacity, style: .solid, dockMode: true)
+            XCTAssertEqual(try color(bitmap, at: CGPoint(x: 10, y: 10)).alphaComponent, 1, accuracy: 0.01)
         }
     }
 

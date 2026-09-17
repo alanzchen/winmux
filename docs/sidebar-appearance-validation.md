@@ -202,3 +202,26 @@ coordinates: [inside the Dock](images/sidebar-dock-hover-inside.png) and
 [above the Dock](images/sidebar-dock-hover-outside.png). The outside sample keeps
 all tiles at resting size; the inside sample magnifies nearby tiles. Both show
 readable number glyphs. Static captures do not establish flicker-free live motion.
+
+## Dedicated modes — local implementation, not released
+
+`[workspace-sidebar] mode = 'sidebar' | 'dock'` now selects the presentation.
+Sidebar is the default and keeps the upstream dark `GlassSurface` recipe and
+original layout. Dock retains app icons, fixed compact width, magnification,
+Liquid Glass, and opacity control. Dock-only settings are shown only for Dock in
+Appearance. Other window chrome keeps its existing configurable style.
+
+Legacy `show-app-icons` selects the mode when `mode` is absent. Explicit mode wins
+regardless of TOML key order. Mode switches update the panel immediately and retain
+the saved Sidebar width and Dock preferences. Sidebar surfaces and workspace cards
+ignore Dock opacity and use the upstream dark style.
+
+Validation: **737 tests, zero failures, one native-glass skip**, and a successful
+debug build. New regressions cover migration, precedence, invalid modes, saved
+preferences, live appearance snapshots, and identical Sidebar bitmap rendering
+across Dock style/opacity changes. A native mode-preview capture returned blank;
+live mode-selector interaction and final WindowServer visuals remain unverified.
+The preview renderer supports `--mode sidebar|dock` for the next native check.
+
+Per user request, this work is local only: no release or release workflow was
+triggered, and the preview update feed remains on the existing published version.

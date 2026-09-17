@@ -46,8 +46,9 @@ on-mode-changed = []
     auto-hide = false
     # Keep the full sidebar open and reserve its width for tiled windows.
     always-expanded = false
-    # Show workspace numbers or labels with contained app icons in the compact rail.
-    show-app-icons = false
+    # Sidebar keeps the upstream dark layout; Dock uses app icons and Liquid Glass.
+    mode = 'sidebar'
+    # Legacy show-app-icons remains supported when mode is omitted.
     # Magnify compact Dock icons on hover; expand with the arrow or sidebar command.
     dock-magnification = false
     # App and number tile size in points (24...48); the compact rail stays 64 points wide.
@@ -64,9 +65,9 @@ on-mode-changed = []
     show-seconds = true
     show-date = false
     show-weekday = true
-    # Apply this style to sidebar, tab groups, and switcher chrome. Use 'solid' for opaque color.
+    # Style for Dock, tab groups, and switcher. Sidebar retains its upstream dark material.
     chrome-style = 'liquid-glass'
-    # Sidebar glass background opacity from 0.0 to 1.0. Text and icons stay readable.
+    # Dock-only glass opacity from 0.0 to 1.0. Sidebar is unaffected; icons stay readable.
     glass-opacity = 1.0
     # Used when chrome-style = 'solid'. Choose from the Appearance palette, or use 'custom'.
     solid-chrome-color = 'midnight'

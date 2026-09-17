@@ -7,6 +7,7 @@ private let workspaceSidebarParser: [String: any ParserProtocol<WorkspaceSidebar
     "stay-on-top": Parser(\.stayOnTop, parseBool),
     "auto-hide": Parser(\.autoHide, parseBool),
     "always-expanded": Parser(\.alwaysExpanded, parseBool),
+    "mode": Parser(\.mode, parseWorkspaceSidebarMode),
     "show-app-icons": Parser(\.showAppIcons, parseBool),
     "dock-magnification": Parser(\.dockMagnification, parseBool),
     "dock-icon-size": Parser(\.dockIconSize) { raw, backtrace in
@@ -42,6 +43,10 @@ func parseWorkspaceSidebar(
     _ errors: inout [TomlParseError],
 ) -> WorkspaceSidebarConfig {
     var parsed = parseTable(raw, WorkspaceSidebarConfig(), workspaceSidebarParser, backtrace, &errors)
+    // Explicit mode wins over the old show-app-icons alias, regardless of table order.
+    if let value = raw.table?["mode"]?.string, let mode = WorkspaceSidebarMode(rawValue: value) {
+        parsed.mode = mode
+    }
     // Preserve the legacy key only when the modern setting is absent. This makes the
     // Appearance setting authoritative for configs that contain both keys.
     if let modernRawValue = raw.table?["chrome-style"]?.string,
@@ -56,6 +61,12 @@ func parseWorkspaceSidebar(
         )]
     }
     return parsed
+}
+
+private func parseWorkspaceSidebarMode(_ raw: TOMLValueConvertible, _ backtrace: TomlBacktrace) -> ParsedToml<WorkspaceSidebarMode> {
+    parseString(raw, backtrace).flatMap { value in
+        WorkspaceSidebarMode(rawValue: value).orFailure(.semantic(backtrace, "Possible values: sidebar, dock"))
+    }
 }
 
 private func parseChromeSolidCustomColor(_ raw: TOMLValueConvertible, _ backtrace: TomlBacktrace) -> ParsedToml<String> {

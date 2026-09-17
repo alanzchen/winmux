@@ -57,10 +57,14 @@ The sidebar clock can be configured independently:
 the month and day, and the weekday; for example, `show-date = false` with
 `show-weekday = true` leaves a weekday-only calendar label in the expanded sidebar.
 
-### Workspace app icons and glass opacity
+### Dock and Sidebar modes
 
-In **Settings → Appearance → Sidebar**, enable **Show workspace app icons** to
-show a vertical Dock-style compact rail. Each workspace starts with a numbered
+Choose **Settings → Appearance → Dock & Sidebar → Mode**. **Sidebar** keeps the
+upstream layout and original dark material at fixed opacity. **Dock** uses today’s
+app-icon design, Liquid Glass, and optional magnification. Switching modes applies
+immediately and preserves each mode’s saved preferences.
+
+In Dock mode, each workspace starts with a numbered
 app-shaped tile, followed by equally sized app icons; horizontal lines separate
 workspaces. Named workspaces use their initial on the tile.
 Each app appears once, including apps in floating windows and nested tab groups.
@@ -92,20 +96,23 @@ expand arrow or the sidebar command for window details. Magnification resets
 during drags, editing, and menus, and is disabled by Reduce Motion. The toggle is
 off by default and unavailable while **Keep sidebar expanded** is enabled.
 
-Use **Glass opacity** to adjust the sidebar's Liquid Glass background from 0–100%.
-Text, app icons, and selection indicators remain readable. This control applies
-only to the sidebar and is disabled when the chrome style is **Solid color**.
+Use **Dock glass opacity** to adjust Dock mode’s Liquid Glass background from
+0–100%. Text and icons stay readable. This control is available only in Dock mode
+and is disabled for Solid color. Sidebar keeps its original dark material regardless
+of this setting. Window chrome settings continue to style tab groups and the switcher.
 
 ```toml
 [workspace-sidebar]
-    show-app-icons = true
+    mode = 'dock' # or 'sidebar'
     dock-icon-size = 40
     dock-magnification = false
     glass-opacity = 0.65
 ```
 
-These settings are optional. Legacy sidebar mode and the stored collapsed width
-remain unchanged; the larger default icons apply only to Dock mode.
+The default mode is Sidebar. Existing `show-app-icons = true` configs select Dock
+when `mode` is absent; `false` selects Sidebar. An explicit `mode` takes precedence.
+Switching back to Sidebar restores its saved collapsed width; Dock icon size,
+magnification, and opacity preferences are retained for the next switch.
 
 ### Window and sidebar spacing
 

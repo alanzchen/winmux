@@ -39,6 +39,7 @@ struct MarketingRendererCommand {
         if arguments.contains("--help") {
             print("""
             Usage: winmux-marketing-renderer --sidebar-dock-proof [options]
+              --mode NAME          dock or sidebar (default: dock)
               --width POINTS       Fixed compact sidebar width (default: 64)
               --expanded-width N   Fully expanded sidebar width (default: 240)
               --expansion N        Expansion progress from 0 to 1 (default: 0)
@@ -59,7 +60,7 @@ struct MarketingRendererCommand {
             """)
             return
         }
-        let allowed = Set(["--width", "--expanded-width", "--expansion", "--height", "--origin-x", "--origin-y", "--hold-seconds", "--output", "--backdrop", "--icon-size", "--magnification", "--pointer-y", "--glass-opacity", "--appearance"])
+        let allowed = Set(["--mode", "--width", "--expanded-width", "--expansion", "--height", "--origin-x", "--origin-y", "--hold-seconds", "--output", "--backdrop", "--icon-size", "--magnification", "--pointer-y", "--glass-opacity", "--appearance"])
         var options: [String: String] = [:]
         var index = 0
         while index < arguments.count {
@@ -127,7 +128,8 @@ struct MarketingRendererCommand {
             magnification: magnification == 1,
             pointerY: pointerY.map { CGFloat($0) },
             glassOpacity: glassOpacity,
-            darkAppearance: appearance == "dark"
+            darkAppearance: appearance == "dark",
+            presentationMode: options["--mode"] ?? "dock"
         )
     }
 }

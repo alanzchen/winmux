@@ -82,7 +82,7 @@ struct ShortcutAppearanceSettingsView: View {
     @State private var sidebarStayOnTop = config.workspaceSidebar.stayOnTop
     @State private var sidebarAutoHide = config.workspaceSidebar.autoHide
     @State private var sidebarAlwaysExpanded = config.workspaceSidebar.alwaysExpanded
-    @State private var showAppIcons = config.workspaceSidebar.showAppIcons
+    @State private var sidebarMode = config.workspaceSidebar.mode
     @State private var dockMagnification = config.workspaceSidebar.dockMagnification
     @State private var dockIconSize = config.workspaceSidebar.dockIconSize
     @State private var showStatusPills = config.workspaceSidebar.showStatusPills
@@ -110,8 +110,8 @@ struct ShortcutAppearanceSettingsView: View {
 
     var body: some View {
         SettingsScrollView {
-            SettingsSection("Chrome") {
-                SettingsPicker("Style", selection: $chromeStyle, help: "Apply Liquid Glass or an opaque solid color to the sidebar, tab groups, and switcher. Settings keep their own appearance.") {
+            SettingsSection("Window chrome") {
+                SettingsPicker("Style", selection: $chromeStyle, help: "Apply Liquid Glass or a solid color to Dock mode, tab groups, and the switcher. Sidebar mode keeps its original dark appearance.") {
                     Text("Liquid Glass").tag(ChromeStyle.liquidGlass)
                     Text("Solid color").tag(ChromeStyle.solid)
                 } onChange: { persist("workspace-sidebar", "chrome-style", "'\(chromeStyle.rawValue)'") }
@@ -123,23 +123,27 @@ struct ShortcutAppearanceSettingsView: View {
                     onCustomColorChange: { persist("workspace-sidebar", "solid-chrome-custom-color", "'\(solidChromeCustomColor)'") },
                 )
             }
-            SettingsSection("Sidebar") {
-                SettingsToggle("Show sidebar", isOn: $sidebarEnabled, help: "Show the workspace rail on configured displays.") { sidebarBool("enabled", sidebarEnabled) }
+            SettingsSection("Dock & Sidebar") {
+                SettingsToggle("Show Dock or Sidebar", isOn: $sidebarEnabled, help: "Show the workspace rail on configured displays.") { sidebarBool("enabled", sidebarEnabled) }
                 SettingsToggle("Focus sidebar monitor only", isOn: $sidebarFocusEnabled, help: "Show the sidebar only on the focused monitor when monitor scope allows it.") { sidebarBool("enable-focus", sidebarFocusEnabled) }
-                SettingsToggle("Keep sidebar above Dock", isOn: $sidebarStayOnTop, help: "Keep the sidebar above the Dock. Turn this off to let the Dock appear over it.") { sidebarBool("stay-on-top", sidebarStayOnTop) }
+                SettingsToggle("Keep above macOS Dock", isOn: $sidebarStayOnTop, help: "Keep the sidebar above the Dock. Turn this off to let the Dock appear over it.") { sidebarBool("stay-on-top", sidebarStayOnTop) }
                 SettingsToggle("Reveal sidebar at the display edge", isOn: $sidebarAutoHide, help: "Hide the compact rail until the pointer reaches the left edge.") { sidebarBool("auto-hide", sidebarAutoHide) }
                 SettingsToggle("Keep sidebar expanded", isOn: $sidebarAlwaysExpanded, help: "Reserve the full sidebar width for tiled windows.") { sidebarBool("always-expanded", sidebarAlwaysExpanded) }
-                SettingsToggle("Show workspace app icons", isOn: $showAppIcons, help: "Show a Dock-style column of workspace number tiles and app icons, with lines separating workspaces. Expand the sidebar for window details.") { sidebarBool("show-app-icons", showAppIcons) }
-                SettingsToggle("Magnify Dock icons on hover", isOn: $dockMagnification, help: "Enlarge nearby icons while keeping the Dock compact. Use the expand arrow or sidebar command for window details. Reduce Motion disables magnification.") { sidebarBool("dock-magnification", dockMagnification) }
-                    .disabled(!showAppIcons || sidebarAlwaysExpanded)
-                SettingsStepper("Dock icon size", value: $dockIconSize, range: 24...48, help: "Size of app icons and workspace number tiles in points. Hover magnification is limited to fit the fixed-width rail.") { sidebarInt("dock-icon-size", dockIconSize) }
-                    .disabled(!showAppIcons)
-                SettingsPercentageSlider("Glass opacity", value: $glassOpacity, help: "Adjust the sidebar's Liquid Glass background while keeping text and icons readable. Available with Liquid Glass style.") {
-                    persist("workspace-sidebar", "glass-opacity", "\(glassOpacity)")
+                SettingsPicker("Mode", selection: $sidebarMode, help: "Sidebar uses the original dark layout. Dock shows workspace number tiles and app icons with Liquid Glass, adjustable opacity, and optional magnification.") {
+                    Text("Sidebar").tag(WorkspaceSidebarMode.sidebar)
+                    Text("Dock").tag(WorkspaceSidebarMode.dock)
+                } onChange: { persist("workspace-sidebar", "mode", "'\(sidebarMode.rawValue)'") }
+                if sidebarMode == .dock {
+                    SettingsToggle("Magnify Dock icons on hover", isOn: $dockMagnification, help: "Enlarge nearby icons while keeping the Dock compact. Use the expand arrow or sidebar command for window details. Reduce Motion disables magnification.") { sidebarBool("dock-magnification", dockMagnification) }
+                        .disabled(sidebarAlwaysExpanded)
+                    SettingsStepper("Dock icon size", value: $dockIconSize, range: 24...48, help: "Size of app icons and workspace number tiles in points. Hover magnification is limited to fit the fixed-width rail.") { sidebarInt("dock-icon-size", dockIconSize) }
+                    SettingsPercentageSlider("Dock glass opacity", value: $glassOpacity, help: "Adjust only Dock mode's Liquid Glass background. Sidebar keeps its original dark appearance. Text and icons stay readable.") {
+                        persist("workspace-sidebar", "glass-opacity", "\(glassOpacity)")
+                    }
+                    .disabled(chromeStyle != .liquidGlass)
                 }
-                .disabled(chromeStyle != .liquidGlass)
                 SettingsStepper("Expanded width", value: $sidebarWidth, range: 120...480, help: "Width of the fully expanded sidebar.") { sidebarInt("width", sidebarWidth) }
-                if showAppIcons {
+                if sidebarMode == .dock {
                     HStack {
                         Text("Compact width")
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -148,7 +152,7 @@ struct ShortcutAppearanceSettingsView: View {
                     }
                     .padding(.horizontal, 14)
                     .frame(minHeight: 38)
-                    .help("Dock-style app icons use a fixed compact width. Your previous width is restored when app icons are turned off.")
+                    .help("Dock-style app icons use a fixed compact width. Your saved Sidebar width is restored when you switch to Sidebar mode.")
                     .overlay(alignment: .bottom) {
                         Divider().padding(.leading, 14)
                     }
@@ -161,7 +165,7 @@ struct ShortcutAppearanceSettingsView: View {
                     Text("Move windows elsewhere").tag(WorkspaceProjectDeletionAction.moveWindowsToFallback)
                 } onChange: { persist("workspace-sidebar", "project-deletion-action", "'\(projectDeletionAction.rawValue)'") }
             }
-            SettingsSection("Sidebar content") {
+            SettingsSection("Dock & Sidebar content") {
                 SettingsToggle("Show status pills", isOn: $showStatusPills) { sidebarBool("show-status-pills", showStatusPills) }
                 SettingsToggle("Show clock", isOn: $showClock) { sidebarBool("show-clock", showClock) }
                 SettingsToggle("Show seconds", isOn: $showSeconds) { sidebarBool("show-seconds", showSeconds) }

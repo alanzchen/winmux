@@ -77,6 +77,13 @@ enum ShortcutsPreset: String, Equatable, Sendable {
     case rectangle
 }
 
+enum WorkspaceSidebarMode: String, CaseIterable, Identifiable, Sendable {
+    case sidebar
+    case dock
+
+    var id: String { rawValue }
+}
+
 struct WorkspaceSidebarConfig: ConvenienceCopyable, Equatable, Sendable {
     static let dockCompactWidth = 64
 
@@ -85,7 +92,12 @@ struct WorkspaceSidebarConfig: ConvenienceCopyable, Equatable, Sendable {
     var stayOnTop: Bool = true
     var autoHide: Bool = false
     var alwaysExpanded: Bool = false
-    var showAppIcons: Bool = false
+    var mode: WorkspaceSidebarMode = .sidebar
+    // Compatibility alias for existing TOML and internal callers.
+    var showAppIcons: Bool {
+        get { mode == .dock }
+        set { mode = newValue ? .dock : .sidebar }
+    }
     var dockMagnification: Bool = false
     var dockIconSize: Int = 40
     var collapsedWidth: Int = 44

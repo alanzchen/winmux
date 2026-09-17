@@ -17,12 +17,13 @@ public func showWinMuxSidebarDockProof(
     magnification: Bool = false,
     pointerY: CGFloat? = nil,
     glassOpacity: Double = 1,
-    darkAppearance: Bool = true
+    darkAppearance: Bool = true,
+    presentationMode: String = "dock"
 ) throws {
     guard width.isFinite, width > 0, expandedWidth.isFinite, expandedWidth > width,
           height.isFinite, height > 0, expansion.isFinite, (0...1).contains(expansion),
           holdDuration.isFinite, holdDuration >= 0, (24...48).contains(iconSize),
-          (0...1).contains(glassOpacity) else {
+          (0...1).contains(glassOpacity), ["dock", "sidebar"].contains(presentationMode) else {
         throw SidebarDockProofError.invalidDimensions
     }
     let visibleWidth = width + (expandedWidth - width) * expansion
@@ -54,7 +55,8 @@ public func showWinMuxSidebarDockProof(
             visibleWidth: visibleWidth,
             iconSize: iconSize,
             magnification: magnification,
-            glassOpacity: glassOpacity
+            glassOpacity: glassOpacity,
+            dockMode: presentationMode == "dock"
         ), actions: .init())
             .frame(width: visibleWidth, height: height)
     }
@@ -104,6 +106,7 @@ public func showWinMuxSidebarDockProof(
         "y": window.frame.minY,
         "width": window.frame.width,
         "canvasWidth": window.frame.width,
+        "mode": presentationMode,
         "compactWidth": width,
         "expandedWidth": expandedWidth,
         "visibleWidth": visibleWidth,
@@ -152,7 +155,8 @@ private func sidebarDockProofSnapshot(
     visibleWidth: CGFloat,
     iconSize: CGFloat,
     magnification: Bool,
-    glassOpacity: Double
+    glassOpacity: Double,
+    dockMode: Bool
 ) -> WorkspaceSidebarSnapshot {
     let scope = "sidebar-dock-proof"
     let project = workspaceProjectDefaultId
@@ -185,9 +189,9 @@ private func sidebarDockProofSnapshot(
     configuration.collapsedWidth = compactWidth
     configuration.configuredCollapsedWidth = compactWidth
     configuration.expandedWidth = expandedWidth
-    configuration.showAppIcons = true
+    configuration.showAppIcons = dockMode
     configuration.dockIconSize = iconSize
-    configuration.dockMagnification = magnification
+    configuration.dockMagnification = dockMode && magnification
     configuration.glassOpacity = glassOpacity
     configuration.chromeStyle = .liquidGlass
     return WorkspaceSidebarSnapshot(

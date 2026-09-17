@@ -417,7 +417,7 @@ extension WorkspaceSidebarWorkspaceSection {
     /// tint fills on top. No-op on older systems; the plain tint fill stands in.
     @ViewBuilder
     var sectionGlassCard: some View {
-        if #available(macOS 26.0, *), layout.chromeStyle == .liquidGlass {
+        if #available(macOS 26.0, *), layout.effectiveChromeStyle == .liquidGlass {
             GlassEffectContainer {
                 ZStack {
                     Color.clear.glassEffect(.regular, in: sectionShape)
@@ -444,7 +444,7 @@ extension WorkspaceSidebarWorkspaceSection {
             }
             .glassShadow(.resting)
             .opacity(layout.effectiveGlassOpacity)
-        } else if layout.chromeStyle == .solid {
+        } else if layout.effectiveChromeStyle == .solid {
             sectionShape
                 .fill(layout.resolvedSolidChromeColor.opacity(0.38))
                 .overlay {
@@ -457,7 +457,7 @@ extension WorkspaceSidebarWorkspaceSection {
         if isDropTarget {
             // A neutral lift works against both solid colors and Liquid Glass without
             // introducing the system accent color into themed chrome.
-            return Color.white.opacity(layout.chromeStyle == .solid ? 0.18 : 0.14)
+            return Color.white.opacity(layout.effectiveChromeStyle == .solid ? 0.18 : 0.14)
         }
         if isSearchSelectedWorkspace {
             return Color.white.opacity(0.105)
