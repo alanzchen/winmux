@@ -354,6 +354,24 @@ Final native sidebar captures returned blank; live glass, hover, drag, and
 multi-monitor checks remain outstanding as detailed in
 [sidebar appearance validation](sidebar-appearance-validation.md).
 
+### Dock hover and live settings release — September 16, 2026
+
+[WinMux 0.6.307](https://github.com/alanzchen/winmux/releases/tag/v0.6.307)
+was locally built from `08c18df6`, signed, notarized, and published to the preview
+feed. It restricts magnification to the Dock, stabilizes workspace-number scaling,
+publishes appearance changes immediately, and shows every workspace app icon.
+All **733 application tests** passed with **one native-glass skip**; **64 release
+tooling tests** and the independent
+[CI build and tests](https://github.com/alanzchen/winmux/actions/runs/35176254525)
+passed. The duplicate hosted prerelease was cancelled after publication.
+
+Public asset hashes, both ZIPs, the mounted DMG, signing, notarization, universal
+app/CLI versions, and the Sparkle archive signature passed verification. A native
+Sparkle probe of the published 0.6.302 bundle discovered 0.6.307 using its embedded
+preview feed. Native fixture captures confirm inside/outside magnification states;
+live flicker, pointer, and settings interaction remain unverified because desktop
+control timed out. No installed app was replaced by these checks.
+
 ## References
 
 - [GitHub: importing Apple signing certificates](https://docs.github.com/en/actions/how-tos/deploy/deploy-to-third-party-platforms/sign-xcode-applications)
