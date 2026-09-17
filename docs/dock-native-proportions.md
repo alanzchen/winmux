@@ -80,3 +80,31 @@ expected skips and zero failures. New tests cover the fit budget, all-icon visib
 live count/height changes, controls, configured-size restoration, filtered scopes,
 drag stability, and magnified native geometry. Captures use the isolated production
 preview; physical multi-monitor and live drag sessions were not repeated.
+
+## Independent code review
+
+Claude CLI (`claude-fable-5`) and agy CLI (`gemini-3.8-flash-high`) reviewed commits
+`5d153de9` and `48ebb298` on September 17. Claude inspected the patch and surrounding
+files using read-only tools. agy received a scoped source bundle after its headless
+file-read request was denied. Reports are retained under ignored
+`.local/reviews/dock-adaptive-20260917/`.
+
+Neither review established a new functional defect after source verification.
+agy initially flagged drag-driven shelf movement, transparent overflow capturing
+input, and a legacy header using the wrong size. Follow-up inspection showed that
+projected shelf-height changes already use the existing settle animation; native
+input accepts only the visible surface and measured icons; and Dock rendering
+bypasses that legacy header. agy withdrew those findings.
+
+Claude noted optional cleanup: duplicate page filtering outside the per-frame
+callback and a conservative overflow reserve based on the configured maximum.
+Neither demonstrated a user-visible regression or measured performance problem.
+Workspace-name uniqueness remains an existing model invariant, and actual workspace
+changes intentionally refit during a drag. No application code changed for this review.
+
+Both reviews found meaningful coverage for the fit budget, restoration, filtering,
+and drag-preview sizing. Additional coverage could exercise a fitted compact-to-expanded
+morph and a swipe between differently populated projects. The reviews do not establish
+physical 120 Hz smoothness or replace the outstanding live multi-monitor drag checks.
+The 793-test/build results above are from the implementation validation; this
+documentation-only follow-up did not rerun the application suite.

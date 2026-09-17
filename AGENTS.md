@@ -36,6 +36,25 @@ Use XCTest with `*Test.swift` files, `XCTestCase` classes, and descriptive `test
 
 Use concise imperative subjects, following history: `Fix compact sidebar multi-monitor controls (#19)`. Keep unrelated issues in separate commits. PRs should explain the problem, resulting behavior, linked issues, and validation; include screenshots for visible UI changes and disclose remaining native checks.
 
+## Code Review Workflow
+
+Before pushing substantive code changes, run independent, read-only reviews with
+**Claude CLI (`claude-fable-5`)** and **agy CLI (`gemini-3.8-flash-high`)**. Provide
+the diff, relevant surrounding code, requirements, and validation results. Ask for
+concrete correctness, regression, performance, and test-coverage findings.
+If headless file reads are denied, pass a scoped source bundle directly to the
+reviewer instead of enabling unrestricted tool permissions.
+
+Verify each finding against the code; fix supported defects and rerun affected
+checks. Obtain targeted follow-up reviews for substantive fixes. Keep raw reports
+under ignored `.local/reviews/` and summarize accepted findings and remaining
+limitations in the delivery notes. Reviews supplement tests. If either reviewer
+fails or is unavailable, disclose that before delivery; do not claim approval or
+silently substitute a model. Documentation-only edits do not require both reviews.
+
+Reviewers must not edit, publish, access signing credentials, or launch other
+reviewers. Review completion does not authorize a release or GitHub CI run.
+
 ## Fork Compatibility
 
 Preserve fork features when integrating upstream: sidebar layer settings, settings scroll retention, and CLI automation. Keep TOML and command behavior compatible, and distribute matching app/CLI versions. Check both fork branches and upstream before choosing a base; fork features may live outside `main`.
