@@ -1,16 +1,46 @@
 # Signed fork releases and automatic updates
 
-WinMux checks `https://github.com/alanzchen/winmux/releases/latest/download/appcast.xml`.
+Fork preview builds check
+`https://raw.githubusercontent.com/alanzchen/winmux/updates/prerelease.xml`.
 Release archives use this fork's Sparkle Ed25519 key. The application and its embedded
 CLI update together; the distributed `bin/winmux` launcher runs the CLI inside the
 installed application.
+
+## Automatic feature prereleases
+
+Pushing application or build changes to `codex/issue-fixes` or `main` runs
+`.github/workflows/prerelease.yml`. Documentation-only pushes are excluded. Each
+successful run tests, builds, signs, notarizes, and publishes an immutable GitHub
+**prerelease**, then atomically updates `prerelease.xml` on the `updates` branch.
+That branch does not trigger another build. Pull requests and other branches have
+no access to this publishing path.
+
+Versions are numeric for Sparkle ordering: `.prerelease-version` supplies the
+major/minor prefix, currently `0.6`; the patch is `(run_number - 1) * 100 + attempt`.
+Thus the first run is `0.6.1`, a retry is `0.6.2`, and the second run is `0.6.101`.
+Gaps are intentional. Reruns never replace signed archives. Older jobs cannot
+replace a newer published version or move the feed backwards. Increase the prefix
+when starting a new version series; do not reset the workflow's version sequence.
+
+The feed advances only after GitHub confirms all uploaded asset hashes. Failed
+builds leave the previous update available. If publication succeeds but feed
+promotion fails, rerun the workflow to publish a fresh version. GitHub's stable
+`releases/latest` endpoint excludes prereleases, so it is not used for this channel.
+
+Install a preview-channel build once to migrate from the earlier local `0.5.5`
+builds, which point to the stable feed. Subsequent preview updates use Sparkle's
+normal background checks and installation behavior; **Check for Updates** requests
+an immediate check. User-disabled automatic updates remain respected. Downloading
+source with `git pull` is not part of app updates.
 
 ## Automated builds
 
 `.github/workflows/ci.yml` tests and builds pushes to `main` and `codex/issue-fixes`
 and pull requests. It has no signing credentials.
 
-`.github/workflows/release.yml` runs on a pushed stable tag such as `v0.6.0`.
+`.github/workflows/release.yml` remains available for explicitly pushed stable tags.
+Choose a version newer than all existing preview and stable versions in that series.
+Stable builds use `https://github.com/alanzchen/winmux/releases/latest/download/appcast.xml`.
 It runs all Swift tests and release-tool regressions, builds universal arm64/x86_64
 executables, signs with Developer ID, notarizes and staples the app and DMG, then
 signs the final update ZIP with Sparkle. The workflow validates signatures, bundle
@@ -24,7 +54,8 @@ the workflow never silently switches toolchains.
 ## One-time account setup
 
 In [repository environments](https://github.com/alanzchen/winmux/settings/environments),
-configure the `release` environment to allow **tags matching `v*`**. Store credentials
+configure the `release` environment to allow **tags matching `v*`** and the exact
+branches **`main`** and **`codex/issue-fixes`**. Store credentials
 there, not in the repository. Only release jobs use this environment.
 
 | Kind | Name | Value |
@@ -84,7 +115,8 @@ release, move a tag, or make an older stable version the latest update.
 
 Each release contains `WinMux-VERSION.zip` (Sparkle app archive),
 `WinMux-VERSION-macOS.zip` (app, CLI launcher, and docs), `WinMux-VERSION.dmg`,
-`appcast.xml`, and `SHA256SUMS`. No release is created merely by merging a branch.
+`appcast.xml`, and `SHA256SUMS`. Feature merges/pushes trigger previews; stable
+publication still requires an explicit version tag.
 
 ## Local signing and first installation
 

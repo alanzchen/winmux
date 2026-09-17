@@ -25,7 +25,7 @@
 	<key>SUAutomaticallyUpdate</key>
 	<true/>
 	<key>SUFeedURL</key>
-	<string>https://github.com/alanzchen/winmux/releases/latest/download/appcast.xml</string>
+	<string>https://raw.githubusercontent.com/alanzchen/winmux/updates/prerelease.xml</string>
 	<key>SUPublicEDKey</key>
 	<string>$(SPARKLE_PUBLIC_KEY)</string>
 </dict>

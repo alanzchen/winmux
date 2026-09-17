@@ -43,13 +43,16 @@ def check_release_order(tag, releases):
     return drafts[0] if drafts else None
 
 
-def check_tag(tag, repository):
+def check_tag(tag, repository, allowed_branches=()):
     version_tuple(tag)
     if repository != "alanzchen/winmux":
         raise ValueError("This release pipeline publishes only to alanzchen/winmux.")
     if os.environ.get("GITHUB_ACTIONS") == "true":
-        if os.environ.get("GITHUB_REF") != f"refs/tags/{tag}":
+        ref = os.environ.get("GITHUB_REF")
+        if ref != f"refs/tags/{tag}" and ref not in {f"refs/heads/{branch}" for branch in allowed_branches}:
             raise ValueError("Run this workflow on the same tag ref as its tag input (the release environment allows tags only).")
+        if ref != f"refs/tags/{tag}" and os.environ.get("GITHUB_SHA") != run("git", "rev-parse", "HEAD"):
+            raise ValueError("The prerelease checkout must match the triggering commit.")
     local_commit = run("git", "rev-parse", "--verify", f"refs/tags/{tag}^{{commit}}")
     if local_commit != run("git", "rev-parse", "HEAD"):
         raise ValueError("The checked-out commit does not match the release tag.")

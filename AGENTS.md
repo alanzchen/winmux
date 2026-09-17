@@ -39,3 +39,11 @@ Use concise imperative subjects, following history: `Fix compact sidebar multi-m
 ## Fork Compatibility
 
 Preserve fork features when integrating upstream: sidebar layer settings, settings scroll retention, and CLI automation. Keep TOML and command behavior compatible, and distribute matching app/CLI versions. Check both fork branches and upstream before choosing a base; fork features may live outside `main`.
+
+## Feature Delivery
+
+Push completed feature changes to `codex/issue-fixes` or `main` after validation.
+The automatic prerelease workflow tests, signs, notarizes, and publishes the app,
+then advances the preview update feed. Check the workflow result and link the
+prerelease when delivering a feature. Never replace published version assets or
+manually move the feed backwards. Documentation-only changes do not trigger releases.

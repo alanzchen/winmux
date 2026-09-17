@@ -1,14 +1,12 @@
-name: Build and publish signed release
+name: Publish automatic prerelease
 
 on:
   push:
-    tags: ["v*"]
+    branches: [main, codex/issue-fixes]
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
   workflow_dispatch:
-    inputs:
-      tag:
-        description: Existing stable version tag (vMAJOR.MINOR.PATCH)
-        required: true
-        type: string
 
 # Serialize different versions too: an older build must never replace the latest feed.
 concurrency:
@@ -20,7 +18,7 @@ permissions:
 
 jobs:
   release:
-    if: github.repository == 'alanzchen/winmux'
+    if: github.repository == 'alanzchen/winmux' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/codex/issue-fixes')
     runs-on: macos-26
     timeout-minutes: 90
     environment: release
@@ -28,8 +26,7 @@ jobs:
       contents: write
     env:
       RELEASE_REPOSITORY: alanzchen/winmux
-      UPDATE_FEED_URL: https://github.com/alanzchen/winmux/releases/latest/download/appcast.xml
-      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+      UPDATE_FEED_URL: https://raw.githubusercontent.com/alanzchen/winmux/updates/prerelease.xml
       DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
       TOOLCHAINS: com.apple.dt.toolchain.XcodeDefault
       DEVELOPMENT_TEAM: ${{ vars.APPLE_TEAM_ID }}
@@ -38,20 +35,19 @@ jobs:
       run:
         shell: bash
     steps:
-      - name: Check out the existing release tag
+      - name: Check out the exact feature commit
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          ref: refs/tags/${{ inputs.tag || github.ref_name }}
+          ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Validate tag and publication order
+      - name: Allocate an immutable prerelease version
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          python3 -B script/ci-release.py check "$RELEASE_TAG" "$RELEASE_REPOSITORY"
-          printf 'VERSION=%s\n' "${RELEASE_TAG#v}" >> "$GITHUB_ENV"
+          python3 -B script/ci-prerelease.py prepare
 
       - name: Verify the pinned compiler and signing configuration
         run: |
@@ -114,7 +110,7 @@ jobs:
           xcrun stapler validate "$app"
           spctl --assess --type execute --verbose=4 "$app"
           test "$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$app/Contents/Info.plist")" = "$VERSION"
-          test "$(/usr/libexec/PlistBuddy -c 'Print SUFeedURL' "$app/Contents/Info.plist")" = "https://github.com/$RELEASE_REPOSITORY/releases/latest/download/appcast.xml"
+          test "$(/usr/libexec/PlistBuddy -c 'Print SUFeedURL' "$app/Contents/Info.plist")" = "$UPDATE_FEED_URL"
           test "$(/usr/libexec/PlistBuddy -c 'Print SUPublicEDKey' "$app/Contents/Info.plist")" = "$SPARKLE_PUBLIC_KEY"
           for executable in "$app/Contents/MacOS/WinMux" "$app/Contents/Helpers/winmux"; do
             archs="$(lipo -archs "$executable")"
@@ -139,10 +135,10 @@ jobs:
             .release/appcast.xml
             .release/SHA256SUMS
 
-      - name: Publish the complete release
+      - name: Publish prerelease and advance the update feed
         env:
           GH_TOKEN: ${{ github.token }}
-        run: bash script/publish-release.sh
+        run: python3 -B script/ci-prerelease.py publish
 
       - name: Retain failure logs
         if: failure()
