@@ -257,6 +257,7 @@ extension WorkspaceSidebarWorkspaceSection {
                         progress: morphProgress,
                         workspace: workspace,
                         targets: targets,
+                        actions: actions,
                         onSelectApp: handleAppClick
                     )
                 }

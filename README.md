@@ -68,6 +68,9 @@ Click an app icon to focus a window in that workspace: the current window is
 preferred, followed by the workspace's focus order. A workspace on another display
 keeps the **Override** prompt; confirming it also
 focuses the app you clicked. Clicking the numbered tile selects the workspace.
+Drag an app icon onto another workspace to move that same window. The selected
+window stays fixed for the duration of the drag; other windows from that app stay
+in their original workspace. Expanded window rows remain individually draggable.
 An overflow tile marks additional apps. The compact rail uses a fixed **64 pt**
 width, a rounded glass surface, and a dot to the left of the active workspace's number tile.
 The stored **Collapsed width** setting is preserved for the default sidebar mode.

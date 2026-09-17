@@ -7,6 +7,7 @@ struct WorkspaceSidebarDockAppButtons: View {
     let progress: CGFloat
     let workspace: WorkspaceSidebarWorkspaceViewModel
     let targets: [String: WorkspaceSidebarAppMorphTarget]
+    let actions: WorkspaceSidebarActions
     let onSelectApp: (WorkspaceSidebarAppViewModel) -> Void
 
     var body: some View {
@@ -18,19 +19,67 @@ struct WorkspaceSidebarDockAppButtons: View {
                     let rect = expanded.map {
                         workspaceSidebarInterpolatedMorphRect(from: compact, to: geometry[$0], progress: progress)
                     } ?? compact
-                    Button {
-                        onSelectApp(app)
-                    } label: {
-                        Color.clear
-                            .frame(width: rect.width, height: rect.height)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Focus \(app.name) in workspace \(workspace.displayName)")
-                    .help("Focus \(app.name) in workspace \(workspace.displayName)")
+                    WorkspaceSidebarDockAppButton(
+                        app: app,
+                        workspaceName: workspace.name,
+                        workspaceDisplayName: workspace.displayName,
+                        size: rect.size,
+                        actions: actions,
+                        onSelect: { onSelectApp(app) }
+                    )
                     .position(x: rect.midX, y: rect.midY)
                 }
             }
         }
+    }
+}
+
+private struct WorkspaceSidebarDockAppButton: View {
+    let app: WorkspaceSidebarAppViewModel
+    let workspaceName: String
+    let workspaceDisplayName: String
+    let size: CGSize
+    let actions: WorkspaceSidebarActions
+    let onSelect: () -> Void
+    @State private var drag = WorkspaceSidebarAppDragSession()
+
+    var body: some View {
+        Button(action: onSelect) {
+            Color.clear
+                .frame(width: size.width, height: size.height)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .modifier(WorkspaceSidebarOptionalDragModifier(
+            isEnabled: true,
+            onChanged: { point in
+                drag.update(workspaceName: workspaceName, appId: app.id, pointer: point, actions: actions)
+            },
+            onEnded: { point in drag.finish(pointer: point, actions: actions) }
+        ))
+        .accessibilityLabel("Focus \(app.name) in workspace \(workspaceDisplayName)")
+        .help("Click to focus \(app.name); drag to move its window to another workspace")
+    }
+}
+
+/// Resolve once per gesture so changes to focus or tree recency cannot switch the dragged window.
+struct WorkspaceSidebarAppDragSession {
+    private(set) var windowId: UInt32?
+    private var hasResolvedWindow = false
+
+    @MainActor
+    mutating func update(workspaceName: String, appId: String, pointer: CGPoint, actions: WorkspaceSidebarActions) {
+        if !hasResolvedWindow {
+            hasResolvedWindow = true
+            windowId = actions.resolveAppDragWindow(workspaceName, appId)
+        }
+        if let windowId { actions.windowDragChanged(windowId, pointer) }
+    }
+
+    @MainActor
+    mutating func finish(pointer: CGPoint, actions: WorkspaceSidebarActions) {
+        if let windowId { actions.windowDragEnded(windowId, pointer) }
+        windowId = nil
+        hasResolvedWindow = false
     }
 }

@@ -98,6 +98,7 @@ struct WorkspaceSidebarActions {
     var setDropTargets: @MainActor ([WorkspaceSidebarDropTargetFrame]) -> Void
     var setSurfaceFrame: @MainActor (CGRect) -> Void
     var hoverWorkspace: @MainActor (String, Bool) -> Void
+    var resolveAppDragWindow: @MainActor (String, String) -> UInt32?
     var windowDragChanged: @MainActor (UInt32, CGPoint) -> Void
     var windowDragEnded: @MainActor (UInt32, CGPoint) -> Void
     var tabGroupDragChanged: @MainActor (UInt32, CGPoint) -> Void
@@ -108,6 +109,7 @@ struct WorkspaceSidebarActions {
         setDropTargets: @escaping @MainActor ([WorkspaceSidebarDropTargetFrame]) -> Void = { _ in },
         setSurfaceFrame: @escaping @MainActor (CGRect) -> Void = { _ in },
         hoverWorkspace: @escaping @MainActor (String, Bool) -> Void = { _, _ in },
+        resolveAppDragWindow: @escaping @MainActor (String, String) -> UInt32? = { _, _ in nil },
         windowDragChanged: @escaping @MainActor (UInt32, CGPoint) -> Void = { _, _ in },
         windowDragEnded: @escaping @MainActor (UInt32, CGPoint) -> Void = { _, _ in },
         tabGroupDragChanged: @escaping @MainActor (UInt32, CGPoint) -> Void = { _, _ in },
@@ -117,6 +119,7 @@ struct WorkspaceSidebarActions {
         self.setDropTargets = setDropTargets
         self.setSurfaceFrame = setSurfaceFrame
         self.hoverWorkspace = hoverWorkspace
+        self.resolveAppDragWindow = resolveAppDragWindow
         self.windowDragChanged = windowDragChanged
         self.windowDragEnded = windowDragEnded
         self.tabGroupDragChanged = tabGroupDragChanged

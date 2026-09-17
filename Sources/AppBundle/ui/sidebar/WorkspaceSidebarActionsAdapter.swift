@@ -24,6 +24,13 @@ func makeWorkspaceSidebarActionsAdapter(
                 isHovering: isHovering,
             ))
         },
+        resolveAppDragWindow: { workspaceName, appId in
+            if let targetMonitorScopeId, workspaceSidebarMonitor(forScopeId: targetMonitorScopeId) == nil {
+                return nil
+            }
+            guard let workspace = Workspace.existing(byName: workspaceName) else { return nil }
+            return workspaceSidebarAppWindow(in: workspace, appId: appId)?.windowId
+        },
         windowDragChanged: { windowId, pointer in
             updateSidebarWindowDrag(windowId, subject: .window, pointer: pointer)
         },

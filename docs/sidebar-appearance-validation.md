@@ -9,15 +9,15 @@ are in the [README](../README.md#workspace-app-icons-and-glass-opacity).
 
 Validated on September 16, 2026 with Swift **6.2.4**:
 
-- **176 focused sidebar/floating-window tests passed.**
-- **715 tests passed** in the complete application suite.
+- **166 focused sidebar tests passed.**
+- **720 tests passed** in the complete application suite.
 - Debug application/CLI build and `git diff --check` passed.
 - [CI passed for `23b55258`](https://github.com/alanzchen/winmux/actions/runs/35163648568).
 - The universal Developer ID-signed and notarized DMG passed distribution checks;
   see the [release validation record](releasing.md#clickable-dock-icons-build--september-16-2026).
 
 ```sh
-swift test --filter 'WorkspaceSidebar|NewFloatingWindowPresentation'
+swift test --filter WorkspaceSidebar
 swift test
 swift build
 ```
@@ -37,6 +37,7 @@ without changing row spacing. Regression coverage includes
 widths 28/44/120, empty and crowded workspaces, duplicate apps, filtered tab groups,
 summary-only apps, and both sides of the former row-reveal threshold. The 28/44/120
 rendering cases stress component bounds; production Dock mode resolves to 64 points.
+The rendering checks and preview also include the production 64-point width.
 
 Six geometry regressions cover the centered compact surface, full-height expansion,
 tall scrolling content, clock/display/project reserves, clipping invisible drag targets,
@@ -61,7 +62,14 @@ windows, logical-focus equality, and native focus ordering. Final native focus
 revalidates the target so a closed, moved, hidden, or newly ineligible window is
 not raised.
 
-Live pointer and VoiceOver activation remain unverified because the Mac was locked.
+Dock app icons now use the same drag gesture, cursor preview, and workspace drop
+targets as expanded window rows. A drag resolves the same eligible window as a
+click and pins that window until release, even if focus changes. Only that window
+moves; floating layout is preserved. Five regressions cover pinned selection,
+missing windows, repeated gestures, a disconnected panel, and moving one app window
+while leaving its siblings in the source workspace.
+
+Live pointer, drag-and-drop, and VoiceOver activation remain unverified because the Mac was locked.
 A detached `NSHostingView` exposed no native accessibility children, including for
 the existing workspace buttons, so that experiment was not counted as an input
 verification pass. The automated action and geometry checks do not substitute for
@@ -74,6 +82,11 @@ Detached `NSHostingView` tests rendered actual workspace sections at 28-, 44-, a
 The Dock preview includes real app icons, active and inactive workspaces, separators,
 and an empty workspace. It was visually inspected:
 `.build/sidebar-appearance-ui/workspace-app-icons-preview.png`.
+
+![Left-side active workspace indicator](images/sidebar-dock-left-indicator.png)
+
+This is a detached rendering of the actual SwiftUI components, including the
+production 64-point rail. It is not a desktop screenshot or a live drag test.
 
 Actual workspace cards were also rendered at six intermediate expansion positions.
 Anchor checks verified equal square number/app tiles, a fixed compact column, and mounted destinations;
