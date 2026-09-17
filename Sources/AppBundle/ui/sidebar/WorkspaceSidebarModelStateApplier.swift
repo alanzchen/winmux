@@ -2,6 +2,7 @@ import AppKit
 
 @MainActor
 func clearWorkspaceSidebarModelState() {
+    WorkspaceSidebarDockBadgeModel.shared.setEnabled(false)
     TrayMenuModel.shared.setIfChanged(\.workspaceSidebarDockDrag, nil)
     TrayMenuModel.shared.setIfChanged(\.workspaceSidebarWorkspaces, [])
     TrayMenuModel.shared.setIfChanged(\.workspaceSidebarMonitorScopes, [])

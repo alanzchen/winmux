@@ -63,6 +63,7 @@ struct WorkspaceSidebarAppIconHeader: View {
             }
         }
         .frame(width: size, height: size)
+        .overlay { WorkspaceSidebarDockBadge(app: app) }
         .modifier(WorkspaceSidebarMorphAnchor(element: .compactApp(app.id), hidesContent: morphTargets.contains(app.id)))
         .accessibilityHidden(true)
     }

@@ -49,6 +49,8 @@ on-mode-changed = []
     # Sidebar keeps the upstream dark layout; Dock uses app icons and Liquid Glass.
     mode = 'sidebar'
     # Legacy show-app-icons remains supported when mode is omitted.
+    # Mirror app badge labels from the native macOS Dock (Dock mode only).
+    show-app-badges = false
     # Magnify compact Dock icons on hover; expand with the arrow or sidebar command.
     dock-magnification = false
     # Magnification strength: 0 = none, 0.5 = 1.5x, 1 = 2x; icons grow beyond the glass rail.

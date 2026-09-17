@@ -98,6 +98,7 @@ struct WorkspaceSidebarConfig: ConvenienceCopyable, Equatable, Sendable {
         get { mode == .dock }
         set { mode = newValue ? .dock : .sidebar }
     }
+    var showAppBadges: Bool = false
     var dockMagnification: Bool = false
     var dockMagnificationAmount: Double = 0.5
     var dockIconSize: Int = 40

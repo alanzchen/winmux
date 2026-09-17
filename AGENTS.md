@@ -42,10 +42,7 @@ Preserve fork features when integrating upstream: sidebar layer settings, settin
 
 ## Feature Delivery
 
-**Current user hold:** Local builds, tests, and replacement of the installed app
-are authorized. Publishing remains on hold until the user explicitly asks.
-Keep new changes local; do not push changes that trigger automatic CI builds or
-releases.
+The user has authorized building and publishing the Dock badge option.
 
 Push completed feature changes to `codex/issue-fixes` or `main` after validation.
 The automatic prerelease workflow tests, signs, notarizes, and publishes the app,

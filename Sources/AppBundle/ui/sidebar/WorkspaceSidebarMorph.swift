@@ -105,6 +105,7 @@ struct WorkspaceSidebarMorphOverlay: View {
                     let rect = interpolatedRect(from: geometry[compactAnchor], to: geometry[expandedAnchor])
                     appIcon(app)
                         .frame(width: rect.width, height: rect.height)
+                        .overlay { WorkspaceSidebarDockBadge(app: app).opacity(Double(1 - clampedProgress)) }
                         .opacity(Double(interpolate(1, CGFloat(target.opacity), progress: progress)))
                         .position(x: rect.midX, y: rect.midY)
                         .transition(.opacity)

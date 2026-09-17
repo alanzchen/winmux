@@ -9,6 +9,7 @@ private let workspaceSidebarParser: [String: any ParserProtocol<WorkspaceSidebar
     "always-expanded": Parser(\.alwaysExpanded, parseBool),
     "mode": Parser(\.mode, parseWorkspaceSidebarMode),
     "show-app-icons": Parser(\.showAppIcons, parseBool),
+    "show-app-badges": Parser(\.showAppBadges, parseBool),
     "dock-magnification": Parser(\.dockMagnification, parseBool),
     "dock-magnification-amount": Parser(\.dockMagnificationAmount, parseWorkspaceSidebarUnitInterval),
     "dock-icon-size": Parser(\.dockIconSize) { raw, backtrace in

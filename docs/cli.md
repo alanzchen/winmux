@@ -657,3 +657,21 @@ syntax.
 | `reload-config` | Validate or reload the active config |
 | `subscribe` | Stream selected events as JSON lines |
 | `trigger-binding` | Invoke a configured binding by mode and key |
+
+### Dock app badges
+
+In Settings → Appearance → Dock, enable **Show app badges** to mirror labels
+exposed by the native macOS Dock. The equivalent TOML setting is:
+
+```toml
+[workspace-sidebar]
+mode = 'dock'
+show-app-badges = true
+```
+
+This defaults to `false` and applies only to Dock mode. Labels refresh about every
+two seconds without pointer interaction, using existing Accessibility permission.
+Screen Recording is not required. Labels belong to the whole app, so the same app
+in multiple workspaces shows the same label. Apps absent from the native Dock or
+not exposing a badge have no badge; values may be text or dots, not unread counts.
+Disabling the option clears labels and stops polling immediately.

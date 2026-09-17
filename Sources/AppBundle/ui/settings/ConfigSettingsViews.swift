@@ -102,6 +102,7 @@ struct ShortcutAppearanceSettingsView: View {
     @State private var sidebarAutoHide = config.workspaceSidebar.autoHide
     @State private var sidebarAlwaysExpanded = config.workspaceSidebar.alwaysExpanded
     @State private var sidebarMode = config.workspaceSidebar.mode
+    @State private var showAppBadges = config.workspaceSidebar.showAppBadges
     @State private var dockMagnification = config.workspaceSidebar.dockMagnification
     @State private var dockMagnificationAmount = config.workspaceSidebar.dockMagnificationAmount
     @State private var dockIconSize = config.workspaceSidebar.dockIconSize
@@ -155,6 +156,7 @@ struct ShortcutAppearanceSettingsView: View {
                     Text("Dock").tag(WorkspaceSidebarMode.dock)
                 } onChange: { persist("workspace-sidebar", "mode", "'\(sidebarMode.rawValue)'") }
                 if sidebarMode == .dock {
+                    SettingsToggle("Show app badges", isOn: $showAppBadges, help: "Mirror badge labels exposed by the macOS Dock. Updates automatically using Accessibility access; some apps do not expose a badge.") { sidebarBool("show-app-badges", showAppBadges) }
                     SettingsToggle("Magnify Dock icons on hover", isOn: $dockMagnification, help: "Enlarge nearby icons while keeping the Dock compact. Use the expand arrow or sidebar command for window details. Reduce Motion disables magnification.") { sidebarBool("dock-magnification", dockMagnification) }
                         .disabled(sidebarAlwaysExpanded)
                     SettingsPercentageSlider("Magnification amount", value: $dockMagnificationAmount, help: "0% keeps the resting size; 50% grows icons to 1.5×; 100% doubles their size. Icons grow rightward beyond the fixed-width glass background.") {
