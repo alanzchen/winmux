@@ -1,8 +1,6 @@
 name: Build and publish signed release
 
 on:
-  push:
-    tags: ["v*"]
   workflow_dispatch:
     inputs:
       tag:
@@ -14,35 +12,8 @@ permissions:
   contents: read
 
 jobs:
-  classify-tag:
-    if: github.repository == 'alanzchen/winmux'
-    runs-on: ubuntu-latest
-    outputs:
-      stable: ${{ steps.classify.outputs.stable }}
-    steps:
-      - id: classify
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
-          EVENT_NAME: ${{ github.event_name }}
-        run: |
-          set -euo pipefail
-          if [ "$EVENT_NAME" = workflow_dispatch ]; then
-            echo 'stable=true' >> "$GITHUB_OUTPUT"
-          else
-            kind="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" --jq '.object.type')"
-            # Preview allocators reserve lightweight tags; stable pushes use git tag -a.
-            if [ "$kind" = tag ]; then
-              echo 'stable=true' >> "$GITHUB_OUTPUT"
-            else
-              echo 'stable=false' >> "$GITHUB_OUTPUT"
-            fi
-          fi
-
   release:
-    needs: classify-tag
-    if: needs.classify-tag.outputs.stable == 'true'
-    # Preview reservations must not enter or displace the signed-release queue.
+    if: github.repository == 'alanzchen/winmux'
     concurrency:
       group: signed-release
       cancel-in-progress: false

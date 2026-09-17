@@ -1,15 +1,19 @@
 name: Update Homebrew cask
 
 on:
-  release:
-    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing published stable release tag
+        required: true
+        type: string
 
 permissions:
   contents: read
 
 jobs:
   update-cask:
-    if: ${{ github.repository == 'ZimengXiong/winmux' && !github.event.release.prerelease }}
+    if: ${{ github.repository == 'ZimengXiong/winmux' }}
     runs-on: ubuntu-latest
     steps:
       - name: Check out the Homebrew tap
@@ -22,9 +26,10 @@ jobs:
       - name: Update the WinMux cask
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG_NAME: ${{ github.event.release.tag_name }}
+          TAG_NAME: ${{ inputs.tag }}
         run: |
           set -euo pipefail
+          test "$(gh release view "$TAG_NAME" --repo "$GITHUB_REPOSITORY" --json isDraft,isPrerelease --jq '.isDraft or .isPrerelease')" = false
           version="${TAG_NAME#v}"
           asset="WinMux-${version}.zip"
 

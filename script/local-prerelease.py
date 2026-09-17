@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
-"""Build a signed preview locally; hosted CI stays available until publication succeeds."""
+"""Build, sign, notarize, and publish a preview locally without starting hosted CI."""
 
 import importlib.util
-import json
 import os
 from pathlib import Path
 import re
@@ -32,17 +31,6 @@ def verify_source(commit, expected_generated):
             raise ValueError(f"Build metadata changed during the build: {path}")
 
 
-def cancel_redundant_ci(commit):
-    runs = json.loads(preview.release.run("gh", "run", "list", "--repo", preview.REPOSITORY,
-                                         "--commit", commit, "--limit", "100",
-                                         "--json", "databaseId,workflowName,status"))
-    for job in runs:
-        if job["workflowName"] == "Publish automatic prerelease" and job["status"] != "completed":
-            result = subprocess.run(["gh", "run", "cancel", str(job["databaseId"]), "--repo", preview.REPOSITORY])
-            if result.returncode:
-                print("The release is published; its hosted job may already have finished.")
-
-
 def main():
     if sys.argv[1:] == ["--help"]:
         print("Run make prerelease-local with your Developer ID, team, notarization profile, and pinned Swift toolchain configured.")
@@ -67,12 +55,12 @@ def main():
         branch = preview.release.run("git", "branch", "--show-current")
         run("git", "push", "origin", f"HEAD:refs/heads/{branch}")
         if not os.environ.get("DEVELOPMENT_TEAM") or os.environ.get("CODESIGN_IDENTITY") == "-":
-            raise ValueError("Set DEVELOPMENT_TEAM and a Developer ID Application CODESIGN_IDENTITY; hosted CI remains available.")
+            raise ValueError("Set DEVELOPMENT_TEAM and a Developer ID Application CODESIGN_IDENTITY before building locally.")
         pinned = Path(".swift-version").read_text().strip()
         for args in (["/bin/bash", "-c", "source script/setup.sh; swift --version"], ["xcrun", "swift", "--version"]):
             output = subprocess.check_output(args, text=True)
             if not re.search(rf"Swift version {re.escape(pinned)}(?:\s|$)", output):
-                raise ValueError(f"Configure Swift and Xcode's TOOLCHAINS to use pinned Swift {pinned}; hosted CI remains available.")
+                raise ValueError(f"Configure Swift and Xcode's TOOLCHAINS to use pinned Swift {pinned} before building locally.")
         tag, already_published = preview.prepare(local=True)
         if not already_published:
             version = tag[1:]
@@ -93,11 +81,6 @@ def main():
             verify_source(commit, expected)
             os.environ.update(VERSION=version, RELEASE_TAG=tag, RELEASE_DIR=str(directory.resolve()))
             tag = preview.publish(local=True)
-        # Only successful publication/feed promotion can suppress the hosted fallback.
-        try:
-            cancel_redundant_ci(commit)
-        except subprocess.CalledProcessError:
-            print("Release is published; could not cancel the redundant CI job.")
         print(f"Local preview ready: https://github.com/{preview.REPOSITORY}/releases/tag/{tag}")
     finally:
         for path, generated in expected.items():

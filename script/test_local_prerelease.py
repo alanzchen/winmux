@@ -1,7 +1,6 @@
-"""Local release source integrity and hosted-fallback coordination."""
+"""Local release source integrity."""
 
 import importlib.util
-import json
 from pathlib import Path
 import tempfile
 import unittest
@@ -38,17 +37,3 @@ class LocalPreviewTest(unittest.TestCase):
             metadata.write_bytes(b"our build")
             with patch.object(local.preview.release, "run", side_effect=["commit", "", ""]):
                 local.verify_source("commit", {metadata: b"our build"})
-
-    def test_cancellation_targets_only_active_prerelease_job_for_exact_commit(self):
-        jobs = [
-            {"databaseId": 1, "workflowName": "Publish automatic prerelease", "status": "in_progress"},
-            {"databaseId": 2, "workflowName": "Build and test", "status": "in_progress"},
-            {"databaseId": 3, "workflowName": "Publish automatic prerelease", "status": "completed"},
-        ]
-        with patch.object(local.preview.release, "run", return_value=json.dumps(jobs)) as query, \
-                patch.object(local.subprocess, "run") as cancel:
-            cancel.return_value.returncode = 0
-            local.cancel_redundant_ci("exact-commit")
-            args = query.call_args.args
-            self.assertEqual(args[args.index("--commit") + 1], "exact-commit")
-            cancel.assert_called_once_with(["gh", "run", "cancel", "1", "--repo", "alanzchen/winmux"])

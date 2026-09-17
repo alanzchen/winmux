@@ -1,9 +1,7 @@
 name: Build and test
 
 on:
-  push:
-    branches: [main, codex/issue-fixes]
-  pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read

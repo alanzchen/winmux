@@ -42,12 +42,13 @@ Preserve fork features when integrating upstream: sidebar layer settings, settin
 
 ## Feature Delivery
 
-The user has authorized building and publishing the Dock badge option.
+Build and release locally. Do not invoke GitHub CI automatically. Hosted workflows
+are manual-only and disabled in the fork's settings; enable or dispatch them only
+when the user explicitly requests a GitHub run.
 
-Push completed feature changes to `codex/issue-fixes` or `main` after validation.
-The automatic prerelease workflow tests, signs, notarizes, and publishes the app,
-then advances the preview update feed. Check the workflow result and link the
-prerelease when delivering a feature. Never replace published version assets or
-manually move the feed backwards. Documentation-only changes do not trigger releases.
-Use `make prerelease-local` for faster local signing and publication when credentials
-are available; it keeps hosted CI as the fallback until publication succeeds.
+After validation, push completed changes to `codex/issue-fixes` or `main`.
+For authorized publication, use `make prerelease-local` to test, build, sign,
+notarize, upload, and advance the preview feed from this Mac. A failed local build
+must not trigger a hosted fallback. Verify the published assets and update feed,
+and link the prerelease when delivering it. Never replace published version assets
+or move the feed backwards.

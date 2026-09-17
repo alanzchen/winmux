@@ -6,17 +6,16 @@ Release archives use this fork's Sparkle Ed25519 key. The application and its em
 CLI update together; the distributed `bin/winmux` launcher runs the CLI inside the
 installed application.
 
-## Automatic feature prereleases
+## Local feature prereleases
 
-Pushing application or build changes to `codex/issue-fixes` or `main` runs
-`.github/workflows/prerelease.yml`. Documentation-only pushes are excluded. Each
-successful run tests, builds, signs, notarizes, and publishes an immutable GitHub
-**prerelease**, then atomically updates `prerelease.xml` on the `updates` branch.
-That branch does not trigger another build. Pull requests and other branches have
-no access to this publishing path.
+Build, test, sign, and notarize on the local Mac. GitHub hosts the resulting
+**prerelease** and update feed. Branch pushes, pull requests, tag creation, and
+release publication must not start GitHub Actions automatically. Use
+`make prerelease-local` when publication is authorized; it uploads verified
+artifacts and atomically updates `prerelease.xml` on the `updates` branch.
 
 Versions are numeric for Sparkle ordering: `.prerelease-version` supplies the
-major/minor prefix, currently `0.6`. Both local builds and CI reserve the next patch
+major/minor prefix, currently `0.6`. Local builds and explicitly requested hosted builds reserve the next patch
 number using an atomic GitHub tag creation. Failed or cancelled builds can leave
 gaps; their tags are never reused. Reruns never replace signed archives. Older jobs cannot
 replace a newer published version or move the feed backwards. Increase the prefix
@@ -24,7 +23,7 @@ when starting a new version series.
 
 The feed advances only after GitHub confirms all uploaded asset hashes. Failed
 builds leave the previous update available. If publication succeeds but feed
-promotion fails, rerun the workflow to repair the feed from the verified published
+promotion fails, rerun the local command to repair the feed from the verified published
 appcast. GitHub's stable
 `releases/latest` endpoint excludes prereleases, so it is not used for this channel.
 
@@ -34,7 +33,7 @@ normal background checks and installation behavior; **Check for Updates** reques
 an immediate check. User-disabled automatic updates remain respected. Downloading
 source with `git pull` is not part of app updates.
 
-## Faster local releases with CI fallback
+## Build and publish locally
 
 With the pinned Swift/Xcode toolchain and saved Developer ID, notarization, and
 Sparkle credentials configured, run from a clean, committed integration branch:
@@ -45,36 +44,33 @@ make prerelease-local \
   NOTARYTOOL_KEYCHAIN="$HOME/Library/Keychains/login.keychain-db"
 ```
 
-The command pushes the commit so CI remains available, runs all tests, builds and
-notarizes locally, uploads the same verified release assets, and advances the same
+The command pushes the reviewed commit, runs all tests, builds and notarizes
+locally, uploads the verified release assets, and advances the
 feed. Outputs stay in `.local/prereleases/vVERSION/`. It restores only its own
 generated version files and refuses publication if source files change during the
 build. `SPARKLE_PRIVATE_KEY_FILE` is supported when using a protected signing-key
 file instead of the saved Keychain account.
 
-After successful local publication it cancels the redundant prerelease job for
-that exact commit; ordinary CI tests continue. If the local build fails, CI keeps
-running. CI also skips already-published commits, and either publisher reuses a
-completed release if the other wins the race. Without a local build, normal pushes
-continue to produce signed prereleases entirely on GitHub.
+If a local build fails, fix it and rerun locally. There is no automatic hosted
+fallback. Already-published commits reuse their verified release and can repair
+its feed; they never replace published artifacts.
 
-## Automated builds
+## Optional manual GitHub workflows
 
-`.github/workflows/ci.yml` tests and builds pushes to `main` and `codex/issue-fixes`
-and pull requests. It has no signing credentials.
+The workflow files accept only `workflow_dispatch`. They are also disabled in the
+fork's settings, preventing automatic runs from older refs that still contain
+event triggers. Enable and dispatch a hosted workflow only when the user explicitly
+requests it; leave it disabled otherwise.
 
-`.github/workflows/release.yml` remains available for explicitly pushed annotated
-stable tags (`git tag -a`). Lightweight preview reservations skip its signing job;
-manual dispatch remains available for an existing stable tag.
-Choose a version newer than all existing preview and stable versions in that series.
-This stable-release workflow uses `https://github.com/alanzchen/winmux/releases/latest/download/appcast.xml`.
-It runs all Swift tests and release-tool regressions, builds universal arm64/x86_64
-executables, signs with Developer ID, notarizes and staples the app and DMG, then
-signs the final update ZIP with Sparkle. The workflow validates signatures, bundle
-metadata, architectures, archive checksums, and uploaded asset digests before
-publishing a complete draft as the latest release.
+- `ci.yml`: tests and builds the selected ref, without signing credentials.
+- `prerelease.yml`: manually publishes a preview from an integration branch.
+- `release.yml`: manually publishes an existing stable tag. Choose a version newer
+  than all previews and stable versions in the series. This uses the stable feed,
+  `https://github.com/alanzchen/winmux/releases/latest/download/appcast.xml`.
+- `update-homebrew-cask.yml`: an upstream-only manual cask update for a published
+  stable tag; it is inactive in this fork.
 
-Both workflows pin Xcode 26.3 on `macos-26` and check its compiler against
+Hosted build workflows pin Xcode 26.3 on `macos-26` and check its compiler against
 `.swift-version` (6.2.4). A missing Xcode version or compiler mismatch fails the run;
 the workflow never silently switches toolchains.
 
@@ -115,35 +111,37 @@ Generating a new key for each build would break installed clients' update trust.
 The `release` environment, Developer ID certificate, Apple notarization credentials,
 and Sparkle key are configured. Local notarization uses the Keychain profile `winmux`.
 Creating/exporting credentials and entering the app-specific password are one-time
-setup. Tagged GitHub releases reuse these secrets without desktop prompts; renew
-credentials when they expire or are revoked. Retain the existing Sparkle key.
+setup. Local releases reuse the saved Keychain credentials; optional hosted runs
+reuse the repository secrets. Renew expired or revoked credentials and retain the
+existing Sparkle key.
 
-## Publish a version
+## Publish a stable version locally
 
 Choose a reviewed commit containing the fork features, issue fixes, and release
-workflow. Use a new `vMAJOR.MINOR.PATCH` tag greater than every published stable
+workflow. Use a new `vMAJOR.MINOR.PATCH` tag greater than every published preview or stable
 version; prerelease and noncanonical tags are rejected.
 
 ```sh
 git tag -a v0.7.0 -m "WinMux 0.7.0"
 git push origin v0.7.0
+make release VERSION=0.7.0 RELEASE_TAG=v0.7.0 \
+  CODESIGN_IDENTITY="Developer ID Application" DEVELOPMENT_TEAM=N9YEGD9WDP \
+  NOTARYTOOL_KEYCHAIN="$HOME/Library/Keychains/login.keychain-db" \
+  UPDATE_FEED_URL="https://github.com/alanzchen/winmux/releases/latest/download/appcast.xml" \
+  NOTARIZE=1 GENERATE_APPCAST=1 PUBLISH=1
 ```
 
-The tag push publishes automatically when validation succeeds. For a failed run,
-rerun it in Actions. Once the workflow is on the default branch, manual dispatch
-also works, but its selected ref and input must both identify the same existing tag:
-
-```sh
-gh workflow run release.yml --repo alanzchen/winmux --ref v0.7.0 -f tag=v0.7.0
-```
+Run the full Swift and release-tool tests before publication. Tag creation itself
+starts no hosted build. The local publisher verifies signatures, notarization,
+architectures, archive checksums, and uploaded asset digests.
 
 A retry can replace an incomplete draft's assets. It cannot overwrite a published
 release, move a tag, or make an older stable version the latest update.
 
 Each release contains `WinMux-VERSION.zip` (Sparkle app archive),
 `WinMux-VERSION-macOS.zip` (app, CLI launcher, and docs), `WinMux-VERSION.dmg`,
-`appcast.xml`, and `SHA256SUMS`. Feature merges/pushes trigger previews; stable
-publication still requires an explicit version tag.
+`appcast.xml`, and `SHA256SUMS`. Publishing requires an explicit local command;
+pushes alone never publish a preview or stable release.
 
 ## Local signing and first installation
 
@@ -193,8 +191,8 @@ Upstream releases trust a different key/feed; old ad-hoc development DMGs do not
 establish this fork's release trust. They cannot migrate automatically through this
 new feed. Recheck macOS Accessibility permission after changing signing identities.
 
-Validate local Developer ID signing and notarization before publishing. The first
-tagged release must also pass the GitHub workflow. Before calling the installed
+Validate local tests, Developer ID signing, and notarization before publishing.
+Before calling the installed
 update path verified, install that build and update to a second signed version,
 then compare the app and `winmux --version`.
 

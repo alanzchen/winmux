@@ -1,11 +1,6 @@
-name: Publish automatic prerelease
+name: Publish prerelease (manual)
 
 on:
-  push:
-    branches: [main, codex/issue-fixes]
-    paths-ignore:
-      - '**/*.md'
-      - 'docs/**'
   workflow_dispatch:
 
 # Serialize different versions too: an older build must never replace the latest feed.
