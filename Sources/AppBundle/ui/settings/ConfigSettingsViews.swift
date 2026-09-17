@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ShortcutBehaviorSettingsView: View {
     @ObservedObject var model: ShortcutSettingsModel
+    @StateObject private var screenRecording = ScreenRecordingPermissionModel()
     @State private var doubleSidedWindows = ExperimentalUISettings().doubleSidedWindows
     @State private var automaticallyTileNewWindows = config.automaticallyTileNewWindows
     @State private var autoAddNewWindowsToTabGroup = config.autoAddNewWindowsToTabGroup
@@ -27,14 +28,28 @@ struct ShortcutBehaviorSettingsView: View {
                 SettingsToggle("Double-sided windows", isOn: $doubleSidedWindows, help: "Replace two-window tab strips with two sides. Option-click anywhere in the window or press Option-Tab to flip.") {
                     var settings = ExperimentalUISettings()
                     settings.doubleSidedWindows = doubleSidedWindows
-                    if doubleSidedWindows { requestScreenRecordingPermissionsIfNeeded() }
                     scheduleRefreshSession(.menuBarButton)
                 }
-                Text("Option-click anywhere in the window or press Option-Tab to flip between two windows. Three or more windows use tabs. Window tabs must be enabled. Rotation uses Screen Recording access and respects Reduce Motion.")
+                Text("Option-click anywhere in the window or press Option-Tab to flip between two windows. Three or more windows use tabs. Window tabs must be enabled. Screen Recording is optional: without it, windows switch without the rotation animation. Rotation respects Reduce Motion.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(14)
+                HStack {
+                    Text(screenRecording.isGranted ? "Screen Recording: allowed" : "Screen Recording: not available to this app")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    if !screenRecording.isGranted && !screenRecording.didRequest {
+                        Button("Allow Screen Recording…") { screenRecording.requestFromSettings() }
+                    }
+                    Button("Open Privacy Settings…") {
+                        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
+                            NSWorkspace.shared.open(url)
+                        }
+                    }
+                }
+                .padding(14)
             }
             SettingsSection("Interaction") {
                 SettingsToggle("Shake to toggle tiling", isOn: $enableShakeToToggleTiling, help: "Shake a window by its title bar to switch between floating and tiled.") { persistRootBool("enable-shake-to-toggle-tiling", enableShakeToToggleTiling) }
@@ -65,6 +80,10 @@ struct ShortcutBehaviorSettingsView: View {
                     persistConfig(section: nil, key: "persistent-workspaces", value: tomlStringArray(persistentWorkspaces))
                 }
             }
+        }
+        .onAppear { screenRecording.refresh() }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            screenRecording.refresh()
         }
     }
 

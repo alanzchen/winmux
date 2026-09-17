@@ -556,6 +556,20 @@ latency diagnostics. If `--version` shows a server of `Unknown` or a real query
 cannot connect, ensure `WinMux.app` is running and that the client came from the
 same installation.
 
+Screen Recording is optional. WinMux does not request it at launch or after an
+update. In Settings > Behavior > Window pairs, use **Allow Screen Recording…**
+only if you want the double-sided window rotation animation. Without permission,
+the windows still switch. The permission status refreshes when returning from
+System Settings; WinMux does not retry a denied request automatically.
+
+If System Settings already lists WinMux but `doctor` reports missing access,
+check that you are running `/Applications/WinMux.app` rather than a debug build
+or another copy. Switching signing identities can require approval again;
+ordinary releases from this fork keep the same Developer ID identity. WinMux
+does not reset your Accessibility approval after a failed permission check.
+macOS may still show its own capture reminders when using the rotation effect's
+legacy capture APIs; removing the launch request does not suppress those OS alerts.
+
 `debug-windows` is an interactive diagnostic intended for Accessibility API bug
 reports. Its output can contain window metadata; inspect it before sharing.
 

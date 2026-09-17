@@ -36,7 +36,8 @@ import Foundation
         MonitorConfigurationObserver.shared.prepareForStartup()
 
         checkAccessibilityPermissions()
-        requestScreenRecordingPermissionsIfNeeded()
+        // Screen Recording is optional. Request it only from the explicit Settings action,
+        // never on launch, config reload, or restoration after an update.
         startUnixSocketServer()
         GlobalObserver.initObserver()
         MonitorConfigurationObserver.shared.startObserving()
