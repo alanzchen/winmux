@@ -56,7 +56,7 @@ struct WorkspaceSidebarView: View {
                 fitsDockContent: snapshot.configuration.showAppIcons
             )
             sidebarContent(expansionProgress: expansionProgress)
-                .environment(\.workspaceSidebarDockPointer, allowsDockMagnification ? (dockPointer ?? inheritedDockPointer) : nil)
+                .environment(\.workspaceSidebarDockPointer, dockMagnificationPointer(inheritedDockPointer ?? dockPointer, in: surfaceFrame))
                 .frame(width: surfaceFrame.width, height: surfaceFrame.height, alignment: .leading)
                 .mask(alignment: .leading) {
                     Rectangle()
@@ -70,17 +70,17 @@ struct WorkspaceSidebarView: View {
                         )
                     }
                 }
+                .onContinuousHover(coordinateSpace: .named("workspaceSidebarContent")) { phase in
+                    switch phase {
+                        case .active(let point):
+                            dockPointer = isWorkspaceSidebarDragInProgress() ? nil : dockMagnificationPointer(point, in: surfaceFrame)
+                        case .ended: dockPointer = nil
+                    }
+                }
                 .position(x: surfaceFrame.midX, y: surfaceFrame.midY)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         .coordinateSpace(name: "workspaceSidebarContent")
-        .onContinuousHover(coordinateSpace: .named("workspaceSidebarContent")) { phase in
-            switch phase {
-                case .active(let point):
-                    dockPointer = allowsDockMagnification && !isWorkspaceSidebarDragInProgress() ? point : nil
-                case .ended: dockPointer = nil
-            }
-        }
         .onReceive(NotificationCenter.default.publisher(for: workspaceSidebarDragPointerChangedNotification)) { _ in
             dockPointer = nil
         }
@@ -1216,6 +1216,15 @@ extension WorkspaceSidebarView {
             snapshot.visibleWidth <= snapshot.configuration.compactRailWidth + 0.5 &&
             !reduceDockMotion && !dockMenuTracking && !isProjectMenuOpen && !isSearchEditing &&
             renamingProjectId == nil && renamingWorkspaceName == nil && snapshot.dropPreview == nil
+    }
+
+    func dockMagnificationPointer(_ pointer: CGPoint?, in surfaceFrame: CGRect) -> CGPoint? {
+        // The panel also covers transparent space beside and above the compact Dock.
+        // Only the visible rounded surface owns hover magnification.
+        guard allowsDockMagnification, let pointer,
+              sidebarShape.path(in: surfaceFrame).contains(pointer)
+        else { return nil }
+        return pointer
     }
 
     var compactDockContentHeight: CGFloat {

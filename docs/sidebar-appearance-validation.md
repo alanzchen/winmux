@@ -174,3 +174,31 @@ hover, click, drag, Reduce Motion, or multi-monitor smoke pass is claimed.
 The isolated preview renderer accepts `--icon-size 24|40|48`, `--magnification 1`,
 `--pointer-y <points>`, `--glass-opacity 0…1`, and `--appearance light|dark`.
 Injected pointer coordinates provide a visual fixture, not a live-input test.
+
+### Hover boundaries, live appearance, and complete app lists
+
+Follow-up fixes limit hover tracking to the Dock surface and reject points outside
+its rounded path, including transparent panel space beside, above, and below it.
+This follows Apple's documented
+[view-bound hover region](https://developer.apple.com/documentation/swiftui/view/oncontinuoushover(coordinatespace:perform:)).
+The coordinate space is shared with icon geometry; leaving the region clears
+magnification. Workspace-number glyphs scale from a fixed font layout instead of
+changing font size at every animated geometry update, addressing hover flicker.
+
+Panel models now publish equality-checked appearance snapshots on configuration
+reload. Icon size, glass opacity, and magnification update without pointer movement
+or workspace changes; explicitly expanded panels also adopt width changes.
+All workspace app icons render and scroll; the three-app cap and `+N` tile are removed.
+
+The full suite passed **733 tests, zero failures, one native-glass skip**. Regression
+coverage includes outside/rounded-corner hover rejection, appearance-only model
+notifications, all seven native icon anchors, and longer magnified columns. The
+desktop-control tool still times out, so a live flicker/hover/settings smoke pass
+is not claimed.
+
+Native preview capture subsequently succeeded. These are real WindowServer
+captures of the production sidebar with fixture workspaces and injected pointer
+coordinates: [inside the Dock](images/sidebar-dock-hover-inside.png) and
+[above the Dock](images/sidebar-dock-hover-outside.png). The outside sample keeps
+all tiles at resting size; the inside sample magnifies nearby tiles. Both show
+readable number glyphs. Static captures do not establish flicker-free live motion.

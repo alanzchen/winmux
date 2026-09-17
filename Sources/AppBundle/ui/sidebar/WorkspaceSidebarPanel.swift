@@ -1005,6 +1005,10 @@ extension WorkspaceSidebarPanel {
             viewModel.workspaceSidebarVisibleWidth = viewModel.isWorkspaceSidebarExpanded
                 ? layout.expandedWidth
                 : layout.collapsedWidth
+        } else if viewModel.isWorkspaceSidebarExpanded,
+                  viewModel.workspaceSidebarVisibleWidth != layout.expandedWidth {
+            // An explicitly expanded sidebar also follows live width changes.
+            viewModel.workspaceSidebarVisibleWidth = layout.expandedWidth
         } else if !viewModel.isWorkspaceSidebarExpanded,
                   pendingExpand == nil,
                   pendingCollapse == nil,

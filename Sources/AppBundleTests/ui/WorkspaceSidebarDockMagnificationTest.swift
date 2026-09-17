@@ -1,10 +1,37 @@
 import AppKit
+import Combine
 @testable import AppBundle
 import SwiftUI
 import XCTest
 
 @MainActor
 final class WorkspaceSidebarDockMagnificationTest: XCTestCase {
+    func testAppearanceReloadPublishesWithoutPointerOrWorkspaceChanges() {
+        let previous = config
+        defer { config = previous }
+        let model = TrayMenuModel()
+        model.workspaceSidebarVisibleWidth = 64
+        model.refreshWorkspaceSidebarAppearance()
+        var changes = 0
+        let observation = model.objectWillChange.sink { changes += 1 }
+        config.workspaceSidebar.showAppIcons = true
+        config.workspaceSidebar.alwaysExpanded = false
+        config.workspaceSidebar.dockMagnification = true
+        config.workspaceSidebar.dockIconSize = 48
+        config.workspaceSidebar.glassOpacity = 0.27
+        model.refreshWorkspaceSidebarAppearance()
+        let snapshot = workspaceSidebarSnapshot(from: model)
+        XCTAssertEqual(changes, 1)
+        XCTAssertTrue(snapshot.configuration.dockMagnification)
+        XCTAssertEqual(snapshot.configuration.dockIconSize, 48)
+        XCTAssertEqual(snapshot.configuration.glassOpacity, 0.27)
+        XCTAssertEqual(snapshot.visibleWidth, 64)
+        XCTAssertNil(snapshot.hoveredWorkspaceName)
+        model.refreshWorkspaceSidebarAppearance()
+        XCTAssertEqual(changes, 1, "Unchanged refreshes must not invalidate the animation tree")
+        withExtendedLifetime(observation) {}
+    }
+
     func testDefaultsAndSettingsRoundTrip() {
         XCTAssertFalse(WorkspaceSidebarConfig().dockMagnification)
         XCTAssertEqual(WorkspaceSidebarConfig().dockIconSize, 40)
@@ -55,7 +82,7 @@ final class WorkspaceSidebarDockMagnificationTest: XCTestCase {
 
     func testPointerMagnifiesNeighborsWithoutChangingHeightOrOverlapping() {
         for size: CGFloat in [24, 32, 40, 48] {
-            for count in 1...5 {
+            for count in [1, 2, 3, 5, 10, 30] {
                 let layout = WorkspaceSidebarDockMagnification(itemSize: size, count: count, enabled: true)
                 let height = layout.height
                 for pointer in stride(from: CGFloat(-100), through: height + 100, by: 3) {
@@ -93,10 +120,35 @@ final class WorkspaceSidebarDockMagnificationTest: XCTestCase {
         }
     }
 
+    func testMagnificationRequiresPointerInsideVisibleDockSurface() {
+        var snapshot = WorkspaceSidebarSnapshot.empty
+        snapshot.configuration.showAppIcons = true
+        snapshot.configuration.dockMagnification = true
+        snapshot.configuration.configuredCollapsedWidth = 64
+        snapshot.configuration.expandedWidth = 240
+        snapshot.visibleWidth = 64
+        let view = WorkspaceSidebarView(snapshot: snapshot)
+        let surface = workspaceSidebarSurfaceFrame(availableSize: CGSize(width: 240, height: 900),
+            visibleWidth: 64, compactHeight: 400, expansionProgress: 0, fitsDockContent: true)
+        let inside = CGPoint(x: 32, y: surface.midY)
+        XCTAssertEqual(view.dockMagnificationPointer(inside, in: surface), inside)
+        let layout = WorkspaceSidebarDockMagnification(itemSize: 40, count: 3, enabled: true)
+        for outside in [CGPoint(x: 65, y: inside.y), CGPoint(x: 230, y: inside.y),
+                        CGPoint(x: -1, y: inside.y), CGPoint(x: 32, y: surface.minY - 1),
+                        CGPoint(x: 32, y: surface.maxY + 1), CGPoint(x: 1, y: surface.minY + 1)] {
+            let pointer = view.dockMagnificationPointer(outside, in: surface)
+            XCTAssertNil(pointer, "Transparent panel space must not magnify icons: \(outside)")
+            XCTAssertEqual(layout.frames(width: 50, pointerY: pointer?.y).map(\.width), [40, 40, 40])
+        }
+        XCTAssertNil(view.dockMagnificationPointer(nil, in: surface))
+        snapshot.visibleWidth = 240
+        XCTAssertNil(WorkspaceSidebarView(snapshot: snapshot).dockMagnificationPointer(inside, in: surface))
+    }
+
     func testNativeIconAnchorsMatchMagnifiedRenderingForHitTargets() throws {
         var workspace = sidebarAppIconsTestWorkspace(displayName: "2")
-        workspace.apps = sidebarAppIconsTestApps(count: 3)
-        let layout = WorkspaceSidebarDockMagnification(itemSize: 40, count: 4, enabled: true)
+        workspace.apps = sidebarAppIconsTestApps(count: 7)
+        let layout = WorkspaceSidebarDockMagnification(itemSize: 40, count: 8, enabled: true)
         let pointerY = layout.restingCenter(1)
         let probe = DockAnchorProbe()
         let content = WorkspaceSidebarAppIconHeader(workspace: workspace, availableWidth: 50, isActive: true,

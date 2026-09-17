@@ -52,19 +52,18 @@ final class WorkspaceSidebarAppIconsTest: XCTestCase {
         XCTAssertEqual(filtered[workspaceProjectDefaultId]?.first?.items.count, 1)
     }
 
-    func testDockSummaryKeepsAppOverflowAtEverySupportedWidth() {
+    func testDockShowsEveryAppAtEverySupportedWidth() {
         for width: CGFloat in [14, 30, 106] {
             for appCount in [0, 1, 3, 6, 104] {
                 let layout = WorkspaceSidebarAppIconLayout(appCount: appCount, availableWidth: width)
-                XCTAssertEqual(layout.visibleAppCount + layout.overflowCount, appCount)
-                XCTAssertEqual(layout.visibleAppCount, min(appCount, 3))
+                XCTAssertEqual(layout.visibleAppCount, appCount)
                 XCTAssertGreaterThan(layout.itemSize, 0)
                 XCTAssertLessThanOrEqual(layout.itemSize, width, "Dock tiles must fit the configured rail")
             }
         }
     }
 
-    func testAccessibilitySummaryIncludesAppsHiddenByOverflow() {
+    func testAccessibilitySummaryIncludesEveryApp() {
         var workspace = sidebarAppIconsTestWorkspace(displayName: "12")
         workspace.apps = sidebarAppIconsTestApps(count: 6)
         let label = workspaceSidebarAppSummaryLabel(workspace)

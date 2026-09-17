@@ -115,18 +115,21 @@ struct WorkspaceSidebarMorphOverlay: View {
                 let compactRect = geometry[compactAnchor]
                 let rect = interpolatedRect(from: compactRect, to: geometry[expandedAnchor])
                 let fontSize = interpolate(compactRect.height * 0.55, 15, progress: progress)
+                let textScale = max(fontSize / 28.6, 0.001)
                 let textWidth = max(rect.width - compactRect.width * 0.26 * (1 - clampedProgress), 1)
                 ZStack {
                     WorkspaceSidebarWorkspaceIconBackground(isActive: isActive)
                         .opacity(Double((1 - clampedProgress) * (1 - clampedProgress)))
-                    title(availableWidth: textWidth, fontSize: fontSize)
-                        .font(.system(size: fontSize, weight: .semibold))
+                    title(availableWidth: textWidth / textScale, fontSize: 28.6)
+                        .font(.system(size: 28.6, weight: .semibold))
                         .monospacedDigit()
                         .foregroundStyle(Color.white.opacity(Double(interpolate(0.98, isActive ? 1 : 0.85, progress: progress))))
                         .lineLimit(1)
                         .minimumScaleFactor(interpolate(0.25, 1, progress: progress))
                         .truncationMode(.tail)
                         .fixedSize(horizontal: false, vertical: true)
+                        .frame(width: textWidth / textScale, height: rect.height / textScale)
+                        .scaleEffect(textScale)
                         .frame(width: textWidth, height: rect.height)
                 }
                 .frame(width: rect.width, height: rect.height)

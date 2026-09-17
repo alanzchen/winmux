@@ -19,7 +19,7 @@ struct WorkspaceSidebarAppIconHeader: View {
 
     var body: some View {
         GeometryReader { geometry in
-            let count = 1 + layout.visibleAppCount + (layout.overflowCount > 0 ? 1 : 0)
+            let count = 1 + layout.visibleAppCount
             let magnification = WorkspaceSidebarDockMagnification(itemSize: layout.itemSize, count: count, enabled: magnificationEnabled)
             let origin = geometry.frame(in: .named("workspaceSidebarContent")).minY
             let frames = magnification.frames(width: availableWidth, pointerY: pointer.map { $0.y - origin })
@@ -35,11 +35,6 @@ struct WorkspaceSidebarAppIconHeader: View {
                 ForEach(Array(workspace.apps.prefix(layout.visibleAppCount).enumerated()), id: \.element.id) { index, app in
                     let rect = frames[index + 1]
                     appIcon(app, size: rect.width)
-                        .position(x: rect.midX, y: rect.midY)
-                }
-                if layout.overflowCount > 0 {
-                    let rect = frames[count - 1]
-                    WorkspaceSidebarWorkspaceIcon(identifier: "+\(layout.overflowCount)", isActive: false, size: rect.width)
                         .position(x: rect.midX, y: rect.midY)
                 }
             }
@@ -81,12 +76,16 @@ struct WorkspaceSidebarWorkspaceIcon: View {
         WorkspaceSidebarWorkspaceIconBackground(isActive: isActive)
             .overlay {
                 Text(identifier)
-                    .font(.system(size: size * 0.55, weight: .semibold))
+                    // Keep glyph layout stable while the tile magnifies. Animating font
+                    // sizes repeatedly re-lays out text as anchor geometry changes.
+                    .font(.system(size: 28.6, weight: .semibold))
                     .monospacedDigit()
                     .foregroundStyle(Color.white.opacity(0.98))
                     .lineLimit(1)
                     .minimumScaleFactor(0.25)
-                    .padding(.horizontal, size * 0.13)
+                    .padding(.horizontal, 6.76)
+                    .frame(width: 52, height: 52)
+                    .scaleEffect(size / 52)
             }
             .frame(width: size, height: size)
             .overlay(alignment: .leading) {

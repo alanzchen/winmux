@@ -73,7 +73,8 @@ window stays fixed for the duration of the drag; other windows from that app sta
 in their original workspace. Expanded window rows remain individually draggable.
 Compact drags retain a full-size app icon at the pointer and at the drop target,
 including the new-workspace target; they do not show a clipped window title.
-An overflow tile marks additional apps. The compact rail uses a fixed **64 pt**
+Every app in the workspace is shown; long columns scroll instead of hiding icons
+behind an overflow tile. The compact rail uses a fixed **64 pt**
 width, native Liquid Glass, and a 4-point dot centered in the left gap beside the
 active workspace's number tile.
 The stored **Collapsed width** setting is preserved for the default sidebar mode.

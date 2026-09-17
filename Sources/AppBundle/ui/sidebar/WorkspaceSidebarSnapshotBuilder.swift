@@ -1,5 +1,13 @@
 import Foundation
 
+extension TrayMenuModel {
+    @MainActor func refreshWorkspaceSidebarAppearance() {
+        // Config is not observable. Publish appearance-only changes even when the
+        // workspace data and panel width are unchanged, without resetting view state.
+        setIfChanged(\.workspaceSidebarAppearance, workspaceSidebarConfiguration())
+    }
+}
+
 @MainActor
 func workspaceSidebarConfiguration() -> WorkspaceSidebarConfiguration {
     WorkspaceSidebarConfiguration(

@@ -48,7 +48,7 @@ final class WorkspaceSidebarMorphRenderingTest: XCTestCase {
                 XCTAssertEqual(compact.size.width + 14, railWidth, accuracy: 0.01)
                 let compactTitle = try XCTUnwrap(compact.frames[.compactTitle])
                 XCTAssertEqual(compactTitle.width, compactTitle.height, accuracy: 0.01, "Workspace numbers occupy a square app tile")
-                let visibleApps = workspace.apps.prefix(3)
+                let visibleApps = workspace.apps
                 var previousTile = compactTitle
                 for app in visibleApps {
                     let tile = try XCTUnwrap(compact.frames[.compactApp(app.id)])

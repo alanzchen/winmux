@@ -82,7 +82,6 @@ final class WorkspaceSidebarCompactWidthTest: XCTestCase {
                     XCTAssertEqual(icons.itemSize, compactIcons.itemSize, accuracy: 0.001)
                     XCTAssertEqual(icons.height, compactIcons.height, accuracy: 0.001)
                     XCTAssertEqual(icons.visibleAppCount, compactIcons.visibleAppCount)
-                    XCTAssertEqual(icons.overflowCount, compactIcons.overflowCount)
                 }
             }
         }
@@ -146,16 +145,16 @@ final class WorkspaceSidebarCompactWidthTest: XCTestCase {
         }
     }
 
-    func testMorphTargetsIncludeOnlyAppsVisibleInCompactRail() {
+    func testMorphTargetsIncludeEveryAppInCompactRail() {
         let apps = sidebarAppIconsTestApps(count: 6)
         let windows = apps.enumerated().map { window(id: UInt32($0.offset + 1), app: $0.element) }
         let workspace = self.workspace(apps: apps, items: windows.map { .init(kind: .window($0)) })
 
         for railWidth: CGFloat in [28, 44, 120] {
             let view = section(workspace: workspace, railWidth: railWidth)
-            XCTAssertEqual(Set(view.appMorphTargets.keys), Set(apps.prefix(3).map(\.id)))
+            XCTAssertEqual(Set(view.appMorphTargets.keys), Set(apps.map(\.id)))
             for (index, window) in windows.enumerated() {
-                XCTAssertEqual(view.morphAppId(for: window), index < 3 ? apps[index].id : nil)
+                XCTAssertEqual(view.morphAppId(for: window), apps[index].id)
             }
         }
     }

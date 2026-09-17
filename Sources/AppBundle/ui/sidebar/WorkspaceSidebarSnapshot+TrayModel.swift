@@ -13,6 +13,6 @@ func workspaceSidebarSnapshot(from model: TrayMenuModel) -> WorkspaceSidebarSnap
         visibleWidth: model.workspaceSidebarVisibleWidth,
         hoveredWorkspaceName: model.workspaceSidebarHoveredWorkspaceName,
         dropPreview: model.workspaceSidebarDropPreview,
-        configuration: workspaceSidebarConfiguration(),
+        configuration: model.workspaceSidebarAppearance,
     )
 }
