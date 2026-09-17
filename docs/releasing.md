@@ -284,13 +284,54 @@ Apple accepted the app (`dd23f326-5612-4df5-b464-d22f834c9e4e`) and DMG
 Gatekeeper, the Sparkle signature, both ZIPs, the read-only mounted DMG, matching
 universal app/CLI metadata, launcher, and checksums passed verification.
 
-The current local package is
+The previous local package is
 `.build/developer-id-validation-23b55258/WinMux-0.5.5.dmg`; it supersedes `fe0962ab`.
 It has not been published or installed. Live pointer/VoiceOver verification is
 pending because the Mac was locked; detached rendering tests do not establish
 input behavior. See [sidebar validation](sidebar-appearance-validation.md#dock-icon-actions).
 The existing multi-monitor, tagged CI signing, and installed-update checks remain
 outstanding.
+
+### Local prerelease publication — September 16, 2026
+
+[WinMux 0.6.302](https://github.com/alanzchen/winmux/releases/tag/v0.6.302),
+from `8c118b82`, was built and published using `make prerelease-local`.
+It includes the left-side active-workspace dot and single-window app-icon dragging.
+All **720 application tests**, **64 release-tooling tests**, and the debug and
+universal release builds passed. Saved signing credentials required no new prompt.
+The first end-to-end local run took approximately **5 minutes 16 seconds** on this
+Mac, including tests, notarization, and publication; this is one run, not a benchmark.
+
+The command signed and notarized both the app and DMG, published all five assets,
+advanced the public preview feed, then cancelled only the duplicate hosted release
+job. Downloaded artifacts passed GitHub digest comparisons, Developer ID and
+Gatekeeper checks, notarization-ticket validation, universal app/CLI and version
+checks, both ZIPs, and a read-only mounted-DMG check. The downloaded update ZIP's
+Ed25519 signature matched the app's embedded Sparkle public key.
+
+A native Sparkle information-only probe discovered the update through the public
+feed; the published 0.6.302 bundle also read its own embedded feed and correctly
+reported itself up to date. No app was installed or replaced. Live pointer/drag,
+VoiceOver, multi-monitor interactions, and an installed version-to-version update
+remain unverified; the Mac was locked during this validation.
+
+Local artifacts: `.local/prereleases/v0.6.302/`. Public-download verification logs:
+`.build/prerelease-validation/`.
+
+### Hosted fallback and update discovery — September 16, 2026
+
+[GitHub Actions](https://github.com/alanzchen/winmux/actions/runs/35170717482)
+independently built and published
+[WinMux 0.6.304](https://github.com/alanzchen/winmux/releases/tag/v0.6.304)
+from `311b0ceb`, with no local build for that commit. All **720 application tests**,
+**64 release-tooling tests**, signing, notarization, packaging, upload verification,
+and feed promotion passed. The hosted run took approximately **14 minutes**.
+
+Public downloads passed the same package, checksum, and Sparkle signature checks
+as 0.6.302. A native Sparkle information-only probe using the published 0.6.302
+bundle's own embedded feed discovered **0.6.304** and its correct GitHub archive.
+This verifies cross-version update discovery; actual installed-app replacement
+and the live sidebar interaction checks above remain untested.
 
 ## References
 

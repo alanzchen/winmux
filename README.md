@@ -290,16 +290,20 @@ connecting a new CLI to a legacy server reports an upgrade error instead of wait
 
 ### Release updates
 
-Pushing a stable `vMAJOR.MINOR.PATCH` tag runs the signed release workflow. It builds a universal
-app and embedded CLI with the pinned compiler, notarizes the app and DMG, signs the final
-update archive with the fork's Sparkle key, and publishes all verified assets together.
+Feature pushes to `codex/issue-fixes` or `main` automatically publish signed prereleases.
+To build and upload from your Mac, use `make prerelease-local` with the saved signing
+credentials and pinned toolchain described in [release setup](docs/releasing.md).
+GitHub CI remains the fallback and its duplicate release job is cancelled only after
+local publication succeeds. Both paths build a universal app and embedded CLI,
+notarize the app and DMG, and sign the update archive with the fork's Sparkle key.
 
-The update feed is
-`https://github.com/alanzchen/winmux/releases/latest/download/appcast.xml`.
-The fork does not update the upstream Homebrew tap. See [release setup](docs/releasing.md)
-for Apple account secrets, local build commands, and the one-time migration steps.
-`make release VERSION=<version>` still builds locally by default; publishing requires explicit
-`NOTARIZE=1 GENERATE_APPCAST=1 PUBLISH=1` and an existing version tag.
+Preview builds use
+`https://raw.githubusercontent.com/alanzchen/winmux/updates/prerelease.xml`.
+Install a preview once to migrate from older local 0.5.5 builds; subsequent updates
+use that feed. Explicit annotated stable tags (`git tag -a vMAJOR.MINOR.PATCH`)
+retain their separate release workflow and stable update feed.
+The fork does not update the upstream Homebrew tap. `make release VERSION=<version>`
+continues to build locally without publishing by default.
 
 ## Migrating
 ### From AeroSpace
