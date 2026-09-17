@@ -77,6 +77,10 @@ extension WindowMouseInteractionDriver {
         isMouseUpResetScheduled = true
         DisplayRefreshDriver.shared.remove(owner: self)
         Task { @MainActor in
+            // Dock lift removes the source icon view, so SwiftUI may never deliver
+            // its gesture's onEnded. Finish its preview/session before the generic
+            // reset, which otherwise preserves UI for the still-active sidebar drag.
+            finishWorkspaceSidebarDragAfterMouseUp()
             try? await resetManipulatedWithMouseIfPossible()
             isMouseUpResetScheduled = false
         }

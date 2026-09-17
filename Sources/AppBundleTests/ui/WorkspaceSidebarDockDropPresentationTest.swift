@@ -7,6 +7,52 @@ import XCTest
 final class WorkspaceSidebarDockDropPresentationTest: XCTestCase {
     private let app = WorkspaceSidebarAppViewModel(name: "Editor", bundleId: "test.editor", bundlePath: nil)
 
+    func testEndingGestureClearsLivePreviewButPreservesCommittedHandoff() {
+        clearActiveWorkspaceSidebarDrag()
+        defer {
+            clearActiveWorkspaceSidebarDrag()
+            TrayMenuModel.shared.workspaceSidebarDockDrag = nil
+        }
+        beginActiveWorkspaceSidebarDrag(windowId: 42, subject: .window, previewStyle: .appIcon(size: 40))
+        var committed = presentation()
+        committed.destination = preview(newWorkspace: true)
+        TrayMenuModel.shared.workspaceSidebarDockDrag = committed
+        TrayMenuModel.shared.workspaceSidebarDropPreview = committed.destination
+        clearActiveWorkspaceSidebarDrag()
+        XCTAssertNil(TrayMenuModel.shared.workspaceSidebarDropPreview, "The faded create-workspace preview must not survive mouse-up")
+        XCTAssertEqual(TrayMenuModel.shared.workspaceSidebarDockDrag, committed, "The destination may still be waiting for its model update")
+    }
+
+    func testMissedMouseUpCleansDockSessionAfterSourceViewDisappears() async {
+        let driver = WindowMouseInteractionDriver.shared
+        clearActiveWorkspaceSidebarDrag()
+        resetWorkspaceSidebarItemDrag()
+        driver.stop()
+        defer {
+            clearActiveWorkspaceSidebarDrag()
+            resetWorkspaceSidebarItemDrag()
+            driver.stop()
+        }
+        // Simulate an icon removed by the lift projection: its SwiftUI onEnded
+        // never fires, leaving only the native display-loop mouse-up fallback.
+        beginActiveWorkspaceSidebarDrag(windowId: 42, subject: .window, previewStyle: .appIcon(size: 40))
+        beginWorkspaceSidebarItemDrag()
+        TrayMenuModel.shared.workspaceSidebarDockDrag = presentation()
+        TrayMenuModel.shared.workspaceSidebarDropPreview = preview(newWorkspace: true)
+        driver.moveSession = .init(windowId: 42, subject: .window, detachOrigin: .window, startedInSidebar: true)
+        driver.finishAfterMissedMouseUpIfNeeded()
+        for _ in 0..<100 where driver.isMouseUpResetScheduled { await Task.yield() }
+        XCTAssertFalse(driver.isMouseUpResetScheduled)
+        XCTAssertNil(currentActiveWorkspaceSidebarDrag())
+        XCTAssertFalse(isWorkspaceSidebarItemDragActive())
+        XCTAssertNil(TrayMenuModel.shared.workspaceSidebarDockDrag)
+        XCTAssertNil(TrayMenuModel.shared.workspaceSidebarDropPreview)
+        XCTAssertNil(WindowDragCursorProxyPanel.shared.currentContent)
+        // A duplicate SwiftUI/global mouse-up must remain harmless.
+        finishWorkspaceSidebarDragAfterMouseUp()
+        XCTAssertNil(TrayMenuModel.shared.workspaceSidebarDropPreview)
+    }
+
     func testPlaceholderSurvivesMouseUpUntilDestinationModelArrives() {
         let model = TrayMenuModel()
         model.workspaceSidebarAppearance.showAppIcons = true

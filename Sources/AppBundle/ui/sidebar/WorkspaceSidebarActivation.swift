@@ -51,6 +51,9 @@ func currentActiveWorkspaceSidebarDrag() -> ActiveWorkspaceSidebarDrag? {
 @MainActor
 func clearActiveWorkspaceSidebarDrag() {
     activeWorkspaceSidebarDrag = nil
+    // Live hover feedback ends with the gesture. A committed visual handoff has
+    // its own destination in workspaceSidebarDockDrag and remains until arrival.
+    clearWorkspaceSidebarDropPreview()
     if let drag = TrayMenuModel.shared.workspaceSidebarDockDrag, drag.destination == nil {
         finishWorkspaceSidebarDockLift(id: drag.id)
     }

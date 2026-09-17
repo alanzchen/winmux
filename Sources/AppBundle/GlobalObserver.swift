@@ -110,12 +110,18 @@ enum GlobalObserver {
         notificationObserverTokens.append(nc.addObserver(forName: NSWorkspace.screensDidWakeNotification, object: nil, queue: .main, using: onNotif))
         notificationObserverTokens.append(nc.addObserver(forName: NSWorkspace.didTerminateApplicationNotification, object: nil, queue: .main, using: onNotif))
 
+        retainEventMonitor(NSEvent.addLocalMonitorForEvents(matching: .leftMouseUp) { event in
+            // Local drops are not observed by the global monitor. Dispatch after
+            // SwiftUI handles the event; cleanup is idempotent if onEnded ran first.
+            Task { @MainActor in finishWorkspaceSidebarDragAfterMouseUp() }
+            return event
+        })
         retainEventMonitor(NSEvent.addGlobalMonitorForEvents(matching: .leftMouseUp) { _ in
             // todo reduce number of refreshSession in the callback
             //  resetManipulatedWithMouseIfPossible might call its own refreshSession
             //  The end of the callback calls refreshSession
             Task { @MainActor in
-                finishWorkspaceSidebarDragAfterGlobalMouseUp()
+                finishWorkspaceSidebarDragAfterMouseUp()
                 guard let token: RunSessionGuard = .isServerEnabled else { return }
                 try await resetManipulatedWithMouseIfPossible()
                 // Drag-end releases the sidebar expansion locks without any pointer movement;

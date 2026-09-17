@@ -43,7 +43,9 @@ struct WorkspaceSidebarDropDelegate: DropDelegate {
     func performDrop(info: DropInfo) -> Bool {
         isTargeted = false
         isSettling = true
-        clearPreviewAfterProviderCallbacksSettle()
+        // A completed drop clears hover feedback even if the cursor stays on the
+        // target. The delayed exit cleanup deliberately preserves other targets.
+        actions.send(.clearDropPreview)
         if isWorkspaceSidebarDragInProgress(
             kind: getCurrentMouseManipulationKind(),
             startedInSidebar: getCurrentMouseDragStartedInSidebar()
