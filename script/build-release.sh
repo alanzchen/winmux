@@ -194,7 +194,7 @@ if [[ "$GENERATE_APPCAST" == 1 ]]; then
     if [[ -n "$SPARKLE_PRIVATE_KEY_FILE" ]]; then key_args=(--ed-key-file "$SPARKLE_PRIVATE_KEY_FILE"); fi
     appcast_stage="$(mktemp -d "$release_dir/appcast-stage.XXXXXX")"
     cp "$app_zip" "$appcast_stage/"
-    "$sparkle_bin" "${key_args[@]}" --download-url-prefix "$download_prefix" "$appcast_stage"
+    "$sparkle_bin" "${key_args[@]}" --download-url-prefix "$download_prefix" -o "$appcast_stage/appcast.xml" "$appcast_stage"
     cp "$appcast_stage/appcast.xml" "$release_dir/appcast.xml"
     python3 -B script/validate-appcast.py "$release_dir/appcast.xml" "$VERSION" \
         "$download_prefix$(basename "$app_zip")" --archive "$app_zip"
