@@ -1311,7 +1311,7 @@ extension WorkspaceSidebarView {
     }
 
     func dockColumnGrowth(pointer: CGPoint?, restingSurface: CGRect) -> CGFloat {
-        guard allowsDockMagnification, let pointer else { return 0 }
+        guard allowsDockMagnification, dockSurfaceProgress == 0, let pointer else { return 0 }
         let projectId = projectPagerDisplayIndex.flatMap { snapshot.projects.indices.contains($0) ? snapshot.projects[$0].id : nil } ?? snapshot.activeProjectId
         var workspaces = currentFilteredProjectWorkspaces()
         if showsPinnedActiveWorkspaceForBrowsedProject,

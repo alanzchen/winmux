@@ -77,6 +77,27 @@ final class WorkspaceSidebarDockGeometryTest: XCTestCase {
         XCTAssertTrue(sample.probe.icons.isEmpty)
     }
 
+    func testExpansionImmediatelyRemovesMagnificationHeight() throws {
+        var snapshot = fixture()
+        snapshot.configuration.dockMagnification = true
+        snapshot.configuration.dockMagnificationAmount = 1
+        let resting = render(snapshot, height: 800)
+        let pointer = CGPoint(x: 32, y: try XCTUnwrap(resting.probe.icons.first).midY)
+        let compactHeight = WorkspaceSidebarView(snapshot: snapshot).compactDockContentHeight
+        let progress: CGFloat = 0.001
+        snapshot.visibleWidth = 64 + 176 * progress
+        let probe = DockGeometryProbe()
+        let host = NSHostingView(rootView:
+            WorkspaceSidebarView(snapshot: snapshot, actions: .init(setSurfaceFrame: { probe.surface = $0 }), reduceMotionOverride: false)
+                .environment(\.workspaceSidebarDockPointer, pointer)
+        )
+        host.frame = CGRect(x: 0, y: 0, width: 240, height: 800)
+        host.layoutSubtreeIfNeeded()
+        let surface = try XCTUnwrap(probe.surface)
+        XCTAssertEqual(surface.height, compactHeight + (800 - compactHeight) * progress, accuracy: 0.5,
+                       "Expanded rows have no magnification, including the first fraction of the transition")
+    }
+
     func testTallMagnifiedDockClipsIconHitRegionsToScrollViewport() throws {
         var snapshot = fixture()
         snapshot.configuration.dockMagnification = true
