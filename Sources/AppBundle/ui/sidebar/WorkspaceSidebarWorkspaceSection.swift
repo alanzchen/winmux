@@ -414,15 +414,12 @@ extension WorkspaceSidebarWorkspaceSection {
             .opacity(layout.showAppIcons ? (isDropTarget ? max(Double(morphProgress), 0.45) : Double(morphProgress)) : 1)
     }
 
-    /// The Apple-native container look for an expanded workspace: a dimensional Liquid Glass card.
-    /// A bare `.glassEffect` over the already-glassy panel reads flat, so this adds the three
-    /// things that give real Liquid Glass its depth — a refractive edge, a specular top
-    /// highlight, and a lift shadow — and renders inside a `GlassEffectContainer` (only glass,
-    /// no foreground text, so it's safe) where the native lensing actually engages. The state
-    /// tint fills on top. No-op on older systems; the plain tint fill stands in.
+    /// Preserve the upstream Sidebar card treatment. Dock mode uses the shared shelf
+    /// behind ordinary content instead of layering glass cards over that shelf.
+    /// The legacy highlights and shadow stay scoped to Sidebar for upstream compatibility.
     @ViewBuilder
     var sectionGlassCard: some View {
-        if #available(macOS 26.0, *), layout.effectiveChromeStyle == .liquidGlass {
+        if #available(macOS 26.0, *), !layout.showAppIcons, layout.effectiveChromeStyle == .liquidGlass {
             GlassEffectContainer {
                 ZStack {
                     Color.clear.glassEffect(.regular, in: sectionShape)

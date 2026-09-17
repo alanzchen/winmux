@@ -855,24 +855,25 @@ extension WorkspaceSidebarView {
             leftCornerRadius: snapshot.configuration.showAppIcons ? 16 * (1 - dockSurfaceProgress) : 0,
             rightCornerRadius: snapshot.configuration.showAppIcons
                 ? 16 + (workspaceSidebarPanelRightCornerRadius - 16) * dockSurfaceProgress
-                : workspaceSidebarPanelRightCornerRadius
+                : workspaceSidebarPanelRightCornerRadius,
+            continuous: snapshot.configuration.showAppIcons
         )
     }
 
     func sidebarSurface<S: Shape>(in shape: S) -> some View {
-        // Morph the rounded compact Dock into the expanded sidebar's flat edge chrome.
-        ZStack {
+        // Keep one untinted glass shelf through the entire Dock expansion. The original
+        // dark Sidebar material belongs only to Sidebar mode, never behind the Dock glass.
+        Group {
             if snapshot.configuration.showAppIcons {
                 WorkspaceSidebarDockSurface(shape: shape, configuration: snapshot.configuration)
-                    .opacity(Double(1 - dockSurfaceProgress))
+            } else {
+                GlassSurface(
+                    shape: shape,
+                    hasBorder: false,
+                    style: snapshot.configuration.effectiveChromeStyle,
+                    solidColor: snapshot.configuration.resolvedSolidChromeColor,
+                )
             }
-            GlassSurface(
-                shape: shape,
-                hasBorder: false,
-                style: snapshot.configuration.effectiveChromeStyle,
-                solidColor: snapshot.configuration.resolvedSolidChromeColor,
-            )
-            .opacity(Double(dockSurfaceProgress))
         }
         // This panel has no safe-area inset. Expanding the material here gives the native
         // glass backing layer a rectangular area outside the rounded trailing corners.
@@ -906,6 +907,7 @@ extension WorkspaceSidebarView {
 private struct WorkspaceSidebarPanelShape: Shape {
     var leftCornerRadius: CGFloat
     var rightCornerRadius: CGFloat
+    var continuous: Bool = false
 
     var animatableData: AnimatablePair<CGFloat, CGFloat> {
         get { AnimatablePair(leftCornerRadius, rightCornerRadius) }
@@ -918,6 +920,17 @@ private struct WorkspaceSidebarPanelShape: Shape {
     func path(in rect: CGRect) -> Path {
         let radius = min(rightCornerRadius, rect.width / 2, rect.height / 2)
         let leftRadius = min(leftCornerRadius, rect.width / 2, rect.height / 2)
+
+        if continuous {
+            if #available(macOS 14.0, *) {
+                return UnevenRoundedRectangle(cornerRadii: .init(
+                    topLeading: leftRadius, bottomLeading: leftRadius,
+                    bottomTrailing: radius, topTrailing: radius
+                ), style: .continuous).path(in: rect)
+            } else if leftRadius == radius {
+                return RoundedRectangle(cornerRadius: radius, style: .continuous).path(in: rect)
+            }
+        }
 
         var path = Path()
         path.move(to: CGPoint(x: rect.minX + leftRadius, y: rect.minY))

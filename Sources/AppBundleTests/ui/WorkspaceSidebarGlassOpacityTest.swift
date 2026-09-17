@@ -20,6 +20,17 @@ final class WorkspaceSidebarGlassOpacityTest: XCTestCase {
         try verifyGlassOpacity(dockMode: true)
     }
 
+    func testDockUsesOneSurfaceAcrossCompactAndExpandedStates() throws {
+        // WindowServer owns native glass, but a second dark Sidebar scrim would still
+        // change detached-rendering pixels as the Dock expands.
+        let compact = try render(opacity: 1, dockMode: true, progress: 0)
+        let expected = try XCTUnwrap(compact.tiffRepresentation)
+        for progress in [0.25, 0.5, 0.75, 1.0] {
+            let expanded = try render(opacity: 1, dockMode: true, progress: progress)
+            XCTAssertEqual(try XCTUnwrap(expanded.tiffRepresentation), expected)
+        }
+    }
+
     private func verifyGlassOpacity(dockMode: Bool) throws {
         let transparent = try render(opacity: 0, dockMode: dockMode)
         let translucent = try render(opacity: 0.4, dockMode: dockMode)
@@ -63,11 +74,15 @@ final class WorkspaceSidebarGlassOpacityTest: XCTestCase {
         XCTAssertTrue(snapshot.showAppIcons)
     }
 
-    private func render(opacity: Double, style: ChromeStyle = .liquidGlass, dockMode: Bool = false) throws -> NSBitmapImageRep {
+    private func render(opacity: Double, style: ChromeStyle = .liquidGlass, dockMode: Bool = false,
+                        progress: Double = 0) throws -> NSBitmapImageRep {
         var snapshot = WorkspaceSidebarSnapshot.empty
         snapshot.configuration.chromeStyle = style
         snapshot.configuration.glassOpacity = opacity
         snapshot.configuration.showAppIcons = dockMode
+        snapshot.configuration.collapsedWidth = 64
+        snapshot.configuration.expandedWidth = 240
+        snapshot.visibleWidth = 64 + 176 * progress
         let sidebar = WorkspaceSidebarView(snapshot: snapshot)
         let content = ZStack {
             sidebar.sidebarSurface(in: Rectangle())

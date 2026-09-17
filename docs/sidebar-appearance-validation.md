@@ -273,3 +273,23 @@ check. No push or release was triggered.
 
 Validation: **747 tests, zero failures, one native-glass skip**, and a successful
 debug build with the pinned Swift 6.2.4 toolchain.
+
+### SwiftUI Dock Configuration reference — local, not released
+
+Reviewed the user's [SwiftUI Dock Configuration conversation](chatgpt-conversation://6aab5f1d-0fa8-83ea-ae3b-a85281178f73)
+against [Apple's custom Liquid Glass guidance](https://developer.apple.com/documentation/swiftui/applying-liquid-glass-to-custom-views)
+and [adoption guidance](https://developer.apple.com/documentation/TechnologyOverviews/adopting-liquid-glass).
+The reference is a public-API approximation, not a verified specification of Apple's
+internal Dock. Its suggested dimensions are starting points rather than measurements.
+
+Dock now keeps one untinted `.regular` shelf throughout expansion, with continuous
+corners and plain icon buttons. Removed the crossfade into the dark Sidebar surface
+and the nested workspace-card glass in Dock mode. Sidebar retains its original dark
+material and card treatment. The fixed width, configurable icon size, magnification,
+and background-only opacity control remain; magnification is separate from glass
+interactivity. Older macOS and Reduce Transparency keep their existing fallbacks.
+
+Validation: **748 tests, zero failures, one native-glass skip**, and a successful
+Swift 6.2.4 debug build. The new regression checks that expanding the Dock does not
+introduce a second dark surface. A native expanded-Dock fixture capture was reviewed;
+live mouse interaction was not repeated. Changes remain local and unreleased.

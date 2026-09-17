@@ -107,6 +107,9 @@ Use **Dock glass opacity** to adjust Dock mode’s Liquid Glass background from
 0–100%. Text and icons stay readable. This control is available only in Dock mode
 and is disabled for Solid color. Sidebar keeps its original dark material regardless
 of this setting. Window chrome settings continue to style tab groups and the switcher.
+Dock uses one untinted native `.regular` glass shelf through compact and expanded
+states, with continuous corners and plain icon buttons. Opacity affects only the
+background; workspace cards do not add more glass layers in Dock mode.
 
 ```toml
 [workspace-sidebar]
