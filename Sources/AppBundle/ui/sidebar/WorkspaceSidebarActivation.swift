@@ -8,6 +8,7 @@ private var activeWorkspaceSidebarDrag: ActiveWorkspaceSidebarDrag?
 struct ActiveWorkspaceSidebarDrag: Equatable {
     let windowId: UInt32
     let subject: WindowDragSubject
+    let previewStyle: WorkspaceSidebarDragPreviewStyle
 }
 
 @MainActor
@@ -31,8 +32,12 @@ func isWorkspaceSidebarItemDragActive() -> Bool {
 }
 
 @MainActor
-func beginActiveWorkspaceSidebarDrag(windowId: UInt32, subject: WindowDragSubject) {
-    activeWorkspaceSidebarDrag = ActiveWorkspaceSidebarDrag(windowId: windowId, subject: subject)
+func beginActiveWorkspaceSidebarDrag(windowId: UInt32, subject: WindowDragSubject, previewStyle: WorkspaceSidebarDragPreviewStyle = .row) {
+    // Refreshes and destination changes must not replace the gesture's original appearance.
+    if let activeWorkspaceSidebarDrag,
+       activeWorkspaceSidebarDrag.windowId == windowId,
+       activeWorkspaceSidebarDrag.subject == subject { return }
+    activeWorkspaceSidebarDrag = ActiveWorkspaceSidebarDrag(windowId: windowId, subject: subject, previewStyle: previewStyle)
 }
 
 @MainActor

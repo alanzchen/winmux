@@ -100,6 +100,7 @@ struct WorkspaceSidebarActions {
     var hoverWorkspace: @MainActor (String, Bool) -> Void
     var resolveAppDragWindow: @MainActor (String, String) -> UInt32?
     var windowDragChanged: @MainActor (UInt32, CGPoint) -> Void
+    var appIconDragChanged: @MainActor (UInt32, CGPoint, CGFloat) -> Void
     var windowDragEnded: @MainActor (UInt32, CGPoint) -> Void
     var tabGroupDragChanged: @MainActor (UInt32, CGPoint) -> Void
     var tabGroupDragEnded: @MainActor (UInt32, CGPoint) -> Void
@@ -113,7 +114,8 @@ struct WorkspaceSidebarActions {
         windowDragChanged: @escaping @MainActor (UInt32, CGPoint) -> Void = { _, _ in },
         windowDragEnded: @escaping @MainActor (UInt32, CGPoint) -> Void = { _, _ in },
         tabGroupDragChanged: @escaping @MainActor (UInt32, CGPoint) -> Void = { _, _ in },
-        tabGroupDragEnded: @escaping @MainActor (UInt32, CGPoint) -> Void = { _, _ in }
+        tabGroupDragEnded: @escaping @MainActor (UInt32, CGPoint) -> Void = { _, _ in },
+        appIconDragChanged: (@MainActor (UInt32, CGPoint, CGFloat) -> Void)? = nil
     ) {
         self.send = send
         self.setDropTargets = setDropTargets
@@ -121,6 +123,7 @@ struct WorkspaceSidebarActions {
         self.hoverWorkspace = hoverWorkspace
         self.resolveAppDragWindow = resolveAppDragWindow
         self.windowDragChanged = windowDragChanged
+        self.appIconDragChanged = appIconDragChanged ?? { id, point, _ in windowDragChanged(id, point) }
         self.windowDragEnded = windowDragEnded
         self.tabGroupDragChanged = tabGroupDragChanged
         self.tabGroupDragEnded = tabGroupDragEnded

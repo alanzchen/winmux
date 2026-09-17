@@ -226,7 +226,7 @@ extension WorkspaceSidebarWorkspaceSection {
                     morphTargets: Set(targets.keys),
                     morphsTitle: morphsTitle,
                 )
-                dropPreviewRow
+                dropPreviewRow(style: .appIcon(size: WorkspaceSidebarAppIconLayout(appCount: 0, availableWidth: appSummaryWidth).itemSize))
             }
             .opacity(1 - Double(morphProgress))
             .allowsHitTesting(false)
@@ -235,7 +235,7 @@ extension WorkspaceSidebarWorkspaceSection {
             VStack(alignment: .leading, spacing: 3) {
                 expandedHeader.frame(height: workspaceSidebarWorkspaceSectionHeaderHeight)
                 windowRows
-                dropPreviewRow
+                dropPreviewRow()
             }
             .opacity(Double(morphProgress))
             .allowsHitTesting(morphProgress >= 1)
@@ -633,9 +633,9 @@ extension WorkspaceSidebarWorkspaceSection {
     }
 
     @ViewBuilder
-    var dropPreviewRow: some View {
+    func dropPreviewRow(style: WorkspaceSidebarDragPreviewStyle = .row) -> some View {
         if dragPreview?.targetWorkspaceName == workspace.name {
-            WorkspaceSidebarDropPreviewView(preview: dragPreview.orDie(), rowHeight: rowHeight)
+            WorkspaceSidebarDropPreviewView(preview: dragPreview.orDie(), rowHeight: rowHeight, style: style)
             .transition(.asymmetric(
                 insertion: .move(edge: .top).combined(with: .scale(scale: 0.96, anchor: .top)).combined(with: .opacity),
                 removal: .identity,
@@ -676,7 +676,7 @@ extension WorkspaceSidebarWorkspaceSection {
                 .frame(height: headerHeight)
                 .frame(maxWidth: .infinity, alignment: isCompact ? .center : .leading)
             windowRows
-            dropPreviewRow
+            dropPreviewRow()
         }
     }
 

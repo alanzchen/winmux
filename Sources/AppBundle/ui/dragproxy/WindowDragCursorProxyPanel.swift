@@ -36,9 +36,9 @@ final class WindowDragCursorProxyPanel: NSPanelHud {
         }
     }
 
-    func show(preview: WorkspaceSidebarDropPreviewViewModel, mouseScreenPoint: CGPoint) {
-        updateContent(preview: preview)
-        proxySize = windowDragCursorProxySize(label: preview.label)
+    func show(preview: WorkspaceSidebarDropPreviewViewModel, mouseScreenPoint: CGPoint, style: WorkspaceSidebarDragPreviewStyle = .row) {
+        updateContent(preview: preview, style: style)
+        proxySize = windowDragCursorProxySize(label: preview.label, style: style)
         updateFrame(mouseScreenPoint: mouseScreenPoint)
         startFollowingMouseIfNeeded()
         if !isVisible {
@@ -59,11 +59,13 @@ struct WindowDragCursorProxyContent: Equatable {
     let label: String
     let isGroup: Bool
     let preview: WorkspaceSidebarDropPreviewViewModel?
+    let style: WorkspaceSidebarDragPreviewStyle
 
-    init(label: String, isGroup: Bool, preview: WorkspaceSidebarDropPreviewViewModel? = nil) {
+    init(label: String, isGroup: Bool, preview: WorkspaceSidebarDropPreviewViewModel? = nil, style: WorkspaceSidebarDragPreviewStyle = .row) {
         self.label = label
         self.isGroup = isGroup
         self.preview = preview
+        self.style = style
     }
 }
 
@@ -75,20 +77,24 @@ extension WindowDragCursorProxyPanel {
         currentContent = nextContent
     }
 
-    func updateContent(preview: WorkspaceSidebarDropPreviewViewModel) {
+    func updateContent(preview: WorkspaceSidebarDropPreviewViewModel, style: WorkspaceSidebarDragPreviewStyle = .row) {
         let nextContent = WindowDragCursorProxyContent(
             label: preview.label,
             isGroup: preview.isTabGroup,
             preview: preview,
+            style: style,
         )
         guard currentContent != nextContent else { return }
-        hostingView.rootView = AnyView(WindowDragCursorProxyView(preview: preview))
+        hostingView.rootView = AnyView(WindowDragCursorProxyView(preview: preview, style: style))
         currentContent = nextContent
     }
 }
 
-func windowDragCursorProxySize(label: String) -> CGSize {
-    CGSize(width: min(max(CGFloat(label.count) * 7 + 42, 96), 224), height: 28)
+func windowDragCursorProxySize(label: String, style: WorkspaceSidebarDragPreviewStyle = .row) -> CGSize {
+    switch style {
+        case .row: CGSize(width: min(max(CGFloat(label.count) * 7 + 42, 96), 224), height: 28)
+        case .appIcon(let size): CGSize(width: size + 12, height: size + 12)
+    }
 }
 extension WindowDragCursorProxyPanel {
     func startFollowingMouseIfNeeded() {

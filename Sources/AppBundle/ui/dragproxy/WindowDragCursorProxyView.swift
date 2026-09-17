@@ -4,20 +4,33 @@ struct WindowDragCursorProxyView: View {
     let label: String
     let isGroup: Bool
     let preview: WorkspaceSidebarDropPreviewViewModel?
+    let style: WorkspaceSidebarDragPreviewStyle
 
     init(label: String, isGroup: Bool) {
         self.label = label
         self.isGroup = isGroup
         self.preview = nil
+        self.style = .row
     }
 
-    init(preview: WorkspaceSidebarDropPreviewViewModel) {
+    init(preview: WorkspaceSidebarDropPreviewViewModel, style: WorkspaceSidebarDragPreviewStyle = .row) {
         self.label = preview.label
         self.isGroup = preview.isTabGroup
         self.preview = preview
+        self.style = style
     }
 
     var body: some View {
+        if case .appIcon(let size) = style, let preview {
+            WorkspaceSidebarDragIcon(preview: preview, size: size)
+                .shadow(color: .black.opacity(0.3), radius: 3, y: 2)
+                .padding(6)
+        } else {
+            rowPreview
+        }
+    }
+
+    private var rowPreview: some View {
         HStack(spacing: 4) {
             if let preview, preview.isTabGroup {
                 sidebarIconStack(preview)

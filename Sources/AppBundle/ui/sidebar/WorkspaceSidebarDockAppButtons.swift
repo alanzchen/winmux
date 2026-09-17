@@ -24,6 +24,7 @@ struct WorkspaceSidebarDockAppButtons: View {
                         workspaceName: workspace.name,
                         workspaceDisplayName: workspace.displayName,
                         size: rect.size,
+                        iconSize: compact.width,
                         actions: actions,
                         onSelect: { onSelectApp(app) }
                     )
@@ -39,6 +40,7 @@ private struct WorkspaceSidebarDockAppButton: View {
     let workspaceName: String
     let workspaceDisplayName: String
     let size: CGSize
+    let iconSize: CGFloat
     let actions: WorkspaceSidebarActions
     let onSelect: () -> Void
     @State private var drag = WorkspaceSidebarAppDragSession()
@@ -53,7 +55,7 @@ private struct WorkspaceSidebarDockAppButton: View {
         .modifier(WorkspaceSidebarOptionalDragModifier(
             isEnabled: true,
             onChanged: { point in
-                drag.update(workspaceName: workspaceName, appId: app.id, pointer: point, actions: actions)
+                drag.update(workspaceName: workspaceName, appId: app.id, pointer: point, iconSize: iconSize, actions: actions)
             },
             onEnded: { point in drag.finish(pointer: point, actions: actions) }
         ))
@@ -68,12 +70,12 @@ struct WorkspaceSidebarAppDragSession {
     private var hasResolvedWindow = false
 
     @MainActor
-    mutating func update(workspaceName: String, appId: String, pointer: CGPoint, actions: WorkspaceSidebarActions) {
+    mutating func update(workspaceName: String, appId: String, pointer: CGPoint, iconSize: CGFloat = WorkspaceSidebarAppIconLayout.iconSize, actions: WorkspaceSidebarActions) {
         if !hasResolvedWindow {
             hasResolvedWindow = true
             windowId = actions.resolveAppDragWindow(workspaceName, appId)
         }
-        if let windowId { actions.windowDragChanged(windowId, pointer) }
+        if let windowId { actions.appIconDragChanged(windowId, pointer, iconSize) }
     }
 
     @MainActor

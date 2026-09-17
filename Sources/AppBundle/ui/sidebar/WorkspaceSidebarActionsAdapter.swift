@@ -43,6 +43,9 @@ func makeWorkspaceSidebarActionsAdapter(
         tabGroupDragEnded: { _, pointer in
             finishSidebarWindowDrag(pointer: pointer)
         },
+        appIconDragChanged: { windowId, pointer, size in
+            updateSidebarWindowDrag(windowId, pointer: pointer, previewStyle: .appIcon(size: size))
+        },
     )
 }
 

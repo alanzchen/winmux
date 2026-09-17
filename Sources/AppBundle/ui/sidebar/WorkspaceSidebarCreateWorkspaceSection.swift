@@ -41,6 +41,9 @@ struct WorkspaceSidebarCreateWorkspaceSection: View {
                 WorkspaceSidebarDropPreviewView(
                     preview: dragPreview,
                     rowHeight: workspaceSidebarWorkspaceRowHeight,
+                    style: layout.showAppIcons && isCompact
+                        ? .appIcon(size: WorkspaceSidebarAppIconLayout(appCount: 0, availableWidth: sectionWidth).itemSize)
+                        : .row,
                 )
                 .transition(.asymmetric(
                     insertion: .move(edge: .top).combined(with: .scale(scale: 0.96, anchor: .top)).combined(with: .opacity),

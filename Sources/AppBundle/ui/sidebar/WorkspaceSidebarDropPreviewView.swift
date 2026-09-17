@@ -4,6 +4,7 @@ import SwiftUI
 struct WorkspaceSidebarDropPreviewView: View {
     let preview: WorkspaceSidebarDropPreviewViewModel
     let rowHeight: CGFloat
+    var style: WorkspaceSidebarDragPreviewStyle = .row
 
     private var sectionShape: RoundedRectangle {
         RoundedRectangle(cornerRadius: workspaceSidebarSectionCornerRadius, style: .continuous)
@@ -13,7 +14,11 @@ struct WorkspaceSidebarDropPreviewView: View {
     }
 
     var body: some View {
-        if preview.targetsNewWorkspace {
+        if case .appIcon(let size) = style {
+            WorkspaceSidebarDragIcon(preview: preview, size: size)
+                .opacity(0.72)
+                .frame(maxWidth: .infinity, alignment: .center)
+        } else if preview.targetsNewWorkspace {
             newWorkspacePreview
         } else {
             previewRows

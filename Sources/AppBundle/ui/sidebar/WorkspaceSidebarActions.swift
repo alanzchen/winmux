@@ -351,6 +351,7 @@ func showWorkspaceSidebarDragCursorPreview(sourceWindow: Window, subject: Window
     WindowDragCursorProxyPanel.shared.show(
         preview: workspaceSidebarSourcePreview(sourceWindow: sourceWindow, subject: subject),
         mouseScreenPoint: denormalizedAppKitScreenPoint(point),
+        style: currentActiveWorkspaceSidebarDrag()?.previewStyle ?? .row,
     )
 }
 
@@ -580,7 +581,7 @@ func workspaceSidebarFallbackWorkspaceName(for windowId: UInt32) -> String? {
 }
 
 @MainActor
-func updateSidebarWindowDrag(_ windowId: UInt32, subject: WindowDragSubject = .window, pointer: CGPoint? = nil) {
+func updateSidebarWindowDrag(_ windowId: UInt32, subject: WindowDragSubject = .window, pointer: CGPoint? = nil, previewStyle: WorkspaceSidebarDragPreviewStyle = .row) {
     if let pointer {
         MousePointerTracker.shared.note(point: pointer)
         postWorkspaceSidebarDragPointerNotification(workspaceSidebarDragPointerChangedNotification, pointer: pointer)
@@ -592,7 +593,7 @@ func updateSidebarWindowDrag(_ windowId: UInt32, subject: WindowDragSubject = .w
         clearActiveWorkspaceSidebarDrag()
         return
     }
-    beginActiveWorkspaceSidebarDrag(windowId: window.windowId, subject: subject)
+    beginActiveWorkspaceSidebarDrag(windowId: window.windowId, subject: subject, previewStyle: previewStyle)
     let point = MousePointerTracker.shared.currentSample.point
     updateActiveWorkspaceSidebarDragPreview(sourceWindow: window, subject: subject)
     beginWindowMoveWithMouseSessionIfNeeded(
