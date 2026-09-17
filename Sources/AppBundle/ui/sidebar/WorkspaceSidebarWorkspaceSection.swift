@@ -42,10 +42,18 @@ struct WorkspaceSidebarWorkspaceSection: View, Animatable {
     var morphProgress: CGFloat { min(max(expansionProgress, 0), 1) }
     var compactCardWidth: CGFloat { max(layout.compactRailWidth - workspaceSidebarCompactRailHorizontalInset * 2, 1) }
     var compactInnerInset: CGFloat { 0 }
+    var appIconLayout: WorkspaceSidebarAppIconLayout {
+        WorkspaceSidebarAppIconLayout(
+            appCount: workspace.apps.count,
+            availableWidth: appSummaryWidth,
+            magnificationEnabled: layout.dockMagnification,
+            iconSize: layout.dockIconSize
+        )
+    }
 
     var headerHeight: CGFloat {
         if isCompact, layout.showAppIcons {
-            return WorkspaceSidebarAppIconLayout(appCount: workspace.apps.count, availableWidth: appSummaryWidth).height
+            return appIconLayout.height
         }
         return workspaceSidebarWorkspaceSectionHeaderHeight
     }
@@ -54,7 +62,7 @@ struct WorkspaceSidebarWorkspaceSection: View, Animatable {
     var contentWidth: CGFloat { workspaceSidebarContentWidth(expansionProgress, layout: layout) }
     var sectionWidth: CGFloat {
         guard layout.showAppIcons else { return workspaceSidebarSectionWidth(expansionProgress, layout: layout) }
-        let compact = max(layout.collapsedWidth - workspaceSidebarCompactRailHorizontalInset * 2, 1)
+        let compact = compactCardWidth
         let expanded = workspaceSidebarExpandedSectionWidth(layout: layout)
         return compact + (expanded - compact) * morphProgress
     }
@@ -70,7 +78,7 @@ struct WorkspaceSidebarWorkspaceSection: View, Animatable {
         if layout.showAppIcons, allowsWorkspaceActivation, isInUseOnOtherDisplay,
            workspace.items.isEmpty || isShowingInUseOverlay
         {
-            let compactHeight = WorkspaceSidebarAppIconLayout(appCount: workspace.apps.count, availableWidth: appSummaryWidth).height + 6
+            let compactHeight = appIconLayout.height + 6
             let expandedHeight = workspaceSidebarInUseOverrideMinHeight(sectionWidth: workspaceSidebarExpandedSectionWidth(layout: layout))
             return compactHeight + (expandedHeight - compactHeight) * morphProgress
         }
@@ -106,9 +114,9 @@ struct WorkspaceSidebarWorkspaceSection: View, Animatable {
             .frame(width: sectionWidth, alignment: .leading)
             .frame(minHeight: sectionMinHeight, alignment: .top)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .clipped()
+            .clipShape(Rectangle().inset(by: layout.showAppIcons ? -workspaceSidebarCompactRailHorizontalInset * (1 - morphProgress) : 0))
             .opacity(compactFocusOpacity)
-            .contentShape(Rectangle())
+            .contentShape(Rectangle().inset(by: layout.showAppIcons ? -workspaceSidebarCompactRailHorizontalInset * (1 - morphProgress) : 0))
             .contextMenu {
                 Button {
                     debugWorkspaceSidebarRenameLog("workspaceContextRename workspace=\(workspace.name) displayName=\(workspace.displayName) compact=\(isCompact)")
@@ -187,7 +195,7 @@ extension WorkspaceSidebarWorkspaceSection {
     /// Only pair the icons shown in the fixed compact column with rows actually rendered below.
     var appMorphTargets: [String: WorkspaceSidebarAppMorphTarget] {
         guard layout.showAppIcons else { return [:] }
-        let count = WorkspaceSidebarAppIconLayout(appCount: workspace.apps.count, availableWidth: appSummaryWidth).visibleAppCount
+        let count = appIconLayout.visibleAppCount
         let visibleAppIds = Set(workspace.apps.prefix(count).map(\.id))
         var targets: [String: WorkspaceSidebarAppMorphTarget] = [:]
         for item in workspace.items {
@@ -225,8 +233,11 @@ extension WorkspaceSidebarWorkspaceSection {
                     isActive: isActiveOnTargetMonitor,
                     morphTargets: Set(targets.keys),
                     morphsTitle: morphsTitle,
+                    magnificationEnabled: layout.dockMagnification,
+                    railWidth: layout.compactRailWidth,
+                    iconSize: layout.dockIconSize,
                 )
-                dropPreviewRow(style: .appIcon(size: WorkspaceSidebarAppIconLayout(appCount: 0, availableWidth: appSummaryWidth).itemSize))
+                dropPreviewRow(style: .appIcon(size: appIconLayout.itemSize))
             }
             .opacity(1 - Double(morphProgress))
             .allowsHitTesting(false)
@@ -250,6 +261,7 @@ extension WorkspaceSidebarWorkspaceSection {
                     targets: targets,
                     isActive: isActiveOnTargetMonitor,
                     morphsTitle: morphsTitle,
+                    railWidth: layout.compactRailWidth,
                 )
                 if allowsWorkspaceActivation, !isRenamingWorkspace, morphProgress < 1 {
                     WorkspaceSidebarDockAppButtons(
@@ -258,7 +270,8 @@ extension WorkspaceSidebarWorkspaceSection {
                         workspace: workspace,
                         targets: targets,
                         actions: actions,
-                        onSelectApp: handleAppClick
+                        onSelectApp: handleAppClick,
+                        onSelectWorkspace: handleSectionClick
                     )
                 }
             }

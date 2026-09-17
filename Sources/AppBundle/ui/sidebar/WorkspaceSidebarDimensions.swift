@@ -3,7 +3,7 @@ import SwiftUI
 @MainActor
 func workspaceSidebarCompactSectionWidth(layout: WorkspaceSidebarConfiguration) -> CGFloat {
     max(
-        layout.collapsedWidth - (workspaceSidebarCompactRailHorizontalInset * 2),
+        layout.expansionStartWidth - (workspaceSidebarCompactRailHorizontalInset * 2),
         workspaceSidebarBadgeWidth + (workspaceSidebarSectionInnerHorizontalInset * 2),
     )
 }

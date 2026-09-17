@@ -12,11 +12,17 @@ public func showWinMuxSidebarDockProof(
     captureURL: URL? = nil,
     backdropURL: URL? = nil,
     expandedWidth: CGFloat = 240,
-    expansion: CGFloat = 0
+    expansion: CGFloat = 0,
+    iconSize: CGFloat = 40,
+    magnification: Bool = false,
+    pointerY: CGFloat? = nil,
+    glassOpacity: Double = 1,
+    darkAppearance: Bool = true
 ) throws {
     guard width.isFinite, width > 0, expandedWidth.isFinite, expandedWidth > width,
           height.isFinite, height > 0, expansion.isFinite, (0...1).contains(expansion),
-          holdDuration.isFinite, holdDuration >= 0 else {
+          holdDuration.isFinite, holdDuration >= 0, (24...48).contains(iconSize),
+          (0...1).contains(glassOpacity) else {
         throw SidebarDockProofError.invalidDimensions
     }
     let visibleWidth = width + (expandedWidth - width) * expansion
@@ -45,11 +51,16 @@ public func showWinMuxSidebarDockProof(
         WorkspaceSidebarView(snapshot: sidebarDockProofSnapshot(
             compactWidth: width,
             expandedWidth: expandedWidth,
-            visibleWidth: visibleWidth
+            visibleWidth: visibleWidth,
+            iconSize: iconSize,
+            magnification: magnification,
+            glassOpacity: glassOpacity
         ), actions: .init())
             .frame(width: visibleWidth, height: height)
     }
     .frame(width: visibleWidth, height: height)
+    .environment(\.workspaceSidebarDockPointer, pointerY.map { CGPoint(x: width / 2, y: $0) })
+    .environment(\.colorScheme, darkAppearance ? .dark : .light)
     .allowsHitTesting(false)
     let hostingView = NSHostingView(rootView: content)
     hostingView.frame = CGRect(origin: .zero, size: size)
@@ -100,6 +111,10 @@ public func showWinMuxSidebarDockProof(
         "height": window.frame.height,
         "holdSeconds": holdDuration,
         "hasBackdrop": backdrop != nil,
+        "iconSize": iconSize,
+        "magnification": magnification,
+        "glassOpacity": glassOpacity,
+        "darkAppearance": darkAppearance,
     ]
     var output = try JSONSerialization.data(withJSONObject: metadata, options: [.sortedKeys])
     output.append(0x0A)
@@ -134,7 +149,10 @@ public func showWinMuxSidebarDockProof(
 private func sidebarDockProofSnapshot(
     compactWidth: CGFloat,
     expandedWidth: CGFloat,
-    visibleWidth: CGFloat
+    visibleWidth: CGFloat,
+    iconSize: CGFloat,
+    magnification: Bool,
+    glassOpacity: Double
 ) -> WorkspaceSidebarSnapshot {
     let scope = "sidebar-dock-proof"
     let project = workspaceProjectDefaultId
@@ -168,6 +186,9 @@ private func sidebarDockProofSnapshot(
     configuration.configuredCollapsedWidth = compactWidth
     configuration.expandedWidth = expandedWidth
     configuration.showAppIcons = true
+    configuration.dockIconSize = iconSize
+    configuration.dockMagnification = magnification
+    configuration.glassOpacity = glassOpacity
     configuration.chromeStyle = .liquidGlass
     return WorkspaceSidebarSnapshot(
         workspaces: [

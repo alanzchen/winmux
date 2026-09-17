@@ -9,9 +9,22 @@ struct WorkspaceSidebarDockAppButtons: View {
     let targets: [String: WorkspaceSidebarAppMorphTarget]
     let actions: WorkspaceSidebarActions
     let onSelectApp: (WorkspaceSidebarAppViewModel) -> Void
+    var onSelectWorkspace: () -> Void = {}
 
     var body: some View {
         GeometryReader { geometry in
+            if let title = anchors[.compactTitle] {
+                let compact = geometry[title]
+                let rect = anchors[.expandedTitle].map {
+                    workspaceSidebarInterpolatedMorphRect(from: compact, to: geometry[$0], progress: progress)
+                } ?? compact
+                Button(action: onSelectWorkspace) {
+                    Color.clear.frame(width: rect.width, height: rect.height).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Switch to workspace \(workspace.displayName)")
+                .position(x: rect.midX, y: rect.midY)
+            }
             ForEach(workspace.apps) { app in
                 if let compactAnchor = anchors[.compactApp(app.id)] {
                     let compact = geometry[compactAnchor]

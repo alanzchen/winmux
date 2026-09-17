@@ -83,6 +83,8 @@ struct ShortcutAppearanceSettingsView: View {
     @State private var sidebarAutoHide = config.workspaceSidebar.autoHide
     @State private var sidebarAlwaysExpanded = config.workspaceSidebar.alwaysExpanded
     @State private var showAppIcons = config.workspaceSidebar.showAppIcons
+    @State private var dockMagnification = config.workspaceSidebar.dockMagnification
+    @State private var dockIconSize = config.workspaceSidebar.dockIconSize
     @State private var showStatusPills = config.workspaceSidebar.showStatusPills
     @State private var showClock = config.workspaceSidebar.showClock
     @State private var showSeconds = config.workspaceSidebar.showSeconds
@@ -128,6 +130,10 @@ struct ShortcutAppearanceSettingsView: View {
                 SettingsToggle("Reveal sidebar at the display edge", isOn: $sidebarAutoHide, help: "Hide the compact rail until the pointer reaches the left edge.") { sidebarBool("auto-hide", sidebarAutoHide) }
                 SettingsToggle("Keep sidebar expanded", isOn: $sidebarAlwaysExpanded, help: "Reserve the full sidebar width for tiled windows.") { sidebarBool("always-expanded", sidebarAlwaysExpanded) }
                 SettingsToggle("Show workspace app icons", isOn: $showAppIcons, help: "Show a Dock-style column of workspace number tiles and app icons, with lines separating workspaces. Expand the sidebar for window details.") { sidebarBool("show-app-icons", showAppIcons) }
+                SettingsToggle("Magnify Dock icons on hover", isOn: $dockMagnification, help: "Enlarge nearby icons while keeping the Dock compact. Use the expand arrow or sidebar command for window details. Reduce Motion disables magnification.") { sidebarBool("dock-magnification", dockMagnification) }
+                    .disabled(!showAppIcons || sidebarAlwaysExpanded)
+                SettingsStepper("Dock icon size", value: $dockIconSize, range: 24...48, help: "Size of app icons and workspace number tiles in points. Hover magnification is limited to fit the fixed-width rail.") { sidebarInt("dock-icon-size", dockIconSize) }
+                    .disabled(!showAppIcons)
                 SettingsPercentageSlider("Glass opacity", value: $glassOpacity, help: "Adjust the sidebar's Liquid Glass background while keeping text and icons readable. Available with Liquid Glass style.") {
                     persist("workspace-sidebar", "glass-opacity", "\(glassOpacity)")
                 }

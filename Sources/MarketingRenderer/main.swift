@@ -43,6 +43,11 @@ struct MarketingRendererCommand {
               --expanded-width N   Fully expanded sidebar width (default: 240)
               --expansion N        Expansion progress from 0 to 1 (default: 0)
               --height POINTS      Window height (default: 360)
+              --icon-size POINTS   Dock icon size, 24...48 (default: 40)
+              --magnification N    Enable Dock magnification: 0 or 1 (default: 0)
+              --pointer-y POINTS   Simulated pointer in sidebar coordinates for capture
+              --glass-opacity N   Glass opacity, 0...1 (default: 1)
+              --appearance NAME   light or dark (default: dark)
               --origin-x POINTS    Window origin; requires --origin-y
               --origin-y POINTS    AppKit screen points, measured from the lower left
               --hold-seconds N     Keep the live window visible (default: 30)
@@ -54,7 +59,7 @@ struct MarketingRendererCommand {
             """)
             return
         }
-        let allowed = Set(["--width", "--expanded-width", "--expansion", "--height", "--origin-x", "--origin-y", "--hold-seconds", "--output", "--backdrop"])
+        let allowed = Set(["--width", "--expanded-width", "--expansion", "--height", "--origin-x", "--origin-y", "--hold-seconds", "--output", "--backdrop", "--icon-size", "--magnification", "--pointer-y", "--glass-opacity", "--appearance"])
         var options: [String: String] = [:]
         var index = 0
         while index < arguments.count {
@@ -82,6 +87,15 @@ struct MarketingRendererCommand {
         let expansion = try number("--expansion", default: 0)
         let height = try number("--height", default: 360)
         let holdDuration = try number("--hold-seconds", default: 30)
+        let iconSize = try number("--icon-size", default: 40)
+        let magnification = try number("--magnification", default: 0)
+        let pointerY: Double? = try options["--pointer-y"].map { _ in try number("--pointer-y", default: 0) }
+        let glassOpacity = try number("--glass-opacity", default: 1)
+        let appearance = options["--appearance"] ?? "dark"
+        guard (24...48).contains(iconSize), [0.0, 1.0].contains(magnification),
+              (0...1).contains(glassOpacity), ["light", "dark"].contains(appearance) else {
+            throw ProofArgumentsError.invalid("Invalid icon size, magnification, glass opacity, or appearance.")
+        }
         guard width > 0, height > 0, holdDuration >= 0 else {
             throw ProofArgumentsError.invalid("Width and height must be positive; hold duration must be nonnegative.")
         }
@@ -108,7 +122,12 @@ struct MarketingRendererCommand {
             captureURL: captureURL,
             backdropURL: backdropURL,
             expandedWidth: expandedWidth,
-            expansion: expansion
+            expansion: expansion,
+            iconSize: iconSize,
+            magnification: magnification == 1,
+            pointerY: pointerY.map { CGFloat($0) },
+            glassOpacity: glassOpacity,
+            darkAppearance: appearance == "dark"
         )
     }
 }

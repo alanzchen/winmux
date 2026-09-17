@@ -88,6 +88,24 @@ extension WorkspaceSidebarView {
             )
             .frame(maxHeight: .infinity, alignment: .topLeading)
 
+            if isCompact, snapshot.configuration.dockMagnification {
+                Button {
+                    guard !isWorkspaceSidebarDragInProgress() else { return }
+                    dockPointer = nil
+                    actions.send(.expandSidebar)
+                } label: {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 12, weight: .semibold))
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 28)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Expand sidebar")
+                .help("Expand sidebar")
+                .padding(.bottom, 4)
+            }
+
             if (isSidebarCollapsing && !isCompact) || (isSidebarExpanding && isCompact) {
                 let compactProjectReserveHeight = min(
                     max(CGFloat(snapshot.projects.count) * workspaceSidebarProjectDotFrameHeight, workspaceSidebarPagerHeight),

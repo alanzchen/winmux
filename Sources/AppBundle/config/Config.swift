@@ -86,6 +86,8 @@ struct WorkspaceSidebarConfig: ConvenienceCopyable, Equatable, Sendable {
     var autoHide: Bool = false
     var alwaysExpanded: Bool = false
     var showAppIcons: Bool = false
+    var dockMagnification: Bool = false
+    var dockIconSize: Int = 40
     var collapsedWidth: Int = 44
     var width: Int = 240
     var monitor: [MonitorDescription] = []
@@ -106,6 +108,7 @@ struct WorkspaceSidebarConfig: ConvenienceCopyable, Equatable, Sendable {
 
     // Dock mode uses a fixed rail without overwriting the width saved for legacy mode.
     var effectiveCollapsedWidth: Int { showAppIcons ? Self.dockCompactWidth : collapsedWidth }
+    var usesDockMagnification: Bool { showAppIcons && dockMagnification && !alwaysExpanded }
 }
 
 enum ChromeStyle: String, CaseIterable, Identifiable, Sendable {

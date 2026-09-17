@@ -101,16 +101,16 @@ opaque at all three values. Workspace card glass uses the same configured opacit
 
 These detached checks open no windows and change no user configuration.
 
-## Dockset reference comparison
+## Earlier Dockset reference comparison
 
 Used the live [Dockset website](https://dockset.app/) in **Custom Dock → Left →
 Dark/Glass** as the reference. Its measured rail was approximately 62.8 pixels wide,
 with 15.4-pixel corners, a 19.6 × 1-pixel divider, and 2.8-pixel running dots.
-WinMux uses 64-point width, 16-point corners, 20 × 1-point dividers, and 2.5-point dots.
-The current indicator is a single dot to the left of the active workspace number, following
+That revision used 64-point width, 16-point corners, 20 × 1-point dividers, and 2.5-point dots.
+Its indicator is a single dot to the left of the active workspace number, following
 the number and fading during expansion. App icons have no dots. The comparison
 captures below predate this indicator adjustment.
-The native compact glass uses a neutral dark tint and a subtle upper-edge highlight.
+That revision's compact glass uses a neutral dark tint and a subtle upper-edge highlight.
 Its height fits the workspaces and controls, centered within the available area.
 
 ![Native before and after](images/sidebar-dockset-before-after.png)
@@ -140,3 +140,37 @@ Interactive hover/reverse timing, mouse/VoiceOver operation of settings, and rea
 multi-monitor movement still need manual checks in the running app. Existing search,
 rename, drag, Override, sidebar layering, and settings scroll-retention behavior remains
 covered by regressions; these screenshots do not establish live input behavior.
+
+## Native Dock refinement — September 16, 2026
+
+The supplied macOS Dock screenshot informed a larger **4-point active-workspace
+dot**, centered in the left gutter. App icons and number tiles now default to
+**40 points**, configurable from **24–48** with `dock-icon-size`. The rail remains
+64 points wide. The earlier screenshots above predate these changes.
+
+On macOS 26+, the compact surface uses SwiftUI's native
+`glassEffect(.regular.interactive(false), in:)`, without the previous dark overlay
+and artificial border. Background opacity, solid style, Reduce Transparency, and
+the older-system material fallback remain available.
+
+Optional `dock-magnification = true` enlarges nearby icons up to 1.5×, capped at
+52 points. Fixed vertical reserves prevent overlap and rail-height changes.
+Hover keeps the rail compact; the arrow or sidebar command expands it. Auto-hide
+reveal remains fully compact. Menus, editing, drags, and Reduce Motion suppress
+magnification. Compact drag cursor and destination previews retain icon form;
+expanded row previews retain their existing appearance.
+
+Swift 6.2.4 validation: **731 tests, zero failures, one skip**, plus a successful
+debug build. New regressions cover settings persistence and bounds, gutter
+alignment, magnification geometry and native SwiftUI anchors, auto-hide expansion,
+drag identity, and icon-only cursor/target renderings with differing window titles.
+
+The skipped test requires WindowServer to render native Liquid Glass: detached
+hosting views rendered no glass background, while foreground-opacity assertions
+passed. One earlier real preview capture showed the new glass and dot at the old
+32-point size. Subsequent captures returned blank; no final screenshot or live
+hover, click, drag, Reduce Motion, or multi-monitor smoke pass is claimed.
+
+The isolated preview renderer accepts `--icon-size 24|40|48`, `--magnification 1`,
+`--pointer-y <points>`, `--glass-opacity 0…1`, and `--appearance light|dark`.
+Injected pointer coordinates provide a visual fixture, not a live-input test.

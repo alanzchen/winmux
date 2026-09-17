@@ -42,7 +42,7 @@ struct WorkspaceSidebarCreateWorkspaceSection: View {
                     preview: dragPreview,
                     rowHeight: workspaceSidebarWorkspaceRowHeight,
                     style: layout.showAppIcons && isCompact
-                        ? .appIcon(size: WorkspaceSidebarAppIconLayout(appCount: 0, availableWidth: sectionWidth).itemSize)
+                        ? .appIcon(size: WorkspaceSidebarAppIconLayout(appCount: 0, availableWidth: sectionWidth, iconSize: layout.dockIconSize).itemSize)
                         : .row,
                 )
                 .transition(.asymmetric(

@@ -7,32 +7,50 @@ struct WorkspaceSidebarAppIconHeader: View {
     let isActive: Bool
     var morphTargets: Set<String> = []
     var morphsTitle: Bool = false
+    var magnificationEnabled: Bool = false
+    var railWidth: CGFloat = 64
+    var iconSize: CGFloat = WorkspaceSidebarAppIconLayout.iconSize
+    @Environment(\.workspaceSidebarDockPointer) private var pointer
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var layout: WorkspaceSidebarAppIconLayout {
-        WorkspaceSidebarAppIconLayout(appCount: workspace.apps.count, availableWidth: availableWidth)
+        WorkspaceSidebarAppIconLayout(appCount: workspace.apps.count, availableWidth: availableWidth, magnificationEnabled: magnificationEnabled, iconSize: iconSize)
     }
 
     var body: some View {
-        VStack(spacing: WorkspaceSidebarAppIconLayout.spacing) {
-            WorkspaceSidebarWorkspaceIcon(
-                identifier: workspaceSidebarAppSummaryIdentifier(workspace),
-                isActive: isActive,
-                size: layout.itemSize
-            )
-            .modifier(WorkspaceSidebarMorphAnchor(element: .compactTitle, isEnabled: morphsTitle))
-            ForEach(workspace.apps.prefix(layout.visibleAppCount)) { app in
-                appIcon(app)
-            }
-            if layout.overflowCount > 0 {
-                WorkspaceSidebarWorkspaceIcon(identifier: "+\(layout.overflowCount)", isActive: false, size: layout.itemSize)
+        GeometryReader { geometry in
+            let count = 1 + layout.visibleAppCount + (layout.overflowCount > 0 ? 1 : 0)
+            let magnification = WorkspaceSidebarDockMagnification(itemSize: layout.itemSize, count: count, enabled: magnificationEnabled)
+            let origin = geometry.frame(in: .named("workspaceSidebarContent")).minY
+            let frames = magnification.frames(width: availableWidth, pointerY: pointer.map { $0.y - origin })
+            ZStack(alignment: .topLeading) {
+                WorkspaceSidebarWorkspaceIcon(
+                    identifier: workspaceSidebarAppSummaryIdentifier(workspace),
+                    isActive: isActive,
+                    size: frames[0].width,
+                    railWidth: railWidth
+                )
+                .modifier(WorkspaceSidebarMorphAnchor(element: .compactTitle, isEnabled: morphsTitle))
+                .position(x: frames[0].midX, y: frames[0].midY)
+                ForEach(Array(workspace.apps.prefix(layout.visibleAppCount).enumerated()), id: \.element.id) { index, app in
+                    let rect = frames[index + 1]
+                    appIcon(app, size: rect.width)
+                        .position(x: rect.midX, y: rect.midY)
+                }
+                if layout.overflowCount > 0 {
+                    let rect = frames[count - 1]
+                    WorkspaceSidebarWorkspaceIcon(identifier: "+\(layout.overflowCount)", isActive: false, size: rect.width)
+                        .position(x: rect.midX, y: rect.midY)
+                }
             }
         }
         .frame(width: availableWidth, height: layout.height, alignment: .center)
+        .animation(reduceMotion ? nil : .spring(response: 0.18, dampingFraction: 0.85), value: pointer)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(workspaceSidebarAppSummaryLabel(workspace))
     }
 
-    private func appIcon(_ app: WorkspaceSidebarAppViewModel) -> some View {
+    private func appIcon(_ app: WorkspaceSidebarAppViewModel, size: CGFloat) -> some View {
         Group {
             if let icon = appIconImage(bundleIdentifier: app.bundleId, bundlePath: app.bundlePath) {
                 Image(nsImage: icon)
@@ -42,12 +60,12 @@ struct WorkspaceSidebarAppIconHeader: View {
                 WorkspaceSidebarWorkspaceIconBackground(isActive: false)
                     .overlay {
                         Image(systemName: "app.dashed")
-                            .font(.system(size: layout.itemSize * 0.50, weight: .regular))
+                            .font(.system(size: size * 0.50, weight: .regular))
                             .foregroundStyle(Color.white.opacity(0.85))
                     }
             }
         }
-        .frame(width: layout.itemSize, height: layout.itemSize)
+        .frame(width: size, height: size)
         .modifier(WorkspaceSidebarMorphAnchor(element: .compactApp(app.id), hidesContent: morphTargets.contains(app.id)))
         .accessibilityHidden(true)
     }
@@ -57,6 +75,7 @@ struct WorkspaceSidebarWorkspaceIcon: View {
     let identifier: String
     let isActive: Bool
     let size: CGFloat
+    var railWidth: CGFloat = 64
 
     var body: some View {
         WorkspaceSidebarWorkspaceIconBackground(isActive: isActive)
@@ -73,7 +92,7 @@ struct WorkspaceSidebarWorkspaceIcon: View {
             .overlay(alignment: .leading) {
                 if isActive {
                     WorkspaceSidebarActiveWorkspaceIndicator()
-                        .offset(x: -2)
+                        .offset(x: workspaceSidebarIndicatorLeadingOffset(tileSize: size, railWidth: railWidth))
                 }
             }
     }
@@ -83,7 +102,7 @@ struct WorkspaceSidebarActiveWorkspaceIndicator: View {
     var body: some View {
         Circle()
             .fill(Color.white.opacity(0.82))
-            .frame(width: 2.5, height: 2.5)
+            .frame(width: 4, height: 4)
             .allowsHitTesting(false)
             .accessibilityHidden(true)
     }

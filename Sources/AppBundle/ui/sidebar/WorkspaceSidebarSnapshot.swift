@@ -42,11 +42,14 @@ struct WorkspaceSidebarConfiguration: Equatable {
     var solidChromeColor: ChromeSolidColor
     var solidChromeCustomColor: String
     var showAppIcons: Bool = false
+    var dockMagnification: Bool = false
+    var dockIconSize: CGFloat = 40
     var glassOpacity: Double = 1
     // Auto-hide makes collapsedWidth zero; the compact layout retains its resolved rail width.
     var configuredCollapsedWidth: CGFloat? = nil
 
     var compactRailWidth: CGFloat { configuredCollapsedWidth ?? collapsedWidth }
+    var expansionStartWidth: CGFloat { showAppIcons ? compactRailWidth : collapsedWidth }
 
     var effectiveGlassOpacity: Double {
         chromeStyle == .liquidGlass ? glassOpacity : 1
@@ -72,6 +75,7 @@ enum WorkspaceSidebarAction: Equatable {
     case selectWorkspace(String)
     case overrideWorkspaceInUse(String)
     case expandForWorkspaceOverride
+    case expandSidebar
     case selectWindow(UInt32)
     case selectApp(workspaceName: String, appId: String)
     case overrideWorkspaceInUseAndSelectApp(workspaceName: String, appId: String)

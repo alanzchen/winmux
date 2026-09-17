@@ -677,11 +677,17 @@ extension WorkspaceSidebarPanel {
     }
 
     func scheduleHoverExpansion(expandedWidth: CGFloat, collapsedWidth: CGFloat) {
+        guard !config.workspaceSidebar.usesDockMagnification else {
+            pendingExpand?.cancel()
+            pendingExpand = nil
+            return
+        }
         guard pendingExpand == nil else { return }
         let expand = DispatchWorkItem { [weak self] in
             guard let self else { return }
             self.pendingExpand = nil
-            guard self.isMouseInsideHoverRegion(),
+            guard !config.workspaceSidebar.usesDockMagnification,
+                  self.isMouseInsideHoverRegion(),
                   self.isMouseDeepEnoughToExpand()
             else { return }
             self.expandSidebar(to: expandedWidth, reason: .hover)
@@ -708,6 +714,12 @@ extension WorkspaceSidebarPanel {
             pendingExpand?.cancel()
             pendingExpand = nil
             updateMousePassthrough()
+            return
+        }
+
+        if config.workspaceSidebar.usesDockMagnification, !viewModel.isWorkspaceSidebarExpanded,
+           !shouldKeepSidebarOpenForInlineTextEditing() {
+            showCollapsedSidebarDuringExternalDrag(collapsedWidth: workspaceSidebarHoverActivationWidth(config.workspaceSidebar))
             return
         }
 

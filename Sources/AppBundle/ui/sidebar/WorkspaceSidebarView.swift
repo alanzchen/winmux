@@ -26,6 +26,10 @@ struct WorkspaceSidebarView: View {
     @State var lastProjectEdgeDragDirection: Int? = nil
     @State var lastProjectEdgeDragSwitchAt: Date = .distantPast
     @State var showsPinnedActiveWorkspaceForBrowsedProject = true
+    @State var dockPointer: CGPoint? = nil
+    @State var dockMenuTracking = false
+    @Environment(\.accessibilityReduceMotion) var reduceDockMotion
+    @Environment(\.workspaceSidebarDockPointer) var inheritedDockPointer
 
     init(snapshot: WorkspaceSidebarSnapshot, actions: WorkspaceSidebarActions = WorkspaceSidebarActions()) {
         self.snapshot = snapshot
@@ -33,7 +37,7 @@ struct WorkspaceSidebarView: View {
     }
 
     var body: some View {
-        let collapsedWidth = snapshot.configuration.collapsedWidth
+        let collapsedWidth = snapshot.configuration.expansionStartWidth
         let expandedWidth = snapshot.configuration.expandedWidth
         let expansionProgress = max(
             0,
@@ -52,6 +56,7 @@ struct WorkspaceSidebarView: View {
                 fitsDockContent: snapshot.configuration.showAppIcons
             )
             sidebarContent(expansionProgress: expansionProgress)
+                .environment(\.workspaceSidebarDockPointer, allowsDockMagnification ? (dockPointer ?? inheritedDockPointer) : nil)
                 .frame(width: surfaceFrame.width, height: surfaceFrame.height, alignment: .leading)
                 .mask(alignment: .leading) {
                     Rectangle()
@@ -69,6 +74,23 @@ struct WorkspaceSidebarView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         .coordinateSpace(name: "workspaceSidebarContent")
+        .onContinuousHover(coordinateSpace: .named("workspaceSidebarContent")) { phase in
+            switch phase {
+                case .active(let point):
+                    dockPointer = allowsDockMagnification && !isWorkspaceSidebarDragInProgress() ? point : nil
+                case .ended: dockPointer = nil
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: workspaceSidebarDragPointerChangedNotification)) { _ in
+            dockPointer = nil
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSMenu.didBeginTrackingNotification)) { _ in
+            dockMenuTracking = true
+            dockPointer = nil
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSMenu.didEndTrackingNotification)) { _ in
+            dockMenuTracking = false
+        }
         .onPreferenceChange(WorkspaceSidebarSurfaceFramePreferenceKey.self) { frame in
             if let frame { actions.setSurfaceFrame(frame) }
         }
@@ -77,6 +99,7 @@ struct WorkspaceSidebarView: View {
             if name == nil { pendingInUseOverrideAppId = nil }
         }
         .onChange(of: snapshot.visibleWidth) { visibleWidth in
+            dockPointer = nil
             if visibleWidth <= collapsedWidth + 0.5 {
                 resetTransientSidebarState()
                 finishSidebarSearch(clearText: true)
@@ -231,7 +254,7 @@ struct WorkspaceSidebarView: View {
 
     func beginSidebarSearchIfNeeded(panel: WorkspaceSidebarPanel? = nil) {
         guard renamingProjectId == nil, renamingWorkspaceName == nil, !isSearchEditing else { return }
-        guard snapshot.visibleWidth > snapshot.configuration.collapsedWidth + 0.5 || isSidebarExpanding else { return }
+        guard snapshot.visibleWidth > snapshot.configuration.expansionStartWidth + 0.5 || isSidebarExpanding else { return }
         let editingPanel = panel ?? currentPanel() ?? WorkspaceSidebarPanel.shared
         adoptCommandSidebarSearchIfNeeded(panel: editingPanel)
     }
@@ -807,7 +830,7 @@ extension WorkspaceSidebarView {
 extension WorkspaceSidebarView {
     var dockSurfaceProgress: CGFloat {
         guard snapshot.configuration.showAppIcons else { return 1 }
-        let collapsed = snapshot.configuration.collapsedWidth
+        let collapsed = snapshot.configuration.expansionStartWidth
         return min(max((snapshot.visibleWidth - collapsed) / max(snapshot.configuration.expandedWidth - collapsed, 1), 0), 1)
     }
 
@@ -1186,6 +1209,13 @@ extension WorkspaceSidebarView {
 
     private func workspaceIsActiveOnTargetMonitor(_ workspace: WorkspaceSidebarWorkspaceViewModel) -> Bool {
         workspace.isVisible && workspace.monitorScopeId == snapshot.targetMonitorScopeId
+    }
+
+    var allowsDockMagnification: Bool {
+        snapshot.configuration.showAppIcons && snapshot.configuration.dockMagnification &&
+            snapshot.visibleWidth <= snapshot.configuration.compactRailWidth + 0.5 &&
+            !reduceDockMotion && !dockMenuTracking && !isProjectMenuOpen && !isSearchEditing &&
+            renamingProjectId == nil && renamingWorkspaceName == nil && snapshot.dropPreview == nil
     }
 
     var compactDockContentHeight: CGFloat {

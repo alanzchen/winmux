@@ -13,7 +13,7 @@ func workspaceSidebarDockContentHeight(
 ) -> CGFloat {
     let iconWidth: CGFloat = max(configuration.compactRailWidth - workspaceSidebarCompactRailHorizontalInset * 2, 1)
     let workspaceHeights: [CGFloat] = appCounts.map {
-        WorkspaceSidebarAppIconLayout(appCount: $0, availableWidth: iconWidth).height + 6
+        WorkspaceSidebarAppIconLayout(appCount: $0, availableWidth: iconWidth, magnificationEnabled: configuration.dockMagnification, iconSize: configuration.dockIconSize).height + 6
     }
     let sectionCount = workspaceHeights.count + (showsCreateWorkspace ? 1 : 0)
     let workspaceHeight: CGFloat = workspaceHeights.reduce(CGFloat.zero, +)
@@ -32,7 +32,8 @@ func workspaceSidebarDockContentHeight(
         ? (configuration.showsSeconds ? 92 : 68) + 8 + workspaceSidebarStatusBottomPadding(isCompact: true)
         : 0
     let footerHeight: CGFloat = workspaceSidebarFooterBottomPadding(showsClock: configuration.showsClock)
-    let contentHeight: CGFloat = pageHeight + monitorHeight + projectHeight + clockHeight + footerHeight
+    let expandHeight: CGFloat = configuration.dockMagnification ? 32 : 0
+    let contentHeight: CGFloat = pageHeight + monitorHeight + projectHeight + clockHeight + footerHeight + expandHeight
     return max(contentHeight, 1)
 }
 

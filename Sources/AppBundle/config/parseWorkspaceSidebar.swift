@@ -8,6 +8,10 @@ private let workspaceSidebarParser: [String: any ParserProtocol<WorkspaceSidebar
     "auto-hide": Parser(\.autoHide, parseBool),
     "always-expanded": Parser(\.alwaysExpanded, parseBool),
     "show-app-icons": Parser(\.showAppIcons, parseBool),
+    "dock-magnification": Parser(\.dockMagnification, parseBool),
+    "dock-icon-size": Parser(\.dockIconSize) { raw, backtrace in
+        parseInt(raw, backtrace).filter(.semantic(backtrace, "Must be between 24 and 48 points")) { (24...48).contains($0) }
+    },
     "collapsed-width": Parser(\.collapsedWidth, parseWorkspaceSidebarWidth),
     "width": Parser(\.width, parseWorkspaceSidebarWidth),
     "monitor": Parser(\.monitor) { value, backtrace, errors in

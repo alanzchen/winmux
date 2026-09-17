@@ -92,6 +92,7 @@ struct WorkspaceSidebarMorphOverlay: View {
     let targets: [String: WorkspaceSidebarAppMorphTarget]
     let isActive: Bool
     let morphsTitle: Bool
+    var railWidth: CGFloat = 64
 
     var body: some View {
         GeometryReader { geometry in
@@ -132,7 +133,7 @@ struct WorkspaceSidebarMorphOverlay: View {
                 .overlay(alignment: .leading) {
                     if isActive {
                         WorkspaceSidebarActiveWorkspaceIndicator()
-                            .offset(x: -2)
+                            .offset(x: workspaceSidebarIndicatorLeadingOffset(tileSize: compactRect.width, railWidth: railWidth))
                             .opacity(Double(1 - clampedProgress))
                     }
                 }

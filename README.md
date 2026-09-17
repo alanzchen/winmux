@@ -71,14 +71,25 @@ focuses the app you clicked. Clicking the numbered tile selects the workspace.
 Drag an app icon onto another workspace to move that same window. The selected
 window stays fixed for the duration of the drag; other windows from that app stay
 in their original workspace. Expanded window rows remain individually draggable.
+Compact drags retain a full-size app icon at the pointer and at the drop target,
+including the new-workspace target; they do not show a clipped window title.
 An overflow tile marks additional apps. The compact rail uses a fixed **64 pt**
-width, a rounded glass surface, and a dot to the left of the active workspace's number tile.
+width, native Liquid Glass, and a 4-point dot centered in the left gap beside the
+active workspace's number tile.
 The stored **Collapsed width** setting is preserved for the default sidebar mode.
 The rail fits its contents and sits vertically centered; long lists scroll within
 the available screen height. Expanding grows it to the full sidebar height while
 the workspace tile and app icons move into the individual window list and the
 separators fade. Collapsing restores the compact layout. Reduce Motion uses an
 immediate transition.
+
+**Dock icon size** controls app icons and number tiles together, from **24–48 pt**
+(default **40 pt**; select 32 pt for the previous size). Optional **Magnify Dock
+icons on hover** smoothly enlarges nearby tiles up to 1.5×, capped at 52 pt to fit
+the rail. With magnification enabled, hovering keeps the rail compact: use the
+expand arrow or the sidebar command for window details. Magnification resets
+during drags, editing, and menus, and is disabled by Reduce Motion. The toggle is
+off by default and unavailable while **Keep sidebar expanded** is enabled.
 
 Use **Glass opacity** to adjust the sidebar's Liquid Glass background from 0–100%.
 Text, app icons, and selection indicators remain readable. This control applies
@@ -87,10 +98,13 @@ only to the sidebar and is disabled when the chrome style is **Solid color**.
 ```toml
 [workspace-sidebar]
     show-app-icons = true
+    dock-icon-size = 40
+    dock-magnification = false
     glass-opacity = 0.65
 ```
 
-Both settings are optional: existing configurations keep their current appearance.
+These settings are optional. Legacy sidebar mode and the stored collapsed width
+remain unchanged; the larger default icons apply only to Dock mode.
 
 ### Window and sidebar spacing
 
