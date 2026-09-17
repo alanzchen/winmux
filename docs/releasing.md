@@ -333,6 +333,27 @@ bundle's own embedded feed discovered **0.6.304** and its correct GitHub archive
 This verifies cross-version update discovery; actual installed-app replacement
 and the live sidebar interaction checks above remain untested.
 
+### Configurable Dock release — September 16, 2026
+
+[WinMux 0.6.305](https://github.com/alanzchen/winmux/releases/tag/v0.6.305)
+was locally built from `a1147d4f`, signed and notarized, then published to the
+preview feed. Validation passed **731 application tests with one native-glass
+rendering skip**, **64 release-tooling tests**, and the debug build. The independent
+[build-and-test workflow](https://github.com/alanzchen/winmux/actions/runs/35174957425)
+passed. The duplicate hosted prerelease was cancelled only after successful
+publication; the stable-release signing job correctly skipped the preview tag.
+
+All five public asset digests matched. Both ZIPs and the mounted DMG passed
+Developer ID, notarization, Gatekeeper, universal architecture, app/CLI version,
+and launcher checks. The public feed matched the released appcast, and the update
+archive's Sparkle signature matched the embedded public key. The published
+0.6.302 bundle discovered 0.6.305 through its own preview feed. No installed app
+was replaced during verification.
+
+Final native sidebar captures returned blank; live glass, hover, drag, and
+multi-monitor checks remain outstanding as detailed in
+[sidebar appearance validation](sidebar-appearance-validation.md).
+
 ## References
 
 - [GitHub: importing Apple signing certificates](https://docs.github.com/en/actions/how-tos/deploy/deploy-to-third-party-platforms/sign-xcode-applications)
