@@ -5,6 +5,46 @@ import XCTest
 
 @MainActor
 final class WorkspaceSidebarDockInvalidationTest: XCTestCase {
+    func testHeaderMotionKeepsArtworkConstructionStableWhileHitFramesMove() {
+        let driver = MotionDriver()
+        let builds = ContentReads()
+        let artworkReads = ContentReads()
+        let geometry = HeaderFrames()
+        func header(revision: Int = 0) -> some View {
+            WorkspaceSidebarDockHeaderMotion(itemSize: 40, count: 2, availableWidth: 50,
+                magnificationEnabled: true, amount: 1, reportsHitFrames: true) {
+                builds.count += 1
+                return StableArtworkProbe(reads: artworkReads, revision: revision)
+                    .modifier(WorkspaceSidebarDockIconMotion(index: 0, itemSize: 40))
+            }
+            .onPreferenceChange(WorkspaceSidebarDockIconFramesPreference.self) { geometry.frames = $0 }
+            .onPreferenceChange(ArtworkRevisionPreference.self) { geometry.revision = $0 }
+        }
+        let host = NSHostingView(rootView: HeaderMotionRoot(driver: driver, content: header()))
+        host.frame = CGRect(x: 0, y: 0, width: 100, height: 300)
+        host.layoutSubtreeIfNeeded()
+        let initialBuilds = builds.count
+        let initialReads = artworkReads.count
+        let restingFrames = geometry.frames
+        XCTAssertEqual(restingFrames.count, 2)
+        for y in [20.0, 65, 30, 70, 40, 60] {
+            driver.context = .init(restingSurface: .zero, pointer: CGPoint(x: 32, y: y), strength: 1)
+            host.needsLayout = true
+            host.layoutSubtreeIfNeeded()
+        }
+        XCTAssertEqual(builds.count, initialBuilds, "Per-frame layout must not reconstruct artwork/action closures")
+        XCTAssertEqual(artworkReads.count, initialReads)
+        XCTAssertEqual(geometry.frames.count, 2)
+        XCTAssertNotEqual(geometry.frames, restingFrames, "Magnified hit regions must still follow rendering")
+        let expected = WorkspaceSidebarDockMagnification(itemSize: 40, count: 2, enabled: true, amount: 1)
+            .frames(width: 50, pointerY: 60)
+        XCTAssertEqual(geometry.frames.first?.width ?? 0, expected[0].width, accuracy: 0.001)
+        host.rootView = HeaderMotionRoot(driver: driver, content: header(revision: 1))
+        host.layoutSubtreeIfNeeded()
+        XCTAssertEqual(geometry.revision, 1, "SwiftUI must adopt the new snapshot's content")
+        XCTAssertGreaterThan(artworkReads.count, initialReads)
+    }
+
     func testRapidPointerUpdatesDoNotRebuildContentOutsideLens() {
         let driver = MotionDriver()
         let near = ContentReads()
@@ -60,6 +100,37 @@ final class WorkspaceSidebarDockInvalidationTest: XCTestCase {
     private func section(origin: CGFloat) -> WorkspaceSidebarDockSectionMotion {
         .init(columnOrigin: 0, sectionOrigin: origin, itemSize: 40, appCount: 4,
             amount: 1, isEnabled: true)
+    }
+}
+
+@MainActor
+private final class HeaderFrames {
+    var frames: [CGRect] = []
+    var revision = 0
+}
+
+private struct ArtworkRevisionPreference: PreferenceKey {
+    static let defaultValue = 0
+    static func reduce(value: inout Int, nextValue: () -> Int) { value = nextValue() }
+}
+
+private struct HeaderMotionRoot<Content: View>: View {
+    @ObservedObject var driver: MotionDriver
+    let content: Content
+    var body: some View {
+        content.environment(\.workspaceSidebarDockSectionMagnification,
+            .init(pointerY: driver.context.pointer?.y, strength: driver.context.strength))
+            .coordinateSpace(name: "workspaceSidebarContent")
+    }
+}
+
+private struct StableArtworkProbe: View {
+    let reads: ContentReads
+    let revision: Int
+    var body: some View {
+        reads.count += 1
+        return (revision == 0 ? Color.blue : Color.red).frame(width: 40, height: 40)
+            .preference(key: ArtworkRevisionPreference.self, value: revision)
     }
 }
 

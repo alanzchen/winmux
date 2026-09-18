@@ -67,7 +67,11 @@ struct WorkspaceSidebarView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         .coordinateSpace(name: "workspaceSidebarContent")
-        .onPreferenceChange(WorkspaceSidebarDockColumnOriginPreference.self) { dockColumnOrigins = $0 }
+        .onPreferenceChange(WorkspaceSidebarDockColumnOriginPreference.self) { origins in
+            dockMotion.recordColumnOrigins(origins, previous: dockColumnOrigins)
+            let stable = workspaceSidebarStableDockColumnOrigins(origins, previous: dockColumnOrigins)
+            if stable != dockColumnOrigins { dockColumnOrigins = stable }
+        }
         .animation(snapshot.configuration.showAppIcons && !reduceDockMotion ? workspaceSidebarDockSettleAnimation : nil,
                    value: WorkspaceSidebarDockLayoutState(snapshot))
         .onReceive(NotificationCenter.default.publisher(for: workspaceSidebarDragPointerChangedNotification)) { _ in
@@ -86,11 +90,13 @@ struct WorkspaceSidebarView: View {
         }
         .onPreferenceChange(WorkspaceSidebarSurfaceFramePreferenceKey.self) { frame in
             if let frame {
+                dockMotion.recordGeometry(surfaceY: frame.minY)
                 dockHitRegions.surface = frame
                 actions.setSurfaceFrame(frame)
             }
         }
         .onPreferenceChange(WorkspaceSidebarDockIconFramesPreference.self) { frames in
+            dockMotion.recordGeometry(icons: frames.count)
             dockHitRegions.icons = frames
             actions.setDockIconFrames(allowsDockMagnification ? frames : [])
         }

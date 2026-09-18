@@ -7,14 +7,144 @@ import XCTest
 /// Opt-in CPU/layout benchmark; this does not claim to measure displayed GPU FPS.
 @MainActor
 final class WorkspaceSidebarDockPerformanceTest: XCTestCase {
+    func testPerformanceCaptureOverhead() throws {
+        guard ProcessInfo.processInfo.environment["WINMUX_DOCK_BENCHMARK"] == "1" else {
+            throw XCTSkip("Opt-in numeric recorder overhead measurement")
+        }
+        var microseconds: [Double] = []
+        for enabled in [false, true] {
+            let view = WorkspaceSidebarDockDisplayLinkView()
+            view.performanceTrace = enabled ? DockPerformanceTrace() : nil
+            view.onFrame = { _ in }
+            let start = CACurrentMediaTime()
+            for step in 0..<20_000 {
+                let now = CACurrentMediaTime()
+                view.receive(CGPoint(x: 32, y: 100 + step % 300))
+                view.advance(to: now + 1 / 120, displayTimestamp: now, displayDuration: 1 / 120)
+                view.performanceTrace?.beforeWaiting(at: CACurrentMediaTime())
+            }
+            microseconds.append((CACurrentMediaTime() - start) * 1_000_000 / 20_000)
+        }
+        print("DOCK_CAPTURE_OVERHEAD disabled_us=\(microseconds[0]) enabled_us=\(microseconds[1]) added_us=\(microseconds[1] - microseconds[0])")
+    }
+
+    /// Runs through AppKit/SwiftUI hover and ordinary deferred layout. Unlike the
+    /// layout microbenchmark, neither input nor layout is driven by a frame callback.
+    func testNativeHoverCapture() async throws {
+        guard ProcessInfo.processInfo.environment["WINMUX_DOCK_INPUT_BENCHMARK"] == "1" else {
+            throw XCTSkip("Run with WINMUX_DOCK_INPUT_BENCHMARK=1 on an unlocked test desktop")
+        }
+        guard CGDisplayIsAsleep(CGMainDisplayID()) == 0 else { throw XCTSkip("Display is asleep") }
+        let screen = try XCTUnwrap(NSScreen.main)
+        let quartzOriginY = try XCTUnwrap(NSScreen.screens.first).frame.maxY
+        let application = NSApplication.shared
+        let previousConfig = config
+        let previouslyEnabled = TrayMenuModel.shared.isEnabled
+        let previousPointer = NSEvent.mouseLocation
+        let previousActivationPolicy = application.activationPolicy()
+        defer {
+            DockPerformanceRecorder.shared.stop()
+            for panel in WorkspaceSidebarPanel.visiblePanels { panel.resetHiddenSidebarState() }
+            config = previousConfig
+            TrayMenuModel.shared.isEnabled = previouslyEnabled
+            NSApp.setActivationPolicy(previousActivationPolicy)
+            CGWarpMouseCursorPosition(CGPoint(x: previousPointer.x, y: quartzOriginY - previousPointer.y))
+        }
+        config.workspaceSidebar.enabled = true
+        config.workspaceSidebar.mode = .dock
+        config.workspaceSidebar.alwaysExpanded = false
+        config.workspaceSidebar.autoHide = false
+        config.workspaceSidebar.dockMagnification = true
+        config.workspaceSidebar.dockMagnificationAmount = 1
+        TrayMenuModel.shared.isEnabled = true
+        WorkspaceSidebarPanel.refreshAll()
+        let panel = try XCTUnwrap(WorkspaceSidebarPanel.visiblePanels.first)
+        var snapshot = dockBenchmarkSnapshot(appCounts: [8, 0], usesInstalledIcons: true)
+        snapshot.configuration.chromeStyle = .liquidGlass
+        snapshot.configuration.showsClock = ProcessInfo.processInfo.environment["WINMUX_DOCK_BENCHMARK_CLOCK"] == "1"
+        snapshot.configuration.showsSeconds = snapshot.configuration.showsClock
+        let model = panel.viewModel
+        model.workspaceSidebarWorkspaces = snapshot.workspaces
+        model.workspaceSidebarProjects = []
+        model.workspaceSidebarActiveProjectId = snapshot.activeProjectId
+        model.workspaceSidebarSelectedMonitorScopeId = snapshot.selectedMonitorScopeId
+        model.workspaceSidebarAppearance = snapshot.configuration
+        model.workspaceSidebarVisibleWidth = snapshot.visibleWidth
+        let height = min(screen.visibleFrame.height - 40, 1_000)
+        panel.setFrame(CGRect(x: screen.frame.maxX - 180, y: screen.visibleFrame.midY - height / 2,
+            width: 140, height: height), display: true)
+        panel.acceptsMouseMovedEvents = true
+        panel.orderFrontRegardless()
+        panel.hostingView.layoutSubtreeIfNeeded() // Initial layout only.
+        let recorder = DockPerformanceRecorder.shared
+        recorder.start()
+        let started = CACurrentMediaTime()
+        var events = 0
+        var injectionTimes: [Double] = []
+        injectionTimes.reserveCapacity(2_400)
+        // A separate input timer creates rapid sweeps, reversals and periodic exits.
+        let timer = Timer(timeInterval: 1 / 120, repeats: true) { _ in
+            MainActor.assumeIsolated {
+                let inputStart = CACurrentMediaTime()
+                let elapsed = CACurrentMediaTime() - started
+                let phase = elapsed.truncatingRemainder(dividingBy: 1.5) / 1.5
+                let fraction = phase < 0.5 ? phase * 2 : 2 - phase * 2
+                let surface = panel.visibleSurfaceFrameOnScreen
+                let exit = Int(elapsed).isMultiple(of: 5) && elapsed > 1
+                let screenPoint = CGPoint(x: surface.minX + (exit ? -12 : 32),
+                    y: surface.minY + 45 + fraction * max(surface.height - 90, 1))
+                // Quartz global coordinates start at the main display's top-left.
+                let quartzPoint = CGPoint(x: screenPoint.x, y: quartzOriginY - screenPoint.y)
+                CGWarpMouseCursorPosition(quartzPoint)
+                panel.updateHoverStateFromMousePosition()
+                let event = NSEvent.mouseEvent(with: .mouseMoved,
+                    location: panel.convertPoint(fromScreen: screenPoint), modifierFlags: [],
+                    timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: panel.windowNumber,
+                    context: nil, eventNumber: events, clickCount: 0, pressure: 0)
+                if let event { NSApp.postEvent(event, atStart: false) }
+                events += 1
+                injectionTimes.append((CACurrentMediaTime() - inputStart) * 1_000)
+            }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        application.setActivationPolicy(.accessory)
+        let timeout = Timer(timeInterval: 15, repeats: false) { _ in
+            MainActor.assumeIsolated {
+                application.stop(nil)
+                if let event = NSEvent.otherEvent(with: .applicationDefined, location: .zero,
+                    modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil,
+                    subtype: 0, data1: 0, data2: 0) { application.postEvent(event, atStart: true) }
+            }
+        }
+        RunLoop.main.add(timeout, forMode: .common)
+        application.run()
+        timer.invalidate()
+        timeout.invalidate()
+        recorder.stop()
+        let deadline = Date().addingTimeInterval(5)
+        while recorder.isSaving && Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        let file = try XCTUnwrap(recorder.lastReport)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let report = try decoder.decode(DockPerformanceReport.self, from: Data(contentsOf: file))
+        let frames = report.panels.reduce(0) { $0 + $1.summary.changedPoses }
+        XCTAssertGreaterThan(frames, 100, "Real AppKit hover must drive the display link without direct receive calls")
+        injectionTimes.sort()
+        print("DOCK_INPUT_BENCHMARK events=\(events) changedPoses=\(frames) panels=\(report.panels.count) injection_p99_ms=\(injectionTimes[Int(Double(injectionTimes.count - 1) * 0.99)]) report=\(file.path)")
+        if let destination = ProcessInfo.processInfo.environment["WINMUX_DOCK_CAPTURE_DIR"] {
+            try FileManager.default.copyItem(at: file,
+                to: URL(fileURLWithPath: destination).appendingPathComponent(file.lastPathComponent))
+        }
+    }
+
     func testPointerSweepBenchmark() throws {
         guard ProcessInfo.processInfo.environment["WINMUX_DOCK_BENCHMARK"] == "1" else {
             throw XCTSkip("Run with WINMUX_DOCK_BENCHMARK=1 to measure hover layout work")
         }
         let rapid = ProcessInfo.processInfo.environment["WINMUX_DOCK_SWEEP"] == "rapid"
-        for workspaceCount in [3, 8] {
+        for counts in [[8, 0], [4, 4, 4], Array(repeating: 4, count: 8)] {
             let driver = DockBenchmarkPointer()
-            let snapshot = dockBenchmarkSnapshot(workspaceCount: workspaceCount)
+            let snapshot = dockBenchmarkSnapshot(appCounts: counts)
             var geometryUpdates = 0
             let actions = WorkspaceSidebarActions(setDockIconFrames: { _ in geometryUpdates += 1 })
             let host = NSHostingView(rootView: DockBenchmarkRoot(snapshot: snapshot, actions: actions, driver: driver))
@@ -31,7 +161,7 @@ final class WorkspaceSidebarDockPerformanceTest: XCTestCase {
                 if step >= 20 { milliseconds.append((CFAbsoluteTimeGetCurrent() - start) * 1000) }
             }
             milliseconds.sort()
-            print("DOCK_BENCHMARK rapid=\(rapid) workspaces=\(workspaceCount) appsPerWorkspace=4 samples=\(milliseconds.count) p50_ms=\(milliseconds[milliseconds.count / 2]) p95_ms=\(milliseconds[Int(Double(milliseconds.count) * 0.95)]) p99_ms=\(milliseconds[Int(Double(milliseconds.count) * 0.99)]) max_ms=\(milliseconds.last!) geometryUpdates=\(geometryUpdates)")
+            print("DOCK_BENCHMARK rapid=\(rapid) appCounts=\(counts) samples=\(milliseconds.count) p50_ms=\(milliseconds[milliseconds.count / 2]) p95_ms=\(milliseconds[Int(Double(milliseconds.count) * 0.95)]) p99_ms=\(milliseconds[Int(Double(milliseconds.count) * 0.99)]) max_ms=\(milliseconds.last!) geometryUpdates=\(geometryUpdates)")
             XCTAssertGreaterThan(geometryUpdates, 1, "The benchmark must actually update magnified geometry")
         }
     }
@@ -74,7 +204,7 @@ final class WorkspaceSidebarDockPerformanceTest: XCTestCase {
             }
         }
         for workspaceCount in [3, 8] {
-            var snapshot = dockBenchmarkSnapshot(workspaceCount: workspaceCount, usesInstalledIcons: true)
+            var snapshot = dockBenchmarkSnapshot(appCounts: Array(repeating: 4, count: workspaceCount), usesInstalledIcons: true)
             snapshot.configuration.chromeStyle = .liquidGlass
             let model = panel.viewModel
             model.workspaceSidebarWorkspaces = snapshot.workspaces
@@ -171,7 +301,7 @@ private struct DockBenchmarkRoot: View {
 }
 
 @MainActor
-private func dockBenchmarkSnapshot(workspaceCount: Int, usesInstalledIcons: Bool = false) -> WorkspaceSidebarSnapshot {
+private func dockBenchmarkSnapshot(appCounts: [Int], usesInstalledIcons: Bool = false) -> WorkspaceSidebarSnapshot {
     var snapshot = WorkspaceSidebarSnapshot.empty
     snapshot.visibleWidth = 64
     snapshot.configuration.collapsedWidth = 64
@@ -181,14 +311,17 @@ private func dockBenchmarkSnapshot(workspaceCount: Int, usesInstalledIcons: Bool
     snapshot.configuration.chromeStyle = .solid
     snapshot.configuration.dockMagnification = true
     snapshot.configuration.dockMagnificationAmount = 1
-    snapshot.workspaces = (1...workspaceCount).map { index in
+    snapshot.workspaces = appCounts.enumerated().map { offset, count in
+        let index = offset + 1
         let apps = usesInstalledIcons ? [
             ("Safari", "com.apple.Safari"), ("Terminal", "com.apple.Terminal"),
             ("TextEdit", "com.apple.TextEdit"), ("Settings", "com.apple.systempreferences"),
-        ].map { name, bundle in
+            ("Preview", "com.apple.Preview"), ("Messages", "com.apple.MobileSMS"),
+            ("Calendar", "com.apple.iCal"), ("Contacts", "com.apple.AddressBook"),
+        ].prefix(count).map { name, bundle in
             WorkspaceSidebarAppViewModel(name: name, bundleId: bundle,
                 bundlePath: NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundle)?.path)
-        } : sidebarAppIconsTestApps(count: 4)
+        } : sidebarAppIconsTestApps(count: count)
         return WorkspaceSidebarWorkspaceViewModel(name: "\(index)", projectId: workspaceProjectDefaultId,
             displayName: "\(index)", sidebarLabel: "", isGeneratedName: false,
             monitorScopeId: workspaceSidebarDefaultScopeId, monitorName: nil,

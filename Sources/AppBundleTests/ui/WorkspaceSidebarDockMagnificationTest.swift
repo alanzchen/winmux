@@ -6,6 +6,22 @@ import XCTest
 
 @MainActor
 final class WorkspaceSidebarDockMagnificationTest: XCTestCase {
+    func testMovingShelfRoundoffCannotFeedBackIntoColumnLayout() {
+        let project = workspaceProjectDefaultId
+        let original: [WorkspaceProjectId: CGFloat] = [project: 12]
+        var origins = original
+        // Captured during a 70 ms native stall: 25 updates with no physical scroll.
+        for index in 0..<100 {
+            let noise: CGFloat = index.isMultiple(of: 2) ? 2.842170943040401e-14 : -5.684341886080802e-14
+            origins = workspaceSidebarStableDockColumnOrigins([project: 12 + noise], previous: origins)
+            XCTAssertEqual(origins, original)
+        }
+        let scrolled = workspaceSidebarStableDockColumnOrigins([project: 11.75], previous: origins)
+        XCTAssertEqual(scrolled[project], 11.75, "Real scrolling must immediately move the lens coordinate origin")
+        XCTAssertEqual(workspaceSidebarStableDockColumnOrigins([project: .nan], previous: scrolled), scrolled)
+        XCTAssertEqual(workspaceSidebarStableDockColumnOrigins([:], previous: scrolled), [:], "Removed projects must not retain stale coordinates")
+    }
+
     func testAppearanceReloadPublishesWithoutPointerOrWorkspaceChanges() {
         let previous = config
         defer { config = previous }

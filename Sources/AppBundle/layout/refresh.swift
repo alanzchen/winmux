@@ -124,6 +124,8 @@ func runRefreshSessionBlocking(
 ) async throws {
     let state = signposter.beginInterval(#function, "event: \(event) axTaskLocalAppThreadToken: \(axTaskLocalAppThreadToken?.idForDebug)")
     defer { signposter.endInterval(#function, state) }
+    let performanceRefresh = DockPerformanceRecorder.shared.beginRefresh()
+    defer { DockPerformanceRecorder.shared.endRefresh(performanceRefresh) }
     if !TrayMenuModel.shared.isEnabled { return }
     let focusSnapshot = captureRefreshSessionFocusSnapshot()
     debugFocusLog("runRefreshSessionBlocking begin event=\(event) snapshot=\(debugDescribe(focusSnapshot))")

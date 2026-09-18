@@ -65,6 +65,17 @@ final class WorkspaceSidebarDockMotionController {
 
     func receive(_ point: CGPoint?) { view?.receive(point) }
     func reset() { view?.reset() }
+    func recordGeometry(surfaceY: Double? = nil, icons: Int? = nil) {
+        view?.performanceTrace?.geometry(surfaceY: surfaceY, icons: icons)
+    }
+    func recordColumnOrigins(_ measured: [WorkspaceProjectId: CGFloat], previous: [WorkspaceProjectId: CGFloat]) {
+        guard let trace = view?.performanceTrace else { return }
+        var delta = 0.0
+        for (project, value) in measured where value.isFinite {
+            delta = max(delta, abs(value - (previous[project] ?? value)))
+        }
+        trace.columnOrigin(delta: delta)
+    }
 }
 
 /// This bridge owns no observable app state, and sleeps when the pointer settles.
@@ -95,6 +106,7 @@ final class WorkspaceSidebarDockDisplayLinkView: NSView {
     var onFrame: ((WorkspaceSidebarDockMotionFrame) -> Void)?
     /// Opt-in profiling hook; normal rendering does not collect timing samples.
     var frameObserver: ((TimeInterval) -> Void)?
+    var performanceTrace: DockPerformanceTrace?
     private(set) var motion = WorkspaceSidebarDockMotion()
     private(set) var isRunning = false
     private var modernDisplayLink: AnyObject?
@@ -106,6 +118,7 @@ final class WorkspaceSidebarDockDisplayLinkView: NSView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         stop()
+        if window != nil { DockPerformanceRecorder.shared.register(self) }
         if window != nil, !motion.isSettled { start() }
     }
 
@@ -113,6 +126,7 @@ final class WorkspaceSidebarDockDisplayLinkView: NSView {
         // The vertical lens depends only on Y. Native hit testing validates X
         // before this call, and still sends nil when the pointer leaves the Dock.
         guard point?.y != motion.target?.y else { return }
+        if let performanceTrace { performanceTrace.input(at: CACurrentMediaTime()) }
         motion.receive(point)
         if !motion.isSettled { start() }
     }
@@ -142,6 +156,7 @@ final class WorkspaceSidebarDockDisplayLinkView: NSView {
             }
             link.isPaused = false
         } else {
+            requestedRate = Int(Self.preferredRate(maximumFramesPerSecond: window?.screen?.maximumFramesPerSecond ?? 60))
             DisplayRefreshDriver.shared.add(owner: self) { [weak self] timestamp in
                 self?.advance(to: timestamp)
             }
@@ -152,6 +167,7 @@ final class WorkspaceSidebarDockDisplayLinkView: NSView {
     private func configureRate(_ link: CADisplayLink) {
         let maximum = Int(Self.preferredRate(maximumFramesPerSecond: window?.screen?.maximumFramesPerSecond ?? 60))
         guard maximum != requestedRate else { return }
+        performanceTrace?.resetBaseline(preservingInput: true)
         requestedRate = maximum
         let rate = Self.preferredRate(maximumFramesPerSecond: maximum)
         link.preferredFrameRateRange = CAFrameRateRange(minimum: min(120, rate), maximum: rate, preferred: rate)
@@ -160,27 +176,40 @@ final class WorkspaceSidebarDockDisplayLinkView: NSView {
     @available(macOS 14.0, *)
     @objc private func displayFrame(_ link: CADisplayLink) {
         configureRate(link)
-        advance(to: link.targetTimestamp)
+        advance(to: link.targetTimestamp, displayTimestamp: link.timestamp, displayDuration: link.duration)
     }
 
-    func advance(to timestamp: TimeInterval) {
+    func advance(to timestamp: TimeInterval, displayTimestamp: TimeInterval? = nil, displayDuration: TimeInterval? = nil) {
+        let trace = performanceTrace
+        let arrival = trace.map { _ in CACurrentMediaTime() }
+        let interval = 1 / Double(requestedRate > 0 ? requestedRate : 60)
+        let signpost = trace.map { _ in signposter.beginInterval("DockMotionPublish") }
         let frame = motion.advance(to: timestamp, initialInterval: 1 / Double(requestedRate > 0 ? requestedRate : 60))
-        publish(frame)
+        let changed = publish(frame)
+        if let signpost { signposter.endInterval("DockMotionPublish", signpost) }
+        if let trace, let arrival {
+            trace.record(arrival: arrival, displayTimestamp: displayTimestamp ?? timestamp,
+                targetTimestamp: displayTimestamp == nil ? 0 : timestamp, duration: displayDuration ?? interval,
+                publishEnd: CACurrentMediaTime(), changed: changed, nativeDisplayTiming: displayTimestamp != nil)
+        }
         if motion.isSettled { pause() }
         frameObserver?(timestamp)
     }
 
-    private func publish(_ frame: WorkspaceSidebarDockMotionFrame) {
-        guard frame != lastFrame else { return }
+    @discardableResult
+    private func publish(_ frame: WorkspaceSidebarDockMotionFrame) -> Bool {
+        guard frame != lastFrame else { return false }
         lastFrame = frame
         // Do not inherit a workspace/hover spring and retarget it at every vsync.
         var transaction = Transaction(animation: nil)
         transaction.disablesAnimations = true
         withTransaction(transaction) { onFrame?(frame) }
+        return true
     }
 
     private func pause() {
         isRunning = false
+        performanceTrace?.resetBaseline()
         if #available(macOS 14.0, *), let link = modernDisplayLink as? CADisplayLink {
             link.isPaused = true
         } else {

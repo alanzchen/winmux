@@ -121,6 +121,11 @@ expand arrow or the sidebar command for window details. Magnification resets
 during drags, editing, and menus, and is disabled by Reduce Motion. The toggle is
 off by default and unavailable while **Keep sidebar expanded** is enabled.
 
+For intermittent stutter, enable **Record Dock performance (debug mode)** in
+Settings → Appearance. It saves a local timing report automatically after two
+minutes, or when switched off. See [Dock performance debugging](docs/dock-performance-debugging.md)
+for report locations, privacy details, and interpreting possible performance issues.
+
 Use **Dock glass opacity** to adjust Dock mode’s Liquid Glass background from
 0–100%. Text and icons stay readable. This control is available only in Dock mode
 and is disabled for Solid color. Sidebar keeps its original dark material regardless

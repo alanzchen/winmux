@@ -170,6 +170,7 @@ struct ShortcutAppearanceSettingsView: View {
                         persist("workspace-sidebar", "glass-opacity", "\(glassOpacity)")
                     }
                     .disabled(chromeStyle != .liquidGlass)
+                    DockPerformanceSettingsView()
                 }
                 SettingsStepper("Expanded width", value: $sidebarWidth, range: 120...480, help: "Width of the fully expanded sidebar.") { sidebarInt("width", sidebarWidth) }
                 if sidebarMode == .dock {

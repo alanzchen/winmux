@@ -13,47 +13,38 @@ struct WorkspaceSidebarAppIconHeader: View {
     var iconSize: CGFloat = WorkspaceSidebarAppIconLayout.iconSize
     var magnificationAmount: Double = 0.5
     var compactActions: WorkspaceSidebarDockCompactActions?
-    @Environment(\.workspaceSidebarDockPointer) private var pointer
-    @Environment(\.workspaceSidebarDockSectionMagnification) private var sectionMagnification
 
     var layout: WorkspaceSidebarAppIconLayout {
         WorkspaceSidebarAppIconLayout(appCount: workspace.apps.count, availableWidth: availableWidth, magnificationEnabled: magnificationEnabled, iconSize: iconSize, magnificationAmount: magnificationAmount)
     }
 
     var body: some View {
-        let magnification = WorkspaceSidebarDockMagnification(itemSize: layout.itemSize, count: 1 + layout.visibleAppCount, enabled: magnificationEnabled, amount: magnificationAmount * (sectionMagnification?.strength ?? 1))
-        GeometryReader { geometry in
-            let origin = geometry.frame(in: .named("workspaceSidebarContent")).origin
-            let localPointer = sectionMagnification != nil ? sectionMagnification?.pointerY : pointer.map { $0.y - origin.y }
-            let frames = magnification.frames(width: availableWidth, pointerY: localPointer)
-            // Keep icon and button layout proposals fixed throughout the lens animation.
-            // Render transforms still move their anchors and hit regions together.
+        // Construct artwork, menus and action closures from the workspace snapshot.
+        // Only the small motion host/modifiers below read the changing lens pose.
+        WorkspaceSidebarDockHeaderMotion(
+            itemSize: layout.itemSize, count: 1 + layout.visibleAppCount,
+            availableWidth: availableWidth, magnificationEnabled: magnificationEnabled,
+            amount: magnificationAmount, reportsHitFrames: compactActions != nil
+        ) {
             ZStack(alignment: .topLeading) {
                 WorkspaceSidebarWorkspaceIcon(
                     identifier: workspaceSidebarAppSummaryIdentifier(workspace),
-                    isActive: isActive,
-                    size: layout.itemSize,
-                    railWidth: railWidth,
-                    restingSize: layout.itemSize,
-                    showsIndicator: false
+                    isActive: isActive, size: layout.itemSize, railWidth: railWidth,
+                    restingSize: layout.itemSize, showsIndicator: false
                 )
                 .modifier(WorkspaceSidebarMorphAnchor(element: .compactTitle, isEnabled: morphsTitle, hidesContent: hidesTitleForMorph))
-                .scaleEffect(frames[0].width / layout.itemSize, anchor: .topLeading)
-                .offset(x: frames[0].minX, y: frames[0].minY)
+                .modifier(WorkspaceSidebarDockIconMotion(index: 0, itemSize: layout.itemSize))
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
                 if isActive {
                     WorkspaceSidebarActiveWorkspaceIndicator()
-                        .offset(x: frames[0].minX + workspaceSidebarIndicatorLeadingOffset(tileSize: layout.itemSize, railWidth: railWidth),
-                            y: frames[0].midY - 2)
+                        .modifier(WorkspaceSidebarDockIndicatorMotion(itemSize: layout.itemSize, railWidth: railWidth))
                         .opacity(morphsTitle && hidesTitleForMorph ? 0 : 1)
                 }
                 ForEach(Array(workspace.apps.prefix(layout.visibleAppCount).enumerated()), id: \.element.id) { index, app in
-                    let rect = frames[index + 1]
                     appIcon(app, size: layout.itemSize)
                         .modifier(WorkspaceSidebarMorphAnchor(element: .compactApp(app.id), hidesContent: morphTargets.contains(app.id)))
-                        .scaleEffect(rect.width / layout.itemSize, anchor: .topLeading)
-                        .offset(x: rect.minX, y: rect.minY)
+                        .modifier(WorkspaceSidebarDockIconMotion(index: index + 1, itemSize: layout.itemSize))
                         .allowsHitTesting(false)
                         .transition(.opacity)
                 }
@@ -64,24 +55,19 @@ struct WorkspaceSidebarAppIconHeader: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Switch to workspace \(workspace.displayName)")
-                    .scaleEffect(frames[0].width / layout.itemSize, anchor: .topLeading)
-                    .offset(x: frames[0].minX, y: frames[0].minY)
-                    ForEach(Array(workspace.apps.enumerated()), id: \.element.id) { index, app in
-                        let rect = frames[index + 1]
-                        WorkspaceSidebarDockAppButton(app: app, workspaceName: workspace.name,
-                            workspaceDisplayName: workspace.displayName, size: CGSize(width: layout.itemSize, height: layout.itemSize),
-                            iconSize: rect.width, actions: compactActions.actions,
-                            onSelect: { compactActions.onSelectApp(app) })
-                            .scaleEffect(rect.width / layout.itemSize, anchor: .topLeading)
-                            .offset(x: rect.minX, y: rect.minY)
+                    .modifier(WorkspaceSidebarDockIconMotion(index: 0, itemSize: layout.itemSize))
+                    ForEach(Array(workspace.apps.prefix(layout.visibleAppCount).enumerated()), id: \.element.id) { index, app in
+                        WorkspaceSidebarDockMovingAppButton(
+                            app: app, workspaceName: workspace.name, workspaceDisplayName: workspace.displayName,
+                            itemSize: layout.itemSize, index: index + 1, actions: compactActions.actions,
+                            onSelect: { compactActions.onSelectApp(app) }
+                        )
+                        .modifier(WorkspaceSidebarDockIconMotion(index: index + 1, itemSize: layout.itemSize))
                     }
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .preference(key: WorkspaceSidebarDockIconFramesPreference.self,
-                value: compactActions == nil ? [] : frames.map { $0.offsetBy(dx: origin.x, dy: origin.y) })
         }
-        .frame(width: availableWidth, height: magnification.renderedHeight(pointerY: sectionMagnification?.pointerY), alignment: .center)
         .accessibilityElement(children: compactActions == nil ? .ignore : .contain)
         .accessibilityLabel(workspaceSidebarAppSummaryLabel(workspace))
     }
@@ -104,6 +90,99 @@ struct WorkspaceSidebarAppIconHeader: View {
         .frame(width: size, height: size)
         .overlay { WorkspaceSidebarDockBadge(app: app) }
         .accessibilityHidden(true)
+    }
+}
+
+/// Frame-dependent layout lives below the snapshot-built icon/button tree. This
+/// prevents GeometryReader's moving origin from rebuilding that tree each frame.
+struct WorkspaceSidebarDockHeaderMotion<Content: View>: View {
+    let itemSize: CGFloat
+    let count: Int
+    let availableWidth: CGFloat
+    let magnificationEnabled: Bool
+    let amount: Double
+    let reportsHitFrames: Bool
+    let content: Content
+    @Environment(\.workspaceSidebarDockPointer) private var pointer
+    @Environment(\.workspaceSidebarDockSectionMagnification) private var section
+
+    init(itemSize: CGFloat, count: Int, availableWidth: CGFloat, magnificationEnabled: Bool,
+         amount: Double, reportsHitFrames: Bool, @ViewBuilder content: () -> Content) {
+        self.itemSize = itemSize
+        self.count = count
+        self.availableWidth = availableWidth
+        self.magnificationEnabled = magnificationEnabled
+        self.amount = amount
+        self.reportsHitFrames = reportsHitFrames
+        self.content = content()
+    }
+
+    var body: some View {
+        let layout = WorkspaceSidebarDockMagnification(itemSize: itemSize, count: count,
+            enabled: magnificationEnabled, amount: amount * (section?.strength ?? 1))
+        GeometryReader { geometry in
+            let origin = geometry.frame(in: .named("workspaceSidebarContent")).origin
+            let localPointer = section != nil ? section?.pointerY : pointer.map { $0.y - origin.y }
+            let frames = layout.frames(width: availableWidth, pointerY: localPointer)
+            content
+                .environment(\.workspaceSidebarDockIconFrames, frames)
+                .preference(key: WorkspaceSidebarDockIconFramesPreference.self,
+                    value: reportsHitFrames ? frames.map { $0.offsetBy(dx: origin.x, dy: origin.y) } : [])
+        }
+        .frame(width: availableWidth, height: layout.renderedHeight(pointerY: section?.pointerY), alignment: .center)
+    }
+}
+
+private struct WorkspaceSidebarDockIconFramesKey: EnvironmentKey {
+    static let defaultValue: [CGRect] = []
+}
+
+extension EnvironmentValues {
+    var workspaceSidebarDockIconFrames: [CGRect] {
+        get { self[WorkspaceSidebarDockIconFramesKey.self] }
+        set { self[WorkspaceSidebarDockIconFramesKey.self] = newValue }
+    }
+}
+
+struct WorkspaceSidebarDockIconMotion: ViewModifier {
+    let index: Int
+    let itemSize: CGFloat
+    @Environment(\.workspaceSidebarDockIconFrames) private var frames
+
+    func body(content: Content) -> some View {
+        let frame = frames.indices.contains(index) ? frames[index] : CGRect(x: 0, y: 0, width: itemSize, height: itemSize)
+        content.scaleEffect(frame.width / itemSize, anchor: .topLeading)
+            .offset(x: frame.minX, y: frame.minY)
+    }
+}
+
+private struct WorkspaceSidebarDockIndicatorMotion: ViewModifier {
+    let itemSize: CGFloat
+    let railWidth: CGFloat
+    @Environment(\.workspaceSidebarDockIconFrames) private var frames
+
+    func body(content: Content) -> some View {
+        let frame = frames.first ?? CGRect(x: 0, y: 0, width: itemSize, height: itemSize)
+        content.offset(x: frame.minX + workspaceSidebarIndicatorLeadingOffset(tileSize: itemSize, railWidth: railWidth),
+            y: frame.midY - 2)
+    }
+}
+
+private struct WorkspaceSidebarDockMovingAppButton: View {
+    let app: WorkspaceSidebarAppViewModel
+    let workspaceName: String
+    let workspaceDisplayName: String
+    let itemSize: CGFloat
+    let index: Int
+    let actions: WorkspaceSidebarActions
+    let onSelect: () -> Void
+    @Environment(\.workspaceSidebarDockIconFrames) private var frames
+
+    var body: some View {
+        WorkspaceSidebarDockAppButton(app: app, workspaceName: workspaceName,
+            workspaceDisplayName: workspaceDisplayName, size: CGSize(width: itemSize, height: itemSize),
+            iconSize: frames.indices.contains(index) ? frames[index].width : itemSize,
+            actions: actions, onSelect: onSelect)
     }
 }
 

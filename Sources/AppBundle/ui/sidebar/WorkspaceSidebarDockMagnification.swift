@@ -153,6 +153,24 @@ struct WorkspaceSidebarDockColumnOriginPreference: PreferenceKey {
     }
 }
 
+/// Conversion between moving coordinate spaces can turn a constant 12-point
+/// inset into 12 +/- 1e-14. Feeding that back into @State repeatedly invalidates
+/// the entire sidebar during one frame. Preserve the last meaningful origin;
+/// the tolerance is far below a display pixel and does not touch native hit regions.
+func workspaceSidebarStableDockColumnOrigins(
+    _ measured: [WorkspaceProjectId: CGFloat], previous: [WorkspaceProjectId: CGFloat]
+) -> [WorkspaceProjectId: CGFloat] {
+    var result = measured
+    for (project, value) in measured {
+        if !value.isFinite {
+            result[project] = previous[project]
+        } else if let old = previous[project], abs(value - old) < 0.001 {
+            result[project] = old
+        }
+    }
+    return result
+}
+
 /// Hit geometry is an input cache, not UI state: measurements must not invalidate the
 /// view tree which just produced them on every pointer sample.
 @MainActor

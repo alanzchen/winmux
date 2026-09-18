@@ -945,6 +945,7 @@ extension WorkspaceSidebarPanel {
 
     func updateHoverStateFromMousePosition() {
         guard isVisible else { return }
+        DockPerformanceRecorder.shared.hoverRecheck(in: self)
         updateMousePassthrough()
         setHovering(isMouseInsideHoverRegion())
     }

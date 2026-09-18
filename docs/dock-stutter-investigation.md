@@ -1,5 +1,13 @@
 # Dock stutter investigation — September 18, 2026
 
+The first implementation adds [Dock performance debugging](dock-performance-debugging.md)
+and separates changing icon transforms from stable artwork and action construction.
+The investigation below records the original plan; see
+[implementation validation](dock-stutter-fix-validation.md) for completed checks,
+measurements and remaining limitations. A rounding feedback loop reproduced only
+in an experimental layout, so its defensive guard is not a diagnosed fix for the
+released Dock's stutter.
+
 ## Status and evidence
 
 The user still sees intermittent stutter in the latest WinMux on an **M5 MacBook
