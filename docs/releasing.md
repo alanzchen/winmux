@@ -68,6 +68,22 @@ If a local build fails, fix it and rerun locally. There is no automatic hosted
 fallback. Already-published commits reuse their verified release and can repair
 its feed; they never replace published artifacts.
 
+### Faster repeated builds
+
+Reuse the same clean release checkout. Xcode keeps dependency checkouts and
+compiler intermediates in `.local/release-cache/arm64/` across versions; it
+rebuilds changed inputs. Archives, app/CLI packages, signatures and notarization
+remain fresh and version-specific. SwiftPM's CLI build also reuses `.build/`.
+This does not change release optimization settings or bypass source checks.
+
+Override `RELEASE_DERIVED_DATA_DIR` for a separate cache or a fresh-build comparison.
+Builds sharing a cache are serialized by a lock; a concurrent attempt fails clearly.
+After an interrupted process, remove `.winmux-release.lock` inside that cache only
+after confirming its build has stopped. To discard cached compilation, remove the
+cache directory while no release is running. Moving to a new checkout may require
+recompilation. Expected savings depend on the changes; notarization and upload
+time are unaffected.
+
 ## Optional manual GitHub workflows
 
 The workflow files accept only `workflow_dispatch`. They are also disabled in the

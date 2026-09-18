@@ -45,7 +45,24 @@ mkdir -p "$RELEASE_DIR"
 release_dir="$(cd "$RELEASE_DIR" && pwd)"
 archive="$release_dir/WinMux-$VERSION.xcarchive"
 app="$archive/Products/Applications/WinMux.app"
-derived="$release_dir/WinMux-$VERSION.deriveddata"
+# Reuse dependency checkouts and compiler intermediates across release versions.
+# Final archives and distribution artifacts remain isolated by version.
+derived="${RELEASE_DERIVED_DATA_DIR:-$PWD/.local/release-cache/arm64}"
+mkdir -p "$derived"
+derived="$(cd "$derived" && pwd)"
+cache_lock="$derived/.winmux-release.lock"
+if ! mkdir "$cache_lock" 2>/dev/null; then
+    echo "Release cache is in use or unavailable: $derived. Use a separate RELEASE_DERIVED_DATA_DIR for concurrent builds." >&2
+    exit 1
+fi
+dmg_stage=""
+appcast_stage=""
+cleanup() {
+    if [[ -n "$dmg_stage" ]]; then rm -rf "$dmg_stage"; fi
+    if [[ -n "$appcast_stage" ]]; then rm -rf "$appcast_stage"; fi
+    rmdir "$cache_lock"
+}
+trap cleanup EXIT
 export_dir="$release_dir/WinMux-$VERSION.export"
 app_zip="$release_dir/WinMux-$VERSION.zip"
 dist="$release_dir/WinMux-$VERSION-macOS"
@@ -55,7 +72,7 @@ feed_url="${UPDATE_FEED_URL:-https://raw.githubusercontent.com/$RELEASE_REPOSITO
 download_prefix="https://github.com/$RELEASE_REPOSITORY/releases/download/$RELEASE_TAG/"
 cli="$CLI_STAGE_PATH"
 test -x "$cli"
-rm -rf "$archive" "$derived" "$export_dir" "$dist"
+rm -rf "$archive" "$export_dir" "$dist"
 rm -f "$app_zip" "$dist_zip" "$dmg" "$release_dir/appcast.xml" "$release_dir/SHA256SUMS"
 
 hardened_runtime=YES
@@ -170,12 +187,6 @@ See docs/cli.md and docs/releasing.md for setup and signing details.
 EOF
 ditto -c -k --sequesterRsrc --keepParent "$dist" "$dist_zip"
 dmg_stage="$(mktemp -d "$release_dir/dmg-stage.XXXXXX")"
-appcast_stage=""
-cleanup() {
-    rm -rf "$dmg_stage"
-    if [[ -n "$appcast_stage" ]]; then rm -rf "$appcast_stage"; fi
-}
-trap cleanup EXIT
 ditto "$dist" "$dmg_stage"
 ln -s /Applications "$dmg_stage/Applications"
 hdiutil create -volname "WinMux $VERSION" -srcfolder "$dmg_stage" -ov -format UDZO "$dmg"
