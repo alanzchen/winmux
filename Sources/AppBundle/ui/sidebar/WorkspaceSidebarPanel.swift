@@ -897,8 +897,11 @@ extension WorkspaceSidebarPanel {
     /// rechecks at the points where the panel itself appears or resizes (geometry changes).
     /// This used to be a permanent CVDisplayLink subscription polling at 30Hz, which kept the
     /// display link running and woke the main actor every vsync even when the machine was idle.
-    static func noteHoverPointerActivityForVisiblePanels(timestamp: TimeInterval) {
+    static func noteHoverPointerActivityForVisiblePanels(timestamp: TimeInterval, screenPoint: CGPoint = NSEvent.mouseLocation) {
         for panel in visiblePanels {
+            // Magnification receives every native packet, even while click-through is
+            // enabled or SwiftUI's tracking area is being rebuilt. Only expansion is 30 Hz.
+            panel.dockPointerView?.receiveNativePointer(screenPoint, eventTimestamp: timestamp)
             panel.noteHoverPointerActivity(timestamp: timestamp)
         }
     }
@@ -957,15 +960,11 @@ extension WorkspaceSidebarPanel {
         if ignoresMouseEvents != shouldIgnoreMouseEvents {
             debugWorkspaceSidebarHoverLog("mousePassthrough panel=\(monitorScopeId) ignores \(ignoresMouseEvents)->\(shouldIgnoreMouseEvents) insideVisible=\(inside) visibleWidth=\(viewModel.workspaceSidebarVisibleWidth) frame=\(frame) mouse=\(NSEvent.mouseLocation)")
             ignoresMouseEvents = shouldIgnoreMouseEvents
-            if shouldIgnoreMouseEvents {
-                // A pass-through panel may stop receiving SwiftUI hover events before
-                // .ended arrives. Clear magnification through the native exit as well.
-                DispatchQueue.main.async { [weak self] in
-                    guard let self, self.ignoresMouseEvents else { return }
-                    NotificationCenter.default.post(name: workspaceSidebarDockPointerExitedNotification, object: self)
-                }
-            }
+            dockPointerView?.recordInputState(.passthrough)
         }
+        // Geometry and menu changes also need to recover a stationary pointer.
+        // Use the same acceptance test as native movement, never a separate exit stream.
+        dockPointerView?.recheckPointer()
     }
 
     func isMouseInsideHoverRegion() -> Bool {
@@ -1058,6 +1057,7 @@ extension WorkspaceSidebarPanel {
     }
 
     func resetHiddenSidebarState() {
+        dockPointerView?.reset(reason: .hidden)
         cancelInlineTextEditing()
         clearWorkspaceSidebarCommandInputState(self)
         cancelExpansionWork()

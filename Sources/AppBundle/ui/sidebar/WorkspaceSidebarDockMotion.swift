@@ -81,23 +81,27 @@ final class WorkspaceSidebarDockMotionController {
 /// This bridge owns no observable app state, and sleeps when the pointer settles.
 struct WorkspaceSidebarDockDisplayLink: NSViewRepresentable {
     let controller: WorkspaceSidebarDockMotionController
+    let blockers: WorkspaceSidebarDockPointerBlockers
+    let containsPointer: (CGPoint) -> Bool
     let onFrame: (WorkspaceSidebarDockMotionFrame) -> Void
 
     func makeNSView(context: Context) -> WorkspaceSidebarDockDisplayLinkView {
         let view = WorkspaceSidebarDockDisplayLinkView()
         controller.view = view
         view.onFrame = onFrame
+        view.configurePointer(blockers: blockers, contains: containsPointer)
         return view
     }
 
     func updateNSView(_ view: WorkspaceSidebarDockDisplayLinkView, context: Context) {
         controller.view = view
         view.onFrame = onFrame
+        view.configurePointer(blockers: blockers, contains: containsPointer)
     }
 
     static func dismantleNSView(_ view: WorkspaceSidebarDockDisplayLinkView, coordinator: ()) {
-        view.stop()
         view.onFrame = nil
+        view.detachPointer()
     }
 }
 
@@ -112,29 +116,72 @@ final class WorkspaceSidebarDockDisplayLinkView: NSView {
     private var modernDisplayLink: AnyObject?
     private var requestedRate = 0
     private var lastFrame = WorkspaceSidebarDockMotionFrame()
+    var pointerBlockers: WorkspaceSidebarDockPointerBlockers = .disabled
+    var containsPointer: ((CGPoint) -> Bool)?
+    weak var pointerPanel: WorkspaceSidebarPanel?
+    var isPointerAttached = false
+    var hasPendingPointerRecheck = false
+    var currentScreenPoint: () -> CGPoint = { NSEvent.mouseLocation }
+    private var pointerTrackingArea: NSTrackingArea?
 
+    override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        // inVisibleRect follows bounds automatically; never rebuild tracking at vsync.
+        guard pointerTrackingArea == nil else { return }
+        let area = NSTrackingArea(rect: .zero,
+            options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+            owner: self, userInfo: nil)
+        pointerTrackingArea = area
+        addTrackingArea(area)
+    }
+
+    // Keep native tracking active even when another WinMux window is key. Every
+    // event uses current geometry/position; an exit notification never blindly clears it.
+    override func mouseMoved(with event: NSEvent) { receiveTrackingEvent(event) }
+    override func mouseEntered(with event: NSEvent) { receiveTrackingEvent(event) }
+    override func mouseExited(with event: NSEvent) { receiveTrackingEvent(event) }
+
+    private func receiveTrackingEvent(_ event: NSEvent) {
+        receiveNativePointer(currentScreenPoint(), eventTimestamp: event.timestamp, source: .tracking)
+    }
+
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        detachPointer()
+        super.viewWillMove(toWindow: newWindow)
+    }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        stop()
         if window != nil { DockPerformanceRecorder.shared.register(self) }
-        if window != nil, !motion.isSettled { start() }
+        attachPointer()
     }
 
     func receive(_ point: CGPoint?) {
         // The vertical lens depends only on Y. Native hit testing validates X
         // before this call, and still sends nil when the pointer leaves the Dock.
-        guard point?.y != motion.target?.y else { return }
+        guard point?.y != motion.target?.y else {
+            // Recover after attachment or an explicit stop even when the next
+            // packet repeats the last target. A settled pointer still sleeps.
+            if !motion.isSettled { start() }
+            return
+        }
         if let performanceTrace { performanceTrace.input(at: CACurrentMediaTime()) }
         motion.receive(point)
         if !motion.isSettled { start() }
     }
 
-    func reset() {
+    func reset(reason: DockPointerEventKind = .reset, publishFrame: Bool = true) {
         motion.reset()
         stop()
-        publish(motion.frame)
+        recordInputState(reason)
+        if publishFrame { publish(motion.frame) }
+    }
+
+    func publishRestingFrameIfNeeded() {
+        if motion.isSettled { publish(motion.frame) }
     }
 
     static func preferredRate(maximumFramesPerSecond: Int) -> Float {
@@ -144,6 +191,7 @@ final class WorkspaceSidebarDockDisplayLinkView: NSView {
     private func start() {
         guard !isRunning, window != nil else { return }
         isRunning = true
+        recordInputState(.resume)
         if #available(macOS 14.0, *) {
             let link: CADisplayLink
             if let existing = modernDisplayLink as? CADisplayLink {
@@ -192,7 +240,7 @@ final class WorkspaceSidebarDockDisplayLinkView: NSView {
                 targetTimestamp: displayTimestamp == nil ? 0 : timestamp, duration: displayDuration ?? interval,
                 publishEnd: CACurrentMediaTime(), changed: changed, nativeDisplayTiming: displayTimestamp != nil)
         }
-        if motion.isSettled { pause() }
+        if motion.isSettled { pause(reason: motion.target == nil ? .settledOutside : .settledPoint) }
         frameObserver?(timestamp)
     }
 
@@ -207,8 +255,10 @@ final class WorkspaceSidebarDockDisplayLinkView: NSView {
         return true
     }
 
-    private func pause() {
+    private func pause(reason: DockPointerEventKind) {
+        guard isRunning else { return }
         isRunning = false
+        recordInputState(reason)
         performanceTrace?.resetBaseline()
         if #available(macOS 14.0, *), let link = modernDisplayLink as? CADisplayLink {
             link.isPaused = true
@@ -218,7 +268,7 @@ final class WorkspaceSidebarDockDisplayLinkView: NSView {
     }
 
     func stop() {
-        pause()
+        pause(reason: .stopped)
         if #available(macOS 14.0, *), let link = modernDisplayLink as? CADisplayLink {
             link.invalidate()
         }

@@ -55,7 +55,7 @@ struct WorkspaceSidebarView: View {
                 visibleWidth: snapshot.visibleWidth,
                 compactHeight: compactDockContentHeight(layout: layout),
                 expansionProgress: expansionProgress,
-                allowsMagnification: allowsDockMagnification,
+                blockers: dockMagnificationBlockers,
                 overflow: dockMagnificationOverflow,
                 shape: sidebarShape,
                 hitRegions: dockHitRegions,
@@ -76,10 +76,6 @@ struct WorkspaceSidebarView: View {
                    value: WorkspaceSidebarDockLayoutState(snapshot))
         .onReceive(NotificationCenter.default.publisher(for: workspaceSidebarDragPointerChangedNotification)) { _ in
             dockMotion.reset()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: workspaceSidebarDockPointerExitedNotification)) { notification in
-            guard notificationPanel(from: notification)?.monitorScopeId == snapshot.targetMonitorScopeId else { return }
-            dockMotion.receive(nil)
         }
         .onReceive(NotificationCenter.default.publisher(for: NSMenu.didBeginTrackingNotification)) { _ in
             dockMenuTracking = true
@@ -1285,11 +1281,19 @@ extension WorkspaceSidebarView {
     }
 
     var allowsDockMagnification: Bool {
-        snapshot.configuration.showAppIcons && snapshot.configuration.dockMagnification &&
-            snapshot.visibleWidth <= snapshot.configuration.compactRailWidth + 0.5 &&
-            !reduceDockMotion && !dockMenuTracking && !isProjectMenuOpen && !isSearchEditing &&
-            renamingProjectId == nil && renamingWorkspaceName == nil && snapshot.dropPreview == nil &&
-            projectSwipeTranslation == 0
+        dockMagnificationBlockers.isEmpty
+    }
+
+    var dockMagnificationBlockers: WorkspaceSidebarDockPointerBlockers {
+        var blockers: WorkspaceSidebarDockPointerBlockers = []
+        if !snapshot.configuration.showAppIcons || !snapshot.configuration.dockMagnification { blockers.insert(.disabled) }
+        if snapshot.visibleWidth > snapshot.configuration.compactRailWidth + 0.5 { blockers.insert(.expanded) }
+        if reduceDockMotion { blockers.insert(.reduceMotion) }
+        if dockMenuTracking || isProjectMenuOpen { blockers.insert(.menu) }
+        if isSearchEditing || renamingProjectId != nil || renamingWorkspaceName != nil { blockers.insert(.editing) }
+        if snapshot.dropPreview != nil { blockers.insert(.drop) }
+        if projectSwipeTranslation != 0 { blockers.insert(.swipe) }
+        return blockers
     }
 
     var dockMagnificationOverflow: CGFloat {

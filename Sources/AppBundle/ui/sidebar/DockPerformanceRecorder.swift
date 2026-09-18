@@ -86,6 +86,7 @@ final class DockPerformanceRecorder: ObservableObject {
         }
         let trace = DockPerformanceTrace()
         view.performanceTrace = trace
+        view.recordInputState(.capture)
         nextPanelID += 1
         entries.append(Entry(id: nextPanelID, view: view, trace: trace,
             maximumFPS: view.window?.screen?.maximumFramesPerSecond ?? 0,
@@ -153,7 +154,7 @@ final class DockPerformanceRecorder: ObservableObject {
         for view in views.allObjects { view.performanceTrace = nil }
         isRecording = false
         let sidebar = config.workspaceSidebar
-        let report = DockPerformanceReport(schemaVersion: 1, startedUTC: startedUTC,
+        let report = DockPerformanceReport(schemaVersion: 2, startedUTC: startedUTC,
             hostTimeAnchor: startedHostTime, endedHostTime: CACurrentMediaTime(),
             version: winMuxAppVersion, gitHash: gitHash,
             operatingSystem: ProcessInfo.processInfo.operatingSystemVersionString,

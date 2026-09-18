@@ -7,7 +7,8 @@ struct WorkspaceSidebarDockAnimationHost<Surface: Shape, Content: View>: View {
     let visibleWidth: CGFloat
     let compactHeight: CGFloat
     let expansionProgress: CGFloat
-    let allowsMagnification: Bool
+    let blockers: WorkspaceSidebarDockPointerBlockers
+    private var allowsMagnification: Bool { blockers.isEmpty }
     let overflow: CGFloat
     let shape: Surface
     let hitRegions: WorkspaceSidebarDockHitRegions
@@ -47,16 +48,17 @@ struct WorkspaceSidebarDockAnimationHost<Surface: Shape, Content: View>: View {
                 }
                 .frame(width: surface.width + overflow, alignment: .leading)
                 .mask(alignment: .leading) { Rectangle().frame(width: max(visibleWidth, 0) + overflow) }
-                .onContinuousHover(coordinateSpace: .named("workspaceSidebarContent")) { phase in
-                    switch phase {
-                        case .active(let point):
-                            motion.receive(isWorkspaceSidebarDragInProgress() ? nil : acceptedPointer(point, in: surface))
-                        case .ended: motion.receive(nil)
-                    }
-                }
                 .position(x: surface.midX + overflow / 2, y: surface.midY)
         }
-        .background { WorkspaceSidebarDockDisplayLink(controller: motion, onFrame: { frame = $0 }) }
+        .background {
+            WorkspaceSidebarDockDisplayLink(controller: motion, blockers: blockers,
+                containsPointer: { [shape, hitRegions] point in
+                    let insideSurface = hitRegions.surface.map { surface in
+                        surface.contains(point) && shape.path(in: surface).contains(point)
+                    } ?? false
+                    return insideSurface || hitRegions.icons.contains { $0.contains(point) }
+                }, onFrame: { frame = $0 })
+        }
     }
 
     private func acceptedPointer(_ point: CGPoint?, in surface: CGRect) -> CGPoint? {

@@ -76,7 +76,7 @@ enum GlobalObserver {
         }
     }
 
-    private static func onPointerActivity(_ event: NSEvent) {
+    static func onPointerActivity(_ event: NSEvent) {
         let isLeftMouseDownEvent = event.type == .leftMouseDown
         let timestamp = event.timestamp
         let screenPoint = NSEvent.mouseLocation
@@ -84,7 +84,7 @@ enum GlobalObserver {
         runOnMainActor {
             MousePointerTracker.shared.note(point: point, timestamp: timestamp)
             WorkspaceSidebarPanel.trapCursorForVisiblePanelsIfNeeded()
-            WorkspaceSidebarPanel.noteHoverPointerActivityForVisiblePanels(timestamp: timestamp)
+            WorkspaceSidebarPanel.noteHoverPointerActivityForVisiblePanels(timestamp: timestamp, screenPoint: screenPoint)
             if isLeftMouseDownEvent {
                 Task { @MainActor in
                     await WindowMouseInteractionDriver.shared.capturePendingResizeCandidate()

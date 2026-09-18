@@ -15,9 +15,11 @@ Keep separate captures when comparing settings, materials or screen recording.
 
 ## What gets recorded
 
-The recorder samples only active animation callbacks. It stores 512 recent numeric
-samples and up to 128 suspected timing samples per panel, for up to eight current
-panels. Closed panels retain a smaller tail, capped at eight archived panels.
+The recorder samples active animation callbacks and native pointer/lifecycle events,
+including periods when animation is paused. It stores 512 recent frame samples,
+128 suspected timing samples, 256 recent input events and 128 input/state transitions
+per panel, for up to eight current panels. Closed panels retain a smaller tail,
+capped at eight archived panels.
 Overwritten samples, archived panels and omitted panels are counted explicitly.
 
 Records include:
@@ -27,6 +29,10 @@ Records include:
   for the last callback in a turn (earlier coalesced callbacks have no such stamp).
   Suspect samples retain the preceding publication/run-loop times for context.
 - Latest accepted vertical hover target's receive time and new-input count.
+- Native pointer-event timestamp and receive time, inside/accepted/changed-target
+  flags, magnification blockers, mouse passthrough, driver pause/resume/reset and
+  attachment state. Each event carries the last callback time and frame sequence.
+  These records continue while the driver sleeps; no idle polling is added.
 - Geometry/preference update counts, tiny column-origin changes, relative shelf
   movement, icon counts and native hover-recheck counts.
 - Refresh-session spans, including asynchronous waits; these are **not CPU time**.
@@ -44,8 +50,29 @@ reports use permissions `600`. The interface reports write failures.
 
 ## Interpreting possible issues
 
-All timing values are seconds in the `CACurrentMediaTime` host-clock domain. Each
-capture has a UTC/host-time anchor. Each panel has its own sequence numbers.
+Timing values are seconds in the `CACurrentMediaTime` host-clock domain, except
+`nativeTimestamp`, which retains the original `NSEvent.timestamp` (system uptime).
+Each capture has a UTC/host-time anchor. Each panel has its own sequence numbers.
+
+Schema 2 adds an `input` report per panel. Schema-1 reports lack this information.
+`recentEvents` contains the latest packets, including rejected or unchanged targets;
+`transitions` separately retains lifecycle and acceptance changes so ordinary
+movement does not immediately overwrite freeze/recovery context. There is no
+SwiftUI hover handoff: native input directly updates the display-link target.
+`nativePointer` records the global/local monitors; `tracking` records the native
+tracking area (active even for a non-key panel). Both use the same acceptance path.
+An input event records state **before** applying that target; a following `resume`
+records the driver waking. Settled targets intentionally stop display callbacks.
+
+The `blockers` bitmask combines disabled (1), expanded (2), Reduce Motion (4), menu
+(8), editing (16), drop preview (32), swipe (64), drag (128), hidden (256) and detached
+(512). Inspect rejection and recovery transitions before interpreting callback gaps:
+
+- Native input with `accepted=false`: inspect `blockers` and `inside`.
+- Changing accepted targets with no subsequent callbacks: investigate driver lifecycle.
+- Continuing targets and callbacks during a visible freeze: profile rendering separately.
+- No input records during a freeze: event delivery or main-thread work remains possible;
+  absence alone does not prove that the cursor moved during that interval.
 
 - `lateCallbacks`: a changed pose arrived more than 1.5 observed display intervals
   after the previous callback, outside the cadence warm-up/reset period.
@@ -84,8 +111,14 @@ WINMUX_DOCK_BENCHMARK=1 WINMUX_DOCK_SWEEP=rapid swift test -c release --arch arm
 WINMUX_DOCK_INPUT_BENCHMARK=1 swift test -c release --arch arm64 --filter WorkspaceSidebarDockPerformanceTest.testNativeHoverCapture
 ```
 
+For WindowServer delivery (including a non-key Dock and another active app), add
+`WINMUX_DOCK_SYSTEM_INPUT=1`. This requires input-posting permission on the test
+desktop and skips clearly if unavailable. Use `--disable-swift-testing` in Tart
+for this XCTest-only native run; its AppKit loop can conflict with SwiftPM's second
+Swift Testing discovery process.
+
 The opt-in native hover test moves the pointer on an unlocked test desktop. It
-uses the normal AppKit/SwiftUI hover path and deferred layout, with a separate
+uses the production native pointer handler and deferred layout, with a separate
 input timer; it does not drive input or force layout from a display callback.
 It measures synthetic input-injection overhead separately. Prefer the Tart test VM
 for this automation; VM timing cannot certify physical 60/120 Hz presentation.

@@ -1,6 +1,5 @@
 import SwiftUI
 
-let workspaceSidebarDockPointerExitedNotification = Notification.Name("workspaceSidebarDockPointerExited")
 
 private struct WorkspaceSidebarDockPointerKey: EnvironmentKey {
     static let defaultValue: CGPoint? = nil

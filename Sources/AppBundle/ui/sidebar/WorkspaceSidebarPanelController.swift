@@ -51,6 +51,7 @@ final class WorkspaceSidebarPanel: NSPanelHud, WorkspaceSidebarInputOwner {
     var persistentExpansionWidth: CGFloat?
     var visibleSurfaceFrame: CGRect?
     var dockIconFrames: [CGRect] = []
+    weak var dockPointerView: WorkspaceSidebarDockDisplayLinkView?
     var localDropTargetFrames: [WorkspaceSidebarDropTargetFrame] = []
     let hoverExitTolerance: CGFloat = 20
     let hoverPollInterval: TimeInterval = 1.0 / 30.0
@@ -77,6 +78,7 @@ final class WorkspaceSidebarPanel: NSPanelHud, WorkspaceSidebarInputOwner {
         titlebarAppearsTransparent = true
         hasShadow = false
         isFloatingPanel = true
+        acceptsMouseMovedEvents = true
         isExcludedFromWindowsMenu = true
         animationBehavior = .none
         // Do not opt into fullscreen Spaces. Explicit per-display suppression is still

@@ -28,16 +28,33 @@ final class WorkspaceSidebarDockPerformanceTest: XCTestCase {
         print("DOCK_CAPTURE_OVERHEAD disabled_us=\(microseconds[0]) enabled_us=\(microseconds[1]) added_us=\(microseconds[1] - microseconds[0])")
     }
 
-    /// Runs through AppKit/SwiftUI hover and ordinary deferred layout. Unlike the
+    /// Runs through the production native event handler and ordinary deferred layout. Unlike the
     /// layout microbenchmark, neither input nor layout is driven by a frame callback.
     func testNativeHoverCapture() async throws {
         guard ProcessInfo.processInfo.environment["WINMUX_DOCK_INPUT_BENCHMARK"] == "1" else {
             throw XCTSkip("Run with WINMUX_DOCK_INPUT_BENCHMARK=1 on an unlocked test desktop")
         }
         guard CGDisplayIsAsleep(CGMainDisplayID()) == 0 else { throw XCTSkip("Display is asleep") }
+        let systemInput = ProcessInfo.processInfo.environment["WINMUX_DOCK_SYSTEM_INPUT"] == "1"
+        if systemInput && !CGPreflightPostEventAccess() { throw XCTSkip("WindowServer input posting is not permitted") }
         let screen = try XCTUnwrap(NSScreen.main)
         let quartzOriginY = try XCTUnwrap(NSScreen.screens.first).frame.maxY
         let application = NSApplication.shared
+        var localPackets = 0
+        var globalPackets = 0
+        let monitor = NSEvent.addLocalMonitorForEvents(matching: .mouseMoved) { event in
+            MainActor.assumeIsolated { localPackets += 1 }
+            GlobalObserver.onPointerActivity(event)
+            return event
+        }
+        let globalMonitor = systemInput ? NSEvent.addGlobalMonitorForEvents(matching: .mouseMoved) { event in
+            MainActor.assumeIsolated { globalPackets += 1 }
+            GlobalObserver.onPointerActivity(event)
+        } : nil
+        defer {
+            if let monitor { NSEvent.removeMonitor(monitor) }
+            if let globalMonitor { NSEvent.removeMonitor(globalMonitor) }
+        }
         let previousConfig = config
         let previouslyEnabled = TrayMenuModel.shared.isEnabled
         let previousPointer = NSEvent.mouseLocation
@@ -76,6 +93,17 @@ final class WorkspaceSidebarDockPerformanceTest: XCTestCase {
         panel.acceptsMouseMovedEvents = true
         panel.orderFrontRegardless()
         panel.hostingView.layoutSubtreeIfNeeded() // Initial layout only.
+        // Exercise a non-key Dock while our app is active, then while Finder is
+        // active. Synthetic postEvent delivery alone cannot verify this contract.
+        let keyWindow = NSWindow(contentRect: CGRect(x: screen.visibleFrame.midX, y: screen.visibleFrame.midY,
+            width: 200, height: 120), styleMask: [.titled], backing: .buffered, defer: false)
+        keyWindow.isReleasedWhenClosed = false
+        defer { keyWindow.close() }
+        if systemInput {
+            keyWindow.makeKeyAndOrderFront(nil)
+            application.activate(ignoringOtherApps: true)
+        }
+        var switchedApplication = false
         let recorder = DockPerformanceRecorder.shared
         recorder.start()
         let started = CACurrentMediaTime()
@@ -87,6 +115,11 @@ final class WorkspaceSidebarDockPerformanceTest: XCTestCase {
             MainActor.assumeIsolated {
                 let inputStart = CACurrentMediaTime()
                 let elapsed = CACurrentMediaTime() - started
+                if systemInput && elapsed > 7 && !switchedApplication {
+                    switchedApplication = true
+                    NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.finder").first?
+                        .activate(options: [])
+                }
                 let phase = elapsed.truncatingRemainder(dividingBy: 1.5) / 1.5
                 let fraction = phase < 0.5 ? phase * 2 : 2 - phase * 2
                 let surface = panel.visibleSurfaceFrameOnScreen
@@ -95,13 +128,17 @@ final class WorkspaceSidebarDockPerformanceTest: XCTestCase {
                     y: surface.minY + 45 + fraction * max(surface.height - 90, 1))
                 // Quartz global coordinates start at the main display's top-left.
                 let quartzPoint = CGPoint(x: screenPoint.x, y: quartzOriginY - screenPoint.y)
-                CGWarpMouseCursorPosition(quartzPoint)
-                panel.updateHoverStateFromMousePosition()
-                let event = NSEvent.mouseEvent(with: .mouseMoved,
-                    location: panel.convertPoint(fromScreen: screenPoint), modifierFlags: [],
-                    timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: panel.windowNumber,
-                    context: nil, eventNumber: events, clickCount: 0, pressure: 0)
-                if let event { NSApp.postEvent(event, atStart: false) }
+                if systemInput {
+                    CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: quartzPoint,
+                        mouseButton: .left)?.post(tap: .cghidEventTap)
+                } else {
+                    CGWarpMouseCursorPosition(quartzPoint)
+                    let event = NSEvent.mouseEvent(with: .mouseMoved,
+                        location: panel.convertPoint(fromScreen: screenPoint), modifierFlags: [],
+                        timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: panel.windowNumber,
+                        context: nil, eventNumber: events, clickCount: 0, pressure: 0)
+                    if let event { NSApp.postEvent(event, atStart: false) }
+                }
                 events += 1
                 injectionTimes.append((CACurrentMediaTime() - inputStart) * 1_000)
             }
@@ -128,9 +165,15 @@ final class WorkspaceSidebarDockPerformanceTest: XCTestCase {
         decoder.dateDecodingStrategy = .iso8601
         let report = try decoder.decode(DockPerformanceReport.self, from: Data(contentsOf: file))
         let frames = report.panels.reduce(0) { $0 + $1.summary.changedPoses }
-        XCTAssertGreaterThan(frames, 100, "Real AppKit hover must drive the display link without direct receive calls")
+        XCTAssertGreaterThan(frames, 100, "Native input must drive the display link without direct receive calls")
+        XCTAssertGreaterThan(report.panels.reduce(0) { $0 + ($1.input?.acceptedNativeEvents ?? 0) }, 100)
+        XCTAssertGreaterThan(report.panels.reduce(0) { $0 + ($1.input?.changedNativeTargets ?? 0) }, 100)
+        if systemInput {
+            XCTAssertGreaterThan(localPackets, 100, "The non-key Dock must receive native movement in our app")
+            XCTAssertGreaterThan(globalPackets, 100, "Movement must also reach the monitor while another app is active")
+        }
         injectionTimes.sort()
-        print("DOCK_INPUT_BENCHMARK events=\(events) changedPoses=\(frames) panels=\(report.panels.count) injection_p99_ms=\(injectionTimes[Int(Double(injectionTimes.count - 1) * 0.99)]) report=\(file.path)")
+        print("DOCK_INPUT_BENCHMARK systemInput=\(systemInput) events=\(events) local=\(localPackets) global=\(globalPackets) changedPoses=\(frames) panels=\(report.panels.count) injection_p99_ms=\(injectionTimes[Int(Double(injectionTimes.count - 1) * 0.99)]) report=\(file.path)")
         if let destination = ProcessInfo.processInfo.environment["WINMUX_DOCK_CAPTURE_DIR"] {
             try FileManager.default.copyItem(at: file,
                 to: URL(fileURLWithPath: destination).appendingPathComponent(file.lastPathComponent))

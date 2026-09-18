@@ -122,6 +122,71 @@ final class DockPerformanceTraceTest: XCTestCase {
         XCTAssertGreaterThan(report.overwrittenSuspectedFrames, 0)
     }
 
+    func testPausedInputRetainsRejectionAndRecoveryWithoutRequiringAFrame() throws {
+        let trace = DockPerformanceTrace()
+        func input(_ time: Double, blocked: Bool, running: Bool) {
+            trace.pointerEvent(.nativePointer, at: time, nativeTimestamp: time - 0.001,
+                blockers: blocked ? WorkspaceSidebarDockPointerBlockers.menu.rawValue : 0,
+                inside: true, accepted: !blocked, targetChanged: !blocked,
+                running: running, hasTarget: !blocked, passthrough: false)
+        }
+        record(trace, at: 1)
+        trace.resetBaseline()
+        input(2, blocked: true, running: false)
+        input(3, blocked: false, running: false)
+        for index in 0..<1_000 { input(4 + Double(index) / 120, blocked: false, running: true) }
+        let report = try XCTUnwrap(trace.snapshot(panel: 1, maximumFPS: 60, scale: 2).input)
+        XCTAssertEqual(trace.summary.frames, 1, "Input capture must survive a silent display link")
+        XCTAssertEqual(report.nativeEvents, 1_002)
+        XCTAssertEqual(report.acceptedNativeEvents, 1_001)
+        XCTAssertEqual(report.recentEvents.count, 256)
+        XCTAssertEqual(report.overwrittenRecentEvents, 746)
+        XCTAssertEqual(report.transitions.map(\.receivedAt), [2, 3, 4], "High-rate movement must not evict the recovery")
+        XCTAssertEqual(report.transitions[0].blockers, WorkspaceSidebarDockPointerBlockers.menu.rawValue)
+        XCTAssertEqual(report.transitions[1].accepted, true)
+        XCTAssertEqual(report.transitions[1].lastCallbackAt, 1, "Baseline resets must not hide how long callbacks stopped")
+        XCTAssertEqual(report.transitions[1].callbackSequence, 1)
+        XCTAssertEqual(report.transitions[1].nativeTimestamp!, 2.999, accuracy: 0.000001)
+    }
+
+    func testInputLifecycleRetentionIsBoundedAndOldPanelReportsStillDecode() throws {
+        let trace = DockPerformanceTrace()
+        for index in 0..<1_000 {
+            trace.pointerEvent(.reset, at: Double(index), nativeTimestamp: nil, blockers: 0,
+                inside: nil, accepted: nil, targetChanged: false, running: false, hasTarget: false, passthrough: true)
+        }
+        let report = trace.snapshot(panel: 1, maximumFPS: 60, scale: 2)
+        XCTAssertEqual(report.input?.transitions.count, 128)
+        XCTAssertEqual(report.input?.overwrittenTransitions, 872)
+        let retired = trace.snapshot(panel: 1, maximumFPS: 60, scale: 2, retired: true)
+        XCTAssertEqual(retired.input?.recentEvents.count, 32)
+        XCTAssertEqual(retired.input?.transitions.count, 16)
+        XCTAssertEqual(retired.input?.overwrittenRecentEvents, 968)
+        let data = try JSONEncoder().encode(report)
+        var old = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        old.removeValue(forKey: "input")
+        let decoded = try JSONDecoder().decode(DockPerformancePanelReport.self, from: JSONSerialization.data(withJSONObject: old))
+        XCTAssertNil(decoded.input)
+    }
+
+    func testFullFrameAndInputBuffersFitTheEightPanelReportBudget() throws {
+        let trace = DockPerformanceTrace()
+        for index in 0..<1_000 {
+            let time = 123_456.123456789 + Double(index) / 30
+            trace.input(at: time - 0.005)
+            trace.geometry(surfaceY: Double(index), icons: 50)
+            record(trace, at: time)
+            trace.beforeWaiting(at: time + 0.004)
+            trace.pointerEvent(.nativePointer, at: time + 0.005, nativeTimestamp: time,
+                blockers: index % 2, inside: true, accepted: index.isMultiple(of: 2),
+                targetChanged: true, running: true, hasTarget: true, passthrough: false)
+        }
+        let current = (0..<8).map { trace.snapshot(panel: $0, maximumFPS: 120, scale: 2) }
+        let retired = (8..<16).map { trace.snapshot(panel: $0, maximumFPS: 120, scale: 2, retired: true) }
+        let data = try JSONEncoder().encode(current + retired)
+        XCTAssertLessThan(data.count, 5 * 1_024 * 1_024 - 100_000, "Leave space for report metadata and refresh spans")
+    }
+
     func testDisabledRecorderDoesNotCollectOrPublishFrameUpdatesAndStopSaves() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -146,7 +211,7 @@ final class DockPerformanceTraceTest: XCTestCase {
         while recorder.isSaving && Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
         let file = try XCTUnwrap(recorder.lastReport)
         let json = try JSONSerialization.jsonObject(with: Data(contentsOf: file)) as! [String: Any]
-        XCTAssertEqual(json["schemaVersion"] as? Int, 1)
+        XCTAssertEqual(json["schemaVersion"] as? Int, 2)
         let panels = try XCTUnwrap(json["panels"] as? [[String: Any]])
         XCTAssertEqual(panels.count, 1)
         XCTAssertEqual((panels[0]["summary"] as? [String: Any])?["frames"] as? Int, 10)

@@ -95,6 +95,17 @@ final class DockPerformanceTrace {
     private var tinyColumnOriginUpdates = 0
     private var maximumColumnOriginDelta = 0.0
     private var needsRunLoopEnd = false
+    private var pointerEvents = DockPointerPerformanceBuffer()
+    private var lastCallbackArrival: Double?
+
+    func pointerEvent(_ kind: DockPointerEventKind, at timestamp: Double, nativeTimestamp: Double?,
+                      blockers: Int, inside: Bool?, accepted: Bool?, targetChanged: Bool,
+                      running: Bool, hasTarget: Bool, passthrough: Bool) {
+        pointerEvents.append(.init(kind: kind, receivedAt: timestamp, nativeTimestamp: nativeTimestamp,
+            blockers: blockers, inside: inside, accepted: accepted, targetChanged: targetChanged,
+            running: running, hasTarget: hasTarget, passthrough: passthrough,
+            callbackSequence: summary.frames, lastCallbackAt: lastCallbackArrival))
+    }
 
     func resetBaseline(preservingInput: Bool = false) {
         previousArrival = nil
@@ -138,6 +149,7 @@ final class DockPerformanceTrace {
 
     func record(arrival: Double, displayTimestamp: Double, targetTimestamp: Double,
                 duration: Double, publishEnd: Double, changed: Bool, nativeDisplayTiming: Bool = true) {
+        lastCallbackArrival = arrival
         let interval = max(nativeDisplayTiming ? targetTimestamp - displayTimestamp : duration, 0.001)
         let cadenceChanged = previousInterval.map { abs(interval - $0) > $0 * 0.2 } ?? false
         if cadenceChanged { baselineFrames = 2 }
@@ -221,7 +233,7 @@ final class DockPerformanceTrace {
               suspectedFrames: Array(suspects.elements.suffix(retired ? 16 : 128)),
               overwrittenRecentFrames: recent.overwritten + (retired ? max(recent.count - 32, 0) : 0),
               overwrittenSuspectedFrames: suspects.overwritten + (retired ? max(suspects.count - 16, 0) : 0),
-              retired: retired)
+              retired: retired, input: pointerEvents.snapshot(retired: retired))
     }
 }
 
@@ -235,4 +247,6 @@ struct DockPerformancePanelReport: Codable, Sendable {
     var overwrittenRecentFrames: Int
     var overwrittenSuspectedFrames: Int
     var retired: Bool
+    /// Optional when decoding schema-1 reports captured before native input tracing.
+    var input: DockPointerPerformanceReport?
 }
