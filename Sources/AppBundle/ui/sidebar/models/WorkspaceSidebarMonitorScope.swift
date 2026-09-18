@@ -4,6 +4,20 @@ let workspaceSidebarDefaultScopeId = "default"
 let workspaceSidebarFocusedScopeId = "focused"
 private let workspaceSidebarMonitorScopePrefix = "monitor:"
 
+extension TrayMenuModel {
+    @MainActor func refreshWorkspaceSidebarMonitorScope() {
+        // A cleared model is not an authoritative disconnect. Keep manual choices
+        // while disabled or waiting for discovery; a populated catalog includes Default.
+        guard !workspaceSidebarMonitorScopes.isEmpty else { return }
+        let preferredScopeId = workspaceSidebarHasExplicitMonitorScopeSelection
+            ? workspaceSidebarSelectedMonitorScopeId
+            : (workspaceSidebarAppearance.showAppIcons ? workspaceSidebarTargetMonitorScopeId : workspaceSidebarDefaultScopeId)
+        let resolvedScopeId = workspaceSidebarMonitorScopes.contains { $0.id == preferredScopeId }
+            ? preferredScopeId : workspaceSidebarDefaultScopeId
+        setIfChanged(\.workspaceSidebarSelectedMonitorScopeId, resolvedScopeId)
+    }
+}
+
 func workspaceSidebarMonitorScopeIsSentinel(_ scopeId: String) -> Bool {
     scopeId == workspaceSidebarDefaultScopeId ||
         scopeId == workspaceSidebarFocusedScopeId

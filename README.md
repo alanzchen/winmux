@@ -64,6 +64,12 @@ upstream layout and original dark material at fixed opacity. **Dock** uses today
 app-icon design, Liquid Glass, and optional magnification. Switching modes applies
 immediately and preserves each mode’s saved preferences.
 
+Each Dock initially selects its own display in **Monitor filter**, showing that
+display's workspaces. Manual choices such as **Default** (all displays), **Focus**,
+or another display stay local to that panel through refreshes and mode changes.
+If a selected display disconnects, the filter falls back to **Default**. Sidebar
+mode retains its original **Default** starting filter.
+
 In Dock mode, each workspace starts with a numbered
 app-shaped tile, followed by equally sized app icons; horizontal lines separate
 workspaces. Named workspaces use their initial on the tile.

@@ -1236,7 +1236,9 @@ extension WorkspaceSidebarView {
     }
 
     func allowsWorkspaceActivation(projectId: WorkspaceProjectId) -> Bool {
-        snapshot.selectedMonitorScopeId == workspaceSidebarDefaultScopeId &&
+        let showsLocalDock = snapshot.configuration.showAppIcons &&
+            snapshot.selectedMonitorScopeId == snapshot.targetMonitorScopeId
+        return (snapshot.selectedMonitorScopeId == workspaceSidebarDefaultScopeId || showsLocalDock) &&
             browsedProjectId == nil &&
             projectId == snapshot.activeProjectId
     }

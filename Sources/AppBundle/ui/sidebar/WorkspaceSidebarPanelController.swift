@@ -139,8 +139,8 @@ final class WorkspaceSidebarPanel: NSPanelHud, WorkspaceSidebarInputOwner {
         viewModel.setIfChanged(\.workspaceSidebarProjects, TrayMenuModel.shared.workspaceSidebarProjects)
         viewModel.setIfChanged(\.workspaceSidebarActiveProjectId, resolvedLocalActiveProjectId())
         viewModel.setIfChanged(\.workspaceSidebarMonitorScopes, TrayMenuModel.shared.workspaceSidebarMonitorScopes)
-        viewModel.setIfChanged(\.workspaceSidebarSelectedMonitorScopeId, resolvedLocalSelectedMonitorScopeId())
         viewModel.setIfChanged(\.workspaceSidebarTargetMonitorScopeId, monitorScopeId)
+        viewModel.refreshWorkspaceSidebarMonitorScope()
         viewModel.setIfChanged(\.workspaceSidebarFocusedMonitorScopeId, TrayMenuModel.shared.workspaceSidebarFocusedMonitorScopeId)
         viewModel.setIfChanged(\.workspaceSidebarShowsMonitorSelector, TrayMenuModel.shared.workspaceSidebarShowsMonitorSelector)
         viewModel.setIfChanged(\.workspaceSidebarDropPreview, TrayMenuModel.shared.workspaceSidebarDropPreview)
@@ -153,14 +153,6 @@ final class WorkspaceSidebarPanel: NSPanelHud, WorkspaceSidebarInputOwner {
     private func resolvedLocalActiveProjectId() -> WorkspaceProjectId {
         let monitor = workspaceSidebarMonitor(forScopeId: monitorScopeId)
         return monitor.map { activeWorkspaceProjectId(for: $0) } ?? workspaceProjectDefaultId
-    }
-
-    private func resolvedLocalSelectedMonitorScopeId() -> String {
-        let validScopeIds = Set(TrayMenuModel.shared.workspaceSidebarMonitorScopes.map(\.id))
-        if validScopeIds.contains(viewModel.workspaceSidebarSelectedMonitorScopeId) {
-            return viewModel.workspaceSidebarSelectedMonitorScopeId
-        }
-        return workspaceSidebarDefaultScopeId
     }
 
     private func resolvedLocalHoveredWorkspaceName() -> String? {

@@ -17,6 +17,8 @@ public final class TrayMenuModel: ObservableObject {
     @Published var workspaceSidebarMonitorScopes: [WorkspaceSidebarMonitorScopeViewModel] = []
     /// Panel-local UI state. The shared model keeps this only as a compatibility default for legacy callers.
     @Published var workspaceSidebarSelectedMonitorScopeId: String = workspaceSidebarDefaultScopeId
+    // A manual choice (including Default) must survive automatic Dock defaults and refreshes.
+    var workspaceSidebarHasExplicitMonitorScopeSelection = false
     @Published var workspaceSidebarTargetMonitorScopeId: String = workspaceSidebarDefaultScopeId
     @Published var workspaceSidebarFocusedMonitorScopeId: String = ""
     @Published var workspaceSidebarShowsMonitorSelector: Bool = false
