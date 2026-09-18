@@ -159,6 +159,34 @@ Keychain must be unlocked before starting. A locked or missing Keychain fails
 preflight instead of initiating an interactive unlock. Initial certificate access
 authorization remains a one-time setup requirement.
 
+### Background agent sessions
+
+A background agent can report the login Keychain as locked even after the user
+unlocks it in their desktop session. Check `launchctl managername`: the release
+agent may run in `Background`, with a different audit session from the logged-in
+desktop. Repeated desktop unlocks do not necessarily change that agent's access.
+
+Run the **same, unchanged** signing preflight as a temporary, one-shot LaunchAgent
+in `gui/<user-id>`. If it passes there, run `make prerelease-local` in that domain
+from a clean checkout. Keep the pinned toolchain, signing identity, team, and
+notarization profile explicit. This reuses the unlocked desktop session without
+opening Terminal or a signing permission dialog.
+
+Keep the temporary plist, runner, logs, and exit status under ignored `.local/`.
+Use `RunAtLoad` without `KeepAlive`; do not install a persistent login item. Pass
+only necessary environment values—never a Keychain password or private key. For
+example, register and later remove the one-shot job with:
+
+```sh
+launchctl bootstrap "gui/$(id -u)" /absolute/path/release-job.plist
+launchctl bootout "gui/$(id -u)/com.winmux.local-release.example"
+```
+
+Remove the job only after its runner has exited and publication has been checked.
+If the GUI-domain preflight also fails, stop and request an unlock; never bypass
+the checks or weaken Keychain settings. This workflow was verified for local
+release 0.6.323 after a background-session preflight continued reporting locked.
+
 ## Publish a stable version locally
 
 Choose a reviewed commit containing the fork features, issue fixes, and release

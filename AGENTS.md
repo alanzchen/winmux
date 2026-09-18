@@ -84,4 +84,8 @@ Sparkle signing key; credential provisioning is a separate one-time setup.
 - Preflight with `python3 -B script/sign-sparkle-update.py --check-credentials` and `python3 -B script/check-signing-keychain.py`.
 - Missing credentials or a locked/unavailable signing Keychain must fail clearly. Do not fall back to interactive prompts or export keys during routine builds.
 
+If a desktop unlock leaves the agent's preflight locked, follow
+[Background agent sessions](docs/releasing.md#background-agent-sessions). Use the
+same preflight in the desktop session; never bypass it or weaken Keychain settings.
+
 See [Headless local signing](docs/releasing.md#headless-local-signing) for setup and troubleshooting.
