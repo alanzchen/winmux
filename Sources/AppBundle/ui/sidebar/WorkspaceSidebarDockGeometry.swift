@@ -1,8 +1,8 @@
 import CoreGraphics
 import SwiftUI
 
-/// Fit the resting column before hover animation runs. The configured size remains
-/// a ceiling; very crowded columns keep scrolling at a usable 16-point minimum.
+/// Fit the column plus its maximum hover growth before animation runs. The configured
+/// size remains a ceiling; very crowded columns still scroll at a usable 16-point minimum.
 @MainActor
 func workspaceSidebarFittedDockIconSize(
     appCounts: [Int],
@@ -17,15 +17,33 @@ func workspaceSidebarFittedDockIconSize(
                       max(configuration.compactRailWidth - workspaceSidebarCompactRailHorizontalInset * 2, 1))
     let iconCount = appCounts.reduce(0) { $0 + 1 + max($1, 0) }
     guard iconCount > 0, availableHeight.isFinite else { return maximum }
-    let height = workspaceSidebarDockContentHeight(
-        appCounts: appCounts, configuration: configuration,
-        showsCreateWorkspace: showsCreateWorkspace, showsMonitorSelector: showsMonitorSelector,
-        projectCount: projectCount
-    )
-    guard height > availableHeight else { return maximum }
-    // Everything except icon canvases (separators, spacing, controls) stays fixed.
-    let fitted = maximum - (height - max(availableHeight, 0)) / CGFloat(iconCount)
-    return min(maximum, max(min(16, maximum), floor(fitted * 2) / 2))
+    func fits(_ size: CGFloat) -> Bool {
+        var layout = configuration
+        layout.dockIconSize = size
+        let height = workspaceSidebarDockContentHeight(
+            appCounts: appCounts, configuration: layout,
+            showsCreateWorkspace: showsCreateWorkspace, showsMonitorSelector: showsMonitorSelector,
+            projectCount: projectCount
+        )
+        let hoverGrowth = layout.dockMagnification
+            ? WorkspaceSidebarDockColumnMagnification.maximumGrowth(
+                appCounts: appCounts, itemSize: size, amount: layout.dockMagnificationAmount)
+            : 0
+        return height + hoverGrowth <= max(availableHeight, 0)
+    }
+    guard !fits(maximum) else { return maximum }
+    let minimum = min(16, maximum)
+    guard maximum > minimum, fits(minimum) else { return minimum }
+    // Hover growth depends on icon size too. Search half-point sizes once during
+    // snapshot/viewport layout, never refitting in response to the moving pointer.
+    var lower = Int(minimum * 2)
+    var upper = Int(floor(maximum * 2))
+    while lower < upper {
+        let middle = (lower + upper + 1) / 2
+        if fits(CGFloat(middle) / 2) { lower = middle }
+        else { upper = middle - 1 }
+    }
+    return CGFloat(lower) / 2
 }
 
 /// The compact column uses fixed-size tiles and controls, so its ideal height does not
@@ -59,8 +77,9 @@ func workspaceSidebarDockContentHeight(
         ? (configuration.showsSeconds ? 92 : 68) + 8 + workspaceSidebarStatusBottomPadding(isCompact: true)
         : 0
     let footerHeight: CGFloat = workspaceSidebarFooterBottomPadding(showsClock: configuration.showsClock)
-    let expandHeight: CGFloat = configuration.dockMagnification ? 32 : 0
-    let contentHeight: CGFloat = pageHeight + monitorHeight + projectHeight + clockHeight + footerHeight + expandHeight
+    // The visible chevron button is 28 points high with 4 points of bottom padding.
+    let expandControlHeight: CGFloat = configuration.dockMagnification ? 32 : 0
+    let contentHeight: CGFloat = pageHeight + monitorHeight + projectHeight + clockHeight + footerHeight + expandControlHeight
     return max(contentHeight, 1)
 }
 

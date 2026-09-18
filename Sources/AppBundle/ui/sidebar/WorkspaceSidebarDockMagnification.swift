@@ -118,6 +118,18 @@ struct WorkspaceSidebarDockColumnMagnification {
     let sections: [WorkspaceSidebarDockSectionMagnification]
     let growth: CGFloat
 
+    /// Each section occupies a disjoint interval in the same sine displacement map.
+    /// Their combined growth cannot exceed the map's growth across the entire column,
+    /// maximized with the lens centered on that span. Including gaps is conservative.
+    static func maximumGrowth(appCounts: [Int], itemSize: CGFloat, amount: Double) -> CGFloat {
+        guard !appCounts.isEmpty else { return 0 }
+        let height = appCounts.reduce(CGFloat.zero) { height, count in
+            height + WorkspaceSidebarDockMagnification(itemSize: itemSize, count: 1 + max(count, 0), enabled: false).height
+        } + CGFloat(appCounts.count - 1) * 12
+        let map = WorkspaceSidebarDockMagnification(itemSize: itemSize, count: 1, enabled: true, amount: amount)
+        return max(0, map.mappedEdge(height, pointerY: height / 2) - map.mappedEdge(0, pointerY: height / 2) - height)
+    }
+
     init(appCounts: [Int], itemSize: CGFloat, amount: Double, pointerY: CGFloat?, strength: CGFloat = 1) {
         var origin: CGFloat = 3 // Section's vertical padding.
         var sections: [WorkspaceSidebarDockSectionMagnification] = []

@@ -18,6 +18,8 @@ final class WorkspaceSidebarDockAdaptiveSizingTest: XCTestCase {
                 layout.dockIconSize = size
                 return workspaceSidebarDockContentHeight(appCounts: counts, configuration: layout,
                     showsCreateWorkspace: true, showsMonitorSelector: true, projectCount: 3)
+                    + WorkspaceSidebarDockColumnMagnification.maximumGrowth(
+                        appCounts: counts, itemSize: size, amount: layout.dockMagnificationAmount)
             }
             let available = height(maximum) - 43.75
             let size = workspaceSidebarFittedDockIconSize(appCounts: counts, configuration: configuration,
@@ -28,6 +30,24 @@ final class WorkspaceSidebarDockAdaptiveSizingTest: XCTestCase {
             XCTAssertGreaterThan(height(size + 0.5), available, "Use the largest fitting half-point size")
             XCTAssertEqual(configuration.dockIconSize, maximum, "Fitting must not rewrite the saved size")
         }
+    }
+
+    func testHoverReserveBoundsGrowthAcrossWorkspaceSeparators() {
+        for counts in [[0], [1], [0, 0], [2, 3], [4, 0, 2, 1]] {
+            for size: CGFloat in [16, 32, 48] {
+                for amount in [0.0, 0.25, 1.0] {
+                    let reserve = WorkspaceSidebarDockColumnMagnification.maximumGrowth(
+                        appCounts: counts, itemSize: size, amount: amount)
+                    for pointer: CGFloat in stride(from: -200, through: 1_200, by: 13) {
+                        let column = WorkspaceSidebarDockColumnMagnification(
+                            appCounts: counts, itemSize: size, amount: amount, pointerY: pointer)
+                        XCTAssertLessThanOrEqual(column.growth, reserve + 0.000_001)
+                    }
+                }
+            }
+        }
+        XCTAssertEqual(WorkspaceSidebarDockColumnMagnification.maximumGrowth(appCounts: [], itemSize: 48, amount: 1), 0)
+        XCTAssertEqual(WorkspaceSidebarDockColumnMagnification.maximumGrowth(appCounts: [0], itemSize: 48, amount: 1), 48, accuracy: 0.001)
     }
 
     func testMinimumKeepsExtremeColumnsScrollableAndSidebarUnchanged() {
@@ -96,6 +116,37 @@ final class WorkspaceSidebarDockAdaptiveSizingTest: XCTestCase {
         XCTAssertEqual(enlarged.width, resting.width * 1.5, accuracy: 0.01)
         XCTAssertEqual(enlarged.minX, resting.minX, accuracy: 0.01)
         XCTAssertEqual(view.dockLayout(availableHeight: 520), layout, "Hover must not refit the resting column")
+    }
+
+    func testMagnificationKeepsEveryFittedIconAboveBottomControls() throws {
+        for amount in [0.25, 0.5, 1.0] {
+            var snapshot = fixture()
+            snapshot.configuration.dockMagnification = true
+            snapshot.configuration.dockMagnificationAmount = amount
+            let sample = render(snapshot, height: 340)
+            let restingIcons = sample.probe.icons
+            XCTAssertEqual(restingIcons.count, 8)
+            for resting in restingIcons {
+                for y in [resting.minY, resting.midY, resting.maxY - 0.25, resting.maxY + 2] {
+                    sample.host.rootView = AdaptiveSizingContent(snapshot: snapshot, probe: sample.probe,
+                        pointer: CGPoint(x: resting.midX, y: y))
+                    sample.host.layoutSubtreeIfNeeded()
+                    XCTAssertEqual(sample.probe.icons.count, 8, "Hover must not push fitted icons below the viewport")
+                    for frame in sample.probe.icons {
+                        XCTAssertEqual(frame.height, frame.width, accuracy: 0.01,
+                            "A shortened hit frame means the square icon was cut by the scroll viewport")
+                    }
+                }
+            }
+            if amount == 1, let path = ProcessInfo.processInfo.environment["WINMUX_DOCK_CAPTURE_DIRECTORY"] {
+                let bitmap = try XCTUnwrap(sample.host.bitmapImageRepForCachingDisplay(in: sample.host.bounds))
+                sample.host.cacheDisplay(in: sample.host.bounds, to: bitmap)
+                let directory = URL(fileURLWithPath: path)
+                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+                try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
+                    .write(to: directory.appendingPathComponent("dock-bottom-hover.png"))
+            }
+        }
     }
 
     func testOtherProjectsAndFilteredDisplaysDoNotShrinkCurrentDock() {
