@@ -77,6 +77,7 @@ extension WorkspaceSidebarPanel {
     }
 
     func expandSidebar(to expandedWidth: CGFloat, reason: WorkspaceSidebarExpansionReason = .passive) {
+        guard currentSidebarPanelLayout() != nil else { return }
         debugWorkspaceSidebarHoverLog("expandSidebar panel=\(monitorScopeId) target=\(expandedWidth) visible=\(viewModel.workspaceSidebarVisibleWidth) frame=\(frame) mouse=\(NSEvent.mouseLocation)")
         pendingExpand?.cancel()
         pendingExpand = nil
@@ -403,6 +404,7 @@ extension WorkspaceSidebarPanel {
         onKeyDown: (@MainActor (WorkspaceSidebarInlineTextKey) -> Void)? = nil
     ) {
         debugWorkspaceSidebarRenameLog("beginInlineTextEditing isKeyBefore=\(isKeyWindow) firstResponder=\(String(describing: firstResponder)) mouseInside=\(isMouseInsideVisibleRegion())")
+        guard currentSidebarPanelLayout() != nil else { return }
         WorkspaceSidebarPanel.inputSession.acquire(self)
         if !inlineTextEditingActive {
             let frontmost = NSWorkspace.shared.frontmostApplication
@@ -443,6 +445,7 @@ extension WorkspaceSidebarPanel {
     }
 
     func prepareForInlineTextEditing() {
+        guard currentSidebarPanelLayout() != nil else { return }
         debugWorkspaceSidebarRenameLog("prepareForInlineTextEditing before visible=\(isVisible) isKey=\(isKeyWindow) ignoresMouse=\(ignoresMouseEvents) firstResponder=\(String(describing: firstResponder))")
         cancelExpansionWork()
         expandSidebar(to: CGFloat(config.workspaceSidebar.width))
@@ -614,7 +617,8 @@ func workspaceSidebarPanelLayout(screenFrame: CGRect, sidebarConfig: WorkspaceSi
 
 extension WorkspaceSidebarPanel {
     func currentSidebarPanelLayout() -> WorkspaceSidebarPanelLayout? {
-        currentSidebarPanelLayout(on: workspaceSidebarResolvedPanelMonitor())
+        guard let monitor = workspaceSidebarMonitor(forScopeId: monitorScopeId) else { return nil }
+        return currentSidebarPanelLayout(on: monitor)
     }
 
     func currentSidebarPanelLayout(on monitor: Monitor) -> WorkspaceSidebarPanelLayout? {
@@ -622,13 +626,14 @@ extension WorkspaceSidebarPanel {
               config.workspaceSidebar.enabled,
               let screen = workspaceSidebarPanelScreen(for: monitor)
         else { return nil }
-        guard !shouldSuppressWorkspaceSidebarForFullscreenContent() else { return nil }
+        guard !shouldSuppressChromeForFullscreenContent(on: monitor) else { return nil }
 
         return workspaceSidebarPanelLayout(screenFrame: screen.frame, sidebarConfig: config.workspaceSidebar)
     }
 
     func workspaceSidebarPanelScreen() -> NSScreen? {
-        workspaceSidebarPanelScreen(for: workspaceSidebarResolvedPanelMonitor())
+        guard let monitor = workspaceSidebarMonitor(forScopeId: monitorScopeId) else { return nil }
+        return workspaceSidebarPanelScreen(for: monitor)
     }
 
     func workspaceSidebarPanelScreen(for monitor: Monitor) -> NSScreen? {
@@ -988,7 +993,11 @@ extension WorkspaceSidebarPanel {
 }
 extension WorkspaceSidebarPanel {
     func refresh() {
-        refresh(on: workspaceSidebarResolvedPanelMonitor())
+        guard let monitor = workspaceSidebarMonitor(forScopeId: monitorScopeId) else {
+            resetHiddenSidebarState()
+            return
+        }
+        refresh(on: monitor)
     }
 
     func refresh(on monitor: Monitor) {
@@ -1049,14 +1058,21 @@ extension WorkspaceSidebarPanel {
 
     func resetHiddenSidebarState() {
         cancelInlineTextEditing()
+        clearWorkspaceSidebarCommandInputState(self)
         cancelExpansionWork()
+        ignoresMouseEvents = true
         // Runs for every inactive panel on every refreshAll — guard the shared-model writes so
         // they don't invalidate every observer each session.
         localDropTargetFrames = []
         visibleSurfaceFrame = nil
         dockIconFrames = []
-        setWorkspaceSidebarDropPreviewIfChanged(nil)
-        TrayMenuModel.shared.setIfChanged(\.workspaceSidebarHoveredWorkspaceName, nil)
+        if let preview = TrayMenuModel.shared.workspaceSidebarDropPreview,
+           preview.targetMonitorScopeId == nil || preview.targetMonitorScopeId == monitorScopeId {
+            setWorkspaceSidebarDropPreviewIfChanged(nil)
+        }
+        if !WorkspaceSidebarPanel.visiblePanels.contains(where: { $0 !== self && $0.isMouseInsideVisibleRegion() }) {
+            TrayMenuModel.shared.setIfChanged(\.workspaceSidebarHoveredWorkspaceName, nil)
+        }
         viewModel.setIfChanged(\.workspaceSidebarVisibleWidth, 0)
         if isVisible {
             orderOut(nil)

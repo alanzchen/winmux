@@ -79,7 +79,9 @@ final class WorkspaceSidebarPanel: NSPanelHud, WorkspaceSidebarInputOwner {
         isFloatingPanel = true
         isExcludedFromWindowsMenu = true
         animationBehavior = .none
-        collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        // Do not opt into fullscreen Spaces. Explicit per-display suppression is still
+        // required: ordering a floating panel front can override AppKit's Space placement.
+        collectionBehavior = [.canJoinAllSpaces, .fullScreenNone]
         applyWorkspaceSidebarLayer(stayOnTop: config.workspaceSidebar.stayOnTop)
         contentView = hostingView
         hostingView.frame = contentView?.bounds ?? .zero

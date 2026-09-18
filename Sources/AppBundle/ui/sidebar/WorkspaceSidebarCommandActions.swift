@@ -5,10 +5,9 @@ import AppKit
 func openWorkspaceSidebarFromCommand() {
     guard TrayMenuModel.shared.isEnabled, config.workspaceSidebar.enabled else { return }
     WorkspaceSidebarPanel.refreshAll()
-    let focusedScopeId = TrayMenuModel.shared.workspaceSidebarFocusedMonitorScopeId
-    let panel = WorkspaceSidebarPanel.panel(for: focusedScopeId)
-        ?? WorkspaceSidebarPanel.visiblePanels.first
-        ?? WorkspaceSidebarPanel.shared
+    guard let panel = workspaceSidebarPanelForCommand(
+        focusedScopeId: TrayMenuModel.shared.workspaceSidebarFocusedMonitorScopeId
+    ), panel.currentSidebarPanelLayout() != nil else { return }
     if panel.inlineTextEditingActive ||
         (panel.viewModel.isWorkspaceSidebarExpanded && !config.workspaceSidebar.alwaysExpanded)
     {
@@ -45,6 +44,18 @@ func openWorkspaceSidebarFromCommand() {
             }
         },
     )
+}
+
+@MainActor
+func workspaceSidebarPanelForCommand(focusedScopeId: String) -> WorkspaceSidebarPanel? {
+    let activeScopeIds = workspaceSidebarResolvedPanelMonitors().map { workspaceSidebarMonitorScopeId(for: $0) }
+    // A connected fullscreen display deliberately blocks search. A disconnected or
+    // deselected display must instead fall back to one of the currently configured panels.
+    if activeScopeIds.contains(focusedScopeId) {
+        return WorkspaceSidebarPanel.panel(for: focusedScopeId)
+    }
+    return activeScopeIds.compactMap { WorkspaceSidebarPanel.panel(for: $0) }
+        .first { $0.currentSidebarPanelLayout() != nil }
 }
 
 @MainActor

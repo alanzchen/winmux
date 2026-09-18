@@ -51,6 +51,13 @@ open class Window: TreeNode, Hashable {
         }
     }
 
+    @MainActor
+    func recordObservedNativeFullscreen(_ fullscreen: Bool, token: UInt64) {
+        if lastKnownNativeStateGeneration == token {
+            lastKnownNativeFullscreen = fullscreen
+        }
+    }
+
     /// For writers that know the current frame because they just set or saved it themselves
     /// (interaction-opacity parking/restore, initial registration). Supersedes any in-flight
     /// observation so a slow fetch can't clobber the deliberately written value.

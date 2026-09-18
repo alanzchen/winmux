@@ -918,17 +918,15 @@ final class WorkspaceSidebarDragTest: XCTestCase {
         window.isFullscreen = true
 
         XCTAssertFalse(shouldSuppressChromeForFullscreenContent(on: mainMonitor))
-        XCTAssertFalse(shouldSuppressWorkspaceSidebarForFullscreenContent())
     }
 
     @MainActor
     func testChromeIsSuppressedForNativeFullscreen() {
         setUpWorkspacesForTests()
-        shouldSuppressChromeForNativeFullscreenContent = true
-        defer { shouldSuppressChromeForNativeFullscreenContent = false }
+        nativeFullscreenChromeSuppression.windowFrames = [CGRect(x: 0, y: 0, width: 1920, height: 1080)]
+        defer { nativeFullscreenChromeSuppression = NativeFullscreenChromeSuppression() }
 
         XCTAssertTrue(shouldSuppressChromeForFullscreenContent(on: mainMonitor))
-        XCTAssertTrue(shouldSuppressWorkspaceSidebarForFullscreenContent())
     }
 
     func testWorkspaceHoverExitDoesNotClearNewerHoveredWorkspace() {

@@ -141,7 +141,6 @@ func runRefreshSessionBlocking(
                     let nativeFocused = nativeObservation.window
                     try checkCancellation()
                     if let nativeFocused { try await debugWindowsIfRecording(nativeFocused) }
-                    await updateNativeFullscreenChromeSuppression(nativeFocused: nativeFocused)
                     if !nativeObservation.isTransient { updateFocusCache(nativeFocused, preserveLogicalFocus: presentation.callbacksChangedFocus) }
                     presentation.recordNativeFocusBeforeLayout(nativeFocused)
                     try checkCancellation()
@@ -169,6 +168,8 @@ func runRefreshSessionBlocking(
                         try checkCancellation()
                         refreshModel()
                     }
+                    await updateNativeFullscreenChromeSuppression(nativeFocused: nativeFocused)
+                    try checkCancellation()
                     updateTrayText()
                     await updateWorkspaceSidebarModel()
                     SecureInputPanel.shared.refresh()
@@ -233,11 +234,15 @@ func runLightSession<T>(
                     let nativeFocused = nativeObservation.window
                     try checkCancellation()
                     if let nativeFocused { try await debugWindowsIfRecording(nativeFocused) }
-                    await updateNativeFullscreenChromeSuppression(nativeFocused: nativeFocused)
                     if !nativeObservation.isTransient { updateFocusCache(nativeFocused, preserveLogicalFocus: presentation.callbacksChangedFocus) }
                     presentation.recordNativeFocusBeforeLayout(nativeFocused)
                     try checkCancellation()
                     let focusBefore = focus.windowOrNil
+
+                    // Commands that open sidebar search must see fullscreen suppression
+                    // before their body can activate the panel or acquire keyboard input.
+                    await updateNativeFullscreenChromeSuppression(nativeFocused: nativeFocused)
+                    try checkCancellation()
 
                     refreshModel()
                     let result = try await body()
