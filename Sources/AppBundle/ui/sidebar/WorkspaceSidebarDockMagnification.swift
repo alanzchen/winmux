@@ -60,6 +60,47 @@ struct WorkspaceSidebarDockSectionMagnification: Equatable {
     var strength: CGFloat = 1
 }
 
+func workspaceSidebarDockSectionOrigins(appCounts: [Int], itemSize: CGFloat) -> [CGFloat] {
+    var origin: CGFloat = 3
+    return appCounts.map { count in
+        defer {
+            origin += WorkspaceSidebarDockMagnification(itemSize: itemSize, count: 1 + count,
+                enabled: false).height + 12
+        }
+        return origin
+    }
+}
+
+extension WorkspaceSidebarDockMagnification {
+    func sectionMagnification(pointerY: CGFloat?, strength: CGFloat) -> WorkspaceSidebarDockSectionMagnification {
+        let localPointer = pointerY.flatMap { pointer -> CGFloat? in
+            let radius = 2 * pitch
+            return enabled && strength > 0 && amount > 0 && pointer > -radius && pointer < height + radius ? pointer : nil
+        }
+        return .init(pointerY: localPointer, strength: localPointer == nil ? 0 : strength)
+    }
+}
+
+/// Its content is a snapshot-built value. Reading motion here keeps a new cursor position
+/// from rebuilding the enclosing ForEach and every section's interaction closures.
+struct WorkspaceSidebarDockSectionMotion: ViewModifier {
+    let columnOrigin: CGFloat
+    let sectionOrigin: CGFloat
+    let itemSize: CGFloat
+    let appCount: Int
+    let amount: Double
+    let isEnabled: Bool
+    @Environment(\.workspaceSidebarDockLayoutContext) private var context
+
+    func body(content: Content) -> some View {
+        let layout = WorkspaceSidebarDockMagnification(itemSize: itemSize, count: 1 + appCount,
+            enabled: isEnabled, amount: amount)
+        let pointer = context.pointer.map { $0.y - context.restingSurface.minY - columnOrigin - sectionOrigin }
+        content.environment(\.workspaceSidebarDockSectionMagnification,
+            layout.sectionMagnification(pointerY: pointer, strength: context.strength))
+    }
+}
+
 private struct WorkspaceSidebarDockSectionMagnificationKey: EnvironmentKey {
     static let defaultValue: WorkspaceSidebarDockSectionMagnification? = nil
 }
@@ -83,15 +124,9 @@ struct WorkspaceSidebarDockColumnMagnification {
         var growth: CGFloat = 0
         for count in appCounts {
             let layout = WorkspaceSidebarDockMagnification(itemSize: itemSize, count: 1 + count, enabled: true, amount: amount * strength)
-            let localPointer = pointerY.flatMap { pointer -> CGFloat? in
-                let local = pointer - origin
-                let radius = 2 * layout.pitch
-                // Beyond the lens, both edges translate equally and cancel out.
-                // A stable environment value keeps those icon subtrees unchanged.
-                return strength > 0 && amount > 0 && local > -radius && local < layout.height + radius ? local : nil
-            }
-            sections.append(.init(pointerY: localPointer, strength: localPointer == nil ? 0 : strength))
-            growth += layout.renderedHeight(pointerY: localPointer) - layout.height
+            let section = layout.sectionMagnification(pointerY: pointerY.map { $0 - origin }, strength: strength)
+            sections.append(section)
+            growth += layout.renderedHeight(pointerY: section.pointerY) - layout.height
             origin += layout.height + 12 // Section padding (6) + inter-section spacing (6).
         }
         self.sections = sections

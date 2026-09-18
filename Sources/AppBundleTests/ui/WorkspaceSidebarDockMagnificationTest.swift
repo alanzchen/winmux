@@ -277,6 +277,52 @@ final class WorkspaceSidebarDockMagnificationTest: XCTestCase {
             XCTAssertEqual(frame.midY, expected[index + 1].midY, accuracy: pixelRoundingTolerance)
         }
     }
+    @MainActor
+    func testMagnifiedAppRespondsAtItsProtrudingEdge() throws {
+        _ = NSApplication.shared
+        try XCTSkipIf(NSScreen.screens.isEmpty, "Requires a native window server")
+        var workspace = sidebarAppIconsTestWorkspace(displayName: "2")
+        workspace.apps = sidebarAppIconsTestApps(count: 2)
+        let layout = WorkspaceSidebarDockMagnification(itemSize: 40, count: 3, enabled: true, amount: 1)
+        let pointerY = layout.restingCenter(1)
+        let frames = layout.frames(width: 50, pointerY: pointerY)
+        var selectedApp: String?
+        let content = WorkspaceSidebarAppIconHeader(workspace: workspace, availableWidth: 50, isActive: true,
+            morphsTitle: true, hidesTitleForMorph: false, magnificationEnabled: true,
+            iconSize: 40, magnificationAmount: 1,
+            compactActions: .init(actions: WorkspaceSidebarActions(), onSelectApp: { selectedApp = $0.id },
+                onSelectWorkspace: {}))
+            .environment(\.workspaceSidebarDockSectionMagnification, .init(pointerY: pointerY))
+            .frame(width: 110, height: layout.renderedHeight(pointerY: pointerY), alignment: .topLeading)
+        let host = DockClickHostingView(rootView: content)
+        let window = NSWindow(contentRect: CGRect(x: 300, y: 200, width: 110, height: layout.renderedHeight(pointerY: pointerY)),
+            styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        window.orderFrontRegardless()
+        defer { window.orderOut(nil) }
+        host.layoutSubtreeIfNeeded()
+        window.displayIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        let rect = frames[1]
+        // Beyond the resting icon width, but inside its scaled rendering.
+        let point = CGPoint(x: rect.maxX - 3, y: rect.midY)
+        let local = CGPoint(x: point.x, y: host.isFlipped ? point.y : host.bounds.height - point.y)
+        let windowPoint = host.convert(local, to: nil)
+        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+            let event = try XCTUnwrap(NSEvent.mouseEvent(with: type, location: windowPoint,
+                modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber, context: nil, eventNumber: 0,
+                clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0))
+            NSApp.postEvent(event, atStart: false)
+        }
+        let deadline = Date().addingTimeInterval(0.05)
+        while let event = NSApp.nextEvent(matching: [.leftMouseDown, .leftMouseUp], until: deadline,
+            inMode: .default, dequeue: true) {
+            NSApp.sendEvent(event)
+        }
+        XCTAssertEqual(selectedApp, workspace.apps[0].id)
+    }
 }
 
 @MainActor
@@ -286,4 +332,8 @@ private final class DockAnchorProbe {
         self.frames = frames
         return .clear
     }
+}
+
+private final class DockClickHostingView<Content: View>: NSHostingView<Content> {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }

@@ -11,6 +11,7 @@ final class WorkspaceSidebarDockPerformanceTest: XCTestCase {
         guard ProcessInfo.processInfo.environment["WINMUX_DOCK_BENCHMARK"] == "1" else {
             throw XCTSkip("Run with WINMUX_DOCK_BENCHMARK=1 to measure hover layout work")
         }
+        let rapid = ProcessInfo.processInfo.environment["WINMUX_DOCK_SWEEP"] == "rapid"
         for workspaceCount in [3, 8] {
             let driver = DockBenchmarkPointer()
             let snapshot = dockBenchmarkSnapshot(workspaceCount: workspaceCount)
@@ -22,13 +23,15 @@ final class WorkspaceSidebarDockPerformanceTest: XCTestCase {
             var milliseconds: [Double] = []
             for step in 0..<140 {
                 let start = CFAbsoluteTimeGetCurrent()
-                driver.point = CGPoint(x: 32, y: 170 + Double(step % 100) * 5)
+                let phase = step % 24
+                let y = rapid ? 170 + Double(phase < 12 ? phase : 24 - phase) * 40 : 170 + Double(step % 100) * 5
+                driver.point = CGPoint(x: 32, y: y)
                 host.needsLayout = true
                 host.layoutSubtreeIfNeeded()
                 if step >= 20 { milliseconds.append((CFAbsoluteTimeGetCurrent() - start) * 1000) }
             }
             milliseconds.sort()
-            print("DOCK_BENCHMARK workspaces=\(workspaceCount) appsPerWorkspace=4 samples=\(milliseconds.count) p50_ms=\(milliseconds[milliseconds.count / 2]) p95_ms=\(milliseconds[Int(Double(milliseconds.count) * 0.95)]) p99_ms=\(milliseconds[Int(Double(milliseconds.count) * 0.99)]) max_ms=\(milliseconds.last!) geometryUpdates=\(geometryUpdates)")
+            print("DOCK_BENCHMARK rapid=\(rapid) workspaces=\(workspaceCount) appsPerWorkspace=4 samples=\(milliseconds.count) p50_ms=\(milliseconds[milliseconds.count / 2]) p95_ms=\(milliseconds[Int(Double(milliseconds.count) * 0.95)]) p99_ms=\(milliseconds[Int(Double(milliseconds.count) * 0.99)]) max_ms=\(milliseconds.last!) geometryUpdates=\(geometryUpdates)")
             XCTAssertGreaterThan(geometryUpdates, 1, "The benchmark must actually update magnified geometry")
         }
     }
@@ -42,6 +45,7 @@ final class WorkspaceSidebarDockPerformanceTest: XCTestCase {
         guard CGDisplayIsAsleep(CGMainDisplayID()) == 0 else {
             throw XCTSkip("Wake and unlock the display before measuring native frame pacing")
         }
+        let rapid = ProcessInfo.processInfo.environment["WINMUX_DOCK_SWEEP"] == "rapid"
         let screen = try XCTUnwrap(NSScreen.main)
         let previousConfig = config
         let previouslyEnabled = TrayMenuModel.shared.isEnabled
@@ -116,8 +120,16 @@ final class WorkspaceSidebarDockPerformanceTest: XCTestCase {
                 if count.isMultiple(of: 60) {
                     model.workspaceSidebarHoveredWorkspaceName = count.isMultiple(of: 120) ? "1" : "2"
                 }
-                let phase = Double(count) / Double(max(screen.maximumFramesPerSecond, 1))
-                clock.receive(CGPoint(x: 32, y: 400 + 180 * sin(phase * 3)))
+                if rapid {
+                    // High-rate pointer packets still produce only one pose per display tick.
+                    for packet in 0..<8 {
+                        let phase = Double((count * 8 + packet) % 192) / 8
+                        clock.receive(CGPoint(x: 32, y: 170 + (phase < 12 ? phase : 24 - phase) * 40))
+                    }
+                } else {
+                    let phase = Double(count) / Double(max(screen.maximumFramesPerSecond, 1))
+                    clock.receive(CGPoint(x: 32, y: 400 + 180 * sin(phase * 3)))
+                }
                 if count >= screen.maximumFramesPerSecond * 4 + 30 { stopRunLoop() }
             }
             clock.receive(CGPoint(x: 32, y: 400))
@@ -138,7 +150,7 @@ final class WorkspaceSidebarDockPerformanceTest: XCTestCase {
             let budget = 1_000 / Double(screen.maximumFramesPerSecond)
             let misses = intervals.filter { $0 > budget * 1.5 }.count
             let fps = Double(timestamps.count - 1) / (timestamps.last! - timestamps.first!)
-            print("DOCK_NATIVE_BENCHMARK real_panel=true workspaces=\(workspaceCount) display_max_fps=\(screen.maximumFramesPerSecond) callbacks_fps=\(fps) missed_intervals=\(misses) samples=\(layoutTimes.count) layout_p95_ms=\(layoutTimes[Int(Double(layoutTimes.count) * 0.95)]) layout_p99_ms=\(layoutTimes[Int(Double(layoutTimes.count) * 0.99)]) layout_max_ms=\(layoutTimes.last!) interval_p99_ms=\(intervals[Int(Double(intervals.count) * 0.99)]) delivery_p99_ms=\(deliveryIntervals[Int(Double(deliveryIntervals.count) * 0.99)]) delivery_max_ms=\(deliveryIntervals.last!)")
+            print("DOCK_NATIVE_BENCHMARK rapid=\(rapid) real_panel=true workspaces=\(workspaceCount) display_max_fps=\(screen.maximumFramesPerSecond) callbacks_fps=\(fps) missed_intervals=\(misses) samples=\(layoutTimes.count) layout_p95_ms=\(layoutTimes[Int(Double(layoutTimes.count) * 0.95)]) layout_p99_ms=\(layoutTimes[Int(Double(layoutTimes.count) * 0.99)]) layout_max_ms=\(layoutTimes.last!) interval_p99_ms=\(intervals[Int(Double(intervals.count) * 0.99)]) delivery_p99_ms=\(deliveryIntervals[Int(Double(deliveryIntervals.count) * 0.99)]) delivery_max_ms=\(deliveryIntervals.last!)")
         }
     }
 }

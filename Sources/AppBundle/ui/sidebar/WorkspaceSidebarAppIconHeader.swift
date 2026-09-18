@@ -26,6 +26,8 @@ struct WorkspaceSidebarAppIconHeader: View {
             let origin = geometry.frame(in: .named("workspaceSidebarContent")).origin
             let localPointer = sectionMagnification != nil ? sectionMagnification?.pointerY : pointer.map { $0.y - origin.y }
             let frames = magnification.frames(width: availableWidth, pointerY: localPointer)
+            // Keep icon and button layout proposals fixed throughout the lens animation.
+            // Render transforms still move their anchors and hit regions together.
             ZStack(alignment: .topLeading) {
                 WorkspaceSidebarWorkspaceIcon(
                     identifier: workspaceSidebarAppSummaryIdentifier(workspace),
@@ -35,46 +37,47 @@ struct WorkspaceSidebarAppIconHeader: View {
                     restingSize: layout.itemSize,
                     showsIndicator: false
                 )
-                .scaleEffect(frames[0].width / layout.itemSize, anchor: .topLeading)
-                .frame(width: frames[0].width, height: frames[0].height, alignment: .topLeading)
-                .overlay(alignment: .leading) {
-                    if isActive {
-                        WorkspaceSidebarActiveWorkspaceIndicator()
-                            .offset(x: workspaceSidebarIndicatorLeadingOffset(tileSize: layout.itemSize, railWidth: railWidth))
-                    }
-                }
                 .modifier(WorkspaceSidebarMorphAnchor(element: .compactTitle, isEnabled: morphsTitle, hidesContent: hidesTitleForMorph))
+                .scaleEffect(frames[0].width / layout.itemSize, anchor: .topLeading)
+                .offset(x: frames[0].minX, y: frames[0].minY)
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
-                .position(x: frames[0].midX, y: frames[0].midY)
+                if isActive {
+                    WorkspaceSidebarActiveWorkspaceIndicator()
+                        .offset(x: frames[0].minX + workspaceSidebarIndicatorLeadingOffset(tileSize: layout.itemSize, railWidth: railWidth),
+                            y: frames[0].midY - 2)
+                        .opacity(morphsTitle && hidesTitleForMorph ? 0 : 1)
+                }
                 ForEach(Array(workspace.apps.prefix(layout.visibleAppCount).enumerated()), id: \.element.id) { index, app in
                     let rect = frames[index + 1]
                     appIcon(app, size: layout.itemSize)
-                        .scaleEffect(rect.width / layout.itemSize, anchor: .topLeading)
-                        .frame(width: rect.width, height: rect.height, alignment: .topLeading)
                         .modifier(WorkspaceSidebarMorphAnchor(element: .compactApp(app.id), hidesContent: morphTargets.contains(app.id)))
+                        .scaleEffect(rect.width / layout.itemSize, anchor: .topLeading)
+                        .offset(x: rect.minX, y: rect.minY)
                         .allowsHitTesting(false)
-                        .position(x: rect.midX, y: rect.midY)
                         .transition(.opacity)
                 }
                 if let compactActions {
                     Button(action: compactActions.onSelectWorkspace) {
-                        Color.clear.frame(width: frames[0].width, height: frames[0].height)
+                        Color.clear.frame(width: layout.itemSize, height: layout.itemSize)
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Switch to workspace \(workspace.displayName)")
-                    .position(x: frames[0].midX, y: frames[0].midY)
+                    .scaleEffect(frames[0].width / layout.itemSize, anchor: .topLeading)
+                    .offset(x: frames[0].minX, y: frames[0].minY)
                     ForEach(Array(workspace.apps.enumerated()), id: \.element.id) { index, app in
                         let rect = frames[index + 1]
                         WorkspaceSidebarDockAppButton(app: app, workspaceName: workspace.name,
-                            workspaceDisplayName: workspace.displayName, size: rect.size,
+                            workspaceDisplayName: workspace.displayName, size: CGSize(width: layout.itemSize, height: layout.itemSize),
                             iconSize: rect.width, actions: compactActions.actions,
                             onSelect: { compactActions.onSelectApp(app) })
-                            .position(x: rect.midX, y: rect.midY)
+                            .scaleEffect(rect.width / layout.itemSize, anchor: .topLeading)
+                            .offset(x: rect.minX, y: rect.minY)
                     }
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .preference(key: WorkspaceSidebarDockIconFramesPreference.self,
                 value: compactActions == nil ? [] : frames.map { $0.offsetBy(dx: origin.x, dy: origin.y) })
         }

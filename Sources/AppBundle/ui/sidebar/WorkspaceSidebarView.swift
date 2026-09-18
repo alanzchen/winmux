@@ -1014,128 +1014,126 @@ extension WorkspaceSidebarView {
             : nil
         let columnWorkspaces = (pinnedWorkspace.map { [$0] } ?? []) + workspaces
         let appCounts = columnWorkspaces.map { $0.apps.count }
-        return WorkspaceSidebarDockContextReader { context in
-            GeometryReader { viewport in
-                // Measure scrolling in shelf-local coordinates. Magnification no longer feeds
-                // a changed screen origin/height back through multiple root State updates.
-                let restingOrigin = context.restingSurface.minY + (dockColumnOrigins[projectId] ?? topPadding)
-                let activePointer = context.pointer
-                let column = WorkspaceSidebarDockColumnMagnification(
-                    appCounts: appCounts,
-                    itemSize: layout.dockIconSize,
-                    amount: layout.dockMagnificationAmount,
-                    pointerY: allowsDockMagnification && expansionProgress == 0 && isInteractive
-                        ? activePointer.map { $0.y - restingOrigin } : nil,
-                    strength: context.strength
+        let origins = workspaceSidebarDockSectionOrigins(appCounts: appCounts, itemSize: layout.dockIconSize)
+        let columnOrigin = dockColumnOrigins[projectId] ?? topPadding
+        func sectionMotion(index: Int) -> WorkspaceSidebarDockSectionMotion {
+            WorkspaceSidebarDockSectionMotion(
+                columnOrigin: columnOrigin, sectionOrigin: origins[index],
+                itemSize: layout.dockIconSize, appCount: appCounts[index],
+                amount: layout.dockMagnificationAmount,
+                isEnabled: allowsDockMagnification && expansionProgress == 0 && isInteractive
+            )
+        }
+        // Build the workspace/action tree from the snapshot once. Only the small section
+        // modifiers below read the per-frame environment; cursor motion must not recreate
+        // every workspace's menus, gestures and controls through a ForEach closure.
+        let content = WorkspaceSidebarWorkspaceStack(isLazy: layout.showAppIcons) {
+            if let pinnedWorkspace {
+                workspaceSection(
+                    layout: layout,
+                    workspace: pinnedWorkspace,
+                    expansionProgress: expansionProgress,
+                    emitsDropTarget: true,
+                    allowsWorkspaceActivation: false,
+                    isPinnedActiveWorkspace: true,
+                    projectContextLabel: projectName(snapshot.activeProjectId),
+                    projectContextColor: projectColor(snapshot.activeProjectId)
                 )
-                ScrollView {
-                    // Preserve section/gesture identity when a preview changes the
-                    // app count or the Dock morphs between compact and expanded.
-                    WorkspaceSidebarWorkspaceStack(isLazy: layout.showAppIcons) {
-                        if let pinnedWorkspace {
-                            workspaceSection(
-                                layout: layout,
-                                workspace: pinnedWorkspace,
-                                expansionProgress: expansionProgress,
-                                emitsDropTarget: true,
-                                allowsWorkspaceActivation: false,
-                                isPinnedActiveWorkspace: true,
-                                projectContextLabel: projectName(snapshot.activeProjectId),
-                                projectContextColor: projectColor(snapshot.activeProjectId)
-                            )
-                            .environment(\.workspaceSidebarDockSectionMagnification, column.sections[0])
-                        }
-                        ForEach(Array(workspaces.enumerated()), id: \.element.id) { index, workspace in
-                            workspaceSection(
-                                layout: layout,
-                                workspace: workspace,
-                                expansionProgress: expansionProgress,
-                                emitsDropTarget: true,
-                                allowsWorkspaceActivation: allowsActivation ?? allowsWorkspaceActivation(projectId: projectId),
-                                isPinnedActiveWorkspace: false,
-                                projectContextLabel: browsedProjectId != nil && projectId != snapshot.activeProjectId ? projectName(projectId) : nil,
-                                projectContextColor: browsedProjectId != nil && projectId != snapshot.activeProjectId ? projectColor(projectId) : nil
-                            )
-                            .environment(\.workspaceSidebarDockSectionMagnification, column.sections[index + (pinnedWorkspace == nil ? 0 : 1)])
-                            .overlay(alignment: .topLeading) {
-                                if layout.showAppIcons,
-                                   pinnedWorkspace != nil || workspace.id != workspaces.first?.id
-                                {
-                                    WorkspaceSidebarDockSeparator(
-                                        expansionProgress: expansionProgress,
-                                        layout: layout
-                                    )
-                                    .offset(y: -3)
-                                }
-                            }
-                        }
-                        if showsCreateWorkspace && workspaceSidebarShowsCreateWorkspace(selectedScopeId: snapshot.selectedMonitorScopeId) {
-                            let createMonitorScopeId = workspaceSidebarWorkspaceCreateScope(
-                                selectedScopeId: snapshot.selectedMonitorScopeId,
-                                targetMonitorScopeId: snapshot.targetMonitorScopeId,
-                                focusedScopeId: snapshot.focusedMonitorScopeId,
-                            )
-                            WorkspaceSidebarCreateWorkspaceSection(
-                                projectId: projectId,
-                                monitorScopeId: createMonitorScopeId,
-                                dragPreview: snapshot.dropPreview,
-                                expansionProgress: expansionProgress,
-                                layout: layout,
-                                emitsDropTarget: true,
-                                onCreateWorkspace: {
-                                    actions.send(.createWorkspace(
-                                        projectId: projectId,
-                                        monitorScopeId: createMonitorScopeId
-                                    ))
-                                },
-                                onDropPayload: { payload in
-                                    switch payload {
-                                        case .window(let windowId):
-                                            actions.send(.moveWindowToNewWorkspace(
-                                                windowId,
-                                                projectId: projectId,
-                                                monitorScopeId: createMonitorScopeId,
-                                            ))
-                                        case .tabGroup(let representativeWindowId):
-                                            actions.send(.moveTabGroupToNewWorkspace(
-                                                representativeWindowId,
-                                                projectId: projectId,
-                                                monitorScopeId: createMonitorScopeId,
-                                            ))
-                                    }
-                                },
-                                actions: actions,
-                            )
-                        }
+                .modifier(sectionMotion(index: 0))
+            }
+            ForEach(Array(workspaces.enumerated()), id: \.element.id) { index, workspace in
+                workspaceSection(
+                    layout: layout,
+                    workspace: workspace,
+                    expansionProgress: expansionProgress,
+                    emitsDropTarget: true,
+                    allowsWorkspaceActivation: allowsActivation ?? allowsWorkspaceActivation(projectId: projectId),
+                    isPinnedActiveWorkspace: false,
+                    projectContextLabel: browsedProjectId != nil && projectId != snapshot.activeProjectId ? projectName(projectId) : nil,
+                    projectContextColor: browsedProjectId != nil && projectId != snapshot.activeProjectId ? projectColor(projectId) : nil
+                )
+                .modifier(sectionMotion(index: index + (pinnedWorkspace == nil ? 0 : 1)))
+                .overlay(alignment: .topLeading) {
+                    if layout.showAppIcons,
+                       pinnedWorkspace != nil || workspace.id != workspaces.first?.id
+                    {
+                        WorkspaceSidebarDockSeparator(
+                            expansionProgress: expansionProgress,
+                            layout: layout
+                        )
+                        .offset(y: -3)
                     }
-                    .background {
-                        GeometryReader { content in
-                            Color.clear.preference(key: WorkspaceSidebarDockColumnOriginPreference.self,
-                                value: [projectId: content.frame(in: .named("workspaceSidebarSurface")).minY])
-                        }
-                    }
-                    .padding(.leading, leadingInset)
-                    .padding(.trailing, trailingInset)
-                    .padding(.top, topPadding)
-                    .padding(.bottom, 10)
-                    .frame(width: viewport.size.width, alignment: .leading)
-                    .padding(.trailing, dockMagnificationOverflow)
-                }
-                .frame(width: viewport.size.width + dockMagnificationOverflow, alignment: .leading)
-                .transformPreference(WorkspaceSidebarDockIconFramesPreference.self) { frames in
-                    let frame = viewport.frame(in: .named("workspaceSidebarContent"))
-                    let visible = CGRect(x: frame.minX, y: frame.minY, width: frame.width + dockMagnificationOverflow, height: frame.height)
-                    frames = frames.map { $0.intersection(visible) }.filter { !$0.isNull && !$0.isEmpty }
-                }
-                .transformPreference(WorkspaceSidebarDropTargetPreferenceKey.self) { targets in
-                    targets = workspaceSidebarClippedDropTargets(
-                        targets,
-                        to: viewport.frame(in: .named("workspaceSidebarContent"))
-                    )
                 }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            if showsCreateWorkspace && workspaceSidebarShowsCreateWorkspace(selectedScopeId: snapshot.selectedMonitorScopeId) {
+                let createMonitorScopeId = workspaceSidebarWorkspaceCreateScope(
+                    selectedScopeId: snapshot.selectedMonitorScopeId,
+                    targetMonitorScopeId: snapshot.targetMonitorScopeId,
+                    focusedScopeId: snapshot.focusedMonitorScopeId,
+                )
+                WorkspaceSidebarCreateWorkspaceSection(
+                    projectId: projectId,
+                    monitorScopeId: createMonitorScopeId,
+                    dragPreview: snapshot.dropPreview,
+                    expansionProgress: expansionProgress,
+                    layout: layout,
+                    emitsDropTarget: true,
+                    onCreateWorkspace: {
+                        actions.send(.createWorkspace(
+                            projectId: projectId,
+                            monitorScopeId: createMonitorScopeId
+                        ))
+                    },
+                    onDropPayload: { payload in
+                        switch payload {
+                            case .window(let windowId):
+                                actions.send(.moveWindowToNewWorkspace(
+                                    windowId,
+                                    projectId: projectId,
+                                    monitorScopeId: createMonitorScopeId,
+                                ))
+                            case .tabGroup(let representativeWindowId):
+                                actions.send(.moveTabGroupToNewWorkspace(
+                                    representativeWindowId,
+                                    projectId: projectId,
+                                    monitorScopeId: createMonitorScopeId,
+                                ))
+                        }
+                    },
+                    actions: actions,
+                )
+            }
         }
+        return GeometryReader { viewport in
+            ScrollView {
+                content
+                .background {
+                    GeometryReader { content in
+                        Color.clear.preference(key: WorkspaceSidebarDockColumnOriginPreference.self,
+                            value: [projectId: content.frame(in: .named("workspaceSidebarSurface")).minY])
+                    }
+                }
+                .padding(.leading, leadingInset)
+                .padding(.trailing, trailingInset)
+                .padding(.top, topPadding)
+                .padding(.bottom, 10)
+                .frame(width: viewport.size.width, alignment: .leading)
+                .padding(.trailing, dockMagnificationOverflow)
+            }
+            .frame(width: viewport.size.width + dockMagnificationOverflow, alignment: .leading)
+            .transformPreference(WorkspaceSidebarDockIconFramesPreference.self) { frames in
+                let frame = viewport.frame(in: .named("workspaceSidebarContent"))
+                let visible = CGRect(x: frame.minX, y: frame.minY, width: frame.width + dockMagnificationOverflow, height: frame.height)
+                frames = frames.map { $0.intersection(visible) }.filter { !$0.isNull && !$0.isEmpty }
+            }
+            .transformPreference(WorkspaceSidebarDropTargetPreferenceKey.self) { targets in
+                targets = workspaceSidebarClippedDropTargets(
+                    targets,
+                    to: viewport.frame(in: .named("workspaceSidebarContent"))
+                )
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     func splitWorkspacePage(
