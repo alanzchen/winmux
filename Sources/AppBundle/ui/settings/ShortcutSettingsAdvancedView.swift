@@ -13,7 +13,7 @@ struct ShortcutAdvancedView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack {
+            VStack(alignment: .leading, spacing: 8) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Config Editor")
                         .font(.headline)
@@ -22,24 +22,25 @@ struct ShortcutAdvancedView: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .textSelection(.enabled)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .help(targetUrl.path)
                     }
                 }
 
-                Spacer()
-
-                Button("Reload From Disk") {
-                    loadFromDisk()
+                HStack {
+                    Button("Reload From Disk") {
+                        loadFromDisk()
+                    }
+                    Button("Validate") {
+                        validateConfig()
+                    }
+                    Button("Save") {
+                        saveConfig()
+                    }
+                    .keyboardShortcut("s", modifiers: [.command])
                 }
                 .controlSize(.small)
-                Button("Validate") {
-                    validateConfig()
-                }
-                .controlSize(.small)
-                Button("Save") {
-                    saveConfig()
-                }
-                .controlSize(.small)
-                .keyboardShortcut("s", modifiers: [.command])
             }
 
             if let validationMessage {
@@ -155,13 +156,20 @@ func shortcutSettingsWindow() -> NSWindow? {
 
 @MainActor
 func presentShortcutSettingsWindow(_ window: NSWindow) {
-    let fixedSize = NSSize(width: 760, height: 620)
-    window.styleMask.remove(.resizable)
-    window.minSize = fixedSize
-    window.maxSize = fixedSize
-    window.setContentSize(fixedSize)
+    configureShortcutSettingsWindow(window)
     NSApp.activate(ignoringOtherApps: true)
-    window.center()
     window.makeKeyAndOrderFront(nil)
     window.orderFrontRegardless()
+}
+
+@MainActor
+func configureShortcutSettingsWindow(_ window: NSWindow) {
+    if !window.styleMask.contains(.resizable) { window.styleMask.insert(.resizable) }
+    // Clear the old fixed frame limits. Use content dimensions so title-bar height
+    // does not reduce the space available to controls, and keep the user's frame.
+    window.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+    window.minSize = .zero
+    let chromeHeight = max(0, (window.contentView?.frame.height ?? 0) - window.contentLayoutRect.height)
+    window.contentMinSize = NSSize(width: shortcutSettingsMinimumSize.width,
+                                   height: shortcutSettingsMinimumSize.height + chromeHeight)
 }

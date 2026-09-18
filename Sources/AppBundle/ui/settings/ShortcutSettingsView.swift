@@ -4,16 +4,20 @@ import MASShortcut
 import SwiftUI
 
 public let shortcutSettingsWindowId = "\(winMuxAppName).shortcutSettings"
+let shortcutSettingsDefaultSize = CGSize(width: 760, height: 620)
+let shortcutSettingsMinimumSize = CGSize(width: 700, height: 480)
 
 @MainActor
 public func getShortcutSettingsWindow(model: ShortcutSettingsModel) -> some Scene {
     SwiftUI.Window("WinMux Settings", id: shortcutSettingsWindowId) {
         ShortcutSettingsView(model: model)
-            .frame(width: 760, height: 620)
             .onAppear {
                 NSApp.setActivationPolicy(.accessory)
             }
     }
+    .defaultSize(width: shortcutSettingsDefaultSize.width, height: shortcutSettingsDefaultSize.height)
+    .defaultPosition(.center)
+    .windowResizability(.contentMinSize)
 }
 
 @MainActor
@@ -66,7 +70,12 @@ enum SettingsSidebarItem: Hashable, Identifiable {
 
 struct ShortcutSettingsView: View {
     @ObservedObject var model: ShortcutSettingsModel
-    @State private var selectedItem: SettingsSidebarItem? = .shortcuts
+    @State private var selectedItem: SettingsSidebarItem?
+
+    init(model: ShortcutSettingsModel, selectedItem: SettingsSidebarItem = .shortcuts) {
+        self.model = model
+        _selectedItem = State(initialValue: selectedItem)
+    }
 
     var body: some View {
         NavigationSplitView {
@@ -78,7 +87,7 @@ struct ShortcutSettingsView: View {
                 }
             }
             .listStyle(.sidebar)
-            .navigationSplitViewColumnWidth(min: 200, ideal: 220)
+            .navigationSplitViewColumnWidth(min: 200, ideal: 220, max: 280)
         } detail: {
             Group {
                 switch selectedItem {
@@ -98,8 +107,13 @@ struct ShortcutSettingsView: View {
                         Text("Select an item")
                 }
             }
+            // Leave enough room for the directional recorder grid even when the
+            // navigation column is widened. Long panes scroll vertically.
+            .frame(minWidth: 460, maxWidth: .infinity, maxHeight: .infinity)
             .navigationTitle(selectedItem?.label ?? "")
         }
+        .frame(minWidth: shortcutSettingsMinimumSize.width, maxWidth: .infinity,
+               minHeight: shortcutSettingsMinimumSize.height, maxHeight: .infinity)
     }
 }
 
@@ -139,6 +153,7 @@ struct ShortcutCategoryView: View {
                     ShortcutSectionView(model: model, section: section)
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(18)
         }
     }
@@ -185,6 +200,7 @@ struct ShortcutSectionView: View {
                 }
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -198,6 +214,7 @@ struct ShortcutRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(action.title)
                     .font(.system(size: 13, weight: .medium))
+                    .fixedSize(horizontal: false, vertical: true)
                 if let subtitle = action.subtitle {
                     Text(subtitle)
                         .font(.system(size: 11))

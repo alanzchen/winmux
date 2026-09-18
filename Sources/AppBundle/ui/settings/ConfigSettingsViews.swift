@@ -35,17 +35,18 @@ struct ShortcutBehaviorSettingsView: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(14)
-                HStack {
+                VStack(alignment: .leading, spacing: 8) {
                     Text(screenRecording.isGranted ? "Screen Recording: allowed" : "Screen Recording: not available to this app")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    Spacer()
-                    if !screenRecording.isGranted && !screenRecording.didRequest {
-                        Button("Allow Screen Recording…") { screenRecording.requestFromSettings() }
-                    }
-                    Button("Open Privacy Settings…") {
-                        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
-                            NSWorkspace.shared.open(url)
+                    HStack {
+                        if !screenRecording.isGranted && !screenRecording.didRequest {
+                            Button("Allow Screen Recording…") { screenRecording.requestFromSettings() }
+                        }
+                        Button("Open Privacy Settings…") {
+                            if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
+                                NSWorkspace.shared.open(url)
+                            }
                         }
                     }
                 }
@@ -302,6 +303,7 @@ private struct SettingsScrollView<Content: View>: View {
             VStack(alignment: .leading, spacing: 20) {
                 content
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 20)
             .padding(.vertical, 18)
         }
@@ -338,6 +340,7 @@ private struct SettingsToggle: View {
         HStack(spacing: 12) {
             Text(title)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
             Toggle("", isOn: $isOn)
                 .labelsHidden()
                 .toggleStyle(.switch)
@@ -366,6 +369,7 @@ private struct SettingsStepper: View {
         HStack(spacing: 10) {
             Text(title)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
             Slider(value: Binding(get: { Double(value) }, set: { value = Int($0.rounded()) }), in: Double(range.lowerBound)...Double(range.upperBound))
                 .frame(width: 96)
             TextField("", value: $value, format: .number)
@@ -408,6 +412,7 @@ private struct SettingsPercentageSlider: View {
         HStack(spacing: 10) {
             Text(title)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
             Slider(value: $value, in: 0...1, step: 0.01) { editing in
                 isEditing = editing
                 if !editing { commit() }
@@ -450,6 +455,7 @@ private struct SettingsTextField: View {
         HStack(spacing: 12) {
             Text(title)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
             TextField("", text: $text)
                 .textFieldStyle(.roundedBorder)
                 .frame(width: 230)
@@ -474,6 +480,7 @@ private struct SettingsPicker<Selection: Hashable, Content: View>: View {
         HStack(spacing: 12) {
             Text(title)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
             Picker("", selection: $selection, content: { content })
                 .labelsHidden()
                 .pickerStyle(.menu)

@@ -69,9 +69,11 @@ private struct ReferenceRow: View {
             Text(key)
                 .font(.system(size: 12, design: .monospaced))
                 .frame(width: 255, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
             Text(description)
                 .font(.caption)
                 .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 }

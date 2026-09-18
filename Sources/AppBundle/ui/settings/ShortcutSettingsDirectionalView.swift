@@ -6,44 +6,14 @@ import SwiftUI
 
 struct ManagedDirectionalShortcutsView: View {
     @ObservedObject var model: ShortcutSettingsModel
-    @State private var availableWidth: CGFloat = .zero
-
-    private static let horizontalLayoutMinWidth: CGFloat = 880
-
     var body: some View {
-        Group {
-            if availableWidth >= Self.horizontalLayoutMinWidth {
-                HStack(alignment: .top, spacing: 24) {
-                    directionalPad(title: "Focus", prefix: "focus") {
-                        FocusDemoView()
-                    }
-
-                    directionalPad(title: "Move", prefix: "move") {
-                        MoveDemoView()
-                    }
-
-                    Spacer(minLength: 0)
-                }
-            } else {
-                VStack(alignment: .leading, spacing: 24) {
-                    directionalPad(title: "Focus", prefix: "focus") {
-                        FocusDemoView()
-                    }
-
-                    directionalPad(title: "Move", prefix: "move") {
-                        MoveDemoView()
-                    }
-                }
+        SettingsDirectionalLayout {
+            directionalPad(title: "Focus", prefix: "focus") {
+                FocusDemoView()
             }
-        }
-        .background {
-            GeometryReader { proxy in
-                Color.clear
-                    .preference(key: ManagedDirectionalShortcutsWidthKey.self, value: proxy.size.width)
+            directionalPad(title: "Move", prefix: "move") {
+                MoveDemoView()
             }
-        }
-        .onPreferenceChange(ManagedDirectionalShortcutsWidthKey.self) { width in
-            availableWidth = width
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -61,11 +31,45 @@ struct ManagedDirectionalShortcutsView: View {
     }
 }
 
-private struct ManagedDirectionalShortcutsWidthKey: PreferenceKey {
-    static let defaultValue: CGFloat = .zero
+/// Read the proposed width during layout, keeping the recorder views mounted and
+/// avoiding a measurement-to-State feedback pass while resizing the window.
+private struct SettingsDirectionalLayout: SwiftUI.Layout {
+    private let spacing: CGFloat = 24
+    // CompassPad: three 120-point cells, two 12-point gaps and 20-point padding.
+    // The detail pane's 460-point minimum adds its two 18-point outer insets.
+    private let minimumPadWidth: CGFloat = 424
+    private var horizontalWidth: CGFloat { minimumPadWidth * 2 + spacing }
 
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = nextValue()
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let proposedWidth = proposal.width.flatMap { $0.isFinite ? $0 : nil }
+            ?? subviews.map { $0.sizeThatFits(.unspecified).width }.max() ?? minimumPadWidth
+        let width = max(proposedWidth, minimumPadWidth)
+        let horizontal = width >= horizontalWidth
+        let sizes = sizes(subviews, width: width, horizontal: horizontal)
+        let height = horizontal ? (sizes.map(\.height).max() ?? 0)
+            : sizes.reduce(0) { $0 + $1.height } + CGFloat(max(sizes.count - 1, 0)) * spacing
+        return CGSize(width: width, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let horizontal = bounds.width >= horizontalWidth
+        let sizes = sizes(subviews, width: bounds.width, horizontal: horizontal)
+        var origin = bounds.origin
+        for (index, subview) in subviews.enumerated() {
+            subview.place(at: origin, anchor: .topLeading, proposal: ProposedViewSize(sizes[index]))
+            if horizontal { origin.x += sizes[index].width + spacing }
+            else { origin.y += sizes[index].height + spacing }
+        }
+    }
+
+    private func sizes(_ subviews: Subviews, width: CGFloat, horizontal: Bool) -> [CGSize] {
+        let columnWidth = horizontal
+            ? max(0, (width - CGFloat(max(subviews.count - 1, 0)) * spacing) / CGFloat(max(subviews.count, 1)))
+            : width
+        return subviews.map { subview in
+            let measured = subview.sizeThatFits(ProposedViewSize(width: columnWidth, height: nil))
+            return CGSize(width: columnWidth, height: measured.height)
+        }
     }
 }
 
