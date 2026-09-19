@@ -5,6 +5,58 @@ import XCTest
 
 @MainActor
 final class WorkspaceSidebarDockGeometryTest: XCTestCase {
+    func testNativeCompactGapClosesDuringExpansionIncludingFittedAndDoubleWidthViews() throws {
+        for gap: CGFloat in [0, 2, 24] {
+            for height: CGFloat in [180, 800] {
+                var snapshot = fixture()
+                snapshot.configuration.compactLeftGap = gap
+                for width: CGFloat in [64, 108, 152, 240, 480] {
+                    snapshot.visibleWidth = width
+                    let progress = min((width - 64) / 176, 1)
+                    let sample = render(snapshot, height: height)
+                    let surface = try XCTUnwrap(sample.probe.surface)
+                    XCTAssertEqual(surface.minX, gap * (1 - min(progress, 1)), accuracy: 0.01)
+                    XCTAssertFalse(sample.probe.targets.isEmpty)
+                    for target in sample.probe.targets {
+                        XCTAssertGreaterThanOrEqual(target.frame.minX, surface.minX - 0.01)
+                        XCTAssertLessThanOrEqual(target.frame.maxX, surface.maxX + 0.01)
+                    }
+                    for slop in [NSEdgeInsets(), NSEdgeInsets(top: 12, left: 14, bottom: 12, right: 14)] {
+                        XCTAssertNil(workspaceSidebarLocalDropTarget(at: CGPoint(x: surface.minX - 1, y: surface.midY),
+                            targets: sample.probe.targets, surface: surface, hitSlop: slop),
+                            "The compact gap must not accept workspace drops, including native drag hit tolerance")
+                    }
+                }
+            }
+        }
+    }
+
+    func testNativeGapMovesMagnificationAndItsHitRegionsTogether() throws {
+        var snapshot = fixture()
+        snapshot.configuration.compactLeftGap = 24
+        snapshot.configuration.dockMagnification = true
+        snapshot.configuration.dockMagnificationAmount = 1
+        let resting = render(snapshot, height: 800)
+        let icon = try XCTUnwrap(resting.probe.icons.first)
+        let probe = DockGeometryProbe()
+        func view(pointer: CGPoint) -> some View {
+            WorkspaceSidebarView(snapshot: snapshot, actions: .init(
+                setSurfaceFrame: { probe.surface = $0 }, setDockIconFrames: { probe.icons = $0 }), reduceMotionOverride: false)
+                .environment(\.workspaceSidebarDockPointer, pointer)
+        }
+        let host = NSHostingView(rootView: view(pointer: CGPoint(x: 12, y: icon.midY)))
+        host.frame = CGRect(x: 0, y: 0, width: 480, height: 800)
+        host.layoutSubtreeIfNeeded()
+        XCTAssertEqual(try XCTUnwrap(probe.icons.first).width, icon.width, accuracy: 0.01,
+            "The empty gap must not trigger magnification")
+        host.rootView = view(pointer: CGPoint(x: icon.midX, y: icon.midY))
+        host.layoutSubtreeIfNeeded()
+        let magnified = try XCTUnwrap(probe.icons.first)
+        XCTAssertEqual(try XCTUnwrap(probe.surface).minX, 24, accuracy: 0.01)
+        XCTAssertEqual(magnified.minX, icon.minX, accuracy: 0.01)
+        XCTAssertEqual(magnified.width, icon.width * 2, accuracy: 0.01)
+    }
+
     func testExitFromProtrudingIconKeepsShrinkingWithoutSnappingToRest() throws {
         var snapshot = fixture()
         snapshot.configuration.dockMagnification = true

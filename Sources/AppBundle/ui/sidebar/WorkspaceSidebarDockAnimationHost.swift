@@ -22,7 +22,8 @@ struct WorkspaceSidebarDockAnimationHost<Surface: Shape, Content: View>: View {
         GeometryReader { geometry in
             let resting = workspaceSidebarSurfaceFrame(availableSize: geometry.size,
                 visibleWidth: visibleWidth, compactHeight: compactHeight,
-                expansionProgress: expansionProgress, fitsDockContent: configuration.showAppIcons)
+                expansionProgress: expansionProgress, fitsDockContent: configuration.showAppIcons,
+                compactLeftGap: configuration.compactLeftGap)
             // Native input is validated before entering the motion controller. Keep
             // its last valid point throughout exit, even as the icon under it shrinks.
             // Revalidating that point against shrinking bounds would snap to rest.
@@ -34,7 +35,8 @@ struct WorkspaceSidebarDockAnimationHost<Surface: Shape, Content: View>: View {
             let strength: CGFloat = inheritedPointer == nil ? frame.strength : 1
             let surface = workspaceSidebarSurfaceFrame(availableSize: geometry.size,
                 visibleWidth: visibleWidth, compactHeight: compactHeight + growth(pointer, strength, resting),
-                expansionProgress: expansionProgress, fitsDockContent: configuration.showAppIcons)
+                expansionProgress: expansionProgress, fitsDockContent: configuration.showAppIcons,
+                compactLeftGap: configuration.compactLeftGap)
             content
                 .environment(\.workspaceSidebarDockLayoutContext,
                     .init(restingSurface: resting, pointer: pointer, strength: strength))

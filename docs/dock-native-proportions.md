@@ -127,7 +127,8 @@ same proportions; the saved Sidebar width remains independent.
 
 Horizontal insets, corner radius, separator length, and the compact clock scale
 with the shelf. The active-workspace dot stays centered in the left gutter and
-remains at least two points wide. The left-screen gap is preserved. Magnification
+remains at least two points wide. The left-screen gap applies to the compact Dock
+and closes during expansion, keeping the expanded Sidebar flush with the display. Magnification
 only enlarges the icons; it never widens the shelf or changes the fitting size.
 Expansion interpolates from the fitted shelf to the original expanded Sidebar.
 Auto-hide keeps the fitted resting hover region throughout reveal, avoiding a

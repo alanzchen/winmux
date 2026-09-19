@@ -148,11 +148,17 @@ extension WorkspaceSidebarPanel {
     }
 
     var visibleSurfaceFrameInHostingView: CGRect {
-        visibleSurfaceFrame ?? CGRect(
-            x: 0,
-            y: 0,
-            width: max(viewModel.workspaceSidebarVisibleWidth, 0),
-            height: hostingView.bounds.height
+        if let visibleSurfaceFrame { return visibleSurfaceFrame }
+        let settings = config.workspaceSidebar
+        let startWidth = settings.effectiveCollapsedWidth
+        let progress = (viewModel.workspaceSidebarVisibleWidth - startWidth) / max(CGFloat(settings.width) - startWidth, 1)
+        return workspaceSidebarSurfaceFrame(
+            availableSize: hostingView.bounds.size,
+            visibleWidth: viewModel.workspaceSidebarVisibleWidth,
+            compactHeight: hostingView.bounds.height,
+            expansionProgress: progress,
+            fitsDockContent: settings.showAppIcons,
+            compactLeftGap: CGFloat(settings.effectiveLeftGap)
         )
     }
 
@@ -616,7 +622,7 @@ func workspaceSidebarPanelLayout(screenFrame: CGRect, sidebarConfig: WorkspaceSi
     let menuBarReserveHeight = min(CGFloat(sidebarConfig.menuBarReserveHeight), max(screenFrame.height - 1, 0))
     return WorkspaceSidebarPanelLayout(
         frame: NSRect(
-            x: screenFrame.minX + CGFloat(sidebarConfig.effectiveLeftGap),
+            x: screenFrame.minX,
             y: screenFrame.minY,
             width: expandedWidth * 2,
             height: screenFrame.height - menuBarReserveHeight
@@ -981,7 +987,7 @@ extension WorkspaceSidebarPanel {
     func isMouseInsideHoverRegion() -> Bool {
         guard isVisible else { return false }
         let surface = visibleSurfaceFrameOnScreen
-        let hoverRegion = workspaceSidebarHoverRegion(surface: surface, sidebarConfig: config.workspaceSidebar,
+        let hoverRegion = workspaceSidebarHoverRegion(surface: surface, displayMinX: frame.minX, sidebarConfig: config.workspaceSidebar,
             exitTolerance: hoverExitTolerance, fittedDockWidth: fittedDockRestingWidth)
         let inside = hoverRegion.contains(NSEvent.mouseLocation) || isScreenPointInsideDockIcon(NSEvent.mouseLocation)
         if viewModel.workspaceSidebarVisibleWidth > workspaceSidebarRestingWidth(config.workspaceSidebar) + 0.5 || pendingCollapse != nil {
@@ -998,7 +1004,8 @@ extension WorkspaceSidebarPanel {
         guard isVisible else { return false }
         return isWorkspaceSidebarHoverDeepEnoughToExpand(
             mouseX: NSEvent.mouseLocation.x,
-            sidebarMinX: frame.minX,
+            // Hover depth belongs to the resting shelf, even while its gap animates.
+            sidebarMinX: frame.minX + CGFloat(config.workspaceSidebar.effectiveLeftGap),
             collapsedWidth: config.workspaceSidebar.showAppIcons && !config.workspaceSidebar.alwaysExpanded
                 ? fittedDockRestingWidth ?? workspaceSidebarHoverActivationWidth(config.workspaceSidebar)
                 : workspaceSidebarHoverActivationWidth(config.workspaceSidebar),

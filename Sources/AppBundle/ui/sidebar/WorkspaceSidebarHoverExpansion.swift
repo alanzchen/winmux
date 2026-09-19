@@ -19,6 +19,7 @@ func workspaceSidebarReservedWidth(_ sidebarConfig: WorkspaceSidebarConfig) -> C
 
 func workspaceSidebarHoverRegion(
     surface: CGRect,
+    displayMinX: CGFloat,
     sidebarConfig: WorkspaceSidebarConfig,
     exitTolerance: CGFloat,
     fittedDockWidth: CGFloat? = nil
@@ -26,7 +27,7 @@ func workspaceSidebarHoverRegion(
     // Auto-hide must still reveal from the physical display edge, across the new gap.
     // This only extends the reveal region; the gap never captures clicks or magnifies icons.
     let revealGap = sidebarConfig.autoHide && !sidebarConfig.alwaysExpanded
-        ? CGFloat(sidebarConfig.effectiveLeftGap) : 0
+        ? max(surface.minX - displayMinX, 0) : 0
     // Reveal uses the final resting fit, not the animated surface width. Otherwise
     // the hover target briefly contracts as an auto-hidden Dock starts to appear.
     let restingWidth = sidebarConfig.showAppIcons

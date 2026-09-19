@@ -88,13 +88,17 @@ func workspaceSidebarSurfaceFrame(
     visibleWidth: CGFloat,
     compactHeight: CGFloat,
     expansionProgress: CGFloat,
-    fitsDockContent: Bool
+    fitsDockContent: Bool,
+    compactLeftGap: CGFloat = 0
 ) -> CGRect {
     let availableHeight = max(availableSize.height, 0)
     let progress = fitsDockContent ? min(max(expansionProgress, 0), 1) : 1
     let compact = min(max(compactHeight, 0), availableHeight)
     let height = compact + (availableHeight - compact) * progress
-    return CGRect(x: 0, y: (availableHeight - height) / 2, width: max(visibleWidth, 0), height: height)
+    // Keep the native panel on the screen edge. Only the compact shelf is inset;
+    // its gap closes along with the existing expansion animation.
+    let leftGap = max(compactLeftGap, 0) * (1 - progress)
+    return CGRect(x: leftGap, y: (availableHeight - height) / 2, width: max(visibleWidth, 0), height: height)
 }
 
 func workspaceSidebarClippedDropTargets(

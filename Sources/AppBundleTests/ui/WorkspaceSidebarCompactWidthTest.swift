@@ -140,7 +140,7 @@ final class WorkspaceSidebarCompactWidthTest: XCTestCase {
                         XCTAssertEqual(snapshot.compactRailWidth, railWidth, "Auto-hide must retain the resolved compact layout width")
                         XCTAssertEqual(snapshot.expandedWidth, 240)
                         XCTAssertEqual(workspaceSidebarRestingWidth(config.workspaceSidebar), expectedInset)
-                        let reservedInset = expectedInset + (showAppIcons && expectedInset > 0 ? 2 : 0)
+                        let reservedInset = expectedInset + (showAppIcons && !alwaysExpanded && expectedInset > 0 ? 2 : 0)
                         XCTAssertEqual(monitor.workspaceSidebarInset, reservedInset)
                         XCTAssertEqual(monitor.visibleRectPaddedByOuterGaps.topLeftX, reservedInset)
                         XCTAssertEqual(monitor.visibleRectPaddedByOuterGaps.width, 1920 - reservedInset)

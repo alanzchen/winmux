@@ -46,7 +46,7 @@ final class WorkspaceSidebarDockAdaptiveSizingTest: XCTestCase {
             settings.mode = .dock
             XCTAssertTrue(settings.showAppIcons)
             let region = workspaceSidebarHoverRegion(surface: CGRect(x: 2, y: 100, width: rail, height: 400),
-                sidebarConfig: settings, exitTolerance: 0, fittedDockWidth: rail)
+                displayMinX: 0, sidebarConfig: settings, exitTolerance: 0, fittedDockWidth: rail)
             XCTAssertEqual(region.width, rail)
             XCTAssertFalse(region.contains(CGPoint(x: rail + 3, y: 200)))
         }
@@ -66,7 +66,7 @@ final class WorkspaceSidebarDockAdaptiveSizingTest: XCTestCase {
                 XCTAssertEqual(surface.width, fit.compactRailWidth * progress, accuracy: 0.01)
                 let resting = try XCTUnwrap(sample.probe.restingWidth)
                 XCTAssertEqual(resting, fit.compactRailWidth, accuracy: 0.01)
-                let region = workspaceSidebarHoverRegion(surface: surface, sidebarConfig: settings,
+                let region = workspaceSidebarHoverRegion(surface: surface, displayMinX: 0, sidebarConfig: settings,
                     exitTolerance: 0, fittedDockWidth: resting)
                 XCTAssertEqual(region.maxX, fit.compactRailWidth, accuracy: 0.01,
                     "The fitted hover target must stay stable throughout hide and reveal")

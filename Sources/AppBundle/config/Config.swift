@@ -136,7 +136,7 @@ struct WorkspaceSidebarConfig: ConvenienceCopyable, Equatable, Sendable {
     var effectiveCollapsedWidth: CGFloat {
         showAppIcons ? Self.dockWidth(forIconSize: CGFloat(dockIconSize)) : CGFloat(collapsedWidth)
     }
-    var effectiveLeftGap: Int { showAppIcons ? dockLeftGap : 0 }
+    var effectiveLeftGap: Int { showAppIcons && !alwaysExpanded ? dockLeftGap : 0 }
     var usesDockMagnification: Bool { showAppIcons && dockMagnification && !alwaysExpanded }
 }
 

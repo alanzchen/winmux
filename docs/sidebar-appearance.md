@@ -5,6 +5,14 @@ sections. Both remain available whichever mode is selected. Sidebar controls app
 to Sidebar mode and the expanded Dock, including search and window details.
 The compact Dock keeps its own glass or solid-color appearance.
 
+Solid-color palettes appear only when **Solid color** is selected, for both Window
+chrome and Dock appearance. **Glass opacity** appears only for the Dock's Liquid
+Glass style. Switching styles retains the saved color and opacity values.
+
+The **Left-edge gap** applies only to the compact Dock. It closes during expansion,
+so search, workspace details, and **Keep sidebar expanded** sit flush against the
+display edge. Sidebar mode also remains flush.
+
 Sidebar retains native regular Liquid Glass with a 70% dark overlay on macOS 26 or
 later. A native frosted backdrop underneath increases blur for readability. That
 blur stays active while another application has focus, including during search.

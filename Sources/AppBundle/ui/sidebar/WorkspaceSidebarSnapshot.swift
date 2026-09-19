@@ -48,6 +48,7 @@ struct WorkspaceSidebarConfiguration: Equatable {
     var dockMagnification: Bool = false
     var dockMagnificationAmount: Double = 0.5
     var dockIconSize: CGFloat = CGFloat(WorkspaceSidebarConfig.defaultDockIconSize)
+    var compactLeftGap: CGFloat = 0
     var glassOpacity: Double = 1
     var sidebarBackgroundOpacity: Double = 0.70
     var sidebarBlur: Bool = true

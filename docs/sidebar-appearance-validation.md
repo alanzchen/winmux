@@ -299,13 +299,15 @@ live mouse interaction was not repeated. Changes remain local and unreleased.
 # Dock left-edge gap (local validation)
 
 - Default: 2 pt; `workspace-sidebar.dock-left-gap` accepts integers from 0–24.
-- Applies to Dock in light and dark appearance, including expanded and pinned
-  states. The rail width and saved Sidebar width do not change.
+- Applies to the compact Dock in light and dark appearance. The gap closes during
+  expansion; expanded and pinned sidebars are flush with the display edge.
+  The rail width and saved Sidebar width do not change.
 - Verify live changes with a stationary pointer, two displays (including one
   left of the primary display), magnification, drag targets, and auto-hide reveal
   from the physical screen edge. The empty gap must pass clicks through.
-- Tiled windows reserve the gap plus the visible resting width; an auto-hidden
-  Dock reserves no space. Sidebar ignores the saved Dock gap.
+- Tiled windows reserve the gap plus the compact resting width; an auto-hidden
+  Dock reserves no space. Pinned sidebars reserve only their expanded width.
+  Sidebar ignores the saved Dock gap.
 - Regression coverage added in `WorkspaceSidebarDockGapTest` and the existing
   compact-width tests. The local full suite passed after the user authorized a
   local build: 760 tests, one skip, zero failures. Publishing remains on hold.

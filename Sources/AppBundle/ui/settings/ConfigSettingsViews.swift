@@ -143,13 +143,14 @@ struct ShortcutAppearanceSettingsView: View {
                     Text("Liquid Glass").tag(ChromeStyle.liquidGlass)
                     Text("Solid color").tag(ChromeStyle.solid)
                 } onChange: { persistWindowChrome("chrome-style", "'\(chromeStyle.rawValue)'") }
-                SettingsSolidColorPalette(
-                    selection: $solidChromeColor,
-                    customColor: $solidChromeCustomColor,
-                    isEnabled: chromeStyle == .solid,
-                    onSelectionChange: { persistWindowChrome("solid-chrome-color", "'\(solidChromeColor.rawValue)'") },
-                    onCustomColorChange: { persistWindowChrome("solid-chrome-custom-color", "'\(solidChromeCustomColor)'") },
-                )
+                if chromeStyle == .solid {
+                    SettingsSolidColorPalette(
+                        selection: $solidChromeColor,
+                        customColor: $solidChromeCustomColor,
+                        onSelectionChange: { persistWindowChrome("solid-chrome-color", "'\(solidChromeColor.rawValue)'") },
+                        onCustomColorChange: { persistWindowChrome("solid-chrome-custom-color", "'\(solidChromeCustomColor)'") },
+                    )
+                }
             }
             SettingsSection("Dock & Sidebar behavior") {
                 SettingsToggle("Show Dock or Sidebar", isOn: $sidebarEnabled, help: "Show the workspace rail on configured displays.") { sidebarBool("enabled", sidebarEnabled) }
@@ -212,17 +213,18 @@ struct ShortcutAppearanceSettingsView: View {
                 Text("Liquid Glass").tag(ChromeStyle.liquidGlass)
                 Text("Solid color").tag(ChromeStyle.solid)
             } onChange: { persistDockAppearance("style", "'\(dockStyle.rawValue)'") }
-            SettingsSolidColorPalette(
-                selection: $dockSolidColor,
-                customColor: $dockCustomColor,
-                isEnabled: dockStyle == .solid,
-                onSelectionChange: { persistDockAppearance("solid-color", "'\(dockSolidColor.rawValue)'") },
-                onCustomColorChange: { persistDockAppearance("custom-color", "'\(dockCustomColor)'") },
-            )
-            SettingsPercentageSlider("Glass opacity", value: $glassOpacity, help: "Adjust the compact Dock's Liquid Glass background. Sidebar darkness is controlled separately; text and icons retain full opacity.") {
-                persistDockAppearance("glass-opacity", "\(glassOpacity)")
+            if dockStyle == .solid {
+                SettingsSolidColorPalette(
+                    selection: $dockSolidColor,
+                    customColor: $dockCustomColor,
+                    onSelectionChange: { persistDockAppearance("solid-color", "'\(dockSolidColor.rawValue)'") },
+                    onCustomColorChange: { persistDockAppearance("custom-color", "'\(dockCustomColor)'") },
+                )
+            } else {
+                SettingsPercentageSlider("Glass opacity", value: $glassOpacity, help: "Adjust the compact Dock's Liquid Glass background. Sidebar darkness is controlled separately; text and icons retain full opacity.") {
+                    persistDockAppearance("glass-opacity", "\(glassOpacity)")
+                }
             }
-            .disabled(dockStyle != .liquidGlass)
             SettingsToggle("Show app badges", isOn: $showAppBadges, help: "Mirror badge labels exposed by the macOS Dock. Some apps do not expose a badge.") { sidebarBool("show-app-badges", showAppBadges) }
             SettingsToggle("Magnify icons on hover", isOn: $dockMagnification, help: "Enlarge nearby icons while keeping the Dock compact. Reduce Motion disables magnification.") { sidebarBool("dock-magnification", dockMagnification) }
                 .disabled(sidebarAlwaysExpanded)
@@ -231,7 +233,7 @@ struct ShortcutAppearanceSettingsView: View {
             }
             .disabled(!dockMagnification || sidebarAlwaysExpanded)
             SettingsStepper("Icon size", value: $dockIconSize, range: 24...48, help: "Maximum icon size in points. Dock width and side padding scale with the icons, including when they shrink to fit the display.") { sidebarInt("dock-icon-size", dockIconSize) }
-            SettingsStepper("Left-edge gap", value: $dockLeftGap, range: 0...24, help: "Space between the display's left edge and the Dock, in points.") { sidebarInt("dock-left-gap", dockLeftGap) }
+            SettingsStepper("Left-edge gap", value: $dockLeftGap, range: 0...24, help: "Space between the display's left edge and the compact Dock, in points. The expanded Sidebar sits flush against the edge.") { sidebarInt("dock-left-gap", dockLeftGap) }
             HStack {
                 Text("Proportional width").frame(maxWidth: .infinity, alignment: .leading)
                 Text("\(WorkspaceSidebarConfig.dockWidth(forIconSize: CGFloat(dockIconSize)), specifier: "%.1f") pt maximum").foregroundStyle(.secondary)
@@ -537,7 +539,6 @@ private struct SettingsPicker<Selection: Hashable, Content: View>: View {
 private struct SettingsSolidColorPalette: View {
     @Binding var selection: ChromeSolidColor
     @Binding var customColor: String
-    let isEnabled: Bool
     let onSelectionChange: () -> Void
     let onCustomColorChange: () -> Void
     private let columns = Array(repeating: GridItem(.flexible(minimum: 40), spacing: 8), count: 6)
@@ -585,8 +586,6 @@ private struct SettingsSolidColorPalette: View {
             }
         }
         .padding(14)
-        .disabled(!isEnabled)
-        .opacity(isEnabled ? 1 : 0.45)
         .overlay(alignment: .bottom) {
             Divider().padding(.leading, 14)
         }
