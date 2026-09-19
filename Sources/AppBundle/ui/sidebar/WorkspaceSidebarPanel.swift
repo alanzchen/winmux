@@ -149,6 +149,9 @@ extension WorkspaceSidebarPanel {
 
     var visibleSurfaceFrameInHostingView: CGRect {
         if let visibleSurfaceFrame { return visibleSurfaceFrame }
+        // The compact Dock's length is content-dependent. Before its first layout,
+        // do not invent a full-display hit region that could steal hover/clicks.
+        guard !config.workspaceSidebar.showAppIcons else { return .zero }
         let settings = config.workspaceSidebar
         let startWidth = settings.effectiveCollapsedWidth
         let progress = (viewModel.workspaceSidebarVisibleWidth - startWidth) / max(CGFloat(settings.width) - startWidth, 1)
@@ -158,7 +161,7 @@ extension WorkspaceSidebarPanel {
             compactHeight: hostingView.bounds.height,
             expansionProgress: progress,
             fitsDockContent: settings.showAppIcons,
-            compactLeftGap: CGFloat(settings.effectiveLeftGap)
+            compactLeftGap: CGFloat(settings.effectiveLeftGap), position: settings.effectiveDockPosition
         )
     }
 
@@ -196,11 +199,11 @@ extension WorkspaceSidebarPanel {
 
     static func trapCursorForVisiblePanelsIfNeeded() {
         for panel in visiblePanels {
-            panel.trapCursorForLeftEdgeSidebarActivationIfNeeded()
+            panel.trapCursorForSidebarActivationIfNeeded()
         }
     }
 
-    func trapCursorForLeftEdgeSidebarActivationIfNeeded() {
+    func trapCursorForSidebarActivationIfNeeded() {
         let sample = MousePointerTracker.shared.currentSample
         let collapsedWidth = workspaceSidebarRestingWidth(config.workspaceSidebar)
         debugWorkspaceSidebarEdgeTrapLog(
@@ -208,7 +211,7 @@ extension WorkspaceSidebarPanel {
         )
         guard isVisible,
               config.workspaceSidebar.enabled,
-              workspaceSidebarAllowsLeftEdgeTrap(config.workspaceSidebar),
+              workspaceSidebarAllowsEdgeTrap(config.workspaceSidebar),
               !currentSessionModifierFlags().contains(.maskShift),
               !isMouseWindowDragInProgress(),
               !isWorkspaceSidebarItemDragActive(),
@@ -220,8 +223,10 @@ extension WorkspaceSidebarPanel {
             return
         }
 
-        let surface = visibleSurfaceFrameOnScreen.monitorFrameNormalized()
-        guard sample.point.y >= surface.minY, sample.point.y < surface.maxY else {
+        let position = config.workspaceSidebar.effectiveDockPosition
+        let point = workspaceSidebarEdgePoint(sample.point, position: position)
+        let surface = workspaceSidebarEdgeRect(visibleSurfaceFrameOnScreen.monitorFrameNormalized(), position: position)
+        guard point.y >= surface.minY, point.y < surface.maxY else {
             edgeTrapStartedAt = nil
             lastEdgeTrapSample = sample
             return
@@ -236,17 +241,21 @@ extension WorkspaceSidebarPanel {
             edgeTrapStartedAt = nil
             return
         }
-        let hasLeftMonitor = hasMonitorImmediatelyLeft(of: layoutMonitor)
-        let crossesTrapRegion = crossesLeftEdgeTrapRegion(point: sample.point, previous: previous?.point, of: layoutMonitor)
+        let monitorFrame = workspaceSidebarEdgeRect(layoutMonitor.rect, position: position)
+        let hasLeftMonitor = workspaceSidebarHasAdjacentEdgeMonitor(frame: monitorFrame,
+            otherFrames: sortedMonitors.map { workspaceSidebarEdgeRect($0.rect, position: position) })
+        let previousPoint = previous.map { workspaceSidebarEdgePoint($0.point, position: position) }
+        let crossesTrapRegion = workspaceSidebarCrossesEdge(point: point, previous: previousPoint,
+            frame: monitorFrame, band: edgeTrapBandWidth)
         guard hasLeftMonitor, crossesTrapRegion else {
             debugWorkspaceSidebarEdgeTrapLog("skipRegion panel=\(monitorScopeId) hasLeftMonitor=\(hasLeftMonitor) crosses=\(crossesTrapRegion) monitorFrame=\(layoutMonitor.rect) samplePoint=\(sample.point) previousPoint=\(String(describing: previous?.point))")
             edgeTrapStartedAt = nil
             return
         }
 
-        let deltaX = previous.map { sample.point.x - $0.point.x } ?? 0
+        let deltaX = previousPoint.map { point.x - $0.x } ?? 0
         let isLeftwardFlick = deltaX <= -edgeTrapReleaseVelocityThreshold
-        let isContinuingTrap = edgeTrapStartedAt != nil && sample.point.x <= layoutMonitor.rect.minX + edgeTrapBandWidth
+        let isContinuingTrap = edgeTrapStartedAt != nil && point.x <= monitorFrame.minX + edgeTrapBandWidth
         let shouldTrap = isContinuingTrap || isLeftwardFlick || isMouseWindowDragInProgress()
         guard shouldTrap else {
             debugWorkspaceSidebarEdgeTrapLog("skipVelocity panel=\(monitorScopeId) deltaX=\(deltaX) isLeftwardFlick=\(isLeftwardFlick) isContinuingTrap=\(isContinuingTrap)")
@@ -263,48 +272,16 @@ extension WorkspaceSidebarPanel {
             return
         }
 
-        let trappedPoint = CGPoint(
-            x: layoutMonitor.rect.minX + 1,
-            y: sample.point.y.coerce(in: layoutMonitor.rect.minY ... max(layoutMonitor.rect.minY, layoutMonitor.rect.maxY - 1))
-        )
+        let trappedPoint = workspaceSidebarEdgePoint(CGPoint(
+            x: monitorFrame.minX + 1,
+            y: point.y.coerce(in: monitorFrame.minY ... max(monitorFrame.minY, monitorFrame.maxY - 1))
+        ), position: position, inverse: true)
         debugWorkspaceSidebarEdgeTrapLog("warp panel=\(monitorScopeId) from=\(sample.point) to=\(trappedPoint) deltaX=\(deltaX) isLeftwardFlick=\(isLeftwardFlick) isContinuingTrap=\(isContinuingTrap) elapsed=\(sample.timestamp - startedAt) monitorFrame=\(layoutMonitor.rect)")
         CGWarpMouseCursorPosition(trappedPoint)
         MousePointerTracker.shared.note(point: trappedPoint, timestamp: sample.timestamp)
     }
 
-    private func hasMonitorImmediatelyLeft(of monitor: Monitor) -> Bool {
-        sortedMonitors.contains { other in
-            other.rect.maxX == monitor.rect.minX &&
-                other.rect.maxY > monitor.rect.minY &&
-                other.rect.minY < monitor.rect.maxY
-        }
-    }
 
-    private func isInsideVerticalSpan(_ point: CGPoint, of monitor: Monitor) -> Bool {
-        point.y >= monitor.rect.minY && point.y < monitor.rect.maxY
-    }
-
-    private func crossesLeftEdgeTrapRegion(point: CGPoint, previous: CGPoint?, of monitor: Monitor) -> Bool {
-        if isInsideVerticalSpan(point, of: monitor),
-           point.x >= monitor.rect.minX - edgeTrapBandWidth,
-           point.x <= monitor.rect.minX + edgeTrapBandWidth
-        {
-            return true
-        }
-        guard let previous else { return false }
-        let crossedLeftEdge = previous.x >= monitor.rect.minX && point.x < monitor.rect.minX
-        let crossedBackIntoMonitor = previous.x < monitor.rect.minX && point.x >= monitor.rect.minX
-        let crossedTrapBand = previous.x > monitor.rect.minX + edgeTrapBandWidth &&
-            point.x < monitor.rect.minX - edgeTrapBandWidth
-        guard crossedLeftEdge || crossedBackIntoMonitor || crossedTrapBand else { return false }
-        return segmentIntersectsVerticalSpan(from: previous, to: point, of: monitor)
-    }
-
-    private func segmentIntersectsVerticalSpan(from start: CGPoint, to end: CGPoint, of monitor: Monitor) -> Bool {
-        let minY = min(start.y, end.y)
-        let maxY = max(start.y, end.y)
-        return maxY >= monitor.rect.minY && minY < monitor.rect.maxY
-    }
 }
 enum WorkspaceSidebarInlineTextKey {
     case text(String)
@@ -620,11 +597,13 @@ func workspaceSidebarPanelLayout(screenFrame: CGRect, sidebarConfig: WorkspaceSi
     let collapsedWidth = workspaceSidebarRestingWidth(sidebarConfig)
     guard expandedWidth > 0, collapsedWidth >= 0 else { return nil }
     let menuBarReserveHeight = min(CGFloat(sidebarConfig.menuBarReserveHeight), max(screenFrame.height - 1, 0))
+    let position = sidebarConfig.effectiveDockPosition
+    let panelWidth = position == .bottom ? screenFrame.width : min(expandedWidth * 2, screenFrame.width)
     return WorkspaceSidebarPanelLayout(
         frame: NSRect(
-            x: screenFrame.minX,
+            x: position == .right ? screenFrame.maxX - panelWidth : screenFrame.minX,
             y: screenFrame.minY,
-            width: expandedWidth * 2,
+            width: panelWidth,
             height: screenFrame.height - menuBarReserveHeight
         ),
         expandedWidth: expandedWidth,
@@ -643,7 +622,9 @@ extension WorkspaceSidebarPanel {
               config.workspaceSidebar.enabled,
               let screen = workspaceSidebarPanelScreen(for: monitor)
         else { return nil }
-        guard !shouldSuppressChromeForFullscreenContent(on: monitor) else { return nil }
+        guard !shouldSuppressChromeForFullscreenContent(on: monitor),
+              !config.workspaceSidebar.showAppIcons || !SystemDockCoordinator.shared.hidesDock(on: monitor)
+        else { return nil }
 
         return workspaceSidebarPanelLayout(screenFrame: screen.frame, sidebarConfig: config.workspaceSidebar)
     }
@@ -915,6 +896,7 @@ extension WorkspaceSidebarPanel {
     /// This used to be a permanent CVDisplayLink subscription polling at 30Hz, which kept the
     /// display link running and woke the main actor every vsync even when the machine was idle.
     static func noteHoverPointerActivityForVisiblePanels(timestamp: TimeInterval, screenPoint: CGPoint = NSEvent.mouseLocation) {
+        SystemDockCoordinator.shared.notePointerActivity(screenPoint)
         for panel in visiblePanels {
             // Magnification receives every native packet, even while click-through is
             // enabled or SwiftUI's tracking area is being rebuilt. Only expansion is 30 Hz.
@@ -987,7 +969,7 @@ extension WorkspaceSidebarPanel {
     func isMouseInsideHoverRegion() -> Bool {
         guard isVisible else { return false }
         let surface = visibleSurfaceFrameOnScreen
-        let hoverRegion = workspaceSidebarHoverRegion(surface: surface, displayMinX: frame.minX, sidebarConfig: config.workspaceSidebar,
+        let hoverRegion = workspaceSidebarHoverRegion(surface: surface, displayFrame: frame, sidebarConfig: config.workspaceSidebar,
             exitTolerance: hoverExitTolerance, fittedDockWidth: fittedDockRestingWidth)
         let inside = hoverRegion.contains(NSEvent.mouseLocation) || isScreenPointInsideDockIcon(NSEvent.mouseLocation)
         if viewModel.workspaceSidebarVisibleWidth > workspaceSidebarRestingWidth(config.workspaceSidebar) + 0.5 || pendingCollapse != nil {
@@ -1002,11 +984,9 @@ extension WorkspaceSidebarPanel {
 
     func isMouseDeepEnoughToExpand() -> Bool {
         guard isVisible else { return false }
-        return isWorkspaceSidebarHoverDeepEnoughToExpand(
-            mouseX: NSEvent.mouseLocation.x,
-            // Hover depth belongs to the resting shelf, even while its gap animates.
-            sidebarMinX: frame.minX + CGFloat(config.workspaceSidebar.effectiveLeftGap),
-            collapsedWidth: config.workspaceSidebar.showAppIcons && !config.workspaceSidebar.alwaysExpanded
+        return workspaceSidebarHoverDepth(
+            point: NSEvent.mouseLocation, displayFrame: frame, sidebarConfig: config.workspaceSidebar,
+            thickness: config.workspaceSidebar.showAppIcons && !config.workspaceSidebar.alwaysExpanded
                 ? fittedDockRestingWidth ?? workspaceSidebarHoverActivationWidth(config.workspaceSidebar)
                 : workspaceSidebarHoverActivationWidth(config.workspaceSidebar),
         )

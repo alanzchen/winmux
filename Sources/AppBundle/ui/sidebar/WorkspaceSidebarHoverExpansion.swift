@@ -1,6 +1,6 @@
 import AppKit
 
-func workspaceSidebarAllowsLeftEdgeTrap(_ sidebarConfig: WorkspaceSidebarConfig) -> Bool {
+func workspaceSidebarAllowsEdgeTrap(_ sidebarConfig: WorkspaceSidebarConfig) -> Bool {
     !sidebarConfig.alwaysExpanded
 }
 
@@ -11,7 +11,10 @@ func workspaceSidebarRestingWidth(_ sidebarConfig: WorkspaceSidebarConfig) -> CG
     return sidebarConfig.autoHide ? 0 : CGFloat(sidebarConfig.effectiveCollapsedWidth)
 }
 
-func workspaceSidebarReservedWidth(_ sidebarConfig: WorkspaceSidebarConfig) -> CGFloat {
+func workspaceSidebarReservedWidth(_ sidebarConfig: WorkspaceSidebarConfig, availableHeight: CGFloat = 1000) -> CGFloat {
+    if sidebarConfig.effectiveDockPosition == .bottom && sidebarConfig.alwaysExpanded {
+        return workspaceSidebarBottomExpandedHeight(availableHeight: availableHeight)
+    }
     let width = workspaceSidebarRestingWidth(sidebarConfig)
     // A hidden Dock reserves neither its rail nor the empty gap beside it.
     return width > 0 ? width + CGFloat(sidebarConfig.effectiveLeftGap) : 0
@@ -82,4 +85,35 @@ func shouldSuppressWorkspaceSidebarHoverExpansionForDrag(
     isSidebarOriginatedDrag: Bool,
 ) -> Bool {
     isSidebarItemDragActive || isSidebarOriginatedDrag
+}
+
+func workspaceSidebarHoverRegion(surface: CGRect, displayFrame: CGRect,
+    sidebarConfig: WorkspaceSidebarConfig, exitTolerance: CGFloat, fittedDockWidth: CGFloat? = nil) -> CGRect {
+    let position = sidebarConfig.effectiveDockPosition
+    if position == .left {
+        return workspaceSidebarHoverRegion(surface: surface, displayMinX: displayFrame.minX,
+            sidebarConfig: sidebarConfig, exitTolerance: exitTolerance, fittedDockWidth: fittedDockWidth)
+    }
+    let thickness = fittedDockWidth ?? workspaceSidebarHoverActivationWidth(sidebarConfig)
+    let autoHide = sidebarConfig.autoHide && !sidebarConfig.alwaysExpanded
+    if position == .right {
+        let edge = autoHide ? displayFrame.maxX : surface.maxX
+        let width = max(surface.width, thickness) + exitTolerance + max(edge - surface.maxX, 0)
+        return CGRect(x: edge - width, y: surface.minY, width: width, height: surface.height)
+    }
+    let edge = autoHide ? displayFrame.minY : surface.minY
+    return CGRect(x: surface.minX, y: edge, width: surface.width,
+        height: max(surface.height, thickness) + exitTolerance + max(surface.minY - edge, 0))
+}
+
+func workspaceSidebarHoverDepth(point: CGPoint, displayFrame: CGRect,
+    sidebarConfig: WorkspaceSidebarConfig, thickness: CGFloat) -> Bool {
+    let gap = CGFloat(sidebarConfig.effectiveLeftGap)
+    let distance: CGFloat
+    switch sidebarConfig.effectiveDockPosition {
+        case .left: distance = point.x - displayFrame.minX - gap
+        case .right: distance = displayFrame.maxX - point.x - gap
+        case .bottom: distance = point.y - displayFrame.minY - gap
+    }
+    return thickness > 0 && distance <= thickness * (1 - workspaceSidebarHoverOpenThresholdFraction)
 }

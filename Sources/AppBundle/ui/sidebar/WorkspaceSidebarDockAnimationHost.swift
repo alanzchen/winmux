@@ -23,7 +23,7 @@ struct WorkspaceSidebarDockAnimationHost<Surface: Shape, Content: View>: View {
             let resting = workspaceSidebarSurfaceFrame(availableSize: geometry.size,
                 visibleWidth: visibleWidth, compactHeight: compactHeight,
                 expansionProgress: expansionProgress, fitsDockContent: configuration.showAppIcons,
-                compactLeftGap: configuration.compactLeftGap)
+                compactLeftGap: configuration.compactLeftGap, position: configuration.dockPosition)
             // Native input is validated before entering the motion controller. Keep
             // its last valid point throughout exit, even as the icon under it shrinks.
             // Revalidating that point against shrinking bounds would snap to rest.
@@ -36,7 +36,7 @@ struct WorkspaceSidebarDockAnimationHost<Surface: Shape, Content: View>: View {
             let surface = workspaceSidebarSurfaceFrame(availableSize: geometry.size,
                 visibleWidth: visibleWidth, compactHeight: compactHeight + growth(pointer, strength, resting),
                 expansionProgress: expansionProgress, fitsDockContent: configuration.showAppIcons,
-                compactLeftGap: configuration.compactLeftGap)
+                compactLeftGap: configuration.compactLeftGap, position: configuration.dockPosition)
             content
                 .environment(\.workspaceSidebarDockLayoutContext,
                     .init(restingSurface: resting, pointer: pointer, strength: strength))
@@ -48,12 +48,12 @@ struct WorkspaceSidebarDockAnimationHost<Surface: Shape, Content: View>: View {
                             value: surface.frame(in: .named("workspaceSidebarContent")))
                     }
                 }
-                .frame(width: surface.width + overflow, alignment: .leading)
-                .mask(alignment: .leading) { Rectangle().frame(width: max(visibleWidth, 0) + overflow) }
-                .position(x: surface.midX + overflow / 2, y: surface.midY)
+                .modifier(WorkspaceSidebarDockOverflowFrame(surface: surface, overflow: overflow,
+                    position: configuration.dockPosition))
         }
         .background {
             WorkspaceSidebarDockDisplayLink(controller: motion, blockers: blockers,
+                horizontal: configuration.dockPosition == .bottom,
                 containsPointer: { [shape, hitRegions] point in
                     let insideSurface = hitRegions.surface.map { surface in
                         surface.contains(point) && shape.path(in: surface).contains(point)
@@ -68,5 +68,22 @@ struct WorkspaceSidebarDockAnimationHost<Surface: Shape, Content: View>: View {
               shape.path(in: surface).contains(point) || hitRegions.icons.contains(where: { $0.contains(point) })
         else { return nil }
         return point
+    }
+}
+
+private struct WorkspaceSidebarDockOverflowFrame: ViewModifier {
+    let surface: CGRect
+    let overflow: CGFloat
+    let position: WorkspaceDockPosition
+
+    func body(content: Content) -> some View {
+        let horizontal = position == .bottom
+        let alignment: Alignment = horizontal ? .bottom : position == .right ? .trailing : .leading
+        let size = CGSize(width: surface.width + (horizontal ? 0 : overflow),
+            height: surface.height + (horizontal ? overflow : 0))
+        content.frame(width: size.width, height: size.height, alignment: alignment)
+            .mask { Rectangle().frame(width: max(size.width, 0), height: max(size.height, 0)) }
+            .position(x: surface.midX + (horizontal ? 0 : (position == .right ? -overflow : overflow) / 2),
+                y: surface.midY - (horizontal ? overflow / 2 : 0))
     }
 }

@@ -18,7 +18,10 @@ struct WorkspaceSidebarCreateWorkspaceSection: View {
     @State private var isDropTargeted = false
     @State private var isDropSettling = false
 
-    private var sectionWidth: CGFloat { workspaceSidebarSectionWidth(expansionProgress, layout: layout) }
+    private var sectionWidth: CGFloat {
+        layout.showAppIcons && layout.dockPosition == .bottom && expansionProgress == 0
+            ? 32 : workspaceSidebarSectionWidth(expansionProgress, layout: layout)
+    }
     private var isCompact: Bool { expansionProgress < workspaceSidebarRowsRevealProgress }
     private var showsDropTarget: Bool {
         guard dragPreview?.targetsNewWorkspace == true else { return false }

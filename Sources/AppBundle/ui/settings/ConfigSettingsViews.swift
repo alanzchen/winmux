@@ -107,6 +107,7 @@ struct ShortcutAppearanceSettingsView: View {
     @State private var dockMagnification = config.workspaceSidebar.dockMagnification
     @State private var dockMagnificationAmount = config.workspaceSidebar.dockMagnificationAmount
     @State private var dockIconSize = config.workspaceSidebar.dockIconSize
+    @State private var dockPosition = config.workspaceSidebar.dockPosition
     @State private var dockLeftGap = config.workspaceSidebar.dockLeftGap
     @State private var showStatusPills = config.workspaceSidebar.showStatusPills
     @State private var showClock = config.workspaceSidebar.showClock
@@ -155,9 +156,10 @@ struct ShortcutAppearanceSettingsView: View {
             SettingsSection("Dock & Sidebar behavior") {
                 SettingsToggle("Show Dock or Sidebar", isOn: $sidebarEnabled, help: "Show the workspace rail on configured displays.") { sidebarBool("enabled", sidebarEnabled) }
                 SettingsToggle("Focus sidebar monitor only", isOn: $sidebarFocusEnabled, help: "Show the sidebar only on the focused monitor when monitor scope allows it.") { sidebarBool("enable-focus", sidebarFocusEnabled) }
-                SettingsToggle("Keep above macOS Dock", isOn: $sidebarStayOnTop, help: "Keep the sidebar above the Dock. Turn this off to let the Dock appear over it.") { sidebarBool("stay-on-top", sidebarStayOnTop) }
-                SettingsToggle("Reveal sidebar at the display edge", isOn: $sidebarAutoHide, help: "Hide the compact rail until the pointer reaches the left edge.") { sidebarBool("auto-hide", sidebarAutoHide) }
-                SettingsToggle("Keep sidebar expanded", isOn: $sidebarAlwaysExpanded, help: "Reserve the full sidebar width for tiled windows.") { sidebarBool("always-expanded", sidebarAlwaysExpanded) }
+                SettingsToggle("Keep above macOS Dock", isOn: $sidebarStayOnTop, help: "Keep Sidebar mode above the macOS Dock. Dock mode always hides while the macOS Dock is visible.") { sidebarBool("stay-on-top", sidebarStayOnTop) }
+                    .disabled(sidebarMode == .dock)
+                SettingsToggle("Reveal sidebar at the display edge", isOn: $sidebarAutoHide, help: "Hide the compact rail until the pointer reaches its selected display edge.") { sidebarBool("auto-hide", sidebarAutoHide) }
+                SettingsToggle("Keep sidebar expanded", isOn: $sidebarAlwaysExpanded, help: "Reserve space for the expanded panel when tiling windows.") { sidebarBool("always-expanded", sidebarAlwaysExpanded) }
                 SettingsPicker("Mode", selection: $sidebarMode, help: "Sidebar shows window details on a dark, blurred background. Dock shows workspace number tiles and app icons, and expands into the Sidebar appearance for search and window details.") {
                     Text("Sidebar").tag(WorkspaceSidebarMode.sidebar)
                     Text("Dock").tag(WorkspaceSidebarMode.dock)
@@ -225,22 +227,27 @@ struct ShortcutAppearanceSettingsView: View {
                     persistDockAppearance("glass-opacity", "\(glassOpacity)")
                 }
             }
+            SettingsPicker("Position", selection: $dockPosition, help: "Place the compact Dock on the left, bottom, or right. Bottom mode temporarily enables auto-hide for the macOS Dock. WinMux hides while the macOS Dock is visible on this display.") {
+                Text("Left").tag(WorkspaceDockPosition.left)
+                Text("Bottom").tag(WorkspaceDockPosition.bottom)
+                Text("Right").tag(WorkspaceDockPosition.right)
+            } onChange: { persist("workspace-sidebar", "dock-position", "'\(dockPosition.rawValue)'") }
             SettingsToggle("Show app badges", isOn: $showAppBadges, help: "Mirror badge labels exposed by the macOS Dock. Some apps do not expose a badge.") { sidebarBool("show-app-badges", showAppBadges) }
             SettingsToggle("Magnify icons on hover", isOn: $dockMagnification, help: "Enlarge nearby icons while keeping the Dock compact. Reduce Motion disables magnification.") { sidebarBool("dock-magnification", dockMagnification) }
                 .disabled(sidebarAlwaysExpanded)
-            SettingsPercentageSlider("Magnification amount", value: $dockMagnificationAmount, help: "0% keeps the resting size; 50% grows icons to 1.5×; 100% doubles their size. Icons grow rightward beyond the fixed-width background.") {
+            SettingsPercentageSlider("Magnification amount", value: $dockMagnificationAmount, help: "0% keeps the resting size; 50% grows icons to 1.5×; 100% doubles their size. Icons grow inward from the selected display edge.") {
                 persist("workspace-sidebar", "dock-magnification-amount", "\(dockMagnificationAmount)")
             }
             .disabled(!dockMagnification || sidebarAlwaysExpanded)
-            SettingsStepper("Icon size", value: $dockIconSize, range: 24...48, help: "Maximum icon size in points. Dock width and side padding scale with the icons, including when they shrink to fit the display.") { sidebarInt("dock-icon-size", dockIconSize) }
-            SettingsStepper("Left-edge gap", value: $dockLeftGap, range: 0...24, help: "Space between the display's left edge and the compact Dock, in points. The expanded Sidebar sits flush against the edge.") { sidebarInt("dock-left-gap", dockLeftGap) }
+            SettingsStepper("Icon size", value: $dockIconSize, range: 24...48, help: "Maximum icon size in points. Dock thickness and edge padding scale with the icons, including when they shrink to fit the display.") { sidebarInt("dock-icon-size", dockIconSize) }
+            SettingsStepper("Edge gap", value: $dockLeftGap, range: 0...24, help: "Space between the selected display edge and the compact Dock, in points. The expanded view sits flush against that edge.") { sidebarInt("dock-left-gap", dockLeftGap) }
             HStack {
-                Text("Proportional width").frame(maxWidth: .infinity, alignment: .leading)
+                Text("Proportional thickness").frame(maxWidth: .infinity, alignment: .leading)
                 Text("\(WorkspaceSidebarConfig.dockWidth(forIconSize: CGFloat(dockIconSize)), specifier: "%.1f") pt maximum").foregroundStyle(.secondary)
             }
             .padding(.horizontal, 14)
             .frame(minHeight: 38)
-            .help("Dock width keeps the same proportion to its resting icons. Hover magnification leaves the width unchanged.")
+            .help("Dock thickness keeps the same proportion to its resting icons. Hover magnification leaves the glass thickness unchanged.")
             .overlay(alignment: .bottom) { Divider().padding(.leading, 14) }
             if sidebarMode == .dock { DockPerformanceSettingsView() }
         }

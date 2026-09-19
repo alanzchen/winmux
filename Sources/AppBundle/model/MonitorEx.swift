@@ -5,7 +5,8 @@ extension Monitor {
     var workspaceSidebarInset: CGFloat {
         guard config.workspaceSidebar.enabled else { return 0 }
         return workspaceSidebarResolvedPanelMonitors().contains { $0.rect.topLeftCorner == rect.topLeftCorner }
-            ? workspaceSidebarReservedWidth(config.workspaceSidebar)
+            ? workspaceSidebarReservedWidth(config.workspaceSidebar,
+                availableHeight: max(rect.height - CGFloat(config.workspaceSidebar.menuBarReserveHeight), 0))
             : 0
     }
 
@@ -13,12 +14,16 @@ extension Monitor {
     var visibleRectPaddedByOuterGaps: Rect {
         let topLeft = visibleRect.topLeftCorner
         let gaps = ResolvedGaps(gaps: config.gaps, monitor: self)
-        let leftInset = gaps.outer.left.toDouble() + workspaceSidebarInset
+        let position = config.workspaceSidebar.effectiveDockPosition
+        let reserved = workspaceSidebarInset
+        let leftInset = gaps.outer.left.toDouble() + (position == .left ? reserved : 0)
+        let rightInset = gaps.outer.right.toDouble() + (position == .right ? reserved : 0)
+        let bottomInset = gaps.outer.bottom.toDouble() + (position == .bottom ? reserved : 0)
         return Rect(
             topLeftX: topLeft.x + leftInset,
             topLeftY: topLeft.y + gaps.outer.top.toDouble(),
-            width: visibleRect.width - leftInset - gaps.outer.right.toDouble(),
-            height: visibleRect.height - gaps.outer.top.toDouble() - gaps.outer.bottom.toDouble(),
+            width: max(1, visibleRect.width - leftInset - rightInset),
+            height: max(1, visibleRect.height - gaps.outer.top.toDouble() - bottomInset),
         )
     }
 

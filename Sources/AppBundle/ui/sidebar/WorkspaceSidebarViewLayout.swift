@@ -3,7 +3,7 @@ import Common
 import SwiftUI
 
 extension WorkspaceSidebarView {
-    func sidebarContent(expansionProgress: CGFloat, layout: WorkspaceSidebarConfiguration) -> some View {
+    func sidebarContent(expansionProgress: CGFloat, layout: WorkspaceSidebarConfiguration, drawsSurface: Bool = true) -> some View {
         let isCompact = expansionProgress < workspaceSidebarRowsRevealProgress
         let progress = min(max(expansionProgress, 0), 1)
         let leadingInset = layout.showAppIcons
@@ -98,7 +98,7 @@ extension WorkspaceSidebarView {
                     dockMotion.reset()
                     actions.send(.expandSidebar)
                 } label: {
-                    Image(systemName: "chevron.right")
+                    Image(systemName: layout.dockPosition == .right ? "chevron.left" : "chevron.right")
                         .font(.system(size: 12, weight: .semibold))
                         .frame(maxWidth: .infinity)
                         .frame(height: 28)
@@ -144,21 +144,21 @@ extension WorkspaceSidebarView {
                     showsClock: layout.showsClock,
                 ))
         }
-        .onPreferenceChange(WorkspaceSidebarDropTargetPreferenceKey.self) { frames in
-            actions.setDropTargets(frames)
-        }
         .background {
-            sidebarSurface(in: sidebarShape(layout: layout))
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    NotificationCenter.default.post(name: workspaceSidebarDismissProjectMenusNotification, object: nil)
-                }
+            if drawsSurface {
+                sidebarSurface(in: sidebarShape(layout: layout))
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        NotificationCenter.default.post(name: workspaceSidebarDismissProjectMenusNotification, object: nil)
+                    }
+            }
         }
         .environment(\.colorScheme, .dark)
-        .overlay(alignment: .trailing) {
+        .overlay(alignment: layout.dockPosition == .bottom ? .top : layout.dockPosition == .right ? .leading : .trailing) {
             Rectangle()
                 .fill(Color.white.opacity(GlassToken.separatorOpacity))
-                .frame(width: 0.5)
+                .frame(width: layout.dockPosition == .bottom ? nil : 0.5,
+                    height: layout.dockPosition == .bottom ? 0.5 : nil)
                 .opacity(Double(dockSurfaceProgress))
         }
         .modifier(WorkspaceSidebarTrailingOverflowModifier(base: sidebarShape(layout: layout), overflow: dockMagnificationOverflow(layout: layout)))

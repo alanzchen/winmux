@@ -42,7 +42,7 @@ on-mode-changed = []
     # Keep the sidebar above system UI such as the Dock. Set false to keep it
     # above ordinary app windows while allowing the Dock to appear over it.
     stay-on-top = true
-    # Hide the compact rail until the pointer reaches the display's left edge.
+    # Hide the compact rail until the pointer reaches its selected display edge.
     auto-hide = false
     # Keep the full sidebar open and reserve its width for tiled windows.
     always-expanded = false
@@ -55,11 +55,16 @@ on-mode-changed = []
     dock-magnification = false
     # Magnification strength: 0 = none, 0.5 = 1.5x, 1 = 2x; icons grow beyond the glass rail.
     dock-magnification-amount = 0.5
-    # Maximum icon canvas size (24...48 points); icons shrink together to fit the available height.
+    # Maximum icon canvas size (24...48 points); icons shrink together to fit the available length.
     # Adaptive sizing stops at 16 points, then scrolls. Rail width and side padding
     # scale with resting icons: 48-point icons use a 64-point rail. Hover does not widen it.
     dock-icon-size = 48
-    # Compact Dock distance from the left display edge, in points (0-24).
+    # Dock only: left / bottom / right. Bottom temporarily auto-hides the macOS Dock;
+    # its previous setting is restored when leaving Bottom mode or quitting WinMux.
+    # WinMux hides on the display where the native Dock appears, in every Dock position.
+    dock-position = 'left'
+    # Compact Dock distance from the selected display edge, in points (0-24).
+    # The legacy key name remains supported for all positions.
     # The gap closes when expanding into the Sidebar.
     dock-left-gap = 2
     collapsed-width = 50

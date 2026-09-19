@@ -27,7 +27,10 @@ struct WorkspaceSidebarProjectPager: View {
     @State var projectTrackContentWidth: CGFloat = 0
     @State var projectTrackViewportWidth: CGFloat = 0
 
-    var sectionWidth: CGFloat { workspaceSidebarSectionWidth(expansionProgress, layout: layout) }
+    var horizontalCompact: Bool { isCompact && layout.showAppIcons && layout.dockPosition == .bottom }
+    var sectionWidth: CGFloat {
+        horizontalCompact ? min(CGFloat(projects.count), 5) * 36 : workspaceSidebarSectionWidth(expansionProgress, layout: layout)
+    }
     var isCompact: Bool { expansionProgress < workspaceSidebarRowsRevealProgress }
     var currentIndex: Int? {
         projects.firstIndex { $0.id == selectedProjectId }
@@ -84,6 +87,7 @@ struct WorkspaceSidebarProjectPager: View {
         return max(sectionWidth, 24)
     }
     var compactProjectControlsHeight: CGFloat {
+        if horizontalCompact { return min(workspaceSidebarProjectDotFrameHeight, layout.compactRailWidth) }
         let contentHeight = CGFloat(projects.count) * workspaceSidebarProjectDotFrameHeight
         let maxVisibleHeight = workspaceSidebarProjectDotFrameHeight * 5
         return min(max(contentHeight, workspaceSidebarPagerHeight), maxVisibleHeight)
@@ -116,7 +120,7 @@ struct WorkspaceSidebarProjectPager: View {
                 .transaction { $0.animation = nil }
             }
         }
-        .padding(.horizontal, isCompact ? 2 : 0)
+        .padding(.horizontal, isCompact && !horizontalCompact ? 2 : 0)
         .frame(width: sectionWidth, height: pagerHeight, alignment: .bottom)
         .contextMenu {
             Button("New Project") {

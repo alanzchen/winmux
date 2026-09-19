@@ -89,12 +89,16 @@ struct WorkspaceSidebarDockSectionMotion: ViewModifier {
     let appCount: Int
     let amount: Double
     let isEnabled: Bool
+    var position: WorkspaceDockPosition = .left
     @Environment(\.workspaceSidebarDockLayoutContext) private var context
 
     func body(content: Content) -> some View {
         let layout = WorkspaceSidebarDockMagnification(itemSize: itemSize, count: 1 + appCount,
             enabled: isEnabled, amount: amount)
-        let pointer = context.pointer.map { $0.y - context.restingSurface.minY - columnOrigin - sectionOrigin }
+        let pointer = context.pointer.map {
+            (position == .bottom ? $0.x - context.restingSurface.minX : $0.y - context.restingSurface.minY)
+                - columnOrigin - sectionOrigin
+        }
         content.environment(\.workspaceSidebarDockSectionMagnification,
             layout.sectionMagnification(pointerY: pointer, strength: context.strength))
     }
@@ -254,9 +258,12 @@ extension WorkspaceSidebarConfiguration {
 
 struct WorkspaceSidebarWorkspaceStack<Content: View>: View {
     let isLazy: Bool
+    var horizontal = false
     @ViewBuilder let content: () -> Content
     var body: some View {
-        if isLazy {
+        if horizontal {
+            HStack(alignment: .center, spacing: 6, content: content)
+        } else if isLazy {
             LazyVStack(alignment: .leading, spacing: 6, content: content)
         } else {
             VStack(alignment: .leading, spacing: 6, content: content)

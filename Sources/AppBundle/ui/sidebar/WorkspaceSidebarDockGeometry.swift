@@ -55,6 +55,11 @@ func workspaceSidebarDockContentHeight(
     showsMonitorSelector: Bool,
     projectCount: Int
 ) -> CGFloat {
+    if configuration.dockPosition == .bottom {
+        return workspaceSidebarBottomDockLength(appCounts: appCounts, configuration: configuration,
+            showsCreateWorkspace: showsCreateWorkspace, showsMonitorSelector: showsMonitorSelector,
+            projectCount: projectCount)
+    }
     let iconWidth: CGFloat = max(configuration.compactRailWidth - configuration.compactHorizontalInset * 2, 1)
     let workspaceHeights: [CGFloat] = appCounts.map {
         WorkspaceSidebarAppIconLayout(appCount: $0, availableWidth: iconWidth, magnificationEnabled: configuration.dockMagnification, iconSize: configuration.dockIconSize, magnificationAmount: configuration.dockMagnificationAmount).height + 6
@@ -89,16 +94,29 @@ func workspaceSidebarSurfaceFrame(
     compactHeight: CGFloat,
     expansionProgress: CGFloat,
     fitsDockContent: Bool,
-    compactLeftGap: CGFloat = 0
+    compactLeftGap: CGFloat = 0,
+    position: WorkspaceDockPosition = .left
 ) -> CGRect {
     let availableHeight = max(availableSize.height, 0)
+    if fitsDockContent, position == .bottom {
+        let progress = min(max(expansionProgress, 0), 1)
+        let length = min(max(compactHeight, 0), max(availableSize.width, 0))
+        let width = length + (max(visibleWidth, 0) - length) * progress
+        let height = max(visibleWidth, 0) * (1 - progress)
+            + workspaceSidebarBottomExpandedHeight(availableHeight: availableHeight) * progress
+        return CGRect(x: (availableSize.width - width) / 2,
+            y: availableHeight - height - max(compactLeftGap, 0) * (1 - progress),
+            width: width, height: height)
+    }
     let progress = fitsDockContent ? min(max(expansionProgress, 0), 1) : 1
     let compact = min(max(compactHeight, 0), availableHeight)
     let height = compact + (availableHeight - compact) * progress
     // Keep the native panel on the screen edge. Only the compact shelf is inset;
     // its gap closes along with the existing expansion animation.
     let leftGap = max(compactLeftGap, 0) * (1 - progress)
-    return CGRect(x: leftGap, y: (availableHeight - height) / 2, width: max(visibleWidth, 0), height: height)
+    let width = max(visibleWidth, 0)
+    return CGRect(x: position == .right ? availableSize.width - leftGap - width : leftGap,
+        y: (availableHeight - height) / 2, width: width, height: height)
 }
 
 func workspaceSidebarClippedDropTargets(
@@ -125,5 +143,37 @@ struct WorkspaceSidebarDockRestingWidthPreferenceKey: PreferenceKey {
 
     static func reduce(value: inout CGFloat?, nextValue: () -> CGFloat?) {
         value = nextValue() ?? value
+    }
+}
+
+func workspaceSidebarBottomExpandedHeight(availableHeight: CGFloat) -> CGFloat {
+    // Leave usable space for application windows even on small displays.
+    min(600, max(availableHeight, 0) * 0.6)
+}
+
+/// Compact horizontal controls keep the same thickness as the vertical shelf.
+@MainActor
+func workspaceSidebarBottomDockLength(appCounts: [Int], configuration: WorkspaceSidebarConfiguration,
+    showsCreateWorkspace: Bool, showsMonitorSelector: Bool, projectCount: Int) -> CGFloat {
+    let workspaces = appCounts.reduce(CGFloat.zero) {
+        $0 + WorkspaceSidebarDockMagnification(itemSize: configuration.dockIconSize,
+            count: 1 + max($1, 0), enabled: false).height + 6
+    }
+    let sections = appCounts.count + (showsCreateWorkspace ? 1 : 0)
+    let page = workspaces + CGFloat(max(sections - 1, 0)) * 6 + (showsCreateWorkspace ? 32 : 0) + 20
+    return page + (showsMonitorSelector ? 36 : 0) + 32
+        + (projectCount > 1 ? min(CGFloat(projectCount), 5) * 36 + 8 : 0)
+        + (configuration.showsClock ? 120 : 0) + 12
+}
+
+/// Reorient rectangles, never artwork. The baseline next to the display edge is fixed.
+func workspaceSidebarDockOrientedFrame(_ frame: CGRect, crossAxis: CGFloat,
+    position: WorkspaceDockPosition) -> CGRect {
+    switch position {
+        case .left: return frame
+        case .right:
+            return CGRect(x: crossAxis - frame.maxX, y: frame.minY, width: frame.width, height: frame.height)
+        case .bottom:
+            return CGRect(x: frame.minY, y: crossAxis - frame.maxX, width: frame.height, height: frame.width)
     }
 }

@@ -84,6 +84,11 @@ enum WorkspaceSidebarMode: String, CaseIterable, Identifiable, Sendable {
     var id: String { rawValue }
 }
 
+enum WorkspaceDockPosition: String, CaseIterable, Identifiable, Sendable {
+    case left, bottom, right
+    var id: String { rawValue }
+}
+
 struct WorkspaceSidebarConfig: ConvenienceCopyable, Equatable, Sendable {
     // Reference dimensions: the shelf scales with the resting icon canvas.
     static let dockCompactWidth = 64
@@ -110,6 +115,7 @@ struct WorkspaceSidebarConfig: ConvenienceCopyable, Equatable, Sendable {
     var dockMagnification: Bool = false
     var dockMagnificationAmount: Double = 0.5
     var dockIconSize: Int = Self.defaultDockIconSize
+    var dockPosition: WorkspaceDockPosition = .left
     var dockLeftGap: Int = 2
     var collapsedWidth: Int = 44
     var width: Int = 240
@@ -137,6 +143,7 @@ struct WorkspaceSidebarConfig: ConvenienceCopyable, Equatable, Sendable {
         showAppIcons ? Self.dockWidth(forIconSize: CGFloat(dockIconSize)) : CGFloat(collapsedWidth)
     }
     var effectiveLeftGap: Int { showAppIcons && !alwaysExpanded ? dockLeftGap : 0 }
+    var effectiveDockPosition: WorkspaceDockPosition { showAppIcons ? dockPosition : .left }
     var usesDockMagnification: Bool { showAppIcons && dockMagnification && !alwaysExpanded }
 }
 

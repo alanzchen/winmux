@@ -12,6 +12,7 @@ struct WorkspaceSidebarAppIconHeader: View {
     var railWidth: CGFloat = 64
     var iconSize: CGFloat = WorkspaceSidebarAppIconLayout.iconSize
     var magnificationAmount: Double = 0.5
+    var position: WorkspaceDockPosition = .left
     var compactActions: WorkspaceSidebarDockCompactActions?
 
     var layout: WorkspaceSidebarAppIconLayout {
@@ -24,7 +25,7 @@ struct WorkspaceSidebarAppIconHeader: View {
         WorkspaceSidebarDockHeaderMotion(
             itemSize: layout.itemSize, count: 1 + layout.visibleAppCount,
             availableWidth: availableWidth, magnificationEnabled: magnificationEnabled,
-            amount: magnificationAmount, reportsHitFrames: compactActions != nil
+            amount: magnificationAmount, reportsHitFrames: compactActions != nil, position: position
         ) {
             ZStack(alignment: .topLeading) {
                 WorkspaceSidebarWorkspaceIcon(
@@ -38,7 +39,7 @@ struct WorkspaceSidebarAppIconHeader: View {
                 .accessibilityHidden(true)
                 if isActive {
                     WorkspaceSidebarActiveWorkspaceIndicator(diameter: workspaceSidebarIndicatorDiameter(railWidth: railWidth))
-                        .modifier(WorkspaceSidebarDockIndicatorMotion(itemSize: layout.itemSize, railWidth: railWidth))
+                        .modifier(WorkspaceSidebarDockIndicatorMotion(itemSize: layout.itemSize, railWidth: railWidth, position: position))
                         .opacity(morphsTitle && hidesTitleForMorph ? 0 : 1)
                 }
                 ForEach(Array(workspace.apps.prefix(layout.visibleAppCount).enumerated()), id: \.element.id) { index, app in
@@ -102,18 +103,20 @@ struct WorkspaceSidebarDockHeaderMotion<Content: View>: View {
     let magnificationEnabled: Bool
     let amount: Double
     let reportsHitFrames: Bool
+    var position: WorkspaceDockPosition = .left
     let content: Content
     @Environment(\.workspaceSidebarDockPointer) private var pointer
     @Environment(\.workspaceSidebarDockSectionMagnification) private var section
 
     init(itemSize: CGFloat, count: Int, availableWidth: CGFloat, magnificationEnabled: Bool,
-         amount: Double, reportsHitFrames: Bool, @ViewBuilder content: () -> Content) {
+         amount: Double, reportsHitFrames: Bool, position: WorkspaceDockPosition = .left, @ViewBuilder content: () -> Content) {
         self.itemSize = itemSize
         self.count = count
         self.availableWidth = availableWidth
         self.magnificationEnabled = magnificationEnabled
         self.amount = amount
         self.reportsHitFrames = reportsHitFrames
+        self.position = position
         self.content = content()
     }
 
@@ -122,14 +125,19 @@ struct WorkspaceSidebarDockHeaderMotion<Content: View>: View {
             enabled: magnificationEnabled, amount: amount * (section?.strength ?? 1))
         GeometryReader { geometry in
             let origin = geometry.frame(in: .named("workspaceSidebarContent")).origin
-            let localPointer = section != nil ? section?.pointerY : pointer.map { $0.y - origin.y }
-            let frames = layout.frames(width: availableWidth, pointerY: localPointer)
+            let localPointer = section != nil ? section?.pointerY : pointer.map {
+                position == .bottom ? $0.x - origin.x : $0.y - origin.y
+            }
+            let frames = layout.frames(width: availableWidth, pointerY: localPointer).map {
+                workspaceSidebarDockOrientedFrame($0, crossAxis: availableWidth, position: position)
+            }
             content
                 .environment(\.workspaceSidebarDockIconFrames, frames)
                 .preference(key: WorkspaceSidebarDockIconFramesPreference.self,
                     value: reportsHitFrames ? frames.map { $0.offsetBy(dx: origin.x, dy: origin.y) } : [])
         }
-        .frame(width: availableWidth, height: layout.renderedHeight(pointerY: section?.pointerY), alignment: .center)
+        .frame(width: position == .bottom ? layout.renderedHeight(pointerY: section?.pointerY) : availableWidth,
+            height: position == .bottom ? availableWidth : layout.renderedHeight(pointerY: section?.pointerY), alignment: .center)
     }
 }
 
@@ -159,12 +167,19 @@ struct WorkspaceSidebarDockIconMotion: ViewModifier {
 private struct WorkspaceSidebarDockIndicatorMotion: ViewModifier {
     let itemSize: CGFloat
     let railWidth: CGFloat
+    let position: WorkspaceDockPosition
     @Environment(\.workspaceSidebarDockIconFrames) private var frames
 
     func body(content: Content) -> some View {
         let frame = frames.first ?? CGRect(x: 0, y: 0, width: itemSize, height: itemSize)
-        content.offset(x: frame.minX + workspaceSidebarIndicatorLeadingOffset(tileSize: itemSize, railWidth: railWidth),
-            y: frame.midY - workspaceSidebarIndicatorDiameter(railWidth: railWidth) / 2)
+        let diameter = workspaceSidebarIndicatorDiameter(railWidth: railWidth)
+        let outward = -workspaceSidebarIndicatorLeadingOffset(tileSize: itemSize, railWidth: railWidth)
+        let point: CGPoint = switch position {
+            case .left: CGPoint(x: frame.minX - outward, y: frame.midY - diameter / 2)
+            case .right: CGPoint(x: frame.maxX + outward - diameter, y: frame.midY - diameter / 2)
+            case .bottom: CGPoint(x: frame.midX - diameter / 2, y: frame.maxY + outward - diameter)
+        }
+        content.offset(x: point.x, y: point.y)
     }
 }
 

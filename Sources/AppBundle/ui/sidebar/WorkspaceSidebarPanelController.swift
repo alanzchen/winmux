@@ -108,6 +108,9 @@ final class WorkspaceSidebarPanel: NSPanelHud, WorkspaceSidebarInputOwner {
     }
 
     static func refreshAll() {
+        SystemDockCoordinator.shared.configure(
+            enabled: TrayMenuModel.shared.isEnabled && config.workspaceSidebar.enabled && config.workspaceSidebar.showAppIcons,
+            position: config.workspaceSidebar.effectiveDockPosition)
         let activeMonitorScopeIds = Set(workspaceSidebarResolvedPanelMonitors().map { workspaceSidebarMonitorScopeId(for: $0) })
         for monitor in workspaceSidebarResolvedPanelMonitors() {
             let scopeId = workspaceSidebarMonitorScopeId(for: monitor)

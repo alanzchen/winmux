@@ -21,10 +21,28 @@ struct WorkspaceSidebarStatusView: View {
     let showsDate: Bool
     let showsWeekday: Bool
     var compactScale: CGFloat = 1
+    var horizontal = false
+    var availableHeight: CGFloat = 64
 
     var body: some View {
         Group {
-            if isCompact {
+            if horizontal {
+                TimelineView(.periodic(from: .now, by: 1)) { context in
+                    let date = clockDate ?? context.date
+                    VStack(spacing: 2) {
+                        Text(date, format: showsSeconds ? .dateTime.hour().minute().second() : .dateTime.hour().minute())
+                            .font(.system(size: 13, weight: .semibold, design: .rounded)).monospacedDigit()
+                        if availableHeight >= 40, showsDate || showsWeekday {
+                            Text(date, format: showsDate && showsWeekday ? .dateTime.weekday().month().day()
+                                : showsDate ? .dateTime.month().day() : .dateTime.weekday())
+                                .font(.system(size: 9)).foregroundStyle(.secondary)
+                        }
+                    }
+                    .lineLimit(1).minimumScaleFactor(0.6)
+                    .frame(width: sectionWidth, height: max(availableHeight - 12, 1))
+                    .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.06)))
+                }
+            } else if isCompact {
                 TimelineView(.periodic(from: .now, by: 1)) { context in
                     WorkspaceSidebarCompactClockCard(
                         date: clockDate ?? context.date,

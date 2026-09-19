@@ -817,7 +817,7 @@ final class WorkspaceSidebarDragTest: XCTestCase {
         XCTAssertEqual(workspaceSidebarRestingWidth(sidebarConfig), 260)
         XCTAssertEqual(workspaceSidebarHoverActivationWidth(sidebarConfig), 260)
         XCTAssertEqual(workspaceSidebarCollapsedContentWidth(sidebarConfig), 36)
-        XCTAssertFalse(workspaceSidebarAllowsLeftEdgeTrap(sidebarConfig))
+        XCTAssertFalse(workspaceSidebarAllowsEdgeTrap(sidebarConfig))
         XCTAssertEqual(
             workspaceSidebarPersistentVisibleWidth(
                 currentWidth: 0,
@@ -847,9 +847,9 @@ final class WorkspaceSidebarDragTest: XCTestCase {
     func testCollapsedAndAutoHiddenSidebarsAllowLeftEdgeTrap() {
         var sidebarConfig = WorkspaceSidebarConfig()
 
-        XCTAssertTrue(workspaceSidebarAllowsLeftEdgeTrap(sidebarConfig))
+        XCTAssertTrue(workspaceSidebarAllowsEdgeTrap(sidebarConfig))
         sidebarConfig.autoHide = true
-        XCTAssertTrue(workspaceSidebarAllowsLeftEdgeTrap(sidebarConfig))
+        XCTAssertTrue(workspaceSidebarAllowsEdgeTrap(sidebarConfig))
     }
 
     func testMouseWindowDragInProgressRequiresMoveSessionWindowAndPressedButton() {

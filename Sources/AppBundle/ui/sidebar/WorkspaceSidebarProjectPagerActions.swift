@@ -6,14 +6,15 @@ extension WorkspaceSidebarProjectPager {
     @ViewBuilder
     var compactProjectIndicator: some View {
         ScrollViewReader { proxy in
-            ScrollView(.vertical, showsIndicators: false) {
-                VStack(alignment: .center, spacing: 0) {
+            ScrollView(horizontalCompact ? .horizontal : .vertical, showsIndicators: false) {
+                let stack = horizontalCompact ? AnyLayout(HStackLayout(spacing: 0)) : AnyLayout(VStackLayout(spacing: 0))
+                stack {
                     ForEach(Array(projects.enumerated()), id: \.element.id) { index, project in
                         projectDot(project, index: index)
                             .id(project.id)
                     }
                 }
-                .frame(width: sectionWidth, alignment: .center)
+                .frame(width: horizontalCompact ? nil : sectionWidth, alignment: .center)
             }
             .frame(width: sectionWidth, height: compactProjectControlsHeight, alignment: .center)
             .clipped()

@@ -82,6 +82,7 @@ final class WorkspaceSidebarDockMotionController {
 struct WorkspaceSidebarDockDisplayLink: NSViewRepresentable {
     let controller: WorkspaceSidebarDockMotionController
     let blockers: WorkspaceSidebarDockPointerBlockers
+    var horizontal = false
     let containsPointer: (CGPoint) -> Bool
     let onFrame: (WorkspaceSidebarDockMotionFrame) -> Void
 
@@ -89,14 +90,14 @@ struct WorkspaceSidebarDockDisplayLink: NSViewRepresentable {
         let view = WorkspaceSidebarDockDisplayLinkView()
         controller.view = view
         view.onFrame = onFrame
-        view.configurePointer(blockers: blockers, contains: containsPointer)
+        view.configurePointer(blockers: blockers, horizontal: horizontal, contains: containsPointer)
         return view
     }
 
     func updateNSView(_ view: WorkspaceSidebarDockDisplayLinkView, context: Context) {
         controller.view = view
         view.onFrame = onFrame
-        view.configurePointer(blockers: blockers, contains: containsPointer)
+        view.configurePointer(blockers: blockers, horizontal: horizontal, contains: containsPointer)
     }
 
     static func dismantleNSView(_ view: WorkspaceSidebarDockDisplayLinkView, coordinator: ()) {
@@ -117,6 +118,11 @@ final class WorkspaceSidebarDockDisplayLinkView: NSView {
     private var requestedRate = 0
     private var lastFrame = WorkspaceSidebarDockMotionFrame()
     var pointerBlockers: WorkspaceSidebarDockPointerBlockers = .disabled
+    var horizontal = false
+
+    func lensCoordinate(_ point: CGPoint?) -> CGFloat? {
+        point.map { horizontal ? $0.x : $0.y }
+    }
     var containsPointer: ((CGPoint) -> Bool)?
     weak var pointerPanel: WorkspaceSidebarPanel?
     var isPointerAttached = false
@@ -160,9 +166,9 @@ final class WorkspaceSidebarDockDisplayLinkView: NSView {
     }
 
     func receive(_ point: CGPoint?) {
-        // The vertical lens depends only on Y. Native hit testing validates X
-        // before this call, and still sends nil when the pointer leaves the Dock.
-        guard point?.y != motion.target?.y else {
+        // Only movement along the shelf changes the lens. Native hit testing still
+        // validates the other axis and sends nil when the pointer leaves the Dock.
+        guard lensCoordinate(point) != lensCoordinate(motion.target) else {
             // Recover after attachment or an explicit stop even when the next
             // packet repeats the last target. A settled pointer still sleeps.
             if !motion.isSettled { start() }

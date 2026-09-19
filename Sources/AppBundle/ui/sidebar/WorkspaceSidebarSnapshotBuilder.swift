@@ -27,6 +27,7 @@ func workspaceSidebarConfiguration() -> WorkspaceSidebarConfiguration {
         dockMagnification: config.workspaceSidebar.usesDockMagnification,
         dockMagnificationAmount: config.workspaceSidebar.dockMagnificationAmount,
         dockIconSize: CGFloat(config.workspaceSidebar.dockIconSize),
+        dockPosition: config.workspaceSidebar.effectiveDockPosition,
         compactLeftGap: CGFloat(config.workspaceSidebar.effectiveLeftGap),
         glassOpacity: config.workspaceSidebar.dockGlassOpacity,
         sidebarBackgroundOpacity: config.workspaceSidebar.sidebarAppearance.backgroundOpacity,

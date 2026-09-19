@@ -13,7 +13,7 @@ extension WorkspaceSidebarProjectPager {
         // hover outlines inside that track while retaining the vertical click target.
         let scale = isCompact && layout.showAppIcons ? layout.compactDockScale : 1
         let buttonWidth = isCompact && layout.showAppIcons ? min(36, sectionWidth) : 36
-        let emojiSize = min(28, buttonWidth)
+        let emojiSize = min(28, buttonWidth, horizontalCompact ? max(layout.compactRailWidth - 4, 12) : 28)
         Button {
             debugWorkspaceSidebarProjectLog(
                 "dotButton project=\(project.id.rawValue) selected=\(selectedProjectId.rawValue) currentIndex=\(currentIndex?.description ?? "nil") compact=\(isCompact) projects=\(projects.map(\.id.rawValue))"
@@ -38,7 +38,7 @@ extension WorkspaceSidebarProjectPager {
                     projectBar(projectColor: projectColor, isCurrent: isCurrent, isDotHovered: isDotHovered, scale: scale)
                 }
             }
-            .frame(width: buttonWidth, height: workspaceSidebarProjectDotFrameHeight, alignment: .center)
+            .frame(width: buttonWidth, height: horizontalCompact ? compactProjectControlsHeight : workspaceSidebarProjectDotFrameHeight, alignment: .center)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

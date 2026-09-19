@@ -26,10 +26,13 @@ extension WorkspaceSidebarDockDisplayLinkView {
         return blockers
     }
 
-    func configurePointer(blockers: WorkspaceSidebarDockPointerBlockers,
+    func configurePointer(blockers: WorkspaceSidebarDockPointerBlockers, horizontal: Bool = false,
                           contains: @escaping (CGPoint) -> Bool) {
         containsPointer = contains
-        guard pointerBlockers != blockers else { return }
+        let changedAxis = self.horizontal != horizontal
+        guard pointerBlockers != blockers || changedAxis else { return }
+        self.horizontal = horizontal
+        if changedAxis { reset(publishFrame: false) }
         pointerBlockers = blockers
         recordInputState(.policy)
         // NSViewRepresentable updates must not synchronously publish SwiftUI state.
@@ -91,7 +94,7 @@ extension WorkspaceSidebarDockDisplayLinkView {
         let inside = localPoint.map { containsPointer?($0) == true } ?? false
         let accepted = inside ? localPoint : nil
         recordInputState(source, eventTimestamp: eventTimestamp, blockers: blockers,
-            inside: inside, accepted: accepted != nil, targetChanged: accepted?.y != motion.target?.y)
+            inside: inside, accepted: accepted != nil, targetChanged: lensCoordinate(accepted) != lensCoordinate(motion.target))
         receive(accepted)
     }
 

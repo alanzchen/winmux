@@ -108,13 +108,15 @@ struct WorkspaceSidebarWorkspaceSection: View, Animatable {
         RoundedRectangle(cornerRadius: workspaceSidebarSectionCornerRadius, style: .continuous)
     }
 
+    var isHorizontalDock: Bool { layout.showAppIcons && layout.dockPosition == .bottom && morphProgress == 0 }
+
     var body: some View {
         interactiveSectionContent
-            .padding(.vertical, layout.showAppIcons ? 3 + morphProgress : (isCompact ? 3 : 4))
-            .padding(.horizontal, sectionInnerInset)
-            .frame(width: sectionWidth, alignment: .leading)
-            .frame(minHeight: sectionMinHeight, alignment: .top)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(isHorizontalDock ? .horizontal : .vertical, layout.showAppIcons ? 3 + morphProgress : (isCompact ? 3 : 4))
+            .padding(isHorizontalDock ? .vertical : .horizontal, sectionInnerInset)
+            .frame(width: isHorizontalDock ? nil : sectionWidth, height: isHorizontalDock ? sectionWidth : nil, alignment: .leading)
+            .frame(minHeight: isHorizontalDock ? nil : sectionMinHeight, alignment: .top)
+            .frame(maxWidth: isHorizontalDock ? nil : .infinity, alignment: .leading)
             .modifier(WorkspaceSidebarTrailingOverflowModifier(
                 base: Rectangle().inset(by: layout.showAppIcons ? -layout.compactHorizontalInset * (1 - morphProgress) : 0),
                 overflow: morphProgress == 0 ? layout.dockMagnificationOverflow : 0))
@@ -250,6 +252,7 @@ extension WorkspaceSidebarWorkspaceSection {
                 railWidth: layout.compactRailWidth,
                 iconSize: layout.dockIconSize,
                 magnificationAmount: layout.dockMagnificationAmount,
+                position: layout.dockPosition,
                 compactActions: allowsWorkspaceActivation && !isRenamingWorkspace
                     ? .init(actions: actions, onSelectApp: handleAppClick, onSelectWorkspace: handleSectionClick) : nil
             )
@@ -273,6 +276,7 @@ extension WorkspaceSidebarWorkspaceSection {
                     railWidth: layout.compactRailWidth,
                     iconSize: layout.dockIconSize,
                     magnificationAmount: layout.dockMagnificationAmount,
+                    position: layout.dockPosition == .bottom ? .left : layout.dockPosition,
                 )
                 // Incoming apps already occupy their ordinary compact icon slots.
             }

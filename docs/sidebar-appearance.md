@@ -9,9 +9,14 @@ Solid-color palettes appear only when **Solid color** is selected, for both Wind
 chrome and Dock appearance. **Glass opacity** appears only for the Dock's Liquid
 Glass style. Switching styles retains the saved color and opacity values.
 
-The **Left-edge gap** applies only to the compact Dock. It closes during expansion,
+The **Edge gap** applies only to the compact Dock, at the selected edge. It closes during expansion,
 so search, workspace details, and **Keep sidebar expanded** sit flush against the
 display edge. Sidebar mode also remains flush.
+
+Choose **Position → Left, Bottom, or Right** under Dock appearance. Bottom uses
+a horizontal shelf, temporarily auto-hides the macOS Dock, and restores its prior
+setting when you change placement or quit. In every Dock placement, WinMux hides
+on the display where the native Dock appears. See [Dock placement](dock-placement.md).
 
 Sidebar retains native regular Liquid Glass with a 70% dark overlay on macOS 26 or
 later. A native frosted backdrop underneath increases blur for readability. That
