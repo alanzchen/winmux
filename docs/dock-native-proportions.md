@@ -163,3 +163,19 @@ improved auto-hide reveal geometry, fitted clipping, and the native resting-widt
 cache used for hover. The final reviews found no remaining supported defects.
 Raw reports and the disposition of other findings are retained under ignored
 `.local/reviews/dock-proportions-20260919/`.
+
+
+### Project-control review follow-up
+
+A fresh review reproduced project controls clipping in narrow Dock tracks: their
+buttons and pills retained fixed widths as the shelf shrank. Compact Dock pills
+now follow the resting icon scale, and their buttons fit the available width while
+keeping the original vertical click target. Sidebar and expanded controls retain
+their sizes. Native layout and painted-pixel regressions cover 16, 24, 31, and
+48-point icons, including hovered artwork and the native scroll view. The updated
+validation passed 294 focused and 872 total tests,
+with seven expected skips and zero failures, plus the ARM64 application/CLI build.
+Both CLI reviewers examined the follow-up fix. Their test-coverage comments were
+addressed with hovered-state paint scans and native track bounds. A suspected outer
+padding overhang was not reproduced by the full-pager layout test. Review reports
+and dispositions are in `.local/reviews/dock-proportions-audit-ig5k2k6o/`.

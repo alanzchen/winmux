@@ -9,6 +9,10 @@ extension WorkspaceSidebarProjectPager {
         let isCurrent = index == currentIndex
         let isDotHovered = hoveredProjectDotId == project.id
         let projectColor = workspaceSidebarProjectColor(projectId: project.id, configuredHex: project.colorHex)
+        // The scrolling track follows the fitted Dock width. Keep its pills and
+        // hover outlines inside that track while retaining the vertical click target.
+        let scale = isCompact && layout.showAppIcons ? layout.compactDockScale : 1
+        let buttonWidth = isCompact && layout.showAppIcons ? min(36, sectionWidth) : 36
         Button {
             debugWorkspaceSidebarProjectLog(
                 "dotButton project=\(project.id.rawValue) selected=\(selectedProjectId.rawValue) currentIndex=\(currentIndex?.description ?? "nil") compact=\(isCompact) projects=\(projects.map(\.id.rawValue))"
@@ -17,17 +21,17 @@ extension WorkspaceSidebarProjectPager {
             onSelectProject(project.id)
         } label: {
             ZStack {
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                RoundedRectangle(cornerRadius: 9 * scale, style: .continuous)
                     .fill(isDotHovered ? projectColor.opacity(0.14) : Color.clear)
-                    .frame(width: 34, height: 22)
+                    .frame(width: 34 * scale, height: 22 * scale)
                 Capsule(style: .continuous)
                     .fill(isCurrent ? Color.white.opacity(0.17) : projectColor.opacity(isDotHovered ? 0.58 : (isHovered ? 0.44 : 0.32)))
-                    .frame(width: isCurrent ? 28 : 13, height: isCompact ? 10 : 9)
+                    .frame(width: (isCurrent ? 28 : 13) * scale, height: (isCompact ? 10 : 9) * scale)
                     .overlay {
                         Capsule(style: .continuous)
                             .strokeBorder(
                                 isCurrent ? Color.white.opacity(0.42) : projectColor.opacity(isDotHovered ? 0.70 : (isHovered ? 0.54 : 0.36)),
-                                lineWidth: isDotHovered || isCurrent ? 0.8 : 0.5,
+                                lineWidth: max(0.5, (isDotHovered || isCurrent ? 0.8 : 0.5) * scale),
                             )
                     }
                     .overlay {
@@ -40,11 +44,11 @@ extension WorkspaceSidebarProjectPager {
                                         endPoint: .bottom,
                                     )
                                 )
-                                .padding(0.8)
+                                .padding(0.8 * scale)
                         }
                     }
                 }
-                .frame(width: 36, height: workspaceSidebarProjectDotFrameHeight, alignment: .center)
+                .frame(width: buttonWidth, height: workspaceSidebarProjectDotFrameHeight, alignment: .center)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
