@@ -239,6 +239,16 @@ extension WorkspaceSidebarProjectPager {
         Button("Rename Project") {
             onBeginRenameProject(project)
         }
+        if layout.showAppIcons {
+            Button("Set Project Emoji…") {
+                onEditProjectEmoji(project)
+            }
+            if project.emoji != nil {
+                Button("Reset Project Indicator") {
+                    onResetProjectEmoji(project)
+                }
+            }
+        }
         Menu("Color") {
             let selectedColorHex = project.colorHex.flatMap(normalizedWorkspaceSidebarColorHex)
             Button {

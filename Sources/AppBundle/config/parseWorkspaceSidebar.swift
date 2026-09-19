@@ -54,6 +54,7 @@ private let workspaceSidebarParser: [String: any ParserProtocol<WorkspaceSidebar
     "workspace-labels": Parser(\.workspaceLabels, parseWorkspaceSidebarLabels),
     "project-labels": Parser(\.projectLabels, parseWorkspaceSidebarLabels),
     "project-colors": Parser(\.projectColors, parseWorkspaceSidebarProjectColors),
+    "project-emojis": Parser(\.projectEmojis, parseWorkspaceSidebarProjectEmojis),
 ]
 
 func parseWorkspaceSidebar(
@@ -190,6 +191,28 @@ private func parseWorkspaceSidebarProjectColors(
             continue
         }
         result[projectId] = normalized
+    }
+    return result
+}
+
+private func parseWorkspaceSidebarProjectEmojis(
+    _ raw: TOMLValueConvertible,
+    _ backtrace: TomlBacktrace,
+    _ errors: inout [TomlParseError],
+) -> [String: String] {
+    guard let rawTable = raw.table else {
+        errors += [expectedActualTypeError(expected: .table, actual: raw.type, backtrace)]
+        return [:]
+    }
+    var result: [String: String] = [:]
+    for (projectId, rawEmoji) in rawTable {
+        let path = backtrace + .key(projectId)
+        guard let value = parseString(rawEmoji, path).getOrNil(appendErrorTo: &errors) else { continue }
+        guard let emoji = normalizedWorkspaceProjectEmoji(value) else {
+            errors.append(.semantic(path, "Must be a single emoji"))
+            continue
+        }
+        result[projectId] = emoji
     }
     return result
 }

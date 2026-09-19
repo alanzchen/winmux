@@ -103,6 +103,12 @@ on-mode-changed = []
 [workspace-sidebar.project-colors]
     "default" = "#C4B5FD"
 
+# Optional Dock project indicators. Right-click a project indicator to choose an emoji.
+# Omit an entry to keep its colored bar; Sidebar mode always uses bars.
+[workspace-sidebar.project-emojis]
+    # "default" = "🏠"
+    # "project-1" = "💻"
+
 [mode.main.binding]
     ctrl-f = 'open-sidebar'
     alt-space = 'layout horizontal vertical'

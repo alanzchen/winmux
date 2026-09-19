@@ -3,7 +3,7 @@ import AppKit
 
 @MainActor
 func openWorkspaceSidebarFromCommand() {
-    guard TrayMenuModel.shared.isEnabled, config.workspaceSidebar.enabled else { return }
+    guard NSApp.modalWindow == nil, TrayMenuModel.shared.isEnabled, config.workspaceSidebar.enabled else { return }
     WorkspaceSidebarPanel.refreshAll()
     guard let panel = workspaceSidebarPanelForCommand(
         focusedScopeId: TrayMenuModel.shared.workspaceSidebarFocusedMonitorScopeId

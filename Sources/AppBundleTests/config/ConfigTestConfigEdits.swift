@@ -186,6 +186,7 @@ extension ConfigTest {
             projectId: "project-test",
             label: "Research",
             colorHex: "#60A5FA",
+            emoji: nil,
             targetUrl: targetUrl,
         )
 
@@ -210,6 +211,7 @@ extension ConfigTest {
                 projectId: "project-test",
                 label: "Must Not Be Written",
                 colorHex: nil,
+                emoji: nil,
                 targetUrl: targetUrl,
             ),
         )
@@ -242,6 +244,7 @@ extension ConfigTest {
             projectId: "project-test",
             label: nil,
             colorHex: nil,
+            emoji: nil,
             targetUrl: targetUrl,
         )
 

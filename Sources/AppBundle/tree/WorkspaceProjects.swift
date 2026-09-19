@@ -91,6 +91,7 @@ func createWorkspaceProjectForCommand(displayName: String?, colorHex: String?) t
             projectId: identity.id.rawValue,
             label: label,
             colorHex: normalizedColor,
+            emoji: nil,
         )
     }
 
@@ -231,6 +232,27 @@ func canDeleteWorkspaceProject(_ projectId: WorkspaceProjectId) -> Bool {
 }
 
 @MainActor
+func setWorkspaceProjectEmoji(_ projectId: WorkspaceProjectId, emoji: String?) throws {
+    materializePersistedWorkspaceProjects()
+    guard winMuxWorkspaceState.projectsById[projectId] != nil else {
+        throw WorkspaceMutationError.projectNotFound(projectId.rawValue)
+    }
+    let normalized: String?
+    if let emoji {
+        guard let value = normalizedWorkspaceProjectEmoji(emoji) else {
+            throw WorkspaceMutationError.invalidProjectEmoji
+        }
+        normalized = value
+    } else {
+        normalized = nil
+    }
+    if !isUnitTest {
+        try persistWorkspaceSidebarProjectEmoji(projectId: projectId.rawValue, emoji: normalized)
+    }
+    config.workspaceSidebar.projectEmojis[projectId.rawValue] = normalized
+}
+
+@MainActor
 func workspaceProjectFallbackForDeletion(excluding projectId: WorkspaceProjectId) -> WorkspaceProjectId {
     let projects = workspaceProjects()
     guard let deletedIndex = projects.firstIndex(where: { $0.id == projectId }) else {
@@ -367,6 +389,7 @@ private func persistWorkspaceSidebarProjectMetadataRemoval(_ projectId: Workspac
         projectId: projectId.rawValue,
         label: nil,
         colorHex: nil,
+        emoji: nil,
     )
 }
 
@@ -374,6 +397,7 @@ private func persistWorkspaceSidebarProjectMetadataRemoval(_ projectId: Workspac
 private func removeWorkspaceSidebarProjectMetadataFromMemory(_ projectId: WorkspaceProjectId) {
     config.workspaceSidebar.projectLabels.removeValue(forKey: projectId.rawValue)
     config.workspaceSidebar.projectColors.removeValue(forKey: projectId.rawValue)
+    config.workspaceSidebar.projectEmojis.removeValue(forKey: projectId.rawValue)
 }
 
 @MainActor

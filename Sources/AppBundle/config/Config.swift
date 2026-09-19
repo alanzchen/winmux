@@ -130,6 +130,7 @@ struct WorkspaceSidebarConfig: ConvenienceCopyable, Equatable, Sendable {
     var workspaceLabels: [String: String] = [:]
     var projectLabels: [String: String] = [:]
     var projectColors: [String: String] = [:]
+    var projectEmojis: [String: String] = [:]
 
     // Hover magnification never changes the resting width or the saved Sidebar width.
     var effectiveCollapsedWidth: CGFloat {

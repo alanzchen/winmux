@@ -27,6 +27,7 @@ struct ShortcutConfigurationReferenceView: View {
                     ReferenceRow("workspace-labels", "Override visible workspace names.")
                     ReferenceRow("project-labels", "Override visible project names.")
                     ReferenceRow("project-colors", "Assign project colors using #RRGGBB values.")
+                    ReferenceRow("project-emojis", "Choose one emoji per project for Dock indicators, or right-click an indicator to edit it.")
                 }
                 Text("The Configuration editor validates the entire file before saving and shows parser errors inline.")
                     .font(.caption)

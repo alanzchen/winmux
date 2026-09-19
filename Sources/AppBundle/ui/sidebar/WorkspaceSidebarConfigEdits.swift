@@ -136,11 +136,26 @@ func updateWorkspaceSidebarProjectColorConfig(
     )
 }
 
+func updateWorkspaceSidebarProjectEmojiConfig(
+    in configText: String,
+    projectId: String,
+    emoji: String?,
+) -> String {
+    updateWorkspaceSidebarKeyValueSectionConfig(
+        in: configText,
+        sectionHeader: "[workspace-sidebar.project-emojis]",
+        key: projectId,
+        value: emoji,
+        preserveCommentsWhenEmpty: true,
+    )
+}
+
 private func updateWorkspaceSidebarKeyValueSectionConfig(
     in configText: String,
     sectionHeader: String,
     key: String,
     value: String?,
+    preserveCommentsWhenEmpty: Bool = false,
 ) -> String {
     let lines = configText.components(separatedBy: "\n")
     guard let sectionIndex = lines.firstIndex(where: { $0.trimmingCharacters(in: .whitespaces) == sectionHeader }) else {
@@ -183,7 +198,8 @@ private func updateWorkspaceSidebarKeyValueSectionConfig(
     }
 
     let hasAnyEntries = bodyLines.contains(where: { workspaceSidebarLabelKey(in: $0) != nil })
-    if hasAnyEntries {
+    let hasComments = bodyLines.contains { $0.trimmingCharacters(in: .whitespaces).hasPrefix("#") }
+    if hasAnyEntries || (preserveCommentsWhenEmpty && hasComments) {
         resultLines.append(contentsOf: bodyLines)
     } else {
         resultLines.removeLast()
@@ -257,6 +273,7 @@ func persistWorkspaceSidebarProjectMetadata(
     projectId: String,
     label: String?,
     colorHex: String?,
+    emoji: String?,
     targetUrl explicitTargetUrl: URL? = nil,
 ) throws {
     let targetUrl = explicitTargetUrl ?? preferredWorkspaceSidebarConfigUrl()
@@ -266,14 +283,32 @@ func persistWorkspaceSidebarProjectMetadata(
         projectId: projectId,
         label: label,
     )
-    let updatedText = updateWorkspaceSidebarProjectColorConfig(
+    let textWithColor = updateWorkspaceSidebarProjectColorConfig(
         in: textWithLabel,
         projectId: projectId,
         colorHex: colorHex,
     )
+    let updatedText = updateWorkspaceSidebarProjectEmojiConfig(
+        in: textWithColor,
+        projectId: projectId,
+        emoji: emoji,
+    )
     if let parent = targetUrl.deletingLastPathComponent().takeIf({ $0.path != targetUrl.path }) {
         try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
     }
+    try updatedText.write(to: targetUrl, atomically: true, encoding: .utf8)
+}
+
+@MainActor
+func persistWorkspaceSidebarProjectEmoji(
+    projectId: String,
+    emoji: String?,
+    targetUrl explicitTargetUrl: URL? = nil,
+) throws {
+    let targetUrl = explicitTargetUrl ?? preferredWorkspaceSidebarConfigUrl()
+    let currentText = try readWorkspaceSidebarConfig(at: targetUrl, contentsWhenMissing: "")
+    let updatedText = updateWorkspaceSidebarProjectEmojiConfig(in: currentText, projectId: projectId, emoji: emoji)
+    try FileManager.default.createDirectory(at: targetUrl.deletingLastPathComponent(), withIntermediateDirectories: true)
     try updatedText.write(to: targetUrl, atomically: true, encoding: .utf8)
 }
 
@@ -304,6 +339,9 @@ private func workspaceSidebarConfigKey(in line: String) -> String? {
     let trimmed = line.trimmingCharacters(in: .whitespaces)
     guard !trimmed.isEmpty, !trimmed.hasPrefix("#"), let equals = trimmed.firstIndex(of: "=") else { return nil }
     let key = trimmed[..<equals].trimmingCharacters(in: .whitespaces)
+    if key.hasPrefix("'"), key.hasSuffix("'"), key.count >= 2 {
+        return String(key.dropFirst().dropLast())
+    }
     if key.hasPrefix("\""), key.hasSuffix("\""), key.count >= 2 {
         let inner = key.dropFirst().dropLast()
         return inner.replacingOccurrences(of: "\\\"", with: "\"").replacingOccurrences(of: "\\\\", with: "\\")

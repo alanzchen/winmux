@@ -566,6 +566,12 @@ extension WorkspaceSidebarView {
             onDeleteProject: { project in
                 actions.send(.deleteProject(project.id))
             },
+            onEditProjectEmoji: { project in
+                actions.send(.editProjectEmoji(project.id))
+            },
+            onResetProjectEmoji: { project in
+                actions.send(.setProjectEmoji(project.id, emoji: nil))
+            },
         )
         .zIndex(2)
         .padding(.leading, leadingInset)

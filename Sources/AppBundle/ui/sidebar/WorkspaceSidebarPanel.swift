@@ -78,6 +78,7 @@ extension WorkspaceSidebarPanel {
 
     func expandSidebar(to expandedWidth: CGFloat, reason: WorkspaceSidebarExpansionReason = .passive) {
         guard currentSidebarPanelLayout() != nil else { return }
+        guard reason != .hover || NSApp.modalWindow == nil else { return }
         debugWorkspaceSidebarHoverLog("expandSidebar panel=\(monitorScopeId) target=\(expandedWidth) visible=\(viewModel.workspaceSidebarVisibleWidth) frame=\(frame) mouse=\(NSEvent.mouseLocation)")
         pendingExpand?.cancel()
         pendingExpand = nil
@@ -411,6 +412,7 @@ extension WorkspaceSidebarPanel {
         onCancel: (@MainActor () -> Void)? = nil,
         onKeyDown: (@MainActor (WorkspaceSidebarInlineTextKey) -> Void)? = nil
     ) {
+        guard NSApp.modalWindow == nil else { return }
         debugWorkspaceSidebarRenameLog("beginInlineTextEditing isKeyBefore=\(isKeyWindow) firstResponder=\(String(describing: firstResponder)) mouseInside=\(isMouseInsideVisibleRegion())")
         guard currentSidebarPanelLayout() != nil else { return }
         WorkspaceSidebarPanel.inputSession.acquire(self)
@@ -453,6 +455,7 @@ extension WorkspaceSidebarPanel {
     }
 
     func prepareForInlineTextEditing() {
+        guard NSApp.modalWindow == nil else { return }
         guard currentSidebarPanelLayout() != nil else { return }
         debugWorkspaceSidebarRenameLog("prepareForInlineTextEditing before visible=\(isVisible) isKey=\(isKeyWindow) ignoresMouse=\(ignoresMouseEvents) firstResponder=\(String(describing: firstResponder))")
         cancelExpansionWork()
@@ -652,7 +655,7 @@ extension WorkspaceSidebarPanel {
 }
 extension WorkspaceSidebarPanel {
     func setHovering(_ isHovering: Bool) {
-        guard menuTrackingDepth == 0 else { return }
+        guard menuTrackingDepth == 0, NSApp.modalWindow == nil else { return }
         let expandedWidth = CGFloat(config.workspaceSidebar.width)
         let collapsedWidth = workspaceSidebarRestingWidth(config.workspaceSidebar)
         if viewModel.workspaceSidebarVisibleWidth > collapsedWidth + 0.5 || pendingCollapse != nil {

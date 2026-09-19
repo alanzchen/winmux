@@ -17,6 +17,8 @@ struct WorkspaceSidebarProjectPager: View {
     let onCancelRenameProject: @MainActor @Sendable () -> Void
     let onSetProjectColor: (WorkspaceSidebarProjectViewModel, String?) -> Void
     let onDeleteProject: (WorkspaceSidebarProjectViewModel) -> Void
+    var onEditProjectEmoji: (WorkspaceSidebarProjectViewModel) -> Void = { _ in }
+    var onResetProjectEmoji: (WorkspaceSidebarProjectViewModel) -> Void = { _ in }
 
     @State var isHovered = false
     @State var hoveredProjectDotId: WorkspaceProjectId? = nil
