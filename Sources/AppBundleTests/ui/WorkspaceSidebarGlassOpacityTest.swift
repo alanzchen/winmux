@@ -5,7 +5,7 @@ import XCTest
 
 @MainActor
 final class WorkspaceSidebarGlassOpacityTest: XCTestCase {
-    func testSidebarKeepsOriginalDarkMaterialRegardlessOfDockOpacityOrStyle() throws {
+    func testSidebarKeepsDarkBackdropRegardlessOfDockOpacityOrStyle() throws {
         let original = try render(opacity: 1, dockMode: false)
         let originalData = try XCTUnwrap(original.tiffRepresentation)
         for style: ChromeStyle in [.liquidGlass, .solid] {
@@ -20,14 +20,28 @@ final class WorkspaceSidebarGlassOpacityTest: XCTestCase {
         try verifyGlassOpacity(dockMode: true)
     }
 
-    func testDockUsesOneSurfaceAcrossCompactAndExpandedStates() throws {
-        // WindowServer owns native glass, but a second dark Sidebar scrim would still
-        // change detached-rendering pixels as the Dock expands.
-        let compact = try render(opacity: 1, dockMode: true, progress: 0)
-        let expected = try XCTUnwrap(compact.tiffRepresentation)
-        for progress in [0.25, 0.5, 0.75, 1.0] {
-            let expanded = try render(opacity: 1, dockMode: true, progress: progress)
+    func testExpandedDockUsesSidebarBackgroundRegardlessOfDockOpacity() throws {
+        let sidebar = try render(opacity: 1, dockMode: false)
+        let expected = try XCTUnwrap(sidebar.tiffRepresentation)
+        for opacity in [0.0, 0.4, 1.0] {
+            let expanded = try render(opacity: opacity, dockMode: true, progress: 1)
             XCTAssertEqual(try XCTUnwrap(expanded.tiffRepresentation), expected)
+        }
+    }
+
+    func testExpandingTransparentDockGraduallyAddsOpaqueSidebarBackground() throws {
+        // Native glass needs WindowServer; the opaque option exercises the same fade
+        // in detached rendering without mistaking a missing native backdrop for a gap.
+        let originalForeground = try color(render(opacity: 0, dockMode: true, sidebarBlur: false), at: CGPoint(x: 40, y: 40))
+        var previousAlpha: CGFloat = -1
+        for progress in [0.0, 0.25, 0.5, 0.75, 1.0] {
+            let bitmap = try render(opacity: 0, dockMode: true, progress: progress, sidebarBlur: false)
+            let background = try color(bitmap, at: CGPoint(x: 10, y: 10))
+            XCTAssertGreaterThan(background.alphaComponent, previousAlpha)
+            previousAlpha = background.alphaComponent
+            let foreground = try color(bitmap, at: CGPoint(x: 40, y: 40))
+            XCTAssertEqual(foreground.greenComponent, originalForeground.greenComponent, accuracy: 0.001)
+            XCTAssertEqual(foreground.alphaComponent, 1, accuracy: 0.01)
         }
     }
 
@@ -64,10 +78,39 @@ final class WorkspaceSidebarGlassOpacityTest: XCTestCase {
         }
     }
 
+    func testOpaqueAppearanceRemainsOpaqueThroughoutExpansion() throws {
+        for progress in [0.0, 0.25, 0.5, 0.75, 1.0] {
+            let solid = try render(opacity: 0.2, style: .solid, dockMode: true, progress: progress, sidebarBlur: false)
+            XCTAssertEqual(try color(solid, at: CGPoint(x: 10, y: 10)).alphaComponent, 1, accuracy: 0.01)
+            for opacity in [0.0, 0.4, 1.0] {
+                let accessible = try render(opacity: opacity, dockMode: true, progress: progress, reduceTransparency: true)
+                XCTAssertEqual(try color(accessible, at: CGPoint(x: 10, y: 10)).alphaComponent, 1, accuracy: 0.01)
+            }
+        }
+    }
+
+    func testSidebarDarknessOnlyStrengthensTheBackgroundOverlay() throws {
+        var previousBrightness: CGFloat = 2
+        var previousForeground: NSColor?
+        for darkness in [0.0, 0.3, 0.7, 1.0] {
+            let bitmap = try render(opacity: 1, sidebarDarkness: darkness, whiteBackdrop: true)
+            let background = try color(bitmap, at: CGPoint(x: 10, y: 10))
+            let brightness = (background.redComponent + background.greenComponent + background.blueComponent) / 3
+            XCTAssertLessThan(brightness, previousBrightness)
+            previousBrightness = brightness
+            let foreground = try color(bitmap, at: CGPoint(x: 40, y: 40))
+            if let previousForeground {
+                XCTAssertEqual(foreground.greenComponent, previousForeground.greenComponent, accuracy: 0.001)
+            }
+            XCTAssertEqual(foreground.alphaComponent, 1, accuracy: 0.01)
+            previousForeground = foreground
+        }
+    }
+
     func testAppearancePreferencesReachSidebarSnapshot() {
         let previous = config
         defer { config = previous }
-        config.workspaceSidebar.glassOpacity = 0.35
+        config.workspaceSidebar.dockAppearance.glassOpacity = 0.35
         config.workspaceSidebar.showAppIcons = true
         let snapshot = workspaceSidebarConfiguration()
         XCTAssertEqual(snapshot.glassOpacity, 0.35)
@@ -75,20 +118,24 @@ final class WorkspaceSidebarGlassOpacityTest: XCTestCase {
     }
 
     private func render(opacity: Double, style: ChromeStyle = .liquidGlass, dockMode: Bool = false,
-                        progress: Double = 0) throws -> NSBitmapImageRep {
+                        progress: Double = 0, sidebarBlur: Bool = true, sidebarDarkness: Double = 0.7,
+                        reduceTransparency: Bool = false, whiteBackdrop: Bool = false) throws -> NSBitmapImageRep {
         var snapshot = WorkspaceSidebarSnapshot.empty
         snapshot.configuration.chromeStyle = style
         snapshot.configuration.glassOpacity = opacity
         snapshot.configuration.showAppIcons = dockMode
+        snapshot.configuration.sidebarBlur = sidebarBlur
+        snapshot.configuration.sidebarBackgroundOpacity = sidebarDarkness
         snapshot.configuration.collapsedWidth = 64
         snapshot.configuration.expandedWidth = 240
         snapshot.visibleWidth = 64 + 176 * progress
-        let sidebar = WorkspaceSidebarView(snapshot: snapshot)
+        let sidebar = WorkspaceSidebarView(snapshot: snapshot, reduceTransparencyOverride: reduceTransparency)
         let content = ZStack {
             sidebar.sidebarSurface(in: Rectangle())
             Rectangle().fill(Color(red: 0, green: 1, blue: 0)).frame(width: 12, height: 12)
         }
         .frame(width: 80, height: 80)
+        .background(whiteBackdrop ? Color.white : .clear)
         .environment(\.colorScheme, .dark)
         let host = NSHostingView(rootView: content)
         host.frame = CGRect(x: 0, y: 0, width: 80, height: 80)

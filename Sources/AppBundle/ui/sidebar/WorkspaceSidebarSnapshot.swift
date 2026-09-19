@@ -49,6 +49,8 @@ struct WorkspaceSidebarConfiguration: Equatable {
     var dockMagnificationAmount: Double = 0.5
     var dockIconSize: CGFloat = CGFloat(WorkspaceSidebarConfig.defaultDockIconSize)
     var glassOpacity: Double = 1
+    var sidebarBackgroundOpacity: Double = 0.70
+    var sidebarBlur: Bool = true
     // Auto-hide makes collapsedWidth zero; the compact layout retains its resolved rail width.
     var configuredCollapsedWidth: CGFloat? = nil
 
@@ -58,9 +60,6 @@ struct WorkspaceSidebarConfiguration: Equatable {
     var effectiveGlassOpacity: Double {
         showAppIcons && chromeStyle == .liquidGlass ? glassOpacity : 1
     }
-
-    // Sidebar keeps upstream's dark chrome; Dock alone adopts the new material controls.
-    var effectiveChromeStyle: ChromeStyle { showAppIcons ? chromeStyle : .liquidGlass }
 
     static let empty = WorkspaceSidebarConfiguration(
         collapsedWidth: 0,

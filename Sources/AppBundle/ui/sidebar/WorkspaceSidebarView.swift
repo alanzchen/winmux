@@ -31,13 +31,18 @@ struct WorkspaceSidebarView: View {
     @State private var dockHitRegions = WorkspaceSidebarDockHitRegions()
     @State private var dockColumnOrigins: [WorkspaceProjectId: CGFloat] = [:]
     @Environment(\.accessibilityReduceMotion) private var systemReduceDockMotion
+    @Environment(\.accessibilityReduceTransparency) private var systemReduceSidebarTransparency
     private let reduceMotionOverride: Bool?
+    private let reduceTransparencyOverride: Bool?
     var reduceDockMotion: Bool { reduceMotionOverride ?? systemReduceDockMotion }
+    var reduceSidebarTransparency: Bool { reduceTransparencyOverride ?? systemReduceSidebarTransparency }
 
-    init(snapshot: WorkspaceSidebarSnapshot, actions: WorkspaceSidebarActions = WorkspaceSidebarActions(), reduceMotionOverride: Bool? = nil) {
+    init(snapshot: WorkspaceSidebarSnapshot, actions: WorkspaceSidebarActions = WorkspaceSidebarActions(),
+         reduceMotionOverride: Bool? = nil, reduceTransparencyOverride: Bool? = nil) {
         self.snapshot = snapshot
         self.actions = actions
         self.reduceMotionOverride = reduceMotionOverride
+        self.reduceTransparencyOverride = reduceTransparencyOverride
     }
 
     var body: some View {
@@ -858,24 +863,30 @@ extension WorkspaceSidebarView {
     }
 
     func sidebarSurface<S: Shape>(in shape: S) -> some View {
-        // Keep one untinted glass shelf through the entire Dock expansion. The original
-        // dark Sidebar material belongs only to Sidebar mode, never behind the Dock glass.
-        Group {
-            if snapshot.configuration.showAppIcons {
-                WorkspaceSidebarDockSurface(shape: shape, configuration: snapshot.configuration)
-            } else {
-                GlassSurface(
-                    shape: shape,
-                    hasBorder: false,
-                    style: snapshot.configuration.effectiveChromeStyle,
-                    solidColor: snapshot.configuration.resolvedSolidChromeColor,
-                )
+        // Fade to the readable Sidebar backdrop as the Dock expands. At either
+        // endpoint only its own background exists; magnification keeps the compact path.
+        ZStack {
+            if snapshot.configuration.showAppIcons && dockSurfaceProgress < 1 {
+                if reduceSidebarTransparency {
+                    shape.fill(snapshot.configuration.chromeStyle == .solid
+                        ? snapshot.configuration.resolvedSolidChromeColor : Color(white: 0.18))
+                } else {
+                    WorkspaceSidebarDockSurface(shape: shape, configuration: snapshot.configuration)
+                        // Keep an opaque outgoing surface under the incoming fallback.
+                        // Two complementary alpha values alone create a transparency dip.
+                        .opacity(snapshot.configuration.effectiveGlassOpacity
+                            * (snapshot.configuration.sidebarBlur ? Double(1 - dockSurfaceProgress) : 1))
+                }
+            }
+            if dockSurfaceProgress > 0 {
+                WorkspaceSidebarSurface(shape: shape, configuration: snapshot.configuration,
+                    reduceTransparencyOverride: reduceSidebarTransparency)
+                    .opacity(Double(dockSurfaceProgress))
             }
         }
         // This panel has no safe-area inset. Expanding the material here gives the native
         // glass backing layer a rectangular area outside the rounded trailing corners.
         .clipShape(shape)
-        .opacity(snapshot.configuration.effectiveGlassOpacity)
     }
 
     func sidebarSwipeCaptureOverlay(expansionProgress: CGFloat) -> some View {

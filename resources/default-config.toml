@@ -46,7 +46,7 @@ on-mode-changed = []
     auto-hide = false
     # Keep the full sidebar open and reserve its width for tiled windows.
     always-expanded = false
-    # Sidebar keeps the upstream dark layout; Dock uses app icons and Liquid Glass.
+    # Sidebar uses a dark, blurred backdrop; Dock shows icons and expands into Sidebar.
     mode = 'sidebar'
     # Legacy show-app-icons remains supported when mode is omitted.
     # Mirror app badge labels from the native macOS Dock (Dock mode only).
@@ -72,14 +72,29 @@ on-mode-changed = []
     show-seconds = true
     show-date = false
     show-weekday = true
-    # Style for Dock, tab groups, and switcher. Sidebar retains its upstream dark material.
+    # Style for tab groups and switcher; also the legacy fallback for Dock appearance.
     chrome-style = 'liquid-glass'
-    # Dock-only clear glass opacity (0.0...1.0); 1.0 keeps the full native glass effect.
+    # Legacy Dock glass opacity; use the dock-appearance section for new configurations.
     glass-opacity = 1.0
     # Used when chrome-style = 'solid'. Choose from the Appearance palette, or use 'custom'.
     solid-chrome-color = 'midnight'
     # Used when solid-chrome-color = 'custom'.
     solid-chrome-custom-color = '#191B20'
+
+[workspace-sidebar.sidebar-appearance]
+    # Applies in Sidebar mode and when the Dock expands for search/window details.
+    # Dark Liquid Glass with extra native backdrop blur for readable window titles.
+    blur = true
+    # Dark glass overlay (0.0...1.0); content retains full opacity.
+    # With blur disabled (or Reduce Transparency enabled), use an opaque dark background.
+    background-opacity = 0.70
+
+[workspace-sidebar.dock-appearance]
+    # Compact Dock only. Uncomment to override legacy workspace-sidebar values.
+    # style = 'liquid-glass'
+    # glass-opacity = 1.0
+    # solid-color = 'midnight'
+    # custom-color = '#191B20'
 
 [workspace-sidebar.project-labels]
     "default" = "Default"

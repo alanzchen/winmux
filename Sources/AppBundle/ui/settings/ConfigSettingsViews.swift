@@ -114,7 +114,12 @@ struct ShortcutAppearanceSettingsView: View {
     @State private var showDate = config.workspaceSidebar.showDate
     @State private var showWeekday = config.workspaceSidebar.showWeekday
     @State private var chromeStyle = config.workspaceSidebar.chromeStyle
-    @State private var glassOpacity = config.workspaceSidebar.glassOpacity
+    @State private var glassOpacity = config.workspaceSidebar.dockGlassOpacity
+    @State private var dockStyle = config.workspaceSidebar.dockChromeStyle
+    @State private var dockSolidColor = config.workspaceSidebar.dockSolidColor
+    @State private var dockCustomColor = config.workspaceSidebar.dockCustomColor
+    @State private var sidebarBackgroundOpacity = config.workspaceSidebar.sidebarAppearance.backgroundOpacity
+    @State private var sidebarBlur = config.workspaceSidebar.sidebarAppearance.blur
     @State private var solidChromeColor = config.workspaceSidebar.solidChromeColor
     @State private var solidChromeCustomColor = config.workspaceSidebar.solidChromeCustomColor
     @State private var sidebarWidth = config.workspaceSidebar.width
@@ -134,67 +139,37 @@ struct ShortcutAppearanceSettingsView: View {
     var body: some View {
         SettingsScrollView {
             SettingsSection("Window chrome") {
-                SettingsPicker("Style", selection: $chromeStyle, help: "Apply Liquid Glass or a solid color to Dock mode, tab groups, and the switcher. Sidebar mode keeps its original dark appearance.") {
+                SettingsPicker("Style", selection: $chromeStyle, help: "Apply Liquid Glass or a solid color to tab groups and the switcher.") {
                     Text("Liquid Glass").tag(ChromeStyle.liquidGlass)
                     Text("Solid color").tag(ChromeStyle.solid)
-                } onChange: { persist("workspace-sidebar", "chrome-style", "'\(chromeStyle.rawValue)'") }
+                } onChange: { persistWindowChrome("chrome-style", "'\(chromeStyle.rawValue)'") }
                 SettingsSolidColorPalette(
                     selection: $solidChromeColor,
                     customColor: $solidChromeCustomColor,
                     isEnabled: chromeStyle == .solid,
-                    onSelectionChange: { persist("workspace-sidebar", "solid-chrome-color", "'\(solidChromeColor.rawValue)'") },
-                    onCustomColorChange: { persist("workspace-sidebar", "solid-chrome-custom-color", "'\(solidChromeCustomColor)'") },
+                    onSelectionChange: { persistWindowChrome("solid-chrome-color", "'\(solidChromeColor.rawValue)'") },
+                    onCustomColorChange: { persistWindowChrome("solid-chrome-custom-color", "'\(solidChromeCustomColor)'") },
                 )
             }
-            SettingsSection("Dock & Sidebar") {
+            SettingsSection("Dock & Sidebar behavior") {
                 SettingsToggle("Show Dock or Sidebar", isOn: $sidebarEnabled, help: "Show the workspace rail on configured displays.") { sidebarBool("enabled", sidebarEnabled) }
                 SettingsToggle("Focus sidebar monitor only", isOn: $sidebarFocusEnabled, help: "Show the sidebar only on the focused monitor when monitor scope allows it.") { sidebarBool("enable-focus", sidebarFocusEnabled) }
                 SettingsToggle("Keep above macOS Dock", isOn: $sidebarStayOnTop, help: "Keep the sidebar above the Dock. Turn this off to let the Dock appear over it.") { sidebarBool("stay-on-top", sidebarStayOnTop) }
                 SettingsToggle("Reveal sidebar at the display edge", isOn: $sidebarAutoHide, help: "Hide the compact rail until the pointer reaches the left edge.") { sidebarBool("auto-hide", sidebarAutoHide) }
                 SettingsToggle("Keep sidebar expanded", isOn: $sidebarAlwaysExpanded, help: "Reserve the full sidebar width for tiled windows.") { sidebarBool("always-expanded", sidebarAlwaysExpanded) }
-                SettingsPicker("Mode", selection: $sidebarMode, help: "Sidebar uses the original dark layout. Dock shows workspace number tiles and app icons with Liquid Glass, adjustable opacity, and optional magnification.") {
+                SettingsPicker("Mode", selection: $sidebarMode, help: "Sidebar shows window details on a dark, blurred background. Dock shows workspace number tiles and app icons, and expands into the Sidebar appearance for search and window details.") {
                     Text("Sidebar").tag(WorkspaceSidebarMode.sidebar)
                     Text("Dock").tag(WorkspaceSidebarMode.dock)
                 } onChange: { persist("workspace-sidebar", "mode", "'\(sidebarMode.rawValue)'") }
-                if sidebarMode == .dock {
-                    SettingsToggle("Show app badges", isOn: $showAppBadges, help: "Mirror badge labels exposed by the macOS Dock. Updates automatically using Accessibility access; some apps do not expose a badge.") { sidebarBool("show-app-badges", showAppBadges) }
-                    SettingsToggle("Magnify Dock icons on hover", isOn: $dockMagnification, help: "Enlarge nearby icons while keeping the Dock compact. Use the expand arrow or sidebar command for window details. Reduce Motion disables magnification.") { sidebarBool("dock-magnification", dockMagnification) }
-                        .disabled(sidebarAlwaysExpanded)
-                    SettingsPercentageSlider("Magnification amount", value: $dockMagnificationAmount, help: "0% keeps the resting size; 50% grows icons to 1.5×; 100% doubles their size. Icons grow rightward beyond the fixed-width glass background.") {
-                        persist("workspace-sidebar", "dock-magnification-amount", "\(dockMagnificationAmount)")
-                    }
-                    .disabled(!dockMagnification || sidebarAlwaysExpanded)
-                    SettingsStepper("Dock icon size", value: $dockIconSize, range: 24...48, help: "Maximum size of app icons and workspace numbers in points. Icons shrink together when the Dock is crowded and grow back when space opens. Magnified icons can extend beyond the fixed-width glass rail.") { sidebarInt("dock-icon-size", dockIconSize) }
-                    SettingsStepper("Dock left-edge gap", value: $dockLeftGap, range: 0...24, help: "Space in points between the display's left edge and the Dock in both appearances. Zero places it against the edge.") { sidebarInt("dock-left-gap", dockLeftGap) }
-                    SettingsPercentageSlider("Dock glass opacity", value: $glassOpacity, help: "Adjust only Dock mode's Liquid Glass background. Sidebar keeps its original dark appearance. Text and icons stay readable.") {
-                        persist("workspace-sidebar", "glass-opacity", "\(glassOpacity)")
-                    }
-                    .disabled(chromeStyle != .liquidGlass)
-                    DockPerformanceSettingsView()
-                }
                 SettingsStepper("Expanded width", value: $sidebarWidth, range: 120...480, help: "Width of the fully expanded sidebar.") { sidebarInt("width", sidebarWidth) }
-                if sidebarMode == .dock {
-                    HStack {
-                        Text("Compact width")
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        Text("\(WorkspaceSidebarConfig.dockCompactWidth) pt (fixed)")
-                            .foregroundStyle(.secondary)
-                    }
-                    .padding(.horizontal, 14)
-                    .frame(minHeight: 38)
-                    .help("Dock-style app icons use a fixed compact width. Your saved Sidebar width is restored when you switch to Sidebar mode.")
-                    .overlay(alignment: .bottom) {
-                        Divider().padding(.leading, 14)
-                    }
-                } else {
-                    SettingsStepper("Collapsed width", value: $collapsedWidth, range: 28...120, help: "Width of the compact sidebar rail.") { sidebarInt("collapsed-width", collapsedWidth) }
-                }
                 SettingsStepper("Menu bar reserve", value: $menuBarReserveHeight, range: 0...72, help: "Use 0 px when the macOS menu bar auto-hides.") { sidebarInt("menu-bar-reserve-height", menuBarReserveHeight) }
                 SettingsPicker("Deleting projects", selection: $projectDeletionAction, help: "Choose what happens to the project's windows.") {
                     Text("Close project windows").tag(WorkspaceProjectDeletionAction.closeWindows)
                     Text("Move windows elsewhere").tag(WorkspaceProjectDeletionAction.moveWindowsToFallback)
                 } onChange: { persist("workspace-sidebar", "project-deletion-action", "'\(projectDeletionAction.rawValue)'") }
             }
+            sidebarAppearanceSection
+            dockAppearanceSection
             SettingsSection("Dock & Sidebar content") {
                 SettingsToggle("Show status pills", isOn: $showStatusPills) { sidebarBool("show-status-pills", showStatusPills) }
                 SettingsToggle("Show clock", isOn: $showClock) { sidebarBool("show-clock", showClock) }
@@ -216,6 +191,68 @@ struct ShortcutAppearanceSettingsView: View {
                 SettingsStepper("Outer bottom", value: $outerBottomGap, range: 0...120, help: "Inset at the bottom display edge.") { persist("gaps", "outer.bottom", "\(outerBottomGap)") }
             }
         }
+    }
+
+    private var sidebarAppearanceSection: some View {
+        SettingsSection("Sidebar appearance") {
+            SettingsToggle("Blur background", isOn: $sidebarBlur, help: "Use darker Liquid Glass with extra background blur in Sidebar mode and when the Dock expands. Turn off for an opaque dark background.") {
+                persist("workspace-sidebar.sidebar-appearance", "blur", sidebarBlur ? "true" : "false")
+            }
+            SettingsPercentageSlider("Background darkness", value: $sidebarBackgroundOpacity, help: "Darken the blurred backdrop behind window titles and search. Applies to Sidebar mode and the expanded Dock; icons and text retain full opacity.") {
+                persist("workspace-sidebar.sidebar-appearance", "background-opacity", "\(sidebarBackgroundOpacity)")
+            }
+            .disabled(!sidebarBlur)
+            SettingsStepper("Collapsed width", value: $collapsedWidth, range: 28...120, help: "Width of the compact rail in Sidebar mode. Dock has its own fixed width.") { sidebarInt("collapsed-width", collapsedWidth) }
+        }
+    }
+
+    private var dockAppearanceSection: some View {
+        SettingsSection("Dock appearance") {
+            SettingsPicker("Style", selection: $dockStyle, help: "Choose the compact Dock background. Sidebar and expanded Dock use the separate Sidebar appearance settings.") {
+                Text("Liquid Glass").tag(ChromeStyle.liquidGlass)
+                Text("Solid color").tag(ChromeStyle.solid)
+            } onChange: { persistDockAppearance("style", "'\(dockStyle.rawValue)'") }
+            SettingsSolidColorPalette(
+                selection: $dockSolidColor,
+                customColor: $dockCustomColor,
+                isEnabled: dockStyle == .solid,
+                onSelectionChange: { persistDockAppearance("solid-color", "'\(dockSolidColor.rawValue)'") },
+                onCustomColorChange: { persistDockAppearance("custom-color", "'\(dockCustomColor)'") },
+            )
+            SettingsPercentageSlider("Glass opacity", value: $glassOpacity, help: "Adjust the compact Dock's Liquid Glass background. Sidebar darkness is controlled separately; text and icons retain full opacity.") {
+                persistDockAppearance("glass-opacity", "\(glassOpacity)")
+            }
+            .disabled(dockStyle != .liquidGlass)
+            SettingsToggle("Show app badges", isOn: $showAppBadges, help: "Mirror badge labels exposed by the macOS Dock. Some apps do not expose a badge.") { sidebarBool("show-app-badges", showAppBadges) }
+            SettingsToggle("Magnify icons on hover", isOn: $dockMagnification, help: "Enlarge nearby icons while keeping the Dock compact. Reduce Motion disables magnification.") { sidebarBool("dock-magnification", dockMagnification) }
+                .disabled(sidebarAlwaysExpanded)
+            SettingsPercentageSlider("Magnification amount", value: $dockMagnificationAmount, help: "0% keeps the resting size; 50% grows icons to 1.5×; 100% doubles their size. Icons grow rightward beyond the fixed-width background.") {
+                persist("workspace-sidebar", "dock-magnification-amount", "\(dockMagnificationAmount)")
+            }
+            .disabled(!dockMagnification || sidebarAlwaysExpanded)
+            SettingsStepper("Icon size", value: $dockIconSize, range: 24...48, help: "Maximum icon size in points. Icons shrink together when the Dock is crowded.") { sidebarInt("dock-icon-size", dockIconSize) }
+            SettingsStepper("Left-edge gap", value: $dockLeftGap, range: 0...24, help: "Space between the display's left edge and the Dock, in points.") { sidebarInt("dock-left-gap", dockLeftGap) }
+            HStack {
+                Text("Compact width").frame(maxWidth: .infinity, alignment: .leading)
+                Text("\(WorkspaceSidebarConfig.dockCompactWidth) pt (fixed)").foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 14)
+            .frame(minHeight: 38)
+            .help("Dock uses a fixed compact width. Sidebar has a separate collapsed width.")
+            .overlay(alignment: .bottom) { Divider().padding(.leading, 14) }
+            if sidebarMode == .dock { DockPerformanceSettingsView() }
+        }
+    }
+
+    private func persistDockAppearance(_ key: String, _ value: String) {
+        persistSettingsConfig(section: "workspace-sidebar.dock-appearance", key: key, renderedValue: value, model: model)
+    }
+
+    private func persistWindowChrome(_ key: String, _ value: String) {
+        // Preserve the latest saved Dock values when editing other chrome in a legacy config.
+        // Write both sections atomically so live reload never sees an intermediate style.
+        persistSettingsConfig(section: "workspace-sidebar", values: [key: value],
+            preservingDockAppearance: true, model: model)
     }
 
     private func sidebarBool(_ key: String, _ value: Bool) { persist("workspace-sidebar", key, value ? "true" : "false") }
@@ -563,11 +600,18 @@ private struct SettingsSolidColorPalette: View {
 
 @MainActor
 private func persistSettingsConfig(section: String?, key: String, renderedValue: String, model: ShortcutSettingsModel) {
+    persistSettingsConfig(section: section, values: [key: renderedValue], model: model)
+}
+
+@MainActor
+private func persistSettingsConfig(section: String?, values: [String: String],
+                                   preservingDockAppearance: Bool = false, model: ShortcutSettingsModel) {
     Task { @MainActor in
         do {
             let url = preferredEditableConfigUrl()
             let current = (try? String(contentsOf: url, encoding: .utf8)) ?? starterConfigText()
-            let updated = updateSettingsScalarConfig(in: current, section: section, key: key, renderedValue: renderedValue)
+            let updated = updateSettingsAppearanceConfig(in: current, section: section, values: values,
+                preservingDockAppearance: preservingDockAppearance)
             let parsed = parseConfig(updated)
             guard parsed.errors.isEmpty else {
                 throw NSError(domain: "WinMux", code: 1, userInfo: [NSLocalizedDescriptionKey: parsed.errors.map(\.description).joined(separator: "\n")])
@@ -581,16 +625,37 @@ private func persistSettingsConfig(section: String?, key: String, renderedValue:
     }
 }
 
+@MainActor
+func updateSettingsAppearanceConfig(in text: String, section: String?, values: [String: String],
+                                    preservingDockAppearance: Bool = false) -> String {
+    var preservedValues: [String: String] = [:]
+    if preservingDockAppearance {
+        // Parse the text read for this save, not values captured when Settings opened.
+        // Explicit Dock values remain untouched; only inherited fields need freezing.
+        let settings = parseConfig(text).config.workspaceSidebar
+        if settings.dockAppearance.style == nil { preservedValues["style"] = "'\(settings.dockChromeStyle.rawValue)'" }
+        if settings.dockAppearance.glassOpacity == nil { preservedValues["glass-opacity"] = "\(settings.dockGlassOpacity)" }
+        if settings.dockAppearance.solidColor == nil { preservedValues["solid-color"] = "'\(settings.dockSolidColor.rawValue)'" }
+        if settings.dockAppearance.customColor == nil { preservedValues["custom-color"] = "'\(settings.dockCustomColor)'" }
+    }
+    let preserved = preservedValues.sorted(by: { $0.key < $1.key }).reduce(text) { text, entry in
+        updateSettingsScalarConfig(in: text, section: "workspace-sidebar.dock-appearance", key: entry.key, renderedValue: entry.value)
+    }
+    return values.sorted(by: { $0.key < $1.key }).reduce(preserved) { text, entry in
+        updateSettingsScalarConfig(in: text, section: section, key: entry.key, renderedValue: entry.value)
+    }
+}
+
 func updateSettingsScalarConfig(in text: String, section: String?, key: String, renderedValue: String) -> String {
     let header = section.map { "[\($0)]" }
     var lines = text.components(separatedBy: "\n")
     let start: Int
     let end: Int
-    if let header, let index = lines.firstIndex(where: { $0.trimmingCharacters(in: .whitespaces) == header }) {
+    if let section, let index = lines.firstIndex(where: { settingsSectionName(in: $0) == section }) {
         start = index + 1
         end = lines[start...].firstIndex(where: { $0.trimmingCharacters(in: .whitespaces).hasPrefix("[") }) ?? lines.endIndex
     } else if let header {
-        if !lines.last.map({ $0.isEmpty })! { lines.append("") }
+        if lines.last?.isEmpty == false { lines.append("") }
         lines.append(header)
         lines.append("    \(key) = \(renderedValue)")
         return lines.joined(separator: "\n")
@@ -605,6 +670,18 @@ func updateSettingsScalarConfig(in text: String, section: String?, key: String, 
     }
     lines.insert("\(section == nil ? "" : "    ")\(key) = \(renderedValue)", at: start)
     return lines.joined(separator: "\n")
+}
+
+private func settingsSectionName(in line: String) -> String? {
+    let line = line.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard line.hasPrefix("["), !line.hasPrefix("[["), let end = line.firstIndex(of: "]") else { return nil }
+    let suffix = line[line.index(after: end)...].trimmingCharacters(in: .whitespacesAndNewlines)
+    guard suffix.isEmpty || suffix.hasPrefix("#") else { return nil }
+    let name = line[line.index(after: line.startIndex)..<end]
+    return name.split(separator: ".").map { component in
+        component.trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+    }.joined(separator: ".")
 }
 
 private func settingsKey(in line: String) -> String? {

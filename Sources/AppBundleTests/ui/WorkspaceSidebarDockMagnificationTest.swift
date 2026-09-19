@@ -35,7 +35,7 @@ final class WorkspaceSidebarDockMagnificationTest: XCTestCase {
         config.workspaceSidebar.dockMagnification = true
         config.workspaceSidebar.dockMagnificationAmount = 0.35
         config.workspaceSidebar.dockIconSize = 48
-        config.workspaceSidebar.glassOpacity = 0.27
+        config.workspaceSidebar.dockAppearance.glassOpacity = 0.27
         model.refreshWorkspaceSidebarAppearance()
         let snapshot = workspaceSidebarSnapshot(from: model)
         XCTAssertEqual(changes, 1)

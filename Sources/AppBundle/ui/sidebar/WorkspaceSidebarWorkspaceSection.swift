@@ -430,7 +430,7 @@ extension WorkspaceSidebarWorkspaceSection {
     var sectionBackground: some View {
         sectionShape
             .fill(sectionBackgroundFill)
-            .background { sectionGlassCard }
+            .background { sectionCardBackdrop }
             .overlay {
                 if isActiveWorkspaceSelection {
                     sectionShape
@@ -447,52 +447,22 @@ extension WorkspaceSidebarWorkspaceSection {
             .opacity(layout.showAppIcons ? (isDropTarget ? max(Double(morphProgress), 0.45) : Double(morphProgress)) : 1)
     }
 
-    /// Preserve the upstream Sidebar card treatment. Dock mode uses the shared shelf
-    /// behind ordinary content instead of layering glass cards over that shelf.
-    /// The legacy highlights and shadow stay scoped to Sidebar for upstream compatibility.
+    /// Tonal cards share the Sidebar's frosted backdrop. Additional glass layers would
+    /// reintroduce focus-dependent contrast and show through an opaque Sidebar setting.
     @ViewBuilder
-    var sectionGlassCard: some View {
-        if #available(macOS 26.0, *), !layout.showAppIcons, layout.effectiveChromeStyle == .liquidGlass {
-            GlassEffectContainer {
-                ZStack {
-                    Color.clear.glassEffect(.regular, in: sectionShape)
-                    // Specular top sheen.
-                    sectionShape
-                        .fill(
-                            LinearGradient(
-                                stops: [
-                                    .init(color: Color.white.opacity(0.16), location: 0),
-                                    .init(color: Color.white.opacity(0.04), location: 0.14),
-                                    .init(color: Color.clear, location: 0.5),
-                                ],
-                                startPoint: .top,
-                                endPoint: .bottom,
-                            )
-                        )
-                        .blendMode(.screen)
-                    // Refractive glass edge.
-                    Color.clear
-                        .glassEffect(.regular, in: sectionShape)
-                        .mask(sectionShape.stroke(lineWidth: 2))
-                    sectionShape.strokeBorder(Color.white.opacity(0.12), lineWidth: 0.5)
-                }
-            }
-            .glassShadow(.resting)
-            .opacity(layout.effectiveGlassOpacity)
-        } else if layout.effectiveChromeStyle == .solid {
+    var sectionCardBackdrop: some View {
+        if !layout.showAppIcons {
             sectionShape
-                .fill(layout.resolvedSolidChromeColor.opacity(0.38))
+                .fill(Color.white.opacity(0.025))
                 .overlay {
-                    sectionShape.strokeBorder(Color.white.opacity(0.12), lineWidth: StrokeToken.hairline)
+                    sectionShape.strokeBorder(Color.white.opacity(0.08), lineWidth: StrokeToken.hairline)
                 }
         }
     }
 
     var sectionBackgroundFill: Color {
         if isDropTarget {
-            // A neutral lift works against both solid colors and Liquid Glass without
-            // introducing the system accent color into themed chrome.
-            return Color.white.opacity(layout.effectiveChromeStyle == .solid ? 0.18 : 0.14)
+            return Color.white.opacity(0.14)
         }
         if isSearchSelectedWorkspace {
             return Color.white.opacity(0.105)

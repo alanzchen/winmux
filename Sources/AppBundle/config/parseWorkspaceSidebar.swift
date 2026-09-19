@@ -32,6 +32,20 @@ private let workspaceSidebarParser: [String: any ParserProtocol<WorkspaceSidebar
     "glass-opacity": Parser(\.glassOpacity, parseWorkspaceSidebarUnitInterval),
     "solid-chrome-color": Parser(\.solidChromeColor, parseChromeSolidColor),
     "solid-chrome-custom-color": Parser(\.solidChromeCustomColor, parseChromeSolidCustomColor),
+    "sidebar-appearance": Parser(\.sidebarAppearance) { raw, backtrace, errors in
+        parseTable(raw, SidebarAppearanceConfig(), [
+            "background-opacity": Parser(\.backgroundOpacity, parseWorkspaceSidebarUnitInterval),
+            "blur": Parser(\.blur, parseBool),
+        ], backtrace, &errors)
+    },
+    "dock-appearance": Parser(\.dockAppearance) { raw, backtrace, errors in
+        parseTable(raw, DockAppearanceConfig(), [
+            "style": Parser(\.style) { parseChromeStyle($0, $1).map(Optional.some) },
+            "glass-opacity": Parser(\.glassOpacity) { parseWorkspaceSidebarUnitInterval($0, $1).map(Optional.some) },
+            "solid-color": Parser(\.solidColor) { parseChromeSolidColor($0, $1).map(Optional.some) },
+            "custom-color": Parser(\.customColor) { parseChromeSolidCustomColor($0, $1).map(Optional.some) },
+        ], backtrace, &errors)
+    },
     "use-liquid-glass": Parser(\.chromeStyle) { raw, backtrace in
         parseBool(raw, backtrace).map { $0 ? .liquidGlass : .solid }
     },

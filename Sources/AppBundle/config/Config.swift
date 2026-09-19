@@ -118,6 +118,8 @@ struct WorkspaceSidebarConfig: ConvenienceCopyable, Equatable, Sendable {
     var glassOpacity: Double = 1.0
     var solidChromeColor: ChromeSolidColor = .midnight
     var solidChromeCustomColor: String = "#191B20"
+    var sidebarAppearance = SidebarAppearanceConfig()
+    var dockAppearance = DockAppearanceConfig()
     var menuBarReserveHeight: Int = 28
     var projectDeletionAction: WorkspaceProjectDeletionAction = .closeWindows
     var workspaceLabels: [String: String] = [:]

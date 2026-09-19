@@ -56,9 +56,9 @@ final class WorkspaceSidebarModeTest: XCTestCase {
     func testLiveModeSwitchRestoresDarkSidebarWithoutDiscardingDockOpacity() {
         let previous = config
         defer { config = previous }
-        config.workspaceSidebar.glassOpacity = 0.25
+        config.workspaceSidebar.dockAppearance.glassOpacity = 0.25
         config.workspaceSidebar.collapsedWidth = 50
-        config.workspaceSidebar.chromeStyle = .liquidGlass
+        config.workspaceSidebar.dockAppearance.style = .liquidGlass
         config.workspaceSidebar.autoHide = false
         let model = TrayMenuModel()
         for mode in [WorkspaceSidebarMode.dock, .sidebar, .dock] {
@@ -72,7 +72,7 @@ final class WorkspaceSidebarModeTest: XCTestCase {
         config.workspaceSidebar.mode = .sidebar
         config.workspaceSidebar.chromeStyle = .solid
         model.refreshWorkspaceSidebarAppearance()
-        XCTAssertEqual(model.workspaceSidebarAppearance.effectiveChromeStyle, .liquidGlass)
+        XCTAssertTrue(model.workspaceSidebarAppearance.sidebarBlur)
         XCTAssertEqual(config.workspaceSidebar.chromeStyle, .solid, "Other chrome retains its saved style")
     }
 }
