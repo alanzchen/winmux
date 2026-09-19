@@ -7,15 +7,17 @@ extension WindowTabItemView {
 
     @ViewBuilder
     func appIcon(size: CGFloat) -> some View {
-        if let icon = appIconImage(bundleIdentifier: tab.appBundleId, bundlePath: tab.appBundlePath) {
-            Image(nsImage: icon)
-                .resizable()
-                .scaledToFit()
-                .frame(width: size, height: size, alignment: .center)
-                .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
-                .accessibilityHidden(true)
-        } else {
-            fallbackIcon(size: size)
+        AppIconView(bundleIdentifier: tab.appBundleId, bundlePath: tab.appBundlePath) { icon in
+            if let icon {
+                Image(nsImage: icon)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: size, height: size, alignment: .center)
+                    .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                    .accessibilityHidden(true)
+            } else {
+                fallbackIcon(size: size)
+            }
         }
     }
 

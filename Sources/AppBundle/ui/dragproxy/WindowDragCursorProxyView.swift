@@ -34,16 +34,20 @@ struct WindowDragCursorProxyView: View {
         HStack(spacing: 4) {
             if let preview, preview.isTabGroup {
                 sidebarIconStack(preview)
-            } else if let preview, let icon = appIconImage(bundleIdentifier: preview.appBundleIdentifier, bundlePath: preview.appBundlePath) {
-                Image(nsImage: icon)
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .frame(width: workspaceSidebarAppIconSize, height: workspaceSidebarAppIconSize)
-                    .cornerRadius(3)
+            } else if let preview {
+                AppIconView(bundleIdentifier: preview.appBundleIdentifier, bundlePath: preview.appBundlePath) { icon in
+                    if let icon {
+                        Image(nsImage: icon)
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .frame(width: workspaceSidebarAppIconSize, height: workspaceSidebarAppIconSize)
+                            .cornerRadius(3)
+                    } else {
+                        rowFallbackIcon
+                    }
+                }
             } else {
-                Image(systemName: isGroup ? "square.stack" : "macwindow")
-                    .font(.system(size: 9, weight: .medium))
-                    .foregroundStyle(Color.primary.opacity(0.5))
+                rowFallbackIcon
             }
             Text(label)
                 .font(.system(size: isGroup ? 12.5 : 12, weight: .medium))
@@ -65,15 +69,23 @@ struct WindowDragCursorProxyView: View {
         .allowsHitTesting(false)
     }
 
+    private var rowFallbackIcon: some View {
+        Image(systemName: isGroup ? "square.stack" : "macwindow")
+            .font(.system(size: 9, weight: .medium))
+            .foregroundStyle(Color.primary.opacity(0.5))
+    }
+
     private func sidebarIconStack(_ preview: WorkspaceSidebarDropPreviewViewModel) -> some View {
         HStack(spacing: -3) {
             ForEach(Array(preview.tabItems.prefix(4).enumerated()), id: \.offset) { _, tab in
-                if let icon = appIconImage(bundleIdentifier: tab.appBundleIdentifier, bundlePath: tab.appBundlePath) {
-                    Image(nsImage: icon)
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .frame(width: workspaceSidebarAppIconSize, height: workspaceSidebarAppIconSize)
-                        .cornerRadius(3)
+                AppIconView(bundleIdentifier: tab.appBundleIdentifier, bundlePath: tab.appBundlePath) { icon in
+                    if let icon {
+                        Image(nsImage: icon)
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .frame(width: workspaceSidebarAppIconSize, height: workspaceSidebarAppIconSize)
+                            .cornerRadius(3)
+                    }
                 }
             }
         }

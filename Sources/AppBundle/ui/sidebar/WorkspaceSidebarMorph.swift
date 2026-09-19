@@ -173,8 +173,8 @@ struct WorkspaceSidebarMorphOverlay: View {
     }
 
     private func appIcon(_ app: WorkspaceSidebarAppViewModel) -> some View {
-        Group {
-            if let icon = appIconImage(bundleIdentifier: app.bundleId, bundlePath: app.bundlePath) {
+        AppIconView(bundleIdentifier: app.bundleId, bundlePath: app.bundlePath) { icon in
+            if let icon {
                 Image(nsImage: icon)
                     .resizable()
                     .aspectRatio(contentMode: .fit)

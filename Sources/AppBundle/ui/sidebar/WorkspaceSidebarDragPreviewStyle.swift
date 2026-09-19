@@ -11,8 +11,8 @@ struct WorkspaceSidebarDragIcon: View {
     let size: CGFloat
 
     var body: some View {
-        Group {
-            if let icon = appIconImage(bundleIdentifier: preview.appBundleIdentifier, bundlePath: preview.appBundlePath) {
+        AppIconView(bundleIdentifier: preview.appBundleIdentifier, bundlePath: preview.appBundlePath) { icon in
+            if let icon {
                 Image(nsImage: icon)
                     .resizable()
                     .aspectRatio(contentMode: .fit)

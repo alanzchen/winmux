@@ -73,8 +73,8 @@ struct WorkspaceSidebarAppIconHeader: View {
     }
 
     private func appIcon(_ app: WorkspaceSidebarAppViewModel, size: CGFloat) -> some View {
-        Group {
-            if let icon = appIconImage(bundleIdentifier: app.bundleId, bundlePath: app.bundlePath) {
+        AppIconView(bundleIdentifier: app.bundleId, bundlePath: app.bundlePath) { icon in
+            if let icon {
                 Image(nsImage: icon)
                     .resizable()
                     .aspectRatio(contentMode: .fit)

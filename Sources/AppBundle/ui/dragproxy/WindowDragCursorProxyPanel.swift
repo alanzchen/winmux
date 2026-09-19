@@ -50,6 +50,10 @@ final class WindowDragCursorProxyPanel: NSPanelHud {
         guard currentContent != nil || isVisible else { return }
         stopFollowingMouse()
         currentContent = nil
+        // Drop icon consumers and preview captures when the gesture finishes.
+        hostingView.rootView = AnyView(EmptyView())
+        // Hidden hosts can defer SwiftUI teardown; finish it before ordering out.
+        hostingView.layoutSubtreeIfNeeded()
         if isVisible {
             orderOut(nil)
         }

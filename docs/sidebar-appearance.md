@@ -49,6 +49,10 @@ untouched.
 
 Tab groups and the switcher retain their separate **Window chrome** controls.
 
+Dock, Sidebar, tab, and drag-preview icons automatically refresh macOS
+[replacement app icons](replacement-app-icons.md). Custom drawn or animated Dock
+tiles remain subject to the public API limits described there.
+
 ## Validation — September 19, 2026
 
 - Swift 6.2.4, ARM64: complete suite **862 tests, six expected skips, zero failures**;

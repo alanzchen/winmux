@@ -91,12 +91,14 @@ struct WorkspaceSidebarDropPreviewView: View {
             if !icons.isEmpty {
                 HStack(spacing: -3) {
                     ForEach(Array(icons.prefix(4).enumerated()), id: \.offset) { _, icon in
-                        if let image = appIconImage(bundleIdentifier: icon.0, bundlePath: icon.1) {
-                            Image(nsImage: image)
-                                .resizable()
-                                .aspectRatio(contentMode: .fit)
-                                .frame(width: 14, height: 14)
-                                .cornerRadius(3)
+                        AppIconView(bundleIdentifier: icon.0, bundlePath: icon.1) { image in
+                            if let image {
+                                Image(nsImage: image)
+                                    .resizable()
+                                    .aspectRatio(contentMode: .fit)
+                                    .frame(width: 14, height: 14)
+                                    .cornerRadius(3)
+                            }
                         }
                     }
                 }
@@ -124,12 +126,14 @@ struct WorkspaceSidebarDropPreviewView: View {
         appBundlePath: String?
     ) -> some View {
         HStack(spacing: 6) {
-            if let icon = appIconImage(bundleIdentifier: appBundleIdentifier, bundlePath: appBundlePath) {
-                Image(nsImage: icon)
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .frame(width: 14, height: 14)
-                    .cornerRadius(3)
+            AppIconView(bundleIdentifier: appBundleIdentifier, bundlePath: appBundlePath) { icon in
+                if let icon {
+                    Image(nsImage: icon)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: 14, height: 14)
+                        .cornerRadius(3)
+                }
             }
             Text(title)
                 .font(.system(size: 12.5, weight: .regular))
