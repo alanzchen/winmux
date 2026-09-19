@@ -50,6 +50,7 @@ final class WorkspaceSidebarPanel: NSPanelHud, WorkspaceSidebarInputOwner {
     var splitBrowseCollapseSuppressedUntil: Date = .distantPast
     var persistentExpansionWidth: CGFloat?
     var visibleSurfaceFrame: CGRect?
+    var fittedDockRestingWidth: CGFloat?
     var dockIconFrames: [CGRect] = []
     weak var dockPointerView: WorkspaceSidebarDockDisplayLinkView?
     var localDropTargetFrames: [WorkspaceSidebarDropTargetFrame] = []

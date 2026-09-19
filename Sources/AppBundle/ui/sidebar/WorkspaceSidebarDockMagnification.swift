@@ -203,7 +203,11 @@ struct WorkspaceSidebarDockContextReader<Content: View>: View {
 
 func workspaceSidebarIndicatorLeadingOffset(tileSize: CGFloat, railWidth: CGFloat) -> CGFloat {
     // Leading alignment places the dot's left edge at zero; subtract its radius too.
-    -max(railWidth - tileSize, 0) / 4 - 2
+    -max(railWidth - tileSize, 0) / 4 - workspaceSidebarIndicatorDiameter(railWidth: railWidth) / 2
+}
+
+func workspaceSidebarIndicatorDiameter(railWidth: CGFloat) -> CGFloat {
+    max(2, 4 * min(railWidth / CGFloat(WorkspaceSidebarConfig.dockCompactWidth), 1))
 }
 
 /// The widened scroll viewport and outer mask own clipping during magnification.

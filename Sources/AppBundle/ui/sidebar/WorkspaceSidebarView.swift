@@ -57,18 +57,20 @@ struct WorkspaceSidebarView: View {
             let layout = dockLayout(availableHeight: viewport.size.height)
             WorkspaceSidebarDockAnimationHost(
                 configuration: layout,
-                visibleWidth: snapshot.visibleWidth,
+                visibleWidth: fittedVisibleWidth(layout: layout),
                 compactHeight: compactDockContentHeight(layout: layout),
                 expansionProgress: expansionProgress,
                 blockers: dockMagnificationBlockers,
-                overflow: dockMagnificationOverflow,
-                shape: sidebarShape,
+                overflow: dockMagnificationOverflow(layout: layout),
+                shape: sidebarShape(layout: layout),
                 hitRegions: dockHitRegions,
                 motion: dockMotion,
                 growth: dockColumnGrowth(layout: layout),
                 content: sidebarContent(expansionProgress: expansionProgress, layout: layout)
                     .environment(\.workspaceSidebarDockDrag, snapshot.dockDrag)
             )
+            .preference(key: WorkspaceSidebarDockRestingWidthPreferenceKey.self,
+                value: layout.showAppIcons ? layout.compactRailWidth : nil)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         .coordinateSpace(name: "workspaceSidebarContent")
@@ -95,6 +97,9 @@ struct WorkspaceSidebarView: View {
                 dockHitRegions.surface = frame
                 actions.setSurfaceFrame(frame)
             }
+        }
+        .onPreferenceChange(WorkspaceSidebarDockRestingWidthPreferenceKey.self) { width in
+            actions.setDockRestingWidth(width)
         }
         .onPreferenceChange(WorkspaceSidebarDockIconFramesPreference.self) { frames in
             dockMotion.recordGeometry(icons: frames.count)
@@ -517,11 +522,12 @@ extension WorkspaceSidebarView {
             .onAppear { projectPagerWidth = pageWidth }
             .onChange(of: pageWidth) { projectPagerWidth = $0 }
         }
-        .modifier(WorkspaceSidebarTrailingOverflowModifier(base: Rectangle(), overflow: dockMagnificationOverflow))
+        .modifier(WorkspaceSidebarTrailingOverflowModifier(base: Rectangle(), overflow: dockMagnificationOverflow(layout: layout)))
     }
 }
 extension WorkspaceSidebarView {
     func projectPagerSection(
+        layout: WorkspaceSidebarConfiguration,
         expansionProgress: CGFloat,
         leadingInset: CGFloat,
         trailingInset: CGFloat,
@@ -533,7 +539,7 @@ extension WorkspaceSidebarView {
             projects: snapshot.projects,
             selectedProjectId: snapshot.activeProjectId,
             expansionProgress: expansionProgress,
-            layout: snapshot.configuration,
+            layout: layout,
             isProjectMenuOpen: $isProjectMenuOpen,
             renamingProjectId: $renamingProjectId,
             renamingProjectText: $renamingProjectText,
@@ -724,6 +730,7 @@ extension WorkspaceSidebarView {
 }
 extension WorkspaceSidebarView {
     func monitorSelectorSection(
+        layout: WorkspaceSidebarConfiguration,
         expansionProgress: CGFloat,
         leadingInset: CGFloat,
         trailingInset: CGFloat,
@@ -735,7 +742,7 @@ extension WorkspaceSidebarView {
             activeProjectId: snapshot.activeProjectId,
             browsedProjectId: browsedProjectId,
             expansionProgress: expansionProgress,
-            sectionWidth: workspaceSidebarTopSectionWidth(expansionProgress: expansionProgress),
+            sectionWidth: workspaceSidebarTopSectionWidth(expansionProgress: expansionProgress, layout: layout),
             onSelectScope: { scopeId in
                 if scopeId == workspaceSidebarDefaultScopeId {
                     browseMode = .activeProject
@@ -772,33 +779,37 @@ extension WorkspaceSidebarView {
         .zIndex(100)
     }
 
-    func workspaceSidebarTopSectionWidth(expansionProgress: CGFloat) -> CGFloat {
+    func workspaceSidebarTopSectionWidth(expansionProgress: CGFloat, layout: WorkspaceSidebarConfiguration? = nil) -> CGFloat {
+        let layout = layout ?? snapshot.configuration
         if browsedProjectId != nil {
-            return workspaceSidebarSplitSectionWidth(expansionProgress: expansionProgress)
+            return workspaceSidebarSplitSectionWidth(expansionProgress: expansionProgress, layout: layout)
         }
-        return workspaceSidebarSectionWidth(expansionProgress, layout: snapshot.configuration)
+        return workspaceSidebarSectionWidth(expansionProgress, layout: layout)
     }
 
     func statusSection(
+        layout: WorkspaceSidebarConfiguration,
         expansionProgress: CGFloat,
         isCompact: Bool,
         leadingInset: CGFloat,
         trailingInset: CGFloat,
     ) -> some View {
         WorkspaceSidebarStatusView(
-            sectionWidth: workspaceSidebarSectionWidth(expansionProgress, layout: snapshot.configuration),
+            sectionWidth: workspaceSidebarSectionWidth(expansionProgress, layout: layout),
             isCompact: isCompact,
             showsSeconds: snapshot.configuration.showsSeconds,
             showsDate: snapshot.configuration.showsDate,
             showsWeekday: snapshot.configuration.showsWeekday,
+            compactScale: layout.compactDockScale,
         )
         .padding(.leading, leadingInset)
         .padding(.trailing, trailingInset)
         .padding(.top, 4)
-        .padding(.bottom, workspaceSidebarStatusBottomPadding(isCompact: isCompact) + 4)
+        .padding(.bottom, workspaceSidebarStatusBottomPadding(isCompact: isCompact, layout: layout) + 4)
     }
 
     func sidebarSearchSection(
+        layout: WorkspaceSidebarConfiguration,
         expansionProgress: CGFloat,
         leadingInset: CGFloat,
         trailingInset: CGFloat,
@@ -829,7 +840,7 @@ extension WorkspaceSidebarView {
             .help("Clear search")
         }
         .padding(.horizontal, 8)
-        .frame(width: workspaceSidebarSectionWidth(expansionProgress, layout: snapshot.configuration), height: workspaceSidebarSearchHeight)
+        .frame(width: workspaceSidebarSectionWidth(expansionProgress, layout: layout), height: workspaceSidebarSearchHeight)
         .background {
             RoundedRectangle(cornerRadius: workspaceSidebarDropdownCornerRadius, style: .continuous)
                 .fill(Color.white.opacity(0.11))
@@ -851,8 +862,8 @@ extension WorkspaceSidebarView {
         return min(max((snapshot.visibleWidth - collapsed) / max(snapshot.configuration.expandedWidth - collapsed, 1), 0), 1)
     }
 
-    var sidebarShape: some Shape {
-        let compactRadius = snapshot.configuration.compactRailWidth / 3
+    func sidebarShape(layout: WorkspaceSidebarConfiguration) -> some Shape {
+        let compactRadius = layout.compactRailWidth / 3
         return WorkspaceSidebarPanelShape(
             leftCornerRadius: snapshot.configuration.showAppIcons ? compactRadius * (1 - dockSurfaceProgress) : 0,
             rightCornerRadius: snapshot.configuration.showAppIcons
@@ -1131,12 +1142,12 @@ extension WorkspaceSidebarView {
                 .padding(.top, topPadding)
                 .padding(.bottom, 10)
                 .frame(width: viewport.size.width, alignment: .leading)
-                .padding(.trailing, dockMagnificationOverflow)
+                .padding(.trailing, dockMagnificationOverflow(layout: layout))
             }
-            .frame(width: viewport.size.width + dockMagnificationOverflow, alignment: .leading)
+            .frame(width: viewport.size.width + dockMagnificationOverflow(layout: layout), alignment: .leading)
             .transformPreference(WorkspaceSidebarDockIconFramesPreference.self) { frames in
                 let frame = viewport.frame(in: .named("workspaceSidebarContent"))
-                let visible = CGRect(x: frame.minX, y: frame.minY, width: frame.width + dockMagnificationOverflow, height: frame.height)
+                let visible = CGRect(x: frame.minX, y: frame.minY, width: frame.width + dockMagnificationOverflow(layout: layout), height: frame.height)
                 frames = frames.map { $0.intersection(visible) }.filter { !$0.isNull && !$0.isEmpty }
             }
             .transformPreference(WorkspaceSidebarDropTargetPreferenceKey.self) { targets in
@@ -1307,15 +1318,16 @@ extension WorkspaceSidebarView {
         return blockers
     }
 
-    var dockMagnificationOverflow: CGFloat {
-        dockSurfaceProgress == 0 && projectSwipeTranslation == 0 ? snapshot.configuration.dockMagnificationOverflow : 0
+    func dockMagnificationOverflow(layout: WorkspaceSidebarConfiguration) -> CGFloat {
+        dockSurfaceProgress == 0 && projectSwipeTranslation == 0 ? layout.dockMagnificationOverflow : 0
     }
 
-    func dockMagnificationPointer(_ pointer: CGPoint?, in surfaceFrame: CGRect, iconFrames: [CGRect] = []) -> CGPoint? {
+    func dockMagnificationPointer(_ pointer: CGPoint?, in surfaceFrame: CGRect,
+                                  layout: WorkspaceSidebarConfiguration, iconFrames: [CGRect] = []) -> CGPoint? {
         // The panel also covers transparent space beside and above the compact Dock.
         // Only the glass surface and actual protruding icons own hover magnification.
         guard allowsDockMagnification, let pointer,
-              sidebarShape.path(in: surfaceFrame).contains(pointer) || iconFrames.contains(where: { $0.contains(pointer) })
+              sidebarShape(layout: layout).path(in: surfaceFrame).contains(pointer) || iconFrames.contains(where: { $0.contains(pointer) })
         else { return nil }
         return pointer
     }
@@ -1370,6 +1382,20 @@ extension WorkspaceSidebarView {
         }
         layout.dockIconSize = sizes.min() ?? layout.dockIconSize
         return layout
+    }
+
+    func fittedVisibleWidth(layout: WorkspaceSidebarConfiguration) -> CGFloat {
+        guard layout.showAppIcons else { return snapshot.visibleWidth }
+        let configuredWidth = snapshot.configuration.compactRailWidth
+        // Hidden -> compact has its own proportional reveal, including intermediate
+        // hover cues. Subtracting the fitted difference would hide the first part.
+        if snapshot.visibleWidth < configuredWidth {
+            return max(snapshot.visibleWidth, 0) * layout.compactRailWidth / configuredWidth
+        }
+        // Expansion is driven by the native panel's configured width. Blend from the
+        // fitted resting shelf to that same expanded endpoint without resizing on hover.
+        return max(0, snapshot.visibleWidth + (layout.compactRailWidth - configuredWidth)
+            * (1 - dockSurfaceProgress))
     }
 
     private var dockSizingPages: [[WorkspaceSidebarWorkspaceViewModel]] {

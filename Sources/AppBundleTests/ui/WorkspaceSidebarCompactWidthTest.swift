@@ -5,8 +5,17 @@ import XCTest
 
 @MainActor
 final class WorkspaceSidebarCompactWidthTest: XCTestCase {
+    func testSidebarKeepsItsLegacyBadgeWidthFloor() {
+        for (width, expected): (CGFloat, CGFloat) in [(28, 32), (44, 32), (120, 106)] {
+            var layout = WorkspaceSidebarConfiguration.empty
+            layout.collapsedWidth = width
+            layout.showAppIcons = false
+            XCTAssertEqual(workspaceSidebarCompactSectionWidth(layout: layout), expected)
+        }
+    }
+
     func testCompactRailKeepsConfiguredWidthAsAppsAndWindowsChange() {
-        for railWidth: CGFloat in [28, 44, 120] {
+        for railWidth: CGFloat in [32, 44, 64] {
             for expandedWidth: CGFloat in [120, 160, 240, 480] {
                 for appCount in [0, 1, 6, 104] {
                     for windowCount in [0, 1, 8] {
@@ -18,8 +27,8 @@ final class WorkspaceSidebarCompactWidthTest: XCTestCase {
                             windowCount: windowCount,
                         )
                         let outerWidth = compact.sectionWidth +
-                            workspaceSidebarOuterLeadingPadding(isCompact: true) +
-                            workspaceSidebarOuterTrailingPadding(isCompact: true)
+                            workspaceSidebarOuterLeadingPadding(isCompact: true, layout: compact.layout) +
+                            workspaceSidebarOuterTrailingPadding(isCompact: true, layout: compact.layout)
                         XCTAssertEqual(
                             outerWidth,
                             railWidth,
@@ -34,7 +43,7 @@ final class WorkspaceSidebarCompactWidthTest: XCTestCase {
     }
 
     func testExpansionWidthIsIndependentOfWorkspaceContentsAndReturnsToCompactWidth() {
-        for railWidth: CGFloat in [28, 44, 120] {
+        for railWidth: CGFloat in [32, 44, 64] {
             var previousWidth: CGFloat = 0
             for progress: CGFloat in [0, 0.2, 0.5, 0.8, 1] {
                 let empty = section(railWidth: railWidth, progress: progress, appCount: 0, windowCount: 0)
@@ -57,8 +66,8 @@ final class WorkspaceSidebarCompactWidthTest: XCTestCase {
             let collapsed = section(railWidth: railWidth, progress: 0, appCount: 104, windowCount: 8)
             XCTAssertEqual(
                 collapsed.sectionWidth +
-                    workspaceSidebarOuterLeadingPadding(isCompact: true) +
-                    workspaceSidebarOuterTrailingPadding(isCompact: true),
+                    workspaceSidebarOuterLeadingPadding(isCompact: true, layout: collapsed.layout) +
+                    workspaceSidebarOuterTrailingPadding(isCompact: true, layout: collapsed.layout),
                 railWidth,
                 accuracy: 0.001,
             )
@@ -66,7 +75,7 @@ final class WorkspaceSidebarCompactWidthTest: XCTestCase {
     }
 
     func testAppSummaryKeepsItsCompactColumnWhileSidebarMorphsIntoExpandedMode() {
-        for railWidth: CGFloat in [28, 44, 120] {
+        for railWidth: CGFloat in [32, 44, 64] {
             for appCount in [0, 1, 6, 104] {
                 let compact = section(railWidth: railWidth, progress: 0, appCount: appCount, windowCount: 8)
                 let compactIcons = WorkspaceSidebarAppIconLayout(appCount: appCount, availableWidth: compact.appSummaryWidth)
@@ -87,7 +96,7 @@ final class WorkspaceSidebarCompactWidthTest: XCTestCase {
         }
     }
 
-    func testDockModeUsesFixedPanelAndLayoutWidthsAndRestoresLegacyWidth() {
+    func testDockModeUsesDefaultProportionalPanelWidthAndRestoresLegacyWidth() {
         let previousConfig = config
         setUpWorkspacesForTests()
         defer {
@@ -151,7 +160,7 @@ final class WorkspaceSidebarCompactWidthTest: XCTestCase {
         let windows = apps.enumerated().map { window(id: UInt32($0.offset + 1), app: $0.element) }
         let workspace = self.workspace(apps: apps, items: windows.map { .init(kind: .window($0)) })
 
-        for railWidth: CGFloat in [28, 44, 120] {
+        for railWidth: CGFloat in [32, 44, 64] {
             let view = section(workspace: workspace, railWidth: railWidth)
             XCTAssertEqual(Set(view.appMorphTargets.keys), Set(apps.map(\.id)))
             for (index, window) in windows.enumerated() {
@@ -300,6 +309,7 @@ final class WorkspaceSidebarCompactWidthTest: XCTestCase {
     ) -> WorkspaceSidebarWorkspaceSection {
         var layout = WorkspaceSidebarConfiguration.empty
         layout.collapsedWidth = railWidth
+        layout.dockIconSize = railWidth * 3 / 4
         layout.expandedWidth = expandedWidth
         layout.showAppIcons = true
         return WorkspaceSidebarWorkspaceSection(

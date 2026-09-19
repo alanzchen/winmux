@@ -37,7 +37,7 @@ struct WorkspaceSidebarAppIconHeader: View {
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
                 if isActive {
-                    WorkspaceSidebarActiveWorkspaceIndicator()
+                    WorkspaceSidebarActiveWorkspaceIndicator(diameter: workspaceSidebarIndicatorDiameter(railWidth: railWidth))
                         .modifier(WorkspaceSidebarDockIndicatorMotion(itemSize: layout.itemSize, railWidth: railWidth))
                         .opacity(morphsTitle && hidesTitleForMorph ? 0 : 1)
                 }
@@ -164,7 +164,7 @@ private struct WorkspaceSidebarDockIndicatorMotion: ViewModifier {
     func body(content: Content) -> some View {
         let frame = frames.first ?? CGRect(x: 0, y: 0, width: itemSize, height: itemSize)
         content.offset(x: frame.minX + workspaceSidebarIndicatorLeadingOffset(tileSize: itemSize, railWidth: railWidth),
-            y: frame.midY - 2)
+            y: frame.midY - workspaceSidebarIndicatorDiameter(railWidth: railWidth) / 2)
     }
 }
 
@@ -212,7 +212,7 @@ struct WorkspaceSidebarWorkspaceIcon: View {
             .frame(width: size, height: size)
             .overlay(alignment: .leading) {
                 if isActive && showsIndicator {
-                    WorkspaceSidebarActiveWorkspaceIndicator()
+                    WorkspaceSidebarActiveWorkspaceIndicator(diameter: workspaceSidebarIndicatorDiameter(railWidth: railWidth))
                         .offset(x: workspaceSidebarIndicatorLeadingOffset(tileSize: restingSize ?? size, railWidth: railWidth))
                 }
             }
@@ -220,10 +220,12 @@ struct WorkspaceSidebarWorkspaceIcon: View {
 }
 
 struct WorkspaceSidebarActiveWorkspaceIndicator: View {
+    var diameter: CGFloat = 4
+
     var body: some View {
         Circle()
             .fill(Color.white.opacity(0.82))
-            .frame(width: 4, height: 4)
+            .frame(width: diameter, height: diameter)
             .allowsHitTesting(false)
             .accessibilityHidden(true)
     }

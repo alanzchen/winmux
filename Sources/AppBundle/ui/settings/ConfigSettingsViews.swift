@@ -202,7 +202,7 @@ struct ShortcutAppearanceSettingsView: View {
                 persist("workspace-sidebar.sidebar-appearance", "background-opacity", "\(sidebarBackgroundOpacity)")
             }
             .disabled(!sidebarBlur)
-            SettingsStepper("Collapsed width", value: $collapsedWidth, range: 28...120, help: "Width of the compact rail in Sidebar mode. Dock has its own fixed width.") { sidebarInt("collapsed-width", collapsedWidth) }
+            SettingsStepper("Collapsed width", value: $collapsedWidth, range: 28...120, help: "Width of the compact rail in Sidebar mode. Dock width follows its icon size.") { sidebarInt("collapsed-width", collapsedWidth) }
         }
     }
 
@@ -230,15 +230,15 @@ struct ShortcutAppearanceSettingsView: View {
                 persist("workspace-sidebar", "dock-magnification-amount", "\(dockMagnificationAmount)")
             }
             .disabled(!dockMagnification || sidebarAlwaysExpanded)
-            SettingsStepper("Icon size", value: $dockIconSize, range: 24...48, help: "Maximum icon size in points. Icons shrink together when the Dock is crowded.") { sidebarInt("dock-icon-size", dockIconSize) }
+            SettingsStepper("Icon size", value: $dockIconSize, range: 24...48, help: "Maximum icon size in points. Dock width and side padding scale with the icons, including when they shrink to fit the display.") { sidebarInt("dock-icon-size", dockIconSize) }
             SettingsStepper("Left-edge gap", value: $dockLeftGap, range: 0...24, help: "Space between the display's left edge and the Dock, in points.") { sidebarInt("dock-left-gap", dockLeftGap) }
             HStack {
-                Text("Compact width").frame(maxWidth: .infinity, alignment: .leading)
-                Text("\(WorkspaceSidebarConfig.dockCompactWidth) pt (fixed)").foregroundStyle(.secondary)
+                Text("Proportional width").frame(maxWidth: .infinity, alignment: .leading)
+                Text("\(WorkspaceSidebarConfig.dockWidth(forIconSize: CGFloat(dockIconSize)), specifier: "%.1f") pt maximum").foregroundStyle(.secondary)
             }
             .padding(.horizontal, 14)
             .frame(minHeight: 38)
-            .help("Dock uses a fixed compact width. Sidebar has a separate collapsed width.")
+            .help("Dock width keeps the same proportion to its resting icons. Hover magnification leaves the width unchanged.")
             .overlay(alignment: .bottom) { Divider().padding(.leading, 14) }
             if sidebarMode == .dock { DockPerformanceSettingsView() }
         }

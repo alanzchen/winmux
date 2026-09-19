@@ -265,13 +265,14 @@ private struct WinMuxSafariPlasticityProofCanvas: View {
         .frame(width: 1_600, height: canvasHeight)
         .overlay(alignment: .topLeading) {
             let sidebar = WorkspaceSidebarView(snapshot: MarketingFixtures.sidebarSnapshot)
+            let shape = sidebar.sidebarShape(layout: sidebar.dockLayout(availableHeight: canvasHeight - sidebarTopMargin))
             sidebar
                 .frame(width: sidebarWidth, height: canvasHeight - sidebarTopMargin)
                 .background(
                     Color(red: 0.012, green: 0.045, blue: 0.115).opacity(0.50),
-                    in: sidebar.sidebarShape
+                    in: shape
                 )
-                .clipShape(sidebar.sidebarShape)
+                .clipShape(shape)
                 .offset(y: sidebarTopMargin)
         }
         .overlay(alignment: .top) {

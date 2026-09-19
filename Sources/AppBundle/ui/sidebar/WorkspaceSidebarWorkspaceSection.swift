@@ -40,7 +40,7 @@ struct WorkspaceSidebarWorkspaceSection: View, Animatable {
     }
 
     var morphProgress: CGFloat { min(max(expansionProgress, 0), 1) }
-    var compactCardWidth: CGFloat { max(layout.compactRailWidth - workspaceSidebarCompactRailHorizontalInset * 2, 1) }
+    var compactCardWidth: CGFloat { max(layout.compactRailWidth - layout.compactHorizontalInset * 2, 1) }
     var compactInnerInset: CGFloat { 0 }
     var appIconLayout: WorkspaceSidebarAppIconLayout {
         WorkspaceSidebarAppIconLayout(
@@ -116,10 +116,10 @@ struct WorkspaceSidebarWorkspaceSection: View, Animatable {
             .frame(minHeight: sectionMinHeight, alignment: .top)
             .frame(maxWidth: .infinity, alignment: .leading)
             .modifier(WorkspaceSidebarTrailingOverflowModifier(
-                base: Rectangle().inset(by: layout.showAppIcons ? -workspaceSidebarCompactRailHorizontalInset * (1 - morphProgress) : 0),
+                base: Rectangle().inset(by: layout.showAppIcons ? -layout.compactHorizontalInset * (1 - morphProgress) : 0),
                 overflow: morphProgress == 0 ? layout.dockMagnificationOverflow : 0))
             .opacity(compactFocusOpacity)
-            .contentShape(Rectangle().inset(by: layout.showAppIcons ? -workspaceSidebarCompactRailHorizontalInset * (1 - morphProgress) : 0))
+            .contentShape(Rectangle().inset(by: layout.showAppIcons ? -layout.compactHorizontalInset * (1 - morphProgress) : 0))
             .contextMenu {
                 Button {
                     debugWorkspaceSidebarRenameLog("workspaceContextRename workspace=\(workspace.name) displayName=\(workspace.displayName) compact=\(isCompact)")

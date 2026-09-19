@@ -5,6 +5,151 @@ import XCTest
 
 @MainActor
 final class WorkspaceSidebarDockAdaptiveSizingTest: XCTestCase {
+    func testConfiguredSizesKeepTheSameShelfRatioAndCenteredIcons() throws {
+        for size: CGFloat in [24, 31, 40, 48] {
+            var snapshot = fixture()
+            snapshot.configuration.dockIconSize = size
+            snapshot.visibleWidth = snapshot.configuration.compactRailWidth
+            let sample = render(snapshot, height: 900)
+            try assertIcons(sample.probe, count: 8, size: size, availableHeight: 900)
+            let surface = try XCTUnwrap(sample.probe.surface)
+            XCTAssertEqual(surface.minX, 0, accuracy: 0.01, "Fitting must not shift the surface within its panel")
+            let icon = try XCTUnwrap(sample.probe.icons.first)
+            XCTAssertEqual(icon.minX / size, 1 / 6, accuracy: 0.001)
+        }
+    }
+
+    func testFittedShelfMorphsContinuouslyToTheOriginalExpandedWidth() throws {
+        let original = fixture()
+        let fit = WorkspaceSidebarView(snapshot: original).dockLayout(availableHeight: 340)
+        XCTAssertLessThan(fit.dockIconSize, original.configuration.dockIconSize)
+        for progress: CGFloat in [0, 0.25, 0.5, 0.75, 1] {
+            var snapshot = original
+            let start = snapshot.configuration.expansionStartWidth
+            snapshot.visibleWidth = start + (snapshot.configuration.expandedWidth - start) * progress
+            let sample = render(snapshot, height: 340)
+            let surface = try XCTUnwrap(sample.probe.surface)
+            XCTAssertEqual(surface.width, fit.compactRailWidth + (snapshot.configuration.expandedWidth - fit.compactRailWidth) * progress,
+                accuracy: 0.01)
+        }
+    }
+
+    func testSmallestShelfKeepsTheIndicatorInsideAndUsesItsVisibleHoverRegion() {
+        for size: CGFloat in [16, 24, 32, 48] {
+            let rail = WorkspaceSidebarConfig.dockWidth(forIconSize: size)
+            let leading = (rail - size) / 2
+            let diameter = workspaceSidebarIndicatorDiameter(railWidth: rail)
+            let dotLeft = leading + workspaceSidebarIndicatorLeadingOffset(tileSize: size, railWidth: rail)
+            XCTAssertEqual(dotLeft + diameter / 2, leading / 2, accuracy: 0.001)
+            XCTAssertGreaterThanOrEqual(dotLeft, 0)
+            var settings = WorkspaceSidebarConfig()
+            settings.mode = .dock
+            XCTAssertTrue(settings.showAppIcons)
+            let region = workspaceSidebarHoverRegion(surface: CGRect(x: 2, y: 100, width: rail, height: 400),
+                sidebarConfig: settings, exitTolerance: 0, fittedDockWidth: rail)
+            XCTAssertEqual(region.width, rail)
+            XCTAssertFalse(region.contains(CGPoint(x: rail + 3, y: 200)))
+        }
+    }
+
+    func testAutoHiddenShelfRevealsProportionallyBeforeExpanding() throws {
+        var snapshot = fixture()
+        snapshot.configuration.collapsedWidth = 0
+        let settings = WorkspaceSidebarConfig(autoHide: true, mode: .dock)
+        let configuredWidth = snapshot.configuration.compactRailWidth
+        for height: CGFloat in [280, 340, 900] {
+            let fit = WorkspaceSidebarView(snapshot: snapshot).dockLayout(availableHeight: height)
+            for progress: CGFloat in [0, 0.125, 0.25, 0.5, 0.75, 1] {
+                snapshot.visibleWidth = configuredWidth * progress
+                let sample = render(snapshot, height: height)
+                let surface = try XCTUnwrap(sample.probe.surface)
+                XCTAssertEqual(surface.width, fit.compactRailWidth * progress, accuracy: 0.01)
+                let resting = try XCTUnwrap(sample.probe.restingWidth)
+                XCTAssertEqual(resting, fit.compactRailWidth, accuracy: 0.01)
+                let region = workspaceSidebarHoverRegion(surface: surface, sidebarConfig: settings,
+                    exitTolerance: 0, fittedDockWidth: resting)
+                XCTAssertEqual(region.maxX, fit.compactRailWidth, accuracy: 0.01,
+                    "The fitted hover target must stay stable throughout hide and reveal")
+                XCTAssertTrue(region.contains(CGPoint(x: fit.compactRailWidth * 0.9, y: surface.midY)))
+            }
+        }
+    }
+
+    func testFittedMagnificationUsesMatchingOverflowAndCornerShape() {
+        var snapshot = fixture()
+        snapshot.configuration.dockMagnification = true
+        let view = WorkspaceSidebarView(snapshot: snapshot)
+        let fit = view.dockLayout(availableHeight: 340)
+        XCTAssertLessThan(fit.dockIconSize, snapshot.configuration.dockIconSize)
+        XCTAssertEqual(view.dockMagnificationOverflow(layout: fit), fit.dockMagnificationOverflow)
+        let surface = CGRect(x: 0, y: 0, width: fit.compactRailWidth, height: 340)
+        let fittedShape = RoundedRectangle(cornerRadius: fit.compactRailWidth / 3, style: .continuous).path(in: surface)
+        for x: CGFloat in stride(from: 0, through: surface.maxX, by: 1) {
+            for y: CGFloat in stride(from: 0, through: fit.compactRailWidth / 2, by: 1) {
+                let point = CGPoint(x: x, y: y)
+                XCTAssertEqual(view.dockMagnificationPointer(point, in: surface, layout: fit) != nil,
+                    fittedShape.contains(point))
+            }
+        }
+    }
+
+    func testNativeDockProportionsPreview() async throws {
+        guard let directory = ProcessInfo.processInfo.environment["WINMUX_DOCK_PROPORTIONS_PREVIEW_DIRECTORY"] else {
+            throw XCTSkip("Opt-in native Dock proportions preview")
+        }
+        let application = NSApplication.shared
+        let oldPolicy = application.activationPolicy()
+        application.setActivationPolicy(.accessory)
+        let screen = try XCTUnwrap(NSScreen.main)
+        let viewport = screen.visibleFrame
+        let backing = NSWindow(contentRect: screen.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        backing.isReleasedWhenClosed = false
+        backing.contentView = NSHostingView(rootView: LinearGradient(colors: [.blue, .purple, .orange], startPoint: .topLeading, endPoint: .bottomTrailing))
+        backing.orderFrontRegardless()
+        var panels: [NSPanel] = []
+        defer {
+            for panel in panels { panel.close() }
+            backing.close()
+            application.setActivationPolicy(oldPolicy)
+        }
+        let icons = ["com.apple.finder", "com.apple.Safari", "com.apple.Terminal", "com.apple.Notes"].map { identifier in
+            WorkspaceSidebarAppViewModel(name: identifier.components(separatedBy: ".").last!, bundleId: identifier,
+                bundlePath: NSWorkspace.shared.urlForApplication(withBundleIdentifier: identifier)?.path)
+        }
+        let panelWidth = (viewport.width - 80) / 4
+        for (index, maximum) in [48, 32, 24, 48].enumerated() {
+            var snapshot = fixture()
+            snapshot.configuration.dockIconSize = CGFloat(maximum)
+            snapshot.configuration.chromeStyle = .liquidGlass
+            snapshot.configuration.showsClock = true
+            snapshot.configuration.showsSeconds = true
+            snapshot.visibleWidth = snapshot.configuration.compactRailWidth
+            snapshot.workspaces[0].apps = index == 3 ? icons : Array(icons.prefix(1))
+            snapshot.workspaces[1].apps = index == 3 ? icons : Array(icons.suffix(1))
+            let height: CGFloat = index == 3 ? 240 : 400
+            let fitted = WorkspaceSidebarView(snapshot: snapshot).dockLayout(availableHeight: height)
+            let panel = NSPanel(contentRect: CGRect(x: viewport.minX + 20 + CGFloat(index) * (panelWidth + 20),
+                y: viewport.minY + 4, width: panelWidth, height: 450),
+                styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+            panel.isReleasedWhenClosed = false
+            panel.isOpaque = false
+            panel.backgroundColor = .clear
+            panel.level = .floating
+            panel.contentView = NSHostingView(rootView: VStack(alignment: .leading, spacing: 4) {
+                Text(index == 3 ? "Adaptive" : "\(maximum) pt icons").font(.headline)
+                Text("\(fitted.dockIconSize, specifier: "%.1f") / \(fitted.compactRailWidth, specifier: "%.1f") pt")
+                    .font(.caption).monospacedDigit()
+                WorkspaceSidebarView(snapshot: snapshot).frame(height: height)
+                Spacer(minLength: 0)
+            }.foregroundStyle(.white))
+            panel.orderFrontRegardless()
+            panels.append(panel)
+        }
+        try await Task.sleep(for: .seconds(1))
+        try "ready".write(toFile: directory + "/dock-preview-ready.txt", atomically: true, encoding: .utf8)
+        try await Task.sleep(for: .seconds(20))
+    }
+
     func testLargestFittingSizeReservesAllNonIconControls() {
         for maximum: CGFloat in [24, 32, 48] {
             var configuration = fixture().configuration
@@ -115,6 +260,8 @@ final class WorkspaceSidebarDockAdaptiveSizingTest: XCTestCase {
         let enlarged = try XCTUnwrap(sample.probe.icons.first)
         XCTAssertEqual(enlarged.width, resting.width * 1.5, accuracy: 0.01)
         XCTAssertEqual(enlarged.minX, resting.minX, accuracy: 0.01)
+        XCTAssertEqual(try XCTUnwrap(sample.probe.surface).width, layout.compactRailWidth, accuracy: 0.01,
+            "Magnification must not widen the shelf")
         XCTAssertEqual(view.dockLayout(availableHeight: 520), layout, "Hover must not refit the resting column")
     }
 
@@ -205,10 +352,13 @@ final class WorkspaceSidebarDockAdaptiveSizingTest: XCTestCase {
     private func assertIcons(_ probe: AdaptiveSizingProbe, count: Int, size: CGFloat, availableHeight: CGFloat,
                              file: StaticString = #filePath, line: UInt = #line) throws {
         XCTAssertEqual(probe.icons.count, count, "Every app and workspace number must be visible", file: file, line: line)
-        XCTAssertEqual(try XCTUnwrap(probe.surface).width, 64, file: file, line: line)
+        let surface = try XCTUnwrap(probe.surface)
+        XCTAssertEqual(try XCTUnwrap(probe.restingWidth), surface.width, accuracy: 0.001, file: file, line: line)
+        XCTAssertEqual(surface.width / size, 4 / 3, accuracy: 0.001, file: file, line: line)
         for frame in probe.icons {
             XCTAssertEqual(frame.width, size, accuracy: 0.01, file: file, line: line)
             XCTAssertEqual(frame.height, size, accuracy: 0.01, file: file, line: line)
+            XCTAssertEqual(frame.midX, surface.midX, accuracy: 0.01, file: file, line: line)
             XCTAssertGreaterThanOrEqual(frame.minY, 0, file: file, line: line)
             XCTAssertLessThanOrEqual(frame.maxY, availableHeight, file: file, line: line)
         }
@@ -218,6 +368,7 @@ final class WorkspaceSidebarDockAdaptiveSizingTest: XCTestCase {
 @MainActor
 private final class AdaptiveSizingProbe {
     var surface: CGRect?
+    var restingWidth: CGFloat?
     var icons: [CGRect] = []
 }
 
@@ -227,7 +378,8 @@ private struct AdaptiveSizingContent: View {
     var pointer: CGPoint? = nil
 
     var body: some View {
-        WorkspaceSidebarView(snapshot: snapshot, actions: .init(setSurfaceFrame: { probe.surface = $0 }), reduceMotionOverride: false)
+        WorkspaceSidebarView(snapshot: snapshot, actions: .init(setSurfaceFrame: { probe.surface = $0 },
+            setDockRestingWidth: { probe.restingWidth = $0 }), reduceMotionOverride: false)
             .environment(\.workspaceSidebarDockPointer, pointer)
             .onPreferenceChange(WorkspaceSidebarDockIconFramesPreference.self) { probe.icons = $0 }
             .transaction { $0.disablesAnimations = true }

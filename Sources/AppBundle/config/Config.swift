@@ -85,10 +85,15 @@ enum WorkspaceSidebarMode: String, CaseIterable, Identifiable, Sendable {
 }
 
 struct WorkspaceSidebarConfig: ConvenienceCopyable, Equatable, Sendable {
+    // Reference dimensions: the shelf scales with the resting icon canvas.
     static let dockCompactWidth = 64
     // macOS icon artwork includes transparent margins. A 48-point canvas paints
     // roughly 40 points inside the 64-point rail, matching native Dock proportions.
     static let defaultDockIconSize = 48
+
+    static func dockWidth(forIconSize size: CGFloat) -> CGFloat {
+        size * CGFloat(dockCompactWidth) / CGFloat(defaultDockIconSize)
+    }
 
     var enabled: Bool = false
     var enableFocus: Bool = false
@@ -126,8 +131,10 @@ struct WorkspaceSidebarConfig: ConvenienceCopyable, Equatable, Sendable {
     var projectLabels: [String: String] = [:]
     var projectColors: [String: String] = [:]
 
-    // Dock mode uses a fixed rail without overwriting the width saved for legacy mode.
-    var effectiveCollapsedWidth: Int { showAppIcons ? Self.dockCompactWidth : collapsedWidth }
+    // Hover magnification never changes the resting width or the saved Sidebar width.
+    var effectiveCollapsedWidth: CGFloat {
+        showAppIcons ? Self.dockWidth(forIconSize: CGFloat(dockIconSize)) : CGFloat(collapsedWidth)
+    }
     var effectiveLeftGap: Int { showAppIcons ? dockLeftGap : 0 }
     var usesDockMagnification: Bool { showAppIcons && dockMagnification && !alwaysExpanded }
 }

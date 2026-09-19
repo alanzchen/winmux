@@ -58,6 +58,7 @@ extension WorkspaceSidebarView {
     }
 
     func compactMonitorSelectorSection(
+        layout: WorkspaceSidebarConfiguration,
         expansionProgress: CGFloat,
         leadingInset: CGFloat,
         trailingInset: CGFloat,
@@ -65,7 +66,7 @@ extension WorkspaceSidebarView {
         WorkspaceSidebarCompactMonitorSelector(
             scopes: snapshot.monitorScopes,
             selectedScopeId: snapshot.selectedMonitorScopeId,
-            sectionWidth: max(snapshot.visibleWidth - leadingInset - trailingInset, 0),
+            sectionWidth: max(fittedVisibleWidth(layout: layout) - leadingInset - trailingInset, 0),
             onSelectScope: { scopeId in
                 browseMode = .activeProject
                 activeInUseOverrideWorkspaceName = nil

@@ -6,7 +6,7 @@ import XCTest
 @MainActor
 final class WorkspaceSidebarAppIconsRenderingTest: XCTestCase {
     func testNativePreviewShowsDockWorkspaceGroupsAtAllSupportedWidths() throws {
-        let widths: [CGFloat] = [28, 44, 64, 120]
+        let widths: [CGFloat] = [32, 44, 64]
         let apps = [
             WorkspaceSidebarAppViewModel(name: "Safari", bundleId: "com.apple.Safari", bundlePath: nil),
             WorkspaceSidebarAppViewModel(name: "Terminal", bundleId: "com.apple.Terminal", bundlePath: nil),
@@ -16,7 +16,7 @@ final class WorkspaceSidebarAppIconsRenderingTest: XCTestCase {
         ]
         let preview = VStack(alignment: .leading, spacing: 16) {
             Text("Workspace Dock").font(.system(size: 20, weight: .semibold))
-            Text("Compact rail: 28, 44, 64 (production), and 120 points").font(.system(size: 12)).foregroundStyle(.secondary)
+            Text("Proportional rails: 32, 44, and 64 points").font(.system(size: 12)).foregroundStyle(.secondary)
             HStack(alignment: .top, spacing: 32) {
                 ForEach(widths, id: \.self) { width in
                     VStack(spacing: 12) {
@@ -49,12 +49,12 @@ final class WorkspaceSidebarAppIconsRenderingTest: XCTestCase {
     }
 
     func testCompactAppSummaryFitsMinimumDefaultAndWideRails() throws {
-        for railWidth: CGFloat in [28, 44, 64, 120] {
+        for railWidth: CGFloat in [32, 44, 64] {
             for appCount in [0, 1, 3, 6, 104] {
                 let section = section(width: railWidth, identifier: "104", apps: sidebarAppIconsTestApps(count: appCount))
                 let content = section
                     .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, 7)
+                    .padding(.horizontal, railWidth * 7 / 64)
                     .frame(width: railWidth)
                     .padding(16)
                 let host = NSHostingView(rootView: content)
@@ -102,13 +102,14 @@ final class WorkspaceSidebarAppIconsRenderingTest: XCTestCase {
                         .offset(y: -3)
                 }
             }
-            .padding(.horizontal, 7)
+            .padding(.horizontal, width * 7 / 64)
             .frame(width: width)
     }
 
     private func layout(width: CGFloat) -> WorkspaceSidebarConfiguration {
         var layout = WorkspaceSidebarConfiguration.empty
         layout.collapsedWidth = width
+        layout.dockIconSize = width * 3 / 4
         layout.expandedWidth = 240
         layout.showAppIcons = true
         layout.chromeStyle = .solid

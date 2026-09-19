@@ -20,6 +20,7 @@ struct WorkspaceSidebarStatusView: View {
     let showsSeconds: Bool
     let showsDate: Bool
     let showsWeekday: Bool
+    var compactScale: CGFloat = 1
 
     var body: some View {
         Group {
@@ -29,6 +30,7 @@ struct WorkspaceSidebarStatusView: View {
                         date: clockDate ?? context.date,
                         sectionWidth: sectionWidth,
                         showsSeconds: showsSeconds,
+                        scale: compactScale,
                     )
                 }
             } else {

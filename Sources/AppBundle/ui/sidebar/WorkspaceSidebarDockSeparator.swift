@@ -10,10 +10,10 @@ struct WorkspaceSidebarDockSeparator: View, Animatable {
     }
 
     var body: some View {
-        let compactWidth = max(layout.compactRailWidth - workspaceSidebarCompactRailHorizontalInset * 2, 1)
+        let compactWidth = max(layout.compactRailWidth - layout.compactHorizontalInset * 2, 1)
         Rectangle()
             .fill(Color.primary.opacity(0.20))
-            .frame(width: min(20, compactWidth), height: 1)
+            .frame(width: min(20 * layout.compactDockScale, compactWidth), height: 1)
             .frame(width: compactWidth)
             .opacity(Double(1 - min(max(expansionProgress, 0), 1)))
             .accessibilityHidden(true)

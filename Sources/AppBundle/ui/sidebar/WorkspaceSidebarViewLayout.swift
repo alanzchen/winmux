@@ -7,10 +7,10 @@ extension WorkspaceSidebarView {
         let isCompact = expansionProgress < workspaceSidebarRowsRevealProgress
         let progress = min(max(expansionProgress, 0), 1)
         let leadingInset = layout.showAppIcons
-            ? workspaceSidebarOuterLeadingPadding(isCompact: true) + progress * (workspaceSidebarOuterLeadingPadding(isCompact: false) - workspaceSidebarOuterLeadingPadding(isCompact: true))
+            ? workspaceSidebarOuterLeadingPadding(isCompact: true, layout: layout) + progress * (workspaceSidebarOuterLeadingPadding(isCompact: false) - workspaceSidebarOuterLeadingPadding(isCompact: true, layout: layout))
             : workspaceSidebarOuterLeadingPadding(isCompact: isCompact)
         let trailingInset = layout.showAppIcons
-            ? workspaceSidebarOuterTrailingPadding(isCompact: true) + progress * (workspaceSidebarOuterTrailingPadding(isCompact: false) - workspaceSidebarOuterTrailingPadding(isCompact: true))
+            ? workspaceSidebarOuterTrailingPadding(isCompact: true, layout: layout) + progress * (workspaceSidebarOuterTrailingPadding(isCompact: false) - workspaceSidebarOuterTrailingPadding(isCompact: true, layout: layout))
             : workspaceSidebarOuterTrailingPadding(isCompact: isCompact)
         let showsMonitorSelector = !isCompact && shouldShowTopFilterBar
         let showsCompactMonitorSelector = isCompact && shouldShowCompactMonitorSelector
@@ -51,12 +51,14 @@ extension WorkspaceSidebarView {
         return VStack(alignment: .leading, spacing: 0) {
             if showsCompactMonitorSelector {
                 compactMonitorSelectorSection(
+                    layout: layout,
                     expansionProgress: expansionProgress,
                     leadingInset: leadingInset,
                     trailingInset: trailingInset,
                 )
             } else if showsMonitorSelector {
                 monitorSelectorSection(
+                    layout: layout,
                     expansionProgress: expansionProgress,
                     leadingInset: leadingInset,
                     trailingInset: trailingInset,
@@ -68,6 +70,7 @@ extension WorkspaceSidebarView {
             }
             if !isCompact, isSearchEditing || !searchText.isEmpty {
                 sidebarSearchSection(
+                    layout: layout,
                     expansionProgress: expansionProgress,
                     leadingInset: leadingInset,
                     trailingInset: trailingInset,
@@ -84,7 +87,7 @@ extension WorkspaceSidebarView {
                 swipeDirection: projectSwipeDirection,
             )
             .frame(
-                width: workspaceSidebarContentFrameWidth(expansionProgress: expansionProgress),
+                width: workspaceSidebarContentFrameWidth(expansionProgress: expansionProgress, layout: layout),
                 alignment: .topLeading
             )
             .frame(maxHeight: .infinity, alignment: .topLeading)
@@ -116,6 +119,7 @@ extension WorkspaceSidebarView {
                     .frame(height: isCompact ? compactProjectReserveHeight + 8 : workspaceSidebarCollapseReservedProjectPagerHeight)
             } else {
                 projectPagerSection(
+                    layout: layout,
                     expansionProgress: expansionProgress,
                     leadingInset: leadingInset,
                     trailingInset: trailingInset,
@@ -127,6 +131,7 @@ extension WorkspaceSidebarView {
 
             if layout.showsClock {
                 statusSection(
+                    layout: layout,
                     expansionProgress: expansionProgress,
                     isCompact: isCompact,
                     leadingInset: leadingInset,
@@ -143,7 +148,7 @@ extension WorkspaceSidebarView {
             actions.setDropTargets(frames)
         }
         .background {
-            sidebarSurface(in: sidebarShape)
+            sidebarSurface(in: sidebarShape(layout: layout))
                 .contentShape(Rectangle())
                 .onTapGesture {
                     NotificationCenter.default.post(name: workspaceSidebarDismissProjectMenusNotification, object: nil)
@@ -156,7 +161,7 @@ extension WorkspaceSidebarView {
                 .frame(width: 0.5)
                 .opacity(Double(dockSurfaceProgress))
         }
-        .modifier(WorkspaceSidebarTrailingOverflowModifier(base: sidebarShape, overflow: dockMagnificationOverflow))
+        .modifier(WorkspaceSidebarTrailingOverflowModifier(base: sidebarShape(layout: layout), overflow: dockMagnificationOverflow(layout: layout)))
         .overlay {
             sidebarSwipeCaptureOverlay(expansionProgress: expansionProgress)
         }
@@ -172,16 +177,17 @@ extension WorkspaceSidebarView {
         return hasFocusFilter || hasOtherProjects || shouldShowCompactMonitorSelector
     }
 
-    func workspaceSidebarSplitSectionWidth(expansionProgress: CGFloat) -> CGFloat {
-        let sectionWidth = workspaceSidebarSectionWidth(expansionProgress, layout: snapshot.configuration)
+    func workspaceSidebarSplitSectionWidth(expansionProgress: CGFloat, layout: WorkspaceSidebarConfiguration? = nil) -> CGFloat {
+        let sectionWidth = workspaceSidebarSectionWidth(expansionProgress, layout: layout ?? snapshot.configuration)
         return (sectionWidth * 2) + workspaceSidebarSplitPaneGap
     }
 
-    func workspaceSidebarContentFrameWidth(expansionProgress: CGFloat) -> CGFloat {
+    func workspaceSidebarContentFrameWidth(expansionProgress: CGFloat, layout: WorkspaceSidebarConfiguration? = nil) -> CGFloat {
+        let layout = layout ?? snapshot.configuration
         guard browsedProjectId != nil else {
-            return max(snapshot.visibleWidth, 0)
+            return max(fittedVisibleWidth(layout: layout), 0)
         }
-        return workspaceSidebarSplitSectionWidth(expansionProgress: expansionProgress) +
+        return workspaceSidebarSplitSectionWidth(expansionProgress: expansionProgress, layout: layout) +
             workspaceSidebarContentLeadingInset +
             workspaceSidebarContentTrailingInset
     }

@@ -133,6 +133,14 @@ extension WorkspaceSidebarPanel {
         scheduleHoverRecheckSoon()
     }
 
+    func updateDockRestingWidth(_ width: CGFloat?) {
+        guard fittedDockRestingWidth != width else { return }
+        // Keep the resting fit through hide/reveal; the animated surface can approach
+        // zero width. This native cache never feeds back into SwiftUI layout.
+        fittedDockRestingWidth = width
+        scheduleHoverRecheckSoon()
+    }
+
     func isScreenPointInsideDockIcon(_ point: CGPoint) -> Bool {
         let localPoint = hostingView.convert(convertPoint(fromScreen: point), from: nil)
         return dockIconFrames.contains { $0.contains(localPoint) }
@@ -970,7 +978,8 @@ extension WorkspaceSidebarPanel {
     func isMouseInsideHoverRegion() -> Bool {
         guard isVisible else { return false }
         let surface = visibleSurfaceFrameOnScreen
-        let hoverRegion = workspaceSidebarHoverRegion(surface: surface, sidebarConfig: config.workspaceSidebar, exitTolerance: hoverExitTolerance)
+        let hoverRegion = workspaceSidebarHoverRegion(surface: surface, sidebarConfig: config.workspaceSidebar,
+            exitTolerance: hoverExitTolerance, fittedDockWidth: fittedDockRestingWidth)
         let inside = hoverRegion.contains(NSEvent.mouseLocation) || isScreenPointInsideDockIcon(NSEvent.mouseLocation)
         if viewModel.workspaceSidebarVisibleWidth > workspaceSidebarRestingWidth(config.workspaceSidebar) + 0.5 || pendingCollapse != nil {
             debugWorkspaceSidebarHoverLog("hoverRegion panel=\(monitorScopeId) inside=\(inside) hoverWidth=\(hoverRegion.width) visibleWidth=\(viewModel.workspaceSidebarVisibleWidth) frame=\(frame) mouse=\(NSEvent.mouseLocation) suppressUntil=\(splitBrowseCollapseSuppressedUntil)")
@@ -987,7 +996,9 @@ extension WorkspaceSidebarPanel {
         return isWorkspaceSidebarHoverDeepEnoughToExpand(
             mouseX: NSEvent.mouseLocation.x,
             sidebarMinX: frame.minX,
-            collapsedWidth: workspaceSidebarHoverActivationWidth(config.workspaceSidebar),
+            collapsedWidth: config.workspaceSidebar.showAppIcons && !config.workspaceSidebar.alwaysExpanded
+                ? fittedDockRestingWidth ?? workspaceSidebarHoverActivationWidth(config.workspaceSidebar)
+                : workspaceSidebarHoverActivationWidth(config.workspaceSidebar),
         )
     }
 }

@@ -103,7 +103,7 @@ struct WorkspaceSidebarCreateWorkspaceSection: View {
                 }
             }
             .padding(.vertical, isCompact ? 3 : 4)
-            .padding(.horizontal, workspaceSidebarSectionInnerHorizontalInset + workspaceSidebarHeaderRowLeadingPadding)
+            .padding(.horizontal, layout.showAppIcons && isCompact ? 0 : workspaceSidebarSectionInnerHorizontalInset + workspaceSidebarHeaderRowLeadingPadding)
             .frame(
                 width: sectionWidth,
                 height: isCompact ? workspaceSidebarWorkspaceSectionHeightCompact : workspaceSidebarWorkspaceSectionHeightExpanded,

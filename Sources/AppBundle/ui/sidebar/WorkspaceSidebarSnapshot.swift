@@ -54,7 +54,11 @@ struct WorkspaceSidebarConfiguration: Equatable {
     // Auto-hide makes collapsedWidth zero; the compact layout retains its resolved rail width.
     var configuredCollapsedWidth: CGFloat? = nil
 
-    var compactRailWidth: CGFloat { configuredCollapsedWidth ?? collapsedWidth }
+    var compactRailWidth: CGFloat {
+        showAppIcons ? WorkspaceSidebarConfig.dockWidth(forIconSize: dockIconSize) : configuredCollapsedWidth ?? collapsedWidth
+    }
+    var compactDockScale: CGFloat { showAppIcons ? dockIconSize / CGFloat(WorkspaceSidebarConfig.defaultDockIconSize) : 1 }
+    var compactHorizontalInset: CGFloat { workspaceSidebarCompactRailHorizontalInset * compactDockScale }
     var expansionStartWidth: CGFloat { showAppIcons ? compactRailWidth : collapsedWidth }
 
     var effectiveGlassOpacity: Double {
@@ -107,6 +111,7 @@ struct WorkspaceSidebarActions {
     var send: @MainActor (WorkspaceSidebarAction) -> Void
     var setDropTargets: @MainActor ([WorkspaceSidebarDropTargetFrame]) -> Void
     var setSurfaceFrame: @MainActor (CGRect) -> Void
+    var setDockRestingWidth: @MainActor (CGFloat?) -> Void
     var setDockIconFrames: @MainActor ([CGRect]) -> Void
     var hoverWorkspace: @MainActor (String, Bool) -> Void
     var resolveAppDragWindow: @MainActor (String, String) -> UInt32?
@@ -120,6 +125,7 @@ struct WorkspaceSidebarActions {
         send: @escaping @MainActor (WorkspaceSidebarAction) -> Void = { _ in },
         setDropTargets: @escaping @MainActor ([WorkspaceSidebarDropTargetFrame]) -> Void = { _ in },
         setSurfaceFrame: @escaping @MainActor (CGRect) -> Void = { _ in },
+        setDockRestingWidth: @escaping @MainActor (CGFloat?) -> Void = { _ in },
         setDockIconFrames: @escaping @MainActor ([CGRect]) -> Void = { _ in },
         hoverWorkspace: @escaping @MainActor (String, Bool) -> Void = { _, _ in },
         resolveAppDragWindow: @escaping @MainActor (String, String) -> UInt32? = { _, _ in nil },
@@ -132,6 +138,7 @@ struct WorkspaceSidebarActions {
         self.send = send
         self.setDropTargets = setDropTargets
         self.setSurfaceFrame = setSurfaceFrame
+        self.setDockRestingWidth = setDockRestingWidth
         self.setDockIconFrames = setDockIconFrames
         self.hoverWorkspace = hoverWorkspace
         self.resolveAppDragWindow = resolveAppDragWindow

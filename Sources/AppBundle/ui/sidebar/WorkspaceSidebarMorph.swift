@@ -138,7 +138,7 @@ struct WorkspaceSidebarMorphOverlay: View {
                 .frame(width: rect.width, height: rect.height)
                 .overlay(alignment: .leading) {
                     if isActive {
-                        WorkspaceSidebarActiveWorkspaceIndicator()
+                        WorkspaceSidebarActiveWorkspaceIndicator(diameter: workspaceSidebarIndicatorDiameter(railWidth: railWidth))
                             .offset(x: workspaceSidebarIndicatorLeadingOffset(tileSize: restingIconSize ?? compactRect.width, railWidth: railWidth))
                             .opacity(Double(1 - clampedProgress))
                     }

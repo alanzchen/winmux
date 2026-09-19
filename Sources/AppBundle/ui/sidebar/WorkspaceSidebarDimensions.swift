@@ -2,8 +2,9 @@ import SwiftUI
 
 @MainActor
 func workspaceSidebarCompactSectionWidth(layout: WorkspaceSidebarConfiguration) -> CGFloat {
-    max(
-        layout.expansionStartWidth - (workspaceSidebarCompactRailHorizontalInset * 2),
+    let width = layout.expansionStartWidth - layout.compactHorizontalInset * 2
+    return layout.showAppIcons ? max(width, 1) : max(
+        width,
         workspaceSidebarBadgeWidth + (workspaceSidebarSectionInnerHorizontalInset * 2),
     )
 }

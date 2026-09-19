@@ -1,15 +1,15 @@
 import SwiftUI
 
-func workspaceSidebarOuterLeadingPadding(isCompact: Bool) -> CGFloat {
-    isCompact ? workspaceSidebarCompactRailHorizontalInset : workspaceSidebarContentLeadingInset
+func workspaceSidebarOuterLeadingPadding(isCompact: Bool, layout: WorkspaceSidebarConfiguration? = nil) -> CGFloat {
+    isCompact ? layout?.compactHorizontalInset ?? workspaceSidebarCompactRailHorizontalInset : workspaceSidebarContentLeadingInset
 }
 
-func workspaceSidebarOuterTrailingPadding(isCompact: Bool) -> CGFloat {
-    isCompact ? workspaceSidebarCompactRailHorizontalInset : workspaceSidebarContentTrailingInset
+func workspaceSidebarOuterTrailingPadding(isCompact: Bool, layout: WorkspaceSidebarConfiguration? = nil) -> CGFloat {
+    isCompact ? layout?.compactHorizontalInset ?? workspaceSidebarCompactRailHorizontalInset : workspaceSidebarContentTrailingInset
 }
 
-func workspaceSidebarStatusBottomPadding(isCompact: Bool) -> CGFloat {
-    workspaceSidebarOuterLeadingPadding(isCompact: isCompact)
+func workspaceSidebarStatusBottomPadding(isCompact: Bool, layout: WorkspaceSidebarConfiguration? = nil) -> CGFloat {
+    workspaceSidebarOuterLeadingPadding(isCompact: isCompact, layout: layout)
 }
 
 func workspaceSidebarFooterBottomPadding(showsClock: Bool) -> CGFloat {

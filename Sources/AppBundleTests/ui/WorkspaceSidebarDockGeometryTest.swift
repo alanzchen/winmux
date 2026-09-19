@@ -215,7 +215,9 @@ final class WorkspaceSidebarDockGeometryTest: XCTestCase {
         snapshot.workspaces[0].apps = sidebarAppIconsTestApps(count: 6)
         let sample = render(snapshot, height: 130)
         let frame = try XCTUnwrap(sample.probe.surface)
-        XCTAssertEqual(frame, CGRect(x: 0, y: 0, width: 64, height: 130))
+        XCTAssertEqual(frame.width, 16 * 4 / 3, accuracy: 0.001)
+        XCTAssertEqual(frame.height, 130)
+        XCTAssertEqual(frame.origin, .zero)
         XCTAssertFalse(sample.probe.targets.isEmpty)
         XCTAssertFalse(sample.probe.targets.contains {
             if case .newWorkspace = $0.kind { return true }

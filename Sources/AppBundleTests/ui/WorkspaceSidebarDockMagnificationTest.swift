@@ -63,7 +63,7 @@ final class WorkspaceSidebarDockMagnificationTest: XCTestCase {
         XCTAssertTrue(parsed.workspaceSidebar.usesDockMagnification)
         XCTAssertEqual(parsed.workspaceSidebar.dockMagnificationAmount, 0.65)
         XCTAssertEqual(parsed.workspaceSidebar.dockIconSize, 40, "A saved icon size must override the larger default")
-        XCTAssertEqual(parsed.workspaceSidebar.effectiveCollapsedWidth, 64)
+        XCTAssertEqual(parsed.workspaceSidebar.effectiveCollapsedWidth, 40 * 4 / 3, accuracy: 0.001)
         XCTAssertFalse(parsed.workspaceSidebar.stayOnTop)
         var sidebar = parsed.workspaceSidebar
         sidebar.alwaysExpanded = true
@@ -246,23 +246,23 @@ final class WorkspaceSidebarDockMagnificationTest: XCTestCase {
         let surface = workspaceSidebarSurfaceFrame(availableSize: CGSize(width: 240, height: 900),
             visibleWidth: 64, compactHeight: 400, expansionProgress: 0, fitsDockContent: true)
         let inside = CGPoint(x: 32, y: surface.midY)
-        XCTAssertEqual(view.dockMagnificationPointer(inside, in: surface), inside)
+        XCTAssertEqual(view.dockMagnificationPointer(inside, in: surface, layout: snapshot.configuration), inside)
         let layout = WorkspaceSidebarDockMagnification(itemSize: 40, count: 3, enabled: true)
         for outside in [CGPoint(x: 65, y: inside.y), CGPoint(x: 230, y: inside.y),
                         CGPoint(x: -1, y: inside.y), CGPoint(x: 32, y: surface.minY - 1),
                         CGPoint(x: 32, y: surface.maxY + 1), CGPoint(x: 1, y: surface.minY + 1)] {
-            let pointer = view.dockMagnificationPointer(outside, in: surface)
+            let pointer = view.dockMagnificationPointer(outside, in: surface, layout: snapshot.configuration)
             XCTAssertNil(pointer, "Transparent panel space must not magnify icons: \(outside)")
             XCTAssertEqual(layout.frames(width: 50, pointerY: pointer?.y).map(\.width), [40, 40, 40])
         }
-        XCTAssertNil(view.dockMagnificationPointer(nil, in: surface))
+        XCTAssertNil(view.dockMagnificationPointer(nil, in: surface, layout: snapshot.configuration))
         let protrudingIcon = CGRect(x: 12, y: inside.y - 40, width: 80, height: 80)
         let onIcon = CGPoint(x: 80, y: inside.y)
-        XCTAssertEqual(view.dockMagnificationPointer(onIcon, in: surface, iconFrames: [protrudingIcon]), onIcon)
-        XCTAssertNil(view.dockMagnificationPointer(CGPoint(x: 95, y: inside.y), in: surface, iconFrames: [protrudingIcon]))
-        XCTAssertNil(view.dockMagnificationPointer(CGPoint(x: 80, y: inside.y + 50), in: surface, iconFrames: [protrudingIcon]))
+        XCTAssertEqual(view.dockMagnificationPointer(onIcon, in: surface, layout: snapshot.configuration, iconFrames: [protrudingIcon]), onIcon)
+        XCTAssertNil(view.dockMagnificationPointer(CGPoint(x: 95, y: inside.y), in: surface, layout: snapshot.configuration, iconFrames: [protrudingIcon]))
+        XCTAssertNil(view.dockMagnificationPointer(CGPoint(x: 80, y: inside.y + 50), in: surface, layout: snapshot.configuration, iconFrames: [protrudingIcon]))
         snapshot.visibleWidth = 240
-        XCTAssertNil(WorkspaceSidebarView(snapshot: snapshot).dockMagnificationPointer(inside, in: surface, iconFrames: [protrudingIcon]))
+        XCTAssertNil(WorkspaceSidebarView(snapshot: snapshot).dockMagnificationPointer(inside, in: surface, layout: snapshot.configuration, iconFrames: [protrudingIcon]))
     }
 
     func testNativeIconAnchorsMatchMagnifiedRenderingForHitTargets() throws {

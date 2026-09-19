@@ -41,11 +41,11 @@ final class WorkspaceSidebarMorphRenderingTest: XCTestCase {
     }
 
     func testNativeCompactWidthAndIconAnchorsStayFixedThroughoutExpansion() throws {
-        for railWidth: CGFloat in [28, 44, 120] {
+        for railWidth: CGFloat in [32, 44, 64] {
             for appCount in [1, 3, 6] {
                 let workspace = workspace(appCount: appCount, tabGroup: appCount > 3)
                 let compact = renderSection(workspace, progress: 0, railWidth: railWidth)
-                XCTAssertEqual(compact.size.width + 14, railWidth, accuracy: 0.01)
+                XCTAssertEqual(compact.size.width, (railWidth - compact.section.layout.compactHorizontalInset * 2).rounded(.up), accuracy: 0.01)
                 let compactTitle = try XCTUnwrap(compact.frames[.compactTitle])
                 XCTAssertEqual(compactTitle.width, compactTitle.height, accuracy: 0.01, "Workspace numbers occupy a square app tile")
                 let visibleApps = workspace.apps
@@ -104,7 +104,7 @@ final class WorkspaceSidebarMorphRenderingTest: XCTestCase {
                 XCTAssertEqual(sample.size.width, sample.section.sectionWidth.rounded(.up), accuracy: 0.01)
             }
             let compact = renderSection(workspace, progress: 0, expandedWidth: expandedWidth)
-            XCTAssertEqual(compact.size.width + 14, 44, accuracy: 0.01)
+            XCTAssertEqual(compact.size.width, (44 - compact.section.layout.compactHorizontalInset * 2).rounded(.up), accuracy: 0.01)
         }
     }
 
@@ -169,14 +169,15 @@ final class WorkspaceSidebarMorphRenderingTest: XCTestCase {
         let preview = VStack(alignment: .leading, spacing: 16) {
             Text("Compact → Expanded")
                 .font(.system(size: 20, weight: .semibold))
-            Text("Fixed 44-point compact rail · 240-point expanded sidebar")
+            Text("Proportional 44-point compact rail · 240-point expanded sidebar")
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
             HStack(alignment: .top, spacing: 22) {
                 ForEach(progressValues, id: \.self) { progress in
                     let section = self.section(workspace, progress: progress)
                     let namedSection = self.section(namedWorkspace, progress: progress)
-                    let outerInset = 7 + 5 * progress
+                    let inset = section.layout.compactHorizontalInset
+                    let outerInset = inset + (12 - inset) * progress
                     VStack(alignment: .leading, spacing: 12) {
                         Text("\(Int(progress * 100))%")
                             .font(.system(size: 11, weight: .medium))
@@ -246,6 +247,7 @@ final class WorkspaceSidebarMorphRenderingTest: XCTestCase {
     ) -> WorkspaceSidebarWorkspaceSection {
         var layout = WorkspaceSidebarConfiguration.empty
         layout.collapsedWidth = railWidth
+        layout.dockIconSize = railWidth * 3 / 4
         layout.expandedWidth = expandedWidth
         layout.showAppIcons = true
         layout.chromeStyle = .solid

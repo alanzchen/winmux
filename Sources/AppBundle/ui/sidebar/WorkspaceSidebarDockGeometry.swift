@@ -13,8 +13,7 @@ func workspaceSidebarFittedDockIconSize(
     projectCount: Int
 ) -> CGFloat {
     guard configuration.showAppIcons else { return configuration.dockIconSize }
-    let maximum = min(configuration.dockIconSize,
-                      max(configuration.compactRailWidth - workspaceSidebarCompactRailHorizontalInset * 2, 1))
+    let maximum = configuration.dockIconSize
     let iconCount = appCounts.reduce(0) { $0 + 1 + max($1, 0) }
     guard iconCount > 0, availableHeight.isFinite else { return maximum }
     func fits(_ size: CGFloat) -> Bool {
@@ -56,7 +55,7 @@ func workspaceSidebarDockContentHeight(
     showsMonitorSelector: Bool,
     projectCount: Int
 ) -> CGFloat {
-    let iconWidth: CGFloat = max(configuration.compactRailWidth - workspaceSidebarCompactRailHorizontalInset * 2, 1)
+    let iconWidth: CGFloat = max(configuration.compactRailWidth - configuration.compactHorizontalInset * 2, 1)
     let workspaceHeights: [CGFloat] = appCounts.map {
         WorkspaceSidebarAppIconLayout(appCount: $0, availableWidth: iconWidth, magnificationEnabled: configuration.dockMagnification, iconSize: configuration.dockIconSize, magnificationAmount: configuration.dockMagnificationAmount).height + 6
     }
@@ -74,7 +73,8 @@ func workspaceSidebarDockContentHeight(
         ? min(CGFloat(projectCount), 5) * workspaceSidebarProjectDotFrameHeight + 8
         : 0
     let clockHeight: CGFloat = configuration.showsClock
-        ? (configuration.showsSeconds ? 92 : 68) + 8 + workspaceSidebarStatusBottomPadding(isCompact: true)
+        ? (configuration.showsSeconds ? 92 : 68) * configuration.compactDockScale + 8
+            + workspaceSidebarStatusBottomPadding(isCompact: true, layout: configuration)
         : 0
     let footerHeight: CGFloat = workspaceSidebarFooterBottomPadding(showsClock: configuration.showsClock)
     // The visible chevron button is 28 points high with 4 points of bottom padding.
@@ -112,6 +112,14 @@ struct WorkspaceSidebarSurfaceFramePreferenceKey: PreferenceKey {
     static let defaultValue: CGRect? = nil
 
     static func reduce(value: inout CGRect?, nextValue: () -> CGRect?) {
+        value = nextValue() ?? value
+    }
+}
+
+struct WorkspaceSidebarDockRestingWidthPreferenceKey: PreferenceKey {
+    static let defaultValue: CGFloat? = nil
+
+    static func reduce(value: inout CGFloat?, nextValue: () -> CGFloat?) {
         value = nextValue() ?? value
     }
 }

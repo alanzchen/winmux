@@ -2,13 +2,13 @@
 
 The September 17 reference shows a roughly 167-pixel shelf, 104-pixel visible
 icons, and 136-pixel spacing between icon centers. Scaling those proportions to
-WinMux's fixed 64-point rail gives about 40 points of artwork and a 52-point pitch.
+WinMux's reference 64-point rail gives about 40 points of artwork and a 52-point pitch.
 
 ## Default geometry when space permits
 
 | Measurement | Previous default | New default |
 | --- | --- | --- |
-| Fixed rail width | 64 pt | 64 pt |
+| Reference rail width | 64 pt | 64 pt |
 | Icon canvas | 40 pt | 48 pt |
 | Space between canvases | 6 pt | 4 pt |
 | Icon-center pitch | 46 pt | 52 pt |
@@ -23,7 +23,8 @@ magnification layout moves the separators. The icon-size setting still accepts
 ## Liquid Glass implementation
 
 Dock mode uses SwiftUI's public `.glassEffect(.clear.interactive(false), in:)`
-on one background surface throughout expansion. Apple's
+on the compact background. Expanded Dock now uses the separately configured darker
+Sidebar glass described in [Sidebar appearance](sidebar-appearance.md). Apple's
 [Liquid Glass guidance](https://developer.apple.com/videos/play/wwdc2025/219/)
 describes clear glass as more transparent than the adaptive regular variant.
 This choice brings more wallpaper color through than the previous `.regular`
@@ -60,7 +61,7 @@ the displayed project and monitor filter; unrelated projects do not reduce the s
 While swiping projects, both visible pages use a size that fits the larger page.
 
 The saved `dock-icon-size` remains the maximum. Icons grow back when items close
-or more height becomes available. The fixed rail stays 64 points wide. Sizes stop
+or more height becomes available. The rail and its side padding now shrink with the fitted icons. Sizes stop
 at 16 points; exceptionally crowded lists remain scrollable with every app retained.
 
 Fitting uses the parent viewport before the animation host, without publishing
@@ -69,7 +70,8 @@ uses the fitted size and never feeds its enlargement back into the fit calculati
 Drag previews use counts from before the preview was applied, avoiding a loop in
 which a preview resizes its own hover target. Committed model changes refit normally.
 
-Native preview captures, all with a configured maximum of 48 points:
+Earlier native preview captures, all with a configured maximum of 48 points and
+the previous fixed-width shelf:
 
 | 508 pt available → 48 pt icons | 240 pt available → 28.5 pt icons | 180 pt available → 16.5 pt icons |
 | --- | --- | --- |
@@ -108,3 +110,56 @@ morph and a swipe between differently populated projects. The reviews do not est
 physical 120 Hz smoothness or replace the outstanding live multi-monitor drag checks.
 The 793-test/build results above are from the implementation validation; this
 documentation-only follow-up did not rerun the application suite.
+
+## Proportional width — September 19, 2026
+
+The Dock keeps the reference ratio at every resting size: the icon canvas occupies
+75% of the shelf width. Configured maximum sizes and automatic fitting both use the
+same proportions; the saved Sidebar width remains independent.
+
+| Resting icon canvas | Dock width |
+| --- | --- |
+| 48 pt | 64 pt |
+| 40 pt | 53⅓ pt |
+| 32 pt | 42⅔ pt |
+| 24 pt | 32 pt |
+| 16 pt adaptive minimum | 21⅓ pt |
+
+Horizontal insets, corner radius, separator length, and the compact clock scale
+with the shelf. The active-workspace dot stays centered in the left gutter and
+remains at least two points wide. The left-screen gap is preserved. Magnification
+only enlarges the icons; it never widens the shelf or changes the fitting size.
+Expansion interpolates from the fitted shelf to the original expanded Sidebar.
+Auto-hide keeps the fitted resting hover region throughout reveal, avoiding a
+briefly shrinking activation target while the glass appears.
+
+The native panel and tiling reservation use the configured maximum width so that
+adaptive fitting cannot repeatedly resize managed windows and refit itself. The
+visible surface, hover region, and icon/drop hit regions use the fitted geometry.
+All fitting remains outside the per-frame magnification callback.
+
+
+### Proportional width validation
+
+![Configured and fitted Dock sizes in the macOS VM](images/dock-proportions.png)
+
+This is a real WindowServer capture of production views in a Tart macOS VM,
+showing configured 48, 32, and 24-point icons plus the adaptive 16-point minimum.
+The last column is deliberately crowded; content remains scrollable at the minimum.
+The preview uses sample workspaces and does not replace the installed application.
+
+Swift 6.2.4 ARM64: 291 focused sidebar tests and 869 total tests, each with seven
+expected opt-in skips and zero failures, plus the application/CLI build. Coverage includes native view geometry during hidden-to-compact reveal
+and fitted-to-expanded transitions, pointer corner acceptance, magnification clipping,
+Sidebar's legacy width floor, and screen-gap preservation across icon sizes.
+The VM run passed 13 tests with no failures and produced the capture above.
+Physical non-Retina displays, live multi-monitor dragging, and 120 Hz motion were
+not remeasured for this geometry change.
+
+
+Claude CLI (`claude-fable-5`) and agy CLI (`gemini-3.8-flash-high`) independently
+reviewed this change, followed by targeted reviews of the fixes. Accepted findings
+improved auto-hide reveal geometry, fitted clipping, and the native resting-width
+cache used for hover. The final reviews found no remaining supported defects.
+Raw reports and the disposition of other findings are retained under ignored
+`.local/reviews/dock-proportions-20260919/`.

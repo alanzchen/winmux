@@ -8,15 +8,19 @@ final class WorkspaceSidebarDockGapTest: XCTestCase {
         var sidebar = WorkspaceSidebarConfig(mode: .dock)
         for gap in [0, 2, 24] {
             sidebar.dockLeftGap = gap
-            for screenX: CGFloat in [-1920, 0, 2560] {
-                let screen = CGRect(x: screenX, y: -100, width: 1920, height: 1080)
-                let layout = try XCTUnwrap(workspaceSidebarPanelLayout(screenFrame: screen, sidebarConfig: sidebar))
-                XCTAssertEqual(layout.frame.minX, screenX + CGFloat(gap))
-                XCTAssertEqual(layout.frame.minY, screen.minY)
-                XCTAssertEqual(layout.collapsedWidth, 64)
-                XCTAssertEqual(layout.expandedWidth, 240)
-                XCTAssertEqual(layout.frame.width, 480)
-                XCTAssertEqual(workspaceSidebarReservedWidth(sidebar), 64 + CGFloat(gap))
+            for size in [24, 31, 48] {
+                sidebar.dockIconSize = size
+                let railWidth = CGFloat(size) * 4 / 3
+                for screenX: CGFloat in [-1920, 0, 2560] {
+                    let screen = CGRect(x: screenX, y: -100, width: 1920, height: 1080)
+                    let layout = try XCTUnwrap(workspaceSidebarPanelLayout(screenFrame: screen, sidebarConfig: sidebar))
+                    XCTAssertEqual(layout.frame.minX, screenX + CGFloat(gap))
+                    XCTAssertEqual(layout.frame.minY, screen.minY)
+                    XCTAssertEqual(layout.collapsedWidth, railWidth, accuracy: 0.001)
+                    XCTAssertEqual(layout.expandedWidth, 240)
+                    XCTAssertEqual(layout.frame.width, 480)
+                    XCTAssertEqual(workspaceSidebarReservedWidth(sidebar), railWidth + CGFloat(gap), accuracy: 0.001)
+                }
             }
         }
         sidebar.alwaysExpanded = true

@@ -56,7 +56,8 @@ on-mode-changed = []
     # Magnification strength: 0 = none, 0.5 = 1.5x, 1 = 2x; icons grow beyond the glass rail.
     dock-magnification-amount = 0.5
     # Maximum icon canvas size (24...48 points); icons shrink together to fit the available height.
-    # Adaptive sizing stops at 16 points, then scrolls. The rail stays 64 points wide.
+    # Adaptive sizing stops at 16 points, then scrolls. Rail width and side padding
+    # scale with resting icons: 48-point icons use a 64-point rail. Hover does not widen it.
     dock-icon-size = 48
     # Dock-only distance from the left display edge, in points (0-24).
     dock-left-gap = 2
