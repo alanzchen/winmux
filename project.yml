@@ -28,7 +28,10 @@ targets:
         SUPublicEDKey: $(SPARKLE_PUBLIC_KEY)
     sources:
       - "Sources/WinMuxApp"
-      - "resources"
+      - path: "resources"
+        excludes:
+          - "marketing"
+          - "screenshots"
     dependencies:
       - package: WinMuxPackage
         product: AppBundle
