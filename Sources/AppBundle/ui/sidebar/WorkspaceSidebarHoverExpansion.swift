@@ -58,6 +58,7 @@ func workspaceSidebarPersistentVisibleWidth(
     previousExpandedWidth: CGFloat?,
     expandedWidth: CGFloat,
 ) -> CGFloat {
+    // Two-project browsing is the only expanded layout wider than one configured pane.
     let wasShowingSplitBrowse = previousExpandedWidth.map { currentWidth > $0 + 0.5 } ?? false
     return wasShowingSplitBrowse ? expandedWidth * 2 : expandedWidth
 }

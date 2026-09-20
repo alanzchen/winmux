@@ -53,6 +53,7 @@ final class WorkspaceSidebarPanel: NSPanelHud, WorkspaceSidebarInputOwner {
     var edgeTrapSuppressedUntil: TimeInterval = 0
     var splitBrowseCollapseSuppressedUntil: Date = .distantPast
     var persistentExpansionWidth: CGFloat?
+    var lastConfiguredExpandedWidth: CGFloat?
     var visibleSurfaceFrame: CGRect?
     var fittedDockRestingWidth: CGFloat?
     var dockIconFrames: [CGRect] = []

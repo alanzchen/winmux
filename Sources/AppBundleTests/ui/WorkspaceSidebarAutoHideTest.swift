@@ -296,6 +296,95 @@ final class WorkspaceSidebarAutoHideTest: XCTestCase {
         }
     }
 
+    func testRefreshKeepsBothProjectPanesExpandedAtEveryDockPosition() async throws {
+        try await withPanel { panel in
+            config.workspaceSidebar.mode = .dock
+            config.workspaceSidebar.width = 240
+            for autoHide in [false, true] {
+                config.workspaceSidebar.autoHide = autoHide
+                for position in WorkspaceDockPosition.allCases {
+                    config.workspaceSidebar.dockPosition = position
+                    panel.refresh(on: mainMonitor)
+                    panel.viewModel.isWorkspaceSidebarExpanded = true
+                    panel.animateVisibleSidebarWidth(480, animation: .linear)
+                    for _ in 0..<3 {
+                        panel.refresh(on: mainMonitor)
+                        XCTAssertEqual(panel.viewModel.workspaceSidebarVisibleWidth, 480,
+                            "Routine refresh must keep room for both projects at \(position)")
+                    }
+                }
+            }
+        }
+    }
+
+    func testExpandedWidthSettingResizesSingleAndSplitProjectViews() async throws {
+        try await withPanel { panel in
+            for pinned in [false, true] {
+                for columns: CGFloat in [1, 2] {
+                    config.workspaceSidebar.alwaysExpanded = pinned
+                    config.workspaceSidebar.width = 240
+                    panel.refresh(on: mainMonitor)
+                    panel.viewModel.isWorkspaceSidebarExpanded = true
+                    panel.animateVisibleSidebarWidth(240 * columns, animation: .linear)
+                    for width in [280, 200] {
+                        config.workspaceSidebar.width = width
+                        panel.refresh(on: mainMonitor)
+                        XCTAssertEqual(panel.viewModel.workspaceSidebarVisibleWidth, CGFloat(width) * columns,
+                            "Changing width must preserve the number of project panes")
+                    }
+                }
+            }
+        }
+    }
+
+    func testPinnedSplitProjectViewKeepsItsWidthOnPointerExit() async throws {
+        try await withPanel { panel in
+            config.workspaceSidebar.alwaysExpanded = true
+            config.workspaceSidebar.width = 240
+            panel.refresh(on: mainMonitor)
+            panel.animateVisibleSidebarWidth(480, animation: .linear)
+            panel.handleHoverExit(collapsedWidth: 240)
+            XCTAssertEqual(panel.viewModel.workspaceSidebarVisibleWidth, 480)
+            panel.refresh(on: mainMonitor)
+            XCTAssertEqual(panel.viewModel.workspaceSidebarVisibleWidth, 480)
+        }
+    }
+
+    func testPinningAnOpenSplitProjectViewKeepsBothPanes() async throws {
+        try await withPanel { panel in
+            config.workspaceSidebar.width = 240
+            panel.refresh(on: mainMonitor)
+            panel.viewModel.isWorkspaceSidebarExpanded = true
+            panel.animateVisibleSidebarWidth(480, animation: .linear)
+            config.workspaceSidebar.alwaysExpanded = true
+            panel.refresh(on: mainMonitor)
+            XCTAssertEqual(panel.viewModel.workspaceSidebarVisibleWidth, 480)
+        }
+    }
+
+    func testInlineEditingAndPinnedCommandCloseKeepBothProjectPanes() async throws {
+        try await withPanel { panel in
+            config.workspaceSidebar.width = 240
+            panel.refresh(on: mainMonitor)
+            panel.viewModel.isWorkspaceSidebarExpanded = true
+            panel.animateVisibleSidebarWidth(480, animation: .linear)
+            panel.prepareForInlineTextEditing()
+            XCTAssertEqual(panel.viewModel.workspaceSidebarVisibleWidth, 480,
+                "Starting search or a rename must not squeeze two projects into one pane")
+            config.workspaceSidebar.alwaysExpanded = true
+            panel.refresh(on: mainMonitor)
+            closeWorkspaceSidebarFromCommand(panel)
+            XCTAssertEqual(panel.viewModel.workspaceSidebarVisibleWidth, 480,
+                "Closing search in pinned mode must leave both project panes open")
+            config.workspaceSidebar.alwaysExpanded = false
+            panel.refresh(on: mainMonitor)
+            panel.viewModel.isWorkspaceSidebarExpanded = true
+            panel.animateVisibleSidebarWidth(480, animation: .linear)
+            closeWorkspaceSidebarFromCommand(panel)
+            XCTAssertEqual(panel.viewModel.workspaceSidebarVisibleWidth, workspaceSidebarRestingWidth(config.workspaceSidebar))
+        }
+    }
+
     private func withPanel(_ body: @MainActor (WorkspaceSidebarPanel) async throws -> Void) async throws {
         _ = NSApplication.shared
         try XCTSkipIf(NSScreen.screens.isEmpty, "Requires a native macOS window server")
@@ -303,11 +392,17 @@ final class WorkspaceSidebarAutoHideTest: XCTestCase {
         let wasEnabled = TrayMenuModel.shared.isEnabled
         let panel = WorkspaceSidebarPanel.shared
         panel.resetHiddenSidebarState()
+        panel.lastConfiguredExpandedWidth = nil
+        panel.persistentExpansionWidth = nil
+        panel.viewModel.isWorkspaceSidebarExpanded = false
         let trackingDepth = panel.menuTrackingDepth
         // Native global pointer location must not drive these controlled transitions.
         panel.menuTrackingDepth = 1
         defer {
             panel.resetHiddenSidebarState()
+            panel.lastConfiguredExpandedWidth = nil
+            panel.persistentExpansionWidth = nil
+            panel.viewModel.isWorkspaceSidebarExpanded = false
             panel.menuTrackingDepth = trackingDepth
             TrayMenuModel.shared.isEnabled = wasEnabled
             config = oldConfig

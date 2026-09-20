@@ -70,7 +70,10 @@ func closeWorkspaceSidebarFromCommand(_ panel: WorkspaceSidebarPanel, restorePre
         NotificationCenter.default.post(name: workspaceSidebarWillCollapseNotification, object: panel)
     }
     clearWorkspaceSidebarCommandInputState(panel)
-    let restingWidth = workspaceSidebarRestingWidth(config.workspaceSidebar)
+    let configuredRestingWidth = workspaceSidebarRestingWidth(config.workspaceSidebar)
+    let restingWidth = config.workspaceSidebar.alwaysExpanded
+        ? max(configuredRestingWidth, panel.viewModel.workspaceSidebarVisibleWidth)
+        : configuredRestingWidth
     panel.animateVisibleSidebarWidth(restingWidth, animation: .easeInOut(duration: panel.animationDuration))
     if restingWidth > 0 { panel.viewModel.isWorkspaceSidebarExpanded = config.workspaceSidebar.alwaysExpanded }
     panel.updateMousePassthrough()

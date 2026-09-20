@@ -104,11 +104,14 @@ extension WorkspaceSidebarPanel {
         if !isVisible {
             refresh()
         }
-        guard viewModel.workspaceSidebarVisibleWidth != expandedWidth || autoHideReason != nil else {
+        // Opening search or a rename must keep room for an existing second project.
+        // Browse-mode and configuration changes resize the surface explicitly.
+        let targetWidth = max(expandedWidth, viewModel.workspaceSidebarVisibleWidth)
+        guard viewModel.workspaceSidebarVisibleWidth != targetWidth || autoHideReason != nil else {
             updateMousePassthrough()
             return
         }
-        animateVisibleSidebarWidth(expandedWidth, animation: .easeInOut(duration: animationDuration))
+        animateVisibleSidebarWidth(targetWidth, animation: .easeInOut(duration: animationDuration))
     }
 
     func cancelExpansionWork() {
@@ -1066,11 +1069,13 @@ extension WorkspaceSidebarPanel {
             }
             setFrame(layout.frame, display: true, animate: false)
         }
+        let previousExpandedWidth = lastConfiguredExpandedWidth
+        lastConfiguredExpandedWidth = layout.expandedWidth
         if config.workspaceSidebar.alwaysExpanded {
             cancelExpansionWork()
             let targetWidth = workspaceSidebarPersistentVisibleWidth(
                 currentWidth: viewModel.workspaceSidebarVisibleWidth,
-                previousExpandedWidth: persistentExpansionWidth,
+                previousExpandedWidth: previousExpandedWidth,
                 expandedWidth: layout.expandedWidth,
             )
             persistentExpansionWidth = layout.expandedWidth
@@ -1092,9 +1097,14 @@ extension WorkspaceSidebarPanel {
                 ? layout.expandedWidth
                 : layout.collapsedWidth
         } else if viewModel.isWorkspaceSidebarExpanded,
-                  viewModel.workspaceSidebarVisibleWidth != layout.expandedWidth {
-            // An explicitly expanded sidebar also follows live width changes.
-            viewModel.workspaceSidebarVisibleWidth = layout.expandedWidth
+                  previousExpandedWidth != layout.expandedWidth {
+            // Only a configuration change resizes an open sidebar. Routine refreshes
+            // must retain the extra width requested by two-project browsing.
+            viewModel.workspaceSidebarVisibleWidth = workspaceSidebarPersistentVisibleWidth(
+                currentWidth: viewModel.workspaceSidebarVisibleWidth,
+                previousExpandedWidth: previousExpandedWidth,
+                expandedWidth: layout.expandedWidth,
+            )
         } else if !viewModel.isWorkspaceSidebarExpanded,
                   pendingExpand == nil,
                   pendingCollapse == nil,
