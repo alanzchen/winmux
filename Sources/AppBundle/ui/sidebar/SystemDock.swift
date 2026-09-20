@@ -138,11 +138,14 @@ func systemDockPointerNearActivation(_ point: CGPoint, target: CGRect?, primaryH
 }
 
 func systemDockPollInterval(pointerNearDock: Bool, dockVisible: Bool,
-    timeSincePointerActivity: TimeInterval) -> TimeInterval {
-    // Hidden, idle Docks need only a slow check. Keep observing a visible Dock
-    // through its exit animation so WinMux returns promptly even without mouse input.
-    guard timeSincePointerActivity < 1 else { return dockVisible ? 0.15 : 1 }
-    return pointerNearDock ? 0.05 : dockVisible ? 0.15 : 1
+    timeSincePointerActivity: TimeInterval, timeSinceSnapshotChange: TimeInterval = .infinity,
+    timeSinceKeyboardActivity: TimeInterval = .infinity) -> TimeInterval {
+    // A stationary visible Dock is just as idle as a hidden one. Keep the fast
+    // cadence only around input and observed transitions, including keyboard reveals.
+    if timeSincePointerActivity < 1, pointerNearDock { return 0.05 }
+    if min(timeSinceSnapshotChange, timeSinceKeyboardActivity) < 1 { return 0.15 }
+    if dockVisible, timeSincePointerActivity < 1 { return 0.15 }
+    return 1
 }
 
 private func readSystemDockSnapshot() -> SystemDockSnapshot? {
@@ -299,16 +302,20 @@ final class SystemDockCoordinator {
     // Elapsed intervals must not stall when the user or NTP adjusts wall time.
     private var lastRead: TimeInterval = -.infinity
     private var lastSuccess: TimeInterval = -.infinity
+    private var lastSnapshotChange: TimeInterval = -.infinity
     private var pointerNearDock = false
     private var lastPointerActivity: TimeInterval = -.infinity
+    private var lastKeyboardActivity: TimeInterval = -.infinity
     private var primaryHeight: CGFloat = 0
     private var screens: [CGRect] = []
     private var observers: [NSObjectProtocol] = []
     private let lease: SystemDockAutoHideLease
+    private let read: @Sendable () async -> SystemDockSnapshot?
+    private let sleep: @Sendable (TimeInterval) async throws -> Void
 
-    private init() {
+    private convenience init() {
         let defaults = UserDefaults.standard
-        lease = SystemDockAutoHideLease(original: defaults.object(forKey: Self.recoveryKey) as? Bool,
+        let lease = SystemDockAutoHideLease(original: defaults.object(forKey: Self.recoveryKey) as? Bool,
             read: { SystemDockBridge.shared.autoHide }, write: { SystemDockBridge.shared.setAutoHide($0) },
             save: { value in
                 if let value { defaults.set(value, forKey: Self.recoveryKey) }
@@ -316,6 +323,11 @@ final class SystemDockCoordinator {
                 // This is a one-time recovery journal, not a per-frame preference.
                 defaults.synchronize()
             })
+        self.init(lease: lease, read: {
+            await Task.detached(priority: .utility) { readSystemDockSnapshot() }.value
+        }, sleep: { seconds in
+            try await Task.sleep(for: .milliseconds(Int64(seconds * 1_000)))
+        })
         for name in [NSWorkspace.activeSpaceDidChangeNotification, NSWorkspace.didActivateApplicationNotification,
                      NSWorkspace.didLaunchApplicationNotification] {
             observers.append(NSWorkspace.shared.notificationCenter.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
@@ -325,6 +337,15 @@ final class SystemDockCoordinator {
         observers.append(NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.shutdown() }
         })
+    }
+
+    // Inject native I/O and suspension to exercise the actual polling loop without
+    // changing the user's Dock preferences or relying on wall-clock test deadlines.
+    init(lease: SystemDockAutoHideLease, read: @escaping @Sendable () async -> SystemDockSnapshot?,
+         sleep: @escaping @Sendable (TimeInterval) async throws -> Void) {
+        self.lease = lease
+        self.read = read
+        self.sleep = sleep
     }
 
     func shutdown() {
@@ -358,14 +379,25 @@ final class SystemDockCoordinator {
             snapshot = .init()
             return
         }
+        startPolling()
+    }
+
+    private func startPolling() {
+        poll?.cancel()
         poll = Task { [weak self] in
             while !Task.isCancelled {
                 guard let self else { return }
                 self.requestRead()
+                // Calculate the next interval from the completed read, not the
+                // previous snapshot; an idle sleep would consume the transition window.
+                await self.readTask?.value
+                guard !Task.isCancelled, self.enabled else { return }
                 let seconds = systemDockPollInterval(pointerNearDock: self.pointerNearDock,
                     dockVisible: self.snapshot.visibleRect != nil,
-                    timeSincePointerActivity: ProcessInfo.processInfo.systemUptime - self.lastPointerActivity)
-                do { try await Task.sleep(for: .milliseconds(Int64(seconds * 1_000))) } catch { return }
+                    timeSincePointerActivity: ProcessInfo.processInfo.systemUptime - self.lastPointerActivity,
+                    timeSinceSnapshotChange: ProcessInfo.processInfo.systemUptime - self.lastSnapshotChange,
+                    timeSinceKeyboardActivity: ProcessInfo.processInfo.systemUptime - self.lastKeyboardActivity)
+                do { try await self.sleep(seconds) } catch { return }
             }
         }
     }
@@ -382,18 +414,30 @@ final class SystemDockCoordinator {
         if pointerNearDock { requestRead() }
     }
 
+    func noteKeyboardActivity(keyCode: UInt16, modifierFlags: NSEvent.ModifierFlags) {
+        // Cmd-Option-D, Control-F3 and Escape can change the Dock with a stationary pointer.
+        // Reuse the existing key monitor; plain typing adds no reads or timers.
+        guard enabled, keyCode == 53 || !modifierFlags.intersection([.command, .control]).isEmpty else { return }
+        let now = ProcessInfo.processInfo.systemUptime
+        let wasIdle = now - lastKeyboardActivity >= 1
+        lastKeyboardActivity = now
+        if wasIdle { startPolling() }
+    }
+
     private func requestRead() {
         let now = ProcessInfo.processInfo.systemUptime
         guard enabled, readTask == nil, now - lastRead >= 0.04 else { return }
         lastRead = now
         let generation = generation
+        let read = read
         readTask = Task { [weak self] in
-            let next = await Task.detached(priority: .utility) { readSystemDockSnapshot() }.value
+            let next = await read()
             guard let self, !Task.isCancelled, self.generation == generation else { return }
             self.readTask = nil
             let monitors = workspaceSidebarResolvedPanelMonitors()
             let previouslyHidden = monitors.map { self.hidesDock(on: $0) }
             if let next {
+                if self.snapshot != next { self.lastSnapshotChange = ProcessInfo.processInfo.systemUptime }
                 self.snapshot = next
                 self.lastSuccess = ProcessInfo.processInfo.systemUptime
                 self.lease.observeCurrentPreference()

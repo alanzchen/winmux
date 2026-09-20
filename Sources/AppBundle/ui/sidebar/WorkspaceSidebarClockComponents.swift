@@ -1,4 +1,13 @@
 import Foundation
+import SwiftUI
+
+func workspaceSidebarClockSchedule(showsSeconds: Bool, now: Date = .now) -> PeriodicTimelineSchedule {
+    let interval: TimeInterval = showsSeconds ? 1 : 60
+    // Align to the displayed unit; a minute-only clock must not lag by the
+    // seconds component of the time at which its view was mounted.
+    let start = floor(now.timeIntervalSince1970 / interval) * interval
+    return .periodic(from: Date(timeIntervalSince1970: start), by: interval)
+}
 
 struct WorkspaceSidebarClockComponents {
     let hour: String

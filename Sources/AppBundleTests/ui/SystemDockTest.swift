@@ -249,12 +249,92 @@ final class SystemDockTest: XCTestCase {
             primaryHeight: 1080, screens: screens))
         XCTAssertEqual(systemDockPollInterval(pointerNearDock: true, dockVisible: false, timeSincePointerActivity: 0.1), 0.05)
         XCTAssertEqual(systemDockPollInterval(pointerNearDock: false, dockVisible: true, timeSincePointerActivity: 0.1), 0.15)
-        XCTAssertEqual(systemDockPollInterval(pointerNearDock: true, dockVisible: true, timeSincePointerActivity: 20), 0.15)
+        XCTAssertEqual(systemDockPollInterval(pointerNearDock: true, dockVisible: true, timeSincePointerActivity: 20), 1)
         XCTAssertEqual(systemDockPollInterval(pointerNearDock: true, dockVisible: false, timeSincePointerActivity: 20), 1)
         // A freshly enabled coordinator has never seen a pointer packet. Its
         // monotonic sentinel must still produce a finite, convertible interval.
         XCTAssertEqual(systemDockPollInterval(pointerNearDock: false, dockVisible: false, timeSincePointerActivity: .infinity), 1)
-        XCTAssertEqual(systemDockPollInterval(pointerNearDock: false, dockVisible: true, timeSincePointerActivity: .infinity), 0.15)
+        XCTAssertEqual(systemDockPollInterval(pointerNearDock: false, dockVisible: true, timeSincePointerActivity: .infinity), 1)
+    }
+
+    func testKeyboardDockTransitionStaysResponsiveThenReturnsToIdleCadence() {
+        XCTAssertEqual(systemDockPollInterval(pointerNearDock: false, dockVisible: true,
+            timeSincePointerActivity: .infinity, timeSinceSnapshotChange: 0.2), 0.15)
+        XCTAssertEqual(systemDockPollInterval(pointerNearDock: false, dockVisible: true,
+            timeSincePointerActivity: .infinity, timeSinceSnapshotChange: 2), 1)
+        XCTAssertEqual(systemDockPollInterval(pointerNearDock: true, dockVisible: false,
+            timeSincePointerActivity: 0.2, timeSinceSnapshotChange: 2), 0.05)
+        XCTAssertEqual(systemDockPollInterval(pointerNearDock: false, dockVisible: false,
+            timeSincePointerActivity: .infinity, timeSinceKeyboardActivity: 0.2), 0.15,
+            "A shortcut can precede the first visible AX frame")
+        XCTAssertEqual(systemDockPollInterval(pointerNearDock: false, dockVisible: false,
+            timeSincePointerActivity: .infinity, timeSinceKeyboardActivity: 2), 1)
+    }
+
+    func testPollingWaitsForNativeReadBeforeChoosingTransitionCadence() async throws {
+        let probe = SystemDockPollingProbe()
+        let coordinator = pollingCoordinator(probe)
+        coordinator.configure(enabled: true, position: .left)
+        defer { coordinator.configure(enabled: false, position: .left) }
+        try await waitForPolling { await probe.reads == 1 }
+        let beforeRead = await probe.sleeps
+        XCTAssertTrue(beforeRead.isEmpty, "Do not choose an idle sleep using the pre-read snapshot")
+        await probe.completeFirstRead(visibleBottomDock())
+        try await waitForPolling { await probe.sleeps.count == 1 }
+        let intervals = await probe.sleeps
+        XCTAssertEqual(intervals, [0.15])
+    }
+
+    func testDisablingDuringNativeReadDoesNotScheduleAnotherPoll() async throws {
+        let probe = SystemDockPollingProbe()
+        let coordinator = pollingCoordinator(probe)
+        coordinator.configure(enabled: true, position: .left)
+        try await waitForPolling { await probe.reads == 1 }
+        coordinator.configure(enabled: false, position: .left)
+        await probe.completeFirstRead(visibleBottomDock())
+        try await Task.sleep(for: .milliseconds(10))
+        let intervals = await probe.sleeps
+        XCTAssertTrue(intervals.isEmpty)
+    }
+
+    func testDockShortcutsWakeIdlePollingWhilePlainTypingDoesNot() async throws {
+        let shortcuts: [(UInt16, NSEvent.ModifierFlags)] = [(2, [.command, .option]), (99, [.control]), (53, [])]
+        for (key, modifiers) in shortcuts {
+            let probe = SystemDockPollingProbe()
+            let coordinator = pollingCoordinator(probe)
+            coordinator.configure(enabled: true, position: .left)
+            defer { coordinator.configure(enabled: false, position: .left) }
+            try await waitForPolling { await probe.reads == 1 }
+            await probe.completeFirstRead(nil)
+            try await waitForPolling { await probe.sleeps.count == 1 }
+            coordinator.noteKeyboardActivity(keyCode: 0, modifierFlags: [.shift])
+            let idleIntervals = await probe.sleeps
+            XCTAssertEqual(idleIntervals, [1])
+            coordinator.noteKeyboardActivity(keyCode: key, modifierFlags: modifiers)
+            try await waitForPolling { await probe.sleeps.count == 2 }
+            let shortcutIntervals = await probe.sleeps
+            XCTAssertEqual(shortcutIntervals, [1, 0.15])
+        }
+    }
+
+    private func pollingCoordinator(_ probe: SystemDockPollingProbe) -> SystemDockCoordinator {
+        let lease = SystemDockAutoHideLease(read: { false }, write: { _ in XCTFail("Unexpected Dock preference write") },
+                                           save: { _ in XCTFail("Unexpected Dock recovery write") })
+        return SystemDockCoordinator(lease: lease, read: { await probe.read() },
+                                     sleep: { try await probe.sleep($0) })
+    }
+
+    private func visibleBottomDock() -> SystemDockSnapshot {
+        let rect = CGRect(x: 200, y: 900, width: 600, height: 80)
+        return .init(targetRect: rect, visibleRect: rect, nativePosition: .bottom)
+    }
+
+    private func waitForPolling(_ condition: () async -> Bool) async throws {
+        let deadline = ContinuousClock.now + .seconds(3)
+        while !(await condition()) {
+            if ContinuousClock.now >= deadline { throw SystemDockPollingProbe.Timeout() }
+            try await Task.sleep(for: .milliseconds(2))
+        }
     }
 
     func testVisibleDockOnlySuppressesMatchingEdgeOnItsDisplayInQuartzCoordinates() {
@@ -359,5 +439,32 @@ private final class DockPreferences {
         SystemDockAutoHideLease(original: original, read: { self.current },
             write: { self.writes.append($0); if self.acceptWrites { self.current = $0 } },
             save: { self.saved.append($0) })
+    }
+}
+
+private actor SystemDockPollingProbe {
+    struct Timeout: Error {}
+    private(set) var reads = 0
+    private(set) var sleeps: [TimeInterval] = []
+    private var firstRead: CheckedContinuation<SystemDockSnapshot?, Never>?
+    private var snapshot: SystemDockSnapshot?
+
+    func read() async -> SystemDockSnapshot? {
+        reads += 1
+        if reads == 1 { return await withCheckedContinuation { firstRead = $0 } }
+        return snapshot
+    }
+
+    func completeFirstRead(_ next: SystemDockSnapshot?) {
+        snapshot = next
+        firstRead?.resume(returning: next)
+        firstRead = nil
+    }
+
+    func sleep(_ seconds: TimeInterval) async throws {
+        sleeps.append(seconds)
+        // The test controls each read and cancels the loop. No real cadence delay
+        // is needed to observe the interval that the production loop selected.
+        try await Task.sleep(for: .seconds(60))
     }
 }

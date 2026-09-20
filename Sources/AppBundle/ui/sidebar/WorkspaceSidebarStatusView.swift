@@ -27,7 +27,7 @@ struct WorkspaceSidebarStatusView: View {
     var body: some View {
         Group {
             if horizontal {
-                TimelineView(.periodic(from: .now, by: 1)) { context in
+                TimelineView(workspaceSidebarClockSchedule(showsSeconds: showsSeconds)) { context in
                     let date = clockDate ?? context.date
                     VStack(spacing: 2) {
                         Text(date, format: showsSeconds ? .dateTime.hour().minute().second() : .dateTime.hour().minute())
@@ -43,7 +43,7 @@ struct WorkspaceSidebarStatusView: View {
                     .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.06)))
                 }
             } else if isCompact {
-                TimelineView(.periodic(from: .now, by: 1)) { context in
+                TimelineView(workspaceSidebarClockSchedule(showsSeconds: showsSeconds)) { context in
                     WorkspaceSidebarCompactClockCard(
                         date: clockDate ?? context.date,
                         sectionWidth: sectionWidth,
@@ -52,7 +52,7 @@ struct WorkspaceSidebarStatusView: View {
                     )
                 }
             } else {
-                TimelineView(.periodic(from: .now, by: 1)) { context in
+                TimelineView(workspaceSidebarClockSchedule(showsSeconds: showsSeconds)) { context in
                     WorkspaceSidebarExpandedStatusCard(
                         date: clockDate ?? context.date,
                         sectionWidth: sectionWidth,

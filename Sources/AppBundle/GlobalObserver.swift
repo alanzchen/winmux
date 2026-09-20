@@ -63,8 +63,11 @@ enum GlobalObserver {
     }
 
     private static func onKeyDown(_ event: NSEvent) {
+        let keyCode = event.keyCode
+        let modifierFlags = event.modifierFlags
         runOnMainActor {
             noteTapBindingKeyDown()
+            SystemDockCoordinator.shared.noteKeyboardActivity(keyCode: keyCode, modifierFlags: modifierFlags)
         }
     }
 

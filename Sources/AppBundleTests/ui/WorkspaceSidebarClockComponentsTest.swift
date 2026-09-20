@@ -3,6 +3,21 @@ import Foundation
 import XCTest
 
 final class WorkspaceSidebarClockComponentsTest: XCTestCase {
+    func testMinuteOnlyClockTicksOnMinuteBoundaries() {
+        let now = Date(timeIntervalSince1970: 125.25)
+        let schedule = workspaceSidebarClockSchedule(showsSeconds: false, now: now)
+        let ticks = Array(schedule.entries(from: now, mode: .normal).prefix(3))
+        // The schedule includes the current displayed minute, then future boundaries.
+        XCTAssertEqual(ticks.map(\.timeIntervalSince1970), [120, 180, 240])
+    }
+
+    func testSecondsClockTicksOnSecondBoundaries() {
+        let now = Date(timeIntervalSince1970: 125.25)
+        let schedule = workspaceSidebarClockSchedule(showsSeconds: true, now: now)
+        let ticks = Array(schedule.entries(from: now, mode: .normal).prefix(3))
+        XCTAssertEqual(ticks.map(\.timeIntervalSince1970), [125, 126, 127])
+    }
+
     private var calendar: Calendar {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(secondsFromGMT: 0)!
