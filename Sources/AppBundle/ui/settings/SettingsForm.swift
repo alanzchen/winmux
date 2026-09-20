@@ -93,8 +93,16 @@ struct SettingsFieldRow: View {
         VStack(alignment: .leading, spacing: 6) {
             switch field.control {
                 case .toggle:
-                    Toggle(field.title, isOn: Binding(get: { current.bool }, set: { change(.bool($0), commit: true) }))
-                        .toggleStyle(.switch).controlSize(.small)
+                    HStack {
+                        Text(field.title).fixedSize(horizontal: false, vertical: true)
+                            .contentShape(Rectangle())
+                            .onTapGesture { change(.bool(!current.bool), commit: true) }
+                            .accessibilityHidden(true)
+                        Spacer(minLength: 8)
+                        Toggle(field.title, isOn: Binding(get: { current.bool }, set: { change(.bool($0), commit: true) }))
+                            .labelsHidden().toggleStyle(.switch).controlSize(.small)
+                            .fixedSize().accessibilityLabel(field.title)
+                    }
                 case .position: positionPicker
                 case .choice(let options):
                     HStack {
