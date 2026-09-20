@@ -6,6 +6,7 @@ enum GlobalObserver {
     @MainActor private static var isInitialized = false
     @MainActor private static var notificationObserverTokens: [NSObjectProtocol] = []
     @MainActor private static var eventMonitorTokens: [Any] = []
+    @MainActor private static var menuTrackingPointerMonitor: MenuTrackingPointerMonitor?
 
     private static func onNotif(_ notification: Notification) {
         // Third line of defence against lock screen window. See: closedWindowsCache
@@ -163,7 +164,19 @@ enum GlobalObserver {
             .leftMouseDragged, .rightMouseDragged, .otherMouseDragged,
             .scrollWheel,
         ]
-        retainEventMonitor(NSEvent.addGlobalMonitorForEvents(matching: pointerActivityMask, handler: onPointerActivity))
+        let pointerMonitor = MenuTrackingPointerMonitor(
+            installMonitor: { NSEvent.addGlobalMonitorForEvents(matching: pointerActivityMask, handler: onPointerActivity) },
+            removeMonitor: { NSEvent.removeMonitor($0) },
+            didResume: {
+                // Closing with Escape can leave the pointer stationary over the Dock.
+                // Resample input now; defer hover until the close notifications settle.
+                let screenPoint = NSEvent.mouseLocation
+                MousePointerTracker.shared.note(point: normalizeAppKitScreenPoint(screenPoint))
+                SystemDockCoordinator.shared.notePointerActivity(screenPoint)
+                WorkspaceSidebarPanel.scheduleHoverRecheckForVisiblePanels()
+            })
+        menuTrackingPointerMonitor = pointerMonitor
+        pointerMonitor.start()
         retainEventMonitor(NSEvent.addLocalMonitorForEvents(matching: pointerActivityMask) { event in
             onPointerActivity(event)
             return event
