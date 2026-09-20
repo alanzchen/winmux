@@ -1,0 +1,9 @@
+{
+  "description": "Geometry-only capture on macOS 26.6.2 (25G83). Auto-hide was enabled and the pointer was on the bottom edge. CoreDockGetRect returned zero reserved height while AXList and its items had on-screen frames. Both main and utility threads returned the same reserved rectangle.",
+  "autoHide": true,
+  "nativePosition": "bottom",
+  "screen": {"x": 0, "y": 0, "width": 3072, "height": 1728},
+  "reservedRect": {"x": 817, "y": 1728, "width": 1438, "height": 0},
+  "listFrame": {"x": 694, "y": 1634, "width": 1684, "height": 84},
+  "accessibility": {"role": "AXList", "orientation": "AXHorizontalOrientation", "positionError": 0, "sizeError": 0}
+}

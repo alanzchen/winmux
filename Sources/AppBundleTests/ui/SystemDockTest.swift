@@ -4,6 +4,104 @@ import XCTest
 
 @MainActor
 final class SystemDockTest: XCTestCase {
+    func testCapturedAutoHiddenDockRevealDoesNotRequireReservedThickness() throws {
+        let url = projectRoot.appending(path: "test-fixtures/accessibility/native-dock-autohide.json")
+        let fixture = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        func rect(_ key: String) throws -> CGRect {
+            let value = try XCTUnwrap(fixture[key] as? [String: Double])
+            return try CGRect(x: XCTUnwrap(value["x"]), y: XCTUnwrap(value["y"]),
+                width: XCTUnwrap(value["width"]), height: XCTUnwrap(value["height"]))
+        }
+        let reserved = try rect("reservedRect")
+        let list = try rect("listFrame")
+        let screen = try rect("screen")
+        let position = try XCTUnwrap(WorkspaceDockPosition(rawValue: XCTUnwrap(fixture["nativePosition"] as? String)))
+        XCTAssertTrue(reserved.isEmpty, "The old reader aborted here before reading the visible AX list")
+        let target = try XCTUnwrap(systemDockVisibilityTarget(reservedRect: reserved, listSize: list.size, position: position))
+        let snapshot = SystemDockSnapshot(targetRect: target,
+            visibleRect: systemDockVisibleRect(listFrame: list, targetFrame: target), nativePosition: position)
+        let display = Rect(topLeftX: screen.minX, topLeftY: screen.minY, width: screen.width, height: screen.height)
+        for winmuxPosition in WorkspaceDockPosition.allCases {
+            XCTAssertEqual(systemDockHidesDock(snapshot, position: winmuxPosition, display: display), winmuxPosition == position)
+        }
+        XCTAssertTrue(systemDockPointerNearActivation(CGPoint(x: screen.midX, y: 1), target: target,
+            primaryHeight: screen.height, screens: [screen], nativePosition: position))
+    }
+
+    func testAutoHiddenDockUsesItsEdgeAnchorThroughRevealOnAdjacentDisplays() throws {
+        let owner = Rect(topLeftX: -1920, topLeftY: -1080, width: 1920, height: 1080)
+        let displays = [owner,
+            Rect(topLeftX: -3840, topLeftY: -1080, width: 1920, height: 1080),
+            Rect(topLeftX: 0, topLeftY: -1080, width: 1920, height: 1080),
+            Rect(topLeftX: -1920, topLeftY: 0, width: 1920, height: 1080)]
+        let docks: [(WorkspaceDockPosition, CGRect, CGRect, CGFloat, CGFloat)] = [
+            (.left, CGRect(x: -1920, y: -800, width: 0, height: 600),
+                CGRect(x: -1910, y: -800, width: 80, height: 600), -1, 0),
+            (.bottom, CGRect(x: -1500, y: 0, width: 800, height: 0),
+                CGRect(x: -1500, y: -90, width: 800, height: 80), 0, 1),
+            (.right, CGRect(x: 0, y: -800, width: 0, height: 600),
+                CGRect(x: -90, y: -800, width: 80, height: 600), 1, 0),
+        ]
+        for (nativePosition, reserved, restingList, dx, dy) in docks {
+            let target = try XCTUnwrap(systemDockVisibilityTarget(reservedRect: reserved,
+                listSize: restingList.size, position: nativePosition))
+            for offset: CGFloat in [0, 40, 88, 89, 90, 170] {
+                let list = restingList.offsetBy(dx: dx * offset, dy: dy * offset)
+                let snapshot = SystemDockSnapshot(targetRect: target,
+                    visibleRect: systemDockVisibleRect(listFrame: list, targetFrame: target), nativePosition: nativePosition)
+                for position in WorkspaceDockPosition.allCases {
+                    XCTAssertEqual(displays.map { systemDockHidesDock(snapshot, position: position, display: $0) },
+                        displays.indices.map { $0 == 0 && position == nativePosition && offset < 89 })
+                }
+            }
+        }
+    }
+
+    func testVisibilityTargetPreservesReservedBoundsAndRejectsUnavailableGeometry() {
+        let target = CGRect(x: 300, y: 900, width: 800, height: 100)
+        XCTAssertEqual(systemDockVisibilityTarget(reservedRect: target, listSize: CGSize(width: 850, height: 120), position: nil), target)
+        for reserved in [CGRect.zero, .null, .infinite, CGRect(x: 0, y: 0, width: -80, height: 600)] {
+            XCTAssertNil(systemDockVisibilityTarget(reservedRect: reserved, listSize: CGSize(width: 80, height: 600), position: .left))
+        }
+        for size in [CGSize.zero, CGSize(width: 80, height: CGFloat.nan), CGSize(width: -80, height: 600)] {
+            XCTAssertNil(systemDockVisibilityTarget(reservedRect: target, listSize: size, position: .bottom))
+        }
+        let edge = CGRect(x: 0, y: 200, width: 0, height: 600)
+        XCTAssertNil(systemDockVisibilityTarget(reservedRect: edge, listSize: CGSize(width: 80, height: 600), position: nil),
+            "Do not guess whether a zero-width edge belongs to the display on its left or right")
+        XCTAssertNil(systemDockVisibilityTarget(reservedRect: edge, listSize: CGSize(width: 80, height: 600), position: .bottom))
+        let thinBottom = CGRect(x: 300, y: 999, width: 800, height: 1)
+        XCTAssertEqual(systemDockVisibilityTarget(reservedRect: thinBottom, listSize: CGSize(width: 800, height: 100), position: .bottom), target)
+    }
+
+    func testNativePositionKeepsShortDocksPollingTheirPhysicalEdge() {
+        let screens = [CGRect(x: 0, y: 0, width: 1920, height: 1080)]
+        let shortLeft = CGRect(x: 0, y: 500, width: 80, height: 40)
+        XCTAssertTrue(systemDockPointerNearActivation(CGPoint(x: 1, y: 100), target: shortLeft,
+            primaryHeight: 1080, screens: screens, nativePosition: .left))
+        XCTAssertFalse(systemDockPointerNearActivation(CGPoint(x: 900, y: 1), target: shortLeft,
+            primaryHeight: 1080, screens: screens, nativePosition: .left))
+        let shortBottom = CGRect(x: 900, y: 1000, width: 40, height: 80)
+        XCTAssertTrue(systemDockPointerNearActivation(CGPoint(x: 200, y: 1), target: shortBottom,
+            primaryHeight: 1080, screens: screens, nativePosition: .bottom))
+        XCTAssertFalse(systemDockPointerNearActivation(CGPoint(x: 1, y: 500), target: shortBottom,
+            primaryHeight: 1080, screens: screens, nativePosition: .bottom))
+    }
+
+    func testNativeOrientationDisambiguatesShortSideDockAtBottomCorner() {
+        let display = Rect(topLeftX: 0, topLeftY: 0, width: 1920, height: 1080)
+        for (nativePosition, x): (WorkspaceDockPosition, CGFloat) in [(.left, 0), (.right, 1840)] {
+            // A short side Dock pinned to the bottom looks horizontal. Prefer
+            // the native orientation over the ambiguous aspect-ratio fallback.
+            let target = CGRect(x: x, y: 1040, width: 80, height: 40)
+            let snapshot = SystemDockSnapshot(targetRect: target, visibleRect: target, nativePosition: nativePosition)
+            for position in WorkspaceDockPosition.allCases {
+                XCTAssertEqual(systemDockHidesDock(snapshot, position: position, display: display), position == nativePosition,
+                    "Native \(nativePosition) at the bottom corner must only suppress WinMux \(nativePosition), not \(position)")
+            }
+        }
+    }
+
     func testBottomLeaseChangesPreferenceOnceAndRestoresOnce() {
         let preferences = DockPreferences()
         let lease = preferences.lease()

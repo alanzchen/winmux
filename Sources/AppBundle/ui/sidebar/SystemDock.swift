@@ -9,10 +9,12 @@ private struct SystemDockBridge: @unchecked Sendable {
     private typealias GetAutoHide = @convention(c) () -> UInt8
     private typealias SetAutoHide = @convention(c) (UInt8) -> Void
     private typealias GetRect = @convention(c) (UnsafeMutablePointer<CGRect>) -> Void
+    private typealias GetOrientation = @convention(c) (UnsafeMutablePointer<Int32>, UnsafeMutablePointer<Int32>) -> Void
     private let handle: UnsafeMutableRawPointer?
     private let getAutoHide: GetAutoHide?
     private let setAutoHideValue: SetAutoHide?
     private let rect: GetRect?
+    private let orientation: GetOrientation?
 
     private init() {
         let handle = dlopen("/System/Library/Frameworks/ApplicationServices.framework/Frameworks/HIServices.framework/HIServices", RTLD_LAZY | RTLD_LOCAL)
@@ -20,15 +22,59 @@ private struct SystemDockBridge: @unchecked Sendable {
         getAutoHide = handle.flatMap { dlsym($0, "CoreDockGetAutoHideEnabled") }.map { unsafeBitCast($0, to: GetAutoHide.self) }
         setAutoHideValue = handle.flatMap { dlsym($0, "CoreDockSetAutoHideEnabled") }.map { unsafeBitCast($0, to: SetAutoHide.self) }
         rect = handle.flatMap { dlsym($0, "CoreDockGetRect") }.map { unsafeBitCast($0, to: GetRect.self) }
+        orientation = handle.flatMap { dlsym($0, "CoreDockGetOrientationAndPinning") }.map { unsafeBitCast($0, to: GetOrientation.self) }
     }
 
     var autoHide: Bool? { getAutoHide.map { $0() != 0 } }
     func setAutoHide(_ enabled: Bool) { setAutoHideValue?(enabled ? 1 : 0) }
-    var targetRect: CGRect? {
+    var position: WorkspaceDockPosition? {
+        guard let orientation else { return nil }
+        var edge: Int32 = 0
+        var pinning: Int32 = 0
+        orientation(&edge, &pinning)
+        switch edge {
+            case 2: return .bottom
+            case 3: return .left
+            case 4: return .right
+            default: return nil
+        }
+    }
+    var reservedRect: CGRect? {
         guard let rect else { return nil }
         var result = CGRect.zero
         rect(&result)
-        return result.isEmpty || result.isNull || result.isInfinite ? nil : result
+        // Auto-hide reserves a zero-thickness line even while the Dock is revealed.
+        // Keep that line: it still identifies the native edge and owning display.
+        return systemDockValidReservedRect(result) ? result : nil
+    }
+}
+
+private func systemDockValidReservedRect(_ rect: CGRect) -> Bool {
+    !rect.isNull && !rect.isInfinite && rect.minX.isFinite && rect.minY.isFinite &&
+        rect.maxX.isFinite && rect.maxY.isFinite &&
+        rect.size.width >= 0 && rect.size.height >= 0 && (rect.width > 1 || rect.height > 1)
+}
+
+/// CoreDockGetRect describes reserved space, not the visible shelf. Reconstruct
+/// its inward thickness from AX without using the animated AX position as the
+/// anchor; an offscreen list must not suppress a Dock on an adjacent display.
+func systemDockVisibilityTarget(reservedRect: CGRect, listSize: CGSize,
+    position: WorkspaceDockPosition?) -> CGRect? {
+    guard systemDockValidReservedRect(reservedRect),
+          listSize.width.isFinite, listSize.height.isFinite,
+          listSize.width > 1, listSize.height > 1 else { return nil }
+    if reservedRect.width > 1 && reservedRect.height > 1 { return reservedRect }
+    switch position {
+        case .bottom where reservedRect.width > 1:
+            return CGRect(x: reservedRect.minX, y: reservedRect.maxY - listSize.height,
+                width: reservedRect.width, height: listSize.height)
+        case .left where reservedRect.height > 1:
+            return CGRect(x: reservedRect.minX, y: reservedRect.minY,
+                width: listSize.width, height: reservedRect.height)
+        case .right where reservedRect.height > 1:
+            return CGRect(x: reservedRect.maxX - listSize.width, y: reservedRect.minY,
+                width: listSize.width, height: reservedRect.height)
+        default: return nil
     }
 }
 
@@ -36,6 +82,7 @@ struct SystemDockSnapshot: Equatable, Sendable {
     /// Quartz coordinates (origin at the primary display's top left).
     var targetRect: CGRect?
     var visibleRect: CGRect?
+    var nativePosition: WorkspaceDockPosition?
 }
 
 func systemDockHidesDock(_ snapshot: SystemDockSnapshot, position: WorkspaceDockPosition, display: Rect) -> Bool {
@@ -43,6 +90,7 @@ func systemDockHidesDock(_ snapshot: SystemDockSnapshot, position: WorkspaceDock
           !target.isEmpty, !target.isNull, !target.isInfinite else { return false }
     let screen = CGRect(x: display.minX, y: display.minY, width: display.width, height: display.height)
     guard systemDockVisibleRect(listFrame: visible, targetFrame: target.intersection(screen)) != nil else { return false }
+    if let nativePosition = snapshot.nativePosition { return position == nativePosition }
 
     // Use the resting target, not the animated/clipped AX frame: its proportions
     // can change while the Dock slides in. Only a shared display edge conflicts.
@@ -74,13 +122,14 @@ func systemDockVisibleRect(listFrame: CGRect, targetFrame: CGRect) -> CGRect? {
 /// Watch the native Dock's edge on every display, including before it migrates.
 /// Scrubbing a left WinMux Dock must not poll a bottom native Dock at pointer rate.
 func systemDockPointerNearActivation(_ point: CGPoint, target: CGRect?, primaryHeight: CGFloat,
-    screens: [CGRect]) -> Bool {
+    screens: [CGRect], nativePosition: WorkspaceDockPosition? = nil) -> Bool {
     guard let target else { return false }
     let native = CGRect(x: target.minX, y: primaryHeight - target.maxY, width: target.width, height: target.height)
     if native.insetBy(dx: -48, dy: -48).contains(point) { return true }
-    let vertical = native.height > native.width
+    let vertical = nativePosition.map { $0 != .bottom } ?? (native.height > native.width)
     let owner = screens.first { $0.intersects(native) }
-    let onLeft = owner.map { abs(native.minX - $0.minX) < abs($0.maxX - native.maxX) } ?? true
+    let onLeft = nativePosition.map { $0 == .left } ??
+        (owner.map { abs(native.minX - $0.minX) < abs($0.maxX - native.maxX) } ?? true)
     return screens.contains { screen in
         guard screen.contains(point) else { return false }
         if !vertical { return point.y - screen.minY < 24 }
@@ -98,9 +147,10 @@ func systemDockPollInterval(pointerNearDock: Bool, dockVisible: Bool,
 
 private func readSystemDockSnapshot() -> SystemDockSnapshot? {
     let bridge = SystemDockBridge.shared
-    guard AXIsProcessTrusted(), let target = bridge.targetRect,
+    guard AXIsProcessTrusted(), let reserved = bridge.reservedRect,
           let dock = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.dock").first
     else { return nil }
+    let nativePosition = bridge.position
     let root = AXUIElementCreateApplication(dock.processIdentifier)
     AXUIElementSetMessagingTimeout(root, 0.1)
     func value(_ element: AXUIElement, _ name: String) -> CFTypeRef? {
@@ -117,8 +167,11 @@ private func readSystemDockSnapshot() -> SystemDockSnapshot? {
         var dimensions = CGSize.zero
         guard AXValueGetValue(position as! AXValue, .cgPoint, &point),
               AXValueGetValue(size as! AXValue, .cgSize, &dimensions) else { continue }
+        guard let target = systemDockVisibilityTarget(reservedRect: reserved, listSize: dimensions,
+            position: nativePosition) else { continue }
         let snapshot = SystemDockSnapshot(targetRect: target,
-            visibleRect: systemDockVisibleRect(listFrame: CGRect(origin: point, size: dimensions), targetFrame: target))
+            visibleRect: systemDockVisibleRect(listFrame: CGRect(origin: point, size: dimensions), targetFrame: target),
+            nativePosition: nativePosition)
         if snapshot.visibleRect != nil { return snapshot }
         hidden = snapshot
     }
@@ -325,7 +378,7 @@ final class SystemDockCoordinator {
         guard enabled else { return }
         lastPointerActivity = ProcessInfo.processInfo.systemUptime
         pointerNearDock = systemDockPointerNearActivation(appKitPoint, target: snapshot.targetRect,
-            primaryHeight: primaryHeight, screens: screens)
+            primaryHeight: primaryHeight, screens: screens, nativePosition: snapshot.nativePosition)
         if pointerNearDock { requestRead() }
     }
 
