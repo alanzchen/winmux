@@ -118,7 +118,7 @@ struct SettingsFieldRow: View {
                                 }.tag(option.value)
                             }
                         }
-                        .labelsHidden().frame(maxWidth: 185).accessibilityLabel(field.title)
+                        .labelsHidden().frame(maxWidth: 185, alignment: .trailing).accessibilityLabel(field.title)
                     }
                 case .integer(let range): numberControl(range: Double(range.lowerBound)...Double(range.upperBound), integer: true)
                 case .percentage, .magnification: numberControl(range: 0...1, integer: false)
