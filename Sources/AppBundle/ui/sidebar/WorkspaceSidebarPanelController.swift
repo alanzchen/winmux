@@ -11,12 +11,16 @@ final class WorkspaceSidebarPanel: NSPanelHud, WorkspaceSidebarInputOwner {
         inputSession.owner as? WorkspaceSidebarPanel
     }
     var canCaptureSidebarInput: Bool {
-        inlineTextEditingActive && isVisible && isKeyWindow && NSApp.isActive &&
+        inlineTextEditingActive && isVisible && autoHideReason == nil && isKeyWindow && NSApp.isActive &&
             config.workspaceSidebar.enabled && TrayMenuModel.shared.isEnabled
     }
 
     let viewModel: TrayMenuModel
     let hostingView: WorkspaceSidebarHostingView
+    let clippingView = NSView()
+    let slidingView = NSView()
+    lazy var slideTransition = WorkspaceSidebarSlideTransition(layer: slidingView.layer!)
+    var autoHideReason: WorkspaceSidebarAutoHideReason?
     let monitorScopeId: String
     var pendingExpand: DispatchWorkItem?
     var pendingCollapse: DispatchWorkItem?
@@ -86,7 +90,14 @@ final class WorkspaceSidebarPanel: NSPanelHud, WorkspaceSidebarInputOwner {
         // required: ordering a floating panel front can override AppKit's Space placement.
         collectionBehavior = [.canJoinAllSpaces, .fullScreenNone]
         applyWorkspaceSidebarLayer(stayOnTop: config.workspaceSidebar.stayOnTop)
-        contentView = hostingView
+        clippingView.wantsLayer = true
+        clippingView.layer?.masksToBounds = true
+        contentView = clippingView
+        slidingView.wantsLayer = true
+        clippingView.addSubview(slidingView)
+        slidingView.frame = clippingView.bounds
+        slidingView.autoresizingMask = [.width, .height]
+        slidingView.addSubview(hostingView)
         hostingView.frame = contentView?.bounds ?? .zero
         hostingView.autoresizingMask = [.width, .height]
         standardWindowButton(.closeButton)?.isHidden = true

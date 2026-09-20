@@ -17,6 +17,10 @@ final class WorkspaceSidebarDockPointerTest: XCTestCase {
         TrayMenuModel.shared.isEnabled = true
         WorkspaceSidebarPanel.refreshAll()
         let panel = try XCTUnwrap(WorkspaceSidebarPanel.visiblePanels.first)
+        // This test exercises pointer delivery at the visible endpoint, independent
+        // of an auto-hide reveal left in progress by another panel fixture.
+        panel.resetHiddenSidebarState()
+        panel.refresh()
         let previousInputView = panel.dockPointerView
         let previousTimestamp = panel.lastHoverMonitorTimestamp
         let view = WorkspaceSidebarDockDisplayLinkView(frame: CGRect(x: 0, y: 0, width: 150, height: 700))

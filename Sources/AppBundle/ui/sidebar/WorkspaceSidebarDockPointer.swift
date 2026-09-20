@@ -21,6 +21,7 @@ extension WorkspaceSidebarDockDisplayLinkView {
         var blockers = pointerBlockers
         if window == nil || !isPointerAttached { blockers.insert(.detached) }
         if window?.isVisible != true || isHiddenOrHasHiddenAncestor { blockers.insert(.hidden) }
+        if let pointerPanel, !pointerPanel.sidebarAcceptsPointer { blockers.insert(.hidden) }
         if isWorkspaceSidebarDragInProgress() { blockers.insert(.drag) }
         if pointerPanel?.menuTrackingDepth ?? 0 > 0 { blockers.insert(.menu) }
         return blockers

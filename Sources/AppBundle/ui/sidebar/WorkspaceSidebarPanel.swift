@@ -67,9 +67,18 @@ let workspaceSidebarProjectColorPresets: [WorkspaceSidebarProjectColorPreset] = 
 ]
 extension WorkspaceSidebarPanel {
     func animateVisibleSidebarWidth(_ width: CGFloat, animation: Animation) {
+        // Only refresh, after checking native visibility, can reveal a suppressed
+        // panel. A reentrant search-cancellation callback cannot override it.
+        guard autoHideReason != .systemChrome else { return }
         debugWorkspaceSidebarHoverLog("animateWidth panel=\(monitorScopeId) from=\(viewModel.workspaceSidebarVisibleWidth) to=\(width) frame=\(frame) mouse=\(NSEvent.mouseLocation) ignores=\(ignoresMouseEvents) expanded=\(viewModel.isWorkspaceSidebarExpanded)")
-        withAnimation(NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? nil : animation) {
-            viewModel.workspaceSidebarVisibleWidth = width
+        if width <= 0 {
+            hideSidebar(.pointerExit)
+        } else if autoHideReason != nil || viewModel.workspaceSidebarVisibleWidth == 0 {
+            revealSidebar(width: width)
+        } else {
+            withAnimation(NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? nil : animation) {
+                viewModel.workspaceSidebarVisibleWidth = width
+            }
         }
         updateMousePassthrough()
         // The hover region just changed size under a possibly stationary cursor.
@@ -95,7 +104,7 @@ extension WorkspaceSidebarPanel {
         if !isVisible {
             refresh()
         }
-        guard viewModel.workspaceSidebarVisibleWidth != expandedWidth else {
+        guard viewModel.workspaceSidebarVisibleWidth != expandedWidth || autoHideReason != nil else {
             updateMousePassthrough()
             return
         }
@@ -170,6 +179,7 @@ extension WorkspaceSidebarPanel {
     }
 
     func dropTarget(atScreenPoint point: CGPoint, hitSlop: NSEdgeInsets) -> WorkspaceSidebarDropTarget? {
+        guard sidebarAcceptsPointer else { return nil }
         let localPoint = hostingView.convert(convertPoint(fromScreen: point), from: nil)
         guard let target = workspaceSidebarLocalDropTarget(at: localPoint,
             targets: localDropTargetFrames, surface: visibleSurfaceFrameInHostingView, hitSlop: hitSlop)
@@ -181,7 +191,7 @@ extension WorkspaceSidebarPanel {
     }
 
     func visibleScreenRectNormalized() -> Rect? {
-        guard isVisible else { return nil }
+        guard isVisible, sidebarAcceptsPointer else { return nil }
         let surface = visibleSurfaceFrameOnScreen
         return surface.isEmpty ? nil : surface.monitorFrameNormalized()
     }
@@ -582,7 +592,7 @@ extension WorkspaceSidebarPanel {
     }
 
     func isScreenPointInsideVisibleRegion(_ point: CGPoint) -> Bool {
-        guard isVisible else { return false }
+        guard isVisible, sidebarAcceptsPointer else { return false }
         return visibleSurfaceFrameOnScreen.contains(point) || isScreenPointInsideDockIcon(point)
     }
 }
@@ -622,11 +632,14 @@ extension WorkspaceSidebarPanel {
               config.workspaceSidebar.enabled,
               let screen = workspaceSidebarPanelScreen(for: monitor)
         else { return nil }
-        guard !shouldSuppressChromeForFullscreenContent(on: monitor),
-              !config.workspaceSidebar.showAppIcons || !SystemDockCoordinator.shared.hidesDock(on: monitor)
-        else { return nil }
+        guard !sidebarIsSuppressed(on: monitor) else { return nil }
 
         return workspaceSidebarPanelLayout(screenFrame: screen.frame, sidebarConfig: config.workspaceSidebar)
+    }
+
+    func sidebarIsSuppressed(on monitor: Monitor) -> Bool {
+        shouldSuppressChromeForFullscreenContent(on: monitor) ||
+            (config.workspaceSidebar.showAppIcons && SystemDockCoordinator.shared.hidesDock(on: monitor))
     }
 
     func workspaceSidebarPanelScreen() -> NSScreen? {
@@ -642,6 +655,7 @@ extension WorkspaceSidebarPanel {
 }
 extension WorkspaceSidebarPanel {
     func setHovering(_ isHovering: Bool) {
+        guard currentSidebarPanelLayout() != nil else { return }
         guard menuTrackingDepth == 0, NSApp.modalWindow == nil else { return }
         let expandedWidth = CGFloat(config.workspaceSidebar.width)
         let collapsedWidth = workspaceSidebarRestingWidth(config.workspaceSidebar)
@@ -676,7 +690,7 @@ extension WorkspaceSidebarPanel {
         if !isVisible {
             refresh()
         }
-        if viewModel.workspaceSidebarVisibleWidth < cueWidth {
+        if viewModel.workspaceSidebarVisibleWidth < cueWidth || autoHideReason != nil {
             animateVisibleSidebarWidth(
                 cueWidth,
                 animation: .spring(response: hoverCueAnimationResponse, dampingFraction: 0.72),
@@ -763,7 +777,7 @@ extension WorkspaceSidebarPanel {
         if !isVisible {
             refresh()
         }
-        if viewModel.workspaceSidebarVisibleWidth != collapsedWidth {
+        if viewModel.workspaceSidebarVisibleWidth != collapsedWidth || autoHideReason != nil {
             animateVisibleSidebarWidth(collapsedWidth, animation: .easeInOut(duration: animationDuration))
         } else {
             updateMousePassthrough()
@@ -780,6 +794,7 @@ extension WorkspaceSidebarPanel {
             expandSidebar(to: CGFloat(config.workspaceSidebar.width))
             return
         }
+        guard autoHideReason == nil else { return }
         guard Date() >= splitBrowseCollapseSuppressedUntil else {
             debugWorkspaceSidebarHoverLog("handleHoverExit suppressed panel=\(monitorScopeId)")
             return
@@ -818,7 +833,8 @@ extension WorkspaceSidebarPanel {
                 return
             }
             self.animateVisibleSidebarWidth(collapsedWidth, animation: .easeInOut(duration: self.animationDuration))
-            self.scheduleCollapseFinalize()
+            // Auto-hide owns its completion; do not mutate the outgoing layout early.
+            if collapsedWidth > 0 { self.scheduleCollapseFinalize() }
         }
         pendingCollapse = collapse
         let collapseDelay: TimeInterval = viewModel.isWorkspaceSidebarExpanded ? 0.08 : 0
@@ -967,11 +983,39 @@ extension WorkspaceSidebarPanel {
     }
 
     func isMouseInsideHoverRegion() -> Bool {
+        isScreenPointInsideHoverRegion(NSEvent.mouseLocation)
+    }
+
+    func isScreenPointInsideHoverRegion(_ point: CGPoint) -> Bool {
         guard isVisible else { return false }
-        let surface = visibleSurfaceFrameOnScreen
+        var surface = visibleSurfaceFrameOnScreen
+        if autoHideReason == .pointerExit {
+            // Retain the long axis for edge re-entry, but never let an outgoing
+            // expanded/search view leave a wide invisible hover target behind.
+            let gap = CGFloat(config.workspaceSidebar.effectiveLeftGap)
+            switch config.workspaceSidebar.effectiveDockPosition {
+                case .left, .right:
+                    // Cold launch has no SwiftUI preference yet. Keep edge reveal
+                    // available until the first real compact extent arrives.
+                    if surface.height <= 0 {
+                        surface.origin.y = frame.minY
+                        surface.size.height = frame.height
+                    }
+                    surface.origin.x = config.workspaceSidebar.effectiveDockPosition == .left
+                        ? frame.minX + gap : frame.maxX - gap
+                    surface.size.width = 0
+                case .bottom:
+                    if surface.width <= 0 {
+                        surface.origin.x = frame.minX
+                        surface.size.width = frame.width
+                    }
+                    surface.origin.y = frame.minY + gap
+                    surface.size.height = 0
+            }
+        }
         let hoverRegion = workspaceSidebarHoverRegion(surface: surface, displayFrame: frame, sidebarConfig: config.workspaceSidebar,
             exitTolerance: hoverExitTolerance, fittedDockWidth: fittedDockRestingWidth)
-        let inside = hoverRegion.contains(NSEvent.mouseLocation) || isScreenPointInsideDockIcon(NSEvent.mouseLocation)
+        let inside = hoverRegion.contains(point) || (autoHideReason == nil && isScreenPointInsideDockIcon(point))
         if viewModel.workspaceSidebarVisibleWidth > workspaceSidebarRestingWidth(config.workspaceSidebar) + 0.5 || pendingCollapse != nil {
             debugWorkspaceSidebarHoverLog("hoverRegion panel=\(monitorScopeId) inside=\(inside) hoverWidth=\(hoverRegion.width) visibleWidth=\(viewModel.workspaceSidebarVisibleWidth) frame=\(frame) mouse=\(NSEvent.mouseLocation) suppressUntil=\(splitBrowseCollapseSuppressedUntil)")
         }
@@ -1001,15 +1045,25 @@ extension WorkspaceSidebarPanel {
         refresh(on: monitor)
     }
 
-    func refresh(on monitor: Monitor) {
+    func refresh(on monitor: Monitor, mouseLocation: CGPoint = NSEvent.mouseLocation) {
         applyWorkspaceSidebarLayer(stayOnTop: config.workspaceSidebar.stayOnTop)
         guard let layout = currentSidebarPanelLayout(on: monitor) else {
-            cancelExpansionWork()
-            resetHiddenSidebarState()
+            if config.workspaceSidebar.enabled, TrayMenuModel.shared.isEnabled,
+               workspaceSidebarPanelScreen(for: monitor) != nil, sidebarIsSuppressed(on: monitor) {
+                hideSidebar(.systemChrome)
+            } else {
+                resetHiddenSidebarState()
+            }
             return
         }
 
         if frame != layout.frame {
+            if slideTransition.isAnimating {
+                let reason = autoHideReason
+                slideTransition.reset()
+                autoHideReason = nil
+                if let reason { hideSidebar(reason, animated: false) }
+            }
             setFrame(layout.frame, display: true, animate: false)
         }
         if config.workspaceSidebar.alwaysExpanded {
@@ -1028,7 +1082,11 @@ extension WorkspaceSidebarPanel {
             cancelExpansionWork()
             persistentExpansionWidth = nil
             viewModel.isWorkspaceSidebarExpanded = false
-            viewModel.workspaceSidebarVisibleWidth = layout.collapsedWidth
+            if layout.collapsedWidth == 0 {
+                if isScreenPointInsideHoverRegion(mouseLocation) {
+                    viewModel.workspaceSidebarVisibleWidth = workspaceSidebarHoverActivationWidth(config.workspaceSidebar)
+                } else { hideSidebar(.pointerExit) }
+            } else { viewModel.workspaceSidebarVisibleWidth = layout.collapsedWidth }
         } else if viewModel.workspaceSidebarVisibleWidth == 0 {
             viewModel.workspaceSidebarVisibleWidth = viewModel.isWorkspaceSidebarExpanded
                 ? layout.expandedWidth
@@ -1040,10 +1098,20 @@ extension WorkspaceSidebarPanel {
         } else if !viewModel.isWorkspaceSidebarExpanded,
                   pendingExpand == nil,
                   pendingCollapse == nil,
+                  autoHideReason != .pointerExit,
+                  !(config.workspaceSidebar.autoHide && isScreenPointInsideHoverRegion(mouseLocation)),
                   viewModel.workspaceSidebarVisibleWidth != layout.collapsedWidth
         {
-            // Apply auto-hide/collapsed-width changes immediately on config reload.
-            viewModel.workspaceSidebarVisibleWidth = layout.collapsedWidth
+            // A config reload must use the same slide as a pointer-driven hide.
+            if layout.collapsedWidth == 0 { hideSidebar(.pointerExit) }
+            else { viewModel.workspaceSidebarVisibleWidth = layout.collapsedWidth }
+        }
+        if viewModel.workspaceSidebarVisibleWidth == 0 {
+            autoHideReason = .pointerExit
+            slideTransition.reset(hidden: true, offset: slideOffset)
+        } else if autoHideReason == .systemChrome ||
+                    (autoHideReason == .pointerExit && (!config.workspaceSidebar.autoHide || config.workspaceSidebar.alwaysExpanded)) {
+            revealSidebar(width: viewModel.workspaceSidebarVisibleWidth)
         }
         updateMousePassthrough()
         orderFrontRegardless()
@@ -1060,13 +1128,21 @@ extension WorkspaceSidebarPanel {
     func resetHiddenSidebarState() {
         dockPointerView?.reset(reason: .hidden)
         cancelInlineTextEditing()
+        // onCancel may have synchronously attempted a close/reveal animation.
+        autoHideReason = nil
+        slideTransition.reset()
         clearWorkspaceSidebarCommandInputState(self)
         cancelExpansionWork()
         ignoresMouseEvents = true
+        clearHiddenSidebarContent()
+        if isVisible { orderOut(nil) }
+    }
+
+    func clearHiddenSidebarContent(preserveSurface: Bool = false) {
         // Runs for every inactive panel on every refreshAll — guard the shared-model writes so
         // they don't invalidate every observer each session.
         localDropTargetFrames = []
-        visibleSurfaceFrame = nil
+        if !preserveSurface { visibleSurfaceFrame = nil }
         dockIconFrames = []
         if let preview = TrayMenuModel.shared.workspaceSidebarDropPreview,
            preview.targetMonitorScopeId == nil || preview.targetMonitorScopeId == monitorScopeId {
@@ -1076,8 +1152,5 @@ extension WorkspaceSidebarPanel {
             TrayMenuModel.shared.setIfChanged(\.workspaceSidebarHoveredWorkspaceName, nil)
         }
         viewModel.setIfChanged(\.workspaceSidebarVisibleWidth, 0)
-        if isVisible {
-            orderOut(nil)
-        }
     }
 }

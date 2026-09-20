@@ -152,7 +152,7 @@ final class WorkspaceSidebarFullscreenTest: XCTestCase {
         XCTAssertEqual(TrayMenuModel.shared.workspaceSidebarDropPreview?.sourceWindowId, 1)
     }
 
-    func testBothModesHideCancelEditingAndRestoreConfiguredWidth() throws {
+    func testBothModesHideCancelEditingAndRestoreConfiguredWidth() async throws {
         _ = NSApplication.shared
         try XCTSkipIf(NSScreen.screens.isEmpty, "Requires a native macOS window server")
         let panel = WorkspaceSidebarPanel.shared
@@ -182,14 +182,19 @@ final class WorkspaceSidebarFullscreenTest: XCTestCase {
                 panel.pendingExpand = DispatchWorkItem { XCTFail("Hidden panel expanded") }
                 nativeFullscreenChromeSuppression.windowFrames = [CGRect(x: 0, y: 0, width: 1920, height: 1080)]
                 panel.refresh(on: mainMonitor)
-                XCTAssertFalse(panel.isVisible)
                 XCTAssertTrue(panel.ignoresMouseEvents)
-                XCTAssertEqual(panel.viewModel.workspaceSidebarVisibleWidth, 0)
                 XCTAssertEqual(cancellations, 1)
                 XCTAssertNil(WorkspaceSidebarPanel.inputSession.owner)
                 XCTAssertNil(panel.pendingExpand)
                 XCTAssertFalse(panel.commandExpansionLocksCollapse)
                 XCTAssertTrue(panel.bufferedCommandSidebarSearchKeys.isEmpty)
+                if panel.slideTransition.isAnimating {
+                    XCTAssertEqual(panel.viewModel.workspaceSidebarVisibleWidth, expectedWidth,
+                        "Retain the outgoing layout until the slide finishes")
+                    try await Task.sleep(for: .milliseconds(260))
+                }
+                XCTAssertFalse(panel.isVisible)
+                XCTAssertEqual(panel.viewModel.workspaceSidebarVisibleWidth, 0)
                 panel.expandSidebar(to: 240, reason: .hover)
                 panel.beginInlineTextEditing()
                 panel.prepareForInlineTextEditing()

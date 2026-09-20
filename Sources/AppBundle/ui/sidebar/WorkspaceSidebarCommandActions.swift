@@ -8,9 +8,7 @@ func openWorkspaceSidebarFromCommand() {
     guard let panel = workspaceSidebarPanelForCommand(
         focusedScopeId: TrayMenuModel.shared.workspaceSidebarFocusedMonitorScopeId
     ), panel.currentSidebarPanelLayout() != nil else { return }
-    if panel.inlineTextEditingActive ||
-        (panel.viewModel.isWorkspaceSidebarExpanded && !config.workspaceSidebar.alwaysExpanded)
-    {
+    if panel.sidebarCommandWouldClose {
         closeWorkspaceSidebarFromCommand(panel, restorePreviousApplication: true)
         return
     }
@@ -72,8 +70,9 @@ func closeWorkspaceSidebarFromCommand(_ panel: WorkspaceSidebarPanel, restorePre
         NotificationCenter.default.post(name: workspaceSidebarWillCollapseNotification, object: panel)
     }
     clearWorkspaceSidebarCommandInputState(panel)
-    panel.animateVisibleSidebarWidth(workspaceSidebarRestingWidth(config.workspaceSidebar), animation: .easeInOut(duration: panel.animationDuration))
-    panel.viewModel.isWorkspaceSidebarExpanded = config.workspaceSidebar.alwaysExpanded
+    let restingWidth = workspaceSidebarRestingWidth(config.workspaceSidebar)
+    panel.animateVisibleSidebarWidth(restingWidth, animation: .easeInOut(duration: panel.animationDuration))
+    if restingWidth > 0 { panel.viewModel.isWorkspaceSidebarExpanded = config.workspaceSidebar.alwaysExpanded }
     panel.updateMousePassthrough()
     if restorePreviousApplication, NSApp.isActive {
         previousApp?.activate(options: .activateIgnoringOtherApps)
@@ -93,7 +92,10 @@ private func installWorkspaceSidebarCommandMouseUnlockMonitor(_ panel: Workspace
     removeWorkspaceSidebarCommandMouseUnlockMonitor(panel)
     panel.commandMouseUnlockPoint = mouseLocation
     DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak panel] in
-        guard let panel, panel.commandExpansionLocksCollapse else { return }
+        // Multiple delayed installs may survive a quick close/reopen sequence.
+        // Never overwrite live tokens: those monitors would remain registered.
+        guard let panel, panel.commandExpansionLocksCollapse,
+              panel.commandMouseUnlockMonitors.isEmpty else { return }
         let localMonitor = NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged]) { [weak panel] event in
             Task { @MainActor in
                 panel?.unlockCommandSidebarExpansionIfMouseMoved()
