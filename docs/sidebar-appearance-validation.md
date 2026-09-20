@@ -209,8 +209,8 @@ readable number glyphs. Static captures do not establish flicker-free live motio
 ## Dedicated modes — local implementation, not released
 
 `[workspace-sidebar] mode = 'sidebar' | 'dock'` now selects the presentation.
-Sidebar is the default and keeps the upstream dark `GlassSurface` recipe and
-original layout. Dock retains app icons, fixed compact width, magnification,
+Sidebar keeps the upstream dark `GlassSurface` recipe and original layout.
+Dock retains app icons, fixed compact width, magnification,
 Liquid Glass, and opacity control. Dock-only settings are shown only for Dock in
 Appearance. Other window chrome keeps its existing configurable style.
 

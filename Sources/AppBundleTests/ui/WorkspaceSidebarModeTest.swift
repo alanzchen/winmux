@@ -5,10 +5,11 @@ import XCTest
 @MainActor
 final class WorkspaceSidebarModeTest: XCTestCase {
     func testModeDefaultsAndLegacyMigration() {
-        for (text, expected) in [("", WorkspaceSidebarMode.sidebar),
-                                 ("show-app-icons = true", .dock),
-                                 ("show-app-icons = false", .sidebar)] {
-            let (parsed, errors) = parseConfig("[workspace-sidebar]\n" + text)
+        for (text, expected) in [("", WorkspaceSidebarMode.dock),
+                                 ("[workspace-sidebar]", .dock),
+                                 ("[workspace-sidebar]\nshow-app-icons = true", .dock),
+                                 ("[workspace-sidebar]\nshow-app-icons = false", .sidebar)] {
+            let (parsed, errors) = parseConfig(text)
             XCTAssertTrue(errors.isEmpty)
             XCTAssertEqual(parsed.workspaceSidebar.mode, expected)
         }

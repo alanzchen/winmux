@@ -105,7 +105,7 @@ struct WorkspaceSidebarConfig: ConvenienceCopyable, Equatable, Sendable {
     var stayOnTop: Bool = true
     var autoHide: Bool = false
     var alwaysExpanded: Bool = false
-    var mode: WorkspaceSidebarMode = .sidebar
+    var mode: WorkspaceSidebarMode = .dock
     // Compatibility alias for existing TOML and internal callers.
     var showAppIcons: Bool {
         get { mode == .dock }

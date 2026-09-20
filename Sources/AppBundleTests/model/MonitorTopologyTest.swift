@@ -60,6 +60,7 @@ final class MonitorTopologyTest: XCTestCase {
         )
         setMonitorsForTests([main, secondary])
         config.workspaceSidebar.enabled = true
+        config.workspaceSidebar.mode = .sidebar
         config.workspaceSidebar.collapsedWidth = 54
         config.workspaceSidebar.monitor = [.main]
         config.gaps = .zero
@@ -80,6 +81,7 @@ final class MonitorTopologyTest: XCTestCase {
         )
         setMonitorsForTests([main])
         config.workspaceSidebar.enabled = true
+        config.workspaceSidebar.mode = .sidebar
         config.workspaceSidebar.autoHide = true
         config.workspaceSidebar.collapsedWidth = 54
         config.gaps = .zero
@@ -105,6 +107,7 @@ final class MonitorTopologyTest: XCTestCase {
         )
         setMonitorsForTests([main, secondary])
         config.workspaceSidebar.enabled = true
+        config.workspaceSidebar.mode = .sidebar
         config.workspaceSidebar.autoHide = true
         config.workspaceSidebar.alwaysExpanded = true
         config.workspaceSidebar.width = 240
@@ -163,6 +166,7 @@ final class MonitorTopologyTest: XCTestCase {
         )
         setMonitorsForTests([main, secondary])
         config.workspaceSidebar.enabled = true
+        config.workspaceSidebar.mode = .sidebar
         config.workspaceSidebar.collapsedWidth = 54
         config.workspaceSidebar.monitor = [.sequenceNumber(2)]
         config.gaps = .zero

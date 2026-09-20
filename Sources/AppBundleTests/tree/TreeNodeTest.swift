@@ -38,6 +38,7 @@ final class TreeNodeTest: XCTestCase {
     func testZeroGapsEliminateBordersBetweenSidebarAndTiledWindows() async throws {
         config.gaps = .zero
         config.workspaceSidebar.enabled = true
+        config.workspaceSidebar.mode = .sidebar
         config.workspaceSidebar.collapsedWidth = 44
         let workspace = focus.workspace
         let left = TestWindow.new(id: 503, parent: workspace.rootTilingContainer)

@@ -71,7 +71,7 @@ extension ConfigTest {
         )
         assertEquals(backwardCompatibleErrors, [])
         XCTAssertFalse(backwardCompatible.workspaceSidebar.alwaysExpanded)
-        XCTAssertFalse(backwardCompatible.workspaceSidebar.showAppIcons)
+        XCTAssertTrue(backwardCompatible.workspaceSidebar.showAppIcons)
         XCTAssertTrue(backwardCompatible.workspaceSidebar.stayOnTop)
         XCTAssertEqual(backwardCompatible.workspaceSidebar.glassOpacity, 1.0)
 

@@ -34,8 +34,9 @@ dock-magnification-amount = 0.5 # 0 = no growth, 0.5 = 1.5×, 1 = 2×.
 show-app-badges = true
 ```
 
-The default mode is Sidebar. Legacy `show-app-icons` settings remain supported
-when `mode` is absent. Each mode retains its saved appearance options.
+The default mode is Dock; set `mode = 'sidebar'` to use Sidebar instead.
+Legacy `show-app-icons` settings still apply when `mode` is absent, including
+`show-app-icons = false` for Sidebar. Each mode retains its saved appearance options.
 See [appearance](sidebar-appearance.md) for glass, solid colors, and blur, and
 [Dock placement](dock-placement.md) for position and native Dock behavior.
 

@@ -46,8 +46,8 @@ on-mode-changed = []
     auto-hide = false
     # Keep the full sidebar open and reserve its width for tiled windows.
     always-expanded = false
-    # Sidebar uses a dark, blurred backdrop; Dock shows icons and expands into Sidebar.
-    mode = 'sidebar'
+    # Dock is the default: it shows icons and expands into Sidebar's dark, blurred view.
+    mode = 'dock'
     # Legacy show-app-icons remains supported when mode is omitted.
     # Mirror app badge labels from the native macOS Dock (Dock mode only).
     show-app-badges = false

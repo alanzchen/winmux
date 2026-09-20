@@ -31,7 +31,7 @@ Glass requires macOS 26 or later; older systems use a blurred background.
 4. Open **Settings** from WinMux's menu-bar menu. Under **Dock & Sidebar**, choose
    your preferred mode and position.
 
-WinMux starts in **Sidebar** mode and tiles windows automatically. To keep windows
+WinMux starts in **Dock** mode and tiles windows automatically. To keep windows
 at their existing size and position, turn off **Windows & Layout → Tile new windows
 automatically**. You can still use workspaces and tile individual windows later.
 
