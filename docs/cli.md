@@ -557,7 +557,7 @@ cannot connect, ensure `WinMux.app` is running and that the client came from the
 same installation.
 
 Screen Recording is optional. WinMux does not request it at launch or after an
-update. In Settings > Behavior > Window pairs, use **Allow Screen Recording…**
+update. In Settings → General → Permissions, use **Allow Screen Recording…**
 only if you want the double-sided window rotation animation. Without permission,
 the windows still switch. The permission status refreshes when returning from
 System Settings; WinMux does not retry a denied request automatically.
@@ -660,7 +660,7 @@ syntax.
 
 ### Dock app badges
 
-In Settings → Appearance → Dock, enable **Show app badges** to mirror labels
+In Settings → Dock & Sidebar → Content, enable **Show app badges** to mirror labels
 exposed by the native macOS Dock. The equivalent TOML setting is:
 
 ```toml

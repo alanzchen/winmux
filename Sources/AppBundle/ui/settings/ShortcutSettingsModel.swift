@@ -15,6 +15,8 @@ public final class ShortcutSettingsModel: ObservableObject {
     @Published var workspaceMoveModifiers: NSEvent.ModifierFlags = defaultWorkspaceMoveModifiers
     @Published var workspaceOverrides: [WorkspaceOverride] = []
     @Published public var openRequestId: Int = 0
+    @Published var requestedSettingsPage: SettingsSidebarItem?
+    let settingsDocument = SettingsConfigDocument()
     @Published var settingsRevision: Int = 0
     @Published var errorMessage: String? = nil
 
@@ -23,5 +25,10 @@ public final class ShortcutSettingsModel: ObservableObject {
 
     private init() {
         reload()
+    }
+
+    func requestDockSettings() {
+        requestedSettingsPage = .appearance
+        requestWindowOpen()
     }
 }

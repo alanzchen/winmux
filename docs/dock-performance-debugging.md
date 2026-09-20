@@ -2,7 +2,8 @@
 
 ## Record a stutter
 
-1. Open **Settings → Appearance**, select **Dock** mode, and enable
+1. Select **Dock** in **Settings → Dock & Sidebar → Mode**. Then open
+   **Advanced → Diagnostics** and enable
    **Record Dock performance (debug mode)**.
 2. Move over the Dock normally: sweep across icons and separators, reverse
    direction, and leave/re-enter the rail. Screen recording is optional.

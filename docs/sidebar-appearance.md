@@ -1,6 +1,6 @@
 # Sidebar and Dock appearance
 
-Appearance settings now have separate **Sidebar appearance** and **Dock appearance**
+**Settings → Dock & Sidebar** has separate **Sidebar / expanded panel appearance** and **Compact Dock appearance**
 sections. Both remain available whichever mode is selected. Sidebar controls apply
 to Sidebar mode and the expanded Dock, including search and window details.
 The compact Dock keeps its own glass or solid-color appearance.
@@ -13,7 +13,7 @@ The **Edge gap** applies only to the compact Dock, at the selected edge. It clos
 so search, workspace details, and **Keep sidebar expanded** sit flush against the
 display edge. Sidebar mode also remains flush.
 
-Choose **Position → Left, Bottom, or Right** under Dock appearance. Bottom uses
+Choose **Position → Left, Bottom, or Right** under **Position & visibility**. Bottom uses
 a horizontal shelf, temporarily auto-hides the macOS Dock, and restores its prior
 setting when you change placement or quit. In every Dock placement, WinMux hides
 on the display where the native Dock appears. See [Dock placement](dock-placement.md).

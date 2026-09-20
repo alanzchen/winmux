@@ -35,34 +35,29 @@ public func openShortcutSettingsWindow(_ openWindow: OpenWindowAction) {
     }
 }
 
-enum SettingsSidebarItem: Hashable, Identifiable {
-    case shortcuts
-    case workspaces
-    case behavior
-    case appearance
-    case configuration
-    case reference
-
+enum SettingsSidebarItem: String, Hashable, Identifiable, CaseIterable {
+    case general, appearance, behavior, workspaces, shortcuts, configuration, reference
+    static let navigation: [Self] = [.general, .appearance, .behavior, .workspaces, .shortcuts, .configuration]
     var id: Self { self }
-
     var label: String {
         switch self {
+            case .general: "General"
+            case .appearance: "Dock & Sidebar"
+            case .behavior: "Windows & Layout"
+            case .workspaces: "Projects & Workspaces"
             case .shortcuts: "Shortcuts"
-            case .workspaces: "Workspaces"
-            case .behavior: "Behavior"
-            case .appearance: "Appearance"
-            case .configuration: "Configuration"
+            case .configuration: "Advanced"
             case .reference: "Configuration Reference"
         }
     }
-
     var icon: String {
         switch self {
-            case .shortcuts: "keyboard"
-            case .workspaces: "rectangle.3.group"
-            case .behavior: "arrow.triangle.2.circlepath"
+            case .general: "gearshape"
             case .appearance: "sidebar.left"
-            case .configuration: "doc.text"
+            case .behavior: "macwindow.on.rectangle"
+            case .workspaces: "rectangle.3.group"
+            case .shortcuts: "keyboard"
+            case .configuration: "slider.horizontal.3"
             case .reference: "book"
         }
     }
@@ -70,50 +65,167 @@ enum SettingsSidebarItem: Hashable, Identifiable {
 
 struct ShortcutSettingsView: View {
     @ObservedObject var model: ShortcutSettingsModel
+    @StateObject private var editor = SettingsEditor()
     @State private var selectedItem: SettingsSidebarItem?
+    @State private var query = ""
+    @State private var searchTarget: SearchTarget?
+    @AppStorage("WinMux.settings.lastPane") private var lastPane = SettingsSidebarItem.general.rawValue
+    @AppStorage("WinMux.settings.advancedTab") private var advancedTab = "editor"
+    private var targetField: String? { searchTarget?.field }
+    private struct SearchTarget {
+        let page: SettingsSidebarItem
+        let field: String
+        var tab: String?
+    }
 
-    init(model: ShortcutSettingsModel, selectedItem: SettingsSidebarItem = .shortcuts) {
+    init(model: ShortcutSettingsModel, selectedItem: SettingsSidebarItem? = nil) {
         self.model = model
-        _selectedItem = State(initialValue: selectedItem)
+        _selectedItem = State(initialValue: selectedItem ?? model.requestedSettingsPage
+            ?? UserDefaults.standard.string(forKey: "WinMux.settings.lastPane").flatMap(SettingsSidebarItem.init(rawValue:)) ?? .general)
     }
 
     var body: some View {
         NavigationSplitView {
             List(selection: $selectedItem) {
-                ForEach([SettingsSidebarItem.shortcuts, .workspaces, .behavior, .appearance, .configuration, .reference]) { item in
-                    NavigationLink(value: item) {
-                        Label(item.label, systemImage: item.icon)
-                    }
+                ForEach(SettingsSidebarItem.navigation) { item in
+                    NavigationLink(value: item) { Label(item.label, systemImage: item.icon) }
                 }
             }
             .listStyle(.sidebar)
             .navigationSplitViewColumnWidth(min: 200, ideal: 220, max: 280)
         } detail: {
-            Group {
-                switch selectedItem {
-                    case .shortcuts:
-                        ShortcutSettingsShortcutsView(model: model)
-                    case .workspaces:
-                        ShortcutSettingsWorkspacePane(model: model)
-                    case .behavior:
-                        ShortcutBehaviorSettingsView(model: model)
-                    case .appearance:
-                        ShortcutAppearanceSettingsView(model: model)
-                    case .configuration:
-                        ShortcutAdvancedView(model: model)
-                    case .reference:
-                        ShortcutConfigurationReferenceView()
-                    case nil:
-                        Text("Select an item")
-                }
+            VStack(spacing: 0) {
+                if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    pane
+                } else { searchResults }
+                Divider()
+                SettingsSaveFeedback(editor: editor, model: model)
             }
-            // Leave enough room for the directional recorder grid even when the
-            // navigation column is widened. Long panes scroll vertically.
             .frame(minWidth: 460, maxWidth: .infinity, maxHeight: .infinity)
-            .navigationTitle(selectedItem?.label ?? "")
+            .navigationTitle(selectedItem?.label ?? "WinMux Settings")
         }
+        .searchable(text: $query, placement: .toolbar, prompt: "Search settings")
         .frame(minWidth: shortcutSettingsMinimumSize.width, maxWidth: .infinity,
                minHeight: shortcutSettingsMinimumSize.height, maxHeight: .infinity)
+        .onChange(of: selectedItem) { next in
+            if let next { lastPane = next.rawValue }
+            query = ""
+            if next != searchTarget?.page { searchTarget = nil }
+        }
+        .onChange(of: query) { next in if !next.isEmpty { searchTarget = nil } }
+        .onChange(of: advancedTab) { next in
+            if searchTarget?.page == .configuration && next != searchTarget?.tab { searchTarget = nil }
+        }
+        .onChange(of: model.openRequestId) { _ in consumeRequestedPage() }
+        .onAppear { consumeRequestedPage() }
+        .onReceive(NotificationCenter.default.publisher(for: settingsConfigurationDidReload)) { _ in
+            editor.synchronize(config)
+            model.reload()
+        }
+    }
+
+    @ViewBuilder
+    private var pane: some View {
+        switch selectedItem {
+            case .general, .appearance, .behavior, .workspaces:
+                SettingsForm(page: selectedItem ?? .general, editor: editor, model: model, targetField: targetField)
+                    .id(selectedItem)
+            case .shortcuts: ShortcutSettingsShortcutsView(model: model)
+            case .configuration: SettingsAdvancedPane(model: model, editor: editor, tab: $advancedTab, targetField: targetField)
+            case .reference: ShortcutConfigurationReferenceView()
+            case nil: Text("Select a settings page")
+        }
+    }
+
+    private var searchResults: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 8) {
+                let matches = SettingsCatalog.results(query)
+                if matches.isEmpty && !matchesPage("shortcuts keyboard bindings permissions accessibility screen recording debug performance logs diagnostics automation toml configuration reference") {
+                    Label("No matching settings", systemImage: "magnifyingglass").font(.headline)
+                    Text("Try a name such as opacity, magnification, clock, or a TOML key.").foregroundStyle(.secondary)
+                }
+                ForEach(matches) { field in
+                    Button {
+                        openSearchTarget(page: field.group.page, field: field.id,
+                            tab: field.group == .automation ? "automation" : nil)
+                    } label: {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(field.title).font(.headline)
+                            Text("\(field.group.page.label) › \(field.group.title)").font(.caption).foregroundStyle(.secondary)
+                            Text(field.help).font(.caption).foregroundStyle(.secondary)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading).padding(10)
+                    }
+                    .buttonStyle(.plain)
+                }
+                if matchesPage("shortcuts keyboard bindings") {
+                    Button("Open keyboard shortcuts") { selectedItem = .shortcuts; query = "" }
+                }
+                if matchesPage("permissions accessibility screen recording") {
+                    Button("Open permissions") {
+                        openSearchTarget(page: .general, field: "permissions")
+                    }
+                }
+                ForEach([("diagnostics", "Diagnostics", "debug performance logs diagnostics"),
+                         ("automation", "Automation", "automation events actions"),
+                         ("editor", "TOML Editor", "toml configuration editor"),
+                         ("reference", "Configuration Reference", "reference rules integration")], id: \.0) { tab, title, keywords in
+                    if matchesPage(keywords) {
+                        Button("Open \(title)") { advancedTab = tab; selectedItem = .configuration; query = "" }
+                    }
+                }
+            }
+            .padding(20).frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private func matchesPage(_ keywords: String) -> Bool {
+        query.split(whereSeparator: \.isWhitespace).allSatisfy { keywords.localizedStandardContains(String($0)) }
+    }
+
+    private func openSearchTarget(page: SettingsSidebarItem, field: String, tab: String? = nil) {
+        // Publish the target in the same update as the page, before its scroll
+        // bridge mounts. Search navigation never first restores the old offset.
+        searchTarget = SearchTarget(page: page, field: field, tab: tab)
+        if let tab { advancedTab = tab }
+        selectedItem = page
+        query = ""
+    }
+
+    private func consumeRequestedPage() {
+        guard let page = model.requestedSettingsPage else { return }
+        searchTarget = nil
+        selectedItem = page
+        model.requestedSettingsPage = nil
+        query = ""
+    }
+}
+
+struct SettingsAdvancedPane: View {
+    @ObservedObject var model: ShortcutSettingsModel
+    @ObservedObject var editor: SettingsEditor
+    @Binding var tab: String
+    var targetField: String?
+    var body: some View {
+        VStack(spacing: 0) {
+            Picker("Advanced section", selection: $tab) {
+                Text("TOML Editor").tag("editor")
+                Text("Automation").tag("automation")
+                Text("Diagnostics").tag("diagnostics")
+                Text("Reference").tag("reference")
+            }
+            .pickerStyle(.segmented).padding(16)
+            switch tab {
+                case "automation": ShortcutAutomationSettingsView(editor: editor, targetField: targetField)
+                case "diagnostics": ScrollView {
+                    DockPerformanceSettingsView().padding(20)
+                        .background(SettingsScrollRetention(page: "advanced.diagnostics"))
+                }
+                case "reference": ShortcutConfigurationReferenceView()
+                default: ShortcutAdvancedView(model: model, editor: editor)
+            }
+        }
     }
 }
 
@@ -129,7 +241,11 @@ struct ShortcutSettingsWorkspacePane: View {
     @ObservedObject var model: ShortcutSettingsModel
 
     var body: some View {
-        ShortcutCategoryView(model: model, category: .common)
+        VStack(alignment: .leading, spacing: 14) {
+            ForEach(model.sections.filter { $0.category == .common }) { section in
+                ShortcutSectionView(model: model, section: section)
+            }
+        }
     }
 }
 
@@ -155,6 +271,7 @@ struct ShortcutCategoryView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(18)
+            .background(SettingsScrollRetention(page: "shortcuts.\(category)"))
         }
     }
 }

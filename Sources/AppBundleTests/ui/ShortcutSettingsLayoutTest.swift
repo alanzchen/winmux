@@ -34,7 +34,7 @@ final class ShortcutSettingsLayoutTest: XCTestCase {
     }
 
     func testPanesFillTheResizedWindowWithoutHorizontalScroll() throws {
-        for pane: SettingsSidebarItem in [.shortcuts, .workspaces, .behavior, .appearance, .reference] {
+        for pane: SettingsSidebarItem in SettingsSidebarItem.navigation + [.reference] {
             let window = makeWindow(pane)
             defer { window.close() }
             for size in [shortcutSettingsMinimumSize, CGSize(width: 1320, height: 900), shortcutSettingsDefaultSize] {
@@ -118,6 +118,61 @@ final class ShortcutSettingsLayoutTest: XCTestCase {
         split.setPosition(280, ofDividerAt: 0)
         resize(window, to: shortcutSettingsMinimumSize)
         XCTAssertGreaterThanOrEqual(try XCTUnwrap(split.arrangedSubviews.last).frame.width, 460)
+    }
+
+    func testPaneSwitchRetainsScrollAndEditorDraft() throws {
+        let savedDocument = ShortcutSettingsModel.shared.settingsDocument.text
+        defer { ShortcutSettingsModel.shared.settingsDocument.text = savedDocument }
+        let window = makeWindow(.appearance)
+        defer { window.close() }
+        resize(window, to: shortcutSettingsMinimumSize)
+        func contentScroll() throws -> NSScrollView {
+            try XCTUnwrap(descendants(try XCTUnwrap(window.contentView)).compactMap { $0 as? NSScrollView }.max {
+                ($0.documentView?.frame.height ?? 0) < ($1.documentView?.frame.height ?? 0)
+            })
+        }
+        let scroll = try contentScroll()
+        scroll.contentView.scroll(to: CGPoint(x: 0, y: 240))
+        scroll.reflectScrolledClipView(scroll.contentView)
+        settle(window)
+        ShortcutSettingsModel.shared.requestedSettingsPage = .configuration
+        ShortcutSettingsModel.shared.requestWindowOpen()
+        settle(window)
+        let draft = String(repeating: "# Retain unsaved text across pages\n", count: 80) + "start-at-login = false\n"
+        ShortcutSettingsModel.shared.settingsDocument.text = draft
+        settle(window)
+        let editorScroll = try contentScroll()
+        editorScroll.contentView.scroll(to: CGPoint(x: 0, y: 240))
+        editorScroll.reflectScrolledClipView(editorScroll.contentView)
+        settle(window)
+        ShortcutSettingsModel.shared.requestDockSettings()
+        settle(window)
+        XCTAssertGreaterThan(try contentScroll().contentView.bounds.minY, 100)
+        ShortcutSettingsModel.shared.requestedSettingsPage = .configuration
+        ShortcutSettingsModel.shared.requestWindowOpen()
+        settle(window)
+        let text = descendants(try XCTUnwrap(window.contentView)).compactMap { $0 as? NSTextView }.first { $0.isEditable }
+        XCTAssertEqual(text?.string, draft)
+        XCTAssertGreaterThan(try contentScroll().contentView.bounds.minY, 100, "The TOML editor must also remember its scroll position")
+    }
+
+    func testSearchRevealTakesPrecedenceOverRememberedScrollPosition() throws {
+        let savedPositions = SettingsScrollMemory.shared.positions
+        defer { SettingsScrollMemory.shared.positions = savedPositions }
+        SettingsScrollMemory.shared.positions["appearance"] = CGPoint(x: 0, y: 120)
+        var configuration = defaultConfig
+        configuration.workspaceSidebar.mode = .dock
+        let editor = SettingsEditor(configuration: configuration)
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 480, height: 480),
+            styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        window.contentView = NSHostingView(rootView: SettingsForm(page: .appearance, editor: editor,
+            model: .shared, targetField: "workspace-sidebar.show-weekday"))
+        settle(window)
+        settle(window)
+        let scroll = try XCTUnwrap(descendants(try XCTUnwrap(window.contentView)).compactMap { $0 as? NSScrollView }.first)
+        XCTAssertGreaterThan(scroll.contentView.bounds.minY, 600, "The search target at the end must win over the previous offset")
     }
 
     private func makeWindow(_ pane: SettingsSidebarItem) -> NSWindow {

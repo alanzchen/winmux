@@ -1,6 +1,6 @@
 # Dock placement and macOS Dock
 
-Choose **Settings → Appearance → Dock appearance → Position**:
+Choose **Settings → Dock & Sidebar → Position & visibility → Position**:
 
 - **Left**: vertical shelf; icons magnify toward the right.
 - **Bottom**: horizontal shelf; icons magnify upward. Search, rename, and workspace

@@ -123,6 +123,8 @@ struct WorkspaceSidebarWorkspaceSection: View, Animatable {
             .opacity(compactFocusOpacity)
             .contentShape(Rectangle().inset(by: layout.showAppIcons ? -layout.compactHorizontalInset * (1 - morphProgress) : 0))
             .contextMenu {
+                Button("Customize Dock & Sidebar…") { ShortcutSettingsModel.shared.requestDockSettings() }
+                Divider()
                 Button {
                     debugWorkspaceSidebarRenameLog("workspaceContextRename workspace=\(workspace.name) displayName=\(workspace.displayName) compact=\(isCompact)")
                     onBeginRenameWorkspace()

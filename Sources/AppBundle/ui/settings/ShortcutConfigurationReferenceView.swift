@@ -6,7 +6,7 @@ struct ShortcutConfigurationReferenceView: View {
             VStack(alignment: .leading, spacing: 16) {
                 Text("Configuration Reference")
                     .font(.headline)
-                Text("Use Configuration to edit the complete winmux.toml file. The settings panes cover the everyday options; this reference lists the remaining advanced sections.")
+                Text("Use Advanced → TOML Editor to edit the complete winmux.toml file. The settings pages cover everyday options; this reference lists the remaining advanced sections.")
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
 
@@ -35,6 +35,7 @@ struct ShortcutConfigurationReferenceView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(20)
+            .background(SettingsScrollRetention(page: "advanced.reference"))
         }
     }
 }

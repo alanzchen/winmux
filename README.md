@@ -10,6 +10,12 @@
 https://github.com/user-attachments/assets/51983568-a168-494f-8ae3-5f50ca1efce1
 
 ## Highlights
+### Settings
+Settings groups controls into General, Dock & Sidebar, Windows & Layout, Projects &
+Workspaces, Shortcuts, and Advanced. Search by label or TOML key, try appearance
+changes in the live Dock preview, and recover failed edits with Retry or Undo.
+See the [Settings guide](docs/settings-ux.md) for saving and configuration behavior.
+
 ### Projects
 Projects are collection of workspaces. Think of it like a parent/child hiearchy, you can switch between projects. Each project has it's own set of workspaces.
 
@@ -59,7 +65,7 @@ the month and day, and the weekday; for example, `show-date = false` with
 
 ### Dock and Sidebar modes
 
-Choose **Settings → Appearance → Dock & Sidebar → Mode**. **Sidebar** keeps the
+Choose **Settings → Dock & Sidebar → Mode**. **Sidebar** keeps the
 upstream layout and original dark material at fixed opacity. **Dock** uses today’s
 app-icon design, Liquid Glass, and optional magnification. Switching modes applies
 immediately and preserves each mode’s saved preferences.
@@ -122,7 +128,7 @@ during drags, editing, and menus, and is disabled by Reduce Motion. The toggle i
 off by default and unavailable while **Keep sidebar expanded** is enabled.
 
 For intermittent stutter, enable **Record Dock performance (debug mode)** in
-Settings → Appearance. It saves a local timing report automatically after two
+Settings → Advanced → Diagnostics. It saves a local timing report automatically after two
 minutes, or when switched off. See [Dock performance debugging](docs/dock-performance-debugging.md)
 for report locations, privacy details, and interpreting possible performance issues.
 
