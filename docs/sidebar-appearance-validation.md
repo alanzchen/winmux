@@ -6,7 +6,7 @@ The dated checks below document earlier revisions.
 The optional compact app-icon mode and sidebar glass opacity control preserve the
 existing appearance by default (`show-app-icons = false`, `glass-opacity = 1.0`).
 Both controls are in **Settings → Appearance → Sidebar**; configuration examples
-are in the [README](../README.md#workspace-app-icons-and-glass-opacity).
+are in the [appearance guide](sidebar-appearance.md).
 
 ## Automated checks
 

@@ -29,6 +29,7 @@ Built-in help is the authoritative syntax reference for the installed build.
 - [Event subscriptions](#event-subscriptions)
 - [Diagnostics and privacy](#diagnostics-and-privacy)
 - [Complete command index](#complete-command-index)
+- [Socket protocol](#socket-protocol)
 
 ## Quick start
 
@@ -675,3 +676,27 @@ Screen Recording is not required. Labels belong to the whole app, so the same ap
 in multiple workspaces shows the same label. Apps absent from the native Dock or
 not exposing a badge have no badge; values may be text or dots, not unread counts.
 Disabling the option clears labels and stops polling immediately.
+
+## Socket protocol
+
+This section is for integrations that connect directly to WinMux. Ordinary shell
+scripts should use the `winmux` client described above.
+
+Release builds listen on `/tmp/com.zimengxiong.winmux-${USER}.sock`; debug builds use
+`/tmp/com.zimengxiong.winmux.debug-${USER}.sock`. All integers are four-byte unsigned values
+in host byte order (little-endian on supported Macs).
+
+Immediately after connecting, the client sends `SOCKET_PROTOCOL_VERSION` and the server
+answers with its own `SOCKET_PROTOCOL_VERSION`. The current value is `1`. Either side stops
+before processing a command when the versions differ. Once negotiation succeeds, each message
+is a four-byte JSON byte length followed by that many UTF-8 JSON bytes. Ordinary commands send
+one `ClientRequest` and receive one `ServerAnswer`; `subscribe` receives a stream of framed
+events after its initial request.
+
+Incoming JSON frames are limited to 128 MiB and are rejected from their length prefix before
+payload storage is allocated. This is above the roughly 96 MiB worst-case JSON expansion of the
+official CLI's 16 MiB UTF-8 stdin limit, with additional room for the request envelope.
+
+The handshake is intentionally incompatible with the legacy pre-handshake socket. Upgrade or
+roll back `WinMux.app` and `winmux` together. The client bounds negotiation so accidentally
+connecting a new CLI to a legacy server reports an upgrade error instead of waiting forever.
