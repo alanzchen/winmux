@@ -31,11 +31,12 @@ panels temporarily overlay windows.
 
 ## Sharing the display with the native Dock
 
-In **all three Dock placements**, WinMux hides on the display where the macOS
-Dock is visible and returns after it disappears. Other displays remain available.
+WinMux hides only when the macOS Dock is visible on the **same edge of the same
+display**, and returns after it disappears. For example, a bottom macOS Dock
+leaves a left or right WinMux Dock visible. Other displays remain available.
 Sidebar mode is unaffected. Tiled-window reservations stay stable during this
 temporary hiding, so revealing the native Dock does not resize your windows.
-If the native Dock is configured to remain visible,
+If the native Dock is configured to remain visible on the same edge,
 the WinMux Dock stays hidden on that display.
 
 Bottom mode temporarily enables native Dock auto-hide. WinMux records the prior
@@ -45,7 +46,8 @@ restored or adopted on the next launch. An explicit user change while Bottom mod
 is running ends WinMux's ownership of the preference.
 
 Visibility reads use the Dock's Accessibility list frame, clipped to its reserved
-rectangle. Hidden AX elements remain present beyond the screen edge; they must
+rectangle. Its resting target rectangle identifies the native Dock's edge even
+during a reveal animation. Hidden AX elements remain present beyond the screen edge; they must
 not hide WinMux on an adjacent display. Reads run on a utility task, at most one
 at a time. Pointer movement near the native Dock edge speeds up checks on every display;
 idle checks drop to once per second even if the pointer stays at an edge. Only changes to the set of affected displays refresh
@@ -71,7 +73,9 @@ Focused tests exercise configuration compatibility, off-origin display geometry,
 edge-gap hover reveal, horizontal native pointer tracking, inward magnification,
 rendered pixel clipping, upright expansion, and clipped workspace drop targets.
 Preference tests cover one-time acquisition/restoration, pre-existing auto-hide,
-manual changes, recovery, and unavailable APIs.
+manual changes, recovery, and unavailable APIs. Visibility tests cover every pair
+of WinMux/native Dock positions across three display origins, reveal/hide animation
+frames, and screen-spanning Docks with system margins.
 
 Native smoke checks should cover revealing the macOS Dock, switching placement
 while search/drag is active, quitting Bottom mode, and moving the native Dock
@@ -80,7 +84,7 @@ that hardware; offscreen AppKit rendering does not establish display frame pacin
 
 ### Latest local check (2026-09-19)
 
-- Swift 6.2.4: **927 tests, 7 opt-in skips, 0 failures**; ARM64 debug app and CLI build passed.
+- Swift 6.2.4: **954 tests, 7 opt-in skips, 0 failures**; ARM64 debug app and CLI build passed.
 - AppKit render checks cover bottom/right magnified pixels and hit geometry, every
   icon with crowded footer controls, upright expansion, and single-owner drag targets.
 - Claude Fable 5 and agy Gemini 3.8 Flash High independently reviewed the code;

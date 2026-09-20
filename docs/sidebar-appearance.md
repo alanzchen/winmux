@@ -15,8 +15,8 @@ display edge. Sidebar mode also remains flush.
 
 Choose **Position → Left, Bottom, or Right** under **Position & visibility**. Bottom uses
 a horizontal shelf, temporarily auto-hides the macOS Dock, and restores its prior
-setting when you change placement or quit. In every Dock placement, WinMux hides
-on the display where the native Dock appears. See [Dock placement](dock-placement.md).
+setting when you change placement or quit. WinMux hides only when the native Dock
+appears on the same edge of the same display. See [Dock placement](dock-placement.md).
 
 Sidebar retains native regular Liquid Glass with a 70% dark overlay on macOS 26 or
 later. A native frosted backdrop underneath increases blur for readability. That

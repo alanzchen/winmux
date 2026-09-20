@@ -61,7 +61,7 @@ on-mode-changed = []
     dock-icon-size = 48
     # Dock only: left / bottom / right. Bottom temporarily auto-hides the macOS Dock;
     # its previous setting is restored when leaving Bottom mode or quitting WinMux.
-    # WinMux hides on the display where the native Dock appears, in every Dock position.
+    # WinMux hides only when the native Dock appears on the same edge of the same display.
     dock-position = 'left'
     # Compact Dock distance from the selected display edge, in points (0-24).
     # The legacy key name remains supported for all positions.

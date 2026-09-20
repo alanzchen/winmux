@@ -159,14 +159,81 @@ final class SystemDockTest: XCTestCase {
         XCTAssertEqual(systemDockPollInterval(pointerNearDock: false, dockVisible: true, timeSincePointerActivity: .infinity), 0.15)
     }
 
-    func testVisibleDockOnlySuppressesItsDisplayInQuartzCoordinates() {
+    func testVisibleDockOnlySuppressesMatchingEdgeOnItsDisplayInQuartzCoordinates() {
         let displays = [Rect(topLeftX: 0, topLeftY: 0, width: 1920, height: 1080),
             Rect(topLeftX: -1600, topLeftY: -900, width: 1600, height: 900),
             Rect(topLeftX: 0, topLeftY: 1080, width: 1920, height: 1080)]
         for (index, display) in displays.enumerated() {
-            let dock = CGRect(x: display.minX + 200, y: display.maxY - 80, width: 600, height: 80)
-            XCTAssertEqual(displays.map { systemDockOverlapsDisplay(visible: dock, display: $0) },
-                displays.indices.map { $0 == index })
+            let docks: [(WorkspaceDockPosition, CGRect)] = [
+                (.left, CGRect(x: display.minX, y: display.minY + 100, width: 80, height: 600)),
+                (.bottom, CGRect(x: display.minX + 200, y: display.maxY - 80, width: 600, height: 80)),
+                (.right, CGRect(x: display.maxX - 80, y: display.minY + 100, width: 80, height: 600)),
+            ]
+            for (nativePosition, dock) in docks {
+                let snapshot = SystemDockSnapshot(targetRect: dock, visibleRect: dock)
+                for position in WorkspaceDockPosition.allCases {
+                    XCTAssertEqual(displays.map { systemDockHidesDock(snapshot, position: position, display: $0) },
+                        displays.indices.map { $0 == index && position == nativePosition },
+                        "Native \(nativePosition) must only hide WinMux \(nativePosition) on display \(index), not \(position) elsewhere")
+                }
+            }
+        }
+    }
+
+    func testHiddenOrUnavailableNativeDockDoesNotSuppressAnyEdge() {
+        let display = Rect(topLeftX: 0, topLeftY: 0, width: 1920, height: 1080)
+        let target = CGRect(x: 200, y: 1000, width: 800, height: 80)
+        for snapshot: SystemDockSnapshot in [
+            .init(), .init(targetRect: target), .init(visibleRect: target),
+            .init(targetRect: target, visibleRect: target.offsetBy(dx: 0, dy: 80)),
+        ] {
+            for position in WorkspaceDockPosition.allCases {
+                XCTAssertFalse(systemDockHidesDock(snapshot, position: position, display: display))
+            }
+        }
+    }
+
+    func testNativeDockEdgeRemainsStableDuringRevealAndHide() {
+        let display = Rect(topLeftX: -1920, topLeftY: -1080, width: 1920, height: 1080)
+        let docks: [(WorkspaceDockPosition, CGRect, CGFloat, CGFloat)] = [
+            (.left, CGRect(x: -1920, y: -800, width: 80, height: 600), -1, 0),
+            (.bottom, CGRect(x: -1200, y: -80, width: 800, height: 80), 0, 1),
+            (.right, CGRect(x: -80, y: -800, width: 80, height: 600), 1, 0),
+        ]
+        for (nativePosition, target, dx, dy) in docks {
+            for offset: CGFloat in [0, 40, 78, 79, 80] {
+                let visible = systemDockVisibleRect(listFrame: target.offsetBy(dx: dx * offset, dy: dy * offset), targetFrame: target)
+                let snapshot = SystemDockSnapshot(targetRect: target, visibleRect: visible)
+                for position in WorkspaceDockPosition.allCases {
+                    XCTAssertEqual(systemDockHidesDock(snapshot, position: position, display: display),
+                        nativePosition == position && offset < 79)
+                }
+            }
+        }
+    }
+
+    func testNativeDockEdgeHandlesScreenSpanningAndShortDocks() {
+        let display = Rect(topLeftX: 0, topLeftY: 0, width: 1920, height: 1080)
+        let docks: [(WorkspaceDockPosition, CGRect)] = [
+            (.bottom, CGRect(x: 0, y: 1000, width: 1920, height: 80)),
+            (.left, CGRect(x: 0, y: 0, width: 80, height: 1080)),
+            (.right, CGRect(x: 1840, y: 0, width: 80, height: 1080)),
+            // A small system margin must not make a screen-spanning Dock yield
+            // to the perpendicular edge merely because that edge is closer.
+            (.bottom, CGRect(x: 0, y: 998, width: 1920, height: 80)),
+            (.left, CGRect(x: 2, y: 0, width: 80, height: 1080)),
+            (.right, CGRect(x: 1838, y: 0, width: 80, height: 1080)),
+            // The nearest edge determines orientation even when a short Dock's
+            // long axis differs from its edge; allow an inset from the display.
+            (.bottom, CGRect(x: 900, y: 998, width: 40, height: 80)),
+            (.left, CGRect(x: 2, y: 500, width: 80, height: 40)),
+            (.right, CGRect(x: 1838, y: 500, width: 80, height: 40)),
+        ]
+        for (nativePosition, target) in docks {
+            for position in WorkspaceDockPosition.allCases {
+                XCTAssertEqual(systemDockHidesDock(.init(targetRect: target, visibleRect: target),
+                    position: position, display: display), nativePosition == position)
+            }
         }
     }
 

@@ -38,8 +38,29 @@ struct SystemDockSnapshot: Equatable, Sendable {
     var visibleRect: CGRect?
 }
 
-func systemDockOverlapsDisplay(visible: CGRect, display: Rect) -> Bool {
-    visible.intersects(CGRect(x: display.minX, y: display.minY, width: display.width, height: display.height))
+func systemDockHidesDock(_ snapshot: SystemDockSnapshot, position: WorkspaceDockPosition, display: Rect) -> Bool {
+    guard let target = snapshot.targetRect, let visible = snapshot.visibleRect,
+          !target.isEmpty, !target.isNull, !target.isInfinite else { return false }
+    let screen = CGRect(x: display.minX, y: display.minY, width: display.width, height: display.height)
+    guard systemDockVisibleRect(listFrame: visible, targetFrame: target.intersection(screen)) != nil else { return false }
+
+    // Use the resting target, not the animated/clipped AX frame: its proportions
+    // can change while the Dock slides in. Only a shared display edge conflicts.
+    let leftDistance = abs(target.minX - screen.minX)
+    let rightDistance = abs(screen.maxX - target.maxX)
+    let bottomDistance = abs(screen.maxY - target.maxY) // Quartz Y increases downward.
+    let sideDistance = min(leftDistance, rightDistance)
+    let thickness = min(target.width, target.height)
+    let nearCorner = bottomDistance <= thickness && sideDistance <= thickness
+    let nativePosition: WorkspaceDockPosition
+    // Near a corner, system margins can make the perpendicular edge closer.
+    // The resting long axis disambiguates full-width/full-height Docks there.
+    if nearCorner ? target.width >= target.height : bottomDistance < sideDistance {
+        nativePosition = .bottom
+    } else {
+        nativePosition = leftDistance <= rightDistance ? .left : .right
+    }
+    return position == nativePosition
 }
 
 func systemDockVisibleRect(listFrame: CGRect, targetFrame: CGRect) -> CGRect? {
@@ -297,8 +318,7 @@ final class SystemDockCoordinator {
     }
 
     func hidesDock(on monitor: Monitor) -> Bool {
-        guard enabled, let rect = snapshot.visibleRect else { return false }
-        return systemDockOverlapsDisplay(visible: rect, display: monitor.rect)
+        enabled && systemDockHidesDock(snapshot, position: position, display: monitor.rect)
     }
 
     func notePointerActivity(_ appKitPoint: CGPoint) {
