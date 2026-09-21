@@ -55,6 +55,7 @@ final class WorkspaceSidebarPanel: NSPanelHud, WorkspaceSidebarInputOwner {
     var persistentExpansionWidth: CGFloat?
     var lastConfiguredExpandedWidth: CGFloat?
     var visibleSurfaceFrame: CGRect?
+    var expandedDockHoverSource: WorkspaceSidebarExpansionHoverSource?
     var fittedDockRestingWidth: CGFloat?
     var dockIconFrames: [CGRect] = []
     weak var dockPointerView: WorkspaceSidebarDockDisplayLinkView?

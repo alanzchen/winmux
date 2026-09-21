@@ -60,6 +60,7 @@ func workspaceSidebarPanelForCommand(focusedScopeId: String) -> WorkspaceSidebar
 func closeWorkspaceSidebarFromCommand(_ panel: WorkspaceSidebarPanel, restorePreviousApplication: Bool = false) {
     let previousApp = panel.inlineTextEditingPreviousApplication
     panel.endInlineTextEditing()
+    panel.expandedDockHoverSource = nil
     panel.pendingExpand?.cancel()
     panel.pendingExpand = nil
     panel.pendingCollapse?.cancel()

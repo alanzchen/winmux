@@ -148,6 +148,7 @@ extension WorkspaceSidebarPanel {
         guard autoHideReason != .systemChrome || reason == .systemChrome else { return }
         guard autoHideReason != reason else { return }
         autoHideReason = reason
+        if reason == .systemChrome { expandedDockHoverSource = nil }
         // Input is released at the start, while the outgoing pixels remain visible.
         dockPointerView?.reset(reason: .hidden)
         cancelInlineTextEditing()

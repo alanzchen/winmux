@@ -1,5 +1,38 @@
 import AppKit
 
+/// A popup stays open over its opening Dock even when expansion changes its shape.
+/// This region participates only in hover retention, never click or drag hit testing.
+struct WorkspaceSidebarExpansionHoverSource {
+    let region: CGRect
+    let panelFrame: CGRect
+    let position: WorkspaceDockPosition
+    private let compactWidth: CGFloat
+    private let expandedWidth: Int
+    private let gap: Int
+    private let autoHide: Bool
+
+    init(region: CGRect, panelFrame: CGRect, sidebarConfig: WorkspaceSidebarConfig) {
+        self.region = region
+        self.panelFrame = panelFrame
+        position = sidebarConfig.effectiveDockPosition
+        compactWidth = sidebarConfig.effectiveCollapsedWidth
+        expandedWidth = sidebarConfig.width
+        gap = sidebarConfig.effectiveLeftGap
+        autoHide = sidebarConfig.autoHide
+    }
+
+    func matches(panelFrame: CGRect, sidebarConfig: WorkspaceSidebarConfig) -> Bool {
+        self.panelFrame == panelFrame && position == sidebarConfig.effectiveDockPosition
+            && compactWidth == sidebarConfig.effectiveCollapsedWidth && expandedWidth == sidebarConfig.width
+            && gap == sidebarConfig.effectiveLeftGap && autoHide == sidebarConfig.autoHide
+            && sidebarConfig.showAppIcons && !sidebarConfig.alwaysExpanded
+    }
+
+    func contains(_ point: CGPoint, panelFrame: CGRect, sidebarConfig: WorkspaceSidebarConfig) -> Bool {
+        matches(panelFrame: panelFrame, sidebarConfig: sidebarConfig) && region.contains(point)
+    }
+}
+
 func workspaceSidebarAllowsEdgeTrap(_ sidebarConfig: WorkspaceSidebarConfig) -> Bool {
     !sidebarConfig.alwaysExpanded
 }

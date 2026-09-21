@@ -88,6 +88,20 @@ extension WorkspaceSidebarPanel {
     func expandSidebar(to expandedWidth: CGFloat, reason: WorkspaceSidebarExpansionReason = .passive) {
         guard currentSidebarPanelLayout() != nil else { return }
         guard reason != .hover || NSApp.modalWindow == nil else { return }
+        if expandedDockHoverSource == nil, config.workspaceSidebar.showAppIcons,
+           !config.workspaceSidebar.alwaysExpanded, autoHideReason == nil,
+           viewModel.workspaceSidebarVisibleWidth > 0,
+           viewModel.workspaceSidebarVisibleWidth <= workspaceSidebarHoverActivationWidth(config.workspaceSidebar),
+           !visibleSurfaceFrameOnScreen.isEmpty {
+            // A bottom Dock becomes narrower when expanded. Keep the launch area
+            // in the hover region so its stationary pointer cannot collapse and
+            // immediately reopen the view as the compact Dock returns underneath it.
+            expandedDockHoverSource = WorkspaceSidebarExpansionHoverSource(
+                region: workspaceSidebarHoverRegion(surface: visibleSurfaceFrameOnScreen, displayFrame: frame,
+                    sidebarConfig: config.workspaceSidebar, exitTolerance: hoverExitTolerance,
+                    fittedDockWidth: fittedDockRestingWidth),
+                panelFrame: frame, sidebarConfig: config.workspaceSidebar)
+        }
         debugWorkspaceSidebarHoverLog("expandSidebar panel=\(monitorScopeId) target=\(expandedWidth) visible=\(viewModel.workspaceSidebarVisibleWidth) frame=\(frame) mouse=\(NSEvent.mouseLocation)")
         pendingExpand?.cancel()
         pendingExpand = nil
@@ -873,6 +887,7 @@ extension WorkspaceSidebarPanel {
                 return
             }
             viewModel.isWorkspaceSidebarExpanded = false
+            self.expandedDockHoverSource = nil
             self.updateMousePassthrough()
         }
         pendingCollapseFinalize = finalize
@@ -1044,7 +1059,14 @@ extension WorkspaceSidebarPanel {
         }
         let hoverRegion = workspaceSidebarHoverRegion(surface: surface, displayFrame: frame, sidebarConfig: config.workspaceSidebar,
             exitTolerance: hoverExitTolerance, fittedDockWidth: fittedDockRestingWidth)
-        let inside = hoverRegion.contains(point) || (autoHideReason == nil && isScreenPointInsideDockIcon(point))
+        // Pointer re-entry may reverse an in-flight hide. Once hidden, only the
+        // normal edge-reveal geometry remains; suppression never retains hover.
+        let retainsOpeningDock = autoHideReason == nil || (autoHideReason == .pointerExit && slideTransition.isAnimating)
+        let insideOpeningDock = retainsOpeningDock && viewModel.isWorkspaceSidebarExpanded
+            && expandedDockHoverSource?.contains(point, panelFrame: frame,
+                sidebarConfig: config.workspaceSidebar) == true
+        let inside = hoverRegion.contains(point) || insideOpeningDock
+            || (autoHideReason == nil && isScreenPointInsideDockIcon(point))
         if viewModel.workspaceSidebarVisibleWidth > workspaceSidebarRestingWidth(config.workspaceSidebar) + 0.5 || pendingCollapse != nil {
             debugWorkspaceSidebarHoverLog("hoverRegion panel=\(monitorScopeId) inside=\(inside) hoverWidth=\(hoverRegion.width) visibleWidth=\(viewModel.workspaceSidebarVisibleWidth) frame=\(frame) mouse=\(NSEvent.mouseLocation) suppressUntil=\(splitBrowseCollapseSuppressedUntil)")
         }
@@ -1086,6 +1108,9 @@ extension WorkspaceSidebarPanel {
             return
         }
 
+        if let source = expandedDockHoverSource, !source.matches(panelFrame: layout.frame, sidebarConfig: config.workspaceSidebar) {
+            expandedDockHoverSource = nil
+        }
         if frame != layout.frame {
             if slideTransition.isAnimating {
                 let reason = autoHideReason
@@ -1178,6 +1203,7 @@ extension WorkspaceSidebarPanel {
         // Runs for every inactive panel on every refreshAll — guard the shared-model writes so
         // they don't invalidate every observer each session.
         localDropTargetFrames = []
+        expandedDockHoverSource = nil
         if !preserveSurface { visibleSurfaceFrame = nil }
         dockIconFrames = []
         if let preview = TrayMenuModel.shared.workspaceSidebarDropPreview,
