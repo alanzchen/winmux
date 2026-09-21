@@ -196,8 +196,9 @@ final class WorkspaceSidebarDockDisplayLinkView: NSView {
 
     func reset(reason: DockPointerEventKind = .reset, publishFrame: Bool = true) {
         motion.reset()
-        stop()
-        recordInputState(reason)
+        let wasRunning = isRunning
+        pause(reason: reason)
+        if !wasRunning { recordInputState(reason) }
         if publishFrame { publish(motion.frame) }
     }
 

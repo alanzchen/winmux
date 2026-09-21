@@ -190,6 +190,26 @@ final class WorkspaceSidebarDockPointerTest: XCTestCase {
         XCTAssertTrue(a.isRunning)
     }
 
+    func testTemporaryResetRecoversAndDetachedDriverIsReleased() {
+        weak var released: WorkspaceSidebarDockDisplayLinkView?
+        autoreleasepool {
+            let (window, view) = fixture()
+            released = view
+            let point = screenPoint(CGPoint(x: 32, y: 200), in: view)
+            view.receiveNativePointer(point)
+            view.advance(to: 1)
+            view.reset()
+            XCTAssertFalse(view.isRunning)
+            XCTAssertNil(view.motion.target)
+            view.receiveNativePointer(point)
+            XCTAssertTrue(view.isRunning, "A paused driver must resume at the same stationary pointer")
+            view.reset()
+            window.contentView = nil
+            window.close()
+        }
+        XCTAssertNil(released, "Detaching must invalidate the paused display link and release its target")
+    }
+
     func testTeardownDoesNotPublishAndTrackingSurvivesRepeatedLayout() {
         let (window, view) = fixture()
         defer { window.close() }

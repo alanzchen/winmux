@@ -57,6 +57,7 @@ extension WorkspaceSidebarDockDisplayLinkView {
         // AppKit can detach a representable during SwiftUI reconciliation. Reset
         // native state now, and publish only from a later recheck after reattachment.
         reset(reason: .detached, publishFrame: false)
+        stop() // Release the paused display link and its target when leaving the view tree.
     }
 
     func schedulePointerRecheck() {

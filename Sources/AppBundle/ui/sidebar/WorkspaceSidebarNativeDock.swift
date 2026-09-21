@@ -14,6 +14,27 @@ struct WorkspaceSidebarNativeDockWorkspace {
     var drop: (WorkspaceSidebarDragPayload) -> Void = { _ in }
 }
 
+private struct WorkspaceSidebarNativeDockArtworkKey: Equatable {
+    struct Section: Equatable {
+        let name: String
+        let identifier: String
+        let apps: [WorkspaceSidebarAppViewModel]
+    }
+    let sections: [Section]
+    let size: CGFloat
+    let backingScale: CGFloat
+    let scale: CGFloat
+
+    init(_ input: WorkspaceSidebarNativeDock, backingScale: CGFloat) {
+        sections = input.workspaces.map {
+            Section(name: $0.workspace.name, identifier: workspaceSidebarAppSummaryIdentifier($0.workspace), apps: $0.workspace.apps)
+        }
+        size = input.configuration.dockIconSize
+        self.backingScale = backingScale
+        scale = backingScale * (1 + input.configuration.dockMagnificationAmount)
+    }
+}
+
 /// SwiftUI supplies snapshots and cold controls. The display link only changes
 /// cached layer poses; it never publishes a pointer or a frame into SwiftUI.
 struct WorkspaceSidebarNativeDock: NSViewRepresentable {
@@ -70,7 +91,7 @@ final class WorkspaceSidebarNativeDockView: NSView {
     private var separators: [CALayer] = []
     private var imageModels: [AppIconModel] = []
     private var subscriptions: [AnyCancellable] = []
-    private var artworkKey: String?
+    private var artworkKey: WorkspaceSidebarNativeDockArtworkKey?
     private var accessibilityButtons: [WorkspaceSidebarNativeDockButton] = []
     private(set) var geometry: WorkspaceSidebarNativeDockGeometry?
     private var scrollOffset: CGFloat = 0
@@ -162,10 +183,7 @@ final class WorkspaceSidebarNativeDockView: NSView {
             scrollOffset = 0
         }
         configureBackdrop(input)
-        let key = String(describing: input.workspaces.map {
-            ($0.workspace.name, $0.workspace.displayName, $0.workspace.apps, $0.isActive, $0.opacity)
-        })
-            + "\(input.configuration.dockIconSize)-\(input.configuration.dockMagnificationAmount)-\(window?.backingScaleFactor ?? 2)"
+        let key = WorkspaceSidebarNativeDockArtworkKey(input, backingScale: window?.backingScaleFactor ?? 2)
         if artworkKey != key {
             if let previous, let geometry, !input.reduceMotion {
                 var frames: [String: CGRect] = [:]
@@ -183,6 +201,19 @@ final class WorkspaceSidebarNativeDockView: NSView {
             // AX and pointer callbacks can arrive before AppKit's next layout.
             // Never index old poses using the newly installed snapshot.
             geometry = nil
+        } else {
+            // Focus changes affect opacity and the workspace tile, not cached app
+            // images or their subscriptions. Preserve the existing layer identities.
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            // Equal structural keys guarantee matching rows and a title at index zero.
+            for (index, entry) in input.workspaces.enumerated() {
+                for tile in tiles[index] where tile.opacity != Float(entry.opacity) { tile.opacity = Float(entry.opacity) }
+                if previous?.workspaces[index].isActive != entry.isActive {
+                    tiles[index][0].contents = workspaceArtwork(entry, size: key.size, scale: key.scale)
+                }
+            }
+            CATransaction.commit()
         }
         rebuildAccessibilityIfNeeded(input)
         // Install matching geometry before returning the new snapshot to AppKit.
@@ -287,11 +318,7 @@ final class WorkspaceSidebarNativeDockView: NSView {
             var row: [CALayer] = []
             var badges: [CALayer] = []
             let title = makeTile(size: size, opacity: entry.opacity)
-            let image = ImageRenderer(content: WorkspaceSidebarWorkspaceIcon(
-                identifier: workspaceSidebarAppSummaryIdentifier(workspace), isActive: entry.isActive,
-                size: size, showsIndicator: false))
-            image.scale = scale
-            title.contents = image.cgImage
+            title.contents = workspaceArtwork(entry, size: size, scale: scale)
             row.append(title)
             for app in workspace.apps {
                 let tile = makeTile(size: size, opacity: entry.opacity)
@@ -331,6 +358,14 @@ final class WorkspaceSidebarNativeDockView: NSView {
         subscriptions.append(WorkspaceSidebarDockBadgeModel.shared.$snapshot.sink { [weak self] in
             self?.updateBadges($0)
         })
+    }
+
+    private func workspaceArtwork(_ entry: WorkspaceSidebarNativeDockWorkspace, size: CGFloat, scale: CGFloat) -> CGImage? {
+        let renderer = ImageRenderer(content: WorkspaceSidebarWorkspaceIcon(
+            identifier: workspaceSidebarAppSummaryIdentifier(entry.workspace), isActive: entry.isActive,
+            size: size, showsIndicator: false))
+        renderer.scale = scale
+        return renderer.cgImage
     }
 
     private func updateBadges(_ snapshot: WorkspaceSidebarDockBadgeSnapshot) {
@@ -382,6 +417,7 @@ final class WorkspaceSidebarNativeDockView: NSView {
         driver.onFrame = nil
         driver.detachPointer()
         releaseArtwork()
+        artworkKey = nil
         if dragging { endWorkspaceSidebarItemDrag() }
         dragging = false
         pressed = nil
@@ -497,10 +533,7 @@ final class WorkspaceSidebarNativeDockView: NSView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
-        if previousSurface != next.surface || surfaceHitPath == nil {
-            let radius = config.compactRailWidth / 3
-            surfaceHitPath = CGPath(roundedRect: next.surface, cornerWidth: radius, cornerHeight: radius, transform: nil)
-        }
+        if previousSurface != next.surface { surfaceHitPath = nil }
         if backdrop?.frame != next.surface { backdrop?.frame = next.surface }
         if rim.frame != next.surface {
             rim.frame = next.surface
@@ -543,13 +576,14 @@ final class WorkspaceSidebarNativeDockView: NSView {
                 if tile.affineTransform() != transform { tile.setAffineTransform(transform) }
             }
             let sectionFrame = next.sections[section]
-            separators[section].isHidden = section == 0
-            separators[section].frame = horizontal
+            if separators[section].isHidden != (section == 0) { separators[section].isHidden = section == 0 }
+            let separatorFrame = horizontal
                 ? CGRect(x: sectionFrame.minX - 3, y: sectionFrame.minY + 10, width: 0.5, height: max(0, sectionFrame.height - 20))
                 : CGRect(x: sectionFrame.minX + 10, y: sectionFrame.minY - 3, width: max(0, sectionFrame.width - 20), height: 0.5)
+            if separators[section].frame != separatorFrame { separators[section].frame = separatorFrame }
         }
         let activeIndex = input.workspaces.firstIndex(where: \.isActive)
-        indicatorLayer.isHidden = activeIndex == nil
+        if indicatorLayer.isHidden != (activeIndex == nil) { indicatorLayer.isHidden = activeIndex == nil }
         if let index = activeIndex, let pose = next.icons[index].first {
             let diameter = workspaceSidebarIndicatorDiameter(railWidth: config.compactRailWidth)
             let outward = -workspaceSidebarIndicatorLeadingOffset(tileSize: config.dockIconSize, railWidth: config.compactRailWidth)
@@ -558,11 +592,13 @@ final class WorkspaceSidebarNativeDockView: NSView {
                 case .right: CGPoint(x: pose.maxX + outward - diameter, y: pose.midY - diameter / 2)
                 case .bottom: CGPoint(x: pose.midX - diameter / 2, y: pose.maxY + outward - diameter)
             }
-            indicatorLayer.frame = CGRect(origin: point, size: CGSize(width: diameter, height: diameter))
-            indicatorLayer.cornerRadius = diameter / 2
+            let indicatorFrame = CGRect(origin: point, size: CGSize(width: diameter, height: diameter))
+            if indicatorLayer.frame != indicatorFrame { indicatorLayer.frame = indicatorFrame }
+            if indicatorLayer.cornerRadius != diameter / 2 { indicatorLayer.cornerRadius = diameter / 2 }
         }
-        createLayer.isHidden = next.create == nil || showsCreatePreview
-        if let create = next.create { createLayer.frame = create }
+        let hideCreate = next.create == nil || showsCreatePreview
+        if createLayer.isHidden != hideCreate { createLayer.isHidden = hideCreate }
+        if let create = next.create, createLayer.frame != create { createLayer.frame = create }
         if showsCreatePreview, let create = next.create {
             place(previewClip, in: clip)
             place(createPreview, in: create.offsetBy(dx: -clip.minX, dy: -clip.minY))
@@ -594,7 +630,14 @@ final class WorkspaceSidebarNativeDockView: NSView {
             }
             pendingTransitions = nil
         }
-        let iconFrames = next.icons.flatMap { $0 }.map { $0.intersection(clip) }.filter { !$0.isNull && !$0.isEmpty }
+        var iconFrames: [CGRect] = []
+        iconFrames.reserveCapacity(next.icons.reduce(0) { $0 + $1.count })
+        for row in next.icons {
+            for pose in row {
+                let visible = pose.intersection(clip)
+                if !visible.isNull && !visible.isEmpty { iconFrames.append(visible) }
+            }
+        }
         input.hitRegions.surface = next.surface
         input.hitRegions.icons = iconFrames
         input.actions.setSurfaceFrame(next.surface)
@@ -615,8 +658,23 @@ final class WorkspaceSidebarNativeDockView: NSView {
     }
 
     private func contains(_ point: CGPoint) -> Bool {
-        guard geometry != nil, let input else { return false }
-        return surfaceHitPath?.contains(point) == true || input.hitRegions.icons.contains { $0.contains(point) }
+        guard let geometry, let input else { return false }
+        let rect = geometry.surface
+        // Most input is in the rectangular middle. Defer the exact CGPath test
+        // and its allocation to curved corners/boundaries, preserving their shape.
+        if point.x >= rect.minX, point.x <= rect.maxX, point.y >= rect.minY, point.y <= rect.maxY {
+            let radius = input.configuration.compactRailWidth / 3
+            let rx = min(radius, rect.width / 2)
+            let ry = min(radius, rect.height / 2)
+            if point.x > rect.minX, point.x < rect.maxX, point.y > rect.minY, point.y < rect.maxY,
+               ((point.x >= rect.minX + rx && point.x <= rect.maxX - rx)
+                || (point.y >= rect.minY + ry && point.y <= rect.maxY - ry)) { return true }
+            if surfaceHitPath == nil {
+                surfaceHitPath = CGPath(roundedRect: rect, cornerWidth: radius, cornerHeight: radius, transform: nil)
+            }
+            if surfaceHitPath?.contains(point) == true { return true }
+        }
+        return input.hitRegions.icons.contains { $0.contains(point) }
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {

@@ -51,17 +51,17 @@ struct WorkspaceSidebarNativeDockGeometry {
         var origin = pagePadding
         var poses: [[CGRect]] = []
         var sectionPoses: [CGRect] = []
+        poses.reserveCapacity(appCounts.count)
+        sectionPoses.reserveCapacity(appCounts.count)
         for (index, count) in appCounts.enumerated() {
             let section = column.sections[index]
             let lens = WorkspaceSidebarDockMagnification(itemSize: configuration.dockIconSize,
                 count: 1 + count, enabled: true, amount: configuration.dockMagnificationAmount * section.strength)
             let height = lens.renderedHeight(pointerY: section.pointerY)
-            let localFrames = lens.frames(width: cross, pointerY: section.pointerY).map {
+            poses.append(lens.frames(width: cross, pointerY: section.pointerY).map {
                 workspaceSidebarDockOrientedFrame($0, crossAxis: cross, position: configuration.dockPosition)
-            }
-            poses.append(localFrames.map {
-                $0.offsetBy(dx: pageFrame.minX + (horizontal ? origin + 3 : inset),
-                    dy: pageFrame.minY + (horizontal ? inset : origin + 3))
+                    .offsetBy(dx: pageFrame.minX + (horizontal ? origin + 3 : inset),
+                        dy: pageFrame.minY + (horizontal ? inset : origin + 3))
             })
             sectionPoses.append(rect(outerPadding + leadingLength + origin, height + 6))
             origin += height + 12
@@ -73,8 +73,8 @@ struct WorkspaceSidebarNativeDockGeometry {
         let offset = min(max(scrollOffset, 0), maximumScroll)
         let dx = horizontal ? -offset : 0
         let dy = horizontal ? 0 : -offset
-        icons = poses.map { $0.map { $0.offsetBy(dx: dx, dy: dy) } }
-        sections = sectionPoses.map { $0.offsetBy(dx: dx, dy: dy) }
+        icons = offset == 0 ? poses : poses.map { $0.map { $0.offsetBy(dx: dx, dy: dy) } }
+        sections = offset == 0 ? sectionPoses : sectionPoses.map { $0.offsetBy(dx: dx, dy: dy) }
         create = createPose?.offsetBy(dx: dx, dy: dy)
     }
 }

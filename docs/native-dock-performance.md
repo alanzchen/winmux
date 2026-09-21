@@ -10,7 +10,12 @@ idle CPU**. The current measurements do not yet establish the interaction target
 100% represents one occupied CPU core. CPU percentage is not Energy Impact or
 power consumption.
 
-## Current production candidate measurements
+The follow-up [optimization validation](dock-optimization-validation.md) records
+the latest behavior-preserving cache/input changes, component profiling, rejected
+glass-layout experiments, and final hover/idle measurements. The historical
+measurements below describe earlier implementations.
+
+## Original native renderer measurements
 
 These measurements used local prototype v18, whose implementation shipped in 0.6.333.
 The hover-spacing correction below is measured separately.

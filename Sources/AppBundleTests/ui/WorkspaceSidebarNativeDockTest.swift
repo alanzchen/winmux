@@ -110,6 +110,177 @@ final class WorkspaceSidebarNativeDockTest: XCTestCase {
         XCTAssertNil(weakView)
     }
 
+    func testSurfaceHitTestingPreservesExactRoundedCornersOnEveryEdge() throws {
+        for position: WorkspaceDockPosition in [.left, .right, .bottom] {
+            let input = fixture(position: position)
+            let view = WorkspaceSidebarNativeDockView(frame: CGRect(x: 0, y: 0, width: 800, height: 800))
+            let parent = NSView(frame: view.frame)
+            parent.addSubview(view)
+            view.configure(input)
+            view.layoutSubtreeIfNeeded()
+            defer { view.detach() }
+            let icon = try XCTUnwrap(view.geometry?.icons[0].first)
+            for frame in [WorkspaceSidebarDockMotionFrame(), .init(pointer: CGPoint(x: icon.midX, y: icon.midY), strength: 1)] {
+                view.render(frame)
+                let rect = try XCTUnwrap(view.geometry).surface
+                let radius = input.configuration.compactRailWidth / 3
+                let path = CGPath(roundedRect: rect, cornerWidth: radius, cornerHeight: radius, transform: nil)
+                let boundaryPoints = [
+                    CGPoint(x: rect.minX, y: rect.midY), CGPoint(x: rect.maxX, y: rect.midY),
+                    CGPoint(x: rect.midX, y: rect.minY), CGPoint(x: rect.midX, y: rect.maxY),
+                    CGPoint(x: rect.minX + radius, y: rect.minY), CGPoint(x: rect.maxX - radius, y: rect.minY),
+                    CGPoint(x: rect.minX + radius, y: rect.maxY), CGPoint(x: rect.maxX - radius, y: rect.maxY),
+                    CGPoint(x: rect.minX, y: rect.minY + radius), CGPoint(x: rect.minX, y: rect.maxY - radius),
+                    CGPoint(x: rect.maxX, y: rect.minY + radius), CGPoint(x: rect.maxX, y: rect.maxY - radius),
+                ]
+                for boundary in boundaryPoints {
+                    let inParent = view.convert(boundary, to: parent)
+                    let point = view.convert(inParent, from: parent)
+                    let expected = path.contains(point) || input.hitRegions.icons.contains { $0.contains(point) }
+                    XCTAssertEqual(view.hitTest(inParent) != nil, expected, "Boundary mismatch at \(point) in \(position)")
+                }
+                for x in stride(from: rect.minX, through: rect.maxX, by: 8) {
+                    for y in stride(from: rect.minY, through: rect.maxY, by: 8) {
+                        let inParent = view.convert(CGPoint(x: x, y: y), to: parent)
+                        let point = view.convert(inParent, from: parent)
+                        let expected = path.contains(point) || input.hitRegions.icons.contains { $0.contains(point) }
+                        XCTAssertEqual(view.hitTest(inParent) != nil, expected)
+                    }
+                }
+                for cornerX in [rect.minX - 1, rect.maxX - radius - 1] {
+                    for cornerY in [rect.minY - 1, rect.maxY - radius - 1] {
+                        for x in stride(from: cornerX, through: cornerX + radius + 2, by: 0.5) {
+                            for y in stride(from: cornerY, through: cornerY + radius + 2, by: 0.5) {
+                                // Use the same round trip as hitTest; fractional
+                                // shelf edges can lose an ulp during y-axis flipping.
+                                let inParent = view.convert(CGPoint(x: x, y: y), to: parent)
+                                let point = view.convert(inParent, from: parent)
+                                let expected = path.contains(point) || input.hitRegions.icons.contains { $0.contains(point) }
+                                XCTAssertEqual(view.hitTest(inParent) != nil, expected,
+                                    "Corner mismatch at \(point) in \(position)")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    func testManuallyPlacedGlassFollowsShelfThroughLayoutOnEveryEdge() throws {
+        guard #available(macOS 26.0, *) else { throw XCTSkip("Native glass requires macOS 26") }
+        for position: WorkspaceDockPosition in [.left, .right, .bottom] {
+            var input = fixture(position: position, chromeStyle: .liquidGlass)
+            let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 800, height: 800),
+                styleMask: [.borderless], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            let view = WorkspaceSidebarNativeDockView(frame: CGRect(x: 0, y: 0, width: 800, height: 800))
+            window.contentView = view
+            defer { view.detach(); window.contentView = nil; window.close() }
+            view.configure(input)
+            view.layoutSubtreeIfNeeded()
+            let glass = try XCTUnwrap(view.subviews.compactMap { $0 as? NSGlassEffectView }.first)
+            let resting = try XCTUnwrap(view.geometry).surface
+            let icon = try XCTUnwrap(view.geometry?.icons[0].first)
+            // Pointer frames normally bypass configure and AppKit layout entirely.
+            view.render(.init(pointer: CGPoint(x: icon.midX, y: icon.midY), strength: 1))
+            XCTAssertEqual(glass.frame, view.geometry?.surface)
+            XCTAssertNotEqual(glass.frame, resting)
+            view.render(.init())
+            XCTAssertEqual(glass.frame, resting)
+            for point: CGPoint? in [CGPoint(x: icon.midX, y: icon.midY), nil] {
+                input.pointerOverride = point
+                view.configure(input)
+                view.needsLayout = true
+                view.layoutSubtreeIfNeeded()
+                CATransaction.flush()
+                XCTAssertEqual(glass.frame, view.geometry?.surface)
+                XCTAssertEqual(glass.cornerRadius, input.configuration.compactRailWidth / 3)
+                if point == nil { XCTAssertEqual(glass.frame, resting) }
+                else { XCTAssertNotEqual(glass.frame, resting) }
+            }
+        }
+    }
+
+    func testBackingScaleChangeRefreshesCreateArtworkWhenLensScaleIsEqual() throws {
+        let window = NativeDockTestScaleWindow(contentRect: CGRect(x: 0, y: 0, width: 240, height: 800),
+            styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let view = WorkspaceSidebarNativeDockView(frame: CGRect(x: 0, y: 0, width: 240, height: 800))
+        window.contentView = view
+        defer { view.detach(); window.contentView = nil; window.close() }
+        func createImage() throws -> CGImage {
+            let rect = try XCTUnwrap(view.geometry?.create)
+            let layers = try XCTUnwrap(view.layer?.sublayers).flatMap { $0.sublayers ?? [] }
+            let value = try XCTUnwrap(layers.first { $0.frame == rect && $0.contents != nil }?.contents)
+            return try XCTUnwrap(CFGetTypeID(value as CFTypeRef) == CGImage.typeID ? (value as! CGImage) : nil)
+        }
+        window.testScale = 2
+        view.configure(fixture(magnificationAmount: 0))
+        view.layoutSubtreeIfNeeded()
+        let first = try createImage()
+        window.testScale = 1
+        view.configure(fixture(magnificationAmount: 1))
+        view.layoutSubtreeIfNeeded()
+        let second = try createImage()
+        XCTAssertEqual(first.width, 64)
+        XCTAssertEqual(second.width, 32, "Create glyph uses backing scale independently of the equal 2x lens raster scale")
+    }
+
+    func testFocusChangesReuseAppArtworkAndUpdateOnlyWorkspaceStyle() throws {
+        let view = WorkspaceSidebarNativeDockView(frame: CGRect(x: 0, y: 0, width: 240, height: 800))
+        var workspace = sidebarAppIconsTestWorkspace()
+        workspace.apps = (0..<3).map { .init(name: "App \($0)", bundleId: nil, bundlePath: nil) }
+        let input = fixture(workspace: workspace)
+        view.configure(input)
+        view.layoutSubtreeIfNeeded()
+        defer { view.detach() }
+        let poses = try XCTUnwrap(view.geometry).icons[0]
+        let layers = try XCTUnwrap(view.layer?.sublayers).flatMap { $0.sublayers ?? [] }
+        let tiles = try poses.map { pose in try XCTUnwrap(layers.first { $0.frame == pose && $0.contents != nil }) }
+        let artwork = try tiles.map { try XCTUnwrap($0.contents as AnyObject?) }
+        view.configure(input)
+        for (index, tile) in tiles.enumerated() {
+            XCTAssertNotNil(tile.superlayer, "An identical snapshot must keep the existing tile")
+            XCTAssertTrue(tile.contents as AnyObject? === artwork[index], "An identical snapshot must keep cached artwork")
+        }
+        view.configure(fixture(workspace: workspace, opacity: 0.72))
+        for (index, tile) in tiles.enumerated() {
+            XCTAssertNotNil(tile.superlayer, "Opacity must not detach cached artwork")
+            XCTAssertTrue(tile.contents as AnyObject? === artwork[index])
+            XCTAssertEqual(tile.opacity, 0.72, accuracy: 0.0001)
+        }
+        view.configure(fixture(workspace: workspace, isActive: false, opacity: 0.72))
+        XCTAssertFalse(tiles[0].contents as AnyObject? === artwork[0], "Workspace active styling must still update")
+        for index in 1..<tiles.count {
+            XCTAssertNotNil(tiles[index].superlayer)
+            XCTAssertTrue(tiles[index].contents as AnyObject? === artwork[index], "Focus must not reload app icons")
+        }
+        var changed = input.workspaces[0].workspace
+        changed.apps.removeLast()
+        view.configure(fixture(workspace: changed))
+        XCTAssertTrue(tiles.allSatisfy { $0.superlayer == nil }, "Structural changes still replace the artwork")
+    }
+
+    func testDetachInvalidatesReleasedArtworkCache() throws {
+        let view = WorkspaceSidebarNativeDockView(frame: CGRect(x: 0, y: 0, width: 240, height: 800))
+        defer { view.detach() }
+        let input = fixture()
+        view.configure(input)
+        view.layoutSubtreeIfNeeded()
+        let pose = try XCTUnwrap(view.geometry?.icons[0].first)
+        let layers = try XCTUnwrap(view.layer?.sublayers).flatMap { $0.sublayers ?? [] }
+        let tile = try XCTUnwrap(layers.first { $0.frame == pose && $0.contents != nil })
+        view.detach()
+        // Dismantling is terminal in SwiftUI. Even an accidental later snapshot
+        // must not reuse layers whose image subscriptions have been released.
+        view.configure(input)
+        XCTAssertNil(tile.superlayer)
+        let newPose = try XCTUnwrap(view.geometry?.icons[0].first)
+        let newLayers = try XCTUnwrap(view.layer?.sublayers).flatMap { $0.sublayers ?? [] }
+        let newTile = try XCTUnwrap(newLayers.first { $0.frame == newPose && $0.contents != nil })
+        XCTAssertFalse(newTile === tile, "Released artwork must be replaced with a populated tile")
+    }
+
     func testHoverKeepsShelfPaddingTightOnEveryEdge() throws {
         for position: WorkspaceDockPosition in [.left, .right, .bottom] {
             let input = fixture(position: position)
@@ -211,15 +382,17 @@ final class WorkspaceSidebarNativeDockTest: XCTestCase {
 
     private func fixture(position: WorkspaceDockPosition = .left,
                          workspace: WorkspaceSidebarWorkspaceViewModel? = nil,
+                         isActive: Bool = true, opacity: Double = 1, magnificationAmount: Double = 0.5, chromeStyle: ChromeStyle = .solid,
                          onSelect: @escaping (String) -> Void = { _ in },
                          onDrop: @escaping (WorkspaceSidebarDragPayload) -> Void = { _ in },
                          actions: WorkspaceSidebarActions = .init()) -> WorkspaceSidebarNativeDock {
         var config = WorkspaceSidebarConfiguration.empty
         config.showAppIcons = true
         config.dockMagnification = true
+        config.dockMagnificationAmount = magnificationAmount
         config.dockPosition = position
         config.compactLeftGap = 2
-        config.chromeStyle = .solid
+        config.chromeStyle = chromeStyle
         var model = workspace ?? sidebarAppIconsTestWorkspace()
         if workspace == nil { model.apps = sidebarAppIconsTestApps(count: 3) }
         let compactLength = workspaceSidebarDockContentHeight(appCounts: [model.apps.count], configuration: config,
@@ -227,7 +400,7 @@ final class WorkspaceSidebarNativeDockTest: XCTestCase {
         return WorkspaceSidebarNativeDock(configuration: config, visibleWidth: config.compactRailWidth,
             compactLength: compactLength, leadingLength: 0, trailingLength: position == .bottom ? 32 : 38,
             leading: AnyView(EmptyView()), trailing: AnyView(EmptyView()),
-            workspaces: [.init(workspace: model, isActive: true, isEnabled: true, opacity: 1,
+            workspaces: [.init(workspace: model, isActive: isActive, isEnabled: true, opacity: opacity,
                 select: { onSelect(model.name) }, selectApp: { onSelect($0.id) }, rename: {}, drop: onDrop)],
             projectId: workspaceProjectDefaultId, monitorScopeId: workspaceSidebarDefaultScopeId,
             showsCreate: true, reduceTransparency: false, blockers: [],
@@ -239,4 +412,10 @@ final class WorkspaceSidebarNativeDockTest: XCTestCase {
             timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: 0, context: nil,
             eventNumber: 1, clickCount: 1, pressure: 1))
     }
+}
+
+@MainActor
+private final class NativeDockTestScaleWindow: NSWindow {
+    var testScale: CGFloat = 2
+    override var backingScaleFactor: CGFloat { testScale }
 }
