@@ -39,7 +39,7 @@ Use concise imperative subjects, following history: `Fix compact sidebar multi-m
 ## Code Review Workflow
 
 Before pushing substantive code changes, run independent, read-only reviews with
-**Claude CLI (`claude-fable-5`)** and **agy CLI (`gemini-3.8-flash-high`)**. Provide
+**Claude Opus 5 via Claude CLI** and **agy CLI (`gemini-3.8-flash-high`)**. Provide
 the diff, relevant surrounding code, requirements, and validation results. Ask for
 concrete correctness, regression, performance, and test-coverage findings.
 If headless file reads are denied, pass a scoped source bundle directly to the
