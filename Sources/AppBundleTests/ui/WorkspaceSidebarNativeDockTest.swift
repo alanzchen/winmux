@@ -5,6 +5,83 @@ import XCTest
 
 @MainActor
 final class WorkspaceSidebarNativeDockTest: XCTestCase {
+    func testOutgoingCompactRendererCannotOverwriteExpandedHitRegions() throws {
+        for position: WorkspaceDockPosition in [.left, .right, .bottom] {
+            var surfaces: [CGRect] = []
+            var iconUpdates = 0
+            var dropUpdates = 0
+            let input = fixture(position: position, actions: .init(
+                setDropTargets: { _ in dropUpdates += 1 },
+                setSurfaceFrame: { surfaces.append($0) },
+                setDockIconFrames: { _ in iconUpdates += 1 }))
+            let window = NSWindow(contentRect: CGRect(x: 350, y: 250, width: 800, height: 800),
+                styleMask: [.borderless], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            let parent = NSView(frame: CGRect(x: 0, y: 0, width: 800, height: 800))
+            let compact = WorkspaceSidebarNativeDockView(frame: parent.bounds)
+            parent.addSubview(compact)
+            window.contentView = parent
+            compact.configure(input)
+            window.orderFrontRegardless()
+            compact.layoutSubtreeIfNeeded()
+            defer { compact.detach(); window.close() }
+            let oldDriver = try XCTUnwrap(compact.subviews.compactMap { $0 as? WorkspaceSidebarDockDisplayLinkView }.first)
+            let icon = try XCTUnwrap(compact.geometry?.icons.first?.first)
+            let point = window.convertPoint(toScreen: compact.convert(CGPoint(x: icon.midX, y: icon.midY), to: nil))
+            oldDriver.currentScreenPoint = { point }
+            oldDriver.receiveNativePointer(point)
+            oldDriver.advance(to: 1)
+            XCTAssertTrue(oldDriver.isRunning)
+
+            // SwiftUI retains the outgoing native view during its transition.
+            // The expanded renderer takes the same controller before that view
+            // receives dismantleNSView, so both views still have a window here.
+            let expandedDriver = WorkspaceSidebarDockDisplayLinkView(frame: parent.bounds)
+            expandedDriver.configurePointer(blockers: .expanded, contains: { _ in true })
+            parent.addSubview(expandedDriver)
+            input.motion.attach(to: expandedDriver)
+            XCTAssertFalse(oldDriver.isRunning)
+            XCTAssertFalse(oldDriver.isPointerAttached)
+            let expanded = workspaceSidebarSurfaceFrame(availableSize: parent.bounds.size,
+                visibleWidth: 280, compactHeight: input.compactLength, expansionProgress: 1,
+                fitsDockContent: true, compactLeftGap: 2, position: position)
+            input.hitRegions.surface = expanded
+            input.hitRegions.icons = []
+            surfaces.removeAll()
+            iconUpdates = 0
+            dropUpdates = 0
+
+            // Late tracking, display and layout callbacks must not restore compact
+            // surface, icon or drop geometry after expansion has installed its own.
+            oldDriver.receiveNativePointer(point)
+            oldDriver.advance(to: 2)
+            compact.setFrameSize(CGSize(width: 801, height: 800))
+            compact.layoutSubtreeIfNeeded()
+            compact.render(.init(pointer: CGPoint(x: icon.midX, y: icon.midY), strength: 1))
+            XCTAssertNotEqual(compact.geometry?.surface, expanded,
+                "The outgoing renderer recomputed compact geometry; it must only suppress publication")
+            compact.viewDidChangeBackingProperties()
+            XCTAssertTrue(input.motion.owns(expandedDriver), "Backing changes must not reclaim outgoing input")
+            XCTAssertTrue(expandedDriver.isPointerAttached)
+            XCTAssertEqual(input.hitRegions.surface, expanded)
+            XCTAssertTrue(input.hitRegions.icons.isEmpty)
+            XCTAssertTrue(surfaces.isEmpty)
+            XCTAssertEqual(iconUpdates, 0)
+            XCTAssertEqual(dropUpdates, 0)
+            XCTAssertFalse(oldDriver.isRunning)
+            let outgoingSurface = try XCTUnwrap(compact.geometry?.surface)
+            XCTAssertNil(compact.hitTest(compact.convert(CGPoint(x: outgoingSurface.midX, y: outgoingSurface.midY), to: parent)),
+                "The outgoing renderer must not intercept the expanded view's clicks")
+
+            // Returning to compact mode reclaims input and publishes fresh geometry.
+            compact.configure(input)
+            XCTAssertFalse(surfaces.isEmpty)
+            XCTAssertEqual(input.hitRegions.surface, compact.geometry?.surface)
+            oldDriver.receiveNativePointer(point)
+            XCTAssertTrue(oldDriver.isRunning)
+        }
+    }
+
     func testScrollSuppressesLensAndRecoversWithoutAnotherMouseMove() async throws {
         var workspace = sidebarAppIconsTestWorkspace()
         workspace.apps = sidebarAppIconsTestApps(count: 15)

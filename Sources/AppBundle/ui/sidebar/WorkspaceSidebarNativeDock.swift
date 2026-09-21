@@ -239,7 +239,9 @@ final class WorkspaceSidebarNativeDockView: NSView {
 
     override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
-        if let input { configure(input) }
+        // A backing change can reach a retained outgoing view. Only a new
+        // representable snapshot may let it reclaim the controller from its successor.
+        if let input, input.motion.owns(driver) { configure(input) }
     }
 
     override func updateTrackingAreas() {
@@ -630,6 +632,10 @@ final class WorkspaceSidebarNativeDockView: NSView {
             }
             pendingTransitions = nil
         }
+        // A retained outgoing compact view may still receive layout callbacks.
+        // Its geometry must never replace the expanded renderer's hit regions.
+        // Reclaiming through configure increments inputRevision and republishes.
+        guard input.motion.owns(driver) else { return }
         var iconFrames: [CGRect] = []
         iconFrames.reserveCapacity(next.icons.reduce(0) { $0 + $1.count })
         for row in next.icons {
@@ -678,6 +684,7 @@ final class WorkspaceSidebarNativeDockView: NSView {
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
+        guard input?.motion.owns(driver) == true else { return nil }
         let local = convert(point, from: superview)
         guard contains(local) else { return nil }
         if leading.frame.contains(local), let hit = leading.hitTest(local) { return hit }

@@ -61,9 +61,18 @@ struct WorkspaceSidebarDockMotion {
 
 @MainActor
 final class WorkspaceSidebarDockMotionController {
-    fileprivate weak var view: WorkspaceSidebarDockDisplayLinkView?
+    private weak var view: WorkspaceSidebarDockDisplayLinkView?
 
-    func attach(to view: WorkspaceSidebarDockDisplayLinkView) { self.view = view }
+    func attach(to view: WorkspaceSidebarDockDisplayLinkView) {
+        guard self.view !== view else { return }
+        // SwiftUI can retain an outgoing renderer through its transition. Stop
+        // its input and display link before the new renderer owns hit geometry.
+        self.view?.detachPointer()
+        self.view = view
+        if view.window != nil { view.attachPointer() }
+    }
+
+    func owns(_ view: WorkspaceSidebarDockDisplayLinkView) -> Bool { self.view === view }
 
     func receive(_ point: CGPoint?) { view?.receive(point) }
     func reset(publishFrame: Bool = true) { view?.reset(publishFrame: publishFrame) }
@@ -90,14 +99,14 @@ struct WorkspaceSidebarDockDisplayLink: NSViewRepresentable {
 
     func makeNSView(context: Context) -> WorkspaceSidebarDockDisplayLinkView {
         let view = WorkspaceSidebarDockDisplayLinkView()
-        controller.view = view
+        controller.attach(to: view)
         view.onFrame = publish
         view.configurePointer(blockers: blockers, horizontal: horizontal, contains: containsPointer)
         return view
     }
 
     func updateNSView(_ view: WorkspaceSidebarDockDisplayLinkView, context: Context) {
-        controller.view = view
+        controller.attach(to: view)
         view.onFrame = publish
         view.configurePointer(blockers: blockers, horizontal: horizontal, contains: containsPointer)
     }
