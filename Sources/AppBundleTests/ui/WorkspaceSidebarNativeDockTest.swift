@@ -110,22 +110,39 @@ final class WorkspaceSidebarNativeDockTest: XCTestCase {
         XCTAssertNil(weakView)
     }
 
-    func testGlassAndControlsStayStillWhileTheLensTravels() throws {
+    func testHoverKeepsShelfPaddingTightOnEveryEdge() throws {
         for position: WorkspaceDockPosition in [.left, .right, .bottom] {
             let input = fixture(position: position)
-            let view = WorkspaceSidebarNativeDockView(frame: CGRect(x: 0, y: 0, width: 800, height: 800))
-            view.configure(input)
-            view.layoutSubtreeIfNeeded()
-            let icons = try XCTUnwrap(view.geometry).icons[0]
-            view.render(.init(pointer: CGPoint(x: icons[1].midX, y: icons[1].midY), strength: 1))
-            let first = try XCTUnwrap(view.geometry)
-            view.render(.init(pointer: CGPoint(x: icons.last!.midX, y: icons.last!.midY), strength: 1))
-            let last = try XCTUnwrap(view.geometry)
-            XCTAssertEqual(first.surface, last.surface)
-            XCTAssertEqual(first.leading, last.leading)
-            XCTAssertEqual(first.trailing, last.trailing)
-            XCTAssertNotEqual(first.icons, last.icons)
-            view.detach()
+            let horizontal = position == .bottom
+            func start(_ rect: CGRect) -> CGFloat { horizontal ? rect.minX : rect.minY }
+            func end(_ rect: CGRect) -> CGFloat { horizontal ? rect.maxX : rect.maxY }
+            func geometry(_ frame: WorkspaceSidebarDockMotionFrame) -> WorkspaceSidebarNativeDockGeometry {
+                // Include a clock-sized control area beyond the lens radius.
+                WorkspaceSidebarNativeDockGeometry(size: CGSize(width: 1600, height: 1600),
+                    configuration: input.configuration, visibleWidth: input.visibleWidth,
+                    compactLength: input.compactLength + 250, leadingLength: input.leadingLength,
+                    trailingLength: input.trailingLength + 250, appCounts: [3], showsCreate: true, frame: frame)
+            }
+            let resting = geometry(.init())
+            let first = try XCTUnwrap(resting.icons.first?.first)
+            let create = try XCTUnwrap(resting.create)
+            let leadingPadding = start(first) - start(resting.surface)
+            let trailingPadding = start(resting.trailing) - end(create)
+            // Sweep across icons, the create button, and the cold controls.
+            for axis in stride(from: start(first), through: end(resting.trailing), by: 8) {
+                let point = horizontal ? CGPoint(x: axis, y: first.midY) : CGPoint(x: first.midX, y: axis)
+                let hovered = geometry(.init(pointer: point, strength: 1))
+                XCTAssertEqual(start(hovered.icons[0][0]) - start(hovered.surface), leadingPadding, accuracy: 0.001)
+                XCTAssertEqual(start(hovered.trailing) - end(try XCTUnwrap(hovered.create)), trailingPadding, accuracy: 0.001)
+                XCTAssertEqual(hovered.maximumScroll, resting.maximumScroll, accuracy: 0.001)
+            }
+            let controlPoint = horizontal
+                ? CGPoint(x: resting.trailing.maxX - 10, y: first.midY)
+                : CGPoint(x: first.midX, y: resting.trailing.maxY - 10)
+            let overControl = geometry(.init(pointer: controlPoint, strength: 1))
+            XCTAssertEqual(overControl.surface, resting.surface)
+            XCTAssertEqual(overControl.icons, resting.icons)
+            XCTAssertEqual(overControl.trailing, resting.trailing)
         }
     }
 

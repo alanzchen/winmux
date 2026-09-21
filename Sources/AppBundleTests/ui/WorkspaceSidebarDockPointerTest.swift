@@ -58,6 +58,29 @@ final class WorkspaceSidebarDockPointerTest: XCTestCase {
         // The existing 30 Hz trailing geometry recheck may already be queued.
         try await Task.sleep(for: .milliseconds(60))
         XCTAssertEqual(view.motion.target?.y, 299, "Geometry preferences must recover without a gate change or mouse event")
+
+        let oldSurface = panel.visibleSurfaceFrame
+        let oldPassthrough = panel.ignoresMouseEvents
+        defer {
+            panel.visibleSurfaceFrame = oldSurface
+            panel.ignoresMouseEvents = oldPassthrough
+        }
+        await drainRechecks()
+        let mouse = panel.hostingView.convert(panel.convertPoint(fromScreen: NSEvent.mouseLocation), from: nil)
+        let insideSurface = CGRect(x: mouse.x - 50, y: mouse.y - 50, width: 100, height: 100)
+        panel.ignoresMouseEvents = false
+        view.receiveNativePointer(screenPoint(CGPoint(x: 32, y: 301), in: view))
+        XCTAssertTrue(view.isRunning)
+        panel.updateSurfaceFrame(insideSurface)
+        XCTAssertFalse(panel.hasPendingHoverRecheck, "Lens resizing around an active pointer needs no duplicate panel check")
+        panel.updateSurfaceFrame(insideSurface.offsetBy(dx: 1000, dy: 0))
+        XCTAssertTrue(panel.hasPendingHoverRecheck, "A shrinking shelf that leaves the pointer outside must still recheck")
+        await drainRechecks()
+        view.stop()
+        panel.ignoresMouseEvents = false
+        panel.updateSurfaceFrame(insideSurface)
+        XCTAssertTrue(panel.hasPendingHoverRecheck, "Stationary geometry changes must still recover hover")
+        await drainRechecks()
     }
 
     private func fixture(origin: CGPoint = CGPoint(x: 350, y: 250)) -> (NSWindow, WorkspaceSidebarDockDisplayLinkView) {

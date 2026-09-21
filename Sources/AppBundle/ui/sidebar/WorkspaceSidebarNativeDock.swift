@@ -74,7 +74,6 @@ final class WorkspaceSidebarNativeDockView: NSView {
     private var accessibilityButtons: [WorkspaceSidebarNativeDockButton] = []
     private(set) var geometry: WorkspaceSidebarNativeDockGeometry?
     private var scrollOffset: CGFloat = 0
-    private var maximumHoverGrowth: CGFloat = 0
     private var pressed: (workspace: String, app: WorkspaceSidebarAppViewModel?, point: CGPoint, iconSize: CGFloat)?
     private var pressedCreate = false
     private var dragging = false
@@ -147,9 +146,6 @@ final class WorkspaceSidebarNativeDockView: NSView {
         self.input = input
         inputRevision &+= 1
         if previous?.configuration.compactRailWidth != input.configuration.compactRailWidth { surfaceHitPath = nil }
-        maximumHoverGrowth = WorkspaceSidebarDockColumnMagnification.maximumGrowth(
-            appCounts: input.workspaces.map { $0.workspace.apps.count },
-            itemSize: input.configuration.dockIconSize, amount: input.configuration.dockMagnificationAmount)
         input.motion.attach(to: driver)
         configurePointer(input)
         leading.rootView = input.leading
@@ -485,7 +481,7 @@ final class WorkspaceSidebarNativeDockView: NSView {
             visibleWidth: input.visibleWidth, compactLength: compactLength,
             leadingLength: input.leadingLength, trailingLength: input.trailingLength,
             appCounts: input.workspaces.map { $0.workspace.apps.count }, showsCreate: input.showsCreate,
-            frame: effectiveFrame, scrollOffset: scrollOffset, maximumHoverGrowth: maximumHoverGrowth,
+            frame: effectiveFrame, scrollOffset: scrollOffset,
             createLength: createLength)
         if scrollOffset > next.maximumScroll {
             scrollOffset = next.maximumScroll
@@ -516,7 +512,7 @@ final class WorkspaceSidebarNativeDockView: NSView {
         place(leading, in: next.leading)
         place(trailing, in: next.trailing)
         // Reserve the complete lens envelope, without making Core Animation mask
-        // the full expanded-panel canvas. The mask stays fixed while the lens moves.
+        // the full expanded-panel canvas. The cross-axis extent stays fixed while the lens moves.
         let overflow = config.dockMagnificationOverflow
         var envelope: CGRect = switch config.dockPosition {
             case .left: CGRect(x: next.surface.minX, y: next.page.minY,

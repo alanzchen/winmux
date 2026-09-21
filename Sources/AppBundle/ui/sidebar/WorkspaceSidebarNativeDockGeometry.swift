@@ -15,7 +15,7 @@ struct WorkspaceSidebarNativeDockGeometry {
     init(size: CGSize, configuration: WorkspaceSidebarConfiguration, visibleWidth: CGFloat,
          compactLength: CGFloat, leadingLength: CGFloat, trailingLength: CGFloat,
          appCounts: [Int], showsCreate: Bool, frame: WorkspaceSidebarDockMotionFrame,
-         scrollOffset: CGFloat = 0, maximumHoverGrowth: CGFloat, createLength: CGFloat = 32) {
+         scrollOffset: CGFloat = 0, createLength: CGFloat = 32) {
         let horizontal = configuration.dockPosition == .bottom
         let inset = configuration.compactHorizontalInset
         let cross = max(configuration.compactRailWidth - 2 * inset, 1)
@@ -31,16 +31,12 @@ struct WorkspaceSidebarNativeDockGeometry {
         let column = WorkspaceSidebarDockColumnMagnification(appCounts: appCounts,
             itemSize: configuration.dockIconSize, amount: configuration.dockMagnificationAmount,
             pointerY: pointer, strength: frame.strength)
+        // Fit the shelf to the current lens. Reserving maximum growth on entry
+        // leaves empty space at both ends when the pointer is near a control or
+        // the edge of the icon column, where actual magnification is smaller.
         let surfaceFrame = workspaceSidebarSurfaceFrame(availableSize: size, visibleWidth: visibleWidth,
-            compactHeight: compactLength + maximumHoverGrowth * frame.strength, expansionProgress: 0, fitsDockContent: true,
-            compactLeftGap: configuration.compactLeftGap, position: configuration.dockPosition)
-        let contentSurface = workspaceSidebarSurfaceFrame(availableSize: size, visibleWidth: visibleWidth,
             compactHeight: compactLength + column.growth, expansionProgress: 0, fitsDockContent: true,
             compactLeftGap: configuration.compactLeftGap, position: configuration.dockPosition)
-        // Open enough shelf space once on entry, then keep the glass, menus and
-        // clock still as the lens travels. Centering the icon column in that space
-        // preserves its original lens positions, without relaying out cold views.
-        let reserve = horizontal ? contentSurface.minX - surfaceFrame.minX : contentSurface.minY - surfaceFrame.minY
         surface = surfaceFrame
         func rect(_ origin: CGFloat, _ length: CGFloat) -> CGRect {
             horizontal
@@ -52,7 +48,7 @@ struct WorkspaceSidebarNativeDockGeometry {
         trailing = rect(max(outerPadding, length - outerPadding - trailingLength), trailingLength)
         let pageFrame = rect(outerPadding + leadingLength, max(0, length - 2 * outerPadding - leadingLength - trailingLength))
         page = pageFrame
-        var origin = pagePadding + reserve
+        var origin = pagePadding
         var poses: [[CGRect]] = []
         var sectionPoses: [CGRect] = []
         for (index, count) in appCounts.enumerated() {
@@ -70,7 +66,7 @@ struct WorkspaceSidebarNativeDockGeometry {
             sectionPoses.append(rect(outerPadding + leadingLength + origin, height + 6))
             origin += height + 12
         }
-        if appCounts.isEmpty { origin = pagePadding + reserve }
+        if appCounts.isEmpty { origin = pagePadding }
         let createPose = showsCreate ? rect(outerPadding + leadingLength + origin, createLength) : nil
         let contentLength = origin - (appCounts.isEmpty || showsCreate ? 0 : 6) + (showsCreate ? createLength : 0) + 10
         maximumScroll = max(0, contentLength - (horizontal ? pageFrame.width : pageFrame.height))

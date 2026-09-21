@@ -12,7 +12,8 @@ power consumption.
 
 ## Current production candidate measurements
 
-The production candidate was built as local prototype v18; it is not a published version.
+These measurements used local prototype v18, whose implementation shipped in 0.6.333.
+The hover-spacing correction below is measured separately.
 Both idle runs met the idle gate. Interaction remains above the requested budget
 in three of the four sustained-motion runs.
 
@@ -60,14 +61,62 @@ The app used the Xcode Release configuration and Swift 6.2.4, built from
 local test bundle was ad-hoc signed, not notarized or distributed. The unrelated
 working-copy glass-style edit was excluded from this isolated build.
 
+## Hover-spacing correction after 0.6.333
+
+Hovering over the clock or the end of the icon column could leave large blank
+areas before the first icon and between the create button and trailing controls.
+The native shelf reserved maximum possible magnification even when actual icon
+growth was small or zero. The correction sizes the shelf to actual growth and
+removes that reserve. Absolute icon poses stay the same; controls follow the
+shelf edges. Native geometry caches skip duplicate panel hover checks only while
+an active pointer remains inside the updated shelf. Exit, click-through, and
+stationary recovery retain their rechecks.
+
+A fresh matched bottom-Dock comparison used the same six-app fixture, clear
+glass, 120 movement events/s, 20-second settling, 10-second movement warm-up,
+and 60-second measurement. Actual input rates were 119.997–119.999 events/s,
+with maximum gaps below 13 ms. No builds, tests, accessibility inspection, or
+screenshots ran during measured intervals. Screenshots afterward verified snug
+padding over icons and the clock/control area.
+
+| Build | WinMux mean CPU | Highest ~5 s interval | WindowServer mean CPU |
+| --- | ---: | ---: | ---: |
+| Original native shelf (0.6.333 implementation) | 4.009% | 4.391% | 29.693% |
+| Actual-growth shelf, before panel-check optimization | 6.314% | 6.722% | 30.368% |
+| Actual-growth shelf, with panel-check optimization | 6.191% | 6.625% | 30.066% |
+
+This fixes a visual regression at a measurable interaction CPU cost. The
+panel-check optimization alone does not remove that cost. The **under-3% target
+remains unmet**. The earlier table describes the original native renderer, not
+this correction. Idle was not remeasured for this correction; native tests still
+cover display-link settling. These are VM results, not MacBook Air measurements.
+
+Validation: ARM64 Xcode Release build; 1,001 tests with seven skips and no
+failures; focused pointer tests rerun after review. Regression coverage sweeps
+left/right/bottom icon and control areas and checks padding, scroll bounds,
+active-pointer recheck suppression, exits, and stationary recovery. Physical
+multi-monitor and MacBook Air smoke checks remain untested.
+
+agy (`gemini-3.8-flash-high`) completed scoped read-only reviews and a targeted
+follow-up. Accepted findings concerned extra native frame/recheck work and
+isolating the stationary-recovery test from click-through state. Initial claims
+of icon drift/feedback were retracted after checking the unchanged absolute
+coordinates. Claude (`claude-fable-5`) again returned its session limit (HTTP429);
+no Claude approval is claimed. Raw reports are under ignored
+`.local/reviews/native-dock-hover-spacing-20260920/`; comparison data/screenshots
+are under `.local/vm-share/results/native-dock-20260920/spacing-v1/` and
+`spacing-v2/`. The unrelated working-copy glass-style edit was excluded from the
+isolated Release builds.
+
 ## Implementation
 
 - One analytical geometry calculation supplies artwork, pointer targets, drop
   targets, and accessibility bounds on the left, right, and bottom edges.
 - Cached artwork moves at the display's refresh cadence. The display link sleeps
   when motion settles; no lower animation-rate cap is imposed.
-- The glass shelf reserves the lens envelope on entry. Glass, the clock, and
-  other stationary controls remain fixed while the pointer traverses the icons.
+- The glass shelf fits actual lens growth. Reserving the maximum envelope in
+  0.6.333 left empty padding when hovering near controls or the icon-column edge.
+  Controls now move with the shelf edges; cached icon poses remain unchanged.
 - An unchanged snapshot, pointer frame, bounds, and scroll offset produce no
   duplicate layer transaction. The clipping layer covers the compact lens
   envelope rather than the full expanded panel canvas.

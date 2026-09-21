@@ -135,8 +135,11 @@ extension WorkspaceSidebarPanel {
         visibleSurfaceFrame = nextFrame
         // This cache is native state, not an observed SwiftUI model. Updating hit regions
         // from the rendered frame therefore cannot create a layout measurement loop.
-        // Surface and icon preferences arrive separately in one layout pass.
-        // Recheck once with both current values, avoiding an intermediate exit.
+        // A moving native lens already receives every pointer packet. Resizing
+        // its shelf around a pointer that remains inside cannot change hover.
+        // Still recheck exits, click-through, and stationary-pointer recovery.
+        if let pointer = dockPointerView, pointer.isRunning, pointer.motion.target != nil,
+           !ignoresMouseEvents, visibleSurfaceFrameOnScreen.contains(NSEvent.mouseLocation) { return }
         scheduleHoverRecheckSoon()
     }
 
@@ -144,7 +147,7 @@ extension WorkspaceSidebarPanel {
         guard dockIconFrames != frames else { return }
         dockIconFrames = frames
         // Moving artwork cannot change panel hover while the pointer remains in
-        // its fixed shelf. Native input still checks every packet; geometry outside
+        // its current shelf. Native input still checks every packet; geometry outside
         // the shelf and stationary recovery continue to request a full recheck.
         if let pointer = dockPointerView, pointer.isRunning, pointer.motion.target != nil,
            !ignoresMouseEvents, visibleSurfaceFrameOnScreen.contains(NSEvent.mouseLocation) { return }
@@ -933,7 +936,7 @@ extension WorkspaceSidebarPanel {
             // enabled or SwiftUI's tracking area is being rebuilt. Only expansion is 30 Hz.
             panel.dockPointerView?.receiveNativePointer(screenPoint, eventTimestamp: timestamp)
             // A visible magnifying Dock does not expand on hover. Movement within
-            // its fixed shelf changes only the lens, so there is no panel transition
+            // its current shelf changes the lens, so there is no panel transition
             // to reevaluate. Edges, reveal, drag, editing and pending transitions
             // retain the full hover path, including its trailing recheck.
             if config.workspaceSidebar.usesDockMagnification,
