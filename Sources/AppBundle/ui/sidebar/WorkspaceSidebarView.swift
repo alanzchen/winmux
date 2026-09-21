@@ -28,8 +28,9 @@ struct WorkspaceSidebarView: View {
     @State var showsPinnedActiveWorkspaceForBrowsedProject = true
     @State var dockMotion = WorkspaceSidebarDockMotionController()
     @State var dockMenuTracking = false
-    @State private var dockHitRegions = WorkspaceSidebarDockHitRegions()
+    @State var dockHitRegions = WorkspaceSidebarDockHitRegions()
     @State private var dockColumnOrigins: [WorkspaceProjectId: CGFloat] = [:]
+    @Environment(\.workspaceSidebarDockPointer) var inheritedDockPointer
     @Environment(\.accessibilityReduceMotion) private var systemReduceDockMotion
     @Environment(\.accessibilityReduceTransparency) private var systemReduceSidebarTransparency
     private let reduceMotionOverride: Bool?
@@ -56,26 +57,37 @@ struct WorkspaceSidebarView: View {
         GeometryReader { viewport in
             let layout = dockLayout(availableHeight: snapshot.configuration.dockPosition == .bottom
                 ? viewport.size.width : viewport.size.height)
-            WorkspaceSidebarDockAnimationHost(
-                configuration: layout,
-                visibleWidth: fittedVisibleWidth(layout: layout),
-                compactHeight: compactDockContentHeight(layout: layout),
-                expansionProgress: expansionProgress,
-                blockers: dockMagnificationBlockers,
-                overflow: dockMagnificationOverflow(layout: layout),
-                shape: sidebarShape(layout: layout),
-                hitRegions: dockHitRegions,
-                motion: dockMotion,
-                growth: dockColumnGrowth(layout: layout),
-                content: dockOrSidebarContent(expansionProgress: expansionProgress, layout: layout)
-                    .environment(\.workspaceSidebarDockDrag, snapshot.dockDrag)
-            )
-            .preference(key: WorkspaceSidebarDockRestingWidthPreferenceKey.self,
-                value: layout.showAppIcons ? layout.compactRailWidth : nil)
+            if usesNativeDock {
+                nativeDock(layout: layout)
+                    .preference(key: WorkspaceSidebarDockRestingWidthPreferenceKey.self,
+                        value: layout.compactRailWidth)
+            } else {
+                WorkspaceSidebarDockAnimationHost(
+                    configuration: layout,
+                    visibleWidth: fittedVisibleWidth(layout: layout),
+                    compactHeight: compactDockContentHeight(layout: layout),
+                    expansionProgress: expansionProgress,
+                    blockers: dockMagnificationBlockers,
+                    overflow: dockMagnificationOverflow(layout: layout),
+                    shape: sidebarShape(layout: layout),
+                    hitRegions: dockHitRegions,
+                    motion: dockMotion,
+                    growth: dockColumnGrowth(layout: layout),
+                    content: dockOrSidebarContent(expansionProgress: expansionProgress, layout: layout)
+                        .environment(\.workspaceSidebarDockDrag, snapshot.dockDrag)
+                )
+                .preference(key: WorkspaceSidebarDockRestingWidthPreferenceKey.self,
+                    value: layout.showAppIcons ? layout.compactRailWidth : nil)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         .coordinateSpace(name: "workspaceSidebarContent")
-        .onPreferenceChange(WorkspaceSidebarDropTargetPreferenceKey.self) { actions.setDropTargets($0) }
+        // Keep the gesture coordinator mounted while compact rendering switches to
+        // the project paging or expanded SwiftUI presentation.
+        .overlay { sidebarSwipeCaptureOverlay(expansionProgress: expansionProgress) }
+        .onPreferenceChange(WorkspaceSidebarDropTargetPreferenceKey.self) {
+            if !usesNativeDock { actions.setDropTargets($0) }
+        }
         .onPreferenceChange(WorkspaceSidebarDockColumnOriginPreference.self) { origins in
             dockMotion.recordColumnOrigins(origins, previous: dockColumnOrigins)
             let stable = workspaceSidebarStableDockColumnOrigins(origins, previous: dockColumnOrigins)
@@ -104,6 +116,7 @@ struct WorkspaceSidebarView: View {
             actions.setDockRestingWidth(width)
         }
         .onPreferenceChange(WorkspaceSidebarDockIconFramesPreference.self) { frames in
+            guard !usesNativeDock else { return }
             dockMotion.recordGeometry(icons: frames.count)
             dockHitRegions.icons = frames
             actions.setDockIconFrames(allowsDockMagnification ? frames : [])
@@ -113,15 +126,20 @@ struct WorkspaceSidebarView: View {
             dockColumnOrigins = [:]
         }
         .onChange(of: allowsDockMagnification) { allowed in
-            if !allowed { dockMotion.reset() }
-            actions.setDockIconFrames(allowed ? dockHitRegions.icons : [])
+            if !allowed {
+                dockMotion.reset(publishFrame: false)
+                actions.setDockIconFrames([])
+            } else if !usesNativeDock { actions.setDockIconFrames(dockHitRegions.icons) }
         }
         .background(Color.clear)
         .onChange(of: activeInUseOverrideWorkspaceName) { name in
             if name == nil { pendingInUseOverrideAppId = nil }
         }
         .onChange(of: snapshot.visibleWidth) { visibleWidth in
-            dockMotion.reset()
+            // During expansion SwiftUI may still retain the outgoing native view.
+            // Reset its clock without letting its old compact snapshot republish
+            // hit regions after the expanded renderer has cleared them.
+            dockMotion.reset(publishFrame: visibleWidth <= collapsedWidth)
             if visibleWidth <= collapsedWidth + 0.5 {
                 resetTransientSidebarState()
                 finishSidebarSearch(clearText: true)
@@ -1231,8 +1249,7 @@ extension WorkspaceSidebarView {
         )
     }
 
-    @ViewBuilder
-    private func workspaceSection(
+    func workspaceSection(
         layout: WorkspaceSidebarConfiguration,
         workspace: WorkspaceSidebarWorkspaceViewModel,
         expansionProgress: CGFloat,
@@ -1241,7 +1258,7 @@ extension WorkspaceSidebarView {
         isPinnedActiveWorkspace: Bool,
         projectContextLabel: String? = nil,
         projectContextColor: Color? = nil
-    ) -> some View {
+    ) -> WorkspaceSidebarWorkspaceSection {
         let isFromOtherDisplay = false
         let isInUseOnOtherDisplay = allowsWorkspaceActivation &&
             !isPinnedActiveWorkspace &&
@@ -1249,7 +1266,7 @@ extension WorkspaceSidebarView {
                 workspace,
                 selectedScopeId: snapshot.targetMonitorScopeId
             )
-        WorkspaceSidebarWorkspaceSection(
+        return WorkspaceSidebarWorkspaceSection(
             workspace: workspace,
             dragPreview: snapshot.dropPreview,
             expansionProgress: expansionProgress,

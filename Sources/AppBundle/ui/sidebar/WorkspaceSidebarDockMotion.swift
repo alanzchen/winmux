@@ -63,8 +63,10 @@ struct WorkspaceSidebarDockMotion {
 final class WorkspaceSidebarDockMotionController {
     fileprivate weak var view: WorkspaceSidebarDockDisplayLinkView?
 
+    func attach(to view: WorkspaceSidebarDockDisplayLinkView) { self.view = view }
+
     func receive(_ point: CGPoint?) { view?.receive(point) }
-    func reset() { view?.reset() }
+    func reset(publishFrame: Bool = true) { view?.reset(publishFrame: publishFrame) }
     func recordGeometry(surfaceY: Double? = nil, icons: Int? = nil) {
         view?.performanceTrace?.geometry(surfaceY: surfaceY, icons: icons)
     }
@@ -89,20 +91,28 @@ struct WorkspaceSidebarDockDisplayLink: NSViewRepresentable {
     func makeNSView(context: Context) -> WorkspaceSidebarDockDisplayLinkView {
         let view = WorkspaceSidebarDockDisplayLinkView()
         controller.view = view
-        view.onFrame = onFrame
+        view.onFrame = publish
         view.configurePointer(blockers: blockers, horizontal: horizontal, contains: containsPointer)
         return view
     }
 
     func updateNSView(_ view: WorkspaceSidebarDockDisplayLinkView, context: Context) {
         controller.view = view
-        view.onFrame = onFrame
+        view.onFrame = publish
         view.configurePointer(blockers: blockers, horizontal: horizontal, contains: containsPointer)
     }
 
     static func dismantleNSView(_ view: WorkspaceSidebarDockDisplayLinkView, coordinator: ()) {
         view.onFrame = nil
         view.detachPointer()
+    }
+
+    private func publish(_ frame: WorkspaceSidebarDockMotionFrame) {
+        // Only the SwiftUI renderer needs a SwiftUI transaction. Native layer
+        // updates have their own Core Animation transaction.
+        var transaction = Transaction(animation: nil)
+        transaction.disablesAnimations = true
+        withTransaction(transaction) { onFrame(frame) }
     }
 }
 
@@ -136,10 +146,13 @@ final class WorkspaceSidebarDockDisplayLinkView: NSView {
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         // inVisibleRect follows bounds automatically; never rebuild tracking at vsync.
-        guard pointerTrackingArea == nil else { return }
-        let area = NSTrackingArea(rect: .zero,
-            options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways, .inVisibleRect],
-            owner: self, userInfo: nil)
+        guard window != nil, pointerTrackingArea == nil else { return }
+        var options: NSTrackingArea.Options = [.mouseEnteredAndExited, .activeAlways, .inVisibleRect]
+        // Real panels receive movement from the app's local/global input bridge.
+        // Keep boundary recovery, without asking AppKit to dispatch a duplicate
+        // mouseMoved callback. Standalone previews still need their own movement.
+        if !(window is WorkspaceSidebarPanel) { options.insert(.mouseMoved) }
+        let area = NSTrackingArea(rect: .zero, options: options, owner: self, userInfo: nil)
         pointerTrackingArea = area
         addTrackingArea(area)
     }
@@ -155,6 +168,8 @@ final class WorkspaceSidebarDockDisplayLinkView: NSView {
     }
 
     override func viewWillMove(toWindow newWindow: NSWindow?) {
+        if let pointerTrackingArea { removeTrackingArea(pointerTrackingArea) }
+        pointerTrackingArea = nil
         detachPointer()
         super.viewWillMove(toWindow: newWindow)
     }
@@ -254,10 +269,7 @@ final class WorkspaceSidebarDockDisplayLinkView: NSView {
     private func publish(_ frame: WorkspaceSidebarDockMotionFrame) -> Bool {
         guard frame != lastFrame else { return false }
         lastFrame = frame
-        // Do not inherit a workspace/hover spring and retarget it at every vsync.
-        var transaction = Transaction(animation: nil)
-        transaction.disablesAnimations = true
-        withTransaction(transaction) { onFrame?(frame) }
+        onFrame?(frame)
         return true
     }
 

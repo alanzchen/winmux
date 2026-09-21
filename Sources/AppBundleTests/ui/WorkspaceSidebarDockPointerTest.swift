@@ -24,9 +24,14 @@ final class WorkspaceSidebarDockPointerTest: XCTestCase {
         let previousInputView = panel.dockPointerView
         let previousTimestamp = panel.lastHoverMonitorTimestamp
         let view = WorkspaceSidebarDockDisplayLinkView(frame: CGRect(x: 0, y: 0, width: 150, height: 700))
+        view.updateTrackingAreas()
+        XCTAssertTrue(view.trackingAreas.isEmpty, "Unattached views cannot choose the panel input policy yet")
         view.currentScreenPoint = { CGPoint(x: -100_000, y: -100_000) }
         view.configurePointer(blockers: [], contains: { CGRect(x: 4, y: 50, width: 80, height: 600).contains($0) })
         panel.hostingView.addSubview(view)
+        view.updateTrackingAreas()
+        XCTAssertFalse(view.trackingAreas.contains { $0.options.contains(.mouseMoved) },
+            "Panels already deliver local/global movement; do not install a duplicate tracking stream")
         defer {
             view.removeFromSuperview()
             panel.dockPointerView = previousInputView
@@ -108,7 +113,7 @@ final class WorkspaceSidebarDockPointerTest: XCTestCase {
         view.currentScreenPoint = { point }
         let inside: (CGPoint) -> Bool = { CGRect(x: 4, y: 100, width: 80, height: 500).contains($0) }
         for blocker: WorkspaceSidebarDockPointerBlockers in [
-            .disabled, .expanded, .reduceMotion, .menu, .editing, .drop, .swipe, .drag,
+            .disabled, .expanded, .reduceMotion, .menu, .editing, .drop, .swipe, .drag, .scroll,
         ] {
             view.configurePointer(blockers: blocker, contains: inside)
             await drainRechecks()

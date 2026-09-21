@@ -82,7 +82,8 @@ struct WorkspaceSidebarProjectSwipeScrollCapture: NSViewRepresentable {
                 return event
             }
             let point = view.convert(event.locationInWindow, from: nil)
-            guard view.bounds.contains(point) else {
+            guard hasLockedHorizontalIntent || (view.bounds.contains(point)
+                && (window as? WorkspaceSidebarPanel)?.isEventInsideVisibleRegion(event) != false) else {
                 resetIfNeededForExternalEvent(event)
                 return event
             }

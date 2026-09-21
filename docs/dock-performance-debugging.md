@@ -66,8 +66,8 @@ An input event records state **before** applying that target; a following `resum
 records the driver waking. Settled targets intentionally stop display callbacks.
 
 The `blockers` bitmask combines disabled (1), expanded (2), Reduce Motion (4), menu
-(8), editing (16), drop preview (32), swipe (64), drag (128), hidden (256) and detached
-(512). Inspect rejection and recovery transitions before interpreting callback gaps:
+(8), editing (16), drop preview (32), swipe (64), drag (128), hidden (256), detached
+(512), and native Dock scrolling (1024). Inspect rejection and recovery transitions before interpreting callback gaps:
 
 - Native input with `accepted=false`: inspect `blockers` and `inside`.
 - Changing accepted targets with no subsequent callbacks: investigate driver lifecycle.

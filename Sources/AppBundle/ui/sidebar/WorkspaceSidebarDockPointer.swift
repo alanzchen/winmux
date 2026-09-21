@@ -14,6 +14,7 @@ struct WorkspaceSidebarDockPointerBlockers: OptionSet, Sendable {
     static let drag = Self(rawValue: 1 << 7)
     static let hidden = Self(rawValue: 1 << 8)
     static let detached = Self(rawValue: 1 << 9)
+    static let scroll = Self(rawValue: 1 << 10)
 }
 
 extension WorkspaceSidebarDockDisplayLinkView {

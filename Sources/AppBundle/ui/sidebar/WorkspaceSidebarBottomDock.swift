@@ -83,6 +83,5 @@ extension WorkspaceSidebarView {
         .padding(.horizontal, 6)
         .frame(height: layout.compactRailWidth)
         .environment(\.colorScheme, .dark)
-        .overlay { sidebarSwipeCaptureOverlay(expansionProgress: 0) }
     }
 }

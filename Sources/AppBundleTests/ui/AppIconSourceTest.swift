@@ -5,6 +5,30 @@ import XCTest
 
 @MainActor
 final class AppIconSourceTest: XCTestCase {
+    func testUnchangedBitmapReusesRasterAndReplacedBitmapDoesNot() throws {
+        let cache = AppIconRasterCache(limit: 1)
+        let red = try iconArtwork(.red)
+        let green = try iconArtwork(.green)
+        var renders = 0
+        func read(_ source: AppIconArtwork) -> AppIconArtwork? {
+            cache.artwork(for: source.image) { renders += 1; return source }
+        }
+        XCTAssertEqual(read(red)?.fingerprint, red.fingerprint)
+        XCTAssertEqual(read(red)?.fingerprint, red.fingerprint)
+        let recreated = try XCTUnwrap(CGImage(width: red.image.width, height: red.image.height,
+            bitsPerComponent: red.image.bitsPerComponent, bitsPerPixel: red.image.bitsPerPixel,
+            bytesPerRow: red.image.bytesPerRow, space: try XCTUnwrap(red.image.colorSpace),
+            bitmapInfo: red.image.bitmapInfo, provider: try XCTUnwrap(red.image.dataProvider),
+            decode: nil, shouldInterpolate: red.image.shouldInterpolate, intent: red.image.renderingIntent))
+        XCTAssertFalse(recreated === red.image)
+        XCTAssertEqual(cache.artwork(for: recreated) { renders += 1; return red }?.fingerprint, red.fingerprint)
+        XCTAssertEqual(renders, 1)
+        XCTAssertEqual(read(green)?.fingerprint, green.fingerprint)
+        XCTAssertEqual(renders, 2)
+        XCTAssertEqual(read(red)?.fingerprint, red.fingerprint)
+        XCTAssertEqual(renders, 3, "Eviction must release old bitmaps and allow them to be prepared again")
+    }
+
     func testRasterizationPreservesColorAspectRatioAndStableFingerprint() throws {
         let image = iconTestImage(.red, size: CGSize(width: 128, height: 64))
         let first = try XCTUnwrap(AppIconSource.rasterize(image))

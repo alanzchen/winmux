@@ -89,7 +89,9 @@ enum GlobalObserver {
             MousePointerTracker.shared.note(point: point, timestamp: timestamp)
             WorkspaceSidebarPanel.trapCursorForVisiblePanelsIfNeeded()
             // Edge hold may have warped the cursor back onto this display.
-            WorkspaceSidebarPanel.noteHoverPointerActivityForVisiblePanels(timestamp: timestamp)
+            let current = MousePointerTracker.shared.currentSample.point
+            WorkspaceSidebarPanel.noteHoverPointerActivityForVisiblePanels(timestamp: timestamp,
+                screenPoint: CGPoint(x: current.x, y: mainMonitor.height - current.y))
             if isLeftMouseDownEvent {
                 Task { @MainActor in
                     await WindowMouseInteractionDriver.shared.capturePendingResizeCandidate()

@@ -5,6 +5,53 @@ import XCTest
 
 @MainActor
 final class WorkspaceSidebarDockAdaptiveSizingTest: XCTestCase {
+    func testNativeDockRestoresHitFramesAfterMagnificationIsReenabled() throws {
+        var snapshot = fixture()
+        snapshot.configuration.dockMagnification = true
+        let sample = render(snapshot, height: 800)
+        XCTAssertEqual(sample.probe.cachedIcons.count, 8)
+        snapshot.configuration.dockMagnification = false
+        sample.host.rootView = AdaptiveSizingContent(snapshot: snapshot, probe: sample.probe)
+        sample.host.layoutSubtreeIfNeeded()
+        XCTAssertTrue(sample.probe.cachedIcons.isEmpty)
+        snapshot.configuration.dockMagnification = true
+        sample.host.rootView = AdaptiveSizingContent(snapshot: snapshot, probe: sample.probe)
+        sample.host.layoutSubtreeIfNeeded()
+        XCTAssertEqual(sample.probe.cachedIcons.count, 8)
+        XCTAssertEqual(sample.probe.cachedIcons, sample.probe.icons)
+    }
+
+    func testRendererSwitchReplacesMagnifiedHitAndDropFramesOnEveryEdge() throws {
+        for position: WorkspaceDockPosition in [.left, .right, .bottom] {
+            var snapshot = fixture()
+            snapshot.configuration.dockPosition = position
+            snapshot.configuration.dockMagnification = true
+            let sample = render(snapshot, height: 800)
+            sample.host.frame.size.width = 800
+            sample.host.layoutSubtreeIfNeeded()
+            let resting = try XCTUnwrap(sample.probe.cachedIcons.first)
+            sample.host.rootView = AdaptiveSizingContent(snapshot: snapshot, probe: sample.probe,
+                pointer: CGPoint(x: resting.midX, y: resting.midY))
+            sample.host.layoutSubtreeIfNeeded()
+            XCTAssertGreaterThan(try XCTUnwrap(sample.probe.cachedIcons.first).width, resting.width)
+
+            snapshot.visibleWidth = snapshot.configuration.expandedWidth
+            sample.host.rootView = AdaptiveSizingContent(snapshot: snapshot, probe: sample.probe)
+            sample.host.layoutSubtreeIfNeeded()
+            XCTAssertTrue(sample.probe.cachedIcons.isEmpty, "Expanded rows must discard compact icon hit regions")
+            XCTAssertFalse(sample.probe.targets.isEmpty)
+
+            snapshot.workspaces.removeLast()
+            snapshot.visibleWidth = snapshot.configuration.expansionStartWidth
+            sample.host.rootView = AdaptiveSizingContent(snapshot: snapshot, probe: sample.probe)
+            sample.host.layoutSubtreeIfNeeded()
+            XCTAssertEqual(sample.probe.cachedIcons.count, 4)
+            XCTAssertTrue(sample.probe.targets.contains { $0.kind == .workspace("1") })
+            XCTAssertFalse(sample.probe.targets.contains { $0.kind == .workspace("2") })
+            XCTAssertEqual(try XCTUnwrap(sample.probe.cachedIcons.first).width, resting.width, accuracy: 0.01)
+        }
+    }
+
     func testConfiguredSizesKeepTheSameShelfRatioAndCenteredIcons() throws {
         for size: CGFloat in [24, 31, 40, 48] {
             var snapshot = fixture()
@@ -344,6 +391,7 @@ final class WorkspaceSidebarDockAdaptiveSizingTest: XCTestCase {
         -> (host: NSHostingView<AdaptiveSizingContent>, probe: AdaptiveSizingProbe) {
         let probe = AdaptiveSizingProbe()
         let host = NSHostingView(rootView: AdaptiveSizingContent(snapshot: snapshot, probe: probe))
+        probe.host = host
         host.frame = CGRect(x: 0, y: 0, width: 240, height: height)
         host.layoutSubtreeIfNeeded()
         return (host, probe)
@@ -367,9 +415,22 @@ final class WorkspaceSidebarDockAdaptiveSizingTest: XCTestCase {
 
 @MainActor
 private final class AdaptiveSizingProbe {
+    weak var host: NSView?
     var surface: CGRect?
     var restingWidth: CGFloat?
-    var icons: [CGRect] = []
+    var preferenceIcons: [CGRect] = []
+    var cachedIcons: [CGRect] = []
+    var targets: [WorkspaceSidebarDropTargetFrame] = []
+    var icons: [CGRect] {
+        func nativeDock(in view: NSView) -> WorkspaceSidebarNativeDockView? {
+            if let dock = view as? WorkspaceSidebarNativeDockView { return dock }
+            return view.subviews.lazy.compactMap { nativeDock(in: $0) }.first
+        }
+        // The layer renderer owns its geometry directly, including when the lens
+        // is disabled. The expanded SwiftUI renderer still emits preferences.
+        if let host, let geometry = nativeDock(in: host)?.geometry { return geometry.icons.flatMap { $0 } }
+        return preferenceIcons
+    }
 }
 
 private struct AdaptiveSizingContent: View {
@@ -378,10 +439,11 @@ private struct AdaptiveSizingContent: View {
     var pointer: CGPoint? = nil
 
     var body: some View {
-        WorkspaceSidebarView(snapshot: snapshot, actions: .init(setSurfaceFrame: { probe.surface = $0 },
-            setDockRestingWidth: { probe.restingWidth = $0 }), reduceMotionOverride: false)
+        WorkspaceSidebarView(snapshot: snapshot, actions: .init(setDropTargets: { probe.targets = $0 },
+            setSurfaceFrame: { probe.surface = $0 }, setDockRestingWidth: { probe.restingWidth = $0 },
+            setDockIconFrames: { probe.cachedIcons = $0 }), reduceMotionOverride: false)
             .environment(\.workspaceSidebarDockPointer, pointer)
-            .onPreferenceChange(WorkspaceSidebarDockIconFramesPreference.self) { probe.icons = $0 }
+            .onPreferenceChange(WorkspaceSidebarDockIconFramesPreference.self) { probe.preferenceIcons = $0 }
             .transaction { $0.disablesAnimations = true }
     }
 }

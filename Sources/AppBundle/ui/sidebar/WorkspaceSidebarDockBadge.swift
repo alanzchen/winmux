@@ -34,14 +34,20 @@ func readWorkspaceSidebarDockBadges() -> WorkspaceSidebarDockBadgeSnapshot {
         return result
     }
     let deadline = Date().addingTimeInterval(1)
+    let itemAttributes = [kAXSubroleAttribute, kAXURLAttribute, "AXStatusLabel"] as CFArray
     let lists = (value(root, kAXChildrenAttribute) as? [AXUIElement] ?? []).prefix(32)
     for list in lists where value(list, kAXRoleAttribute) as? String == kAXListRole {
         for item in (value(list, kAXChildrenAttribute) as? [AXUIElement] ?? []).prefix(512) {
             guard !Task.isCancelled, Date() < deadline else { return snapshot }
-            guard value(item, kAXSubroleAttribute) as? String == "AXApplicationDockItem",
-                  let url = value(item, kAXURLAttribute) as? URL
+            // Fetch the three fields in one IPC round trip. Unsupported optional
+            // attributes appear as error values, which the typed casts ignore.
+            var raw: CFArray?
+            guard AXUIElementCopyMultipleAttributeValues(item, itemAttributes, [], &raw) == .success,
+                  let fields = raw as? [Any], fields.count == 3,
+                  fields[0] as? String == "AXApplicationDockItem",
+                  let url = fields[1] as? URL
             else { continue }
-            snapshot.insert(url: url, label: value(item, "AXStatusLabel") as? String)
+            snapshot.insert(url: url, label: fields[2] as? String)
         }
     }
     return snapshot

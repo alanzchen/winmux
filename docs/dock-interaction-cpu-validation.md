@@ -1,5 +1,9 @@
 # Dock interaction CPU validation — September 20, 2026
 
+For the subsequent native-renderer implementation and new measurements, see
+[native Dock performance](native-dock-performance.md). This page records the
+published 0.6.332 baseline and its original input generator.
+
 **The published 0.6.332 app does not meet the requested under-3% average CPU
 budget during continuous cursor movement over the Dock.** The earlier idle
 measurements do not establish active-interaction performance.

@@ -143,6 +143,11 @@ extension WorkspaceSidebarPanel {
     func updateDockIconFrames(_ frames: [CGRect]) {
         guard dockIconFrames != frames else { return }
         dockIconFrames = frames
+        // Moving artwork cannot change panel hover while the pointer remains in
+        // its fixed shelf. Native input still checks every packet; geometry outside
+        // the shelf and stationary recovery continue to request a full recheck.
+        if let pointer = dockPointerView, pointer.isRunning, pointer.motion.target != nil,
+           !ignoresMouseEvents, visibleSurfaceFrameOnScreen.contains(NSEvent.mouseLocation) { return }
         scheduleHoverRecheckSoon()
     }
 
@@ -218,6 +223,13 @@ extension WorkspaceSidebarPanel {
 
     func trapCursorForSidebarActivationIfNeeded() {
         let sample = MousePointerTracker.shared.currentSample
+        // Edge trapping only applies between displays. Avoid querying modifier
+        // state and constructing monitor geometry for single-display movement.
+        guard sortedMonitors.count > 1 else {
+            edgeTrapStartedAt = nil
+            lastEdgeTrapSample = sample
+            return
+        }
         let collapsedWidth = workspaceSidebarRestingWidth(config.workspaceSidebar)
         debugWorkspaceSidebarEdgeTrapLog(
             "entry panel=\(monitorScopeId) visible=\(isVisible) enabled=\(config.workspaceSidebar.enabled) shift=\(currentSessionModifierFlags().contains(.maskShift)) mouseDrag=\(isMouseWindowDragInProgress()) sidebarDrag=\(isWorkspaceSidebarItemDragActive()) width=\(viewModel.workspaceSidebarVisibleWidth) collapsed=\(collapsedWidth) sample=\(sample) previous=\(String(describing: lastEdgeTrapSample)) suppressUntil=\(edgeTrapSuppressedUntil) startedAt=\(String(describing: edgeTrapStartedAt))"
@@ -920,6 +932,17 @@ extension WorkspaceSidebarPanel {
             // Magnification receives every native packet, even while click-through is
             // enabled or SwiftUI's tracking area is being rebuilt. Only expansion is 30 Hz.
             panel.dockPointerView?.receiveNativePointer(screenPoint, eventTimestamp: timestamp)
+            // A visible magnifying Dock does not expand on hover. Movement within
+            // its fixed shelf changes only the lens, so there is no panel transition
+            // to reevaluate. Edges, reveal, drag, editing and pending transitions
+            // retain the full hover path, including its trailing recheck.
+            if config.workspaceSidebar.usesDockMagnification,
+               !panel.ignoresMouseEvents, panel.autoHideReason == nil,
+               !panel.viewModel.isWorkspaceSidebarExpanded,
+               panel.viewModel.workspaceSidebarVisibleWidth == workspaceSidebarHoverActivationWidth(config.workspaceSidebar),
+               panel.pendingExpand == nil, panel.pendingCollapse == nil, panel.pendingCollapseFinalize == nil,
+               !panel.shouldKeepSidebarOpenForInlineTextEditing(), !isWorkspaceSidebarDragInProgress(),
+               !isMouseWindowDragInProgress(), panel.visibleSurfaceFrameOnScreen.contains(screenPoint) { continue }
             panel.noteHoverPointerActivity(timestamp: timestamp)
         }
     }

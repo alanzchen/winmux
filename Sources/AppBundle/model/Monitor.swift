@@ -110,12 +110,21 @@ var mainMonitor: Monitor {
         return monitor
     }
     if isUnitTest { return testMonitor }
+    if Thread.isMainThread {
+        installMonitorCacheObserverIfNeeded()
+        if let cached = mainMonitorCache { return cached }
+    }
     let screens = NSScreen.screens
     // Fallback: If main screen can't be found (e.g., during display reconfiguration),
     // return screens.first or testMonitor to avoid crash
-    let screen = screens.withIndex.singleOrNil(where: \.value.isMainScreen) ?? screens.first.map { (0, $0) }
+    let primary = screens.withIndex.singleOrNil(where: \.value.isMainScreen)
+    let screen = primary ?? screens.first.map { (0, $0) }
     guard let screen else { return testMonitor }
-    return LazyMonitor(monitorAppKitNsScreenScreensId: screen.index + 1, isMain: true, screen.value)
+    let monitor = LazyMonitor(monitorAppKitNsScreenScreensId: screen.index + 1, isMain: true, screen.value)
+    // A temporary reconfiguration fallback is usable for this call, but must
+    // not become the cached primary if the next query can resolve the real one.
+    if Thread.isMainThread, primary != nil { mainMonitorCache = monitor }
+    return monitor
 }
 
 // Rebuilding the monitor list from NSScreen on every access is wasteful: `monitors` and
@@ -124,7 +133,19 @@ var mainMonitor: Monitor {
 // NSScreen must be accessed from the main thread anyway, so off-main callers compute fresh.
 nonisolated(unsafe) private var monitorsCache: [Monitor]? = nil
 nonisolated(unsafe) private var sortedMonitorsCache: [Monitor]? = nil
+nonisolated(unsafe) private var mainMonitorCache: Monitor? = nil
 nonisolated(unsafe) private var monitorsCacheObserver: NSObjectProtocol? = nil
+
+private func installMonitorCacheObserverIfNeeded() {
+    guard monitorsCacheObserver == nil else { return }
+    monitorsCacheObserver = NotificationCenter.default.addObserver(
+        forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
+    ) { _ in
+        mainMonitorCache = nil
+        monitorsCache = nil
+        sortedMonitorsCache = nil
+    }
+}
 
 private func computeMonitors() -> [Monitor] {
     let screens = NSScreen.screens
@@ -140,16 +161,7 @@ var monitors: [Monitor] {
     }
     if isUnitTest { return [mainMonitor] }
     guard Thread.isMainThread else { return computeMonitors() }
-    if monitorsCacheObserver == nil {
-        monitorsCacheObserver = NotificationCenter.default.addObserver(
-            forName: NSApplication.didChangeScreenParametersNotification,
-            object: nil,
-            queue: .main,
-        ) { _ in
-            monitorsCache = nil
-            sortedMonitorsCache = nil
-        }
-    }
+    installMonitorCacheObserverIfNeeded()
     if let cached = monitorsCache { return cached }
     let computed = computeMonitors()
     monitorsCache = computed

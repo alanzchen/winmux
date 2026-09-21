@@ -2,7 +2,9 @@
 """Measure one macOS process without launching it or changing its configuration.
 
 Example: python3 script/measure-idle-cpu.py --pid 1234 --output idle.json
-Keep the display awake and leave the pointer and keyboard still during the run.
+Keep the display awake and leave the pointer and keyboard still during an idle run.
+Use --mode interaction for a separately driven continuous pointer sweep; this
+checks the average CPU budget and reports interval peaks without rejecting input.
 100% means one fully occupied CPU core, as in Activity Monitor.
 """
 
@@ -50,9 +52,11 @@ def main():
     parser.add_argument("--seconds", type=positive_number, default=120)
     parser.add_argument("--interval", type=positive_number, default=5)
     parser.add_argument("--warmup", type=positive_number, default=15)
-    parser.add_argument("--max-cpu", type=positive_number, default=2)
+    parser.add_argument("--mode", choices=("idle", "interaction"), default="idle")
+    parser.add_argument("--max-cpu", type=positive_number)
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
+    limit = args.max_cpu if args.max_cpu is not None else (2 if args.mode == "idle" else 3)
     if platform.system() != "Darwin":
         parser.error("this sampler requires macOS")
     if args.pid <= 0 or args.seconds < args.interval:
@@ -121,10 +125,12 @@ def main():
     mean = cpu_percent(previous.user + previous.system - initial.user - initial.system,
                        duration, timebase.numer, timebase.denom)
     maximum = max(row["cpu_percent"] for row in samples)
-    valid = all(row["idle"] for row in samples)
-    passed = valid and maximum < args.max_cpu
+    idle_valid = all(row["idle"] for row in samples)
+    valid = idle_valid if args.mode == "idle" else all(row["display_awake"] for row in samples)
+    passed = valid and (maximum if args.mode == "idle" else mean) < limit
     report = {
         "pid": args.pid,
+        "mode": args.mode,
         "executable": path.value.decode(),
         "platform": platform.platform(),
         "timebase": {"numer": timebase.numer, "denom": timebase.denom},
@@ -132,15 +138,16 @@ def main():
         "interval_seconds": args.interval,
         "mean_cpu_percent": mean,
         "max_interval_cpu_percent": maximum,
-        "idle_run_valid": valid,
-        "limit_percent": args.max_cpu,
+        "idle_run_valid": idle_valid,
+        "run_valid": valid,
+        "limit_percent": limit,
         "passed": passed,
         "samples": samples,
     }
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(json.dumps(report, indent=2) + "\n")
-    print(f"Mean {mean:.3f}%, max interval {maximum:.3f}%; idle valid={valid}; below {args.max_cpu:g}%={passed}")
+    print(f"Mean {mean:.3f}%, max interval {maximum:.3f}%; {args.mode} valid={valid}; below {limit:g}%={passed}")
     return 0 if passed else 1
 
 

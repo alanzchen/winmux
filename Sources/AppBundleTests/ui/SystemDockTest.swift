@@ -4,6 +4,18 @@ import XCTest
 
 @MainActor
 final class SystemDockTest: XCTestCase {
+    func testHoveringWinMuxDoesNotPollTheInvisibleNativeShelfAtPointerRate() {
+        let screen = CGRect(x: 0, y: 0, width: 1920, height: 1080)
+        let target = CGRect(x: 500, y: 990, width: 900, height: 90)
+        let iconCenter = CGPoint(x: 800, y: 34)
+        XCTAssertFalse(systemDockPointerNearActivation(iconCenter, target: target,
+            primaryHeight: 1080, screens: [screen], nativePosition: .bottom))
+        XCTAssertTrue(systemDockPointerNearActivation(CGPoint(x: 800, y: 1), target: target,
+            primaryHeight: 1080, screens: [screen], nativePosition: .bottom))
+        XCTAssertTrue(systemDockPointerNearActivation(iconCenter, target: target,
+            primaryHeight: 1080, screens: [screen], nativePosition: .bottom, visibleRect: target))
+    }
+
     func testCapturedAutoHiddenDockRevealDoesNotRequireReservedThickness() throws {
         let url = projectRoot.appending(path: "test-fixtures/accessibility/native-dock-autohide.json")
         let fixture = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])

@@ -122,10 +122,17 @@ func systemDockVisibleRect(listFrame: CGRect, targetFrame: CGRect) -> CGRect? {
 /// Watch the native Dock's edge on every display, including before it migrates.
 /// Scrubbing a left WinMux Dock must not poll a bottom native Dock at pointer rate.
 func systemDockPointerNearActivation(_ point: CGPoint, target: CGRect?, primaryHeight: CGFloat,
-    screens: [CGRect], nativePosition: WorkspaceDockPosition? = nil) -> Bool {
+    screens: [CGRect], nativePosition: WorkspaceDockPosition? = nil, visibleRect: CGRect? = nil) -> Bool {
     guard let target else { return false }
     let native = CGRect(x: target.minX, y: primaryHeight - target.maxY, width: target.width, height: target.height)
-    if native.insetBy(dx: -48, dy: -48).contains(point) { return true }
+    // A hidden Dock's reconstructed shelf covers WinMux's bottom icons. Only its
+    // physical activation edge can reveal it; hovering over that imaginary shelf
+    // must not trigger 20 AX reads/second. Once visible, track its actual bounds.
+    if let visibleRect {
+        let visible = CGRect(x: visibleRect.minX, y: primaryHeight - visibleRect.maxY,
+            width: visibleRect.width, height: visibleRect.height)
+        if visible.insetBy(dx: -16, dy: -16).contains(point) { return true }
+    }
     let vertical = nativePosition.map { $0 != .bottom } ?? (native.height > native.width)
     let owner = screens.first { $0.intersects(native) }
     let onLeft = nativePosition.map { $0 == .left } ??
@@ -410,7 +417,8 @@ final class SystemDockCoordinator {
         guard enabled else { return }
         lastPointerActivity = ProcessInfo.processInfo.systemUptime
         pointerNearDock = systemDockPointerNearActivation(appKitPoint, target: snapshot.targetRect,
-            primaryHeight: primaryHeight, screens: screens, nativePosition: snapshot.nativePosition)
+            primaryHeight: primaryHeight, screens: screens, nativePosition: snapshot.nativePosition,
+            visibleRect: snapshot.visibleRect)
         if pointerNearDock { requestRead() }
     }
 
