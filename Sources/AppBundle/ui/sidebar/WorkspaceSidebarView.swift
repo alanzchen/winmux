@@ -82,6 +82,9 @@ struct WorkspaceSidebarView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         .coordinateSpace(name: "workspaceSidebarContent")
+        .environment(\.workspaceSidebarTooltipVisibility, WorkspaceSidebarTooltipVisibility(
+            workspace: snapshot.configuration.showWorkspaceTooltips,
+            app: snapshot.configuration.showAppTooltips))
         // Keep the gesture coordinator mounted while compact rendering switches to
         // the project paging or expanded SwiftUI presentation.
         .overlay { sidebarSwipeCaptureOverlay(expansionProgress: expansionProgress) }

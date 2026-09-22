@@ -265,9 +265,16 @@ final class WorkspaceSidebarNativeDockView: NSView {
     private func updateIconTooltips() {
         tooltipUpdateTask?.cancel()
         tooltipUpdateTask = nil
-        let frames = tooltipsEnabled && input?.motion.owns(driver) == true
-            ? (geometry?.icons.flatMap { $0 }.map { $0.intersection(contents.frame).intersection(bounds) }
-                .filter { !$0.isNull && !$0.isEmpty } ?? []) : []
+        var frames: [CGRect] = []
+        if tooltipsEnabled, let input, let geometry, input.motion.owns(driver) {
+            for row in geometry.icons {
+                for (index, frame) in row.enumerated() where index == 0
+                    ? input.configuration.showWorkspaceTooltips : input.configuration.showAppTooltips {
+                    let visible = frame.intersection(contents.frame).intersection(bounds)
+                    if !visible.isNull && !visible.isEmpty { frames.append(visible) }
+                }
+            }
+        }
         guard frames != tooltipFrames else { return }
         for tag in tooltipTags { removeToolTip(tag) }
         tooltipFrames = frames
@@ -275,7 +282,8 @@ final class WorkspaceSidebarNativeDockView: NSView {
     }
 
     private func scheduleIconTooltips() {
-        guard tooltipsEnabled, input?.motion.owns(driver) == true else {
+        guard tooltipsEnabled, let input, input.motion.owns(driver),
+              input.configuration.showWorkspaceTooltips || input.configuration.showAppTooltips else {
             updateIconTooltips()
             return
         }
@@ -305,7 +313,8 @@ final class WorkspaceSidebarNativeDockView: NSView {
             for index in frames.indices where displayedIconFrame(section: section, icon: index)
                 .intersection(contents.frame).contains(point) {
                 let workspace = input.workspaces[section].workspace
-                return index == 0 ? workspace.displayName : workspaceSidebarAppTooltip(workspace.apps[index - 1])
+                if index == 0 { return input.configuration.showWorkspaceTooltips ? workspace.displayName : "" }
+                return input.configuration.showAppTooltips ? workspaceSidebarAppTooltip(workspace.apps[index - 1]) : ""
             }
         }
         return ""

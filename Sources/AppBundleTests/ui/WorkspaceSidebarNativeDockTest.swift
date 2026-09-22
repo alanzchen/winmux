@@ -580,14 +580,59 @@ final class WorkspaceSidebarNativeDockTest: XCTestCase {
         XCTAssertTrue(view.tooltipTags.isEmpty, "A pending update must not revive detached tracking")
     }
 
+    func testTooltipSettingsRemoveOnlyTheirOwnRegionsAndCanBeReenabled() async throws {
+        let view = WorkspaceSidebarNativeDockView(frame: CGRect(x: 0, y: 0, width: 240, height: 800))
+        defer { view.detach() }
+        for workspaceEnabled in [true, false, true] {
+            for appEnabled in [true, false, true] {
+                let input = fixture(showWorkspaceTooltips: workspaceEnabled, showAppTooltips: appEnabled)
+                view.configure(input)
+                view.layoutSubtreeIfNeeded()
+                let workspace = input.workspaces[0].workspace
+                XCTAssertEqual(view.tooltipFrames.count, (workspaceEnabled ? 1 : 0) + (appEnabled ? workspace.apps.count : 0))
+                let workspaceFrame = try XCTUnwrap(view.buttonFrame(workspaceName: workspace.name, appId: nil))
+                let appFrame = try XCTUnwrap(view.buttonFrame(workspaceName: workspace.name, appId: workspace.apps[0].id))
+                XCTAssertEqual(view.view(view, stringForToolTip: 0,
+                    point: CGPoint(x: workspaceFrame.midX, y: workspaceFrame.midY), userData: nil), workspaceEnabled ? workspace.displayName : "")
+                XCTAssertEqual(view.view(view, stringForToolTip: 0,
+                    point: CGPoint(x: appFrame.midX, y: appFrame.midY), userData: nil), appEnabled ? workspace.apps[0].name : "")
+            }
+        }
+        let frame = try XCTUnwrap(view.tooltipFrames.last)
+        view.render(.init(pointer: CGPoint(x: frame.midX, y: frame.midY), strength: 1))
+        view.configure(fixture(showWorkspaceTooltips: false, showAppTooltips: false))
+        try await Task.sleep(for: .milliseconds(200))
+        XCTAssertTrue(view.tooltipTags.isEmpty, "Pending lens updates must not restore disabled tooltip regions")
+    }
+
+    func testTooltipSettingsReachTheSnapshotAndSwiftUIVisibilityPolicy() {
+        let previous = config
+        defer { config = previous }
+        for workspace in [false, true] {
+            for app in [false, true] {
+                config.workspaceSidebar.showWorkspaceTooltips = workspace
+                config.workspaceSidebar.showAppTooltips = app
+                let snapshot = workspaceSidebarConfiguration()
+                XCTAssertEqual(snapshot.showWorkspaceTooltips, workspace)
+                XCTAssertEqual(snapshot.showAppTooltips, app)
+                let visibility = WorkspaceSidebarTooltipVisibility(workspace: snapshot.showWorkspaceTooltips, app: snapshot.showAppTooltips)
+                XCTAssertEqual(visibility.shows(.workspace), workspace)
+                XCTAssertEqual(visibility.shows(.app), app)
+            }
+        }
+    }
+
     private func fixture(position: WorkspaceDockPosition = .left,
                          workspace: WorkspaceSidebarWorkspaceViewModel? = nil,
                          isActive: Bool = true, isEnabled: Bool = true, opacity: Double = 1, magnificationAmount: Double = 0.5, chromeStyle: ChromeStyle = .solid,
+                         showWorkspaceTooltips: Bool = true, showAppTooltips: Bool = true,
                          onSelect: @escaping (String) -> Void = { _ in },
                          onDrop: @escaping (WorkspaceSidebarDragPayload) -> Void = { _ in },
                          actions: WorkspaceSidebarActions = .init()) -> WorkspaceSidebarNativeDock {
         var config = WorkspaceSidebarConfiguration.empty
         config.showAppIcons = true
+        config.showWorkspaceTooltips = showWorkspaceTooltips
+        config.showAppTooltips = showAppTooltips
         config.dockMagnification = true
         config.dockMagnificationAmount = magnificationAmount
         config.dockPosition = position

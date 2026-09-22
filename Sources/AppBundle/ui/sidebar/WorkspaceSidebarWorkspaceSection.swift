@@ -854,9 +854,10 @@ extension WorkspaceSidebarWorkspaceSection {
 /// In icon mode each button owns its tooltip; section padding has no hover label.
 private struct WorkspaceSidebarSectionTooltip: ViewModifier {
     let text: String?
+    @Environment(\.workspaceSidebarTooltipVisibility) private var visibility
 
     func body(content: Content) -> some View {
-        if let text { content.help(text) }
+        if let text, visibility.workspace { content.help(text) }
         else { content }
     }
 }

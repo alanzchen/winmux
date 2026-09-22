@@ -24,6 +24,8 @@ func workspaceSidebarConfiguration() -> WorkspaceSidebarConfiguration {
         solidChromeColor: config.workspaceSidebar.dockSolidColor,
         solidChromeCustomColor: config.workspaceSidebar.dockCustomColor,
         showAppIcons: config.workspaceSidebar.showAppIcons,
+        showWorkspaceTooltips: config.workspaceSidebar.showWorkspaceTooltips,
+        showAppTooltips: config.workspaceSidebar.showAppTooltips,
         dockMagnification: config.workspaceSidebar.usesDockMagnification,
         dockMagnificationAmount: config.workspaceSidebar.dockMagnificationAmount,
         dockIconSize: CGFloat(config.workspaceSidebar.dockIconSize),

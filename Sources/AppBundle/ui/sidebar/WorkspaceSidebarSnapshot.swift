@@ -45,6 +45,8 @@ struct WorkspaceSidebarConfiguration: Equatable {
     var solidChromeColor: ChromeSolidColor
     var solidChromeCustomColor: String
     var showAppIcons: Bool = false
+    var showWorkspaceTooltips: Bool = true
+    var showAppTooltips: Bool = true
     var dockMagnification: Bool = false
     var dockMagnificationAmount: Double = 0.5
     var dockIconSize: CGFloat = CGFloat(WorkspaceSidebarConfig.defaultDockIconSize)

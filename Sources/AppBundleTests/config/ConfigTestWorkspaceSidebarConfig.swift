@@ -4,6 +4,25 @@ import Common
 import XCTest
 
 extension ConfigTest {
+    func testTooltipVisibilityDefaultsAndIndependentParsing() {
+        let (defaults, defaultErrors) = parseConfig("[workspace-sidebar]")
+        XCTAssertTrue(defaultErrors.isEmpty)
+        XCTAssertTrue(defaults.workspaceSidebar.showWorkspaceTooltips)
+        XCTAssertTrue(defaults.workspaceSidebar.showAppTooltips)
+        for workspace in [false, true] {
+            for app in [false, true] {
+                let (parsed, errors) = parseConfig("[workspace-sidebar]\nshow-workspace-tooltips = \(workspace)\nshow-app-tooltips = \(app)")
+                XCTAssertTrue(errors.isEmpty)
+                XCTAssertEqual(parsed.workspaceSidebar.showWorkspaceTooltips, workspace)
+                XCTAssertEqual(parsed.workspaceSidebar.showAppTooltips, app)
+            }
+        }
+        for key in ["show-workspace-tooltips", "show-app-tooltips"] {
+            let (_, errors) = parseConfig("[workspace-sidebar]\n\(key) = 'invalid'")
+            XCTAssertFalse(errors.isEmpty)
+        }
+    }
+
     func testDockIdentityLabelModes() {
         for mode in ["auto", "always", "off"] {
             let (parsed, errors) = parseConfig("[workspace-sidebar]\ndock-identity-labels = '\(mode)'")

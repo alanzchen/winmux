@@ -9,6 +9,8 @@ private let workspaceSidebarParser: [String: any ParserProtocol<WorkspaceSidebar
     "always-expanded": Parser(\.alwaysExpanded, parseBool),
     "mode": Parser(\.mode, parseWorkspaceSidebarMode),
     "show-app-icons": Parser(\.showAppIcons, parseBool),
+    "show-workspace-tooltips": Parser(\.showWorkspaceTooltips, parseBool),
+    "show-app-tooltips": Parser(\.showAppTooltips, parseBool),
     "show-app-badges": Parser(\.showAppBadges, parseBool),
     "dock-identity-labels": Parser(\.dockIdentityLabels) { raw, backtrace in
         parseString(raw, backtrace).flatMap { value in

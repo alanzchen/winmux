@@ -22,6 +22,23 @@ final class SettingsEditorTest: XCTestCase {
         XCTAssertTrue(SettingsCatalog.results("nonexistent-setting-xyz").isEmpty)
     }
 
+    func testTooltipSettingsAreDiscoverableAndRespectDisplayMode() {
+        let workspace = SettingsCatalog.field("workspace-sidebar.show-workspace-tooltips")
+        let app = SettingsCatalog.field("workspace-sidebar.show-app-tooltips")
+        XCTAssertEqual(workspace.defaultValue, .bool(true))
+        XCTAssertEqual(app.defaultValue, .bool(true))
+        var configuration = defaultConfig
+        configuration.workspaceSidebar.mode = .dock
+        let editor = SettingsEditor(configuration: configuration)
+        XCTAssertTrue(workspace.visible(editor))
+        XCTAssertTrue(app.visible(editor))
+        editor.setDraft(.text("sidebar"), for: SettingsCatalog.field("workspace-sidebar.mode"))
+        XCTAssertTrue(workspace.visible(editor))
+        XCTAssertFalse(app.visible(editor))
+        XCTAssertTrue(SettingsCatalog.results("tooltip").contains { $0.id == workspace.id })
+        XCTAssertTrue(SettingsCatalog.results("tooltip").contains { $0.id == app.id })
+    }
+
     func testDependentControlsAndPreviewRespondBeforeSaving() {
         var configuration = defaultConfig
         configuration.workspaceSidebar.mode = .dock

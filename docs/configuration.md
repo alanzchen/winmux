@@ -33,6 +33,8 @@ dock-magnification = true
 dock-magnification-amount = 0.5 # 0 = no growth, 0.5 = 1.5×, 1 = 2×.
 show-app-badges = true
 dock-identity-labels = 'auto' # auto (repeated apps), always, or off.
+show-workspace-tooltips = true
+show-app-tooltips = true
 ```
 
 The default mode is Dock; set `mode = 'sidebar'` to use Sidebar instead.
@@ -159,3 +161,10 @@ with the app-name prefix/suffix removed, or the workspace name for multiple wind
 Labels update when the window title changes; focus changes between windows do not
 change a multi-window app's workspace label. Collisions within an app receive a numeric suffix. Full titles appear in tooltips and accessibility
 labels. Identity labels are independent of red native notification badges.
+
+Workspace and app hover labels can be enabled independently in Settings using
+**Show workspace tooltips** and **Show app tooltips**, or through
+`workspace-sidebar.show-workspace-tooltips` and `workspace-sidebar.show-app-tooltips`
+in TOML. Both default to `true`. Set either to `false` to hide that kind of tooltip;
+changes apply without restarting. Workspace tooltip visibility also controls
+workspace help in Sidebar mode. Accessibility labels remain available.
