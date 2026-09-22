@@ -4,6 +4,16 @@ import Common
 import XCTest
 
 extension ConfigTest {
+    func testDockIdentityLabelModes() {
+        for mode in ["auto", "always", "off"] {
+            let (parsed, errors) = parseConfig("[workspace-sidebar]\ndock-identity-labels = '\(mode)'")
+            XCTAssertTrue(errors.isEmpty)
+            XCTAssertEqual(parsed.workspaceSidebar.dockIdentityLabels.rawValue, mode)
+        }
+        let (_, errors) = parseConfig("[workspace-sidebar]\ndock-identity-labels = 'invalid'")
+        XCTAssertFalse(errors.isEmpty)
+    }
+
     func testParseWorkspaceSidebar() {
         let (parsed, errors) = parseConfig(
             """

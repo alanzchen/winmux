@@ -4,7 +4,7 @@ import XCTest
 
 @MainActor
 final class WorkspaceSidebarAppIconsTest: XCTestCase {
-    func testAppSummaryIncludesNestedTabLeavesAndFloatingWindows() {
+    func testAppSummaryIncludesNestedTabsFloatingHiddenAndFullscreenWindows() {
         setUpWorkspacesForTests()
         let workspace = focus.workspace
         let root = workspace.rootTilingContainer
@@ -20,7 +20,7 @@ final class WorkspaceSidebarAppIconsTest: XCTestCase {
         let removed = TestWindow.new(id: 8, parent: root)
         removed.unbindFromParent()
 
-        XCTAssertEqual(workspaceSidebarWindowsForAppSummary(workspace).map(\.windowId), [1, 2, 3, 4, 5])
+        XCTAssertEqual(workspaceSidebarWindowsForAppSummary(workspace).map(\.windowId), [1, 2, 3, 4, 5, 6, 7])
         XCTAssertEqual(buildWorkspaceSidebarAppSummaries(for: workspace).count, 1, "Multiple windows from one app share an icon")
     }
 

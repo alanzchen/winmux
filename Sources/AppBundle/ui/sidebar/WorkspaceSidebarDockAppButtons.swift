@@ -80,8 +80,11 @@ struct WorkspaceSidebarDockAppButton: View {
             },
             onEnded: { point in drag.finish(pointer: point, actions: actions) }
         ))
-        .accessibilityLabel("Focus \(app.name) in workspace \(workspaceDisplayName)")
-        .help("Click to focus \(app.name); drag to move its window to another workspace")
+        .accessibilityLabel("Focus \(workspaceSidebarAppContextDescription(app, workspaceDisplayName: workspaceDisplayName))")
+        .contextMenu {
+            WorkspaceSidebarAppMenuContent(workspaceName: workspaceName, app: app)
+        }
+        .help("\(workspaceSidebarAppContextDescription(app, workspaceDisplayName: workspaceDisplayName)). Click to focus \(app.name); right-click for actions; drag to move its window to another workspace")
     }
 }
 

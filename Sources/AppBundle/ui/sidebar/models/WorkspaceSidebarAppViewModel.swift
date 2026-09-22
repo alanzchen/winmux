@@ -4,6 +4,8 @@ struct WorkspaceSidebarAppViewModel: Hashable, Identifiable {
     let name: String
     let bundleId: String?
     let bundlePath: String?
+    var contextTitle: String? = nil
+    var identityLabel: String? = nil
 
     var id: String {
         if let bundleId, !bundleId.isEmpty { return "bundle:\(bundleId)" }
@@ -33,4 +35,10 @@ func workspaceSidebarAppSummaryIdentifier(_ workspace: WorkspaceSidebarWorkspace
         if !number.isEmpty { return number }
     }
     return label.first.map { String($0).uppercased() } ?? "W"
+}
+
+func workspaceSidebarAppContextDescription(_ app: WorkspaceSidebarAppViewModel, workspaceDisplayName: String) -> String {
+    let title = app.contextTitle?.trimmingCharacters(in: .whitespacesAndNewlines)
+    return [app.name, title?.takeIf { !$0.isEmpty && $0 != app.name && $0 != workspaceDisplayName },
+        "Workspace \(workspaceDisplayName)"].compactMap { $0 }.joined(separator: " · ")
 }

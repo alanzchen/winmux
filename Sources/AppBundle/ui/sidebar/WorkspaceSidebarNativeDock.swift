@@ -27,7 +27,13 @@ private struct WorkspaceSidebarNativeDockArtworkKey: Equatable {
 
     init(_ input: WorkspaceSidebarNativeDock, backingScale: CGFloat) {
         sections = input.workspaces.map {
-            Section(name: $0.workspace.name, identifier: workspaceSidebarAppSummaryIdentifier($0.workspace), apps: $0.workspace.apps)
+            Section(name: $0.workspace.name, identifier: workspaceSidebarAppSummaryIdentifier($0.workspace),
+                apps: $0.workspace.apps.map { app in
+                    var artwork = app
+                    // Full titles update accessibility/tooltips, not cached artwork.
+                    artwork.contextTitle = nil
+                    return artwork
+                })
         }
         size = input.configuration.dockIconSize
         self.backingScale = backingScale
@@ -96,6 +102,9 @@ final class WorkspaceSidebarNativeDockView: NSView {
     private(set) var geometry: WorkspaceSidebarNativeDockGeometry?
     private var scrollOffset: CGFloat = 0
     private var pressed: (workspace: String, app: WorkspaceSidebarAppViewModel?, point: CGPoint, iconSize: CGFloat)?
+    var presentContextMenu: (NSMenu, NSEvent, NSView) -> Void = { menu, event, view in
+        NSMenu.popUpContextMenu(menu, with: event, for: view)
+    }
     private var pressedCreate = false
     private var dragging = false
     private var drag = WorkspaceSidebarAppDragSession()
@@ -257,7 +266,8 @@ final class WorkspaceSidebarNativeDockView: NSView {
         guard let target = target(at: point), let input else { return "" }
         let entry = input.workspaces[target.workspace]
         if let app = target.app {
-            return "Click to focus \(entry.workspace.apps[app].name); drag to move its window to another workspace"
+            let item = entry.workspace.apps[app]
+            return "\(workspaceSidebarAppContextDescription(item, workspaceDisplayName: entry.workspace.displayName)). Click to focus; right-click for actions; drag to move."
         }
         return workspaceSidebarAppSummaryLabel(entry.workspace)
     }
@@ -336,6 +346,15 @@ final class WorkspaceSidebarNativeDockView: NSView {
                         tile.contents = image?.cgImage(forProposedRect: nil, context: nil, hints: nil) ?? fallbackImage
                         CATransaction.commit()
                     })
+                }
+                if let label = app.identityLabel {
+                    let identity = CALayer()
+                    identity.frame = CGRect(x: 0, y: 0, width: size, height: size)
+                    let renderer = ImageRenderer(content: WorkspaceSidebarIdentityLabel(label: label, size: size))
+                    renderer.scale = scale
+                    identity.contentsScale = scale
+                    identity.contents = renderer.cgImage
+                    tile.addSublayer(identity)
                 }
                 let badge = CALayer()
                 badge.frame = CGRect(x: 0, y: 0, width: size, height: size)
@@ -432,7 +451,7 @@ final class WorkspaceSidebarNativeDockView: NSView {
         for entry in input.workspaces {
             labels.append((entry.workspace.name, nil, "Switch to workspace \(entry.workspace.displayName)"))
             labels += entry.workspace.apps.map {
-                (entry.workspace.name, $0.id, "Focus \($0.name) in workspace \(entry.workspace.displayName)")
+                (entry.workspace.name, $0.id, "Focus \(workspaceSidebarAppContextDescription($0, workspaceDisplayName: entry.workspace.displayName))")
             }
         }
         if input.showsCreate { labels.append((nil, nil, "Create workspace")) }
@@ -712,6 +731,10 @@ final class WorkspaceSidebarNativeDockView: NSView {
     override func mouseDown(with event: NSEvent) {
         pressed = nil
         pressedCreate = false
+        if event.modifierFlags.contains(.control) {
+            if let menu = menu(for: event) { presentContextMenu(menu, event, self) }
+            return
+        }
         let point = convert(event.locationInWindow, from: nil)
         if let target = target(at: point), let geometry {
             guard let entry = input?.workspaces[target.workspace] else { return }
@@ -757,13 +780,38 @@ final class WorkspaceSidebarNativeDockView: NSView {
         }
     }
 
+    func showAppMenu(workspaceName: String, appId: String?) -> Bool {
+        guard let frame = buttonFrame(workspaceName: workspaceName, appId: appId),
+              let menu = contextMenu(workspaceName: workspaceName, appId: appId) else { return false }
+        driver.reset()
+        pressed = nil
+        // AX callers must not wait for the menu tracking loop to finish.
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.window != nil else { return }
+            menu.popUp(positioning: nil, at: CGPoint(x: frame.midX, y: frame.maxY), in: self)
+        }
+        return true
+    }
+
     override func menu(for event: NSEvent) -> NSMenu? {
         guard let input, let geometry else { return nil }
         let point = convert(event.locationInWindow, from: nil)
-        guard let index = geometry.icons.firstIndex(where: { $0.contains { $0.intersection(contents.frame).contains(point) } })
-            ?? geometry.sections.firstIndex(where: { $0.intersection(geometry.page).contains(point) }) else { return nil }
+        let hit = target(at: point)
+        // In-use workspace tiles still expose their existing management menu.
+        guard let index = hit?.workspace ?? geometry.sections.firstIndex(where: {
+            $0.intersection(geometry.page).contains(point)
+        }) else { return nil }
         let entry = input.workspaces[index]
         driver.reset()
+        pressed = nil
+        return contextMenu(workspaceName: entry.workspace.name, appId: hit?.app.map { entry.workspace.apps[$0].id })
+    }
+
+    private func contextMenu(workspaceName: String, appId: String?) -> NSMenu? {
+        guard let input, let entry = input.workspaces.first(where: { $0.workspace.name == workspaceName }) else { return nil }
+        if let appId, entry.isEnabled, let app = entry.workspace.apps.first(where: { $0.id == appId }) {
+            return workspaceSidebarNativeAppMenu(workspaceSidebarAppMenu(workspaceName: workspaceName, app: app))
+        }
         let menu = NSMenu()
         menu.addItem(WorkspaceSidebarNativeDockMenuItem("Customize Dock & Sidebar…") {
             ShortcutSettingsModel.shared.requestDockSettings()

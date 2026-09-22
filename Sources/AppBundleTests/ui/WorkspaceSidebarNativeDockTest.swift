@@ -457,9 +457,73 @@ final class WorkspaceSidebarNativeDockTest: XCTestCase {
         view.detach()
     }
 
+    func testAppMenuTargetsAppWhileWorkspaceTileKeepsWorkspaceMenu() throws {
+        setUpWorkspacesForTests()
+        defer { setMonitorsForTests(nil) }
+        let owner = Workspace.get(byName: "menu-test")
+        TestWindow.new(id: 991, parent: owner.rootTilingContainer)
+        var model = sidebarAppIconsTestWorkspace()
+        model = .init(name: owner.name, projectId: model.projectId, displayName: owner.name,
+            sidebarLabel: "", isGeneratedName: false, monitorScopeId: model.monitorScopeId,
+            monitorName: nil, isFocused: true, isVisible: true, items: [], apps: buildWorkspaceSidebarAppSummaries(for: owner))
+        for position: WorkspaceDockPosition in [.left, .right, .bottom] {
+            let view = WorkspaceSidebarNativeDockView(frame: CGRect(x: 0, y: 0, width: 800, height: 800))
+            view.configure(fixture(position: position, workspace: model))
+            view.layoutSubtreeIfNeeded()
+            let appFrame = try XCTUnwrap(view.buttonFrame(workspaceName: owner.name, appId: model.apps[0].id))
+            let appMenu = try XCTUnwrap(view.menu(for: mouseEvent(.rightMouseDown, in: view,
+                at: CGPoint(x: appFrame.midX, y: appFrame.midY))))
+            XCTAssertFalse(appMenu.items.contains { $0.title == "Delete Workspace" })
+            XCTAssertTrue(appMenu.items.contains { $0.title.hasPrefix("Window:") })
+            let workspaceFrame = try XCTUnwrap(view.buttonFrame(workspaceName: owner.name, appId: nil))
+            let workspaceMenu = try XCTUnwrap(view.menu(for: mouseEvent(.rightMouseDown, in: view,
+                at: CGPoint(x: workspaceFrame.midX, y: workspaceFrame.midY))))
+            XCTAssertTrue(workspaceMenu.items.contains { $0.title == "Delete Workspace" })
+            view.detach()
+        }
+    }
+
+    func testControlClickOpensMenuWithoutSelectingOnRelease() throws {
+        var selections: [String] = []
+        var presentations = 0
+        let input = fixture(onSelect: { selections.append($0) })
+        let view = WorkspaceSidebarNativeDockView(frame: CGRect(x: 0, y: 0, width: 240, height: 800))
+        view.configure(input)
+        view.layoutSubtreeIfNeeded()
+        defer { view.detach() }
+        view.presentContextMenu = { _, _, _ in presentations += 1 }
+        let target = try XCTUnwrap(view.buttonFrame(workspaceName: input.workspaces[0].workspace.name, appId: nil))
+        let point = CGPoint(x: target.midX, y: target.midY)
+        let event = try XCTUnwrap(NSEvent.mouseEvent(with: .leftMouseDown,
+            location: view.convert(point, to: nil), modifierFlags: .control,
+            timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: 0, context: nil,
+            eventNumber: 1, clickCount: 1, pressure: 1))
+        view.mouseDown(with: event)
+        view.mouseUp(with: try mouseEvent(.leftMouseUp, in: view, at: point))
+        XCTAssertEqual(presentations, 1)
+        XCTAssertTrue(selections.isEmpty)
+        view.mouseDown(with: try mouseEvent(.leftMouseDown, in: view, at: point))
+        XCTAssertEqual(presentations, 1, "A normal press does not open a menu")
+        view.mouseUp(with: try mouseEvent(.leftMouseUp, in: view, at: point))
+        XCTAssertEqual(selections, [input.workspaces[0].workspace.name])
+    }
+
+    func testDisabledWorkspaceKeepsManagementMenu() throws {
+        let input = fixture(isEnabled: false)
+        let view = WorkspaceSidebarNativeDockView(frame: CGRect(x: 0, y: 0, width: 240, height: 800))
+        view.configure(input)
+        view.layoutSubtreeIfNeeded()
+        defer { view.detach() }
+        let target = try XCTUnwrap(view.geometry?.icons.first?.first)
+        let menu = try XCTUnwrap(view.menu(for: mouseEvent(.rightMouseDown, in: view,
+            at: CGPoint(x: target.midX, y: target.midY))))
+        XCTAssertTrue(menu.items.contains { $0.title == "Customize Dock & Sidebar…" })
+        XCTAssertTrue(menu.items.contains { $0.title == "Rename Workspace" })
+    }
+
     private func fixture(position: WorkspaceDockPosition = .left,
                          workspace: WorkspaceSidebarWorkspaceViewModel? = nil,
-                         isActive: Bool = true, opacity: Double = 1, magnificationAmount: Double = 0.5, chromeStyle: ChromeStyle = .solid,
+                         isActive: Bool = true, isEnabled: Bool = true, opacity: Double = 1, magnificationAmount: Double = 0.5, chromeStyle: ChromeStyle = .solid,
                          onSelect: @escaping (String) -> Void = { _ in },
                          onDrop: @escaping (WorkspaceSidebarDragPayload) -> Void = { _ in },
                          actions: WorkspaceSidebarActions = .init()) -> WorkspaceSidebarNativeDock {
@@ -477,7 +541,7 @@ final class WorkspaceSidebarNativeDockTest: XCTestCase {
         return WorkspaceSidebarNativeDock(configuration: config, visibleWidth: config.compactRailWidth,
             compactLength: compactLength, leadingLength: 0, trailingLength: position == .bottom ? 32 : 38,
             leading: AnyView(EmptyView()), trailing: AnyView(EmptyView()),
-            workspaces: [.init(workspace: model, isActive: isActive, isEnabled: true, opacity: opacity,
+            workspaces: [.init(workspace: model, isActive: isActive, isEnabled: isEnabled, opacity: opacity,
                 select: { onSelect(model.name) }, selectApp: { onSelect($0.id) }, rename: {}, drop: onDrop)],
             projectId: workspaceProjectDefaultId, monitorScopeId: workspaceSidebarDefaultScopeId,
             showsCreate: true, reduceTransparency: false, blockers: [],

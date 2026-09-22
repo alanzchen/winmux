@@ -10,6 +10,11 @@ private let workspaceSidebarParser: [String: any ParserProtocol<WorkspaceSidebar
     "mode": Parser(\.mode, parseWorkspaceSidebarMode),
     "show-app-icons": Parser(\.showAppIcons, parseBool),
     "show-app-badges": Parser(\.showAppBadges, parseBool),
+    "dock-identity-labels": Parser(\.dockIdentityLabels) { raw, backtrace in
+        parseString(raw, backtrace).flatMap { value in
+            DockIdentityLabels(rawValue: value).orFailure(.semantic(backtrace, "Possible values: auto, always, off"))
+        }
+    },
     "dock-magnification": Parser(\.dockMagnification, parseBool),
     "dock-magnification-amount": Parser(\.dockMagnificationAmount, parseWorkspaceSidebarUnitInterval),
     "dock-icon-size": Parser(\.dockIconSize) { raw, backtrace in

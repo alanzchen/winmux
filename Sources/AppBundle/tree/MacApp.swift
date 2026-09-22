@@ -376,6 +376,17 @@ final class MacApp: AbstractApp {
         }
     }
 
+    /// Await the AX write before changing workspace ownership in a Dock action.
+    func setDockMenuMinimized(_ windowId: UInt32, _ value: Bool) async throws -> Bool {
+        if serverArgs.isReadOnly { return false }
+        setFrameJobs.removeValue(forKey: windowId)?.cancel()
+        return try await withWindow(windowId) { window, job in
+            // AX acceptance is authoritative; the animation may not have updated
+            // the readable state yet. Native events drive the subsequent refresh.
+            window.set(Ax.minimizedAttr, value)
+        } ?? false
+    }
+
     func dumpWindowAxInfo(windowId: UInt32) async throws -> [String: Json] {
         try await withWindow(windowId) { window, job in
             dumpAxRecursive(window, .window)

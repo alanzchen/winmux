@@ -13,7 +13,7 @@ func buildWorkspaceSidebarWorkspaceViewModels(
             availableMonitors: availableMonitors,
         ))
     }
-    return workspaces
+    return workspaceSidebarIdentityLabels(workspaces, mode: config.workspaceSidebar.dockIdentityLabels)
 }
 
 @MainActor

@@ -32,6 +32,7 @@ dock-left-gap = 2 # Gap at the selected edge; closes when expanded.
 dock-magnification = true
 dock-magnification-amount = 0.5 # 0 = no growth, 0.5 = 1.5×, 1 = 2×.
 show-app-badges = true
+dock-identity-labels = 'auto' # auto (repeated apps), always, or off.
 ```
 
 The default mode is Dock; set `mode = 'sidebar'` to use Sidebar instead.
@@ -138,3 +139,23 @@ Use `exec-and-forget` to run your own app-launching command or script. Opening a
 new window depends on the app; activating an already-running app can switch to
 its existing window on another workspace. See the [CLI guide](cli.md) for WinMux
 commands and [default bindings](../resources/default-config.toml) for examples.
+
+### Dock app menus and identity labels
+
+Left-click focuses an app in its workspace; press and drag moves its window.
+Right-click or Control-click an app icon opens its window list and actions for the
+app's most recent window in that workspace (minimize/restore, move to workspace,
+close), Show in Finder, Hide/Show, and Quit. Select a different window from the list
+to make it the target of these actions.
+Hide and Quit affect the represented application processes across workspaces.
+Workspace rename/delete actions remain on workspace tiles. These are WinMux menus;
+app-supplied native Dock extensions (such as browser-specific new-window commands)
+are not imported.
+
+`workspace-sidebar.dock-identity-labels` defaults to `auto`, labeling apps that
+appear in more than one workspace. `always` labels every app and `off` disables
+identity labels. Labels use the first four characters of a single window's title,
+with the app-name prefix/suffix removed, or the workspace name for multiple windows.
+Labels update when the window title changes; focus changes between windows do not
+change a multi-window app's workspace label. Collisions within an app receive a numeric suffix. Full titles appear in tooltips and accessibility
+labels. Identity labels are independent of red native notification badges.

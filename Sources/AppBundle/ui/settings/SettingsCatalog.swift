@@ -146,6 +146,8 @@ enum SettingsCatalog {
                 options: ChromeSolidColor.allCases.map { .init($0.title, $0.rawValue) }, read: { $0.workspaceSidebar.dockSolidColor.rawValue }),
             SettingsField(group: .dockAppearance, section: dock, key: "custom-color", title: "Custom color", help: "Choose the compact Dock background color.", control: .color, read: { .text($0.workspaceSidebar.dockCustomColor) }),
             int(.dockAppearance, "dock-icon-size", "Maximum icon size", "Icon canvas size in points. Icons shrink automatically when needed to fit; Dock thickness stays proportional.", section: sidebar, range: 24...48, path: \.workspaceSidebar.dockIconSize),
+            choice(.dockAppearance, "dock-identity-labels", "Icon identity labels", "Show a short window or workspace label beneath app icons. Auto labels apps repeated across workspaces.", section: sidebar,
+                options: [.init("Auto", "auto"), .init("Always", "always"), .init("Off", "off")], read: { $0.workspaceSidebar.dockIdentityLabels.rawValue }),
             bool(.dockAppearance, "dock-magnification", "Magnify icons on hover", "Enlarge nearby icons inward from the screen edge. Respects macOS Reduce Motion.", section: sidebar, path: \.workspaceSidebar.dockMagnification),
             SettingsField(group: .dockAppearance, section: sidebar, key: "dock-magnification-amount", title: "Magnification", help: "Maximum enlarged size relative to the resting icon size.", control: .magnification, read: { .number($0.workspaceSidebar.dockMagnificationAmount) }),
             bool(.dockContent, "show-app-badges", "Show app badges", "Mirror unread labels exposed by the macOS Dock. Some apps do not expose badges.", section: sidebar, path: \.workspaceSidebar.showAppBadges),

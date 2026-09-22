@@ -84,6 +84,10 @@ enum WorkspaceSidebarMode: String, CaseIterable, Identifiable, Sendable {
     var id: String { rawValue }
 }
 
+enum DockIdentityLabels: String, Sendable {
+    case auto, always, off
+}
+
 enum WorkspaceDockPosition: String, CaseIterable, Identifiable, Sendable {
     case left, bottom, right
     var id: String { rawValue }
@@ -112,6 +116,7 @@ struct WorkspaceSidebarConfig: ConvenienceCopyable, Equatable, Sendable {
         set { mode = newValue ? .dock : .sidebar }
     }
     var showAppBadges: Bool = false
+    var dockIdentityLabels: DockIdentityLabels = .auto
     var dockMagnification: Bool = false
     var dockMagnificationAmount: Double = 0.5
     var dockIconSize: Int = Self.defaultDockIconSize

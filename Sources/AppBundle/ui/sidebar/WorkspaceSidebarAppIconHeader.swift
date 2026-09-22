@@ -89,6 +89,9 @@ struct WorkspaceSidebarAppIconHeader: View {
             }
         }
         .frame(width: size, height: size)
+        .overlay {
+            if let label = app.identityLabel { WorkspaceSidebarIdentityLabel(label: label, size: size) }
+        }
         .overlay { WorkspaceSidebarDockBadge(app: app) }
         .accessibilityHidden(true)
     }

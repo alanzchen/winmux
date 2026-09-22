@@ -239,8 +239,11 @@ func createWorkspaceFromSidebarDrag(
 }
 
 @MainActor
-func moveWindowFromSidebar(_ windowId: UInt32, toWorkspace workspaceName: String) {
-    moveSidebarSource(windowId, subject: .window, toWorkspace: workspaceName)
+func moveWindowFromSidebar(
+    _ windowId: UInt32, toWorkspace workspaceName: String,
+    validation: @escaping @MainActor () -> Bool = { true }
+) {
+    moveSidebarSource(windowId, subject: .window, toWorkspace: workspaceName, validation: validation)
 }
 
 @MainActor
@@ -259,10 +262,13 @@ func moveTabGroupToNewWorkspaceFromSidebar(_ windowId: UInt32, projectId: Worksp
 }
 
 @MainActor
-private func moveSidebarSource(_ windowId: UInt32, subject: WindowDragSubject, toWorkspace workspaceName: String, settlingId: UUID? = nil) {
+private func moveSidebarSource(
+    _ windowId: UInt32, subject: WindowDragSubject, toWorkspace workspaceName: String,
+    settlingId: UUID? = nil, validation: @escaping @MainActor () -> Bool = { true }
+) {
     let task = runWorkspaceSidebarSession {
         defer { if let settlingId { finishWorkspaceSidebarDockLift(id: settlingId) } }
-        guard let sourceWindow = Window.get(byId: windowId),
+        guard validation(), let sourceWindow = Window.get(byId: windowId),
               let targetWorkspace = Workspace.existing(byName: workspaceName)
         else { return }
         let sourceNode = dragSubjectNode(for: sourceWindow, subject: subject)

@@ -63,6 +63,15 @@ func focusAppFromSidebar(
     targetMonitorScopeId: String? = nil,
     overrideWorkspaceInUse: Bool = false,
 ) {
+    if let targetMonitorScopeId, workspaceSidebarMonitor(forScopeId: targetMonitorScopeId) == nil { return }
+    if let workspace = Workspace.existing(byName: workspaceName),
+       workspaceSidebarAppWindow(in: workspace, appId: appId) == nil,
+       let window = workspaceSidebarWindowsForAppSummary(workspace)
+        .filter({ workspaceSidebarAppIdentity($0) == appId }).sorted(by: { $0.windowId < $1.windowId }).first {
+        performWorkspaceSidebarWindowAction(.focus, window: window, workspaceName: workspaceName,
+            targetMonitorScopeId: targetMonitorScopeId, overrideWorkspaceInUse: overrideWorkspaceInUse)
+        return
+    }
     WorkspaceSidebarPanel.suppressEdgeTrapForWorkspaceActivation()
     var selectedWindow: Window?
     runWorkspaceSidebarSession(afterLayout: {

@@ -34,6 +34,14 @@ final class WorkspaceSidebarNativeDockButton: NSAccessibilityElement {
         return MainActor.assumeIsolated { element.owner?.buttonIsEnabled(workspaceName: element.workspaceName) == true }
     }
 
+    nonisolated override func accessibilityPerformShowMenu() -> Bool {
+        nonisolated(unsafe) let element = self
+        return MainActor.assumeIsolated {
+            guard let workspace = element.workspaceName else { return false }
+            return element.owner?.showAppMenu(workspaceName: workspace, appId: element.appId) == true
+        }
+    }
+
     nonisolated override func accessibilityPerformPress() -> Bool {
         nonisolated(unsafe) let element = self
         return MainActor.assumeIsolated { element.owner?.pressButton(workspaceName: element.workspaceName, appId: element.appId) == true }
