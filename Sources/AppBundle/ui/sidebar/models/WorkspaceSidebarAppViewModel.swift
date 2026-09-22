@@ -42,3 +42,10 @@ func workspaceSidebarAppContextDescription(_ app: WorkspaceSidebarAppViewModel, 
     return [app.name, title?.takeIf { !$0.isEmpty && $0 != app.name && $0 != workspaceDisplayName },
         "Workspace \(workspaceDisplayName)"].compactMap { $0 }.joined(separator: " · ")
 }
+
+/// Native hover labels identify the icon; usage instructions belong elsewhere.
+func workspaceSidebarAppTooltip(_ app: WorkspaceSidebarAppViewModel) -> String {
+    let title = app.contextTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    guard !title.isEmpty, title.localizedCaseInsensitiveCompare(app.name) != .orderedSame else { return app.name }
+    return "\(app.name) — \(title)"
+}

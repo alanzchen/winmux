@@ -108,8 +108,11 @@ final class WorkspaceSidebarNativeDockView: NSView {
     private var pressedCreate = false
     private var dragging = false
     private var drag = WorkspaceSidebarAppDragSession()
-    private var tooltipBounds = CGRect.null
-    private var tooltipTag: NSView.ToolTipTag?
+    private var tooltipsEnabled = false
+    private(set) var tooltipFrames: [CGRect] = []
+    private(set) var tooltipTags: [NSView.ToolTipTag] = []
+    private var tooltipUpdateTask: Task<Void, Never>?
+    private var tooltipUpdateDeadline: CFTimeInterval = 0
     private var incomingDrop: (WorkspaceSidebarDragPayload, WorkspaceSidebarDropTargetKind)?
     private var pendingTransitions: [String: CGRect]?
     private var transitionDeadline: CFTimeInterval = 0
@@ -172,6 +175,7 @@ final class WorkspaceSidebarNativeDockView: NSView {
     isolated deinit { releaseArtwork() }
 
     func configure(_ input: WorkspaceSidebarNativeDock) {
+        tooltipsEnabled = true
         let previous = self.input
         self.input = input
         inputRevision &+= 1
@@ -255,21 +259,56 @@ final class WorkspaceSidebarNativeDockView: NSView {
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
-        guard tooltipBounds != bounds else { return }
-        if let tooltipTag { removeToolTip(tooltipTag) }
-        tooltipBounds = bounds
-        tooltipTag = addToolTip(bounds, owner: self, userData: nil)
+        scheduleIconTooltips()
+    }
+
+    private func updateIconTooltips() {
+        tooltipUpdateTask?.cancel()
+        tooltipUpdateTask = nil
+        let frames = tooltipsEnabled && input?.motion.owns(driver) == true
+            ? (geometry?.icons.flatMap { $0 }.map { $0.intersection(contents.frame).intersection(bounds) }
+                .filter { !$0.isNull && !$0.isEmpty } ?? []) : []
+        guard frames != tooltipFrames else { return }
+        for tag in tooltipTags { removeToolTip(tag) }
+        tooltipFrames = frames
+        tooltipTags = frames.map { addToolTip($0, owner: self, userData: nil) }
+    }
+
+    private func scheduleIconTooltips() {
+        guard tooltipsEnabled, input?.motion.owns(driver) == true else {
+            updateIconTooltips()
+            return
+        }
+        // A single trailing update follows lens motion. Re-registering every display
+        // frame would restart AppKit's hover timer and churn native tracking regions.
+        tooltipUpdateDeadline = CACurrentMediaTime() + 0.12
+        guard tooltipUpdateTask == nil else { return }
+        tooltipUpdateTask = Task { @MainActor [weak self] in
+            while let self {
+                let delay = self.tooltipUpdateDeadline - CACurrentMediaTime()
+                if delay <= 0 {
+                    self.tooltipUpdateTask = nil
+                    self.updateIconTooltips()
+                    return
+                }
+                do { try await Task.sleep(for: .seconds(delay)) } catch { return }
+            }
+        }
     }
 
     @objc func view(_ view: NSView, stringForToolTip tag: NSView.ToolTipTag,
                     point: NSPoint, userData: UnsafeMutableRawPointer?) -> String {
-        guard let target = target(at: point), let input else { return "" }
-        let entry = input.workspaces[target.workspace]
-        if let app = target.app {
-            let item = entry.workspace.apps[app]
-            return "\(workspaceSidebarAppContextDescription(item, workspaceDisplayName: entry.workspace.displayName)). Click to focus; right-click for actions; drag to move."
+        guard tooltipsEnabled, let input, let geometry, input.motion.owns(driver), !dragging, incomingDrop == nil, !isScrolling else { return "" }
+        // Hover labels remain available for workspaces in use on another display.
+        // Only icons have labels; section padding must not masquerade as an icon.
+        for (section, frames) in geometry.icons.enumerated() {
+            for index in frames.indices where displayedIconFrame(section: section, icon: index)
+                .intersection(contents.frame).contains(point) {
+                let workspace = input.workspaces[section].workspace
+                return index == 0 ? workspace.displayName : workspaceSidebarAppTooltip(workspace.apps[index - 1])
+            }
         }
-        return workspaceSidebarAppSummaryLabel(entry.workspace)
+        return ""
     }
 
     private func configureBackdrop(_ input: WorkspaceSidebarNativeDock) {
@@ -432,6 +471,12 @@ final class WorkspaceSidebarNativeDockView: NSView {
     }
 
     func detach() {
+        tooltipsEnabled = false
+        tooltipUpdateTask?.cancel()
+        tooltipUpdateTask = nil
+        for tag in tooltipTags { removeToolTip(tag) }
+        tooltipTags = []
+        tooltipFrames = []
         scrollRecovery?.cancel()
         scrollRecovery = nil
         isScrolling = false
@@ -545,6 +590,7 @@ final class WorkspaceSidebarNativeDockView: NSView {
             render(frame)
             return
         }
+        let refreshTooltipsImmediately = renderedRevision != inputRevision || renderedBounds != bounds
         renderedRevision = inputRevision
         renderedFrame = effectiveFrame
         renderedBounds = bounds
@@ -651,6 +697,8 @@ final class WorkspaceSidebarNativeDockView: NSView {
             }
             pendingTransitions = nil
         }
+        if refreshTooltipsImmediately { updateIconTooltips() }
+        else { scheduleIconTooltips() }
         // A retained outgoing compact view may still receive layout callbacks.
         // Its geometry must never replace the expanded renderer's hit regions.
         // Reclaiming through configure increments inputRevision and republishes.

@@ -521,6 +521,65 @@ final class WorkspaceSidebarNativeDockTest: XCTestCase {
         XCTAssertTrue(menu.items.contains { $0.title == "Rename Workspace" })
     }
 
+    func testHoverLabelsIdentifyIconsOnEveryEdgeEvenWhenWorkspaceIsDisabled() throws {
+        for position: WorkspaceDockPosition in [.left, .bottom, .right] {
+            var workspace = sidebarAppIconsTestWorkspace()
+            workspace.apps = sidebarAppIconsTestApps(count: 2)
+            workspace.apps[0].contextTitle = "Project document"
+            let view = WorkspaceSidebarNativeDockView(frame: CGRect(x: 0, y: 0, width: 800, height: 800))
+            view.configure(fixture(position: position, workspace: workspace, isEnabled: false))
+            view.layoutSubtreeIfNeeded()
+            func label(appId: String?) throws -> String {
+                let frame = try XCTUnwrap(view.buttonFrame(workspaceName: workspace.name, appId: appId))
+                return view.view(view, stringForToolTip: 0, point: CGPoint(x: frame.midX, y: frame.midY), userData: nil)
+            }
+            XCTAssertEqual(view.tooltipFrames.count, 1 + workspace.apps.count,
+                "Separate tooltip regions let AppKit restart hover timing between icons")
+            XCTAssertEqual(try label(appId: nil), workspace.displayName)
+            XCTAssertEqual(try label(appId: workspace.apps[0].id), "\(workspace.apps[0].name) — Project document")
+            workspace.apps[0].contextTitle = "Updated document"
+            view.configure(fixture(position: position, workspace: workspace, isEnabled: false))
+            XCTAssertEqual(try label(appId: workspace.apps[0].id), "\(workspace.apps[0].name) — Updated document")
+            XCTAssertEqual(view.view(view, stringForToolTip: 0, point: CGPoint(x: -10, y: -10), userData: nil), "")
+            view.detach()
+            XCTAssertTrue(view.tooltipFrames.isEmpty)
+            XCTAssertEqual(try label(appId: nil), "", "Detached renderers must not show tooltips")
+        }
+    }
+
+    func testAppTooltipOmitsEmptyOrRedundantWindowTitle() {
+        var app = WorkspaceSidebarAppViewModel(name: "Editor", bundleId: "test", bundlePath: nil)
+        XCTAssertEqual(workspaceSidebarAppTooltip(app), "Editor")
+        app.contextTitle = "  EDITOR  "
+        XCTAssertEqual(workspaceSidebarAppTooltip(app), "Editor")
+        app.contextTitle = "   "
+        XCTAssertEqual(workspaceSidebarAppTooltip(app), "Editor")
+        app.contextTitle = "  project  "
+        XCTAssertEqual(workspaceSidebarAppTooltip(app), "Editor — project")
+    }
+
+    func testTooltipTrackingWaitsForMagnificationToSettle() async throws {
+        let view = WorkspaceSidebarNativeDockView(frame: CGRect(x: 0, y: 0, width: 240, height: 800))
+        view.configure(fixture())
+        view.layoutSubtreeIfNeeded()
+        defer { view.detach() }
+        let tags = view.tooltipTags
+        let frames = view.tooltipFrames
+        XCTAssertFalse(tags.isEmpty)
+        for offset in 0..<10 {
+            view.render(.init(pointer: CGPoint(x: frames[1].midX, y: frames[1].midY + CGFloat(offset)), strength: 1))
+            view.updateTrackingAreas()
+            XCTAssertEqual(view.tooltipTags, tags, "Motion and tracking invalidations must not restart native hover tracking every frame")
+        }
+        try await Task.sleep(for: .milliseconds(200))
+        XCTAssertNotEqual(view.tooltipFrames, frames, "Settled magnification must refresh the actual hover regions")
+        XCTAssertEqual(view.tooltipTags.count, view.tooltipFrames.count)
+        view.render(.init())
+        view.detach()
+        try await Task.sleep(for: .milliseconds(200))
+        XCTAssertTrue(view.tooltipTags.isEmpty, "A pending update must not revive detached tracking")
+    }
+
     private func fixture(position: WorkspaceDockPosition = .left,
                          workspace: WorkspaceSidebarWorkspaceViewModel? = nil,
                          isActive: Bool = true, isEnabled: Bool = true, opacity: Double = 1, magnificationAmount: Double = 0.5, chromeStyle: ChromeStyle = .solid,

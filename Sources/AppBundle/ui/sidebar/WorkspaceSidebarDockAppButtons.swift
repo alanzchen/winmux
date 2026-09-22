@@ -23,6 +23,7 @@ struct WorkspaceSidebarDockAppButtons: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Switch to workspace \(workspace.displayName)")
+                .help(workspace.displayName)
                 .modifier(WorkspaceSidebarDockIconFrameReporter())
                 .position(x: rect.midX, y: rect.midY)
             }
@@ -84,7 +85,7 @@ struct WorkspaceSidebarDockAppButton: View {
         .contextMenu {
             WorkspaceSidebarAppMenuContent(workspaceName: workspaceName, app: app)
         }
-        .help("\(workspaceSidebarAppContextDescription(app, workspaceDisplayName: workspaceDisplayName)). Click to focus \(app.name); right-click for actions; drag to move its window to another workspace")
+        .help(workspaceSidebarAppTooltip(app))
     }
 }
 

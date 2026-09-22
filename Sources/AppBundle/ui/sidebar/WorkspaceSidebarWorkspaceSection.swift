@@ -158,7 +158,7 @@ struct WorkspaceSidebarWorkspaceSection: View, Animatable {
                 isTargeted: $isDropTargeted,
                 isSettling: $isDropSettling,
             ))
-            .help(isInUseOnOtherDisplay ? inUseOverrideText : (layout.showAppIcons ? workspaceSidebarAppSummaryLabel(workspace) : workspace.displayName))
+            .modifier(WorkspaceSidebarSectionTooltip(text: layout.showAppIcons ? nil : (isInUseOnOtherDisplay ? inUseOverrideText : workspace.displayName)))
             .zIndex(isDropTarget ? 1 : 0)
             .animation(reduceMotion ? nil : (layout.showAppIcons ? workspaceSidebarDockSettleAnimation : .spring(response: 0.2, dampingFraction: 0.82)), value: dragPreview)
             .modifier(WorkspaceSidebarLegacyExpansionAnimation(isEnabled: !layout.showAppIcons, reduceMotion: reduceMotion, progress: expansionProgress))
@@ -848,5 +848,15 @@ extension WorkspaceSidebarWorkspaceSection {
         }
         .opacity(1)
         .animation(.spring(response: 0.2, dampingFraction: 0.78), value: activeSidebarDragSourceWindowId == window.windowId)
+    }
+}
+
+/// In icon mode each button owns its tooltip; section padding has no hover label.
+private struct WorkspaceSidebarSectionTooltip: ViewModifier {
+    let text: String?
+
+    func body(content: Content) -> some View {
+        if let text { content.help(text) }
+        else { content }
     }
 }
