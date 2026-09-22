@@ -168,3 +168,21 @@ Workspace and app hover labels can be enabled independently in Settings using
 in TOML. Both default to `true`. Set either to `false` to hide that kind of tooltip;
 changes apply without restarting. Workspace tooltip visibility also controls
 workspace help in Sidebar mode. Accessibility labels remain available.
+
+Set `workspace-sidebar.show-hidden-workspace-app-reminders = true` (or enable
+**Show hidden workspace app reminders** in Settings) to show temporary app reminders
+after the Dock clock. This defaults to `false` and works independently of
+`show-app-badges`. If the clock is off, reminders still appear at the end of the Dock;
+vertical Docks place them at the bottom. The area fits three icons and scrolls to
+show additional reminders.
+
+Only apps with a native Dock badge in a workspace outside the current Dock are
+included; workspaces already visible on another display are excluded. Click to
+focus the app in its workspace, or right-click for the app menu. A short workspace
+label and hover title identify the destination. Reminders disappear when the badge
+clears, the workspace becomes visible, or it enters the current Dock. Updates use
+the existing badge poll (about every two seconds), without requiring mouse movement.
+macOS badges apply to the whole application, so the same app can remind in multiple
+hidden workspaces; they do not identify which individual window has unread activity.
+Reminder destination labels remain visible even when `dock-identity-labels` is
+`off`, so reminders for the same app in different hidden workspaces stay identifiable.

@@ -79,6 +79,7 @@ extension WorkspaceSidebarView {
                     availableHeight: layout.compactRailWidth)
                     .frame(width: 112).padding(.leading, 8)
             }
+            hiddenWorkspaceReminderSection(layout: layout)
         }
         .padding(.horizontal, 6)
         .frame(height: layout.compactRailWidth)

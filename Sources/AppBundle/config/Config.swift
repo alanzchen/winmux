@@ -116,6 +116,7 @@ struct WorkspaceSidebarConfig: ConvenienceCopyable, Equatable, Sendable {
         set { mode = newValue ? .dock : .sidebar }
     }
     var showAppBadges: Bool = false
+    var showHiddenWorkspaceAppReminders: Bool = false
     var showWorkspaceTooltips: Bool = true
     var showAppTooltips: Bool = true
     var dockIdentityLabels: DockIdentityLabels = .auto

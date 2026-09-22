@@ -55,6 +55,7 @@ on-mode-changed = []
     dock-identity-labels = 'auto'
     show-workspace-tooltips = true
     show-app-tooltips = true
+    show-hidden-workspace-app-reminders = false
     # Magnify compact Dock icons on hover; expand with the arrow or sidebar command.
     dock-magnification = false
     # Magnification strength: 0 = none, 0.5 = 1.5x, 1 = 2x; icons grow beyond the glass rail.

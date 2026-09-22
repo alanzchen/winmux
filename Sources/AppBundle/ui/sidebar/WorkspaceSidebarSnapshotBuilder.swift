@@ -26,6 +26,7 @@ func workspaceSidebarConfiguration() -> WorkspaceSidebarConfiguration {
         showAppIcons: config.workspaceSidebar.showAppIcons,
         showWorkspaceTooltips: config.workspaceSidebar.showWorkspaceTooltips,
         showAppTooltips: config.workspaceSidebar.showAppTooltips,
+        showHiddenWorkspaceAppReminders: config.workspaceSidebar.showHiddenWorkspaceAppReminders,
         dockMagnification: config.workspaceSidebar.usesDockMagnification,
         dockMagnificationAmount: config.workspaceSidebar.dockMagnificationAmount,
         dockIconSize: CGFloat(config.workspaceSidebar.dockIconSize),

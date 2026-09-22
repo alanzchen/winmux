@@ -77,7 +77,7 @@ enum SettingsCatalog {
 
     static func visibilityHint(for field: SettingsField, editor: SettingsEditor) -> String {
         let dock = editor.value(Self.field("workspace-sidebar.mode")).text == "dock"
-        if field.group == .dockAppearance && !dock || ["dock-position", "dock-left-gap", "show-app-badges", "show-app-tooltips"].contains(field.key) && !dock {
+        if field.group == .dockAppearance && !dock || ["dock-position", "dock-left-gap", "show-app-badges", "show-app-tooltips", "show-hidden-workspace-app-reminders"].contains(field.key) && !dock {
             return "Choose Dock mode to use this setting."
         }
         if ["collapsed-width", "stay-on-top"].contains(field.key) { return "Choose Sidebar mode to use this setting." }
@@ -152,6 +152,7 @@ enum SettingsCatalog {
             SettingsField(group: .dockAppearance, section: sidebar, key: "dock-magnification-amount", title: "Magnification", help: "Maximum enlarged size relative to the resting icon size.", control: .magnification, read: { .number($0.workspaceSidebar.dockMagnificationAmount) }),
             bool(.dockContent, "show-workspace-tooltips", "Show workspace tooltips", "Show the full workspace name when hovering over its icon. Also controls workspace help in Sidebar mode.", section: sidebar, path: \.workspaceSidebar.showWorkspaceTooltips),
             bool(.dockContent, "show-app-tooltips", "Show app tooltips", "Show the app name and window title when hovering over an app icon.", section: sidebar, path: \.workspaceSidebar.showAppTooltips),
+            bool(.dockContent, "show-hidden-workspace-app-reminders", "Show hidden workspace app reminders", "Show apps with Dock badges from workspaces outside the current Dock after the clock. Scroll to see more reminders.", section: sidebar, path: \.workspaceSidebar.showHiddenWorkspaceAppReminders),
             bool(.dockContent, "show-app-badges", "Show app badges", "Mirror unread labels exposed by the macOS Dock. Some apps do not expose badges.", section: sidebar, path: \.workspaceSidebar.showAppBadges),
             bool(.sidebarAppearance, "blur", "Blur background", "Use darker Liquid Glass behind window titles and search. Applies to Sidebar mode and the expanded Dock.", section: expanded, path: \.workspaceSidebar.sidebarAppearance.blur),
             SettingsField(group: .sidebarAppearance, section: expanded, key: "background-opacity", title: "Background darkness", help: "Darken the blurred backdrop for readable text; labels retain full opacity.", control: .percentage, read: { .number($0.workspaceSidebar.sidebarAppearance.backgroundOpacity) }),
@@ -209,7 +210,7 @@ enum SettingsCatalog {
         func value(_ key: String) -> SettingsValue { editor.value(field(key)) }
         let dock = value("workspace-sidebar.mode").text == "dock"
         switch id {
-            case "workspace-sidebar.dock-position", "workspace-sidebar.dock-left-gap", "workspace-sidebar.show-app-badges", "workspace-sidebar.show-app-tooltips": return dock
+            case "workspace-sidebar.dock-position", "workspace-sidebar.dock-left-gap", "workspace-sidebar.show-app-badges", "workspace-sidebar.show-app-tooltips", "workspace-sidebar.show-hidden-workspace-app-reminders": return dock
             case "workspace-sidebar.collapsed-width", "workspace-sidebar.stay-on-top": return !dock
             case "workspace-sidebar.dock-magnification-amount": return dock && value("workspace-sidebar.dock-magnification").bool
             case "workspace-sidebar.dock-appearance.glass-opacity": return dock && value("workspace-sidebar.dock-appearance.style").text == "liquid-glass"

@@ -12,6 +12,7 @@ private let workspaceSidebarParser: [String: any ParserProtocol<WorkspaceSidebar
     "show-workspace-tooltips": Parser(\.showWorkspaceTooltips, parseBool),
     "show-app-tooltips": Parser(\.showAppTooltips, parseBool),
     "show-app-badges": Parser(\.showAppBadges, parseBool),
+    "show-hidden-workspace-app-reminders": Parser(\.showHiddenWorkspaceAppReminders, parseBool),
     "dock-identity-labels": Parser(\.dockIdentityLabels) { raw, backtrace in
         parseString(raw, backtrace).flatMap { value in
             DockIdentityLabels(rawValue: value).orFailure(.semantic(backtrace, "Possible values: auto, always, off"))

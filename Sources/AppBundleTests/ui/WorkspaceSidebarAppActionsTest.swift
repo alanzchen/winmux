@@ -108,9 +108,10 @@ final class WorkspaceSidebarAppActionsTest: XCTestCase {
         XCTAssertEqual(focus.workspace, otherWorkspace)
     }
 
-    func testHiddenWorkspaceOpensOnClickedPanelMonitor() {
+    func testHiddenWorkspaceFromAnotherProjectOpensOnClickedPanelMonitor() {
         let (main, secondary, mainWorkspace, _) = twoDisplayScenario()
         let hidden = Workspace.get(byName: "hidden")
+        hidden.projectId = "reminder-project"
         let target = TestWindow.new(id: 1, parent: hidden.rootTilingContainer)
 
         XCTAssertTrue(selectWorkspaceSidebarAppWindow(
@@ -120,6 +121,7 @@ final class WorkspaceSidebarAppActionsTest: XCTestCase {
         ) === target)
         XCTAssertEqual(main.activeWorkspace, mainWorkspace)
         XCTAssertEqual(secondary.activeWorkspace, hidden)
+        XCTAssertEqual(focus.workspace.projectId, "reminder-project")
         XCTAssertTrue(focus.windowOrNil === target)
     }
 

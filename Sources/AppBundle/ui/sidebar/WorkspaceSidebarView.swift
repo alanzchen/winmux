@@ -5,6 +5,8 @@ import SwiftUI
 struct WorkspaceSidebarView: View {
     let snapshot: WorkspaceSidebarSnapshot
     let actions: WorkspaceSidebarActions
+    let dockBadgeModel: WorkspaceSidebarDockBadgeModel
+    @ObservedObject var dockBadgePresence: WorkspaceSidebarDockBadgePresence
     @State var projectSwipeTranslation: CGFloat = 0
     @State var projectSwipeStartProjectId: WorkspaceProjectId? = nil
     @State var projectSwipeDidCrossBreakPoint = false
@@ -39,8 +41,11 @@ struct WorkspaceSidebarView: View {
     var reduceSidebarTransparency: Bool { reduceTransparencyOverride ?? systemReduceSidebarTransparency }
 
     init(snapshot: WorkspaceSidebarSnapshot, actions: WorkspaceSidebarActions = WorkspaceSidebarActions(),
-         reduceMotionOverride: Bool? = nil, reduceTransparencyOverride: Bool? = nil) {
+         reduceMotionOverride: Bool? = nil, reduceTransparencyOverride: Bool? = nil,
+         dockBadgeModel: WorkspaceSidebarDockBadgeModel = .shared) {
         self.snapshot = snapshot
+        self.dockBadgeModel = dockBadgeModel
+        self.dockBadgePresence = dockBadgeModel.presence
         self.actions = actions
         self.reduceMotionOverride = reduceMotionOverride
         self.reduceTransparencyOverride = reduceTransparencyOverride
@@ -1402,13 +1407,14 @@ extension WorkspaceSidebarView {
     }
 
     func compactDockContentHeight(layout: WorkspaceSidebarConfiguration) -> CGFloat {
-        dockSizingPages.map { workspaces in
+        let reminderCount = hiddenWorkspaceAppReminders.count
+        return dockSizingPages.map { workspaces in
             workspaceSidebarDockContentHeight(
                 appCounts: workspaces.map { $0.apps.count },
                 configuration: layout,
                 showsCreateWorkspace: browsedProjectId == nil && workspaceSidebarShowsCreateWorkspace(selectedScopeId: snapshot.selectedMonitorScopeId),
                 showsMonitorSelector: shouldShowCompactMonitorSelector,
-                projectCount: snapshot.projects.count
+                projectCount: snapshot.projects.count, reminderCount: reminderCount
             )
         }.max() ?? 0
     }
@@ -1416,13 +1422,14 @@ extension WorkspaceSidebarView {
     func dockLayout(availableHeight: CGFloat) -> WorkspaceSidebarConfiguration {
         var layout = snapshot.configuration
         guard layout.showAppIcons else { return layout }
+        let reminderCount = hiddenWorkspaceAppReminders.count
         let sizes = dockSizingPages.map { workspaces in
             workspaceSidebarFittedDockIconSize(
                 appCounts: workspaces.map { snapshot.dockRestingAppCounts?[$0.name] ?? $0.apps.count },
                 configuration: layout, availableHeight: availableHeight,
                 showsCreateWorkspace: browsedProjectId == nil && workspaceSidebarShowsCreateWorkspace(selectedScopeId: snapshot.selectedMonitorScopeId),
                 showsMonitorSelector: shouldShowCompactMonitorSelector,
-                projectCount: snapshot.projects.count
+                projectCount: snapshot.projects.count, reminderCount: reminderCount
             )
         }
         layout.dockIconSize = sizes.min() ?? layout.dockIconSize

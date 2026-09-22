@@ -5,6 +5,7 @@ import SwiftUI
 /// Labels are keyed by app URL, never localized display name (which can collide).
 struct WorkspaceSidebarDockBadgeSnapshot: Equatable, Sendable {
     var labelsByPath: [String: String] = [:]
+    var showsAppBadges = true
 
     func label(forPath path: String?) -> String? {
         guard let path else { return nil }
@@ -53,10 +54,24 @@ func readWorkspaceSidebarDockBadges() -> WorkspaceSidebarDockBadgeSnapshot {
     return snapshot
 }
 
+/// Dock geometry only depends on badge presence, not changing unread counts.
+@MainActor
+final class WorkspaceSidebarDockBadgePresence: ObservableObject {
+    @Published private(set) var paths: Set<String> = []
+
+    func update(_ snapshot: WorkspaceSidebarDockBadgeSnapshot) {
+        let next = Set(snapshot.labelsByPath.keys)
+        if paths != next { paths = next }
+    }
+}
+
 @MainActor
 final class WorkspaceSidebarDockBadgeModel: ObservableObject {
     static let shared = WorkspaceSidebarDockBadgeModel()
-    @Published private(set) var snapshot = WorkspaceSidebarDockBadgeSnapshot()
+    let presence = WorkspaceSidebarDockBadgePresence()
+    @Published private(set) var snapshot = WorkspaceSidebarDockBadgeSnapshot() {
+        didSet { presence.update(snapshot) }
+    }
     private var pollingTask: Task<Void, Never>?
     private var generation = 0
     private let read: @Sendable () async -> WorkspaceSidebarDockBadgeSnapshot
@@ -67,21 +82,25 @@ final class WorkspaceSidebarDockBadgeModel: ObservableObject {
         self.read = read
     }
 
-    func setEnabled(_ enabled: Bool) {
+    func setEnabled(_ enabled: Bool, showsAppBadges: Bool? = nil) {
+        let showsAppBadges = showsAppBadges ?? snapshot.showsAppBadges
         if !enabled {
             generation += 1
             pollingTask?.cancel()
             pollingTask = nil
-            if !snapshot.labelsByPath.isEmpty { snapshot = .init() }
+            let cleared = WorkspaceSidebarDockBadgeSnapshot(showsAppBadges: showsAppBadges)
+            if snapshot != cleared { snapshot = cleared }
             return
         }
+        if snapshot.showsAppBadges != showsAppBadges { snapshot.showsAppBadges = showsAppBadges }
         guard pollingTask == nil else { return }
         let currentGeneration = generation
         let read = read
         pollingTask = Task { [weak self] in
             while !Task.isCancelled {
-                let next = await read()
+                var next = await read()
                 guard !Task.isCancelled, let self, self.generation == currentGeneration else { return }
+                next.showsAppBadges = self.snapshot.showsAppBadges
                 if self.snapshot != next { self.snapshot = next }
                 do { try await Task.sleep(for: .seconds(2)) } catch { return }
             }
@@ -91,10 +110,11 @@ final class WorkspaceSidebarDockBadgeModel: ObservableObject {
 
 struct WorkspaceSidebarDockBadge: View {
     let app: WorkspaceSidebarAppViewModel
-    @ObservedObject private var model = WorkspaceSidebarDockBadgeModel.shared
+    var isReminder = false
+    @ObservedObject var model = WorkspaceSidebarDockBadgeModel.shared
 
     var body: some View {
-        if let label = model.snapshot.label(forPath: app.bundlePath) {
+        if model.snapshot.showsAppBadges || isReminder, let label = model.snapshot.label(forPath: app.bundlePath) {
             GeometryReader { geometry in
                 let diameter = max(12, geometry.size.width * 0.38)
                 Text(label.count > 4 ? String(label.prefix(3)) + "…" : label)

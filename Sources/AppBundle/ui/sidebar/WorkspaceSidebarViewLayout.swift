@@ -139,6 +139,8 @@ extension WorkspaceSidebarView {
                 )
             }
 
+            if isCompact, layout.showAppIcons { hiddenWorkspaceReminderSection(layout: layout) }
+
             Color.clear
                 .frame(height: workspaceSidebarFooterBottomPadding(
                     showsClock: layout.showsClock,

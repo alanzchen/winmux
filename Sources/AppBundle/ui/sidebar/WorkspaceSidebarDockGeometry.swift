@@ -10,19 +10,20 @@ func workspaceSidebarFittedDockIconSize(
     availableHeight: CGFloat,
     showsCreateWorkspace: Bool,
     showsMonitorSelector: Bool,
-    projectCount: Int
+    projectCount: Int,
+    reminderCount: Int = 0
 ) -> CGFloat {
     guard configuration.showAppIcons else { return configuration.dockIconSize }
     let maximum = configuration.dockIconSize
     let iconCount = appCounts.reduce(0) { $0 + 1 + max($1, 0) }
-    guard iconCount > 0, availableHeight.isFinite else { return maximum }
+    guard iconCount + reminderCount > 0, availableHeight.isFinite else { return maximum }
     func fits(_ size: CGFloat) -> Bool {
         var layout = configuration
         layout.dockIconSize = size
         let height = workspaceSidebarDockContentHeight(
             appCounts: appCounts, configuration: layout,
             showsCreateWorkspace: showsCreateWorkspace, showsMonitorSelector: showsMonitorSelector,
-            projectCount: projectCount
+            projectCount: projectCount, reminderCount: reminderCount
         )
         let hoverGrowth = layout.dockMagnification
             ? WorkspaceSidebarDockColumnMagnification.maximumGrowth(
@@ -53,12 +54,13 @@ func workspaceSidebarDockContentHeight(
     configuration: WorkspaceSidebarConfiguration,
     showsCreateWorkspace: Bool,
     showsMonitorSelector: Bool,
-    projectCount: Int
+    projectCount: Int,
+    reminderCount: Int = 0
 ) -> CGFloat {
     if configuration.dockPosition == .bottom {
         return workspaceSidebarBottomDockLength(appCounts: appCounts, configuration: configuration,
             showsCreateWorkspace: showsCreateWorkspace, showsMonitorSelector: showsMonitorSelector,
-            projectCount: projectCount)
+            projectCount: projectCount) + workspaceSidebarReminderLength(count: reminderCount, iconSize: configuration.dockIconSize)
     }
     let iconWidth: CGFloat = max(configuration.compactRailWidth - configuration.compactHorizontalInset * 2, 1)
     let workspaceHeights: [CGFloat] = appCounts.map {
@@ -85,7 +87,7 @@ func workspaceSidebarDockContentHeight(
     // The visible chevron button is 28 points high with 4 points of bottom padding.
     let expandControlHeight: CGFloat = configuration.dockMagnification ? 32 : 0
     let contentHeight: CGFloat = pageHeight + monitorHeight + projectHeight + clockHeight + footerHeight + expandControlHeight
-    return max(contentHeight, 1)
+    return max(contentHeight + workspaceSidebarReminderLength(count: reminderCount, iconSize: configuration.dockIconSize), 1)
 }
 
 func workspaceSidebarSurfaceFrame(

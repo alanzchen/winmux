@@ -31,7 +31,8 @@ extension WorkspaceSidebarView {
         let clockLength: CGFloat = layout.showsClock
             ? (horizontal ? 120 : (layout.showsSeconds ? 92 : 68) * layout.compactDockScale
                 + 8 + workspaceSidebarStatusBottomPadding(isCompact: true, layout: layout)) : 0
-        let trailingLength: CGFloat = (horizontal || layout.dockMagnification ? 32 : 0) + projectLength + clockLength
+        let reminderLength = workspaceSidebarReminderLength(count: hiddenWorkspaceAppReminders.count, iconSize: layout.dockIconSize)
+        let trailingLength: CGFloat = reminderLength + (horizontal || layout.dockMagnification ? 32 : 0) + projectLength + clockLength
             + (horizontal ? 0 : workspaceSidebarFooterBottomPadding(showsClock: layout.showsClock))
         return WorkspaceSidebarNativeDock(configuration: layout,
             visibleWidth: fittedVisibleWidth(layout: layout), compactLength: compactDockContentHeight(layout: layout),
@@ -80,6 +81,7 @@ extension WorkspaceSidebarView {
                         showsWeekday: layout.showsWeekday, horizontal: true, availableHeight: layout.compactRailWidth)
                         .frame(width: 112).padding(.leading, 8)
                 }
+                hiddenWorkspaceReminderSection(layout: layout)
             }
         } else {
             VStack(spacing: 0) {
@@ -91,6 +93,7 @@ extension WorkspaceSidebarView {
                     statusSection(layout: layout, expansionProgress: 0, isCompact: true,
                         leadingInset: layout.compactHorizontalInset, trailingInset: layout.compactHorizontalInset)
                 }
+                hiddenWorkspaceReminderSection(layout: layout)
                 Color.clear.frame(height: workspaceSidebarFooterBottomPadding(showsClock: layout.showsClock))
             }
         }

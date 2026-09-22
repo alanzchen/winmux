@@ -446,7 +446,7 @@ final class WorkspaceSidebarNativeDockView: NSView {
         for (section, entry) in input.workspaces.enumerated() {
             for (index, app) in entry.workspace.apps.enumerated() {
                 let key = entry.workspace.name + "/" + app.id
-                let label = snapshot.label(forPath: app.bundlePath)
+                let label = snapshot.showsAppBadges ? snapshot.label(forPath: app.bundlePath) : nil
                 guard badgeLabels[key] != label else { continue }
                 badgeLabels[key] = label
                 let layer = badgeLayers[section][index]
