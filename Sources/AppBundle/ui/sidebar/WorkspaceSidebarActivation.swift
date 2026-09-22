@@ -3,6 +3,8 @@ import AppKit
 @MainActor
 private var workspaceSidebarItemDragActiveCount = 0
 @MainActor
+private var workspaceSidebarNativeWorkspaceDragActiveCount = 0
+@MainActor
 private var activeWorkspaceSidebarDrag: ActiveWorkspaceSidebarDrag?
 
 struct ActiveWorkspaceSidebarDrag: Equatable {
@@ -28,7 +30,24 @@ func resetWorkspaceSidebarItemDrag() {
 
 @MainActor
 func isWorkspaceSidebarItemDragActive() -> Bool {
-    workspaceSidebarItemDragActiveCount > 0
+    workspaceSidebarItemDragActiveCount > 0 || workspaceSidebarNativeWorkspaceDragActiveCount > 0
+}
+
+@MainActor
+func isWorkspaceSidebarNativeWorkspaceDragActive() -> Bool {
+    workspaceSidebarNativeWorkspaceDragActiveCount > 0
+}
+
+// Native drag sessions release their own claim in the source's end callback.
+// The global mouse-up cleanup for window drags must not clear it first.
+@MainActor
+func beginWorkspaceSidebarNativeWorkspaceDrag() {
+    workspaceSidebarNativeWorkspaceDragActiveCount += 1
+}
+
+@MainActor
+func endWorkspaceSidebarNativeWorkspaceDrag() {
+    workspaceSidebarNativeWorkspaceDragActiveCount = max(workspaceSidebarNativeWorkspaceDragActiveCount - 1, 0)
 }
 
 @MainActor

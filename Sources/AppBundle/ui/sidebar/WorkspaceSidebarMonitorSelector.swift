@@ -21,6 +21,7 @@ struct WorkspaceSidebarMonitorSelector: View {
     var onCancelRenameProject: @MainActor @Sendable () -> Void = {}
     var onSetProjectColor: (WorkspaceSidebarProjectViewModel, String?) -> Void = { _, _ in }
     var onDeleteProject: (WorkspaceSidebarProjectViewModel) -> Void = { _ in }
+    var showsProjectSelector = true
 
     @State private var isProjectMenuOpen = false
     private var projectPopupWidth: CGFloat {
@@ -73,7 +74,7 @@ struct WorkspaceSidebarMonitorSelector: View {
                 } else {
                     monitorScopePill(scope)
                 }
-                if index == quickScopes.count - 1, !browsableProjects.isEmpty {
+                if showsProjectSelector, index == quickScopes.count - 1, !browsableProjects.isEmpty {
                     projectSelector
                 }
             }

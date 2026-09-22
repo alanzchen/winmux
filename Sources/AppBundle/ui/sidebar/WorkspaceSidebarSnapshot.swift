@@ -105,6 +105,7 @@ enum WorkspaceSidebarAction: Equatable {
     case createWorkspace(projectId: WorkspaceProjectId, monitorScopeId: String)
     case renameWorkspace(String, displayName: String)
     case deleteWorkspace(String)
+    case moveWorkspace(String, toProject: WorkspaceProjectId)
     case moveWindow(UInt32, toWorkspace: String)
     case moveTabGroup(UInt32, toWorkspace: String)
     case moveWindowToNewWorkspace(UInt32, projectId: WorkspaceProjectId, monitorScopeId: String)

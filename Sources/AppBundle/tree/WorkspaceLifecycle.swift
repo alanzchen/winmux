@@ -199,6 +199,7 @@ func workspaceShouldSurviveReconciliation(
 ) -> Bool {
     guard !workspace.isArchived else { return false }
     return workspace.isVisible ||
+        workspace.retainsEmptyAfterProjectMove ||
         workspaceHasLifecycleWindows(workspace) ||
         workspace.isConfiguredPersistent ||
         projectWorkspaces(projectId: workspace.projectId).filter { !$0.isArchived }.count == 1 ||

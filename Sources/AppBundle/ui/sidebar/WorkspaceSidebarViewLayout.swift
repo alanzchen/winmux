@@ -110,7 +110,18 @@ extension WorkspaceSidebarView {
                 .padding(.bottom, 4)
             }
 
-            if (isSidebarCollapsing && !isCompact) || (isSidebarExpanding && isCompact) {
+            if usesExpandedProjectList && !isCompact {
+                Button { actions.send(.createProject) } label: {
+                    Label("New Project", systemImage: "plus")
+                        .font(.system(size: 12, weight: .medium))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .frame(height: workspaceSidebarDropdownHeight)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, leadingInset)
+                .padding(.vertical, 6)
+            } else if (isSidebarCollapsing && !isCompact) || (isSidebarExpanding && isCompact) {
                 let compactProjectReserveHeight = min(
                     max(CGFloat(snapshot.projects.count) * workspaceSidebarProjectDotFrameHeight, workspaceSidebarPagerHeight),
                     workspaceSidebarProjectDotFrameHeight * 5
@@ -172,7 +183,7 @@ private let workspaceSidebarCollapseReservedProjectPagerHeight = (workspaceSideb
 extension WorkspaceSidebarView {
     var shouldShowTopFilterBar: Bool {
         let hasFocusFilter = snapshot.monitorScopes.contains { $0.id == workspaceSidebarFocusedScopeId }
-        let hasOtherProjects = snapshot.projects.contains { $0.id != snapshot.activeProjectId }
+        let hasOtherProjects = !usesExpandedProjectList && snapshot.projects.contains { $0.id != snapshot.activeProjectId }
         return hasFocusFilter || hasOtherProjects || shouldShowCompactMonitorSelector
     }
 

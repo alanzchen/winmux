@@ -116,6 +116,10 @@ func handleWorkspaceSidebarAction(
             if let workspace = workspaceSidebarWorkspaceViewModel(name) {
                 deleteWorkspaceFromSidebar(workspace)
             }
+        case .moveWorkspace(let workspaceName, let projectId):
+            runWorkspaceSidebarSession {
+                _ = moveWorkspaceToProject(workspaceName: workspaceName, projectId: projectId)
+            }
         case .moveWindow(let windowId, let workspaceName):
             moveWindowFromSidebar(windowId, toWorkspace: workspaceName)
         case .moveTabGroup(let windowId, let workspaceName):

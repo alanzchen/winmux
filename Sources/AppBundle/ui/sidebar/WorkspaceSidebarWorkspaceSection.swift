@@ -26,6 +26,7 @@ struct WorkspaceSidebarWorkspaceSection: View, Animatable {
     @Binding var activeInUseOverrideWorkspaceName: String?
     @Binding var pendingInUseOverrideAppId: String?
     let actions: WorkspaceSidebarActions
+    var allowsProjectMove = false
 
     @State var isHovered = false
     @State var hoveredWindowId: UInt32? = nil
@@ -287,7 +288,7 @@ extension WorkspaceSidebarWorkspaceSection {
             .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 3) {
-                expandedHeader.frame(height: workspaceSidebarWorkspaceSectionHeaderHeight)
+                draggableExpandedHeader.frame(height: workspaceSidebarWorkspaceSectionHeaderHeight)
                 windowRows
                 dropPreviewRow()
             }
@@ -555,6 +556,22 @@ extension WorkspaceSidebarWorkspaceSection {
     }
 }
 extension WorkspaceSidebarWorkspaceSection {
+    @ViewBuilder
+    var draggableExpandedHeader: some View {
+        if allowsProjectMove, !isRenamingWorkspace, morphProgress >= 1 {
+            expandedHeader
+                .frame(height: workspaceSidebarWorkspaceSectionHeaderHeight)
+                .overlay {
+                    WorkspaceSidebarWorkspaceDragSource(workspaceName: workspace.name,
+                        displayName: workspace.displayName, onActivate: handleSectionClick)
+                }
+                .modifier(WorkspaceSidebarSectionTooltip(text: layout.showWorkspaceTooltips
+                    ? "Drag workspace to another project" : nil))
+        } else {
+            expandedHeader
+        }
+    }
+
     var headerButton: some View {
         Button(action: handleSectionClick) {
             header

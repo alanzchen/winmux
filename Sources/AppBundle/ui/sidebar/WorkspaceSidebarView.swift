@@ -12,6 +12,7 @@ struct WorkspaceSidebarView: View {
     @State var projectSwipeDidCrossBreakPoint = false
     @State var projectPagerWidth: CGFloat = 0
     @State var browseMode: WorkspaceSidebarBrowseMode = .activeProject
+    @State var collapsedProjectIds: Set<WorkspaceProjectId> = []
     @State var activeInUseOverrideWorkspaceName: String? = nil
     @State var pendingInUseOverrideAppId: String? = nil
     @State var isProjectMenuOpen = false
@@ -132,6 +133,7 @@ struct WorkspaceSidebarView: View {
         .onChange(of: snapshot.configuration.dockPosition) { _ in
             dockMotion.reset()
             dockColumnOrigins = [:]
+            browseMode = .activeProject
         }
         .onChange(of: allowsDockMagnification) { allowed in
             if !allowed {
@@ -256,7 +258,7 @@ struct WorkspaceSidebarView: View {
     func beginProjectRename(_ project: WorkspaceSidebarProjectViewModel) {
         debugWorkspaceSidebarRenameLog("beginProjectRename project=\(project.id.rawValue) displayName=\(project.displayName) active=\(snapshot.activeProjectId.rawValue) visibleWidth=\(snapshot.visibleWidth)")
         finishSidebarSearch(clearText: false)
-        if project.id != snapshot.activeProjectId {
+        if !usesExpandedProjectList, project.id != snapshot.activeProjectId {
             browseMode = .split(otherProjectId: project.id)
         }
         renamingProjectId = project.id
@@ -412,11 +414,11 @@ struct WorkspaceSidebarView: View {
     }
 
     func currentSearchSelections() -> [WorkspaceSidebarSearchSelection] {
-        let workspaces = currentFilteredProjectWorkspaces()
+        let workspaces = currentFilteredProjectWorkspaces(allProjects: usesExpandedProjectList)
         return workspaceSidebarSearchSelections(workspaces: workspaces)
     }
 
-    func currentFilteredProjectWorkspaces() -> [WorkspaceSidebarWorkspaceViewModel] {
+    func currentFilteredProjectWorkspaces(allProjects: Bool = false) -> [WorkspaceSidebarWorkspaceViewModel] {
         let visibleWorkspacesByProject = workspaceSidebarVisibleWorkspacesByProject(
             workspaces: snapshot.workspaces,
             selectedScopeId: snapshot.selectedMonitorScopeId,
@@ -428,6 +430,12 @@ struct WorkspaceSidebarView: View {
             projects: snapshot.projects,
             query: searchText,
         )
+        if allProjects, !snapshot.projects.isEmpty {
+            return snapshot.projects.flatMap { project in
+                searchText.isEmpty && collapsedProjectIds.contains(project.id)
+                    ? [] : filteredWorkspacesByProject[project.id] ?? []
+            }
+        }
         let projectId: WorkspaceProjectId
         if let index = projectPagerDisplayIndex, snapshot.projects.indices.contains(index) {
             projectId = snapshot.projects[index].id
@@ -440,7 +448,7 @@ struct WorkspaceSidebarView: View {
 
 extension WorkspaceSidebarView {
     var browsedProjectId: WorkspaceProjectId? {
-        browseMode.otherProjectId
+        usesExpandedProjectList ? nil : browseMode.otherProjectId
     }
 }
 
@@ -474,7 +482,15 @@ extension WorkspaceSidebarView {
         visibleWorkspacesByProject: [WorkspaceProjectId: [WorkspaceSidebarWorkspaceViewModel]],
         swipeDirection: Int?,
     ) -> some View {
-        if let browsedProjectId,
+        if usesExpandedProjectList, !snapshot.projects.isEmpty, expansionProgress >= workspaceSidebarRowsRevealProgress {
+            allProjectsContent(
+                layout: layout,
+                leadingInset: leadingInset,
+                trailingInset: trailingInset,
+                topPadding: topPadding,
+                workspacesByProject: visibleWorkspacesByProject
+            )
+        } else if let browsedProjectId,
            browsedProjectId != snapshot.activeProjectId
         {
             splitWorkspacePage(
@@ -809,6 +825,7 @@ extension WorkspaceSidebarView {
             onDeleteProject: { project in
                 actions.send(.deleteProject(project.id))
             },
+            showsProjectSelector: !usesExpandedProjectList,
         )
         .padding(.leading, leadingInset)
         .padding(.trailing, trailingInset)
@@ -942,7 +959,8 @@ extension WorkspaceSidebarView {
 
     func sidebarSwipeCaptureOverlay(expansionProgress: CGFloat) -> some View {
         WorkspaceSidebarProjectSwipeScrollCapture(
-            isEnabled: !snapshot.projects.isEmpty,
+            isEnabled: !snapshot.projects.isEmpty &&
+                !(usesExpandedProjectList && expansionProgress >= workspaceSidebarRowsRevealProgress),
             onChanged: { horizontalTranslation, verticalTranslation in
                 handleProjectSwipeChanged(
                     horizontalTranslation: horizontalTranslation,
@@ -1265,7 +1283,8 @@ extension WorkspaceSidebarView {
         allowsWorkspaceActivation: Bool,
         isPinnedActiveWorkspace: Bool,
         projectContextLabel: String? = nil,
-        projectContextColor: Color? = nil
+        projectContextColor: Color? = nil,
+        allowsProjectMove: Bool = false
     ) -> WorkspaceSidebarWorkspaceSection {
         let isFromOtherDisplay = false
         let isInUseOnOtherDisplay = allowsWorkspaceActivation &&
@@ -1304,6 +1323,7 @@ extension WorkspaceSidebarView {
             activeInUseOverrideWorkspaceName: $activeInUseOverrideWorkspaceName,
             pendingInUseOverrideAppId: $pendingInUseOverrideAppId,
             actions: actions,
+            allowsProjectMove: allowsProjectMove,
         )
     }
 

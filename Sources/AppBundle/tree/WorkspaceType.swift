@@ -9,6 +9,8 @@ final class Workspace: TreeNode, NonLeafTreeNodeObject, Hashable, Comparable {
     var projectId: WorkspaceProjectId = workspaceProjectDefaultId
     var preferredMonitorPoint: CGPoint?
     var lifecycle: WorkspaceLifecycle = .durable
+    // Keep an explicitly moved blank workspace available until it is visited or used.
+    var retainsEmptyAfterProjectMove = false
 
     @MainActor
     private init(_ name: String) {
@@ -123,6 +125,9 @@ extension Workspace {
 
     @MainActor
     func refreshEmptyLifecycle() {
+        if isVisible || workspaceHasLifecycleWindows(self) {
+            retainsEmptyAfterProjectMove = false
+        }
         if workspaceHasLifecycleWindows(self), lifecycle == .transient {
             lifecycle = .durable
         }
