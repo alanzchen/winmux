@@ -86,4 +86,19 @@ final class WorkspaceSidebarClockComponentsTest: XCTestCase {
         XCTAssertTrue(dateOnly.contains("January 31"))
         XCTAssertFalse(dateOnly.contains("Thursday"))
     }
+
+    func testHorizontalDockClockCornerIsConcentricWithShelf() {
+        for railHeight: CGFloat in [48, 56, 64, 80] {
+            XCTAssertEqual(workspaceSidebarHorizontalClockCornerRadius(railHeight: railHeight),
+                railHeight / 3 - workspaceSidebarHorizontalClockInset, accuracy: 0.001)
+        }
+        XCTAssertEqual(workspaceSidebarHorizontalClockCornerRadius(railHeight: 24), 4)
+    }
+
+    func testHorizontalDockClockHidesDateLineWhenCardIsTooShort() {
+        XCTAssertFalse(workspaceSidebarHorizontalClockShowsDateLine(railHeight: 40))
+        XCTAssertFalse(workspaceSidebarHorizontalClockShowsDateLine(railHeight: 47))
+        XCTAssertTrue(workspaceSidebarHorizontalClockShowsDateLine(railHeight: 48))
+        XCTAssertTrue(workspaceSidebarHorizontalClockShowsDateLine(railHeight: 64))
+    }
 }
