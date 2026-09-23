@@ -62,10 +62,15 @@ final class WorkspaceSidebarAutoHideTest: XCTestCase {
             CATransaction.flush()
             transition.setHidden(true, offset: offset, animated: true)
             CATransaction.flush()
-            try await Task.sleep(for: .milliseconds(80))
-            let transform = try XCTUnwrap(layer.presentation()).transform
+            // Poll the media clock, not timers: background sessions can overshoot a sleep past the slide.
+            var transform = CATransform3DIdentity
+            let deadline = ContinuousClock.now + .seconds(1)
+            repeat {
+                await Task.yield()
+                if let presented = layer.presentation() { transform = presented.transform }
+            } while abs(transform.m41) + abs(transform.m42) < 5 && ContinuousClock.now < deadline
             let distance = abs(transform.m41) + abs(transform.m42)
-            XCTAssertGreaterThan(distance, 0)
+            XCTAssertGreaterThanOrEqual(distance, 5, "The slide never moved")
             XCTAssertLessThan(distance, 100)
             XCTAssertEqual(transform.m11, 1)
             XCTAssertEqual(transform.m22, 1)
@@ -228,9 +233,13 @@ final class WorkspaceSidebarAutoHideTest: XCTestCase {
         let transition = WorkspaceSidebarSlideTransition(layer: CALayer())
         var completions: [String] = []
         transition.setHidden(true, offset: CGPoint(x: 80, y: 0), animated: true) { completions.append("pointer") }
-        try await Task.sleep(for: .milliseconds(120))
+        let generation = transition.generation
+        XCTAssertTrue(transition.isAnimating)
+        // Back to back: background sessions throttle timers, so a sleep here could outlast the slide.
         transition.setHidden(true, offset: CGPoint(x: 80, y: 0), animated: true) { completions.append("system") }
-        try await Task.sleep(for: .milliseconds(120))
+        XCTAssertEqual(transition.generation, generation, "A repeated hide must not restart the slide")
+        let deadline = ContinuousClock.now + .seconds(2)
+        while transition.isAnimating, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(20)) }
         XCTAssertEqual(completions, ["system"])
         XCTAssertTrue(transition.layer.isHidden)
         XCTAssertFalse(transition.isAnimating)

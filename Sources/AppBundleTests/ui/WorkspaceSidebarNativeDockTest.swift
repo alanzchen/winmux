@@ -82,6 +82,13 @@ final class WorkspaceSidebarNativeDockTest: XCTestCase {
         }
     }
 
+    /// Background-session timers can fire much later than requested; wait for the outcome.
+    private func waitUntil(file: StaticString = #filePath, line: UInt = #line, _ condition: () -> Bool) async throws {
+        let deadline = ContinuousClock.now + .seconds(2)
+        while !condition(), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        if !condition() { XCTFail("Timed out after 2 s", file: file, line: line) }
+    }
+
     func testScrollSuppressesLensAndRecoversWithoutAnotherMouseMove() async throws {
         var workspace = sidebarAppIconsTestWorkspace()
         workspace.apps = sidebarAppIconsTestApps(count: 15)
@@ -109,7 +116,7 @@ final class WorkspaceSidebarNativeDockTest: XCTestCase {
         XCTAssertEqual(geometryPublications - before, 1, "Each scroll delta must publish one geometry update")
         XCTAssertTrue(driver.currentPointerBlockers.contains(.scroll))
         XCTAssertFalse(driver.isRunning)
-        try await Task.sleep(for: .milliseconds(180))
+        try await waitUntil { !driver.currentPointerBlockers.contains(.scroll) && driver.motion.target != nil }
         XCTAssertFalse(driver.currentPointerBlockers.contains(.scroll))
         XCTAssertNotNil(driver.motion.target, "A stationary pointer must recover after scrolling settles")
     }
@@ -571,7 +578,7 @@ final class WorkspaceSidebarNativeDockTest: XCTestCase {
             view.updateTrackingAreas()
             XCTAssertEqual(view.tooltipTags, tags, "Motion and tracking invalidations must not restart native hover tracking every frame")
         }
-        try await Task.sleep(for: .milliseconds(200))
+        try await waitUntil { view.tooltipFrames != frames }
         XCTAssertNotEqual(view.tooltipFrames, frames, "Settled magnification must refresh the actual hover regions")
         XCTAssertEqual(view.tooltipTags.count, view.tooltipFrames.count)
         view.render(.init())

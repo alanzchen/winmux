@@ -14,7 +14,7 @@ final class WorkspaceSidebarSlideTransition {
     static let duration: TimeInterval = 0.20
     private(set) var isHidden = false
     private(set) var isAnimating = false
-    private var generation = 0
+    private(set) var generation = 0
     private var pendingCompletion: DispatchWorkItem?
     private var completion: (() -> Void)?
     let layer: CALayer
