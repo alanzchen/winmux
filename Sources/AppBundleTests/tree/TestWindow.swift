@@ -12,6 +12,14 @@ final class TestWindow: Window, CustomStringConvertible {
     @MainActor var nativeIsMacosMinimized: Bool = false {
         didSet { invalidateLastKnownNativeState() }
     }
+    /// An app-initiated move or resize; nil models a frame AX cannot read.
+    @MainActor var nativeRect: Rect? {
+        get { _rect }
+        set {
+            _rect = newValue
+            invalidateLastKnownNativeState()
+        }
+    }
 
     @MainActor
     private init(_ id: UInt32, _ parent: NonLeafTreeNodeObject, _ adaptiveWeight: CGFloat, _ rect: Rect?) {
@@ -46,7 +54,10 @@ final class TestWindow: Window, CustomStringConvertible {
         }
     }
 
+    @MainActor private(set) var axRectFetchCount = 0
+
     @MainActor override func getAxRect() async throws -> Rect? { // todo change to not Optional
+        axRectFetchCount += 1
         recordAuthoritativeActualRect(_rect)
         return _rect
     }
