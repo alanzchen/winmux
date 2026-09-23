@@ -54,6 +54,13 @@ make prerelease-local \
   NOTARYTOOL_KEYCHAIN="$HOME/Library/Keychains/login.keychain-db"
 ```
 
+When the selected Xcode bundles a different Swift than `.swift-version` (Xcode 26.5
+ships Swift 6.3.2), also set `TOOLCHAINS=org.swift.624202602241a` and
+`SWIFT_EXEC_MANIFEST=/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc`.
+The standalone toolchain has no `ld`, so without the manifest compiler `xcodebuild`
+fails package resolution with error 74 after the tests pass, and that version number
+is lost. Application sources still compile with the pinned Swift.
+
 The command pushes the reviewed commit, runs all tests, builds and notarizes
 locally, uploads the verified release assets, and advances the
 feed. Outputs stay in `.local/prereleases/vVERSION/`. It restores only its own
