@@ -38,6 +38,9 @@ func setUpWorkspacesForTests() {
     // Don't create any bindings and workspaces for tests
     config.modes = [mainModeId: Mode(bindings: [:], tapBindings: [:])]
     config.persistentWorkspaces = []
+    // The default callback's detached sessions outlive the test that changed monitors and
+    // focus-sync windows that a later setUp already removed.
+    config.onFocusedMonitorChanged = []
 
     for workspace in Workspace.all {
         for child in workspace.children {
@@ -45,6 +48,9 @@ func setUpWorkspacesForTests() {
         }
     }
     for child in macosMinimizedWindowsContainer.children {
+        child.unbindFromParent()
+    }
+    for child in macosPopupWindowsContainer.children {
         child.unbindFromParent()
     }
     setAgentSnapshotAfterMembershipCaptureForTests(nil)
