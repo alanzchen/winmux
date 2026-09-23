@@ -58,6 +58,7 @@ struct WorkspaceSidebarConfiguration: Equatable {
     var sidebarBlur: Bool = true
     // Auto-hide makes collapsedWidth zero; the compact layout retains its resolved rail width.
     var configuredCollapsedWidth: CGFloat? = nil
+    var alwaysExpanded: Bool = false
 
     var compactRailWidth: CGFloat {
         showAppIcons ? WorkspaceSidebarConfig.dockWidth(forIconSize: dockIconSize) : configuredCollapsedWidth ?? collapsedWidth
@@ -65,6 +66,7 @@ struct WorkspaceSidebarConfiguration: Equatable {
     var compactDockScale: CGFloat { showAppIcons ? dockIconSize / CGFloat(WorkspaceSidebarConfig.defaultDockIconSize) : 1 }
     var compactHorizontalInset: CGFloat { workspaceSidebarCompactRailHorizontalInset * compactDockScale }
     var expansionStartWidth: CGFloat { showAppIcons ? compactRailWidth : collapsedWidth }
+    var floatsExpandedView: Bool { showAppIcons && !alwaysExpanded }
 
     var effectiveGlassOpacity: Double {
         showAppIcons && chromeStyle == .liquidGlass ? glassOpacity : 1
@@ -119,6 +121,8 @@ struct WorkspaceSidebarActions {
     var send: @MainActor (WorkspaceSidebarAction) -> Void
     var setDropTargets: @MainActor ([WorkspaceSidebarDropTargetFrame]) -> Void
     var setSurfaceFrame: @MainActor (CGRect) -> Void
+    var setExpandedSurfaceFrame: @MainActor (CGRect?) -> Void
+    var setExpandedDropTargets: @MainActor ([WorkspaceSidebarDropTargetFrame]) -> Void
     var setDockRestingWidth: @MainActor (CGFloat?) -> Void
     var setDockIconFrames: @MainActor ([CGRect]) -> Void
     var hoverWorkspace: @MainActor (String, Bool) -> Void
@@ -133,6 +137,8 @@ struct WorkspaceSidebarActions {
         send: @escaping @MainActor (WorkspaceSidebarAction) -> Void = { _ in },
         setDropTargets: @escaping @MainActor ([WorkspaceSidebarDropTargetFrame]) -> Void = { _ in },
         setSurfaceFrame: @escaping @MainActor (CGRect) -> Void = { _ in },
+        setExpandedSurfaceFrame: @escaping @MainActor (CGRect?) -> Void = { _ in },
+        setExpandedDropTargets: @escaping @MainActor ([WorkspaceSidebarDropTargetFrame]) -> Void = { _ in },
         setDockRestingWidth: @escaping @MainActor (CGFloat?) -> Void = { _ in },
         setDockIconFrames: @escaping @MainActor ([CGRect]) -> Void = { _ in },
         hoverWorkspace: @escaping @MainActor (String, Bool) -> Void = { _, _ in },
@@ -146,6 +152,8 @@ struct WorkspaceSidebarActions {
         self.send = send
         self.setDropTargets = setDropTargets
         self.setSurfaceFrame = setSurfaceFrame
+        self.setExpandedSurfaceFrame = setExpandedSurfaceFrame
+        self.setExpandedDropTargets = setExpandedDropTargets
         self.setDockRestingWidth = setDockRestingWidth
         self.setDockIconFrames = setDockIconFrames
         self.hoverWorkspace = hoverWorkspace

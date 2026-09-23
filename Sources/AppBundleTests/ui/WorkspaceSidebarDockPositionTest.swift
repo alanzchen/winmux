@@ -269,16 +269,48 @@ final class WorkspaceSidebarDockPositionTest: XCTestCase {
         }
     }
 
-    func testBottomExpandsToUprightSearchAndWorkspaceRows() throws {
+    func testBottomExpansionFloatsUprightWorkspaceRowsAboveTheRestingDock() throws {
+        let resting = PlacementProbe()
+        let compact = NSHostingView(rootView: WorkspaceSidebarView(snapshot: fixture(position: .bottom),
+            actions: .init(setSurfaceFrame: { resting.surface = $0 })))
+        compact.frame = CGRect(x: 0, y: 0, width: 1000, height: 800)
+        compact.layoutSubtreeIfNeeded()
+        let restingSurface = try XCTUnwrap(resting.surface)
+
         let probe = PlacementProbe()
         var snapshot = fixture(position: .bottom)
         snapshot.visibleWidth = 240
         let host = NSHostingView(rootView: WorkspaceSidebarView(snapshot: snapshot,
-            actions: .init(setDropTargets: { probe.targets = $0 }, setSurfaceFrame: { probe.surface = $0 })))
+            actions: .init(setSurfaceFrame: { probe.surface = $0 }, setExpandedSurfaceFrame: { probe.expanded = $0 },
+                setExpandedDropTargets: { probe.targets = $0 })))
         host.frame = CGRect(x: 0, y: 0, width: 1000, height: 800)
         host.layoutSubtreeIfNeeded()
         let surface = try XCTUnwrap(probe.surface)
-        XCTAssertEqual(surface, CGRect(x: 380, y: 320, width: 240, height: 480))
+        XCTAssertEqual(surface.minY, restingSurface.minY, accuracy: 0.01, "The Dock stays visible at rest")
+        XCTAssertEqual(surface.height, restingSurface.height, accuracy: 0.01)
+        let expanded = try XCTUnwrap(probe.expanded)
+        XCTAssertEqual(expanded.maxY, surface.minY - workspaceSidebarFloatingViewGap, accuracy: 0.5)
+        XCTAssertEqual(expanded.midX, 500, accuracy: 0.5)
+        let first = try XCTUnwrap(probe.targets.first { $0.kind == .workspace("12") })
+        let second = try XCTUnwrap(probe.targets.first { $0.kind == .workspace("2") })
+        XCTAssertEqual(first.frame.minX, second.frame.minX, accuracy: 0.01)
+        XCTAssertGreaterThan(second.frame.minY, first.frame.maxY)
+        XCTAssertTrue(expanded.contains(first.frame) && expanded.contains(second.frame))
+    }
+
+    func testPinnedBottomDockStillMorphsIntoUprightWorkspaceRows() throws {
+        let probe = PlacementProbe()
+        var snapshot = fixture(position: .bottom)
+        snapshot.configuration.alwaysExpanded = true
+        snapshot.configuration.compactLeftGap = 0
+        snapshot.visibleWidth = 240
+        let host = NSHostingView(rootView: WorkspaceSidebarView(snapshot: snapshot,
+            actions: .init(setDropTargets: { probe.targets = $0 }, setSurfaceFrame: { probe.surface = $0 },
+                setExpandedSurfaceFrame: { probe.expanded = $0 })))
+        host.frame = CGRect(x: 0, y: 0, width: 1000, height: 800)
+        host.layoutSubtreeIfNeeded()
+        XCTAssertEqual(try XCTUnwrap(probe.surface), CGRect(x: 380, y: 320, width: 240, height: 480))
+        XCTAssertNil(probe.expanded, "A pinned Dock reserves one pane instead of floating")
         let first = try XCTUnwrap(probe.targets.first { $0.kind == .workspace("12") })
         let second = try XCTUnwrap(probe.targets.first { $0.kind == .workspace("2") })
         XCTAssertEqual(first.frame.minX, second.frame.minX, accuracy: 0.01)
@@ -310,6 +342,7 @@ final class WorkspaceSidebarDockPositionTest: XCTestCase {
 @MainActor
 private final class PlacementProbe {
     var surface: CGRect?
+    var expanded: CGRect?
     var targets: [WorkspaceSidebarDropTargetFrame] = []
     var icons: [CGRect] = []
 }

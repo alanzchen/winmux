@@ -27,7 +27,9 @@ struct WorkspaceSidebarDropTargetPreferenceKey: PreferenceKey {
 @MainActor
 func workspaceSidebarDropTarget(at mouseLocation: CGPoint, hitSlop: NSEdgeInsets = NSEdgeInsets()) -> WorkspaceSidebarDropTarget? {
     let screenPoint = CGPoint(x: mouseLocation.x, y: mainMonitor.height - mouseLocation.y)
-    return WorkspaceSidebarPanel.visiblePanels.first { $0.visibleSurfaceFrameOnScreen.contains(screenPoint) }?
+    return WorkspaceSidebarPanel.visiblePanels.first {
+        $0.visibleSurfaceFrameOnScreen.contains(screenPoint) || $0.isScreenPointInsideExpandedSurface(screenPoint)
+    }?
         .dropTarget(atScreenPoint: screenPoint, hitSlop: hitSlop)
 }
 

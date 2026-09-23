@@ -153,6 +153,8 @@ struct WorkspaceSidebarConfig: ConvenienceCopyable, Equatable, Sendable {
     var effectiveLeftGap: Int { showAppIcons && !alwaysExpanded ? dockLeftGap : 0 }
     var effectiveDockPosition: WorkspaceDockPosition { showAppIcons ? dockPosition : .left }
     var usesDockMagnification: Bool { showAppIcons && dockMagnification && !alwaysExpanded }
+    // A collapsible Dock stays in place and opens project columns in a floating view beside it.
+    var floatsExpandedDockView: Bool { showAppIcons && !alwaysExpanded }
 }
 
 enum ChromeStyle: String, CaseIterable, Identifiable, Sendable {

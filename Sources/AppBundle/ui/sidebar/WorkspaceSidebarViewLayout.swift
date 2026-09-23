@@ -183,7 +183,7 @@ private let workspaceSidebarCollapseReservedProjectPagerHeight = (workspaceSideb
 extension WorkspaceSidebarView {
     var shouldShowTopFilterBar: Bool {
         let hasFocusFilter = snapshot.monitorScopes.contains { $0.id == workspaceSidebarFocusedScopeId }
-        let hasOtherProjects = !usesExpandedProjectList && snapshot.projects.contains { $0.id != snapshot.activeProjectId }
+        let hasOtherProjects = !showsAllProjects && snapshot.projects.contains { $0.id != snapshot.activeProjectId }
         return hasFocusFilter || hasOtherProjects || shouldShowCompactMonitorSelector
     }
 

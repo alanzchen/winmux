@@ -74,7 +74,7 @@ extension WorkspaceSidebarView {
         expansionProgress: CGFloat,
     ) -> Bool {
         guard !snapshot.projects.isEmpty,
-              !(usesExpandedProjectList && expansionProgress >= workspaceSidebarRowsRevealProgress),
+              !(showsAllProjects && expansionProgress >= workspaceSidebarRowsRevealProgress),
               !isWorkspaceSidebarDragInProgress()
         else {
             return false

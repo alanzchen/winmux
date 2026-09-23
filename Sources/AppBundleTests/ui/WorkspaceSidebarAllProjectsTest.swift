@@ -5,13 +5,13 @@ import XCTest
 
 @MainActor
 final class WorkspaceSidebarAllProjectsTest: XCTestCase {
-    private func snapshot(position: WorkspaceDockPosition = .bottom) -> WorkspaceSidebarSnapshot {
+    private func snapshot(position: WorkspaceDockPosition = .bottom, alwaysExpanded: Bool = true) -> WorkspaceSidebarSnapshot {
         var snapshot = WorkspaceSidebarSnapshot.empty
         snapshot.configuration = WorkspaceSidebarConfiguration(collapsedWidth: 64, expandedWidth: 300,
             topPadding: 12, showMonitorSelector: false, showsClock: false, showsSeconds: false,
             showsDate: false, showsWeekday: false, showsStatusPills: false,
             chromeStyle: .solid, solidChromeColor: .midnight, solidChromeCustomColor: "#191B20",
-            showAppIcons: true, dockPosition: position)
+            showAppIcons: true, dockPosition: position, alwaysExpanded: alwaysExpanded)
         snapshot.visibleWidth = 300
         snapshot.projects = [
             .init(id: workspaceProjectDefaultId, displayName: "Default", colorHex: nil),
@@ -35,20 +35,28 @@ final class WorkspaceSidebarAllProjectsTest: XCTestCase {
             items: [.init(kind: .window(window))])
     }
 
-    func testBottomExpandedListIncludesAllProjectsButCompactDockStillPages() {
+    func testExpandedDocksIncludeAllProjectsButCompactDockStillPages() {
         for position in WorkspaceDockPosition.allCases {
-            let view = WorkspaceSidebarView(snapshot: snapshot(position: position))
-            XCTAssertEqual(view.usesExpandedProjectList, position == .bottom)
-            XCTAssertEqual(view.currentFilteredProjectWorkspaces().map(\.name), ["1"],
-                "The compact shelf continues to show the selected project")
-            XCTAssertEqual(view.currentSearchSelections(), position == .bottom
-                ? [.window(801), .window(802)]
-                : [.window(801)])
-            XCTAssertEqual(view.shouldHandleProjectSwipe(horizontalTranslation: 100, verticalTranslation: 0,
-                expansionProgress: 1), position != .bottom)
-            XCTAssertTrue(view.shouldHandleProjectSwipe(horizontalTranslation: 100, verticalTranslation: 0,
-                expansionProgress: 0))
+            for alwaysExpanded in [false, true] {
+                let view = WorkspaceSidebarView(snapshot: snapshot(position: position, alwaysExpanded: alwaysExpanded))
+                let showsAllProjects = !alwaysExpanded || position == .bottom
+                XCTAssertEqual(view.usesProjectColumns, !alwaysExpanded, "Every collapsible Dock opens project columns")
+                XCTAssertEqual(view.usesExpandedProjectList, alwaysExpanded && position == .bottom)
+                XCTAssertEqual(view.showsAllProjects, showsAllProjects)
+                XCTAssertEqual(view.currentFilteredProjectWorkspaces().map(\.name), ["1"],
+                    "The compact shelf continues to show the selected project")
+                XCTAssertEqual(view.currentSearchSelections(), showsAllProjects
+                    ? [.window(801), .window(802)]
+                    : [.window(801)])
+                XCTAssertEqual(view.shouldHandleProjectSwipe(horizontalTranslation: 100, verticalTranslation: 0,
+                    expansionProgress: 1), !showsAllProjects)
+                XCTAssertTrue(view.shouldHandleProjectSwipe(horizontalTranslation: 100, verticalTranslation: 0,
+                    expansionProgress: 0))
+            }
         }
+        var sidebar = snapshot(position: .left, alwaysExpanded: false)
+        sidebar.configuration.showAppIcons = false
+        XCTAssertFalse(WorkspaceSidebarView(snapshot: sidebar).showsAllProjects, "Sidebar mode keeps project browsing")
     }
 
     func testAllProjectsRespectMonitorScope() {
@@ -159,7 +167,7 @@ private final class DropTargetProbe {
 }
 
 @MainActor
-private final class SidebarWorkspaceDraggingInfo: NSObject, NSDraggingInfo {
+final class SidebarWorkspaceDraggingInfo: NSObject, NSDraggingInfo {
     let draggingDestinationWindow: NSWindow?
     let draggingLocation: NSPoint
     let draggingPasteboard: NSPasteboard

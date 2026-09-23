@@ -17,6 +17,14 @@ func makeWorkspaceSidebarActionsAdapter(
             let scopeId = targetMonitorScopeId ?? viewModel.workspaceSidebarTargetMonitorScopeId
             WorkspaceSidebarPanel.panel(for: scopeId)?.updateSurfaceFrame(frame)
         },
+        setExpandedSurfaceFrame: { frame in
+            let scopeId = targetMonitorScopeId ?? viewModel.workspaceSidebarTargetMonitorScopeId
+            WorkspaceSidebarPanel.panel(for: scopeId)?.updateExpandedSurfaceFrame(frame)
+        },
+        setExpandedDropTargets: { targets in
+            let scopeId = targetMonitorScopeId ?? viewModel.workspaceSidebarTargetMonitorScopeId
+            WorkspaceSidebarPanel.panel(for: scopeId)?.updateExpandedDropTargets(targets)
+        },
         setDockRestingWidth: { width in
             let scopeId = targetMonitorScopeId ?? viewModel.workspaceSidebarTargetMonitorScopeId
             WorkspaceSidebarPanel.panel(for: scopeId)?.updateDockRestingWidth(width)

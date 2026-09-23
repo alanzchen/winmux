@@ -206,19 +206,28 @@ extension WorkspaceSidebarPanel {
     func dropTarget(atScreenPoint point: CGPoint, hitSlop: NSEdgeInsets) -> WorkspaceSidebarDropTarget? {
         guard sidebarAcceptsPointer else { return nil }
         let localPoint = hostingView.convert(convertPoint(fromScreen: point), from: nil)
-        guard let target = workspaceSidebarLocalDropTarget(at: localPoint,
-            targets: localDropTargetFrames, surface: visibleSurfaceFrameInHostingView, hitSlop: hitSlop)
-        else { return nil }
+        let target: WorkspaceSidebarDropTargetFrame?
+        if let expanded = activeExpandedSurfaceFrameInHostingView, expanded.contains(localPoint) {
+            target = workspaceSidebarLocalDropTarget(at: localPoint,
+                targets: expandedDropTargetFrames, surface: expanded, hitSlop: hitSlop)
+        } else {
+            target = workspaceSidebarLocalDropTarget(at: localPoint,
+                targets: localDropTargetFrames, surface: visibleSurfaceFrameInHostingView, hitSlop: hitSlop)
+        }
+        guard let target else { return nil }
         // Convert only the winning target, on demand. Hover animation never needs
         // to project every workspace on every display into screen coordinates.
         let screenRect = convertToScreen(hostingView.convert(target.frame, to: nil))
         return WorkspaceSidebarDropTarget(kind: target.kind, rect: screenRect.monitorFrameNormalized())
     }
 
-    func visibleScreenRectNormalized() -> Rect? {
+    /// The Dock or its floating project columns, whichever contains a normalized point.
+    func visibleScreenRectNormalized(containing point: CGPoint) -> Rect? {
         guard isVisible, sidebarAcceptsPointer else { return nil }
-        let surface = visibleSurfaceFrameOnScreen
-        return surface.isEmpty ? nil : surface.monitorFrameNormalized()
+        return [visibleSurfaceFrameOnScreen, activeExpandedSurfaceFrameOnScreen ?? .zero]
+            .filter { !$0.isEmpty }
+            .map { $0.monitorFrameNormalized() }
+            .first { $0.contains(point) }
     }
 }
 extension WorkspaceSidebarPanel {
@@ -626,6 +635,7 @@ extension WorkspaceSidebarPanel {
     func isScreenPointInsideVisibleRegion(_ point: CGPoint) -> Bool {
         guard isVisible, sidebarAcceptsPointer else { return false }
         return visibleSurfaceFrameOnScreen.contains(point) || isScreenPointInsideDockIcon(point)
+            || isScreenPointInsideExpandedSurface(point)
     }
 }
 struct WorkspaceSidebarPanelLayout {
@@ -640,7 +650,9 @@ func workspaceSidebarPanelLayout(screenFrame: CGRect, sidebarConfig: WorkspaceSi
     guard expandedWidth > 0, collapsedWidth >= 0 else { return nil }
     let menuBarReserveHeight = min(CGFloat(sidebarConfig.menuBarReserveHeight), max(screenFrame.height - 1, 0))
     let position = sidebarConfig.effectiveDockPosition
-    let panelWidth = position == .bottom ? screenFrame.width : min(expandedWidth * 2, screenFrame.width)
+    // Floating project columns can extend across the display beside a side Dock.
+    let panelWidth = position == .bottom || sidebarConfig.floatsExpandedDockView
+        ? screenFrame.width : min(expandedWidth * 2, screenFrame.width)
     return WorkspaceSidebarPanelLayout(
         frame: NSRect(
             x: position == .right ? screenFrame.maxX - panelWidth : screenFrame.minX,
@@ -1065,7 +1077,12 @@ extension WorkspaceSidebarPanel {
         let insideOpeningDock = retainsOpeningDock && viewModel.isWorkspaceSidebarExpanded
             && expandedDockHoverSource?.contains(point, panelFrame: frame,
                 sidebarConfig: config.workspaceSidebar) == true
-        let inside = hoverRegion.contains(point) || insideOpeningDock
+        // Floating project columns keep the Dock expanded. Their tolerance also spans
+        // the narrower gap back to the resting Dock. Like an outgoing expanded view, they
+        // never become a wide re-entry target while the Dock hides.
+        let insideExpandedView = autoHideReason == nil
+            && isScreenPointInsideExpandedSurface(point, tolerance: hoverExitTolerance)
+        let inside = hoverRegion.contains(point) || insideOpeningDock || insideExpandedView
             || (autoHideReason == nil && isScreenPointInsideDockIcon(point))
         if viewModel.workspaceSidebarVisibleWidth > workspaceSidebarRestingWidth(config.workspaceSidebar) + 0.5 || pendingCollapse != nil {
             debugWorkspaceSidebarHoverLog("hoverRegion panel=\(monitorScopeId) inside=\(inside) hoverWidth=\(hoverRegion.width) visibleWidth=\(viewModel.workspaceSidebarVisibleWidth) frame=\(frame) mouse=\(NSEvent.mouseLocation) suppressUntil=\(splitBrowseCollapseSuppressedUntil)")
@@ -1203,6 +1220,8 @@ extension WorkspaceSidebarPanel {
         // Runs for every inactive panel on every refreshAll — guard the shared-model writes so
         // they don't invalidate every observer each session.
         localDropTargetFrames = []
+        expandedDropTargetFrames = []
+        expandedSurfaceFrame = nil
         expandedDockHoverSource = nil
         if !preserveSurface { visibleSurfaceFrame = nil }
         dockIconFrames = []

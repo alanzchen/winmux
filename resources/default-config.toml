@@ -46,7 +46,7 @@ on-mode-changed = []
     auto-hide = false
     # Keep the full sidebar open and reserve its width for tiled windows.
     always-expanded = false
-    # Dock is the default: it shows icons and expands into Sidebar's dark, blurred view.
+    # Dock is the default: it shows icons and opens a floating view of every project beside itself.
     mode = 'dock'
     # Legacy show-app-icons remains supported when mode is omitted.
     # Mirror app badge labels from the native macOS Dock (Dock mode only).
@@ -70,7 +70,7 @@ on-mode-changed = []
     dock-position = 'left'
     # Compact Dock distance from the selected display edge, in points (0-24).
     # The legacy key name remains supported for all positions.
-    # The gap closes when expanding into the Sidebar.
+    # The Dock keeps this gap while its floating project view is open.
     dock-left-gap = 2
     collapsed-width = 50
     width = 280

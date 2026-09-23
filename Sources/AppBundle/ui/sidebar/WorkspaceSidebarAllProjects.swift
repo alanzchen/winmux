@@ -1,9 +1,17 @@
 import SwiftUI
 
 extension WorkspaceSidebarView {
+    /// A pinned bottom Dock keeps its reserved height and lists every project in one column.
     var usesExpandedProjectList: Bool {
-        snapshot.configuration.showAppIcons && snapshot.configuration.dockPosition == .bottom
+        snapshot.configuration.showAppIcons && snapshot.configuration.alwaysExpanded
+            && snapshot.configuration.dockPosition == .bottom
     }
+
+    /// A collapsible Dock stays in place and opens one floating column per project.
+    var usesProjectColumns: Bool { snapshot.configuration.floatsExpandedView }
+
+    /// Both expanded Dock presentations show every project, so neither browses a second one.
+    var showsAllProjects: Bool { usesProjectColumns || usesExpandedProjectList }
 
     func allProjectsContent(
         layout: WorkspaceSidebarConfiguration,
@@ -90,20 +98,7 @@ extension WorkspaceSidebarView {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("\(collapsedProjectIds.contains(project.id) && searchText.isEmpty ? "Expand" : "Collapse") \(project.displayName)")
-                .contextMenu {
-                    Button("Switch to Project") { actions.send(.selectProject(project.id)) }
-                    Button("Rename Project") { beginProjectRename(project) }
-                    Menu("Color") {
-                        Button("Auto") { actions.send(.setProjectColor(project.id, colorHex: nil)) }
-                        ForEach(workspaceSidebarProjectColorPresets) { preset in
-                            Button(preset.name) { actions.send(.setProjectColor(project.id, colorHex: preset.hex)) }
-                        }
-                    }
-                    Button("Edit Emoji…") { actions.send(.editProjectEmoji(project.id)) }
-                    Button("Reset Emoji") { actions.send(.setProjectEmoji(project.id, emoji: nil)) }
-                    Button("Delete Project", role: .destructive) { actions.send(.deleteProject(project.id)) }
-                        .disabled(!canDeleteWorkspaceProject(project.id))
-                }
+                .contextMenu { projectContextMenu(project) }
             }
         }
         .foregroundStyle(Color.white.opacity(project.id == snapshot.activeProjectId ? 0.95 : 0.75))
@@ -111,7 +106,23 @@ extension WorkspaceSidebarView {
     }
 
     @ViewBuilder
-    private func projectCreateWorkspaceSection(projectId: WorkspaceProjectId, layout: WorkspaceSidebarConfiguration) -> some View {
+    func projectContextMenu(_ project: WorkspaceSidebarProjectViewModel) -> some View {
+        Button("Switch to Project") { actions.send(.selectProject(project.id)) }
+        Button("Rename Project") { beginProjectRename(project) }
+        Menu("Color") {
+            Button("Auto") { actions.send(.setProjectColor(project.id, colorHex: nil)) }
+            ForEach(workspaceSidebarProjectColorPresets) { preset in
+                Button(preset.name) { actions.send(.setProjectColor(project.id, colorHex: preset.hex)) }
+            }
+        }
+        Button("Edit Emoji…") { actions.send(.editProjectEmoji(project.id)) }
+        Button("Reset Emoji") { actions.send(.setProjectEmoji(project.id, emoji: nil)) }
+        Button("Delete Project", role: .destructive) { actions.send(.deleteProject(project.id)) }
+            .disabled(!canDeleteWorkspaceProject(project.id))
+    }
+
+    @ViewBuilder
+    func projectCreateWorkspaceSection(projectId: WorkspaceProjectId, layout: WorkspaceSidebarConfiguration) -> some View {
         if workspaceSidebarShowsCreateWorkspace(selectedScopeId: snapshot.selectedMonitorScopeId) {
             let scopeId = workspaceSidebarWorkspaceCreateScope(selectedScopeId: snapshot.selectedMonitorScopeId,
                 targetMonitorScopeId: snapshot.targetMonitorScopeId, focusedScopeId: snapshot.focusedMonitorScopeId)

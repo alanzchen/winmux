@@ -60,6 +60,8 @@ final class WorkspaceSidebarPanel: NSPanelHud, WorkspaceSidebarInputOwner {
     var dockIconFrames: [CGRect] = []
     weak var dockPointerView: WorkspaceSidebarDockDisplayLinkView?
     var localDropTargetFrames: [WorkspaceSidebarDropTargetFrame] = []
+    var expandedSurfaceFrame: CGRect?
+    var expandedDropTargetFrames: [WorkspaceSidebarDropTargetFrame] = []
     let hoverExitTolerance: CGFloat = 20
     let hoverPollInterval: TimeInterval = 1.0 / 30.0
     let hoverOpenDelay: TimeInterval = 0.05
@@ -113,7 +115,7 @@ final class WorkspaceSidebarPanel: NSPanelHud, WorkspaceSidebarInputOwner {
     }
 
     static func panel(containing point: CGPoint) -> WorkspaceSidebarPanel? {
-        visiblePanels.first { $0.visibleScreenRectNormalized()?.contains(point) == true }
+        visiblePanels.first { $0.visibleScreenRectNormalized(containing: point) != nil }
     }
 
     static func panel(for monitorScopeId: String) -> WorkspaceSidebarPanel? {

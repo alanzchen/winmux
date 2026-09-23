@@ -44,7 +44,7 @@ final class WorkspaceSidebarDockGapTest: XCTestCase {
                     XCTAssertEqual(layout.frame.minY, screen.minY)
                     XCTAssertEqual(layout.collapsedWidth, railWidth, accuracy: 0.001)
                     XCTAssertEqual(layout.expandedWidth, 240)
-                    XCTAssertEqual(layout.frame.width, 480)
+                    XCTAssertEqual(layout.frame.width, 1920, "Floating project columns may span the display")
                     XCTAssertEqual(workspaceSidebarReservedWidth(sidebar), railWidth + CGFloat(gap), accuracy: 0.001)
                 }
             }
@@ -52,6 +52,8 @@ final class WorkspaceSidebarDockGapTest: XCTestCase {
         sidebar.alwaysExpanded = true
         XCTAssertEqual(sidebar.effectiveLeftGap, 0)
         XCTAssertEqual(workspaceSidebarReservedWidth(sidebar), 240)
+        XCTAssertEqual(workspaceSidebarPanelLayout(screenFrame: CGRect(x: 0, y: 0, width: 1920, height: 1080),
+            sidebarConfig: sidebar)?.frame.width, 480, "A pinned Dock keeps its two-pane native window")
         sidebar.mode = .sidebar
         XCTAssertEqual(sidebar.effectiveLeftGap, 0)
         XCTAssertEqual(sidebar.dockLeftGap, 24, "Changing modes must retain the user's Dock gap")

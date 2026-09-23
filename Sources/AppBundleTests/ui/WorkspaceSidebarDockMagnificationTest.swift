@@ -138,6 +138,9 @@ final class WorkspaceSidebarDockMagnificationTest: XCTestCase {
         XCTAssertEqual(WorkspaceSidebarView(snapshot: snapshot).dockSurfaceProgress, 0)
         XCTAssertEqual(workspaceSidebarCompactSectionWidth(layout: snapshot.configuration), 50)
         snapshot.visibleWidth = 240
+        XCTAssertEqual(WorkspaceSidebarView(snapshot: snapshot).dockSurfaceProgress, 0,
+            "Project columns float beside a Dock that keeps its compact surface")
+        snapshot.configuration.alwaysExpanded = true
         XCTAssertEqual(WorkspaceSidebarView(snapshot: snapshot).dockSurfaceProgress, 1)
     }
 

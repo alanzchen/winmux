@@ -24,7 +24,7 @@ final class WorkspaceSidebarGlassOpacityTest: XCTestCase {
         let sidebar = try render(opacity: 1, dockMode: false)
         let expected = try XCTUnwrap(sidebar.tiffRepresentation)
         for opacity in [0.0, 0.4, 1.0] {
-            let expanded = try render(opacity: opacity, dockMode: true, progress: 1)
+            let expanded = try render(opacity: opacity, dockMode: true, progress: 1, alwaysExpanded: true)
             XCTAssertEqual(try XCTUnwrap(expanded.tiffRepresentation), expected)
         }
     }
@@ -35,7 +35,7 @@ final class WorkspaceSidebarGlassOpacityTest: XCTestCase {
         let originalForeground = try color(render(opacity: 0, dockMode: true, sidebarBlur: false), at: CGPoint(x: 40, y: 40))
         var previousAlpha: CGFloat = -1
         for progress in [0.0, 0.25, 0.5, 0.75, 1.0] {
-            let bitmap = try render(opacity: 0, dockMode: true, progress: progress, sidebarBlur: false)
+            let bitmap = try render(opacity: 0, dockMode: true, progress: progress, sidebarBlur: false, alwaysExpanded: true)
             let background = try color(bitmap, at: CGPoint(x: 10, y: 10))
             XCTAssertGreaterThan(background.alphaComponent, previousAlpha)
             previousAlpha = background.alphaComponent
@@ -119,8 +119,11 @@ final class WorkspaceSidebarGlassOpacityTest: XCTestCase {
 
     private func render(opacity: Double, style: ChromeStyle = .liquidGlass, dockMode: Bool = false,
                         progress: Double = 0, sidebarBlur: Bool = true, sidebarDarkness: Double = 0.7,
-                        reduceTransparency: Bool = false, whiteBackdrop: Bool = false) throws -> NSBitmapImageRep {
+                        reduceTransparency: Bool = false, whiteBackdrop: Bool = false,
+                        alwaysExpanded: Bool = false) throws -> NSBitmapImageRep {
         var snapshot = WorkspaceSidebarSnapshot.empty
+        // Only a pinned Dock morphs its own surface; a collapsible Dock opens floating columns.
+        snapshot.configuration.alwaysExpanded = alwaysExpanded
         snapshot.configuration.chromeStyle = style
         snapshot.configuration.glassOpacity = opacity
         snapshot.configuration.showAppIcons = dockMode

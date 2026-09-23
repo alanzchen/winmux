@@ -5,17 +5,18 @@ import XCTest
 
 @MainActor
 final class WorkspaceSidebarDockGeometryTest: XCTestCase {
-    func testNativeCompactGapClosesDuringExpansionIncludingFittedAndDoubleWidthViews() throws {
+    func testNativeCompactGapStaysWhileProjectColumnsExpand() throws {
         for gap: CGFloat in [0, 2, 24] {
             for height: CGFloat in [180, 800] {
                 var snapshot = fixture()
                 snapshot.configuration.compactLeftGap = gap
                 for width: CGFloat in [64, 108, 152, 240, 480] {
                     snapshot.visibleWidth = width
-                    let progress = min((width - 64) / 176, 1)
                     let sample = render(snapshot, height: height)
                     let surface = try XCTUnwrap(sample.probe.surface)
-                    XCTAssertEqual(surface.minX, gap * (1 - min(progress, 1)), accuracy: 0.01)
+                    XCTAssertEqual(surface.minX, gap, accuracy: 0.01, "The Dock stays at rest beside its floating view")
+                    XCTAssertEqual(surface.width, WorkspaceSidebarView(snapshot: snapshot)
+                        .dockLayout(availableHeight: height).compactRailWidth, accuracy: 0.01)
                     XCTAssertFalse(sample.probe.targets.isEmpty)
                     for target in sample.probe.targets {
                         XCTAssertGreaterThanOrEqual(target.frame.minX, surface.minX - 0.01)
@@ -168,7 +169,7 @@ final class WorkspaceSidebarDockGeometryTest: XCTestCase {
         XCTAssertTrue(sample.probe.icons.isEmpty)
     }
 
-    func testExpansionImmediatelyRemovesMagnificationHeight() throws {
+    func testExpansionImmediatelyReturnsTheDockToItsRestingHeight() throws {
         var snapshot = fixture()
         snapshot.configuration.dockMagnification = true
         snapshot.configuration.dockMagnificationAmount = 1
@@ -185,8 +186,8 @@ final class WorkspaceSidebarDockGeometryTest: XCTestCase {
         host.frame = CGRect(x: 0, y: 0, width: 240, height: 800)
         host.layoutSubtreeIfNeeded()
         let surface = try XCTUnwrap(probe.surface)
-        XCTAssertEqual(surface.height, compactHeight + (800 - compactHeight) * progress, accuracy: 0.5,
-                       "Expanded rows have no magnification, including the first fraction of the transition")
+        XCTAssertEqual(surface.height, compactHeight, accuracy: 0.5,
+                       "An expanding Dock stops magnifying, including the first fraction of the transition")
     }
 
     func testTallMagnifiedDockClipsIconHitRegionsToScrollViewport() throws {
@@ -243,8 +244,8 @@ final class WorkspaceSidebarDockGeometryTest: XCTestCase {
             let sample = render(snapshot, height: 800)
             let frame = try XCTUnwrap(sample.probe.surface)
             XCTAssertEqual(frame.midY, 400, accuracy: 0.5)
-            XCTAssertEqual(frame.width, snapshot.visibleWidth, accuracy: 0.5)
-            XCTAssertEqual(frame.height, expectedCompactHeight + (800 - expectedCompactHeight) * progress, accuracy: 0.5)
+            XCTAssertEqual(frame.width, 64, accuracy: 0.5, "Project columns float beside the resting Dock")
+            XCTAssertEqual(frame.height, expectedCompactHeight, accuracy: 0.5)
             XCTAssertFalse(sample.probe.targets.isEmpty)
             for target in sample.probe.targets {
                 XCTAssertTrue(frame.insetBy(dx: -0.5, dy: -0.5).contains(target.frame))

@@ -60,6 +60,11 @@ always-expanded = true
 width = 240
 ```
 
+In Dock mode, expanding normally keeps the Dock in place and opens a floating view
+with one column per project. With `always-expanded`, the Dock instead becomes a
+reserved one-pane panel: at the bottom it lists every project; on the left or right
+it shows the current project and can browse a second one.
+
 `always-expanded` takes precedence over `auto-hide`. In Sidebar mode,
 `stay-on-top = false` allows system UI such as the macOS Dock to appear above it.
 

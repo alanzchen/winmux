@@ -1,5 +1,6 @@
 import AppKit
 import QuartzCore
+import SwiftUI
 
 enum WorkspaceSidebarAutoHideReason {
     case pointerExit
@@ -155,8 +156,16 @@ extension WorkspaceSidebarPanel {
         clearWorkspaceSidebarCommandInputState(self)
         cancelExpansionWork()
         ignoresMouseEvents = true
+        let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        let restingDockWidth = config.workspaceSidebar.effectiveCollapsedWidth
+        if config.workspaceSidebar.floatsExpandedDockView, viewModel.workspaceSidebarVisibleWidth > restingDockWidth {
+            // Floating project columns fade where they are; only the resting Dock slides to its edge.
+            withAnimation(animated && !reduceMotion ? .easeInOut(duration: animationDuration) : nil) {
+                viewModel.workspaceSidebarVisibleWidth = restingDockWidth
+            }
+        }
         let shouldAnimate = animated && isVisible && viewModel.workspaceSidebarVisibleWidth > 0
-            && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+            && !reduceMotion
         slideTransition.setHidden(true, offset: slideOffset, animated: shouldAnimate) { [weak self] in
             guard let self, self.autoHideReason != nil else { return }
             self.clearHiddenSidebarContent(preserveSurface: true)

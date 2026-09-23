@@ -66,7 +66,7 @@ final class WorkspaceSidebarDockAdaptiveSizingTest: XCTestCase {
         }
     }
 
-    func testFittedShelfMorphsContinuouslyToTheOriginalExpandedWidth() throws {
+    func testFittedShelfKeepsItsRestingWidthWhileProjectColumnsExpand() throws {
         let original = fixture()
         let fit = WorkspaceSidebarView(snapshot: original).dockLayout(availableHeight: 340)
         XCTAssertLessThan(fit.dockIconSize, original.configuration.dockIconSize)
@@ -76,7 +76,21 @@ final class WorkspaceSidebarDockAdaptiveSizingTest: XCTestCase {
             snapshot.visibleWidth = start + (snapshot.configuration.expandedWidth - start) * progress
             let sample = render(snapshot, height: 340)
             let surface = try XCTUnwrap(sample.probe.surface)
-            XCTAssertEqual(surface.width, fit.compactRailWidth + (snapshot.configuration.expandedWidth - fit.compactRailWidth) * progress,
+            XCTAssertEqual(surface.width, fit.compactRailWidth, accuracy: 0.01,
+                "Floating project columns must not morph the Dock")
+        }
+    }
+
+    func testPinnedFittedShelfMorphsContinuouslyToTheOriginalExpandedWidth() {
+        var original = fixture()
+        original.configuration.alwaysExpanded = true
+        let fit = WorkspaceSidebarView(snapshot: original).dockLayout(availableHeight: 340)
+        for progress: CGFloat in [0, 0.25, 0.5, 0.75, 1] {
+            var snapshot = original
+            let start = snapshot.configuration.expansionStartWidth
+            snapshot.visibleWidth = start + (snapshot.configuration.expandedWidth - start) * progress
+            XCTAssertEqual(WorkspaceSidebarView(snapshot: snapshot).fittedVisibleWidth(layout: fit),
+                fit.compactRailWidth + (snapshot.configuration.expandedWidth - fit.compactRailWidth) * progress,
                 accuracy: 0.01)
         }
     }

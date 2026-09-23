@@ -6,7 +6,7 @@ extension WorkspaceSidebarView {
     var usesNativeDock: Bool {
         ProcessInfo.processInfo.environment["WINMUX_NATIVE_DOCK"] != "0"
             && snapshot.configuration.showAppIcons
-            && snapshot.visibleWidth <= snapshot.configuration.expansionStartWidth
+            && dockVisibleWidth <= snapshot.configuration.expansionStartWidth
             && browsedProjectId == nil && projectSwipeTranslation == 0
     }
 

@@ -60,8 +60,9 @@ installs upstream builds.
 
 Set a maximum icon size; the Dock shrinks icons together when space is tight.
 Very crowded Docks scroll. Use the expand arrow or **Control–F** for search and
-individual window details. The expanded view uses the Sidebar's separate
-appearance settings.
+individual window details. The Dock stays in place while a rounded, floating view
+opens beside it with one column of workspaces for every project. The expanded view
+uses the Sidebar's separate appearance settings.
 
 Both modes support auto-hide, keeping the expanded panel open, and hiding during
 native macOS fullscreen. Bottom placement temporarily enables the macOS Dock's
@@ -79,7 +80,8 @@ auto-hide setting and restores your previous setting afterward. See
 - **Group windows:** tab groups let several windows share one area. Click a tab
   to switch, or drag tabs to reorder them or move them between workspaces.
 - **Separate projects:** a project holds a set of workspaces—for example, Work and
-  Personal. Use the project indicators to switch between them.
+  Personal. Use the project indicators to switch between them, or expand the Dock
+  to see every project side by side and drag workspaces between their columns.
 - **Use multiple displays:** each display can show a different workspace. Each
   Dock initially filters to its own display. Moving a workspace already shown
   elsewhere requires confirming **Override**.

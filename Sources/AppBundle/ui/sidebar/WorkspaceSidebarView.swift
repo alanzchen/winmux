@@ -13,6 +13,8 @@ struct WorkspaceSidebarView: View {
     @State var projectPagerWidth: CGFloat = 0
     @State var browseMode: WorkspaceSidebarBrowseMode = .activeProject
     @State var collapsedProjectIds: Set<WorkspaceProjectId> = []
+    @State var projectColumnsListHeight: CGFloat = 0
+    @State var projectColumnsToolbarHeight: CGFloat = 44
     @State var activeInUseOverrideWorkspaceName: String? = nil
     @State var pendingInUseOverrideAppId: String? = nil
     @State var isProjectMenuOpen = false
@@ -60,30 +62,37 @@ struct WorkspaceSidebarView: View {
             min(1, (snapshot.visibleWidth - collapsedWidth) / max(expandedWidth - collapsedWidth, 1)),
         )
         
+        // A collapsible Dock keeps its resting shape; only the floating columns expand.
+        let dockExpansionProgress = usesProjectColumns ? 0 : expansionProgress
         GeometryReader { viewport in
             let layout = dockLayout(availableHeight: snapshot.configuration.dockPosition == .bottom
                 ? viewport.size.width : viewport.size.height)
-            if usesNativeDock {
-                nativeDock(layout: layout)
+            ZStack(alignment: .topLeading) {
+                if usesNativeDock {
+                    nativeDock(layout: layout)
+                        .preference(key: WorkspaceSidebarDockRestingWidthPreferenceKey.self,
+                            value: layout.compactRailWidth)
+                } else {
+                    WorkspaceSidebarDockAnimationHost(
+                        configuration: layout,
+                        visibleWidth: fittedVisibleWidth(layout: layout),
+                        compactHeight: compactDockContentHeight(layout: layout),
+                        expansionProgress: dockExpansionProgress,
+                        blockers: dockMagnificationBlockers,
+                        overflow: dockMagnificationOverflow(layout: layout),
+                        shape: sidebarShape(layout: layout),
+                        hitRegions: dockHitRegions,
+                        motion: dockMotion,
+                        growth: dockColumnGrowth(layout: layout),
+                        content: dockOrSidebarContent(expansionProgress: dockExpansionProgress, layout: layout)
+                            .environment(\.workspaceSidebarDockDrag, snapshot.dockDrag)
+                    )
                     .preference(key: WorkspaceSidebarDockRestingWidthPreferenceKey.self,
-                        value: layout.compactRailWidth)
-            } else {
-                WorkspaceSidebarDockAnimationHost(
-                    configuration: layout,
-                    visibleWidth: fittedVisibleWidth(layout: layout),
-                    compactHeight: compactDockContentHeight(layout: layout),
-                    expansionProgress: expansionProgress,
-                    blockers: dockMagnificationBlockers,
-                    overflow: dockMagnificationOverflow(layout: layout),
-                    shape: sidebarShape(layout: layout),
-                    hitRegions: dockHitRegions,
-                    motion: dockMotion,
-                    growth: dockColumnGrowth(layout: layout),
-                    content: dockOrSidebarContent(expansionProgress: expansionProgress, layout: layout)
-                        .environment(\.workspaceSidebarDockDrag, snapshot.dockDrag)
-                )
-                .preference(key: WorkspaceSidebarDockRestingWidthPreferenceKey.self,
-                    value: layout.showAppIcons ? layout.compactRailWidth : nil)
+                        value: layout.showAppIcons ? layout.compactRailWidth : nil)
+                }
+                if usesProjectColumns, expansionProgress > 0 {
+                    floatingProjectColumns(layout: layout, availableSize: viewport.size, progress: expansionProgress)
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
@@ -148,8 +157,9 @@ struct WorkspaceSidebarView: View {
         .onChange(of: snapshot.visibleWidth) { visibleWidth in
             // During expansion SwiftUI may still retain the outgoing native view.
             // Reset its clock without letting its old compact snapshot republish
-            // hit regions after the expanded renderer has cleared them.
-            dockMotion.reset(publishFrame: visibleWidth <= collapsedWidth)
+            // hit regions after the expanded renderer has cleared them. A Dock beside
+            // floating project columns remains the only renderer of its hit regions.
+            dockMotion.reset(publishFrame: usesProjectColumns || visibleWidth <= collapsedWidth)
             if visibleWidth <= collapsedWidth + 0.5 {
                 resetTransientSidebarState()
                 finishSidebarSearch(clearText: true)
@@ -258,7 +268,7 @@ struct WorkspaceSidebarView: View {
     func beginProjectRename(_ project: WorkspaceSidebarProjectViewModel) {
         debugWorkspaceSidebarRenameLog("beginProjectRename project=\(project.id.rawValue) displayName=\(project.displayName) active=\(snapshot.activeProjectId.rawValue) visibleWidth=\(snapshot.visibleWidth)")
         finishSidebarSearch(clearText: false)
-        if !usesExpandedProjectList, project.id != snapshot.activeProjectId {
+        if !showsAllProjects, project.id != snapshot.activeProjectId {
             browseMode = .split(otherProjectId: project.id)
         }
         renamingProjectId = project.id
@@ -414,7 +424,7 @@ struct WorkspaceSidebarView: View {
     }
 
     func currentSearchSelections() -> [WorkspaceSidebarSearchSelection] {
-        let workspaces = currentFilteredProjectWorkspaces(allProjects: usesExpandedProjectList)
+        let workspaces = currentFilteredProjectWorkspaces(allProjects: showsAllProjects)
         return workspaceSidebarSearchSelections(workspaces: workspaces)
     }
 
@@ -448,7 +458,7 @@ struct WorkspaceSidebarView: View {
 
 extension WorkspaceSidebarView {
     var browsedProjectId: WorkspaceProjectId? {
-        usesExpandedProjectList ? nil : browseMode.otherProjectId
+        showsAllProjects ? nil : browseMode.otherProjectId
     }
 }
 
@@ -777,8 +787,9 @@ extension WorkspaceSidebarView {
     }
 
     func resetProjectEdgeDrag() {
-        lastProjectEdgeDragDirection = nil
-        lastProjectEdgeDragSwitchAt = .distantPast
+        // Drag-pointer notifications arrive at pointer frequency; avoid rebuilding every column.
+        if lastProjectEdgeDragDirection != nil { lastProjectEdgeDragDirection = nil }
+        if lastProjectEdgeDragSwitchAt != .distantPast { lastProjectEdgeDragSwitchAt = .distantPast }
     }
 
 }
@@ -825,7 +836,7 @@ extension WorkspaceSidebarView {
             onDeleteProject: { project in
                 actions.send(.deleteProject(project.id))
             },
-            showsProjectSelector: !usesExpandedProjectList,
+            showsProjectSelector: !showsAllProjects,
         )
         .padding(.leading, leadingInset)
         .padding(.trailing, trailingInset)
@@ -914,7 +925,12 @@ extension WorkspaceSidebarView {
     var dockSurfaceProgress: CGFloat {
         guard snapshot.configuration.showAppIcons else { return 1 }
         let collapsed = snapshot.configuration.expansionStartWidth
-        return min(max((snapshot.visibleWidth - collapsed) / max(snapshot.configuration.expandedWidth - collapsed, 1), 0), 1)
+        return min(max((dockVisibleWidth - collapsed) / max(snapshot.configuration.expandedWidth - collapsed, 1), 0), 1)
+    }
+
+    /// Floating project columns leave the Dock at its resting width while expanded.
+    var dockVisibleWidth: CGFloat {
+        usesProjectColumns ? min(snapshot.visibleWidth, snapshot.configuration.expansionStartWidth) : snapshot.visibleWidth
     }
 
     func sidebarShape(layout: WorkspaceSidebarConfiguration) -> some Shape {
@@ -960,7 +976,7 @@ extension WorkspaceSidebarView {
     func sidebarSwipeCaptureOverlay(expansionProgress: CGFloat) -> some View {
         WorkspaceSidebarProjectSwipeScrollCapture(
             isEnabled: !snapshot.projects.isEmpty &&
-                !(usesExpandedProjectList && expansionProgress >= workspaceSidebarRowsRevealProgress),
+                !(showsAllProjects && expansionProgress >= workspaceSidebarRowsRevealProgress),
             onChanged: { horizontalTranslation, verticalTranslation in
                 handleProjectSwipeChanged(
                     horizontalTranslation: horizontalTranslation,
@@ -1377,7 +1393,11 @@ extension WorkspaceSidebarView {
     var dockMagnificationBlockers: WorkspaceSidebarDockPointerBlockers {
         var blockers: WorkspaceSidebarDockPointerBlockers = []
         if !snapshot.configuration.showAppIcons || !snapshot.configuration.dockMagnification { blockers.insert(.disabled) }
-        if snapshot.visibleWidth > snapshot.configuration.compactRailWidth + 0.5 { blockers.insert(.expanded) }
+        // Floating project columns appear as soon as expansion begins; the Dock stops magnifying then too.
+        if snapshot.visibleWidth > snapshot.configuration.compactRailWidth + 0.5
+            || (usesProjectColumns && snapshot.visibleWidth > snapshot.configuration.expansionStartWidth) {
+            blockers.insert(.expanded)
+        }
         if reduceDockMotion { blockers.insert(.reduceMotion) }
         if dockMenuTracking || isProjectMenuOpen { blockers.insert(.menu) }
         if isSearchEditing || renamingProjectId != nil || renamingWorkspaceName != nil { blockers.insert(.editing) }
@@ -1459,14 +1479,15 @@ extension WorkspaceSidebarView {
     func fittedVisibleWidth(layout: WorkspaceSidebarConfiguration) -> CGFloat {
         guard layout.showAppIcons else { return snapshot.visibleWidth }
         let configuredWidth = snapshot.configuration.compactRailWidth
+        let visibleWidth = dockVisibleWidth
         // Hidden -> compact has its own proportional reveal, including intermediate
         // hover cues. Subtracting the fitted difference would hide the first part.
-        if snapshot.visibleWidth < configuredWidth {
-            return max(snapshot.visibleWidth, 0) * layout.compactRailWidth / configuredWidth
+        if visibleWidth < configuredWidth {
+            return max(visibleWidth, 0) * layout.compactRailWidth / configuredWidth
         }
         // Expansion is driven by the native panel's configured width. Blend from the
         // fitted resting shelf to that same expanded endpoint without resizing on hover.
-        return max(0, snapshot.visibleWidth + (layout.compactRailWidth - configuredWidth)
+        return max(0, visibleWidth + (layout.compactRailWidth - configuredWidth)
             * (1 - dockSurfaceProgress))
     }
 

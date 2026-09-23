@@ -36,5 +36,6 @@ func workspaceSidebarConfiguration() -> WorkspaceSidebarConfiguration {
         sidebarBackgroundOpacity: config.workspaceSidebar.sidebarAppearance.backgroundOpacity,
         sidebarBlur: config.workspaceSidebar.sidebarAppearance.blur,
         configuredCollapsedWidth: CGFloat(config.workspaceSidebar.effectiveCollapsedWidth),
+        alwaysExpanded: config.workspaceSidebar.alwaysExpanded,
     )
 }
