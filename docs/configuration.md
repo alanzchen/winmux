@@ -65,6 +65,16 @@ with one column per project. With `always-expanded`, the Dock instead becomes a
 reserved one-pane panel: at the bottom it lists every project; on the left or right
 it shows the current project and can browse a second one.
 
+In the floating view, double-click a project or workspace name to rename it, and
+drag a project's header to reorder the projects. WinMux saves the order as project
+ids in the `[workspace-sidebar]` table, rewriting the list on one line; projects that
+are not listed follow in creation order:
+
+```toml
+[workspace-sidebar]
+project-order = ["project-2b7e0c4a-1d3f-4e5a-9b8c-7d6e5f4a3b2c", "default"]
+```
+
 `always-expanded` takes precedence over `auto-hide`. In Sidebar mode,
 `stay-on-top = false` allows system UI such as the macOS Dock to appear above it.
 

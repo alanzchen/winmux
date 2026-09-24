@@ -48,3 +48,11 @@ func shouldCancelWorkspaceSidebarInputForPointer(
 ) -> Bool {
     !isInside && (isMouseDown || (cancelsOnPointerExit && pointerHasEntered))
 }
+
+/// Another app's activation normally ends inline editing. Just after editing starts, it is the
+/// double-click's first click switching workspace or project, not the user leaving the edit.
+let workspaceSidebarInlineTextActivationGrace: TimeInterval = 0.6
+
+func workspaceSidebarInlineTextEditingCancelsForActivation(startedAt: Date, now: Date = .now) -> Bool {
+    now.timeIntervalSince(startedAt) >= workspaceSidebarInlineTextActivationGrace
+}

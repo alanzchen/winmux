@@ -143,6 +143,8 @@ struct WorkspaceSidebarConfig: ConvenienceCopyable, Equatable, Sendable {
     var projectDeletionAction: WorkspaceProjectDeletionAction = .closeWindows
     var workspaceLabels: [String: String] = [:]
     var projectLabels: [String: String] = [:]
+    /// Project ids in display order. Projects missing from the list follow in creation order.
+    var projectOrder: [String] = []
     var projectColors: [String: String] = [:]
     var projectEmojis: [String: String] = [:]
 

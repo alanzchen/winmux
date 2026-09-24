@@ -38,16 +38,50 @@ func isWorkspaceSidebarNativeWorkspaceDragActive() -> Bool {
     workspaceSidebarNativeWorkspaceDragActiveCount > 0
 }
 
+@MainActor
+private var workspaceSidebarDraggedProject: WorkspaceProjectId?
+
+/// The project whose column header is being dragged to reorder projects.
+@MainActor
+func workspaceSidebarDraggedProjectId() -> WorkspaceProjectId? {
+    workspaceSidebarDraggedProject
+}
+
+@MainActor
+func setWorkspaceSidebarDraggedProjectId(_ projectId: WorkspaceProjectId?) {
+    workspaceSidebarDraggedProject = projectId
+}
+
 // Native drag sessions release their own claim in the source's end callback.
 // The global mouse-up cleanup for window drags must not clear it first.
 @MainActor
 func beginWorkspaceSidebarNativeWorkspaceDrag() {
     workspaceSidebarNativeWorkspaceDragActiveCount += 1
+    WorkspaceSidebarNativeDragState.shared.isActive = true
 }
 
 @MainActor
 func endWorkspaceSidebarNativeWorkspaceDrag() {
     workspaceSidebarNativeWorkspaceDragActiveCount = max(workspaceSidebarNativeWorkspaceDragActiveCount - 1, 0)
+    WorkspaceSidebarNativeDragState.shared.isActive = workspaceSidebarNativeWorkspaceDragActiveCount > 0
+}
+
+/// A click can only reach the drop overlay when no drag session is running. Clear any claim
+/// that outlived its session so the overlay stops covering the rows.
+@MainActor
+func recoverStaleWorkspaceSidebarNativeWorkspaceDrag() {
+    workspaceSidebarNativeWorkspaceDragActiveCount = 0
+    workspaceSidebarDraggedProject = nil
+    WorkspaceSidebarNativeDragState.shared.isActive = false
+    WorkspaceSidebarPanel.scheduleHoverRecheckForVisiblePanels()
+}
+
+/// Publishes whether a workspace or project header is being dragged, so project drop targets
+/// can cover the workspace rows whose own drop targets accept only windows.
+@MainActor
+final class WorkspaceSidebarNativeDragState: ObservableObject {
+    static let shared = WorkspaceSidebarNativeDragState()
+    @Published fileprivate(set) var isActive = false
 }
 
 @MainActor

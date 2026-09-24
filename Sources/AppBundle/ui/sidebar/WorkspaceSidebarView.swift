@@ -179,7 +179,9 @@ struct WorkspaceSidebarView: View {
             browseMode = .activeProject
             showsPinnedActiveWorkspaceForBrowsedProject = true
             activeInUseOverrideWorkspaceName = nil
-            finishProjectRename(cancelled: true)
+            // In the floating columns, a double-click's first click switches to the project its
+            // second click starts renaming. Switching to any other project still ends the rename.
+            if !usesProjectColumns || renamingProjectId != projectId { finishProjectRename(cancelled: true) }
             finishSidebarSearch(clearText: true)
             resetProjectSwipeWithoutAnimation()
         }

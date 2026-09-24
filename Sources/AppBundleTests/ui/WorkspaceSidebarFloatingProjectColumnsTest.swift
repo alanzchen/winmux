@@ -158,6 +158,31 @@ final class WorkspaceSidebarFloatingProjectColumnsTest: XCTestCase {
             "The toolbar's New Project button is not clipped by a one-column card")
     }
 
+    func testProjectHeadersSwitchRenameAndDragTheirProjects() throws {
+        var fixture = snapshot(position: .left)
+        fixture.visibleWidth = fixture.configuration.expandedWidth
+        var sent: [WorkspaceSidebarAction] = []
+        let host = NSHostingView(rootView: WorkspaceSidebarView(snapshot: fixture, actions: .init(send: { sent.append($0) }),
+            reduceMotionOverride: true, reduceTransparencyOverride: true))
+        host.frame = CGRect(x: 0, y: 0, width: 1400, height: 900)
+        host.layoutSubtreeIfNeeded()
+        func sources(in view: NSView) -> [WorkspaceSidebarWorkspaceDragSourceView] {
+            (view as? WorkspaceSidebarWorkspaceDragSourceView).map { [$0] } ?? view.subviews.flatMap(sources)
+        }
+        let all = sources(in: host)
+        let headers = all.filter { $0.projectId != nil }.sorted { $0.convert($0.bounds, to: host).minX < $1.convert($1.bounds, to: host).minX }
+        XCTAssertEqual(headers.compactMap(\.projectId), fixture.projects.map(\.id))
+        XCTAssertEqual(headers.map { $0.accessibilityLabel() }, ["Default, current project", "Switch to Research", "Switch to Empty project"])
+        XCTAssertTrue(headers.allSatisfy { $0.onDoubleClick != nil }, "Project names rename on double-click")
+        XCTAssertEqual(headers[1].accessibilityCustomActions()?.map(\.name), ["Rename"])
+        XCTAssertEqual(headers[1].accessibilityHelp(), "Switch to Research")
+        XCTAssertTrue(headers[1].accessibilityPerformPress())
+        XCTAssertEqual(sent, [.selectProject("research")])
+        let workspaces = all.filter { $0.projectId == nil }
+        XCTAssertEqual(workspaces.count, fixture.workspaces.count)
+        XCTAssertTrue(workspaces.allSatisfy { $0.onDoubleClick != nil }, "Workspace names rename on double-click")
+    }
+
     func testCollapsedDockDoesNotMountFloatingColumns() {
         for position in WorkspaceDockPosition.allCases {
             let probe = FloatingColumnsProbe()

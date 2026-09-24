@@ -103,6 +103,7 @@ enum WorkspaceSidebarAction: Equatable {
     case editProjectEmoji(WorkspaceProjectId)
     case setProjectEmoji(WorkspaceProjectId, emoji: String?)
     case deleteProject(WorkspaceProjectId)
+    case moveProject(WorkspaceProjectId, relativeTo: WorkspaceProjectId, after: Bool)
     case selectMonitorScope(String)
     case createWorkspace(projectId: WorkspaceProjectId, monitorScopeId: String)
     case renameWorkspace(String, displayName: String)

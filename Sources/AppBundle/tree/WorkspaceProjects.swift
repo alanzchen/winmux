@@ -5,24 +5,25 @@ import Common
 func workspaceProjects() -> [WorkspaceProject] {
     materializePersistedWorkspaceProjects()
     ensureMinimumWorkspaceForAllProjects()
-    let projects = winMuxWorkspaceState.projectsById.values.sorted {
-        if $0.id == workspaceProjectDefaultId { return true }
-        if $1.id == workspaceProjectDefaultId { return false }
-        return workspaceProjectOrderPrecedes($0, $1)
+    let projects = workspaceProjectsInDisplayOrder(Array(winMuxWorkspaceState.projectsById.values),
+        configuredOrder: config.workspaceSidebar.projectOrder)
+    func configuredName(_ project: WorkspaceProject) -> String? {
+        guard let name = config.workspaceSidebar.projectLabels[project.id.rawValue]?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !name.isEmpty, name != project.id.rawValue else { return nil }
+        return name
     }
-    var numberedProjectIndex = 0
+    // Unnamed projects are numbered in creation order, so reordering them does not rename them.
+    let numbers = Dictionary(uniqueKeysWithValues: projects
+        .filter { $0.id != workspaceProjectDefaultId && configuredName($0) == nil }
+        .sorted(by: workspaceProjectOrderPrecedes).enumerated().map { ($1.id, $0 + 1) })
     return projects.map { project in
         let displayName: String
-        if let configuredName = config.workspaceSidebar.projectLabels[project.id.rawValue]?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !configuredName.isEmpty,
-           configuredName != project.id.rawValue
-        {
-            displayName = configuredName
+        if let name = configuredName(project) {
+            displayName = name
         } else if project.id == workspaceProjectDefaultId {
             displayName = "Default"
         } else {
-            numberedProjectIndex += 1
-            displayName = "Project \(numberedProjectIndex)"
+            displayName = "Project \(numbers[project.id] ?? 0)"
         }
         return WorkspaceProject(
             id: project.id,
@@ -116,9 +117,62 @@ func workspaceProjectOrderPrecedes(_ lhs: WorkspaceProject, _ rhs: WorkspaceProj
     return lhs.id < rhs.id
 }
 
+/// Projects follow the configured `project-order`. Unlisted projects follow in creation order,
+/// with Default first among them.
+func workspaceProjectsInDisplayOrder(_ projects: [WorkspaceProject], configuredOrder: [String]) -> [WorkspaceProject] {
+    var positions: [String: Int] = [:]
+    for (index, rawId) in configuredOrder.enumerated() where positions[rawId] == nil {
+        positions[rawId] = index
+    }
+    return projects.sorted { lhs, rhs in
+        let lhsPosition = positions[lhs.id.rawValue] ?? Int.max
+        let rhsPosition = positions[rhs.id.rawValue] ?? Int.max
+        if lhsPosition != rhsPosition { return lhsPosition < rhsPosition }
+        if (lhs.id == workspaceProjectDefaultId) != (rhs.id == workspaceProjectDefaultId) {
+            return lhs.id == workspaceProjectDefaultId
+        }
+        return workspaceProjectOrderPrecedes(lhs, rhs)
+    }
+}
+
+/// Moves a project before or after another one and saves the complete order.
+@MainActor
+@discardableResult
+func moveWorkspaceProject(_ projectId: WorkspaceProjectId, relativeTo targetId: WorkspaceProjectId,
+                          after: Bool) throws -> Bool {
+    let current = workspaceProjects().map(\.id)
+    var ids = current
+    guard projectId != targetId, let source = ids.firstIndex(of: projectId), ids.contains(targetId) else { return false }
+    ids.remove(at: source)
+    guard let target = ids.firstIndex(of: targetId) else { return false }
+    ids.insert(projectId, at: after ? target + 1 : target)
+    guard ids != current else { return false }
+    let order = ids.map(\.rawValue)
+    if !isUnitTest {
+        try persistWorkspaceSidebarProjectOrder(order)
+    }
+    config.workspaceSidebar.projectOrder = order
+    return true
+}
+
 @MainActor
 func materializePersistedWorkspaceProjects() {
-    for (rawProjectId, label) in config.workspaceSidebar.projectLabels {
+    guard config.workspaceSidebar.projectLabels.contains(where: { rawId, label in
+        winMuxWorkspaceState.projectsById[WorkspaceProjectId(rawId)] == nil
+            && !label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }) else {
+        ensureMinimumWorkspaceForAllProjects()
+        return
+    }
+    // Dictionary order varies between launches; restored projects need a stable creation order.
+    let positions = Dictionary(config.workspaceSidebar.projectOrder.enumerated().map { ($1, $0) },
+        uniquingKeysWith: { first, _ in first })
+    let labels = config.workspaceSidebar.projectLabels.sorted { lhs, rhs in
+        let lhsPosition = positions[lhs.key] ?? Int.max
+        let rhsPosition = positions[rhs.key] ?? Int.max
+        return lhsPosition != rhsPosition ? lhsPosition < rhsPosition : lhs.key < rhs.key
+    }
+    for (rawProjectId, label) in labels {
         let projectId = WorkspaceProjectId(rawProjectId)
         let name = label.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty, winMuxWorkspaceState.projectsById[projectId] == nil else { continue }
@@ -333,6 +387,7 @@ private func deleteWorkspaceProjectMovingWindowsToFallback(_ projectId: Workspac
     }
 
     winMuxWorkspaceState.projectsById.removeValue(forKey: projectId)
+    removeDeletedWorkspaceProjectFromOrder(projectId)
     ensureVisibleActiveProjectWorkspaces()
     checkWorkspaceHierarchyInvariants()
 }
@@ -354,6 +409,8 @@ private func closeWindowsAndDeleteWorkspaceProject(_ projectId: WorkspaceProject
             throw WorkspaceMutationError.projectCloseBlocked(project.name, remaining.count)
         }
     }
+    // Save before changing workspace state, like the move-windows path. The windows are already closed.
+    try clearWorkspaceSidebarProjectMetadata(projectId)
 
     let fallbackId = workspaceProjectFallbackForDeletion(excluding: projectId)
     let viewportsShowingDeletedProject = winMuxWorkspaceState.monitorViewportsById.values.compactMap { viewport -> MonitorViewportId? in
@@ -371,7 +428,7 @@ private func closeWindowsAndDeleteWorkspaceProject(_ projectId: WorkspaceProject
     }
 
     winMuxWorkspaceState.projectsById.removeValue(forKey: projectId)
-    try clearWorkspaceSidebarProjectMetadata(projectId)
+    removeDeletedWorkspaceProjectFromOrder(projectId)
     ensureVisibleActiveProjectWorkspaces()
     checkWorkspaceHierarchyInvariants()
 }
@@ -398,6 +455,19 @@ private func removeWorkspaceSidebarProjectMetadataFromMemory(_ projectId: Worksp
     config.workspaceSidebar.projectLabels.removeValue(forKey: projectId.rawValue)
     config.workspaceSidebar.projectColors.removeValue(forKey: projectId.rawValue)
     config.workspaceSidebar.projectEmojis.removeValue(forKey: projectId.rawValue)
+}
+
+/// Runs after the project is gone, so the fallback is still chosen from the saved order. A stale
+/// id in the order is ignored, so failing to rewrite it never blocks a deletion.
+@MainActor
+private func removeDeletedWorkspaceProjectFromOrder(_ projectId: WorkspaceProjectId) {
+    let order = config.workspaceSidebar.projectOrder
+    guard order.contains(projectId.rawValue) else { return }
+    let pruned = order.filter { $0 != projectId.rawValue }
+    if !isUnitTest {
+        try? persistWorkspaceSidebarProjectOrder(pruned)
+    }
+    config.workspaceSidebar.projectOrder = pruned
 }
 
 @MainActor

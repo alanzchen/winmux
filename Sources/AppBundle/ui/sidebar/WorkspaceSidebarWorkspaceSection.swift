@@ -563,7 +563,8 @@ extension WorkspaceSidebarWorkspaceSection {
                 .frame(height: workspaceSidebarWorkspaceSectionHeaderHeight)
                 .overlay {
                     WorkspaceSidebarWorkspaceDragSource(workspaceName: workspace.name,
-                        displayName: workspace.displayName, onActivate: handleSectionClick)
+                        displayName: workspace.displayName, onActivate: handleSectionClick,
+                        onDoubleClick: onBeginRenameWorkspace)
                 }
                 .modifier(WorkspaceSidebarSectionTooltip(text: layout.showWorkspaceTooltips
                     ? "Drag workspace to another project" : nil))

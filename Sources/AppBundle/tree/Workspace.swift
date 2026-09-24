@@ -23,6 +23,7 @@ enum WorkspaceMutationError: LocalizedError {
     case emptyName
     case nameContainsControlCharacters
     case duplicateProjectName(String)
+    case unreadableProjectOrder
 
     var errorDescription: String? {
         switch self {
@@ -46,6 +47,8 @@ enum WorkspaceMutationError: LocalizedError {
                 "Name cannot contain control characters."
             case .duplicateProjectName(let name):
                 "A project named '\(name)' already exists."
+            case .unreadableProjectOrder:
+                "The project order could not be saved because project-order in the configuration is not a closed list."
         }
     }
 }

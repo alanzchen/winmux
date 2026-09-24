@@ -66,6 +66,7 @@ private let workspaceSidebarParser: [String: any ParserProtocol<WorkspaceSidebar
     "project-deletion-action": Parser(\.projectDeletionAction, parseWorkspaceProjectDeletionAction),
     "workspace-labels": Parser(\.workspaceLabels, parseWorkspaceSidebarLabels),
     "project-labels": Parser(\.projectLabels, parseWorkspaceSidebarLabels),
+    "project-order": Parser(\.projectOrder, parseArrayOfStrings),
     "project-colors": Parser(\.projectColors, parseWorkspaceSidebarProjectColors),
     "project-emojis": Parser(\.projectEmojis, parseWorkspaceSidebarProjectEmojis),
 ]

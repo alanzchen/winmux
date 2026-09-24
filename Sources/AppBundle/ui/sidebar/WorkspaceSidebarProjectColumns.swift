@@ -243,7 +243,7 @@ extension WorkspaceSidebarView {
             .frame(width: width, height: listHeight)
         }
         .frame(width: width, alignment: .topLeading)
-        .modifier(WorkspaceSidebarProjectDropModifier(projectId: project.id, actions: actions))
+        .modifier(WorkspaceSidebarProjectDropModifier(projectId: project.id, actions: actions, reorderWidth: width))
     }
 
     private func projectColumnHeader(_ project: WorkspaceSidebarProjectViewModel) -> some View {
@@ -274,13 +274,16 @@ extension WorkspaceSidebarView {
                 // A snapshot without projects shows its workspaces under a plain label.
                 label
             } else {
-                Button { actions.send(.selectProject(project.id)) } label: {
-                    label.contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .help(isActive ? project.displayName : "Switch to \(project.displayName)")
-                .accessibilityLabel(isActive ? "\(project.displayName), current project" : "Switch to \(project.displayName)")
-                .contextMenu { projectContextMenu(project) }
+                label
+                    .accessibilityHidden(true)
+                    .overlay {
+                        WorkspaceSidebarProjectDragSource(projectId: project.id, displayName: project.displayName,
+                            accessibilityLabel: isActive ? "\(project.displayName), current project" : "Switch to \(project.displayName)",
+                            help: isActive ? project.displayName : "Switch to \(project.displayName)",
+                            onActivate: { actions.send(.selectProject(project.id)) },
+                            onDoubleClick: { beginProjectRename(project) })
+                    }
+                    .contextMenu { projectContextMenu(project) }
             }
         }
         .foregroundStyle(Color.white.opacity(isActive ? 0.95 : 0.72))

@@ -492,6 +492,14 @@ func renameWorkspaceSidebarProject(_ projectId: WorkspaceProjectId, displayName:
 }
 
 @MainActor
+func moveWorkspaceSidebarProject(_ projectId: WorkspaceProjectId, relativeTo targetId: WorkspaceProjectId, after: Bool) {
+    runWorkspaceSidebarSession {
+        guard try moveWorkspaceProject(projectId, relativeTo: targetId, after: after) else { return }
+        await updateWorkspaceSidebarModel()
+    }
+}
+
+@MainActor
 func setWorkspaceSidebarProjectColor(_ project: WorkspaceSidebarProjectViewModel, colorHex: String?) {
     runWorkspaceSidebarSession {
         try setWorkspaceProjectColor(project.id, colorHex: colorHex)

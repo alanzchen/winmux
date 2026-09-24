@@ -6,6 +6,7 @@ struct WorkspaceSidebarWorkspaceDragSource: NSViewRepresentable {
     let workspaceName: String
     let displayName: String
     let onActivate: @MainActor () -> Void
+    var onDoubleClick: (@MainActor () -> Void)? = nil
 
     func makeNSView(context: Context) -> WorkspaceSidebarWorkspaceDragSourceView {
         WorkspaceSidebarWorkspaceDragSourceView()
@@ -13,8 +14,10 @@ struct WorkspaceSidebarWorkspaceDragSource: NSViewRepresentable {
 
     func updateNSView(_ view: WorkspaceSidebarWorkspaceDragSourceView, context: Context) {
         view.workspaceName = workspaceName
+        view.projectId = nil
         view.displayName = displayName
         view.onActivate = onActivate
+        view.onDoubleClick = onDoubleClick
         view.setAccessibilityElement(true)
         view.setAccessibilityRole(.button)
         view.setAccessibilityLabel(displayName)
@@ -27,10 +30,44 @@ struct WorkspaceSidebarWorkspaceDragSource: NSViewRepresentable {
     }
 }
 
+/// A project column header: a click switches project, a double-click renames it, and a drag
+/// reorders the projects.
+struct WorkspaceSidebarProjectDragSource: NSViewRepresentable {
+    let projectId: WorkspaceProjectId
+    let displayName: String
+    let accessibilityLabel: String
+    let help: String
+    let onActivate: @MainActor () -> Void
+    let onDoubleClick: @MainActor () -> Void
+
+    func makeNSView(context: Context) -> WorkspaceSidebarWorkspaceDragSourceView {
+        WorkspaceSidebarWorkspaceDragSourceView()
+    }
+
+    func updateNSView(_ view: WorkspaceSidebarWorkspaceDragSourceView, context: Context) {
+        view.projectId = projectId
+        view.displayName = displayName
+        view.onActivate = onActivate
+        view.onDoubleClick = onDoubleClick
+        view.toolTip = help
+        view.setAccessibilityElement(true)
+        view.setAccessibilityRole(.button)
+        view.setAccessibilityLabel(accessibilityLabel)
+        view.setAccessibilityHelp(help)
+    }
+
+    static func dismantleNSView(_ view: WorkspaceSidebarWorkspaceDragSourceView, coordinator: ()) {
+        view.cancelPendingActivation()
+    }
+}
+
 final class WorkspaceSidebarWorkspaceDragSourceView: NSView, NSDraggingSource {
     var workspaceName = ""
+    /// Set for a project column header, which drags its project instead of a workspace.
+    var projectId: WorkspaceProjectId?
     var displayName = ""
     var onActivate: @MainActor () -> Void = {}
+    var onDoubleClick: (@MainActor () -> Void)?
     private var mouseDownPoint: CGPoint?
     private var mouseDownEvent: NSEvent?
     private var dragClaim: WorkspaceSidebarNativeDragClaim?
@@ -52,9 +89,7 @@ final class WorkspaceSidebarWorkspaceDragSourceView: NSView, NSDraggingSource {
     override func mouseDragged(with event: NSEvent) {
         guard let origin = mouseDownPoint, let mouseDownEvent, !isDraggingWorkspace else { return }
         let point = convert(event.locationInWindow, from: nil)
-        guard hypot(point.x - origin.x, point.y - origin.y) >= 4,
-              let pasteboard = WorkspaceSidebarWorkspaceDragPayload(workspaceName: workspaceName).pasteboardItem
-        else { return }
+        guard hypot(point.x - origin.x, point.y - origin.y) >= 4, let pasteboard = pasteboardItem() else { return }
         let item = NSDraggingItem(pasteboardWriter: pasteboard)
         let preview = dragPreview()
         let previewOrigin = CGPoint(x: origin.x - 10, y: origin.y - preview.size.height / 2)
@@ -69,12 +104,38 @@ final class WorkspaceSidebarWorkspaceDragSourceView: NSView, NSDraggingSource {
             bounds.contains(convert(event.locationInWindow, from: nil))
         mouseDownPoint = nil
         mouseDownEvent = nil
-        if shouldActivate { onActivate() }
+        guard shouldActivate else { return }
+        // The first click of a double-click has already activated the row.
+        if event.clickCount >= 2, let onDoubleClick {
+            onDoubleClick()
+        } else {
+            onActivate()
+        }
     }
 
     override func accessibilityPerformPress() -> Bool {
         guard !isDraggingWorkspace else { return false }
         onActivate()
+        return true
+    }
+
+    /// Assistive technologies reach the double-click rename and the context menu as actions.
+    override func accessibilityCustomActions() -> [NSAccessibilityCustomAction]? {
+        guard onDoubleClick != nil else { return nil }
+        return [NSAccessibilityCustomAction(name: "Rename") { [weak self] in
+            guard let self, let onDoubleClick = self.onDoubleClick, !self.isDraggingWorkspace else { return false }
+            onDoubleClick()
+            return true
+        }]
+    }
+
+    override func accessibilityPerformShowMenu() -> Bool {
+        guard let window, !isDraggingWorkspace,
+              let event = NSEvent.mouseEvent(with: .rightMouseDown, location: convert(CGPoint(x: bounds.midX, y: bounds.midY), to: nil),
+                  modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                  context: nil, eventNumber: 0, clickCount: 1, pressure: 1)
+        else { return false }
+        rightMouseDown(with: event)
         return true
     }
 
@@ -91,7 +152,12 @@ final class WorkspaceSidebarWorkspaceDragSourceView: NSView, NSDraggingSource {
     func beginDrag() {
         guard !isDraggingWorkspace else { return }
         isDraggingWorkspace = true
-        dragClaim = WorkspaceSidebarNativeDragClaim()
+        dragClaim = WorkspaceSidebarNativeDragClaim(projectId: projectId)
+    }
+
+    private func pasteboardItem() -> NSPasteboardItem? {
+        if let projectId { return WorkspaceSidebarProjectDragPayload(projectId: projectId).pasteboardItem }
+        return WorkspaceSidebarWorkspaceDragPayload(workspaceName: workspaceName).pasteboardItem
     }
 
     func cancelPendingActivation() {
@@ -122,10 +188,17 @@ final class WorkspaceSidebarWorkspaceDragSourceView: NSView, NSDraggingSource {
 
 @MainActor
 private final class WorkspaceSidebarNativeDragClaim {
-    init() { beginWorkspaceSidebarNativeWorkspaceDrag() }
+    private let projectId: WorkspaceProjectId?
+
+    init(projectId: WorkspaceProjectId?) {
+        self.projectId = projectId
+        beginWorkspaceSidebarNativeWorkspaceDrag()
+        if let projectId { setWorkspaceSidebarDraggedProjectId(projectId) }
+    }
 
     isolated deinit {
         endWorkspaceSidebarNativeWorkspaceDrag()
+        if projectId != nil, workspaceSidebarDraggedProjectId() == projectId { setWorkspaceSidebarDraggedProjectId(nil) }
         WorkspaceSidebarPanel.scheduleHoverRecheckForVisiblePanels()
     }
 }

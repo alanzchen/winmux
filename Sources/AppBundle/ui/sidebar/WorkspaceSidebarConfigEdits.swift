@@ -3,6 +3,7 @@ import Foundation
 private let workspaceSidebarSectionHeader = "[workspace-sidebar]"
 private let workspaceSidebarMenuBarReserveKey = "menu-bar-reserve-height"
 private let workspaceSidebarProjectDeletionActionKey = "project-deletion-action"
+private let workspaceSidebarProjectOrderKey = "project-order"
 
 func updateWorkspaceSidebarMenuBarReserveConfig(
     in configText: String,
@@ -24,6 +25,34 @@ func updateWorkspaceSidebarProjectDeletionActionConfig(
         key: workspaceSidebarProjectDeletionActionKey,
         renderedValue: "'\(action.rawValue)'",
     )
+}
+
+/// Returns nil, leaving the file alone, when an existing multi-line value has no closing bracket
+/// inside the `[workspace-sidebar]` table.
+func updateWorkspaceSidebarProjectOrderConfig(in configText: String, order: [String]) -> String? {
+    let rendered = "[" + order.map { "\"\(tomlEscape($0))\"" }.joined(separator: ", ") + "]"
+    // The value is rewritten on one line; drop the continuation lines of a hand-written multi-line array.
+    var lines = configText.components(separatedBy: "\n")
+    // Brackets inside quoted ids or comments do not open or close the list.
+    func content(_ line: String) -> String { tomlUnquotedContent(line) }
+    if let sectionIndex = lines.firstIndex(where: { $0.trimmingCharacters(in: .whitespaces) == workspaceSidebarSectionHeader }) {
+        // A table header may carry a comment; it still ends the table.
+        let section = lines[(sectionIndex + 1)...].prefix { line in
+            let header = content(line)
+            return !(header.hasPrefix("[") && header.hasSuffix("]"))
+        }
+        if let keyIndex = section.firstIndex(where: { workspaceSidebarConfigKey(in: $0) == workspaceSidebarProjectOrderKey }),
+           let value = content(lines[keyIndex]).split(separator: "=", maxSplits: 1).last,
+           value.contains("["), !value.contains("]")
+        {
+            guard let closingIndex = section[(keyIndex + 1)...].firstIndex(where: { content($0).contains("]") }) else {
+                return nil
+            }
+            lines.removeSubrange((keyIndex + 1)...closingIndex)
+        }
+    }
+    return updateWorkspaceSidebarScalarConfig(in: lines.joined(separator: "\n"), key: workspaceSidebarProjectOrderKey,
+        renderedValue: rendered)
 }
 
 private func updateWorkspaceSidebarScalarConfig(
@@ -77,6 +106,19 @@ func persistWorkspaceSidebarMenuBarReserveHeight(_ height: Int, targetUrl explic
     }
     try updatedText.write(to: targetUrl, atomically: true, encoding: .utf8)
     return targetUrl
+}
+
+@MainActor
+func persistWorkspaceSidebarProjectOrder(_ order: [String], targetUrl explicitTargetUrl: URL? = nil) throws {
+    let targetUrl = explicitTargetUrl ?? preferredWorkspaceSidebarConfigUrl()
+    let currentText = try readWorkspaceSidebarConfig(at: targetUrl, contentsWhenMissing: "")
+    guard let updatedText = updateWorkspaceSidebarProjectOrderConfig(in: currentText, order: order) else {
+        throw WorkspaceMutationError.unreadableProjectOrder
+    }
+    if let parent = targetUrl.deletingLastPathComponent().takeIf({ $0.path != targetUrl.path }) {
+        try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
+    }
+    try updatedText.write(to: targetUrl, atomically: true, encoding: .utf8)
 }
 
 @MainActor
@@ -350,8 +392,45 @@ private func workspaceSidebarConfigKey(in line: String) -> String? {
 }
 
 private func trailingTomlComment(in line: String) -> String? {
-    guard let hashIndex = line.firstIndex(of: "#") else { return nil }
+    guard let hashIndex = tomlCommentStart(in: line) else { return nil }
     return String(line[hashIndex...]).trimmingCharacters(in: .whitespaces)
+}
+
+/// Where a line's comment starts, skipping `#` inside quoted strings. A line whose quote never
+/// closes is not valid TOML; its first `#` is kept as the comment, as before.
+private func tomlCommentStart(in line: String) -> String.Index? {
+    let scan = tomlScan(line)
+    return scan.commentStart ?? (scan.endsInsideQuote ? line.firstIndex(of: "#") : nil)
+}
+
+/// A line's text outside quoted strings and its comment.
+private func tomlUnquotedContent(_ line: String) -> String {
+    tomlScan(line).unquoted.trimmingCharacters(in: .whitespaces)
+}
+
+private func tomlScan(_ line: String) -> (unquoted: String, commentStart: String.Index?, endsInsideQuote: Bool) {
+    var quote: Character?
+    var escaped = false
+    var unquoted = ""
+    for index in line.indices {
+        let character = line[index]
+        if let open = quote {
+            if escaped {
+                escaped = false
+            } else if character == "\\", open == "\"" {
+                escaped = true
+            } else if character == open {
+                quote = nil
+            }
+        } else if character == "\"" || character == "'" {
+            quote = character
+        } else if character == "#" {
+            return (unquoted, index, false)
+        } else {
+            unquoted.append(character)
+        }
+    }
+    return (unquoted, nil, quote != nil)
 }
 
 private func tomlWorkspaceSidebarKeyValueLine(key: String, value: String) -> String {

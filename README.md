@@ -81,7 +81,8 @@ auto-hide setting and restores your previous setting afterward. See
   to switch, or drag tabs to reorder them or move them between workspaces.
 - **Separate projects:** a project holds a set of workspaces—for example, Work and
   Personal. Use the project indicators to switch between them, or expand the Dock
-  to see every project side by side and drag workspaces between their columns.
+  to see every project side by side, drag workspaces between their columns, and
+  drag project headers to reorder them. Double-click a name to rename it.
 - **Use multiple displays:** each display can show a different workspace. Each
   Dock initially filters to its own display. Moving a workspace already shown
   elsewhere requires confirming **Override**.

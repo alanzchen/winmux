@@ -574,7 +574,11 @@ extension WorkspaceSidebarPanel {
         ) { [weak self] notification in
             guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
                   app.processIdentifier != ProcessInfo.processInfo.processIdentifier else { return }
-            MainActor.assumeIsolated { self?.cancelInlineTextEditing() }
+            MainActor.assumeIsolated {
+                guard let self, workspaceSidebarInlineTextEditingCancelsForActivation(startedAt: self.inlineTextEditingStartedAt)
+                else { return }
+                self.cancelInlineTextEditing()
+            }
         }
     }
 

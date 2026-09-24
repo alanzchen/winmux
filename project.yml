@@ -26,10 +26,14 @@ targets:
         SUAutomaticallyUpdate: true
         SUFeedURL: ${XCODEGEN_WINMUX_UPDATE_FEED_URL}
         SUPublicEDKey: $(SPARKLE_PUBLIC_KEY)
-        # Sidebar workspace drags; resources/WinMux-Info.plist is generated from these properties.
+        # Sidebar workspace and project drags; resources/WinMux-Info.plist is generated from these properties.
         UTExportedTypeDeclarations:
           - UTTypeIdentifier: dev.winmux.sidebar-workspace
             UTTypeDescription: WinMux Workspace
+            UTTypeConformsTo:
+              - public.data
+          - UTTypeIdentifier: dev.winmux.sidebar-project
+            UTTypeDescription: WinMux Project
             UTTypeConformsTo:
               - public.data
     sources:
