@@ -29,6 +29,38 @@ func routePromotedPopupToSavedWorkspaceIfNeeded(_ window: MacWindow) async throw
     return try await routeNewWindowToSavedWorkspaceIfNeeded(window, isRegularWindow: type == .window)
 }
 
+/// Routes windows that arrived without a title once their title is known. Runs with each
+/// checkpoint while any are waiting, for at most the restore window.
+@MainActor
+func retrySavedWorkspaceRoutingForWindowsAwaitingTitles() async {
+    let runtime = savedWorkspaceRuntime
+    for (windowId, since) in runtime.windowsAwaitingTitle {
+        guard runtime.now.timeIntervalSince(since) < SavedWorkspaceTiming.restoreWindow,
+              let window = Window.get(byId: windowId),
+              window.isBound,
+              window.parent !== macosPopupWindowsContainer
+        else {
+            runtime.windowsAwaitingTitle.removeValue(forKey: windowId)
+            continue
+        }
+        guard normalizedSavedWindowTitle(try? await window.title) != nil else { continue }
+        runtime.windowsAwaitingTitle.removeValue(forKey: windowId)
+        _ = try? await routeNewWindowToSavedWorkspaceIfNeeded(window, isRegularWindow: true)
+    }
+    if !runtime.windowsAwaitingTitle.isEmpty {
+        scheduleSavedWorkspaceCheckpoint(after: 1)
+    }
+}
+
+/// Title parts between " — ", " – ", " - ", and " | " separators, at least 4 characters long.
+func savedTitleParts(_ title: String) -> Set<String> {
+    var parts = [title]
+    for separator in [" — ", " – ", " - ", " | "] {
+        parts = parts.flatMap { $0.components(separatedBy: separator) }
+    }
+    return parts.map { $0.trimmingCharacters(in: .whitespaces) }.filter { $0.count >= 4 }.toSet()
+}
+
 struct SavedSlotLocation: Equatable {
     let workspaceName: String
     let slot: SavedWindowSlot
@@ -51,6 +83,7 @@ func routeNewWindowToSavedWorkspaceIfNeeded(_ window: Window, isRegularWindow: B
     else { return false }
 
     let runtime = savedWorkspaceRuntime
+    runtime.noteWindowSeen(pid: window.app.pid)
     runtime.routingInFlightWindowIds.insert(window.windowId)
     defer { runtime.routingInFlightWindowIds.remove(window.windowId) }
 
@@ -60,7 +93,9 @@ func routeNewWindowToSavedWorkspaceIfNeeded(_ window: Window, isRegularWindow: B
         return try await placeWindowInSavedSlot(window, location)
     }
 
-    guard isStartup || runtime.isStartupRestoreActive || runtime.isArmed(bundleId: bundleId, launchDate: window.app.launchDate) else {
+    guard isStartup || runtime.isStartupRestoreActive ||
+        runtime.isArmed(bundleId: bundleId, launchDate: window.app.launchDate, pid: window.app.pid)
+    else {
         return false
     }
     let title = normalizedSavedWindowTitle(try? await window.title)
@@ -70,6 +105,13 @@ func routeNewWindowToSavedWorkspaceIfNeeded(_ window: Window, isRegularWindow: B
     // either not registered yet or was closed; another window of it must not take the slot.
     let candidates = waitingSavedSlots(bundleId: bundleId, routingWindow: window).filter {
         $0.slot.lastPid != window.app.pid
+    }
+    // Titles often appear a moment after the window. With several titled places to choose
+    // from, wait for it rather than guess.
+    if title == nil, candidates.count > 1, candidates.contains(where: { $0.slot.title?.isEmpty == false }) {
+        runtime.windowsAwaitingTitle[window.windowId] = runtime.now
+        scheduleSavedWorkspaceCheckpoint(after: 1)
+        return false
     }
     guard let location = bestSavedSlot(for: title, among: candidates, appName: window.app.name) else {
         return false
@@ -107,9 +149,18 @@ func waitingSavedSlots(bundleId: String, routingWindow: Window) -> [SavedSlotLoc
 /// app's only waiting slot, or one of the two titles is unknown. Otherwise an unrelated window
 /// of a just-launched app would be moved into some saved workspace.
 func bestSavedSlot(for title: String?, among candidates: [SavedSlotLocation], appName: String? = nil) -> SavedSlotLocation? {
+    // A part every candidate's title has ("Gmail", "Chrome") says nothing about which one fits.
+    let partsInEveryCandidate = candidates.count < 2 ? [] : candidates
+        .map { savedTitleParts($0.slot.title?.lowercased() ?? "") }
+        .reduce(nil as Set<String>?) { common, parts in common.map { $0.intersection(parts) } ?? parts } ?? []
     var best: (location: SavedSlotLocation, score: Int)?
     for candidate in candidates {
-        let score = savedTitleMatchScore(title, candidate.slot.title, appName: appName ?? candidate.slot.appName)
+        let score = savedTitleMatchScore(
+            title,
+            candidate.slot.title,
+            appName: appName ?? candidate.slot.appName,
+            ignoring: partsInEveryCandidate,
+        )
         let isEligible = score > 0 || candidates.count == 1 || title?.isEmpty != false || candidate.slot.title?.isEmpty != false
         guard isEligible else { continue }
         if best == nil || score > best!.score {
@@ -122,16 +173,12 @@ func bestSavedSlot(for title: String?, among candidates: [SavedSlotLocation], ap
 /// 3: same title. 2: the titles share a part between " — ", " - ", or " | " separators (for
 /// example the document or folder). 1: one title contains the other. The app's own name
 /// ("Chrome - Page") is never a match.
-func savedTitleMatchScore(_ lhs: String?, _ rhs: String?, appName: String? = nil) -> Int {
+func savedTitleMatchScore(_ lhs: String?, _ rhs: String?, appName: String? = nil, ignoring ignoredParts: Set<String> = []) -> Int {
     guard let lhs = lhs?.lowercased(), let rhs = rhs?.lowercased(), !lhs.isEmpty, !rhs.isEmpty else { return 0 }
     if lhs == rhs { return 3 }
     let appName = appName?.lowercased()
     func parts(_ title: String) -> Set<String> {
-        var parts = [title]
-        for separator in [" — ", " – ", " - ", " | "] {
-            parts = parts.flatMap { $0.components(separatedBy: separator) }
-        }
-        return parts.map { $0.trimmingCharacters(in: .whitespaces) }.filter { $0.count >= 4 && $0 != appName }.toSet()
+        savedTitleParts(title).filter { $0 != appName && !ignoredParts.contains($0) }
     }
     if !parts(lhs).isDisjoint(with: parts(rhs)) { return 2 }
     let shorter = lhs.count <= rhs.count ? lhs : rhs

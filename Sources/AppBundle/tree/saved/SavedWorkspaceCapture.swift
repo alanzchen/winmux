@@ -5,6 +5,8 @@ struct SavedWorkspaceCaptureFacts {
     let now: Date
     let runningApps: [String: [SavedRunningApp]]
     let titleByWindowId: [UInt32: String]
+    /// Processes with at least one registered window.
+    let registeredWindowPids: Set<Int32>
     let normalization: SavedLayoutNormalization
     /// WinMux started recently: everything saved keeps waiting for its windows.
     let startupRestoreActive: Bool
@@ -17,9 +19,19 @@ func currentSavedWorkspaceCaptureFacts(titleByWindowId: [UInt32: String]) -> Sav
         now: runtime.now,
         runningApps: runtime.environment.runningApps(),
         titleByWindowId: titleByWindowId,
+        registeredWindowPids: registeredSavedWorkspaceWindowPids(),
         normalization: .current,
         startupRestoreActive: runtime.isStartupRestoreActive,
     )
+}
+
+@MainActor
+func registeredSavedWorkspaceWindowPids() -> Set<Int32> {
+    guard isUnitTest else { return MacWindow.allWindowsMap.values.map(\.macApp.pid).toSet() }
+    let windows = Workspace.all.flatMap(\.allLeafWindowsRecursive) +
+        macosMinimizedWindowsContainer.children.filterIsInstance(of: Window.self) +
+        macosPopupWindowsContainer.children.filterIsInstance(of: Window.self)
+    return windows.map(\.app.pid).toSet()
 }
 
 // MARK: - Scheduling
@@ -60,6 +72,9 @@ func runSavedWorkspaceCheckpoint() async {
     else { return }
     adoptLabeledWorkspacesIfNeeded()
     guard !savedWorkspaceStore.isEmpty else { return }
+    if !runtime.windowsAwaitingTitle.isEmpty {
+        await retrySavedWorkspaceRoutingForWindowsAwaitingTitles()
+    }
     var titles: [UInt32: String] = [:]
     for record in savedWorkspaceStore.records {
         guard let workspace = Workspace.existing(byName: record.workspaceName) else { continue }
@@ -163,7 +178,7 @@ func captureSavedWorkspace(
     }
     let workspaceHasNoLiveWindows = snapshot.liveTiled.isEmpty && snapshot.liveFloating.isEmpty
     let vanishedRunningCount = missingSlots.count { slot in
-        !snapshot.detached.contains(slot.id) && slotOwnerIsRunning(slot, facts: facts)
+        !snapshot.detached.contains(slot.id) && facts.runningApps[slot.bundleId]?.isEmpty == false
     }
     let massVanish = vanishedRunningCount >= 2 && workspaceHasNoLiveWindows
     var decisions: [String: Bool] = [:]
@@ -239,8 +254,11 @@ func savedSlotKeepsWaiting(
         if runtime.aliveWindowPidsDuringRefresh[windowId] == pid { return true }
     }
     // The app quit: wait for its next launch. If a newer instance runs instead, the slot waits
-    // only while that instance may still bring the window back (the checks below).
-    if !slotOwnerIsRunning(slot, facts: facts), facts.runningApps[slot.bundleId]?.isEmpty != false { return true }
+    // until that instance has shown windows and had its chance to bring this one back.
+    if !slotOwnerIsRunning(slot, facts: facts) {
+        let instances = facts.runningApps[slot.bundleId] ?? []
+        if !instances.contains(where: { facts.registeredWindowPids.contains($0.pid) }) { return true }
+    }
     if facts.startupRestoreActive || runtime.isAnyInstanceArmed(bundleId: slot.bundleId, runningApps: facts.runningApps, at: facts.now) {
         return true
     }

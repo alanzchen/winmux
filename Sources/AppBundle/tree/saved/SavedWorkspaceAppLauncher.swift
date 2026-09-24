@@ -1,8 +1,9 @@
 import AppKit
 import Common
 
-/// Apps that saved workspaces are waiting for and that aren't running, by bundle id, in saved
-/// order. Callers checking many workspaces pass `runningApps` so it is read once.
+/// Apps that saved workspaces are waiting for and that aren't running, by bundle id: in saved
+/// order, or in the order of `workspaceNames`. Callers checking many workspaces pass
+/// `runningApps` so it is read once.
 @MainActor
 func missingSavedWorkspaceApps(
     workspaceNames: [String]?,
@@ -50,18 +51,21 @@ func openMissingSavedWorkspaceApps(workspaceNames: [String]?) async -> SavedWork
     for app in apps {
         runtime.manualArmUntilByBundleId[app.bundleId] = now.addingTimeInterval(SavedWorkspaceTiming.restoreWindow)
     }
-    // Launch them together; one slow app shouldn't hold back the others.
+    // A few at a time: one slow app shouldn't hold back the others, and at login they shouldn't
+    // all compete with the apps macOS reopens.
     let openApplication = runtime.environment.openApplication
-    let launches = apps.map { app in
-        Task { @MainActor in await openApplication(app.bundleId, app.bundlePath) }
-    }
     var result = SavedWorkspaceAppLaunchResult()
-    for (app, launch) in zip(apps, launches) {
-        let name = savedWorkspaceAppDisplayName(bundleId: app.bundleId, appName: app.appName, bundlePath: app.bundlePath)
-        if await launch.value {
-            result.opened.append(name)
-        } else {
-            result.failed.append(name)
+    for batch in stride(from: 0, to: apps.count, by: 4).map({ Array(apps[$0 ..< min($0 + 4, apps.count)]) }) {
+        let launches = batch.map { app in
+            Task { @MainActor in await openApplication(app.bundleId, app.bundlePath) }
+        }
+        for (app, launch) in zip(batch, launches) {
+            let name = savedWorkspaceAppDisplayName(bundleId: app.bundleId, appName: app.appName, bundlePath: app.bundlePath)
+            if await launch.value {
+                result.opened.append(name)
+            } else {
+                result.failed.append(name)
+            }
         }
     }
     return result

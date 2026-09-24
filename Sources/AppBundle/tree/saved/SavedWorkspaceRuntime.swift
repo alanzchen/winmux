@@ -84,6 +84,12 @@ final class SavedWorkspaceRuntime {
     /// Windows being routed right now. Captures neither save them as new slots nor count them
     /// as missing.
     var routingInFlightWindowIds: Set<UInt32> = []
+    /// When WinMux first saw a window of each process. A relaunched app that shows its windows
+    /// late (or whose launch date is unknown) gets its restore window from then.
+    var firstWindowSeenByPid: [Int32: Date] = [:]
+    /// Windows that arrived without a title while several saved places could fit them. Routing
+    /// is retried once the title is known.
+    var windowsAwaitingTitle: [UInt32: Date] = [:]
     /// Window ids (with owner pid) that are alive but may not be registered yet. Filled only
     /// while a refresh registers windows, so routing can't hand a still-arriving saved window's
     /// slot to another window of the same app.
@@ -105,9 +111,18 @@ final class SavedWorkspaceRuntime {
         return false
     }
 
-    func isArmed(bundleId: String, launchDate: Date?, at date: Date? = nil) -> Bool {
+    func noteWindowSeen(pid: Int32) {
+        if firstWindowSeenByPid[pid] == nil {
+            firstWindowSeenByPid[pid] = now
+        }
+    }
+
+    func isArmed(bundleId: String, launchDate: Date?, pid: Int32? = nil, at date: Date? = nil) -> Bool {
         let now = date ?? self.now
         if let launchDate, now.timeIntervalSince(launchDate) < SavedWorkspaceTiming.restoreWindow {
+            return true
+        }
+        if let pid, let seen = firstWindowSeenByPid[pid], now.timeIntervalSince(seen) < SavedWorkspaceTiming.restoreWindow {
             return true
         }
         if let until = manualArmUntilByBundleId[bundleId], now < until {
@@ -118,7 +133,7 @@ final class SavedWorkspaceRuntime {
 
     func isAnyInstanceArmed(bundleId: String, runningApps: [String: [SavedRunningApp]], at date: Date) -> Bool {
         if let until = manualArmUntilByBundleId[bundleId], date < until { return true }
-        return runningApps[bundleId]?.contains { isArmed(bundleId: bundleId, launchDate: $0.launchDate, at: date) } == true
+        return runningApps[bundleId]?.contains { isArmed(bundleId: bundleId, launchDate: $0.launchDate, pid: $0.pid, at: date) } == true
     }
 }
 

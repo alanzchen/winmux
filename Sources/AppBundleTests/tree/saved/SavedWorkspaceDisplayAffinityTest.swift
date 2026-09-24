@@ -290,6 +290,51 @@ final class SavedWorkspaceDisplayAffinityTest: XCTestCase {
         XCTAssertFalse(third.activeWorkspace === other)
     }
 
+    func testSavedHomesWithoutTargetsTakeTheirOwnPointFirst() throws {
+        let left = SavedWorkspaceTestMonitor(id: 1, name: "Left", x: 0, isMain: true, uuid: "LEFT")
+        let middle = SavedWorkspaceTestMonitor(id: 2, name: "Middle", x: 1920, uuid: "MIDDLE")
+        let firstHome = SavedWorkspaceTestMonitor(id: 3, name: "First", x: 3840, uuid: "FIRST")
+        let secondHome = SavedWorkspaceTestMonitor(id: 4, name: "Second", x: 5760, uuid: "SECOND")
+        setMonitorsForTests([left, middle])
+        Workspace.reconcileWorkspaceState()
+        // Both saved workspaces show on other displays, so neither home gets a restore target.
+        let first = try savedWorkspace("first", on: left, windowId: 1)
+        let second = try savedWorkspace("second", on: middle, windowId: 2)
+        savedWorkspaceStore.update(named: "first") { $0.display = SavedDisplayAffinity(monitor: firstHome) }
+        savedWorkspaceStore.update(named: "second") { $0.display = SavedDisplayAffinity(monitor: secondHome) }
+        let shown = Workspace.get(byName: "shown")
+        TestWindow.new(id: 3, parent: shown.rootTilingContainer)
+        XCTAssertTrue(secondHome.rect.topLeftCorner.setActiveWorkspace(shown))
+
+        setMonitorsForTests([left, middle, firstHome, secondHome])
+        rearrangeWorkspacesOnMonitors()
+
+        XCTAssertTrue(secondHome.activeWorkspace === shown)
+        XCTAssertTrue(left.activeWorkspace === first)
+        XCTAssertTrue(middle.activeWorkspace === second)
+    }
+
+    func testViewportReservedForARestoredHomeGoesToAnotherDisplay() throws {
+        let home = SavedWorkspaceTestMonitor(id: 2, name: "Home", x: 1920, uuid: "HOME")
+        let other = SavedWorkspaceTestMonitor(id: 3, name: "Other", x: 3840, uuid: nil)
+        setMonitorsForTests([laptop, home])
+        Workspace.reconcileWorkspaceState()
+        let saved = try savedWorkspace("saved", on: home, windowId: 1)
+        setMonitorsForTests([laptop])
+        Workspace.reconcileWorkspaceState()
+        XCTAssertFalse(saved.isVisible)
+        // A stale viewport without a display key at the home's point.
+        let shown = Workspace.get(byName: "shown")
+        TestWindow.new(id: 2, parent: shown.rootTilingContainer)
+        XCTAssertTrue(home.rect.topLeftCorner.setActiveWorkspace(shown))
+
+        setMonitorsForTests([laptop, home, other])
+        rearrangeWorkspacesOnMonitors()
+
+        XCTAssertTrue(home.activeWorkspace === saved)
+        XCTAssertTrue(other.activeWorkspace === shown)
+    }
+
     func testSameModelWithoutSerialIsNotTheSameDisplay() {
         let affinity = SavedDisplayAffinity(uuid: nil, vendor: 1, model: 2, serial: nil, isBuiltin: false, name: "Panel", lastTopLeft: .zero)
         let sameModel = MonitorIdentityTestMonitor(identity: MonitorDisplayIdentity(uuid: "OTHER", vendor: 1, model: 2, serial: 0))

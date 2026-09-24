@@ -26,6 +26,8 @@ struct WorkspaceSidebarWorkspaceMenuContext: Equatable {
     var isForceAssignedByConfig = false
     /// Pinning needs a display WinMux can recognize again later.
     var currentDisplayHasIdentity = true
+    /// WinMux doesn't open apps with --read-only.
+    var canOpenApps = true
 }
 
 @MainActor
@@ -37,6 +39,7 @@ func workspaceSidebarWorkspaceMenuContext(workspaceName: String) -> WorkspaceSid
         currentDisplayName: currentDisplay?.name,
         isForceAssignedByConfig: resolvedForceAssignedMonitor(forWorkspaceName: workspaceName) != nil,
         currentDisplayHasIdentity: currentDisplay.map { SavedDisplayAffinity(monitor: $0) != nil } ?? false,
+        canOpenApps: !serverArgs.isReadOnly,
     )
 }
 
@@ -56,7 +59,7 @@ func workspaceSidebarWorkspaceMenuEntries(
     if let keepOn = workspaceSidebarKeepOnDisplayEntry(workspace, context: context) {
         entries.append(keepOn)
     }
-    if let saved, !saved.missingAppNames.isEmpty {
+    if let saved, !saved.missingAppNames.isEmpty, context.canOpenApps {
         entries.append(.init(
             title: "Open Missing Apps (\(saved.missingAppNames.count))",
             command: .send(.openSavedWorkspaceApps(workspace.name)),
@@ -87,9 +90,10 @@ private func workspaceSidebarKeepOnDisplayEntry(
     if isForceAssigned {
         // workspace-to-monitor-force-assignment wins over the saved home. An older pin can
         // still be removed, so it doesn't come back when the config entry goes away.
-        if isPinned, let home = saved?.homeDisplayName {
+        if isPinned {
+            let home = saved?.homeDisplayName.map { "“\($0)”" } ?? "Its Display"
             return .init(
-                title: "Keep on “\(home)” (Overridden by Config)",
+                title: "Keep on \(home) (Overridden by Config)",
                 checked: true,
                 command: .send(.setSavedWorkspacePinned(workspace.name, false)),
             )

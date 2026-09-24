@@ -169,8 +169,9 @@ Windows return to their places:
   of launching fill the waiting slots, matched by title. A window whose title
   matches none of them takes a slot only if it is the app's only waiting slot or
   either title is unknown. Windows opened later, for example with Cmd-N, behave
-  normally. Places the relaunched app doesn't fill in that time are dropped about
-  15 seconds later.
+  normally. Places the relaunched app doesn't fill within about 45 seconds of
+  launching or showing its first window are dropped about 15 seconds after that
+  (60 if none of the workspace's windows came back).
 - **Your Mac restarts or you log out:** after you log in, each app works like a
   relaunch. macOS may reopen apps itself; WinMux opens them only when you ask
   (see [Missing apps](#missing-apps)).
@@ -213,7 +214,8 @@ Choose **Keep on “<Display>”** in the workspace menu to pin a workspace to i
 current display, saving it if needed. While that display is connected, the
 workspace won't move to another display, and when the display reconnects the
 workspace returns even if it is showing elsewhere. Pinning again changes nothing,
-so a workspace shown elsewhere while its display is disconnected keeps its home.
+so a workspace shown elsewhere while its display is disconnected keeps its home;
+unpin it first to keep it on another display.
 Displays WinMux can't identify can't be pinned to. A
 `[workspace-to-monitor-force-assignment]` entry for the workspace wins over both
 the home display and Keep on; the menu still lets you remove an older pin.

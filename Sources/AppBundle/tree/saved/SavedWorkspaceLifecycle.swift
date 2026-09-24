@@ -227,7 +227,7 @@ func adoptLabeledWorkspacesIfNeeded() {
               config.workspaceSidebar.workspaceLabels[workspace.name]?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,
               workspaceHasLifecycleWindows(workspace)
         else { continue }
-        adopted = (try? ensureSavedWorkspaceRecord(workspace, flush: false)) != nil || adopted
+        adopted = (try? ensureSavedWorkspaceRecord(workspace, flush: false))?.created == true || adopted
     }
     if adopted {
         savedWorkspaceStore.flushNow()

@@ -200,8 +200,13 @@ func rearrangeWorkspacesOnMonitors() {
             newMonitorToOldMonitorMapping[newMonitor] = newMonitor
         }
     }
-    // An unmapped saved home may still fall back to its own old viewport below.
-    let oldViewportsOfUnmappedSavedHomes = unmappedSavedHomes.map(MonitorViewportId.init).toSet()
+    // An unmapped saved home may still fall back to its own old viewport below: the one at its
+    // point, unless that viewport belonged to another known display.
+    let oldViewportsOfUnmappedSavedHomes = unmappedSavedHomes.compactMap { monitor -> MonitorViewportId? in
+        let viewportId = MonitorViewportId(monitor)
+        guard let viewport = oldViewportsById[viewportId] else { return nil }
+        return viewport.displayKey == nil || viewport.displayKey == monitor.displayIdentity?.key ? viewportId : nil
+    }.toSet()
     for newMonitor in newMonitors where newMonitorToOldMonitorMapping[newMonitor] == nil && !savedHomes.contains(newMonitor) {
         if let oldMonitor = oldVisibleMonitors.subtracting(oldViewportsOfUnmappedSavedHomes)
             .minBy({ ($0.topLeftCorner - newMonitor.topLeftCorner).vectorLength })
@@ -216,12 +221,24 @@ func rearrangeWorkspacesOnMonitors() {
         oldViewportsById: oldViewportsById,
         mappedOldViewportIds: newMonitorToOldMonitorMapping.values.toSet(),
     )
-    // A saved home with nothing to restore keeps what was on screen there, like any display.
-    for newMonitor in unmappedSavedHomes.map(MonitorViewportId.init) where restoreTargets.byViewport[newMonitor] == nil {
+    // A saved home with nothing to restore keeps what was on screen there, like any display:
+    // the same point first for all of them, then the nearest point.
+    let savedHomesWithoutTarget = unmappedSavedHomes.map(MonitorViewportId.init).filter { restoreTargets.byViewport[$0] == nil }
+    for newMonitor in savedHomesWithoutTarget {
         if oldVisibleMonitors.contains(newMonitor), oldViewportDisplayKeyMatches(oldViewportsById[newMonitor], newMonitor, currentMonitors) {
             check(oldVisibleMonitors.remove(newMonitor) != nil)
             newMonitorToOldMonitorMapping[newMonitor] = newMonitor
-        } else if let oldMonitor = oldVisibleMonitors.minBy({ ($0.topLeftCorner - newMonitor.topLeftCorner).vectorLength }) {
+        }
+    }
+    for newMonitor in savedHomesWithoutTarget where newMonitorToOldMonitorMapping[newMonitor] == nil {
+        if let oldMonitor = oldVisibleMonitors.minBy({ ($0.topLeftCorner - newMonitor.topLeftCorner).vectorLength }) {
+            check(oldVisibleMonitors.remove(oldMonitor) != nil)
+            newMonitorToOldMonitorMapping[newMonitor] = oldMonitor
+        }
+    }
+    // Old viewports reserved for saved homes that got a restore target are free again.
+    for newMonitor in newMonitors where newMonitorToOldMonitorMapping[newMonitor] == nil && restoreTargets.byViewport[newMonitor] == nil {
+        if let oldMonitor = oldVisibleMonitors.minBy({ ($0.topLeftCorner - newMonitor.topLeftCorner).vectorLength }) {
             check(oldVisibleMonitors.remove(oldMonitor) != nil)
             newMonitorToOldMonitorMapping[newMonitor] = oldMonitor
         }

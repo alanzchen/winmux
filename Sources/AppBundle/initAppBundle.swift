@@ -80,7 +80,10 @@ import Foundation
 private func finishSavedWorkspaceStartup() {
     guard savedWorkspaceRuntime.runtimeReadyAt == nil else { return }
     isDeferringOrphanedWorkspaceLabelCleanup = false
-    clearOrphanedWorkspaceSidebarLabels()
+    // After a failed startup the config may never have loaded; don't prune labels against it.
+    if savedWorkspaceRuntime.isConfigLoaded {
+        clearOrphanedWorkspaceSidebarLabels()
+    }
     savedWorkspaceRuntime.runtimeReadyAt = savedWorkspaceRuntime.now
     scheduleSavedWorkspaceCheckpoint()
 }

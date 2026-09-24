@@ -167,6 +167,9 @@ final class SavedWorkspaceStore {
                 restored.version = savedWorkspacesFileVersion
                 let store = SavedWorkspaceStore(file: restored, url: url, readOnlyReason: readOnlyReason, fileWasAbsentAtLoad: true)
                 store.adoptsLabels = false
+                // If moving the corrupt file aside failed, the first write must not copy it over
+                // the good backup.
+                store.didBackUpThisSession = true
                 let notice = "\(url.lastPathComponent) couldn't be read and was moved to \(movedTo ?? "a backup"). Saved workspaces were restored from the previous copy."
                 return (store, notice)
             }

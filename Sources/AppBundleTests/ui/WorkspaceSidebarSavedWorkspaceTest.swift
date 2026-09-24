@@ -173,12 +173,14 @@ final class WorkspaceSidebarSavedWorkspaceTest: XCTestCase {
         currentDisplay: String? = "DELL U2723QE",
         forceAssigned: Bool = false,
         currentDisplayHasIdentity: Bool = true,
+        canOpenApps: Bool = true,
     ) -> [WorkspaceSidebarWorkspaceMenuEntry] {
         workspaceSidebarWorkspaceMenuEntries(model("code", savedState: savedState), context: .init(
             monitorCount: monitorCount,
             currentDisplayName: currentDisplay,
             isForceAssignedByConfig: forceAssigned,
             currentDisplayHasIdentity: currentDisplayHasIdentity,
+            canOpenApps: canOpenApps,
         ))
     }
 
@@ -230,6 +232,13 @@ final class WorkspaceSidebarSavedWorkspaceTest: XCTestCase {
         XCTAssertEqual(try entry("Open Missing Apps (2)", in: menu).command, .send(.openSavedWorkspaceApps("code")))
         XCTAssertEqual(try entry("Forget Saved Workspace", in: menu).command, .send(.forgetSavedWorkspace("code")))
         XCTAssertFalse(entries(saved()).contains { $0.title.hasPrefix("Open Missing Apps") }, "Nothing missing, nothing to open")
+    }
+
+    func testReadOnlyHidesOpenMissingAppsButTooltipStillNamesThem() {
+        let state = saved(missing: ["Editor"])
+
+        XCTAssertFalse(entries(state, canOpenApps: false).contains { $0.title.hasPrefix("Open Missing Apps") })
+        XCTAssertTrue(workspaceSidebarSavedWorkspaceDescription(state).contains("Missing: Editor"))
     }
 
     func testSingleMonitorHidesKeepOnUnlessPinned() throws {

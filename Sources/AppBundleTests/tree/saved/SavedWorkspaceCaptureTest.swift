@@ -116,11 +116,50 @@ final class SavedWorkspaceCaptureTest: XCTestCase {
         // The editor restarted as pid 2002 long enough ago that it isn't bringing window 2 back.
         let relaunched = [editor: [SavedRunningApp(pid: 2002, launchDate: savedTestNow.addingTimeInterval(-600))]]
 
-        captureSavedWorkspaces(facts: savedTestFacts(running: relaunched))
+        // Until the new instance shows a window, it may still restore this one.
+        captureSavedWorkspaces(facts: savedTestFacts(now: savedTestNow.addingTimeInterval(3600), runningApps: relaunched, registeredWindowPids: [1001]))
         XCTAssertEqual(savedWorkspaceStore.record(named: "code")?.layout.root.allSlots.count, 2)
-        captureSavedWorkspaces(facts: savedTestFacts(now: savedTestNow.addingTimeInterval(16), running: relaunched))
+
+        captureSavedWorkspaces(facts: savedTestFacts(runningApps: relaunched, registeredWindowPids: [1001, 2002]))
+        XCTAssertEqual(savedWorkspaceStore.record(named: "code")?.layout.root.allSlots.count, 2)
+        captureSavedWorkspaces(facts: savedTestFacts(now: savedTestNow.addingTimeInterval(16), runningApps: relaunched, registeredWindowPids: [1001, 2002]))
 
         XCTAssertEqual(savedWorkspaceStore.record(named: "code")?.layout.root.allSlots.map(\.lastWindowId), [1])
+    }
+
+    func testRelaunchThatRestoresNothingGetsTheLongerGrace() throws {
+        let app = TestApp(pid: 1001, bundleId: editor)
+        let workspace = Workspace.get(byName: "code")
+        let first = TestWindow.new(id: 1, parent: workspace.rootTilingContainer, app: app)
+        let second = TestWindow.new(id: 2, parent: workspace.rootTilingContainer, app: app)
+        try ensureSavedWorkspaceRecord(workspace)
+        first.unbindFromParent()
+        second.unbindFromParent()
+        let relaunched = [editor: [SavedRunningApp(pid: 2002, launchDate: savedTestNow.addingTimeInterval(-600))]]
+
+        captureSavedWorkspaces(facts: savedTestFacts(runningApps: relaunched, registeredWindowPids: [2002]))
+        captureSavedWorkspaces(facts: savedTestFacts(now: savedTestNow.addingTimeInterval(30), runningApps: relaunched, registeredWindowPids: [2002]))
+        XCTAssertEqual(savedWorkspaceStore.record(named: "code")?.layout.root.allSlots.count, 2)
+
+        captureSavedWorkspaces(facts: savedTestFacts(now: savedTestNow.addingTimeInterval(61), runningApps: relaunched, registeredWindowPids: [2002]))
+        XCTAssertEqual(savedWorkspaceStore.record(named: "code")?.layout.root.allSlots.count, 0)
+    }
+
+    func testRelaunchedAppThatJustShowedItsFirstWindowIsStillArmed() throws {
+        let app = TestApp(pid: 1001, bundleId: editor)
+        let workspace = Workspace.get(byName: "code")
+        TestWindow.new(id: 1, parent: workspace.rootTilingContainer, app: app)
+        let second = TestWindow.new(id: 2, parent: workspace.rootTilingContainer, app: app)
+        try ensureSavedWorkspaceRecord(workspace)
+        second.unbindFromParent()
+        // Launched long ago (or with no launch date), but its first window appeared just now.
+        let relaunched = [editor: [SavedRunningApp(pid: 2002, launchDate: nil)]]
+        savedWorkspaceRuntime.firstWindowSeenByPid[2002] = savedTestNow
+
+        captureSavedWorkspaces(facts: savedTestFacts(now: savedTestNow.addingTimeInterval(30), runningApps: relaunched, registeredWindowPids: [1001, 2002]))
+
+        XCTAssertEqual(savedWorkspaceStore.record(named: "code")?.layout.root.allSlots.count, 2)
+        XCTAssertTrue(savedWorkspaceRuntime.vanishedSlots.isEmpty)
     }
 
     func testClosedWindowOfRunningAppDroppedOnlyAfterGrace() throws {
@@ -210,7 +249,6 @@ final class SavedWorkspaceCaptureTest: XCTestCase {
         try ensureSavedWorkspaceRecord(workspace)
         let other = Workspace.get(byName: "other")
         let moved = TestWindow.new(id: 3, parent: workspace.rootTilingContainer, app: app)
-        try ensureSavedWorkspaceRecord(workspace)
         captureSavedWorkspaces(facts: savedTestFacts(running: running([(editor, 1001)])))
 
         minimized.layoutReason = .macos(prevParentKind: .tilingContainer, prevWorkspaceName: nil)

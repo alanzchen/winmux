@@ -58,6 +58,7 @@ func savedTestFacts(
     now: Date = savedTestNow,
     runningApps: [String: [SavedRunningApp]] = [:],
     titles: [UInt32: String] = [:],
+    registeredWindowPids: Set<Int32>? = nil,
     flatten: Bool = false,
     oppositeOrientation: Bool = false,
     startupRestoreActive: Bool = false,
@@ -66,6 +67,7 @@ func savedTestFacts(
         now: now,
         runningApps: runningApps,
         titleByWindowId: titles,
+        registeredWindowPids: registeredWindowPids ?? registeredSavedWorkspaceWindowPids(),
         normalization: SavedLayoutNormalization(flatten: flatten, oppositeOrientation: oppositeOrientation),
         startupRestoreActive: startupRestoreActive,
     )
