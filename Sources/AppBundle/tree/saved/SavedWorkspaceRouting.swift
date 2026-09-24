@@ -43,6 +43,7 @@ func scheduleSavedWorkspaceTitleRetry() {
         var delay: TimeInterval = 0.5
         while !runtime.windowsAwaitingTitle.isEmpty, !Task.isCancelled {
             try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            if Task.isCancelled { break }
             delay = min(delay * 2, 4)
             await retrySavedWorkspaceRoutingForWindowsAwaitingTitles()
         }
@@ -53,22 +54,15 @@ func scheduleSavedWorkspaceTitleRetry() {
     }
 }
 
-/// One retry pass: drops waits past `titleWaitLimit`, then routes the waiting windows whose
-/// title is known now, or whose wait is over. Same guards as checkpoints: nothing moves while
-/// the screen is locked, the Mac sleeps, displays are still reconfiguring, or WinMux is
-/// disabled.
+/// One retry pass: drops waits past `titleWaitLimit` and windows that went away, then routes
+/// the waiting windows whose title is known now, or whose wait is over.
 @MainActor
 func retrySavedWorkspaceRoutingForWindowsAwaitingTitles() async {
-    let runtime = savedWorkspaceRuntime
-    dropExpiredSavedTitleWaits()
-    guard !runtime.windowsAwaitingTitle.isEmpty,
-          !runtime.isCaptureSuspended,
-          !MonitorConfigurationObserver.shared.isSettling,
-          runtime.environment.frontmostAppBundleId() != lockScreenAppBundleId,
-          let token: RunSessionGuard = .isServerEnabled
-    else { return }
+    dropEndedSavedTitleWaits()
+    guard !savedWorkspaceRuntime.windowsAwaitingTitle.isEmpty, savedTitleRoutingToken != nil else { return }
     let ready = await savedWorkspaceWindowsReadyToRoute()
-    guard !ready.isEmpty else { return }
+    // Fetching titles awaited; check again.
+    guard !ready.isEmpty, let token = savedTitleRoutingToken else { return }
     if isUnitTest {
         await routeSavedWorkspaceWindows(ready)
     } else {
@@ -78,31 +72,53 @@ func retrySavedWorkspaceRoutingForWindowsAwaitingTitles() async {
     }
 }
 
+/// Same guards as checkpoints: nothing moves while the screen is locked, the Mac sleeps,
+/// displays are still reconfiguring, or WinMux is disabled.
 @MainActor
-private func dropExpiredSavedTitleWaits() {
+private var savedTitleRoutingToken: RunSessionGuard? {
+    let runtime = savedWorkspaceRuntime
+    guard !runtime.isCaptureSuspended,
+          !MonitorConfigurationObserver.shared.isSettling,
+          runtime.environment.frontmostAppBundleId() != lockScreenAppBundleId
+    else { return nil }
+    return .isServerEnabled
+}
+
+@MainActor
+private func dropEndedSavedTitleWaits() {
     let runtime = savedWorkspaceRuntime
     let now = runtime.now
-    let expired = runtime.windowsAwaitingTitle.filter { now.timeIntervalSince($0.value.since) >= SavedWorkspaceTiming.titleWaitLimit }
-    guard !expired.isEmpty else { return }
-    for windowId in expired.keys {
+    let ended = runtime.windowsAwaitingTitle.filter { windowId, wait in
+        now.timeIntervalSince(wait.since) >= SavedWorkspaceTiming.titleWaitLimit || savedWindowAwaitingTitle(windowId, wait) == nil
+    }
+    guard !ended.isEmpty else { return }
+    for windowId in ended.keys {
         runtime.windowsAwaitingTitle.removeValue(forKey: windowId)
     }
-    // Captures skipped these windows while they waited.
+    // Captures skipped these window ids while they waited.
     scheduleSavedWorkspaceCheckpoint()
 }
 
+/// The waiting window, unless it went away, became a popup, or its id now belongs to another
+/// process.
+@MainActor
+private func savedWindowAwaitingTitle(_ windowId: UInt32, _ wait: SavedTitleWait) -> Window? {
+    guard let window = Window.get(byId: windowId),
+          window.app.pid == wait.pid,
+          window.isBound,
+          window.parent !== macosPopupWindowsContainer
+    else { return nil }
+    return window
+}
+
 /// Waiting windows whose title is known now or whose wait is over. Drops windows that went
-/// away.
+/// away meanwhile.
 @MainActor
 private func savedWorkspaceWindowsReadyToRoute() async -> [Window] {
     let runtime = savedWorkspaceRuntime
     var ready: [Window] = []
     for (windowId, wait) in runtime.windowsAwaitingTitle {
-        guard let window = Window.get(byId: windowId),
-              window.app.pid == wait.pid,
-              window.isBound,
-              window.parent !== macosPopupWindowsContainer
-        else {
+        guard let window = savedWindowAwaitingTitle(windowId, wait) else {
             runtime.windowsAwaitingTitle.removeValue(forKey: windowId)
             continue
         }

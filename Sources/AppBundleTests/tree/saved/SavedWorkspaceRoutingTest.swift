@@ -207,7 +207,7 @@ final class SavedWorkspaceRoutingTest: XCTestCase {
 
         // Still untitled after the wait, and past the app's own restore window.
         savedWorkspaceRuntime.firstWindowSeenByPid[1001] = nil
-        savedWorkspaceRuntime.environment = .forTests(now: savedTestNow.addingTimeInterval(40))
+        savedWorkspaceRuntime.environment = .forTests(now: savedTestNow.addingTimeInterval(SavedWorkspaceTiming.titleWaitLimit - 5))
         XCTAssertFalse(savedWorkspaceRuntime.isArmed(bundleId: editor, launchDate: window.app.launchDate, pid: 1001))
         await retrySavedWorkspaceRoutingForWindowsAwaitingTitles()
 
@@ -228,16 +228,37 @@ final class SavedWorkspaceRoutingTest: XCTestCase {
         return window
     }
 
-    func testWindowWaitingPastTheLimitStaysWhereItIs() async throws {
+    func testWindowWaitingPastTheLimitStaysWhereItIsAndIsSavedThere() async throws {
         // Routing couldn't run for a while; by now the window has been in use.
         let window = try await makeWindowWaitForItsTitle()
-        let landedIn = window.nodeWorkspace
+        let landedIn = try XCTUnwrap(window.nodeWorkspace)
+        // Saved while the window waited: the window isn't part of it yet.
+        try ensureSavedWorkspaceRecord(landedIn)
+        XCTAssertEqual(savedWorkspaceStore.record(named: landedIn.name)?.layout.allSlots.map(\.lastWindowId), [])
         window.customTitle = "c.swift — ProjectTwo"
-        savedWorkspaceRuntime.environment = .forTests(now: savedTestNow.addingTimeInterval(SavedWorkspaceTiming.titleWaitLimit))
+        TrayMenuModel.shared.isEnabled = false
+        defer { TrayMenuModel.shared.isEnabled = true }
+        let later = savedTestNow.addingTimeInterval(SavedWorkspaceTiming.titleWaitLimit)
+        savedWorkspaceRuntime.environment = .forTests(now: later)
+
+        await retrySavedWorkspaceRoutingForWindowsAwaitingTitles()
+        XCTAssertTrue(savedWorkspaceRuntime.windowsAwaitingTitle.isEmpty)
+        TrayMenuModel.shared.isEnabled = true
+        await retrySavedWorkspaceRoutingForWindowsAwaitingTitles()
+        XCTAssertTrue(window.nodeWorkspace === landedIn)
+
+        // The checkpoint that follows saves it where it stayed.
+        captureSavedWorkspaces(facts: savedTestFacts(now: later, runningApps: [editor: [SavedRunningApp(pid: 1001, launchDate: savedTestNow)]]))
+        XCTAssertEqual(savedWorkspaceStore.record(named: landedIn.name)?.layout.allSlots.map(\.lastWindowId), [31])
+    }
+
+    func testWaitOfAClosedWindowEndsWhileRoutingCantRun() async throws {
+        let window = try await makeWindowWaitForItsTitle()
+        savedWorkspaceRuntime.suspensions.insert(.screenLocked)
+        window.unbindFromParent()
 
         await retrySavedWorkspaceRoutingForWindowsAwaitingTitles()
 
-        XCTAssertTrue(window.nodeWorkspace === landedIn)
         XCTAssertTrue(savedWorkspaceRuntime.windowsAwaitingTitle.isEmpty)
     }
 
@@ -247,16 +268,23 @@ final class SavedWorkspaceRoutingTest: XCTestCase {
         window.customTitle = "c.swift — ProjectTwo"
 
         TrayMenuModel.shared.isEnabled = false
+        defer { TrayMenuModel.shared.isEnabled = true }
         await retrySavedWorkspaceRoutingForWindowsAwaitingTitles()
+        XCTAssertTrue(window.nodeWorkspace === landedIn)
+        XCTAssertNotNil(savedWorkspaceRuntime.windowsAwaitingTitle[31])
         TrayMenuModel.shared.isEnabled = true
         savedWorkspaceRuntime.suspensions.insert(.screenLocked)
         await retrySavedWorkspaceRoutingForWindowsAwaitingTitles()
         XCTAssertTrue(window.nodeWorkspace === landedIn)
         XCTAssertNotNil(savedWorkspaceRuntime.windowsAwaitingTitle[31])
 
-        // Unlocking ends the wait: the window has been in use since.
+        // Unlocking ends the wait (the window has been in use since) and its retries.
+        let retry = Task<Void, Never> { try? await Task.sleep(nanoseconds: 60_000_000_000) }
+        savedWorkspaceRuntime.titleRetryTask = retry
         resumeSavedWorkspaceCapture(after: .screenLocked)
         XCTAssertTrue(savedWorkspaceRuntime.windowsAwaitingTitle.isEmpty)
+        XCTAssertTrue(retry.isCancelled)
+        XCTAssertNil(savedWorkspaceRuntime.titleRetryTask)
         await retrySavedWorkspaceRoutingForWindowsAwaitingTitles()
         XCTAssertTrue(window.nodeWorkspace === landedIn)
     }
@@ -273,7 +301,7 @@ final class SavedWorkspaceRoutingTest: XCTestCase {
         XCTAssertTrue(savedWorkspaceRuntime.windowsAwaitingTitle.isEmpty)
     }
 
-    func testFirstWindowArmsAnAppWithoutLaunchDateHoweverLateItShows() {
+    func testFirstWindowArmsAnAppWithUnknownLaunchDateButNotOneLaunchedLongBefore() {
         let runtime = savedWorkspaceRuntime
         runtime.firstWindowSeenByPid[1001] = savedTestNow.addingTimeInterval(-10)
         runtime.firstWindowSeenByPid[1002] = savedTestNow.addingTimeInterval(-10)
@@ -323,7 +351,8 @@ final class SavedWorkspaceRoutingTest: XCTestCase {
         )
 
         let opening = Task { await openMissingSavedWorkspaceApps(workspaceNames: ["many"]) }
-        for _ in 0 ..< 1000 where launched.count < bundleIds.count || slowApp.continuation == nil {
+        for _ in 0 ..< 1000 {
+            if launched.count == bundleIds.count, slowApp.continuation != nil { break }
             await Task.yield()
         }
 
@@ -332,8 +361,11 @@ final class SavedWorkspaceRoutingTest: XCTestCase {
         XCTAssertEqual(Set(launched), Set(bundleIds))
         let arms = savedWorkspaceRuntime.manualArmUntilByBundleId
         XCTAssertEqual(arms["com.test.app1"], savedTestNow.addingTimeInterval(SavedWorkspaceTiming.restoreWindow))
-        XCTAssertGreaterThan(try XCTUnwrap(arms["com.test.app6"]), try XCTUnwrap(arms["com.test.app1"]))
-        slowApp.continuation?.resume()
+        XCTAssertGreaterThan(arms["com.test.app6"] ?? .distantPast, arms["com.test.app1"] ?? .distantFuture)
+        guard let continuation = slowApp.continuation else {
+            return XCTFail("The slow app never started opening")
+        }
+        continuation.resume()
         let result = await opening.value
         XCTAssertEqual(result.opened, bundleIds)
         XCTAssertEqual(result.failed, [])
