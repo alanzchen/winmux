@@ -167,8 +167,8 @@ Windows return to their places:
   window returns to its slot in the saved layout.
 - **An app relaunches** after it quit: its first windows within about 45 seconds
   of launching (or of showing its first window, for apps that take up to 10 minutes
-  to show one) fill the waiting slots, matched by title. A window without a title
-  waits up to 10 seconds for one. A window whose title
+  to show one or don't report a launch time) fill the waiting slots, matched by
+  title. A window without a title waits up to 10 seconds for one. A window whose title
   matches none of them takes a slot only if it is the app's only waiting slot or
   either title is unknown. Windows opened later, for example with Cmd-N, behave
   normally. Places the relaunched app doesn't fill within about 45 seconds of

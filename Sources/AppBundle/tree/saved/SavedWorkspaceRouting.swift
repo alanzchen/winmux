@@ -44,26 +44,51 @@ func scheduleSavedWorkspaceTitleRetry() {
         while !runtime.windowsAwaitingTitle.isEmpty, !Task.isCancelled {
             try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
             delay = min(delay * 2, 4)
-            // Same guards as checkpoints: nothing moves while the screen is locked, the Mac
-            // sleeps, or displays are still reconfiguring.
-            guard !runtime.isCaptureSuspended,
-                  !MonitorConfigurationObserver.shared.isSettling,
-                  runtime.environment.frontmostAppBundleId() != lockScreenAppBundleId
-            else { continue }
-            let ready = await savedWorkspaceWindowsReadyToRoute()
-            guard !ready.isEmpty, let token: RunSessionGuard = .isServerEnabled else { continue }
-            _ = try? await runLightSession(.ax(kAXTitleChangedNotification as String), token) {
-                await routeSavedWorkspaceWindows(ready)
-            }
+            await retrySavedWorkspaceRoutingForWindowsAwaitingTitles()
         }
-        runtime.titleRetryTask = nil
+        // A cancelled task was replaced (or cleared on resume); leave the handle alone.
+        if !Task.isCancelled {
+            runtime.titleRetryTask = nil
+        }
     }
 }
 
-/// Routes the waiting windows whose title is known now, or whose wait is over.
+/// One retry pass: drops waits past `titleWaitLimit`, then routes the waiting windows whose
+/// title is known now, or whose wait is over. Same guards as checkpoints: nothing moves while
+/// the screen is locked, the Mac sleeps, displays are still reconfiguring, or WinMux is
+/// disabled.
 @MainActor
 func retrySavedWorkspaceRoutingForWindowsAwaitingTitles() async {
-    await routeSavedWorkspaceWindows(await savedWorkspaceWindowsReadyToRoute())
+    let runtime = savedWorkspaceRuntime
+    dropExpiredSavedTitleWaits()
+    guard !runtime.windowsAwaitingTitle.isEmpty,
+          !runtime.isCaptureSuspended,
+          !MonitorConfigurationObserver.shared.isSettling,
+          runtime.environment.frontmostAppBundleId() != lockScreenAppBundleId,
+          let token: RunSessionGuard = .isServerEnabled
+    else { return }
+    let ready = await savedWorkspaceWindowsReadyToRoute()
+    guard !ready.isEmpty else { return }
+    if isUnitTest {
+        await routeSavedWorkspaceWindows(ready)
+    } else {
+        _ = try? await runLightSession(.ax(kAXTitleChangedNotification as String), token) {
+            await routeSavedWorkspaceWindows(ready)
+        }
+    }
+}
+
+@MainActor
+private func dropExpiredSavedTitleWaits() {
+    let runtime = savedWorkspaceRuntime
+    let now = runtime.now
+    let expired = runtime.windowsAwaitingTitle.filter { now.timeIntervalSince($0.value.since) >= SavedWorkspaceTiming.titleWaitLimit }
+    guard !expired.isEmpty else { return }
+    for windowId in expired.keys {
+        runtime.windowsAwaitingTitle.removeValue(forKey: windowId)
+    }
+    // Captures skipped these windows while they waited.
+    scheduleSavedWorkspaceCheckpoint()
 }
 
 /// Waiting windows whose title is known now or whose wait is over. Drops windows that went
@@ -96,6 +121,8 @@ private func routeSavedWorkspaceWindows(_ windows: [Window]) async {
         // It was armed when it arrived; the wait must not cost it that.
         _ = try? await routeNewWindowToSavedWorkspaceIfNeeded(window, isRegularWindow: true, wasAdmitted: true)
     }
+    // Captures skipped these windows while they waited, including any that found no place.
+    scheduleSavedWorkspaceCheckpoint()
 }
 
 /// Title parts between " — ", " – ", " - ", and " | " separators, at least 4 characters long.

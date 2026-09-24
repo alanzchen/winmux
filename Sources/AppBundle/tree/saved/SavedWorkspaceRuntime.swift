@@ -66,6 +66,9 @@ enum SavedWorkspaceTiming {
     static let slowLaunchWindow: TimeInterval = 600
     /// How long a window without a title waits for one before it is placed by saved order.
     static let titleWait: TimeInterval = 10
+    /// A window still waiting this long (routing couldn't run, for example while WinMux was
+    /// disabled) has been in use; it stays where it is.
+    static let titleWaitLimit: TimeInterval = 45
 }
 
 /// A window that arrived without a title while several saved places could fit it.
@@ -97,8 +100,9 @@ final class SavedWorkspaceRuntime {
     /// Windows being routed right now. Captures neither save them as new slots nor count them
     /// as missing.
     var routingInFlightWindowIds: Set<UInt32> = []
-    /// When WinMux first saw a window of each process. A relaunched app that shows its windows
-    /// late (or whose launch date is unknown) gets its restore window from then.
+    /// When WinMux first saw a window of each running process. A relaunched app that shows its
+    /// windows late gets its restore window from then, if that was within `slowLaunchWindow` of
+    /// its launch (always when its launch date is unknown).
     var firstWindowSeenByPid: [Int32: Date] = [:]
     /// Windows that arrived without a title while several saved places could fit them. Routing
     /// is retried once the title is known.
@@ -232,11 +236,13 @@ func installSavedWorkspaceObservers() {
 }
 
 @MainActor
-private func resumeSavedWorkspaceCapture(after suspension: SavedWorkspaceSuspension) {
+func resumeSavedWorkspaceCapture(after suspension: SavedWorkspaceSuspension) {
     guard savedWorkspaceRuntime.suspensions.remove(suspension) != nil else { return }
     // Windows that vanished during the suspension were never really closed, and windows still
     // waiting for a title from before it have been in use since.
     savedWorkspaceRuntime.vanishedSlots = [:]
     savedWorkspaceRuntime.windowsAwaitingTitle = [:]
+    savedWorkspaceRuntime.titleRetryTask?.cancel()
+    savedWorkspaceRuntime.titleRetryTask = nil
     scheduleSavedWorkspaceCheckpoint()
 }

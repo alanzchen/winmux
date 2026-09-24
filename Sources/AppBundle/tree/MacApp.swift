@@ -538,7 +538,10 @@ final class MacApp: AbstractApp {
     }
 
     private func destroy() async {
-        _ = await Task { @MainActor [pid] in _ = MacApp.allAppsMap.removeValue(forKey: pid) }.result
+        _ = await Task { @MainActor [pid] in
+            _ = MacApp.allAppsMap.removeValue(forKey: pid)
+            savedWorkspaceRuntime.firstWindowSeenByPid.removeValue(forKey: pid)
+        }.result
         for (_, job) in setFrameJobs {
             job.cancel()
         }
