@@ -57,17 +57,26 @@ extension WorkspaceSidebarView {
         }
     }
 
+    /// While searching, the card keeps its unfiltered size. Filtering never moves the search
+    /// field out from under the pointer, which would collapse the view and clear the query.
+    var isProjectColumnsSearchActive: Bool { isSearchEditing || !searchText.isEmpty }
+
     private func projectColumnsCard(layout: WorkspaceSidebarConfiguration, maxSize: CGSize) -> some View {
         let shape = RoundedRectangle(cornerRadius: workspaceSidebarFloatingViewCornerRadius, style: .continuous)
         let inset = workspaceSidebarContentLeadingInset
         let columnWidth = workspaceSidebarSectionWidth(1, layout: layout)
         let columns = projectColumnsContent()
-        let columnsWidth = workspaceSidebarProjectColumnsWidth(columnCount: columns.count, columnWidth: columnWidth)
-        let cardWidth = min(columnsWidth + inset * 2, maxSize.width)
+        let columnsWidth = workspaceSidebarProjectColumnsWidth(columnCount: max(snapshot.projects.count, 1),
+            columnWidth: columnWidth)
+        let cardWidth = min(workspaceSidebarProjectColumnsCardWidth(columnsWidth: columnsWidth, columnWidth: columnWidth,
+            newProjectWidth: projectColumnsNewProjectWidth), maxSize.width)
         let headerHeight = workspaceSidebarDropdownHeight + workspaceSidebarProjectColumnHeaderSpacing
         let maximumListHeight = max(maxSize.height - projectColumnsToolbarHeight - headerHeight
             - workspaceSidebarProjectColumnsBottomPadding, workspaceSidebarProjectColumnMinimumListHeight)
-        let listHeight = min(max(projectColumnsListHeight, workspaceSidebarProjectColumnMinimumListHeight), maximumListHeight)
+        // The search floor outlives the search until the unfiltered columns have measured again.
+        let listHeight = workspaceSidebarProjectColumnsListHeight(measured: projectColumnsListHeight,
+            search: projectColumnsSearchListHeight,
+            minimum: workspaceSidebarProjectColumnMinimumListHeight, maximum: maximumListHeight)
 
         return VStack(alignment: .leading, spacing: 0) {
             projectColumnsToolbar(layout: layout, columnWidth: columnWidth)
@@ -81,9 +90,10 @@ extension WorkspaceSidebarView {
                 Text("No matching workspaces")
                     .font(.system(size: 12))
                     .foregroundStyle(Color.white.opacity(0.6))
-                    .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, inset + 8)
-                    .padding(.bottom, 14)
+                    .padding(.top, 6)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .frame(height: headerHeight + listHeight + workspaceSidebarProjectColumnsBottomPadding)
             } else {
                 GeometryReader { viewport in
                     ScrollViewReader { scroll in
@@ -116,7 +126,27 @@ extension WorkspaceSidebarView {
             if abs(height - projectColumnsToolbarHeight) > 0.5 { projectColumnsToolbarHeight = height }
         }
         .onPreferenceChange(WorkspaceSidebarProjectColumnHeightPreferenceKey.self) { height in
+            // With no matches no column reports a height; keep the last one.
+            guard height > 0.5 || !isProjectColumnsSearchActive else { return }
             if abs(height - projectColumnsListHeight) > 0.5 { projectColumnsListHeight = height }
+            if isProjectColumnsSearchActive {
+                if height > projectColumnsSearchListHeight + 0.5 { projectColumnsSearchListHeight = height }
+            } else if projectColumnsSearchListHeight != 0 {
+                projectColumnsSearchListHeight = 0
+            }
+        }
+        .onPreferenceChange(WorkspaceSidebarProjectColumnsNewProjectWidthPreferenceKey.self) { width in
+            if abs(width - projectColumnsNewProjectWidth) > 0.5 { projectColumnsNewProjectWidth = width }
+        }
+        .onChange(of: isProjectColumnsSearchActive) { active in
+            if active {
+                projectColumnsSearchListHeight = max(projectColumnsSearchListHeight, projectColumnsListHeight)
+            } else {
+                // Unfiltered columns that measure the same as the last results report no change.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    if !isProjectColumnsSearchActive { projectColumnsSearchListHeight = 0 }
+                }
+            }
         }
         .background {
             WorkspaceSidebarSurface(shape: shape, configuration: snapshot.configuration,
@@ -155,6 +185,13 @@ extension WorkspaceSidebarView {
                 }
                 .buttonStyle(.plain)
                 .help("Create a project")
+                .fixedSize()
+                .background {
+                    GeometryReader { button in
+                        Color.clear.preference(key: WorkspaceSidebarProjectColumnsNewProjectWidthPreferenceKey.self,
+                            value: button.size.width)
+                    }
+                }
                 .padding(.trailing, inset + 4)
             }
             .padding(.top, shouldShowTopFilterBar ? 0 : snapshot.configuration.topPadding)
@@ -271,6 +308,14 @@ struct WorkspaceSidebarExpandedSurfaceFramePreferenceKey: PreferenceKey {
 
 /// The tallest column's natural list height. Shorter columns share that height.
 struct WorkspaceSidebarProjectColumnHeightPreferenceKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
+struct WorkspaceSidebarProjectColumnsNewProjectWidthPreferenceKey: PreferenceKey {
     static let defaultValue: CGFloat = 0
 
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {

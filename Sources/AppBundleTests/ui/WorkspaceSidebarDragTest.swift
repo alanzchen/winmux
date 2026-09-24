@@ -433,6 +433,21 @@ final class WorkspaceSidebarDragTest: XCTestCase {
         XCTAssertEqual(results.first?.items.map(\.id), ["window:101", "window:102"])
     }
 
+    func testWorkspaceSidebarSearchMatchesBundleNamesButNotTheirFolders() {
+        let workspaces = makeWorkspaceSidebarSearchFixture()
+        func matches(_ query: String) -> [String] {
+            (workspaceSidebarFilteredWorkspacesByProject([workspaceProjectDefaultId: workspaces], projects: [],
+                query: query)[workspaceProjectDefaultId] ?? []).map(\.name)
+        }
+        // Every fixture app lives under an Applications folder; a folder name matches none of them.
+        XCTAssertEqual(matches("applications"), [])
+        XCTAssertEqual(matches("utilities"), [])
+        XCTAssertEqual(matches("terminal"), ["coding"])
+        XCTAssertEqual(workspaceSidebarSearchableBundleName("/Applications/Visual Studio Code.app"), "Visual Studio Code")
+        XCTAssertNil(workspaceSidebarSearchableBundleName(nil))
+        XCTAssertNil(workspaceSidebarSearchableBundleName(""))
+    }
+
     func testWorkspaceSidebarInlineTextDeletesLastWord() {
         XCTAssertEqual("release notes".deletingLastWord(), "release ")
         XCTAssertEqual("release notes   ".deletingLastWord(), "release ")

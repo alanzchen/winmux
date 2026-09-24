@@ -53,6 +53,22 @@ func workspaceSidebarProjectColumnsWidth(columnCount: Int, columnWidth: CGFloat)
     return CGFloat(count) * columnWidth + CGFloat(count - 1) * workspaceSidebarProjectColumnGap
 }
 
+/// The card fits its columns and, even with one project, the toolbar's search field and New
+/// Project button. The search field spans one column; the toolbar's spacer adds two 8-point gaps.
+func workspaceSidebarProjectColumnsCardWidth(columnsWidth: CGFloat, columnWidth: CGFloat,
+                                             newProjectWidth: CGFloat) -> CGFloat {
+    let inset = workspaceSidebarContentLeadingInset
+    let toolbarWidth = inset + columnWidth + 8 * 2 + newProjectWidth + inset + 4
+    return max(columnsWidth + inset * 2, toolbarWidth)
+}
+
+/// A search keeps the tallest list height seen since it began, including the unfiltered one,
+/// so fewer matches never shrink the card. The list scrolls beyond the available height.
+func workspaceSidebarProjectColumnsListHeight(measured: CGFloat, search: CGFloat,
+                                              minimum: CGFloat, maximum: CGFloat) -> CGFloat {
+    min(max(measured, search, minimum), max(maximum, minimum))
+}
+
 extension WorkspaceSidebarPanel {
     func updateExpandedSurfaceFrame(_ frame: CGRect?) {
         guard frame != expandedSurfaceFrame else { return }

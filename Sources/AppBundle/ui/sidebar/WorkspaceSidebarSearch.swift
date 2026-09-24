@@ -69,7 +69,7 @@ private func workspaceSidebarSearchResultItem(
                     window.title,
                     window.appName,
                     window.appBundleId,
-                    window.appBundlePath,
+                    workspaceSidebarSearchableBundleName(window.appBundlePath),
                     workspace.displayName,
                     workspace.name,
                     projectName,
@@ -82,7 +82,8 @@ private func workspaceSidebarSearchResultItem(
         case .tabGroup(let group):
             let matchingTabs = group.tabs.filter { tab in
                 workspaceSidebarSearchTextMatches(
-                    [tab.title, tab.appName, tab.appBundleId, tab.appBundlePath, workspace.displayName, workspace.name, projectName],
+                    [tab.title, tab.appName, tab.appBundleId, workspaceSidebarSearchableBundleName(tab.appBundlePath),
+                     workspace.displayName, workspace.name, projectName],
                     terms: terms,
                 )
             }
@@ -135,6 +136,13 @@ private func workspaceSidebarWorkspaceMatchesSearch(
         ],
         terms: terms,
     )
+}
+
+/// Matches an app by its bundle's file name. Its folders, such as `/System/Applications`,
+/// would otherwise match short queries for every app.
+func workspaceSidebarSearchableBundleName(_ bundlePath: String?) -> String? {
+    guard let bundlePath, !bundlePath.isEmpty else { return nil }
+    return ((bundlePath as NSString).lastPathComponent as NSString).deletingPathExtension
 }
 
 private func workspaceSidebarSearchTextMatches(_ values: [String?], terms: [String]) -> Bool {

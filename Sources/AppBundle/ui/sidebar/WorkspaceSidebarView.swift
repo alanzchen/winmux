@@ -14,6 +14,8 @@ struct WorkspaceSidebarView: View {
     @State var browseMode: WorkspaceSidebarBrowseMode = .activeProject
     @State var collapsedProjectIds: Set<WorkspaceProjectId> = []
     @State var projectColumnsListHeight: CGFloat = 0
+    @State var projectColumnsSearchListHeight: CGFloat = 0
+    @State var projectColumnsNewProjectWidth: CGFloat = 0
     @State var projectColumnsToolbarHeight: CGFloat = 44
     @State var activeInUseOverrideWorkspaceName: String? = nil
     @State var pendingInUseOverrideAppId: String? = nil
@@ -435,10 +437,11 @@ struct WorkspaceSidebarView: View {
             focusedMonitorScopeId: snapshot.focusedMonitorScopeId,
             browsedProjectId: browsedProjectId,
         )
+        // Floating project columns list the results; the resting Dock beside them keeps every workspace.
         let filteredWorkspacesByProject = workspaceSidebarFilteredWorkspacesByProject(
             visibleWorkspacesByProject,
             projects: snapshot.projects,
-            query: searchText,
+            query: usesProjectColumns && !allProjects ? "" : searchText,
         )
         if allProjects, !snapshot.projects.isEmpty {
             return snapshot.projects.flatMap { project in

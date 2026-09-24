@@ -122,6 +122,42 @@ final class WorkspaceSidebarFloatingProjectColumnsTest: XCTestCase {
         }
     }
 
+    func testSearchKeepsTheCardSizeSoItsFieldStaysUnderThePointer() {
+        let inset = workspaceSidebarContentLeadingInset
+        let columnWidth: CGFloat = 256
+        let allColumns = workspaceSidebarProjectColumnsWidth(columnCount: 3, columnWidth: columnWidth)
+        XCTAssertEqual(workspaceSidebarProjectColumnsCardWidth(columnsWidth: allColumns, columnWidth: columnWidth,
+            newProjectWidth: 90), allColumns + inset * 2)
+        XCTAssertGreaterThanOrEqual(workspaceSidebarProjectColumnsCardWidth(columnsWidth: columnWidth,
+            columnWidth: columnWidth, newProjectWidth: 90), inset + columnWidth + 16 + 90 + inset + 4,
+            "A single column still fits the search field and New Project")
+
+        XCTAssertEqual(workspaceSidebarProjectColumnsListHeight(measured: 120, search: 0, minimum: 40, maximum: 500), 120)
+        XCTAssertEqual(workspaceSidebarProjectColumnsListHeight(measured: 60, search: 320, minimum: 40, maximum: 500), 320,
+            "Fewer matches must not shrink the card and move its search field")
+        XCTAssertEqual(workspaceSidebarProjectColumnsListHeight(measured: 400, search: 320, minimum: 40, maximum: 500), 400)
+        XCTAssertEqual(workspaceSidebarProjectColumnsListHeight(measured: 60, search: 900, minimum: 40, maximum: 500), 500)
+        XCTAssertEqual(workspaceSidebarProjectColumnsListHeight(measured: 10, search: 0, minimum: 40, maximum: 500), 40)
+    }
+
+    func testSingleProjectCardKeepsNewProjectInside() throws {
+        var fixture = snapshot(position: .left)
+        fixture.projects = [fixture.projects[0]]
+        fixture.workspaces = [fixture.workspaces[0]]
+        fixture.visibleWidth = fixture.configuration.expandedWidth
+        let probe = FloatingColumnsProbe()
+        let host = NSHostingView(rootView: WorkspaceSidebarView(snapshot: fixture, actions: probe.actions,
+            reduceMotionOverride: true, reduceTransparencyOverride: true))
+        host.frame = CGRect(x: 0, y: 0, width: 1400, height: 900)
+        host.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        host.layoutSubtreeIfNeeded()
+        let card = try XCTUnwrap(probe.expanded)
+        let columnWidth = workspaceSidebarSectionWidth(1, layout: fixture.configuration)
+        XCTAssertGreaterThan(card.width, columnWidth + workspaceSidebarContentLeadingInset * 2 + 60,
+            "The toolbar's New Project button is not clipped by a one-column card")
+    }
+
     func testCollapsedDockDoesNotMountFloatingColumns() {
         for position in WorkspaceDockPosition.allCases {
             let probe = FloatingColumnsProbe()
