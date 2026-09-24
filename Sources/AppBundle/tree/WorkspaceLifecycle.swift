@@ -157,7 +157,8 @@ enum WorkspaceRemovalReason {
 func removeWorkspaceFromRegistry(_ workspace: Workspace, reason: WorkspaceRemovalReason) {
     switch reason {
         case .deleted:
-            if savedWorkspaceStore.remove(named: workspace.name) != nil {
+            if let removed = savedWorkspaceStore.remove(named: workspace.name) {
+                clearSavedWorkspaceRuntimeState(removed)
                 savedWorkspaceStore.flushNow()
             }
         case .pruned:

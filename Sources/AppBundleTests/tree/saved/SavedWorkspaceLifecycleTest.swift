@@ -81,6 +81,19 @@ final class SavedWorkspaceLifecycleTest: XCTestCase {
         XCTAssertNil(config.workspaceSidebar.workspaceLabels["8"])
     }
 
+    func testStartupKeepsLabelsOfWorkspacesNotRestoredYet() {
+        config.workspaceSidebar.workspaceLabels["3"] = "Restored later"
+        isDeferringOrphanedWorkspaceLabelCleanup = true
+        defer { isDeferringOrphanedWorkspaceLabelCleanup = false }
+
+        Workspace.reconcileWorkspaceState()
+        XCTAssertEqual(config.workspaceSidebar.workspaceLabels["3"], "Restored later")
+
+        isDeferringOrphanedWorkspaceLabelCleanup = false
+        clearOrphanedWorkspaceSidebarLabels()
+        XCTAssertNil(config.workspaceSidebar.workspaceLabels["3"])
+    }
+
     func testReconcileRecreatesMissingSavedWorkspace() {
         savedWorkspaceStore.insert(SavedWorkspaceRecord(workspaceName: "code", namingStyle: .explicit))
 
@@ -159,36 +172,23 @@ final class SavedWorkspaceLifecycleTest: XCTestCase {
     func testProjectAssignmentRestoresProjectAndOrderWithoutTransientBlanks() {
         savedWorkspaceStore.insert(SavedWorkspaceRecord(workspaceName: "6", projectId: "project-a"))
         savedWorkspaceStore.insert(SavedWorkspaceRecord(workspaceName: "5", projectId: "project-a"))
+        savedWorkspaceRuntime.workspacesAwaitingProject = nil
         materializeSavedWorkspaceNames()
         XCTAssertEqual(Workspace.existing(byName: "6")?.projectId, workspaceProjectDefaultId)
         config.workspaceSidebar.projectLabels["project-a"] = "Alpha"
-        savedWorkspaceRuntime.projectAssignmentPending = true
-        savedWorkspaceRuntime.configLoadState = .userConfig
 
         materializePersistedWorkspaceProjects()
 
         XCTAssertEqual(Workspace.existing(byName: "6")?.projectId, "project-a")
         XCTAssertEqual(projectWorkspaces(projectId: "project-a").map(\.name), ["6", "5"])
-        XCTAssertFalse(savedWorkspaceRuntime.projectAssignmentPending)
+        XCTAssertEqual(savedWorkspaceRuntime.workspacesAwaitingProject, [])
     }
 
-    func testMissingProjectMovesRecordToDefaultOnlyAfterUserConfigLoad() {
-        savedWorkspaceStore.insert(SavedWorkspaceRecord(workspaceName: "5", projectId: "gone"))
-        materializeSavedWorkspaceNames()
-        savedWorkspaceRuntime.projectAssignmentPending = true
-        savedWorkspaceRuntime.configLoadState = .userConfig
-
-        materializePersistedWorkspaceProjects()
-
-        XCTAssertEqual(Workspace.existing(byName: "5")?.projectId, workspaceProjectDefaultId)
-        XCTAssertEqual(savedWorkspaceStore.record(named: "5")?.projectId, workspaceProjectDefaultId)
-    }
-
-    func testDefaultConfigFallbackLeavesRecordProjectUntouchedAndReassignsAfterFix() throws {
+    func testMissingProjectWaitsInDefaultKeepsSavedProjectAndMovesBackWhenItReturns() throws {
+        // For example, the TOML config failed to load and the default config is in use.
         savedWorkspaceStore.insert(SavedWorkspaceRecord(workspaceName: "5", projectId: "project-a"))
+        savedWorkspaceRuntime.workspacesAwaitingProject = nil
         materializeSavedWorkspaceNames()
-        savedWorkspaceRuntime.projectAssignmentPending = true
-        noteSavedWorkspaceConfigLoaded(isDefaultFallback: true)
 
         materializePersistedWorkspaceProjects()
         captureSavedWorkspaces(facts: savedTestFacts())
@@ -196,14 +196,46 @@ final class SavedWorkspaceLifecycleTest: XCTestCase {
         let workspace = try XCTUnwrap(Workspace.existing(byName: "5"))
         XCTAssertEqual(workspace.projectId, workspaceProjectDefaultId)
         XCTAssertEqual(savedWorkspaceStore.record(named: "5")?.projectId, "project-a")
-        XCTAssertTrue(savedWorkspaceRuntime.projectAssignmentPending)
+        XCTAssertEqual(savedWorkspaceRuntime.workspacesAwaitingProject, ["5"])
 
         config.workspaceSidebar.projectLabels["project-a"] = "Alpha"
-        noteSavedWorkspaceConfigLoaded(isDefaultFallback: false)
         materializePersistedWorkspaceProjects()
 
         XCTAssertEqual(workspace.projectId, "project-a")
-        XCTAssertFalse(savedWorkspaceRuntime.projectAssignmentPending)
+        XCTAssertEqual(savedWorkspaceRuntime.workspacesAwaitingProject, [])
+    }
+
+    func testLaterPassesDontUndoTheUsersMoves() throws {
+        savedWorkspaceStore.insert(SavedWorkspaceRecord(workspaceName: "5", projectId: "project-a"))
+        savedWorkspaceStore.insert(SavedWorkspaceRecord(workspaceName: "6", projectId: workspaceProjectDefaultId))
+        savedWorkspaceRuntime.workspacesAwaitingProject = nil
+        materializeSavedWorkspaceNames()
+        materializePersistedWorkspaceProjects()
+        XCTAssertEqual(savedWorkspaceRuntime.workspacesAwaitingProject, ["5"])
+
+        let project = createWorkspaceProject()
+        let moved = try XCTUnwrap(Workspace.existing(byName: "6"))
+        moved.assignProject(project.id)
+        materializePersistedWorkspaceProjects()
+
+        XCTAssertEqual(moved.projectId, project.id)
+        captureSavedWorkspaces(facts: savedTestFacts())
+        XCTAssertEqual(savedWorkspaceStore.record(named: "6")?.projectId, project.id)
+    }
+
+    func testDeletingASavedWorkspaceClearsItsSessionState() throws {
+        let app = TestApp(pid: 1001, bundleId: "com.test.editor")
+        setSavedWorkspaceTestEnvironment(runningApps: ["com.test.editor": [SavedRunningApp(pid: 1001, launchDate: nil)]])
+        let workspace = Workspace.get(byName: "code")
+        let closed = TestWindow.new(id: 2, parent: workspace.rootTilingContainer, app: app)
+        try ensureSavedWorkspaceRecord(workspace)
+        closed.unbindFromParent()
+        captureSavedWorkspaces(facts: currentSavedWorkspaceCaptureFacts(titleByWindowId: [:]))
+        XCTAssertFalse(savedWorkspaceRuntime.vanishedSlots.isEmpty)
+
+        try deleteWorkspace(workspace)
+
+        XCTAssertTrue(savedWorkspaceRuntime.vanishedSlots.isEmpty)
     }
 
     func testDisplayNameFallsBackToRecordAndCheckpointNeverClearsIt() throws {
@@ -251,12 +283,15 @@ final class SavedWorkspaceLifecycleTest: XCTestCase {
         XCTAssertTrue(savedWorkspaceStore.isEmpty)
     }
 
-    func testReadOnlyStoreRefusesToSave() {
+    func testReadOnlyStoreStillRenamesButRefusesExplicitSave() throws {
         savedWorkspaceStore = SavedWorkspaceStore(url: nil, readOnlyReason: "newer")
         config.workspaceSidebar.saveNamedWorkspaces = true
         Workspace.get(byName: "1").markAsAutomaticallyNamed()
 
-        XCTAssertThrowsError(try renameWorkspaceForSidebar(workspaceName: "1", displayName: "Code"))
-        XCTAssertNil(config.workspaceSidebar.workspaceLabels["1"])
+        try renameWorkspaceForSidebar(workspaceName: "1", displayName: "Code")
+
+        XCTAssertEqual(config.workspaceSidebar.workspaceLabels["1"], "Code")
+        XCTAssertFalse(Workspace.get(byName: "1").isSaved)
+        XCTAssertThrowsError(try saveWorkspaceForSidebar(workspaceName: "1", displayName: nil))
     }
 }

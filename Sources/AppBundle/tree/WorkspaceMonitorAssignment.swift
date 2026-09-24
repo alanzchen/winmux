@@ -186,27 +186,39 @@ func rearrangeWorkspacesOnMonitors() {
             newMonitorToOldMonitorMapping[newMonitor] = oldMonitor
         }
     }
-    // Pass 2: a display that returns shows its saved workspace. Identity beats position, so
-    // these displays skip the point-based passes.
-    let unmappedMonitors = currentMonitors.filter { newMonitorToOldMonitorMapping[MonitorViewportId($0)] == nil }
-    let restoreTargets = savedWorkspaceRestoreTargets(
-        unmappedMonitors: unmappedMonitors,
-        oldViewportsById: oldViewportsById,
-        mappedOldViewportIds: newMonitorToOldMonitorMapping.values.toSet(),
-    )
-    // Passes 3 and 4: the same point, then the nearest point.
-    for newMonitor in newMonitors where newMonitorToOldMonitorMapping[newMonitor] == nil && restoreTargets.byViewport[newMonitor] == nil {
+    // A display that comes back shows its saved workspace. Identity beats position, so
+    // saved homes skip the point-based passes.
+    let savedHomes = savedWorkspaceHomeViewportIds(in: currentMonitors)
+    let unmappedSavedHomes = currentMonitors.filter { monitor in
+        let viewportId = MonitorViewportId(monitor)
+        return newMonitorToOldMonitorMapping[viewportId] == nil && savedHomes.contains(viewportId)
+    }
+    // Passes 2 and 3: the same point, then the nearest point.
+    for newMonitor in newMonitors where newMonitorToOldMonitorMapping[newMonitor] == nil && !savedHomes.contains(newMonitor) {
         if oldVisibleMonitors.contains(newMonitor), oldViewportDisplayKeyMatches(oldViewportsById[newMonitor], newMonitor, currentMonitors) {
             check(oldVisibleMonitors.remove(newMonitor) != nil)
             newMonitorToOldMonitorMapping[newMonitor] = newMonitor
         }
     }
-    for newMonitor in newMonitors where newMonitorToOldMonitorMapping[newMonitor] == nil && restoreTargets.byViewport[newMonitor] == nil {
+    for newMonitor in newMonitors where newMonitorToOldMonitorMapping[newMonitor] == nil && !savedHomes.contains(newMonitor) {
         if let oldMonitor = oldVisibleMonitors.minBy({ ($0.topLeftCorner - newMonitor.topLeftCorner).vectorLength }) {
             check(oldVisibleMonitors.remove(oldMonitor) != nil)
             newMonitorToOldMonitorMapping[newMonitor] = oldMonitor
         }
     }
+    // Pass 4: saved workspaces for the returning homes, given everything that stays visible.
+    let restoreTargets = savedWorkspaceRestoreTargets(
+        unmappedMonitors: unmappedSavedHomes,
+        oldViewportsById: oldViewportsById,
+        mappedOldViewportIds: newMonitorToOldMonitorMapping.values.toSet(),
+    )
+    let reservedTargetIds = restoreTargets.byViewport.values.map(\.id).toSet()
+    // Workspaces that stay on their mapped display; mid-rebuild, isVisible can't tell.
+    let keptVisibleIds = newMonitorToOldMonitorMapping.values
+        .compactMap { oldViewportsById[$0]?.activeWorkspaceId }
+        .toSet()
+        .subtracting(restoreTargets.stolen)
+        .subtracting(reservedTargetIds)
 
     winMuxWorkspaceState.monitorViewportsById = [:]
 
@@ -240,13 +252,18 @@ func rearrangeWorkspacesOnMonitors() {
             .flatMap { winMuxWorkspaceState.workspaceById[$0] }
         if let existingVisibleWorkspace,
            !restoreTargets.stolen.contains(existingVisibleWorkspace.id),
+           !reservedTargetIds.contains(existingVisibleWorkspace.id),
            !assignedWorkspaceIds.contains(existingVisibleWorkspace.id),
            newScreen.setActiveWorkspace(existingVisibleWorkspace)
         {
             assignedWorkspaceIds.insert(existingVisibleWorkspace.id)
             continue
         }
-        if let savedWorkspace = savedWorkspaceToRestore(on: monitor, excluding: assignedWorkspaceIds.union(restoreTargets.stolen)),
+        let excludedFromRestore = assignedWorkspaceIds
+            .union(restoreTargets.stolen)
+            .union(reservedTargetIds)
+            .union(keptVisibleIds)
+        if let savedWorkspace = savedWorkspaceToRestore(on: monitor, excluding: excludedFromRestore),
            newScreen.setActiveWorkspace(savedWorkspace)
         {
             assignedWorkspaceIds.insert(savedWorkspace.id)

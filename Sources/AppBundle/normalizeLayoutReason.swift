@@ -18,6 +18,12 @@ private func validateStillPopups() async throws {
             // Relayout rechecks classification after AX suspension points. Leave
             // eligibility intact if the element is still a popup for now.
             guard !(popup.parent is MacosPopupWindowsContainer) else { continue }
+            // A window first seen as a popup can still belong in a saved workspace.
+            if try await routePromotedPopupToSavedWorkspaceIfNeeded(popup) {
+                _ = popup.consumePendingPopupPresentation()
+                broadcastWindowDetected(popup)
+                continue
+            }
             try await runCallbacksAfterPopupPromotion(popup, mayPresent: popup.consumePendingPopupPresentation())
         }
     }

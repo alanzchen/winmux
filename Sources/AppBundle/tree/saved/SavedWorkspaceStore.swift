@@ -141,6 +141,14 @@ final class SavedWorkspaceStore {
             let reason = "WinMux couldn't read \(url.lastPathComponent): \(error.localizedDescription)"
             return (SavedWorkspaceStore(url: url, readOnlyReason: reason), reason)
         }
+        // A newer WinMux may change the format in ways this build can't decode. Its file must
+        // never be treated as corrupt and moved aside.
+        let version = (try? JSONDecoder().decode(SavedWorkspacesFileVersionProbe.self, from: data))?.version
+        if let version, version > savedWorkspacesFileVersion {
+            let reason = "\(url.lastPathComponent) was written by a newer version of WinMux. Saved workspaces won't change until you update WinMux."
+            let file = (try? JSONDecoder().decode(SavedWorkspacesFile.self, from: data)) ?? SavedWorkspacesFile()
+            return (SavedWorkspaceStore(file: deduplicatedSavedWorkspacesFile(file), url: url, readOnlyReason: reason), reason)
+        }
         let decoded: SavedWorkspacesFile
         do {
             decoded = try JSONDecoder().decode(SavedWorkspacesFile.self, from: data)
@@ -149,13 +157,7 @@ final class SavedWorkspaceStore {
             let notice = "\(url.lastPathComponent) couldn't be read and was moved to \(movedTo ?? "a backup"). Saved workspaces start empty."
             return (SavedWorkspaceStore(url: url, readOnlyReason: readOnlyReason, fileWasAbsentAtLoad: true), notice)
         }
-        var file = decoded
-        var seenNames: Set<String> = []
-        file.workspaces = file.workspaces.filter { seenNames.insert($0.workspaceName).inserted }
-        if decoded.version > savedWorkspacesFileVersion {
-            let reason = "\(url.lastPathComponent) was written by a newer version of WinMux. Saved workspaces won't change until you update WinMux."
-            return (SavedWorkspaceStore(file: file, url: url, readOnlyReason: reason), reason)
-        }
+        var file = deduplicatedSavedWorkspacesFile(decoded)
         file.version = savedWorkspacesFileVersion
         return (SavedWorkspaceStore(file: file, url: url, readOnlyReason: readOnlyReason), nil)
     }
@@ -170,6 +172,18 @@ final class SavedWorkspaceStore {
             }
         }
     }
+}
+
+private struct SavedWorkspacesFileVersionProbe: Decodable {
+    let version: Int?
+}
+
+/// The first record wins when two share a workspace name.
+private func deduplicatedSavedWorkspacesFile(_ file: SavedWorkspacesFile) -> SavedWorkspacesFile {
+    var result = file
+    var seenNames: Set<String> = []
+    result.workspaces = file.workspaces.filter { seenNames.insert($0.workspaceName).inserted }
+    return result
 }
 
 func encodeSavedWorkspacesFile(_ file: SavedWorkspacesFile) throws -> Data {

@@ -221,7 +221,10 @@ func renameWorkspaceForSidebar(workspaceName: String, displayName: String, force
         }
         return
     }
-    if forceSave || workspace.isSaved || config.workspaceSidebar.saveNamedWorkspaces {
+    // A read-only store (--read-only, or a file from a newer WinMux) only blocks explicit saves;
+    // naming still works.
+    let savesImplicitly = config.workspaceSidebar.saveNamedWorkspaces && !savedWorkspaceStore.isReadOnly
+    if forceSave || workspace.isSaved || savesImplicitly {
         try ensureSavedWorkspaceRecord(workspace)
         if savedWorkspaceStore.update(named: workspaceName, { $0.displayName = trimmedName }) {
             savedWorkspaceStore.flushNow()

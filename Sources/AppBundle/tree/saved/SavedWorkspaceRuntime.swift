@@ -33,10 +33,13 @@ struct SavedWorkspaceEnvironment {
     }
 }
 
-enum SavedWorkspaceConfigLoadState: Equatable, Sendable {
-    case notLoaded
-    case userConfig
-    case defaultConfigFallback
+/// A slot whose window disappeared while its app kept running. It keeps its place until the
+/// grace chosen when the window vanished runs out.
+struct SavedVanishedSlot: Equatable, Sendable {
+    let since: Date
+    let grace: TimeInterval
+
+    var expiresAt: Date { since.addingTimeInterval(grace) }
 }
 
 enum SavedWorkspaceSuspension: Hashable, Sendable {
@@ -64,16 +67,23 @@ enum SavedWorkspaceTiming {
 final class SavedWorkspaceRuntime {
     var environment: SavedWorkspaceEnvironment = .live
     var runtimeReadyAt: Date?
-    var configLoadState: SavedWorkspaceConfigLoadState = .notLoaded
-    var projectAssignmentPending = true
+    var isConfigLoaded = false
+    /// Saved workspaces not yet moved into their saved project; nil means all of them. A name
+    /// stays while its project isn't registered, for example while a broken config falls back
+    /// to the default one, and is placed once the project appears.
+    var workspacesAwaitingProject: Set<String>?
     var suspensions: Set<SavedWorkspaceSuspension> = []
     var frozenForShutdownUntil: Date?
-    /// Slot id → first checkpoint that saw its window missing while its app kept running.
-    var vanishedSince: [String: Date] = [:]
+    /// Slot id → when its window vanished while its app kept running.
+    var vanishedSlots: [String: SavedVanishedSlot] = [:]
     var manualArmUntilByBundleId: [String: Date] = [:]
     var visibleOnHomeAtLastCheckpoint: Set<String> = []
     var didRunLabelAdoption = false
     var checkpointTask: Task<Void, Never>?
+    var checkpointDeadline: Date?
+    /// Windows being routed right now. Captures neither save them as new slots nor count them
+    /// as missing.
+    var routingInFlightWindowIds: Set<UInt32> = []
     /// Window ids (with owner pid) that are alive but may not be registered yet. Filled only
     /// while a refresh registers windows, so routing can't hand a still-arriving saved window's
     /// slot to another window of the same app.
@@ -120,7 +130,9 @@ func resetSavedWorkspacesForTests(environment: SavedWorkspaceEnvironment? = nil)
     savedWorkspaceStore = SavedWorkspaceStore(url: nil)
     let runtime = SavedWorkspaceRuntime()
     runtime.environment = environment ?? .forTests()
-    runtime.configLoadState = .userConfig
+    runtime.isConfigLoaded = true
+    // As after startup: the first placement pass is done.
+    runtime.workspacesAwaitingProject = []
     savedWorkspaceRuntime = runtime
 }
 
@@ -191,6 +203,6 @@ func installSavedWorkspaceObservers() {
 private func resumeSavedWorkspaceCapture(after suspension: SavedWorkspaceSuspension) {
     guard savedWorkspaceRuntime.suspensions.remove(suspension) != nil else { return }
     // Windows that vanished during the suspension were never really closed.
-    savedWorkspaceRuntime.vanishedSince = [:]
+    savedWorkspaceRuntime.vanishedSlots = [:]
     scheduleSavedWorkspaceCheckpoint()
 }

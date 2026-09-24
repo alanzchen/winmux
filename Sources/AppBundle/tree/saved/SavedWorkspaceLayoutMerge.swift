@@ -23,6 +23,8 @@ struct SavedLayoutMergeContext {
     /// Whether a slot whose window is not in the workspace keeps waiting for it.
     var keep: (SavedWindowSlot) -> Bool
     var normalization: SavedLayoutNormalization
+    /// Slots the slot cap must not drop (a slot being claimed right now).
+    var protectedSlotIds: Set<String> = []
 }
 
 /// Folds the live layout into the saved one without losing the positions of windows the
@@ -52,6 +54,13 @@ func mergeSavedLayout(
     let root: SavedLayoutContainer
     if waiting.isEmpty {
         root = live.root
+    } else if kept.allSlots.allSatisfy({ !context.liveTiled.contains($0.id) }) {
+        // None of the saved windows is back yet. The live root's orientation and layout are
+        // just the defaults of a fresh root, so the saved tree stays whole and any new windows
+        // follow it.
+        var restored = kept
+        restored.children += live.root.children
+        root = restored
     } else {
         let projection = pruneEmptyContainers(filterSlots(kept) { !waiting.contains($0.id) }, isRoot: true)
             ?? SavedLayoutContainer(layout: kept.layout, orientation: kept.orientation)
@@ -77,7 +86,9 @@ func mergeSavedLayout(
     let slotCount = result.allSlots.count
     if slotCount > savedWorkspaceMaxSlotsPerWorkspace {
         let excess = slotCount - savedWorkspaceMaxSlotsPerWorkspace
-        let droppable = result.allSlots.reversed().filter { !isLive($0) }.prefix(excess).map(\.id).toSet()
+        let droppable = result.allSlots.reversed()
+            .filter { !isLive($0) && !context.protectedSlotIds.contains($0.id) }
+            .prefix(excess).map(\.id).toSet()
         result.root = pruneEmptyContainers(filterSlots(result.root) { !droppable.contains($0.id) }, isRoot: true) ?? result.root
         result.floating = result.floating.filter { !droppable.contains($0.id) }
     }
@@ -176,8 +187,9 @@ private func slotIds(_ node: SavedLayoutNode, excluding: Set<String> = []) -> Se
     node.allSlots.map(\.id).filter { !excluding.contains($0) }.toSet()
 }
 
-/// Copies titles and window identities of live slots. Weights are handled separately because a
-/// live slot's weight is relative to its live parent, which may be a different container.
+/// Copies titles and window identities of live slots. Weights and the most recent child are
+/// handled separately because they are relative to the live parent, which may be a different
+/// container.
 private func copyLiveSlotData(_ container: SavedLayoutContainer, _ liveSlotById: [String: SavedWindowSlot]) -> SavedLayoutContainer {
     var result = container
     result.children = container.children.map { child in
@@ -185,6 +197,7 @@ private func copyLiveSlotData(_ container: SavedLayoutContainer, _ liveSlotById:
             case .slot(let slot):
                 guard var live = liveSlotById[slot.id] else { return child }
                 live.weight = slot.weight
+                live.isMostRecentInParent = slot.isMostRecentInParent
                 return .slot(live)
             case .container(let nested):
                 return .container(copyLiveSlotData(nested, liveSlotById))
@@ -193,12 +206,14 @@ private func copyLiveSlotData(_ container: SavedLayoutContainer, _ liveSlotById:
     return result
 }
 
-private func containersBySlotSet(_ root: SavedLayoutContainer) -> [Set<String>: SavedLayoutContainer] {
-    var result: [Set<String>: SavedLayoutContainer] = [:]
+/// Live containers by the slots they hold, outermost first. Without flattening, a chain of
+/// single-child containers shares one slot set.
+private func containersBySlotSet(_ root: SavedLayoutContainer) -> [Set<String>: [SavedLayoutContainer]] {
+    var result: [Set<String>: [SavedLayoutContainer]] = [:]
     func visit(_ container: SavedLayoutContainer) {
         let ids = slotIds(.container(container))
-        if !ids.isEmpty, result[ids] == nil {
-            result[ids] = container
+        if !ids.isEmpty {
+            result[ids, default: []].append(container)
         }
         for case .container(let nested) in container.children {
             visit(nested)
@@ -212,28 +227,43 @@ private func containersBySlotSet(_ root: SavedLayoutContainer) -> [Set<String>: 
 /// child weights. Containers flattened away in the live tree keep their saved weights.
 private func copyLiveWeights(
     _ container: SavedLayoutContainer,
-    liveBySlotSet: [Set<String>: SavedLayoutContainer],
+    liveBySlotSet: [Set<String>: [SavedLayoutContainer]],
     waiting: Set<String>,
+) -> SavedLayoutContainer {
+    var usedBySlotSet: [Set<String>: Int] = [:]
+    return copyLiveWeights(container, liveBySlotSet: liveBySlotSet, waiting: waiting, usedBySlotSet: &usedBySlotSet)
+}
+
+/// Saved containers holding the same live windows pair up with live ones outermost first.
+private func copyLiveWeights(
+    _ container: SavedLayoutContainer,
+    liveBySlotSet: [Set<String>: [SavedLayoutContainer]],
+    waiting: Set<String>,
+    usedBySlotSet: inout [Set<String>: Int],
 ) -> SavedLayoutContainer {
     var result = container
     let liveIds = slotIds(.container(container), excluding: waiting)
-    if !liveIds.isEmpty, let liveContainer = liveBySlotSet[liveIds] {
+    let candidates = liveBySlotSet[liveIds] ?? []
+    let position = usedBySlotSet[liveIds, default: 0]
+    usedBySlotSet[liveIds] = position + 1
+    if !liveIds.isEmpty, let liveContainer = candidates.getOrNil(atIndex: position) ?? candidates.last {
         var liveChildBySlotSet: [Set<String>: SavedLayoutNode] = [:]
         for child in liveContainer.children {
             liveChildBySlotSet[slotIds(child)] = child
         }
-        let hasLiveMostRecent = liveContainer.children.contains(where: \.isMostRecentInParent)
+        // While some children are still waiting, the live choice of most recent child only
+        // reflects the ones that are back, so the saved choice stays.
+        let keepsSavedMostRecent = result.children.contains { slotIds($0, excluding: waiting).isEmpty }
         result.children = result.children.map { child in
             let ids = slotIds(child, excluding: waiting)
-            guard !ids.isEmpty, let liveChild = liveChildBySlotSet[ids] else {
-                return hasLiveMostRecent ? child.withMostRecentInParent(false) : child
-            }
-            return child.withWeight(liveChild.weight).withMostRecentInParent(liveChild.isMostRecentInParent)
+            guard !ids.isEmpty, let liveChild = liveChildBySlotSet[ids] else { return child }
+            let weighted = child.withWeight(liveChild.weight)
+            return keepsSavedMostRecent ? weighted : weighted.withMostRecentInParent(liveChild.isMostRecentInParent)
         }
     }
     result.children = result.children.map { child in
         guard case .container(let nested) = child else { return child }
-        return .container(copyLiveWeights(nested, liveBySlotSet: liveBySlotSet, waiting: waiting))
+        return .container(copyLiveWeights(nested, liveBySlotSet: liveBySlotSet, waiting: waiting, usedBySlotSet: &usedBySlotSet))
     }
     return result
 }

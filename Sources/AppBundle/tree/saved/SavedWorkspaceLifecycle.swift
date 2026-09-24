@@ -20,63 +20,66 @@ func materializeSavedWorkspaceNames() {
         let workspace = Workspace.get(byName: record.workspaceName)
         workspace.restoreNamingStyle(record.namingStyle)
         workspace.lifecycle = .durable
-        if record.projectId != workspaceProjectDefaultId, winMuxWorkspaceState.projectsById[record.projectId] != nil {
+        guard record.projectId != workspaceProjectDefaultId else { continue }
+        if winMuxWorkspaceState.projectsById[record.projectId] != nil {
             workspace.assignProject(record.projectId)
+        } else {
+            savedWorkspaceRuntime.workspacesAwaitingProject?.insert(record.workspaceName)
         }
     }
 }
 
 @MainActor
-func noteSavedWorkspaceConfigLoaded(isDefaultFallback: Bool) {
-    let runtime = savedWorkspaceRuntime
-    // A user config that parses again resolves any assignment left over from the fallback.
-    if !isDefaultFallback, runtime.configLoadState != .userConfig {
-        runtime.projectAssignmentPending = true
-    }
-    runtime.configLoadState = isDefaultFallback ? .defaultConfigFallback : .userConfig
+func noteSavedWorkspaceConfigLoaded() {
+    savedWorkspaceRuntime.isConfigLoaded = true
 }
 
-/// Moves saved workspaces back into their projects, in saved order. Projects only exist once
-/// the TOML config is loaded, so this runs from materializePersistedWorkspaceProjects. With the
-/// default config as a fallback, a missing project isn't treated as deleted.
+/// Moves saved workspaces into their saved projects. Projects only exist once the TOML config
+/// is loaded, so this runs from materializePersistedWorkspaceProjects. The first pass places
+/// every saved workspace in saved order, which also restores the order inside each project.
+/// A workspace whose project isn't registered waits in Default and keeps its saved project:
+/// a config that fails to load, or another --config-path, must not move it for good. Each
+/// workspace is placed once, so later passes never undo the user's own moves.
 @MainActor
 func assignSavedWorkspacesToProjectsIfNeeded() {
     let runtime = savedWorkspaceRuntime
-    guard runtime.projectAssignmentPending, runtime.configLoadState != .notLoaded else { return }
-    guard !savedWorkspaceStore.isEmpty else {
-        runtime.projectAssignmentPending = false
-        return
-    }
-    var unresolved = false
-    var didChangeRecords = false
-    for record in savedWorkspaceStore.records {
+    guard runtime.isConfigLoaded, !savedWorkspaceStore.isEmpty else { return }
+    let isFirstPass = runtime.workspacesAwaitingProject == nil
+    let awaiting = runtime.workspacesAwaitingProject ?? []
+    guard isFirstPass || !awaiting.isEmpty else { return }
+    var stillAwaiting: Set<String> = []
+    for record in savedWorkspaceStore.records where isFirstPass || awaiting.contains(record.workspaceName) {
         guard let workspace = Workspace.existing(byName: record.workspaceName) else { continue }
         if record.projectId == workspaceProjectDefaultId || winMuxWorkspaceState.projectsById[record.projectId] != nil {
-            // Reassigning in record order also restores the order inside each project.
-            winMuxWorkspaceState.assignWorkspace(workspace, to: record.projectId)
-        } else if runtime.configLoadState == .userConfig {
-            // The project was deleted outside WinMux.
-            workspace.assignProject(workspaceProjectDefaultId)
-            didChangeRecords = savedWorkspaceStore.update(named: record.workspaceName) {
-                $0.projectId = workspaceProjectDefaultId
-            } || didChangeRecords
+            if isFirstPass || workspace.projectId != record.projectId {
+                winMuxWorkspaceState.assignWorkspace(workspace, to: record.projectId)
+            }
         } else {
-            unresolved = true
+            workspace.assignProject(workspaceProjectDefaultId)
+            stillAwaiting.insert(record.workspaceName)
         }
     }
-    runtime.projectAssignmentPending = unresolved
-    if didChangeRecords {
-        savedWorkspaceStore.scheduleWrite()
-    }
+    runtime.workspacesAwaitingProject = stillAwaiting
 }
 
-/// Whether a checkpoint may copy the workspace's project into its record. While a fallback
-/// config hides the saved project, the workspace sits in Default only temporarily.
+/// Whether a checkpoint may copy the workspace's project into its record. A workspace waiting
+/// in Default for its saved project keeps that project.
 @MainActor
 func savedWorkspaceProjectSyncAllowed(_ workspace: Workspace, record: SavedWorkspaceRecord) -> Bool {
-    !(savedWorkspaceRuntime.projectAssignmentPending &&
-        workspace.projectId == workspaceProjectDefaultId &&
+    !(workspace.projectId == workspaceProjectDefaultId &&
+        record.projectId != workspaceProjectDefaultId &&
         winMuxWorkspaceState.projectsById[record.projectId] == nil)
+}
+
+/// Drops the session state of a record that was forgotten or deleted.
+@MainActor
+func clearSavedWorkspaceRuntimeState(_ record: SavedWorkspaceRecord) {
+    let runtime = savedWorkspaceRuntime
+    for slot in record.layout.allSlots {
+        runtime.vanishedSlots.removeValue(forKey: slot.id)
+    }
+    runtime.visibleOnHomeAtLastCheckpoint.remove(record.workspaceName)
+    runtime.workspacesAwaitingProject?.remove(record.workspaceName)
 }
 
 @MainActor
@@ -127,11 +130,9 @@ func forgetSavedWorkspace(_ workspace: Workspace) throws -> Bool {
     if let reason = savedWorkspaceStore.readOnlyReason {
         throw WorkspaceMutationError.savedWorkspacesReadOnly(reason)
     }
-    let removed = savedWorkspaceStore.remove(named: workspace.name)
-    for slot in removed?.layout.allSlots ?? [] {
-        savedWorkspaceRuntime.vanishedSince.removeValue(forKey: slot.id)
+    if let removed = savedWorkspaceStore.remove(named: workspace.name) {
+        clearSavedWorkspaceRuntimeState(removed)
     }
-    savedWorkspaceRuntime.visibleOnHomeAtLastCheckpoint.remove(workspace.name)
     savedWorkspaceStore.flushNow()
     return true
 }
@@ -144,12 +145,13 @@ func setSavedWorkspacePinned(_ workspace: Workspace, _ pinned: Bool) throws -> B
     if !pinned, savedWorkspaceStore.record(named: workspace.name)?.isPinnedToDisplay != true {
         return false
     }
-    try ensureSavedWorkspaceRecord(workspace)
     let monitor = workspace.visibleMonitor ?? workspace.workspaceMonitor
     let affinity = SavedDisplayAffinity(monitor: monitor)
+    // Checked before saving, so a pin that can't happen leaves the workspace unchanged.
     if pinned, affinity == nil, savedWorkspaceStore.record(named: workspace.name)?.display == nil {
         throw WorkspaceMutationError.displayHasNoIdentity(monitor.name)
     }
+    try ensureSavedWorkspaceRecord(workspace)
     let changed = savedWorkspaceStore.update(named: workspace.name) { record in
         record.isPinnedToDisplay = pinned
         if pinned, let affinity {

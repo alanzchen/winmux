@@ -8,9 +8,25 @@ func restoreOrDetectNewWindow(_ window: Window, isRegularWindow: Bool) async thr
     let didRestorePersisted = try await restorePersistedFrozenWorldIfNeeded(newlyDetectedWindow: window)
     let didRestoreClosed = try await restoreClosedWindowsCacheIfNeeded(newlyDetectedWindow: window)
     if didRestorePersisted || didRestoreClosed { return true }
-    if try await routeNewWindowToSavedWorkspaceIfNeeded(window, isRegularWindow: isRegularWindow) { return true }
+    if try await routeNewWindowToSavedWorkspaceIfNeeded(window, isRegularWindow: isRegularWindow) {
+        // Subscribers still learn about the window; callbacks don't move it out again.
+        broadcastWindowDetected(window)
+        return true
+    }
     try await tryOnWindowDetected(window)
     return false
+}
+
+/// Routes a window that was first classified as a popup and has just been promoted. Dialogs
+/// never claim slots, so the window is classified again.
+@MainActor
+func routePromotedPopupToSavedWorkspaceIfNeeded(_ window: MacWindow) async throws -> Bool {
+    guard !savedWorkspaceStore.isEmpty,
+          let bundleId = window.app.rawAppBundleId,
+          savedWorkspaceStore.hasSlots(bundleId: bundleId)
+    else { return false }
+    let type = try await window.macApp.getAxUiElementWindowType(window.windowId, getWindowLevel(for: window.windowId))
+    return try await routeNewWindowToSavedWorkspaceIfNeeded(window, isRegularWindow: type == .window)
 }
 
 struct SavedSlotLocation: Equatable {
@@ -34,20 +50,28 @@ func routeNewWindowToSavedWorkspaceIfNeeded(_ window: Window, isRegularWindow: B
           savedWorkspaceStore.hasSlots(bundleId: bundleId)
     else { return false }
 
+    let runtime = savedWorkspaceRuntime
+    runtime.routingInFlightWindowIds.insert(window.windowId)
+    defer { runtime.routingInFlightWindowIds.remove(window.windowId) }
+
     if let location = waitingSavedSlots(bundleId: bundleId, routingWindow: window).first(where: {
         $0.slot.lastWindowId == window.windowId && $0.slot.lastPid == window.app.pid
     }) {
         return try await placeWindowInSavedSlot(window, location)
     }
 
-    let runtime = savedWorkspaceRuntime
     guard isStartup || runtime.isStartupRestoreActive || runtime.isArmed(bundleId: bundleId, launchDate: window.app.launchDate) else {
         return false
     }
     let title = normalizedSavedWindowTitle(try? await window.title)
     // The title fetch awaited, so the saved state may have changed.
     guard window.isBound, window.parent !== macosPopupWindowsContainer else { return false }
-    guard let location = bestSavedSlot(for: title, among: waitingSavedSlots(bundleId: bundleId, routingWindow: window)) else {
+    // A slot of the same still-running process belongs to a window of that process that is
+    // either not registered yet or was closed; another window of it must not take the slot.
+    let candidates = waitingSavedSlots(bundleId: bundleId, routingWindow: window).filter {
+        $0.slot.lastPid != window.app.pid
+    }
+    guard let location = bestSavedSlot(for: title, among: candidates) else {
         return false
     }
     return try await placeWindowInSavedSlot(window, location)
@@ -118,7 +142,7 @@ private func placeWindowInSavedSlot(_ window: Window, _ location: SavedSlotLocat
         record.layout = claimSavedSlot(record.layout, slotId: slotId, window: window)
     }
     guard claimed || location.slot.lastWindowId == window.windowId else { return false }
-    savedWorkspaceRuntime.vanishedSince.removeValue(forKey: slotId)
+    savedWorkspaceRuntime.vanishedSlots.removeValue(forKey: slotId)
     savedWorkspaceStore.scheduleWrite()
 
     // Fold edits made since the last checkpoint into the saved layout before rebuilding from it.
@@ -129,8 +153,11 @@ private func placeWindowInSavedSlot(_ window: Window, _ location: SavedSlotLocat
         forceKeepSlotIds: [slotId],
     )
     guard let record = savedWorkspaceStore.record(named: workspace.name) else { return false }
-
-    let slot = record.layout.allSlots.first { $0.id == slotId } ?? location.slot
+    guard let slot = record.layout.allSlots.first(where: { $0.id == slotId }) else {
+        // Can't happen (the claimed slot is protected), but never leave the window unplaced.
+        try await window.relayoutWindow(on: workspace, forceTile: config.automaticallyTileNewWindows)
+        return true
+    }
     window.isFullscreen = slot.isFullscreen
     let isFloating = record.layout.floating.contains { $0.id == slotId } || !config.automaticallyTileNewWindows
     if isFloating {
@@ -181,10 +208,10 @@ func rebuildSavedWorkspaceTiling(_ workspace: Workspace, root: SavedLayoutContai
     let previousRoot = workspace.rootTilingContainer // Keep a reference so it isn't collected early
     let potentialOrphans = previousRoot.allLeafWindowsRecursive
     previousRoot.unbindFromParent()
-    // Nodes flagged as most recent, children before their parents.
-    var mostRecentNodes: [TreeNode] = []
+    // Nodes flagged as most recent, with their depth.
+    var mostRecentNodes: [(node: TreeNode, depth: Int)] = []
 
-    func build(_ saved: SavedLayoutContainer, parent: NonLeafTreeNodeObject, weight: CGFloat, index: Int) -> TilingContainer {
+    func build(_ saved: SavedLayoutContainer, parent: NonLeafTreeNodeObject, weight: CGFloat, index: Int, depth: Int) -> TilingContainer {
         let container = TilingContainer(parent: parent, adaptiveWeight: weight, saved.orientation, saved.layout, index: index)
         var boundCount = 0
         for child in saved.children {
@@ -193,21 +220,24 @@ func rebuildSavedWorkspaceTiling(_ workspace: Workspace, root: SavedLayoutContai
                     guard let slotWindow = windowBySlotId[slot.id] else { continue }
                     slotWindow.bind(to: container, adaptiveWeight: slot.weight, index: boundCount)
                     boundCount += 1
-                    if slot.isMostRecentInParent { mostRecentNodes.append(slotWindow) }
+                    if slot.isMostRecentInParent { mostRecentNodes.append((slotWindow, depth + 1)) }
                 case .container(let nested):
                     guard nested.allSlots.contains(where: { windowBySlotId[$0.id] != nil }) else { continue }
-                    let built = build(nested, parent: container, weight: nested.weight, index: boundCount)
+                    let built = build(nested, parent: container, weight: nested.weight, index: boundCount, depth: depth + 1)
                     boundCount += 1
-                    if nested.isMostRecentInParent { mostRecentNodes.append(built) }
+                    if nested.isMostRecentInParent { mostRecentNodes.append((built, depth + 1)) }
             }
         }
         return container
     }
-    _ = build(root, parent: workspace, weight: 1, index: INDEX_BIND_LAST)
+    _ = build(root, parent: workspace, weight: 1, index: INDEX_BIND_LAST, depth: 0)
     // Binding raised every node as it went; replay the saved choices so tab groups show the
-    // saved tab and focus returns to the saved window.
-    for node in mostRecentNodes {
-        node.markAsMostRecentChild()
+    // saved tab and focus returns to the saved window. Marking a node also raises its
+    // ancestors, so deeper nodes go first and each level ends with its own saved choice.
+    for entry in mostRecentNodes.enumerated().sorted(by: { lhs, rhs in
+        lhs.element.depth != rhs.element.depth ? lhs.element.depth > rhs.element.depth : lhs.offset < rhs.offset
+    }) {
+        entry.element.node.markAsMostRecentChild()
     }
     for orphan in potentialOrphans where orphan !== window && orphan.nodeWorkspace == nil {
         try await orphan.relayoutWindow(on: workspace, forceTile: true)

@@ -153,6 +153,8 @@ final class SavedWorkspaceDisplayAffinityTest: XCTestCase {
     }
 
     func testFallbackNeverReusesAnEmptySavedWorkspace() throws {
+        // The only other empty workspace in the project is saved.
+        TestWindow.new(id: 1, parent: focus.workspace.rootTilingContainer)
         let empty = Workspace.get(byName: "empty")
         try ensureSavedWorkspaceRecord(empty)
         savedWorkspaceStore.update(named: "empty") { $0.display = nil }
@@ -160,6 +162,7 @@ final class SavedWorkspaceDisplayAffinityTest: XCTestCase {
         let fallback = getOrCreateFallbackWorkspace(projectId: workspaceProjectDefaultId, monitor: mainMonitor, excluding: nil)
 
         XCTAssertFalse(fallback === empty)
+        XCTAssertFalse(fallback === focus.workspace)
     }
 
     func testExplicitMoveRehomesSoftWorkspaceButNotPinnedOne() throws {
@@ -219,6 +222,71 @@ final class SavedWorkspaceDisplayAffinityTest: XCTestCase {
         Workspace.reconcileWorkspaceState()
 
         XCTAssertTrue(laptop.activeWorkspace === soft)
+    }
+
+    func testSoftWorkspaceStaysOnLaptopWhenMainExternalDisplayReturns() throws {
+        // A docked laptop: the external display is main and listed first.
+        let external = SavedWorkspaceTestMonitor(id: 1, name: "DELL", x: 0, width: 2560, height: 1440, isMain: true, uuid: "DELL")
+        let dockedLaptop = SavedWorkspaceTestMonitor(id: 2, name: "Built-in", x: 2560, uuid: "LAPTOP", isBuiltin: true)
+        setMonitorsForTests([external, dockedLaptop])
+        Workspace.reconcileWorkspaceState()
+        let soft = try savedWorkspace("soft", on: external, windowId: 1)
+        XCTAssertTrue(dockedLaptop.setActiveWorkspace(Workspace.get(byName: "other")))
+
+        let undocked = dockedLaptop.moved(toX: 0, isMain: true)
+        setMonitorsForTests([undocked])
+        Workspace.reconcileWorkspaceState()
+        XCTAssertTrue(undocked.setActiveWorkspace(soft))
+
+        setMonitorsForTests([external, dockedLaptop])
+        Workspace.reconcileWorkspaceState()
+
+        XCTAssertTrue(dockedLaptop.activeWorkspace === soft)
+        XCTAssertFalse(external.activeWorkspace === soft)
+        XCTAssertTrue(workspaceIsAvailableForMonitor(soft, monitor: dockedLaptop))
+        XCTAssertTrue(switchWorkspaceProject(workspaceProjectDefaultId, on: dockedLaptop) === soft)
+    }
+
+    func testPinnedReturnsHomeEvenWhenAKeylessDisplayWasShowingIt() throws {
+        let keyless = SavedWorkspaceTestMonitor(id: 2, name: "Projector", x: 1920, uuid: nil)
+        let home = SavedWorkspaceTestMonitor(id: 3, name: "DELL", x: 3840, uuid: "DELL")
+        setMonitorsForTests([laptop, keyless, home])
+        Workspace.reconcileWorkspaceState()
+        let pinned = try savedWorkspace("pinned", on: home, windowId: 1)
+        XCTAssertTrue(try setSavedWorkspacePinned(pinned, true))
+        setMonitorsForTests([laptop, keyless])
+        Workspace.reconcileWorkspaceState()
+        XCTAssertTrue(keyless.setActiveWorkspace(pinned))
+
+        setMonitorsForTests([laptop, keyless, home])
+        Workspace.reconcileWorkspaceState()
+
+        XCTAssertTrue(home.activeWorkspace === pinned)
+        XCTAssertFalse(keyless.activeWorkspace === pinned)
+        checkWorkspaceHierarchyInvariants(requireActiveMonitorViewports: true)
+    }
+
+    func testSameModelWithoutSerialIsNotTheSameDisplay() {
+        let affinity = SavedDisplayAffinity(uuid: nil, vendor: 1, model: 2, serial: nil, isBuiltin: false, name: "Panel", lastTopLeft: .zero)
+        let sameModel = MonitorIdentityTestMonitor(identity: MonitorDisplayIdentity(uuid: "OTHER", vendor: 1, model: 2, serial: 0))
+        let withSerial = SavedDisplayAffinity(uuid: nil, vendor: 1, model: 2, serial: 9, isBuiltin: false, name: "Panel", lastTopLeft: .zero)
+        let sameSerial = MonitorIdentityTestMonitor(identity: MonitorDisplayIdentity(uuid: "NEW-UUID", vendor: 1, model: 2, serial: 9))
+
+        XCTAssertNil(resolveSavedDisplay(affinity, in: [sameModel]))
+        XCTAssertNotNil(resolveSavedDisplay(withSerial, in: [sameSerial]))
+    }
+
+    func testPinnedRefusesMoveWorkspaceToMonitor() async throws {
+        setMonitorsForTests([laptop, dell])
+        Workspace.reconcileWorkspaceState()
+        let pinned = try savedWorkspace("pinned", on: dell, windowId: 1)
+        XCTAssertTrue(try setSavedWorkspacePinned(pinned, true))
+
+        let result = try await parseCommand("move-workspace-to-monitor --workspace pinned --wrap-around next").cmdOrDie.run(.defaultEnv, .emptyStdin)
+
+        assertEquals(result.exitCode, 1)
+        XCTAssertTrue(dell.activeWorkspace === pinned)
+        XCTAssertTrue(result.stderr.singleOrNil()?.contains("is kept on display") == true, "\(result.stderr)")
     }
 
     func testPinnedRefusesSummonAndMoveToAnotherDisplay() async throws {
@@ -287,4 +355,16 @@ final class SavedWorkspaceDisplayAffinityTest: XCTestCase {
         XCTAssertNil(savedWorkspaceStore.record(named: "code")?.display)
         XCTAssertThrowsError(try setSavedWorkspacePinned(code, true))
     }
+}
+
+private struct MonitorIdentityTestMonitor: Monitor {
+    let identity: MonitorDisplayIdentity
+    var monitorAppKitNsScreenScreensId: Int { 1 }
+    var name: String { "Panel" }
+    var rect: Rect { Rect(topLeftX: 0, topLeftY: 0, width: 1920, height: 1080) }
+    var visibleRect: Rect { rect }
+    var width: CGFloat { rect.width }
+    var height: CGFloat { rect.height }
+    var isMain: Bool { true }
+    var displayIdentity: MonitorDisplayIdentity? { identity }
 }

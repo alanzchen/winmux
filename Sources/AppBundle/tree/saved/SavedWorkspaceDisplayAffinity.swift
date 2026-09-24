@@ -30,13 +30,11 @@ func resolveSavedDisplay(_ affinity: SavedDisplayAffinity?, in monitors: [Monito
         let matches = monitors.filter { $0.displayIdentity?.uuid == uuid }
         if !matches.isEmpty { return nearest(matches) }
     }
-    if let vendor = affinity.vendor, let model = affinity.model {
+    // Without a serial number, the same model says nothing about which panel it is.
+    if let vendor = affinity.vendor, let model = affinity.model, let serial = affinity.serial {
         let matches = monitors.filter { monitor in
-            guard let identity = monitor.displayIdentity,
-                  identity.vendor == vendor, identity.model == model
-            else { return false }
-            if let serial = affinity.serial, identity.serial != 0 { return identity.serial == serial }
-            return true
+            guard let identity = monitor.displayIdentity else { return false }
+            return identity.vendor == vendor && identity.model == model && identity.serial == serial
         }
         if !matches.isEmpty { return nearest(matches) }
     }
@@ -64,14 +62,41 @@ func savedHomeAllows(_ workspace: Workspace, on monitor: Monitor) -> Bool {
           resolvedForceAssignedMonitor(forWorkspaceName: workspace.name) == nil,
           let home = savedHomeMonitor(of: workspace)
     else { return true }
-    return home.rect.topLeftCorner == monitor.rect.topLeftCorner
+    if home.rect.topLeftCorner == monitor.rect.topLeftCorner { return true }
+    // Already shown there (for example while its home was disconnected): it may stay.
+    return !savedPinBlocksIgnoringVisibility(workspace) &&
+        workspace.visibleMonitor?.rect.topLeftCorner == monitor.rect.topLeftCorner
+}
+
+@MainActor
+private func savedPinBlocksIgnoringVisibility(_ workspace: Workspace) -> Bool {
+    savedWorkspaceStore.record(named: workspace.name)?.isPinnedToDisplay == true
 }
 
 /// Whether an explicit user action must not show a pinned workspace on the monitor.
 @MainActor
 func savedPinBlocks(_ workspace: Workspace, on monitor: Monitor) -> Bool {
-    guard savedWorkspaceStore.record(named: workspace.name)?.isPinnedToDisplay == true else { return false }
-    return !savedHomeAllows(workspace, on: monitor)
+    guard savedWorkspaceStore.record(named: workspace.name)?.isPinnedToDisplay == true,
+          resolvedForceAssignedMonitor(forWorkspaceName: workspace.name) == nil,
+          let home = savedHomeMonitor(of: workspace)
+    else { return false }
+    return home.rect.topLeftCorner != monitor.rect.topLeftCorner
+}
+
+/// Displays that are home to at least one saved workspace.
+@MainActor
+func savedWorkspaceHomeViewportIds(in monitors: [Monitor]) -> Set<MonitorViewportId> {
+    guard !savedWorkspaceStore.isEmpty else { return [] }
+    var result: Set<MonitorViewportId> = []
+    for record in savedWorkspaceStore.records {
+        guard let workspace = Workspace.existing(byName: record.workspaceName),
+              !workspace.isArchived,
+              resolvedForceAssignedMonitor(forWorkspaceName: workspace.name) == nil,
+              let home = resolveSavedDisplay(record.display, in: monitors)
+        else { continue }
+        result.insert(MonitorViewportId(home))
+    }
+    return result
 }
 
 @MainActor
@@ -160,6 +185,8 @@ func savedWorkspaceRestoreTargets(
 
 /// A hidden saved workspace homed on the monitor, for when the display's own workspace can't
 /// stay there.
+/// Callers mid-rearrange pass every workspace that stays visible elsewhere in `excluding`:
+/// visibility itself is being rebuilt then.
 @MainActor
 func savedWorkspaceToRestore(on monitor: Monitor, excluding: Set<WorkspaceId>) -> Workspace? {
     guard !savedWorkspaceStore.isEmpty else { return nil }
@@ -170,7 +197,6 @@ func savedWorkspaceToRestore(on monitor: Monitor, excluding: Set<WorkspaceId>) -
             guard let workspace = Workspace.existing(byName: record.workspaceName),
                   !workspace.isArchived,
                   !excluding.contains(workspace.id),
-                  !workspace.isVisible,
                   resolvedForceAssignedMonitor(forWorkspaceName: workspace.name) == nil,
                   let home = resolveSavedDisplay(record.display, in: currentMonitors),
                   home.rect.topLeftCorner == monitor.rect.topLeftCorner,

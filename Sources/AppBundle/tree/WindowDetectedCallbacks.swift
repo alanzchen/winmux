@@ -11,13 +11,18 @@ func tryOnWindowDetected(_ window: Window) async throws {
 }
 
 @MainActor
-private func onWindowDetected(_ window: Window) async throws {
+func broadcastWindowDetected(_ window: Window) {
     broadcastEvent(.windowDetected(
         windowId: window.windowId,
         workspace: window.nodeWorkspace?.name,
         appBundleId: window.app.rawAppBundleId,
         appName: window.app.name,
     ))
+}
+
+@MainActor
+private func onWindowDetected(_ window: Window) async throws {
+    broadcastWindowDetected(window)
     for callback in config.onWindowDetected where try await callback.matches(window) {
         _ = try await callback.run.runCmdSeq(.defaultEnv.copy(\.windowId, window.windowId), .emptyStdin)
         if !callback.checkFurtherCallbacks {

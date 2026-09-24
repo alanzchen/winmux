@@ -15,6 +15,7 @@ final class SavedWorkspaceRoutingTest: XCTestCase {
     }
 
     /// Saves `h[editor v[terminal browser]]` for windows of a previous session.
+    @discardableResult
     private func saveCodeWorkspace(name: String = "code") -> Workspace {
         let layout = SavedWorkspaceLayout(root: savedRoot(.tiles, .h, [
             savedSlot("editor", bundleId: editor, title: "main.swift — App", windowId: 11, pid: 900),
@@ -160,6 +161,76 @@ final class SavedWorkspaceRoutingTest: XCTestCase {
 
         XCTAssertFalse(routed)
         XCTAssertFalse(window.nodeWorkspace === code)
+    }
+
+    func testSameProcessWindowCantTakeASavedWindowsSlotBeforeRefreshRegistersIt() async throws {
+        // WinMux restarted and the focused window registers before refresh() lists the others.
+        let code = saveCodeWorkspace()
+        savedWorkspaceRuntime.runtimeReadyAt = nil
+        let app = TestApp(pid: 900, bundleId: editor)
+        let other = newWindow(41, app)
+
+        let otherRouted = try await routeNewWindowToSavedWorkspaceIfNeeded(other, isRegularWindow: true)
+        let saved = newWindow(11, app)
+        let savedRouted = try await routeNewWindowToSavedWorkspaceIfNeeded(saved, isRegularWindow: true)
+
+        XCTAssertFalse(otherRouted)
+        XCTAssertFalse(other.nodeWorkspace === code)
+        XCTAssertTrue(savedRouted)
+        XCTAssertTrue(saved.nodeWorkspace === code)
+    }
+
+    func testCaptureDuringRoutingDoesntGiveTheWindowANewSlot() async throws {
+        // The window landed in a focused saved workspace and a checkpoint runs while its title
+        // is being fetched.
+        let focused = try makeSavedTestWorkspace("focused")
+        XCTAssertTrue(focused.focusWorkspace())
+        let later = SavedWorkspaceLayout(root: savedRoot(.tiles, .h, [savedSlot("real", bundleId: editor, title: "Notes", windowId: 11, pid: 900)]))
+        savedWorkspaceStore.insert(SavedWorkspaceRecord(workspaceName: "later", layout: later))
+        materializeSavedWorkspaceNames()
+        let window = TestWindow.new(id: 21, parent: focused.rootTilingContainer, app: relaunched(editor, pid: 1001), title: "Notes")
+        savedWorkspaceRuntime.routingInFlightWindowIds = [21]
+        captureSavedWorkspaces(facts: savedTestFacts())
+        XCTAssertEqual(savedWorkspaceStore.record(named: "focused")?.layout.root.allSlots.count, 0)
+        savedWorkspaceRuntime.routingInFlightWindowIds = []
+
+        let routed = try await routeNewWindowToSavedWorkspaceIfNeeded(window, isRegularWindow: true)
+
+        XCTAssertTrue(routed)
+        XCTAssertEqual(window.nodeWorkspace?.name, "later")
+        XCTAssertTrue(savedWorkspaceRuntime.routingInFlightWindowIds.isEmpty)
+    }
+
+    func testMostRecentChildIsRestoredAtEveryLevel() async throws {
+        // Root prefers the left column; the left column prefers a, the right column prefers d.
+        let layout = SavedWorkspaceLayout(root: savedRoot(.tiles, .h, [
+            .container(SavedLayoutContainer(layout: .tabGroup, orientation: .v, isMostRecentInParent: true, children: [
+                savedSlot("a", bundleId: "com.test.a", windowId: 11, pid: 901, isMostRecent: true),
+                savedSlot("b", bundleId: "com.test.b", windowId: 12, pid: 902),
+            ])),
+            .container(SavedLayoutContainer(layout: .tabGroup, orientation: .v, children: [
+                savedSlot("c", bundleId: "com.test.c", windowId: 13, pid: 903),
+                savedSlot("d", bundleId: "com.test.d", windowId: 14, pid: 904, isMostRecent: true),
+            ])),
+        ]))
+        savedWorkspaceStore.insert(SavedWorkspaceRecord(workspaceName: "tabs", layout: layout))
+        materializeSavedWorkspaceNames()
+        let workspace = try XCTUnwrap(Workspace.existing(byName: "tabs"))
+        var windows: [String: TestWindow] = [:]
+        for (index, name) in ["a", "b", "c", "d"].enumerated() {
+            let window = newWindow(UInt32(21 + index), relaunched("com.test.\(name)", pid: Int32(1001 + index)))
+            windows[name] = window
+            let routed = try await routeNewWindowToSavedWorkspaceIfNeeded(window, isRegularWindow: true)
+            XCTAssertTrue(routed)
+        }
+
+        let root = workspace.rootTilingContainer
+        XCTAssertEqual(liveShape(root), "h[t[21 22] t[23 24]]")
+        let left = try XCTUnwrap(root.children.first as? TilingContainer)
+        let right = try XCTUnwrap(root.children.last as? TilingContainer)
+        XCTAssertTrue(root.mostRecentChild === left)
+        XCTAssertTrue(left.mostRecentChild === windows["a"])
+        XCTAssertTrue(right.mostRecentChild === windows["d"])
     }
 
     func testDialogsAndPopupsNeverClaimSlots() async throws {

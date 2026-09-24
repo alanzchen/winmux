@@ -123,7 +123,7 @@ final class SavedWorkspaceCaptureTest: XCTestCase {
         captureSavedWorkspaces(facts: savedTestFacts(now: savedTestNow.addingTimeInterval(16), running: apps))
 
         XCTAssertEqual(savedWorkspaceStore.record(named: "code")?.layout.root.allSlots.map(\.lastWindowId), [1])
-        XCTAssertTrue(savedWorkspaceRuntime.vanishedSince.isEmpty)
+        XCTAssertTrue(savedWorkspaceRuntime.vanishedSlots.isEmpty)
     }
 
     func testMassVanishUsesExtendedGrace() throws {
@@ -142,6 +142,81 @@ final class SavedWorkspaceCaptureTest: XCTestCase {
 
         captureSavedWorkspaces(facts: savedTestFacts(now: savedTestNow.addingTimeInterval(61), running: apps))
         XCTAssertEqual(savedWorkspaceStore.record(named: "code")?.layout.root.allSlots.count, 0)
+    }
+
+    func testStaleVanishedSlotsOfRemovedRecordsArePruned() throws {
+        savedWorkspaceRuntime.vanishedSlots["slot-gone"] = SavedVanishedSlot(since: savedTestNow, grace: 15)
+        _ = try makeSavedTestWorkspace("code")
+
+        captureSavedWorkspaces(facts: savedTestFacts())
+
+        XCTAssertTrue(savedWorkspaceRuntime.vanishedSlots.isEmpty)
+    }
+
+    func testGraceIsChosenWhenTheWindowVanishes() throws {
+        let app = TestApp(pid: 1001, bundleId: editor)
+        let workspace = Workspace.get(byName: "code")
+        let first = TestWindow.new(id: 1, parent: workspace.rootTilingContainer, app: app)
+        let second = TestWindow.new(id: 2, parent: workspace.rootTilingContainer, app: app)
+        try ensureSavedWorkspaceRecord(workspace)
+        let apps = running([(editor, 1001)])
+        first.unbindFromParent()
+        second.unbindFromParent()
+        captureSavedWorkspaces(facts: savedTestFacts(running: apps))
+
+        // A new window arrives; the workspace is no longer empty, but the vanished windows keep
+        // the longer grace they got when everything disappeared.
+        TestWindow.new(id: 3, parent: workspace.rootTilingContainer, app: app)
+        captureSavedWorkspaces(facts: savedTestFacts(now: savedTestNow.addingTimeInterval(30), running: apps))
+
+        XCTAssertEqual(savedWorkspaceStore.record(named: "code")?.layout.root.allSlots.count, 3)
+    }
+
+    func testWindowBeingRoutedIsNeitherAdoptedNorMissing() throws {
+        let app = TestApp(pid: 1001, bundleId: editor)
+        let workspace = Workspace.get(byName: "code")
+        TestWindow.new(id: 1, parent: workspace.rootTilingContainer, app: app)
+        try ensureSavedWorkspaceRecord(workspace)
+        TestWindow.new(id: 2, parent: workspace.rootTilingContainer, app: app)
+        savedWorkspaceRuntime.routingInFlightWindowIds = [2]
+
+        captureSavedWorkspaces(facts: savedTestFacts(running: running([(editor, 1001)])))
+
+        XCTAssertEqual(savedWorkspaceStore.record(named: "code")?.layout.root.allSlots.map(\.lastWindowId), [1])
+    }
+
+    func testWindowStillClassifiedAsPopupKeepsItsSlot() throws {
+        let app = TestApp(pid: 1001, bundleId: editor)
+        let workspace = Workspace.get(byName: "code")
+        TestWindow.new(id: 1, parent: workspace.rootTilingContainer, app: app)
+        let window = TestWindow.new(id: 2, parent: workspace.rootTilingContainer, app: app)
+        try ensureSavedWorkspaceRecord(workspace)
+
+        window.bind(to: macosPopupWindowsContainer, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
+        captureSavedWorkspaces(facts: savedTestFacts(now: savedTestNow.addingTimeInterval(3600), running: running([(editor, 1001)])))
+
+        XCTAssertEqual(savedWorkspaceStore.record(named: "code")?.layout.root.allSlots.map(\.lastWindowId), [1, 2])
+    }
+
+    func testHiddenWorkspaceKeepsItsTwinDisplayTieBreak() throws {
+        let laptop = SavedWorkspaceTestMonitor(id: 1, name: "Built-in", x: 0, isMain: true, uuid: "LAPTOP", isBuiltin: true)
+        let first = SavedWorkspaceTestMonitor(id: 2, name: "Twin", x: 1920, uuid: "TWIN")
+        let second = SavedWorkspaceTestMonitor(id: 3, name: "Twin", x: 3840, uuid: "TWIN")
+        setMonitorsForTests([laptop, first, second])
+        Workspace.reconcileWorkspaceState()
+        let workspace = Workspace.get(byName: "code")
+        TestWindow.new(id: 1, parent: workspace.rootTilingContainer)
+        XCTAssertTrue(second.setActiveWorkspace(workspace))
+        try ensureSavedWorkspaceRecord(workspace)
+
+        setMonitorsForTests([laptop, first])
+        Workspace.reconcileWorkspaceState()
+        captureSavedWorkspaces(facts: savedTestFacts())
+        XCTAssertEqual(savedWorkspaceStore.record(named: "code")?.display?.lastTopLeft, CGPoint(x: 3840, y: 0))
+
+        setMonitorsForTests([laptop, first, second])
+        Workspace.reconcileWorkspaceState()
+        XCTAssertTrue(second.activeWorkspace === workspace)
     }
 
     func testWindowMovedToAnotherWorkspaceDropsSlotImmediately() throws {

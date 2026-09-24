@@ -31,13 +31,19 @@ func currentSavedWorkspaceCaptureFacts(titleByWindowId: [UInt32: String]) -> Sav
 func scheduleSavedWorkspaceCheckpoint(after delay: TimeInterval = SavedWorkspaceTiming.captureDelay) {
     guard !isUnitTest else { return }
     let runtime = savedWorkspaceRuntime
-    guard runtime.checkpointTask == nil, runtime.runtimeReadyAt != nil, !savedWorkspaceStore.isReadOnly else { return }
+    guard runtime.runtimeReadyAt != nil, !savedWorkspaceStore.isReadOnly else { return }
     let adoptionPending = !runtime.didRunLabelAdoption && savedWorkspaceStore.fileWasAbsentAtLoad
     guard !savedWorkspaceStore.isEmpty || adoptionPending else { return }
+    // Coalesce, but never let a later follow-up (a grace expiry) delay an earlier checkpoint.
+    let deadline = Date().addingTimeInterval(max(delay, 0))
+    if runtime.checkpointTask != nil, let pending = runtime.checkpointDeadline, pending <= deadline { return }
+    runtime.checkpointTask?.cancel()
+    runtime.checkpointDeadline = deadline
     runtime.checkpointTask = Task { @MainActor in
         try? await Task.sleep(nanoseconds: UInt64(max(delay, 0) * 1_000_000_000))
-        runtime.checkpointTask = nil
         guard !Task.isCancelled else { return }
+        runtime.checkpointTask = nil
+        runtime.checkpointDeadline = nil
         await runSavedWorkspaceCheckpoint()
     }
 }
@@ -77,9 +83,12 @@ func captureSavedWorkspaces(facts: SavedWorkspaceCaptureFacts) {
     }
     savedWorkspaceStore.reorder(workspaceNamesInOrder: orderedWorkspacesForPresentation().map(\.name))
     savedWorkspaceStore.scheduleWrite()
-    let graceEnd = savedWorkspaceRuntime.vanishedSince.values.min().map { $0.addingTimeInterval(SavedWorkspaceTiming.closedWindowGrace) }
-    if let graceEnd {
-        scheduleSavedWorkspaceCheckpoint(after: max(graceEnd.timeIntervalSince(facts.now), 0) + 0.5)
+    // Slots of records deleted since they vanished would otherwise schedule follow-ups forever.
+    let runtime = savedWorkspaceRuntime
+    let knownSlotIds = Set(savedWorkspaceStore.records.flatMap { $0.layout.allSlots.map(\.id) })
+    runtime.vanishedSlots = runtime.vanishedSlots.filter { knownSlotIds.contains($0.key) }
+    if let nextExpiry = runtime.vanishedSlots.values.map(\.expiresAt).min() {
+        scheduleSavedWorkspaceCheckpoint(after: max(nextExpiry.timeIntervalSince(facts.now), 0) + 0.5)
     }
 }
 
@@ -128,22 +137,29 @@ func captureSavedWorkspace(
         updated.display = affinity
         runtime.visibleOnHomeAtLastCheckpoint.insert(workspaceName)
         updated.lastVisibleSequence = savedWorkspaceStore.takeVisibilitySequence()
-    } else if let home, var display = updated.display {
+    } else if isVisibleOnHome, let home, var display = updated.display {
+        // Only while the workspace is shown there: with one of two identical displays
+        // unplugged, the home resolves to the other one, and its point must not replace the
+        // tie-break.
         display.lastTopLeft = home.rect.topLeftCorner
         display.name = home.name
         updated.display = display
     }
 
-    // Layout.
+    // Layout. Windows being routed are neither live here nor missing.
+    let excludedWindowIds = runtime.routingInFlightWindowIds.union(excludingWindowId.map { [$0] } ?? [])
     let snapshot = snapshotLiveSavedLayout(
         workspace,
         previous: record.layout,
         titleByWindowId: facts.titleByWindowId,
-        excludingWindowId: excludingWindowId,
+        excludingWindowIds: excludedWindowIds,
     )
     let previousSlots = record.layout.allSlots
+    let protectedSlotIds = forceKeepSlotIds.union(previousSlots.filter { slot in
+        slot.lastWindowId.map(excludedWindowIds.contains) == true
+    }.map(\.id))
     let missingSlots = previousSlots.filter {
-        !snapshot.liveTiled.contains($0.id) && !snapshot.liveFloating.contains($0.id) && !forceKeepSlotIds.contains($0.id)
+        !snapshot.liveTiled.contains($0.id) && !snapshot.liveFloating.contains($0.id) && !protectedSlotIds.contains($0.id)
     }
     let workspaceHasNoLiveWindows = snapshot.liveTiled.isEmpty && snapshot.liveFloating.isEmpty
     let vanishedRunningCount = missingSlots.count { slot in
@@ -161,7 +177,7 @@ func captureSavedWorkspace(
         )
     }
     for slot in previousSlots where !missingSlots.contains(where: { $0.id == slot.id }) {
-        runtime.vanishedSince.removeValue(forKey: slot.id)
+        runtime.vanishedSlots.removeValue(forKey: slot.id)
     }
     updated.layout = mergeSavedLayout(
         previous: record.layout,
@@ -169,13 +185,14 @@ func captureSavedWorkspace(
         context: SavedLayoutMergeContext(
             liveTiled: snapshot.liveTiled,
             liveFloating: snapshot.liveFloating,
-            keep: { forceKeepSlotIds.contains($0.id) || decisions[$0.id] ?? true },
+            keep: { protectedSlotIds.contains($0.id) || decisions[$0.id] ?? true },
             normalization: facts.normalization,
+            protectedSlotIds: protectedSlotIds,
         ),
     )
     let remaining = Set(updated.layout.allSlots.map(\.id))
     for slot in previousSlots where !remaining.contains(slot.id) {
-        runtime.vanishedSince.removeValue(forKey: slot.id)
+        runtime.vanishedSlots.removeValue(forKey: slot.id)
     }
     _ = savedWorkspaceStore.update(named: workspaceName) { $0 = updated }
 }
@@ -203,9 +220,11 @@ func savedSlotKeepsWaiting(
     // Minimized, hidden-app and native-fullscreen windows still belong here.
     if detached.contains(slot.id) { return true }
     if let windowId = slot.lastWindowId, let pid = slot.lastPid {
-        // The window is alive somewhere else: the user moved it.
         if let window = Window.get(byId: windowId), window.app.pid == pid {
-            runtime.vanishedSince.removeValue(forKey: slot.id)
+            // Still classified as a popup: it may be promoted to a window later.
+            if window.parent is MacosPopupWindowsContainer { return true }
+            // The window is alive somewhere else: the user moved it.
+            runtime.vanishedSlots.removeValue(forKey: slot.id)
             return false
         }
         // Alive but not registered yet (a refresh is still registering windows).
@@ -216,11 +235,15 @@ func savedSlotKeepsWaiting(
     if facts.startupRestoreActive || runtime.isAnyInstanceArmed(bundleId: slot.bundleId, runningApps: facts.runningApps, at: facts.now) {
         return true
     }
-    let since = runtime.vanishedSince[slot.id] ?? facts.now
-    runtime.vanishedSince[slot.id] = since
-    let grace = massVanish ? SavedWorkspaceTiming.massVanishGrace : SavedWorkspaceTiming.closedWindowGrace
-    if facts.now.timeIntervalSince(since) < grace { return true }
-    runtime.vanishedSince.removeValue(forKey: slot.id)
+    // The grace is chosen when the window vanishes, so a window that returns later doesn't
+    // shorten the others'.
+    let vanished = runtime.vanishedSlots[slot.id] ?? SavedVanishedSlot(
+        since: facts.now,
+        grace: massVanish ? SavedWorkspaceTiming.massVanishGrace : SavedWorkspaceTiming.closedWindowGrace,
+    )
+    runtime.vanishedSlots[slot.id] = vanished
+    if facts.now < vanished.expiresAt { return true }
+    runtime.vanishedSlots.removeValue(forKey: slot.id)
     return false
 }
 
@@ -239,7 +262,7 @@ func snapshotLiveSavedLayout(
     _ workspace: Workspace,
     previous: SavedWorkspaceLayout,
     titleByWindowId: [UInt32: String],
-    excludingWindowId: UInt32? = nil,
+    excludingWindowIds: Set<UInt32> = [],
 ) -> SavedLiveSnapshot {
     var previousByWindow: [SavedWindowIdentity: SavedWindowSlot] = [:]
     for slot in previous.allSlots {
@@ -250,7 +273,7 @@ func snapshotLiveSavedLayout(
     var liveFloating: Set<String> = []
 
     func slot(for window: Window, weight: CGFloat, isMostRecent: Bool) -> SavedWindowSlot? {
-        guard window.windowId != excludingWindowId, let bundleId = window.app.rawAppBundleId else { return nil }
+        guard !excludingWindowIds.contains(window.windowId), let bundleId = window.app.rawAppBundleId else { return nil }
         let previousSlot = previousByWindow[SavedWindowIdentity(windowId: window.windowId, pid: window.app.pid)]
         var slot = previousSlot ?? SavedWindowSlot(bundleId: bundleId)
         slot.bundleId = bundleId
@@ -312,7 +335,12 @@ func snapshotLiveSavedLayout(
 /// The live layout of a workspace being saved right now, with cached titles.
 @MainActor
 func snapshotSavedWorkspaceLayoutNow(_ workspace: Workspace) -> SavedWorkspaceLayout {
-    snapshotLiveSavedLayout(workspace, previous: .init(), titleByWindowId: [:]).layout
+    snapshotLiveSavedLayout(
+        workspace,
+        previous: .init(),
+        titleByWindowId: [:],
+        excludingWindowIds: savedWorkspaceRuntime.routingInFlightWindowIds,
+    ).layout
 }
 
 private struct SavedWindowIdentity: Hashable {

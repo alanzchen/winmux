@@ -15,6 +15,7 @@ import Foundation
         }
         // Saved names must exist before anything (config reload, sidebar refresh, focus) can
         // hand them out as automatic workspace names.
+        isDeferringOrphanedWorkspaceLabelCleanup = true
         loadSavedWorkspaceStoreForStartup()
         materializeSavedWorkspaceNames()
         do {
@@ -59,6 +60,8 @@ import Foundation
             }
             _ = try await config.afterStartupCommand.runCmdSeq(.defaultEnv, .emptyStdin)
         }
+        isDeferringOrphanedWorkspaceLabelCleanup = false
+        clearOrphanedWorkspaceSidebarLabels()
         isWinMuxRuntimeReady = true
         savedWorkspaceRuntime.runtimeReadyAt = savedWorkspaceRuntime.now
         scheduleSavedWorkspaceCheckpoint()
