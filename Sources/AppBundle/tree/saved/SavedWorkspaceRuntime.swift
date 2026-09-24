@@ -61,7 +61,20 @@ enum SavedWorkspaceTiming {
     /// Capture stays frozen this long after a logout, restart, or shutdown starts.
     static let shutdownFreeze: TimeInterval = 120
     static let titleMaxAge: TimeInterval = 60
+    /// A slow app's first window still counts as its restore if it appears this soon after
+    /// launch. Much later, it's a new window like any other.
+    static let slowLaunchWindow: TimeInterval = 600
+    /// How long a window without a title waits for one before it is placed by saved order.
+    static let titleWait: TimeInterval = 10
 }
+
+/// A window that arrived without a title while several saved places could fit it.
+struct SavedTitleWait: Equatable, Sendable {
+    let since: Date
+    let pid: Int32
+}
+
+let savedWorkspaceConcurrentAppLaunches = 4
 
 @MainActor
 final class SavedWorkspaceRuntime {
@@ -89,7 +102,8 @@ final class SavedWorkspaceRuntime {
     var firstWindowSeenByPid: [Int32: Date] = [:]
     /// Windows that arrived without a title while several saved places could fit them. Routing
     /// is retried once the title is known.
-    var windowsAwaitingTitle: [UInt32: Date] = [:]
+    var windowsAwaitingTitle: [UInt32: SavedTitleWait] = [:]
+    var titleRetryTask: Task<Void, Never>?
     /// Window ids (with owner pid) that are alive but may not be registered yet. Filled only
     /// while a refresh registers windows, so routing can't hand a still-arriving saved window's
     /// slot to another window of the same app.
@@ -122,7 +136,9 @@ final class SavedWorkspaceRuntime {
         if let launchDate, now.timeIntervalSince(launchDate) < SavedWorkspaceTiming.restoreWindow {
             return true
         }
-        if let pid, let seen = firstWindowSeenByPid[pid], now.timeIntervalSince(seen) < SavedWorkspaceTiming.restoreWindow {
+        if let pid, let seen = firstWindowSeenByPid[pid], now.timeIntervalSince(seen) < SavedWorkspaceTiming.restoreWindow,
+           launchDate.map({ seen.timeIntervalSince($0) < SavedWorkspaceTiming.slowLaunchWindow }) ?? true
+        {
             return true
         }
         if let until = manualArmUntilByBundleId[bundleId], now < until {
@@ -142,6 +158,7 @@ final class SavedWorkspaceRuntime {
 @MainActor
 func resetSavedWorkspacesForTests(environment: SavedWorkspaceEnvironment? = nil) {
     savedWorkspaceRuntime.checkpointTask?.cancel()
+    savedWorkspaceRuntime.titleRetryTask?.cancel()
     savedWorkspaceStore = SavedWorkspaceStore(url: nil)
     let runtime = SavedWorkspaceRuntime()
     runtime.environment = environment ?? .forTests()
@@ -217,7 +234,9 @@ func installSavedWorkspaceObservers() {
 @MainActor
 private func resumeSavedWorkspaceCapture(after suspension: SavedWorkspaceSuspension) {
     guard savedWorkspaceRuntime.suspensions.remove(suspension) != nil else { return }
-    // Windows that vanished during the suspension were never really closed.
+    // Windows that vanished during the suspension were never really closed, and windows still
+    // waiting for a title from before it have been in use since.
     savedWorkspaceRuntime.vanishedSlots = [:]
+    savedWorkspaceRuntime.windowsAwaitingTitle = [:]
     scheduleSavedWorkspaceCheckpoint()
 }

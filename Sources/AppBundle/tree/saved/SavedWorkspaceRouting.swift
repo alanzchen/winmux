@@ -7,6 +7,9 @@ import Common
 func restoreOrDetectNewWindow(_ window: Window, isRegularWindow: Bool) async throws -> Bool {
     let didRestorePersisted = try await restorePersistedFrozenWorldIfNeeded(newlyDetectedWindow: window)
     let didRestoreClosed = try await restoreClosedWindowsCacheIfNeeded(newlyDetectedWindow: window)
+    if isRegularWindow {
+        savedWorkspaceRuntime.noteWindowSeen(pid: window.app.pid)
+    }
     if didRestorePersisted || didRestoreClosed { return true }
     if try await routeNewWindowToSavedWorkspaceIfNeeded(window, isRegularWindow: isRegularWindow) {
         // Subscribers still learn about the window; callbacks don't move it out again.
@@ -29,26 +32,69 @@ func routePromotedPopupToSavedWorkspaceIfNeeded(_ window: MacWindow) async throw
     return try await routeNewWindowToSavedWorkspaceIfNeeded(window, isRegularWindow: type == .window)
 }
 
-/// Routes windows that arrived without a title once their title is known. Runs with each
-/// checkpoint while any are waiting, for at most the restore window.
+/// Checks windows that arrived without a title with a backoff (0.5 s, then doubling up to
+/// 4 s). Each is routed once its title is known, or by saved order once its wait is over.
+@MainActor
+func scheduleSavedWorkspaceTitleRetry() {
+    guard !isUnitTest else { return }
+    let runtime = savedWorkspaceRuntime
+    guard runtime.titleRetryTask == nil, !runtime.windowsAwaitingTitle.isEmpty else { return }
+    runtime.titleRetryTask = Task { @MainActor in
+        var delay: TimeInterval = 0.5
+        while !runtime.windowsAwaitingTitle.isEmpty, !Task.isCancelled {
+            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            delay = min(delay * 2, 4)
+            // Same guards as checkpoints: nothing moves while the screen is locked, the Mac
+            // sleeps, or displays are still reconfiguring.
+            guard !runtime.isCaptureSuspended,
+                  !MonitorConfigurationObserver.shared.isSettling,
+                  runtime.environment.frontmostAppBundleId() != lockScreenAppBundleId
+            else { continue }
+            let ready = await savedWorkspaceWindowsReadyToRoute()
+            guard !ready.isEmpty, let token: RunSessionGuard = .isServerEnabled else { continue }
+            _ = try? await runLightSession(.ax(kAXTitleChangedNotification as String), token) {
+                await routeSavedWorkspaceWindows(ready)
+            }
+        }
+        runtime.titleRetryTask = nil
+    }
+}
+
+/// Routes the waiting windows whose title is known now, or whose wait is over.
 @MainActor
 func retrySavedWorkspaceRoutingForWindowsAwaitingTitles() async {
+    await routeSavedWorkspaceWindows(await savedWorkspaceWindowsReadyToRoute())
+}
+
+/// Waiting windows whose title is known now or whose wait is over. Drops windows that went
+/// away.
+@MainActor
+private func savedWorkspaceWindowsReadyToRoute() async -> [Window] {
     let runtime = savedWorkspaceRuntime
-    for (windowId, since) in runtime.windowsAwaitingTitle {
-        guard runtime.now.timeIntervalSince(since) < SavedWorkspaceTiming.restoreWindow,
-              let window = Window.get(byId: windowId),
+    var ready: [Window] = []
+    for (windowId, wait) in runtime.windowsAwaitingTitle {
+        guard let window = Window.get(byId: windowId),
+              window.app.pid == wait.pid,
               window.isBound,
               window.parent !== macosPopupWindowsContainer
         else {
             runtime.windowsAwaitingTitle.removeValue(forKey: windowId)
             continue
         }
-        guard normalizedSavedWindowTitle(try? await window.title) != nil else { continue }
-        runtime.windowsAwaitingTitle.removeValue(forKey: windowId)
-        _ = try? await routeNewWindowToSavedWorkspaceIfNeeded(window, isRegularWindow: true)
+        if runtime.now.timeIntervalSince(wait.since) >= SavedWorkspaceTiming.titleWait {
+            ready.append(window)
+        } else if normalizedSavedWindowTitle(try? await window.title) != nil {
+            ready.append(window)
+        }
     }
-    if !runtime.windowsAwaitingTitle.isEmpty {
-        scheduleSavedWorkspaceCheckpoint(after: 1)
+    return ready
+}
+
+@MainActor
+private func routeSavedWorkspaceWindows(_ windows: [Window]) async {
+    for window in windows where window.isBound && savedWorkspaceRuntime.windowsAwaitingTitle.removeValue(forKey: window.windowId) != nil {
+        // It was armed when it arrived; the wait must not cost it that.
+        _ = try? await routeNewWindowToSavedWorkspaceIfNeeded(window, isRegularWindow: true, wasAdmitted: true)
     }
 }
 
@@ -72,8 +118,10 @@ struct SavedSlotLocation: Equatable {
 /// The same window (after a WinMux relaunch) always returns. A different window of the same app
 /// returns only while its app is armed: during WinMux startup, shortly after the app launched,
 /// or shortly after Open Missing Apps. A window opened later with Cmd-N behaves normally.
+/// - Parameter wasAdmitted: the window already passed the arming check and waited for its
+///   title; it isn't checked again, and without a title it takes a place by saved order.
 @MainActor
-func routeNewWindowToSavedWorkspaceIfNeeded(_ window: Window, isRegularWindow: Bool) async throws -> Bool {
+func routeNewWindowToSavedWorkspaceIfNeeded(_ window: Window, isRegularWindow: Bool, wasAdmitted: Bool = false) async throws -> Bool {
     guard !serverArgs.isReadOnly,
           !savedWorkspaceStore.isEmpty,
           isRegularWindow,
@@ -93,7 +141,7 @@ func routeNewWindowToSavedWorkspaceIfNeeded(_ window: Window, isRegularWindow: B
         return try await placeWindowInSavedSlot(window, location)
     }
 
-    guard isStartup || runtime.isStartupRestoreActive ||
+    guard wasAdmitted || isStartup || runtime.isStartupRestoreActive ||
         runtime.isArmed(bundleId: bundleId, launchDate: window.app.launchDate, pid: window.app.pid)
     else {
         return false
@@ -108,9 +156,9 @@ func routeNewWindowToSavedWorkspaceIfNeeded(_ window: Window, isRegularWindow: B
     }
     // Titles often appear a moment after the window. With several titled places to choose
     // from, wait for it rather than guess.
-    if title == nil, candidates.count > 1, candidates.contains(where: { $0.slot.title?.isEmpty == false }) {
-        runtime.windowsAwaitingTitle[window.windowId] = runtime.now
-        scheduleSavedWorkspaceCheckpoint(after: 1)
+    if !wasAdmitted, title == nil, candidates.count > 1, candidates.contains(where: { $0.slot.title?.isEmpty == false }) {
+        runtime.windowsAwaitingTitle[window.windowId] = SavedTitleWait(since: runtime.now, pid: window.app.pid)
+        scheduleSavedWorkspaceTitleRetry()
         return false
     }
     guard let location = bestSavedSlot(for: title, among: candidates, appName: window.app.name) else {
@@ -182,7 +230,7 @@ func savedTitleMatchScore(_ lhs: String?, _ rhs: String?, appName: String? = nil
     }
     if !parts(lhs).isDisjoint(with: parts(rhs)) { return 2 }
     let shorter = lhs.count <= rhs.count ? lhs : rhs
-    if shorter.count >= 4, shorter != appName, lhs.contains(rhs) || rhs.contains(lhs) { return 1 }
+    if shorter.count >= 4, shorter != appName, !ignoredParts.contains(shorter), lhs.contains(rhs) || rhs.contains(lhs) { return 1 }
     return 0
 }
 

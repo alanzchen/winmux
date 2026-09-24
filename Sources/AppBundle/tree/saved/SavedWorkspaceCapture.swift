@@ -72,9 +72,6 @@ func runSavedWorkspaceCheckpoint() async {
     else { return }
     adoptLabeledWorkspacesIfNeeded()
     guard !savedWorkspaceStore.isEmpty else { return }
-    if !runtime.windowsAwaitingTitle.isEmpty {
-        await retrySavedWorkspaceRoutingForWindowsAwaitingTitles()
-    }
     var titles: [UInt32: String] = [:]
     for record in savedWorkspaceStore.records {
         guard let workspace = Workspace.existing(byName: record.workspaceName) else { continue }
@@ -100,6 +97,8 @@ func captureSavedWorkspaces(facts: SavedWorkspaceCaptureFacts) {
     savedWorkspaceStore.scheduleWrite()
     // Slots of records deleted since they vanished would otherwise schedule follow-ups forever.
     let runtime = savedWorkspaceRuntime
+    let runningPids = facts.runningApps.values.flatMap { $0.map(\.pid) }.toSet()
+    runtime.firstWindowSeenByPid = runtime.firstWindowSeenByPid.filter { runningPids.contains($0.key) }
     let knownSlotIds = Set(savedWorkspaceStore.records.flatMap { $0.layout.allSlots.map(\.id) })
     runtime.vanishedSlots = runtime.vanishedSlots.filter { knownSlotIds.contains($0.key) }
     if let nextExpiry = runtime.vanishedSlots.values.map(\.expiresAt).min() {
@@ -161,8 +160,11 @@ func captureSavedWorkspace(
         updated.display = display
     }
 
-    // Layout. Windows being routed are neither live here nor missing.
-    let excludedWindowIds = runtime.routingInFlightWindowIds.union(excludingWindowId.map { [$0] } ?? [])
+    // Layout. Windows being routed, or waiting for a title to be routed, are neither live here
+    // nor missing.
+    let excludedWindowIds = runtime.routingInFlightWindowIds
+        .union(runtime.windowsAwaitingTitle.keys)
+        .union(excludingWindowId.map { [$0] } ?? [])
     let snapshot = snapshotLiveSavedLayout(
         workspace,
         previous: record.layout,
@@ -257,7 +259,8 @@ func savedSlotKeepsWaiting(
     // until that instance has shown windows and had its chance to bring this one back.
     if !slotOwnerIsRunning(slot, facts: facts) {
         let instances = facts.runningApps[slot.bundleId] ?? []
-        if !instances.contains(where: { facts.registeredWindowPids.contains($0.pid) }) { return true }
+        let hasShownWindows = instances.contains { facts.registeredWindowPids.contains($0.pid) || runtime.firstWindowSeenByPid[$0.pid] != nil }
+        if !hasShownWindows { return true }
     }
     if facts.startupRestoreActive || runtime.isAnyInstanceArmed(bundleId: slot.bundleId, runningApps: facts.runningApps, at: facts.now) {
         return true
@@ -366,7 +369,7 @@ func snapshotSavedWorkspaceLayoutNow(_ workspace: Workspace) -> SavedWorkspaceLa
         workspace,
         previous: .init(),
         titleByWindowId: [:],
-        excludingWindowIds: savedWorkspaceRuntime.routingInFlightWindowIds,
+        excludingWindowIds: savedWorkspaceRuntime.routingInFlightWindowIds.union(savedWorkspaceRuntime.windowsAwaitingTitle.keys),
     ).layout
 }
 

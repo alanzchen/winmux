@@ -174,6 +174,79 @@ final class SavedWorkspaceRoutingTest: XCTestCase {
         XCTAssertTrue(savedWorkspaceRuntime.windowsAwaitingTitle.isEmpty)
     }
 
+    func testFirstWindowLongAfterLaunchIsNotARestore() async throws {
+        // An app that ran without windows for hours opens one.
+        let code = saveCodeWorkspace()
+        let window = newWindow(21, relaunched(editor, pid: 1001, launchedAgo: 7200))
+
+        let routed = try await routeNewWindowToSavedWorkspaceIfNeeded(window, isRegularWindow: true)
+
+        XCTAssertFalse(routed)
+        XCTAssertFalse(window.nodeWorkspace === code)
+    }
+
+    func testSlowAppsFirstWindowWithinMinutesOfLaunchIsARestore() async throws {
+        let code = saveCodeWorkspace()
+        let window = newWindow(21, relaunched(editor, pid: 1001, launchedAgo: 120))
+
+        let routed = try await routeNewWindowToSavedWorkspaceIfNeeded(window, isRegularWindow: true)
+
+        XCTAssertTrue(routed)
+        XCTAssertTrue(window.nodeWorkspace === code)
+    }
+
+    func testWindowWhoseTitleNeverAppearsIsPlacedBySavedOrderAfterTheWait() async throws {
+        let first = SavedWorkspaceLayout(root: savedRoot(.tiles, .h, [savedSlot("one", bundleId: editor, title: "a.swift — ProjectOne", windowId: 11, pid: 900)]))
+        let second = SavedWorkspaceLayout(root: savedRoot(.tiles, .h, [savedSlot("two", bundleId: editor, title: "b.swift — ProjectTwo", windowId: 12, pid: 900)]))
+        savedWorkspaceStore.insert(SavedWorkspaceRecord(workspaceName: "one", layout: first))
+        savedWorkspaceStore.insert(SavedWorkspaceRecord(workspaceName: "two", layout: second))
+        materializeSavedWorkspaceNames()
+        let window = newWindow(31, relaunched(editor, pid: 1001), title: "")
+        _ = try await routeNewWindowToSavedWorkspaceIfNeeded(window, isRegularWindow: true)
+        XCTAssertNotNil(savedWorkspaceRuntime.windowsAwaitingTitle[31])
+
+        // Still untitled after the wait, and long past the app's own restore window.
+        savedWorkspaceRuntime.environment = .forTests(now: savedTestNow.addingTimeInterval(SavedWorkspaceTiming.titleWait + 60))
+        await retrySavedWorkspaceRoutingForWindowsAwaitingTitles()
+
+        XCTAssertEqual(window.nodeWorkspace?.name, "one")
+        XCTAssertTrue(savedWorkspaceRuntime.windowsAwaitingTitle.isEmpty)
+    }
+
+    func testUntitledWindowTakesTheOnlyPlaceRightAway() async throws {
+        let layout = SavedWorkspaceLayout(root: savedRoot(.tiles, .h, [savedSlot("only", bundleId: editor, title: "main.swift — App", windowId: 11, pid: 900)]))
+        savedWorkspaceStore.insert(SavedWorkspaceRecord(workspaceName: "only", layout: layout))
+        materializeSavedWorkspaceNames()
+        let window = newWindow(31, relaunched(editor, pid: 1001), title: "")
+
+        let routed = try await routeNewWindowToSavedWorkspaceIfNeeded(window, isRegularWindow: true)
+
+        XCTAssertTrue(routed)
+        XCTAssertEqual(window.nodeWorkspace?.name, "only")
+        XCTAssertTrue(savedWorkspaceRuntime.windowsAwaitingTitle.isEmpty)
+    }
+
+    func testOpenMissingAppsLaunchesMoreThanFourAppsInSavedOrder() async throws {
+        let bundleIds = (1 ... 6).map { "com.test.app\($0)" }
+        let layout = SavedWorkspaceLayout(root: savedRoot(.tiles, .h, bundleIds.map { savedSlot($0, bundleId: $0) }))
+        savedWorkspaceStore.insert(SavedWorkspaceRecord(workspaceName: "many", layout: layout))
+        materializeSavedWorkspaceNames()
+        var launched: [String] = []
+        savedWorkspaceRuntime.environment = SavedWorkspaceEnvironment(
+            now: { savedTestNow },
+            runningApps: { [:] },
+            openApplication: { bundleId, _ in launched.append(bundleId); return bundleId != "com.test.app5" },
+            frontmostAppBundleId: { nil },
+        )
+
+        let result = await openMissingSavedWorkspaceApps(workspaceNames: ["many"])
+
+        XCTAssertEqual(Set(launched), Set(bundleIds))
+        XCTAssertEqual(result.opened, bundleIds.filter { $0 != "com.test.app5" })
+        XCTAssertEqual(result.failed, ["com.test.app5"])
+        XCTAssertEqual(Set(savedWorkspaceRuntime.manualArmUntilByBundleId.keys), Set(bundleIds))
+    }
+
     func testUnarmedWindowIsNotRouted() async throws {
         // A Cmd-N window of an app that has been showing windows for a while.
         let code = saveCodeWorkspace()

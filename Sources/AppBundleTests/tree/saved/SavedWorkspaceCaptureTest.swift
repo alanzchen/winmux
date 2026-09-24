@@ -145,6 +145,36 @@ final class SavedWorkspaceCaptureTest: XCTestCase {
         XCTAssertEqual(savedWorkspaceStore.record(named: "code")?.layout.root.allSlots.count, 0)
     }
 
+    func testRelaunchedAppThatShowedAndClosedAWindowStillExpiresOldPlaces() throws {
+        let app = TestApp(pid: 1001, bundleId: editor)
+        let workspace = Workspace.get(byName: "code")
+        TestWindow.new(id: 1, parent: workspace.rootTilingContainer, app: app)
+        let second = TestWindow.new(id: 2, parent: workspace.rootTilingContainer, app: app)
+        try ensureSavedWorkspaceRecord(workspace)
+        second.unbindFromParent()
+        let relaunched = [editor: [SavedRunningApp(pid: 2002, launchDate: savedTestNow.addingTimeInterval(-600))]]
+        // The new instance showed a window long ago and has none now.
+        savedWorkspaceRuntime.firstWindowSeenByPid[2002] = savedTestNow.addingTimeInterval(-600)
+
+        captureSavedWorkspaces(facts: savedTestFacts(runningApps: relaunched, registeredWindowPids: [1001]))
+        captureSavedWorkspaces(facts: savedTestFacts(now: savedTestNow.addingTimeInterval(16), runningApps: relaunched, registeredWindowPids: [1001]))
+
+        XCTAssertEqual(savedWorkspaceStore.record(named: "code")?.layout.root.allSlots.map(\.lastWindowId), [1])
+    }
+
+    func testWindowWaitingForItsTitleIsNotSavedWhereItLandedMeanwhile() throws {
+        let app = TestApp(pid: 1001, bundleId: editor)
+        let workspace = Workspace.get(byName: "code")
+        TestWindow.new(id: 1, parent: workspace.rootTilingContainer, app: app)
+        try ensureSavedWorkspaceRecord(workspace)
+        TestWindow.new(id: 2, parent: workspace.rootTilingContainer, app: app, title: "")
+        savedWorkspaceRuntime.windowsAwaitingTitle[2] = SavedTitleWait(since: savedTestNow, pid: 1001)
+
+        captureSavedWorkspaces(facts: savedTestFacts(runningApps: running([(editor, 1001)])))
+
+        XCTAssertEqual(savedWorkspaceStore.record(named: "code")?.layout.root.allSlots.map(\.lastWindowId), [1])
+    }
+
     func testRelaunchedAppThatJustShowedItsFirstWindowIsStillArmed() throws {
         let app = TestApp(pid: 1001, bundleId: editor)
         let workspace = Workspace.get(byName: "code")

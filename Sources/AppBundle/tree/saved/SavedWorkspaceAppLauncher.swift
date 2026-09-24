@@ -48,24 +48,34 @@ func openMissingSavedWorkspaceApps(workspaceNames: [String]?) async -> SavedWork
     let now = runtime.now
     runtime.manualArmUntilByBundleId = runtime.manualArmUntilByBundleId.filter { $0.value > now }
     let apps = missingSavedWorkspaceApps(workspaceNames: workspaceNames)
-    for app in apps {
-        runtime.manualArmUntilByBundleId[app.bundleId] = now.addingTimeInterval(SavedWorkspaceTiming.restoreWindow)
-    }
-    // A few at a time: one slow app shouldn't hold back the others, and at login they shouldn't
-    // all compete with the apps macOS reopens.
+    // A few at a time, each worker starting the next app as soon as its own opened: one slow
+    // app doesn't hold back the others, and at login they don't all compete with the apps
+    // macOS reopens.
     let openApplication = runtime.environment.openApplication
-    var result = SavedWorkspaceAppLaunchResult()
-    for batch in stride(from: 0, to: apps.count, by: 4).map({ Array(apps[$0 ..< min($0 + 4, apps.count)]) }) {
-        let launches = batch.map { app in
-            Task { @MainActor in await openApplication(app.bundleId, app.bundlePath) }
-        }
-        for (app, launch) in zip(batch, launches) {
-            let name = savedWorkspaceAppDisplayName(bundleId: app.bundleId, appName: app.appName, bundlePath: app.bundlePath)
-            if await launch.value {
-                result.opened.append(name)
-            } else {
-                result.failed.append(name)
+    var nextIndex = 0
+    var didOpen = [Bool?](repeating: nil, count: apps.count)
+    let workers = (0 ..< min(savedWorkspaceConcurrentAppLaunches, apps.count)).map { _ in
+        Task { @MainActor in
+            while nextIndex < apps.count {
+                let index = nextIndex
+                nextIndex += 1
+                let app = apps[index]
+                // Armed as it starts, so waiting for earlier launches doesn't eat into its time.
+                runtime.manualArmUntilByBundleId[app.bundleId] = runtime.now.addingTimeInterval(SavedWorkspaceTiming.restoreWindow)
+                didOpen[index] = await openApplication(app.bundleId, app.bundlePath)
             }
+        }
+    }
+    for worker in workers {
+        await worker.value
+    }
+    var result = SavedWorkspaceAppLaunchResult()
+    for (app, opened) in zip(apps, didOpen) {
+        let name = savedWorkspaceAppDisplayName(bundleId: app.bundleId, appName: app.appName, bundlePath: app.bundlePath)
+        if opened == true {
+            result.opened.append(name)
+        } else {
+            result.failed.append(name)
         }
     }
     return result
