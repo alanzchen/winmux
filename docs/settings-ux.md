@@ -9,7 +9,7 @@ scroll positions are retained. Right-click a workspace tile and choose
 | General | Startup, automatic TOML reload, menu bar, permissions |
 | Dock & Sidebar | Mode, position, visibility, separate compact/expanded appearance, content |
 | Windows & Layout | New-window behavior, default layout, window chrome, tabs, tiling gaps |
-| Projects & Workspaces | Project deletion, persistent workspaces, shortcut preset, workspace shortcuts |
+| Projects & Workspaces | Project deletion, saved workspaces, persistent workspaces, shortcut preset, workspace shortcuts |
 | Shortcuts | Window-management shortcuts and directional controls |
 | Advanced | TOML Editor, automation actions, performance diagnostics, configuration reference |
 

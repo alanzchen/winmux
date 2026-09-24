@@ -39,6 +39,30 @@ final class SettingsEditorTest: XCTestCase {
         XCTAssertTrue(SettingsCatalog.results("tooltip").contains { $0.id == app.id })
     }
 
+    func testSavedWorkspaceSettingsAreOnProjectsPageAndSaveToWorkspaceSidebarTable() async {
+        let saved = config
+        defer { config = saved }
+        let save = SettingsCatalog.field("workspace-sidebar.save-named-workspaces")
+        let open = SettingsCatalog.field("workspace-sidebar.open-saved-workspace-apps-at-startup")
+        XCTAssertEqual(save.group.page, .workspaces)
+        XCTAssertEqual(open.group.page, .workspaces)
+        XCTAssertEqual(save.defaultValue, .bool(true))
+        XCTAssertEqual(open.defaultValue, .bool(false))
+        XCTAssertTrue(SettingsCatalog.results("saved workspace").contains { $0.id == save.id })
+        XCTAssertTrue(SettingsCatalog.results("open missing apps").contains { $0.id == open.id })
+
+        let disk = SettingsTestDisk()
+        config = parseConfig(disk.text).config
+        let editor = SettingsEditor(persistence: disk.persistence)
+        editor.setDraft(.bool(false), for: save); editor.commit(save)
+        editor.setDraft(.bool(true), for: open); editor.commit(open)
+        await editor.waitUntilIdle()
+        XCTAssertNil(editor.error)
+        XCTAssertFalse(config.workspaceSidebar.saveNamedWorkspaces)
+        XCTAssertTrue(config.workspaceSidebar.openSavedWorkspaceAppsAtStartup)
+        XCTAssertTrue(disk.text.contains("[workspace-sidebar]"), disk.text)
+    }
+
     func testDependentControlsAndPreviewRespondBeforeSaving() {
         var configuration = defaultConfig
         configuration.workspaceSidebar.mode = .dock

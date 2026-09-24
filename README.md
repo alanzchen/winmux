@@ -83,6 +83,8 @@ auto-hide setting and restores your previous setting afterward. See
   Personal. Use the project indicators to switch between them, or expand the Dock
   to see every project side by side, drag workspaces between their columns, and
   drag project headers to reorder them. Double-click a name to rename it.
+- **Keep named workspaces:** a workspace you name keeps its layout, apps, and
+  display after WinMux or your Mac restarts.
 - **Use multiple displays:** each display can show a different workspace. Each
   Dock initially filters to its own display. Moving a workspace already shown
   elsewhere requires confirming **Override**.

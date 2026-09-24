@@ -189,6 +189,39 @@ extension ConfigTest {
         ])
     }
 
+    func testParseSavedWorkspaceOptions() {
+        let (defaults, defaultErrors) = parseConfig("[workspace-sidebar]")
+        assertEquals(defaultErrors, [])
+        XCTAssertTrue(defaults.workspaceSidebar.saveNamedWorkspaces)
+        XCTAssertFalse(defaults.workspaceSidebar.openSavedWorkspaceAppsAtStartup)
+
+        for save in [false, true] {
+            for open in [false, true] {
+                let (parsed, errors) = parseConfig("""
+                    [workspace-sidebar]
+                        save-named-workspaces = \(save)
+                        open-saved-workspace-apps-at-startup = \(open)
+                    """)
+                assertEquals(errors, [])
+                XCTAssertEqual(parsed.workspaceSidebar.saveNamedWorkspaces, save)
+                XCTAssertEqual(parsed.workspaceSidebar.openSavedWorkspaceAppsAtStartup, open)
+            }
+        }
+
+        let (invalid, invalidErrors) = parseConfig("""
+            [workspace-sidebar]
+                save-named-workspaces = 'false'
+                open-saved-workspace-apps-at-startup = 1
+            """)
+        assertEquals(invalidErrors.descriptions, [
+            "workspace-sidebar.open-saved-workspace-apps-at-startup: Expected type is 'bool'. But actual type is 'integer'",
+            "workspace-sidebar.save-named-workspaces: Expected type is 'bool'. But actual type is 'string'",
+        ])
+        // A rejected value leaves the default in place.
+        XCTAssertTrue(invalid.workspaceSidebar.saveNamedWorkspaces)
+        XCTAssertFalse(invalid.workspaceSidebar.openSavedWorkspaceAppsAtStartup)
+    }
+
     func testWorkspaceSidebarAppIconsCanBeDisabledAndRejectInvalidTypes() {
         let (parsed, errors) = parseConfig("""
             [workspace-sidebar]

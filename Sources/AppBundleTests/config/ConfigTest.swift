@@ -42,6 +42,8 @@ final class ConfigTest: XCTestCase {
         XCTAssertTrue(config.workspaceSidebar.showSeconds)
         XCTAssertFalse(config.workspaceSidebar.showDate)
         XCTAssertTrue(config.workspaceSidebar.showWeekday)
+        XCTAssertTrue(config.workspaceSidebar.saveNamedWorkspaces)
+        XCTAssertFalse(config.workspaceSidebar.openSavedWorkspaceAppsAtStartup)
         XCTAssertTrue(config.enableShakeToToggleTiling)
     }
 

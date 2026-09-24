@@ -134,6 +134,84 @@ persistent-workspaces = ['1', '2', '3']
 
 You can also edit this list in **Settings → Projects & Workspaces**.
 
+## Saved workspaces
+
+Naming a workspace saves it. A saved workspace keeps its name, project, layout,
+app windows, and home display, and comes back after WinMux, an app, or your Mac
+restarts. It is never removed when empty. Set these in the `[workspace-sidebar]`
+table, or in **Settings → Projects & Workspaces**:
+
+```toml
+[workspace-sidebar]
+save-named-workspaces = true # Naming a workspace saves it.
+open-saved-workspace-apps-at-startup = false
+```
+
+With `save-named-workspaces = false`, naming no longer saves; choose
+**Save Workspace** in the workspace menu instead. Turning the option off doesn't
+forget workspaces that are already saved. **Forget Saved Workspace** stops saving
+one: it keeps its windows and name for now, and disappears like any other workspace
+once it empties. Deleting a workspace or its project also forgets it. The first
+time WinMux runs with saved workspaces, it also saves the named workspaces that
+already have windows, unless `save-named-workspaces` is off.
+
+Saved workspaces are stored in
+`~/Library/Application Support/WinMux/saved-workspaces.json` (`WinMux-Debug` for
+debug builds), not in the TOML file. The copy from before the current session's
+first change is kept beside it as `saved-workspaces.previous.json`. A file written
+by a newer WinMux is used read-only until you update.
+
+Windows return to their places:
+
+- **WinMux relaunches** (Quit, update, or crash) while apps keep running: every
+  window returns to its slot in the saved layout.
+- **An app relaunches** after it quit: its first windows within about 45 seconds
+  of launching fill the waiting slots, matched by title (in saved order when no
+  title matches). Windows opened later, for example with Cmd-N, behave normally.
+- **Your Mac restarts or you log out:** after you log in, each app works like a
+  relaunch. macOS may reopen apps itself; WinMux opens them only when you ask
+  (see [Missing apps](#missing-apps)).
+
+Quitting an app with Cmd-Q keeps its windows' places. Closing a window with Cmd-W
+while the app keeps running removes its place after about 15 seconds (60 when every
+window in the workspace disappears at once); moving a window to another workspace
+removes it at once. Minimized, hidden, and native fullscreen windows keep their
+places. WinMux pauses saving while the screen is locked, the Mac sleeps, or you
+switch users, and during logout, restart, or shutdown, so windows closed as the Mac
+shuts down keep their places.
+
+Windows restored into a saved workspace don't run `on-window-detected` callbacks,
+so rules can't move them out again. Other new windows run the callbacks as usual.
+
+### Missing apps
+
+A saved workspace waits for apps that aren't running. Choose **Open Missing Apps**
+in the workspace menu to open them in the background; their windows then have
+about 45 seconds to fill the waiting slots. To open every saved workspace's
+missing apps when WinMux starts:
+
+```toml
+[workspace-sidebar]
+open-saved-workspace-apps-at-startup = true
+```
+
+### Multiple displays
+
+Each saved workspace has a home display, identified by the display's UUID (then
+its vendor, model, and serial number, then the built-in display), so it survives
+rearranging displays or changing the main display. When the home display is
+disconnected, its saved workspaces are hidden. When it reconnects, at any
+position, it shows the saved workspace most recently visible there. Moving a saved
+workspace to another display makes that display its new home; while the home is
+disconnected, the move is temporary.
+
+Choose **Keep on “<Display>”** in the workspace menu to pin a workspace to its
+current display, saving it if needed. While that display is connected, the
+workspace won't move to another display, and when the display reconnects the
+workspace returns even if it is showing elsewhere. A
+`[workspace-to-monitor-force-assignment]` entry for the workspace wins over both
+the home display and Keep on.
+
 ## Shortcuts and app launching
 
 Edit the existing main binding section to assign commands:
