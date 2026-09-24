@@ -55,7 +55,12 @@ func focusWorkspaceFromSidebar(_ workspace: Workspace, targetMonitorScopeId: Str
         return workspace.focusWorkspace()
     }
 
+    // A pinned workspace opens on its own display wherever it was clicked.
+    if savedPinBlocks(workspace, on: targetMonitor) {
+        return workspace.focusWorkspace()
+    }
     guard targetMonitor.setActiveWorkspace(workspace) else { return false }
+    noteSavedWorkspacePlacedByUser(workspace, on: targetMonitor)
     return workspace.focusWorkspace()
 }
 

@@ -56,6 +56,8 @@ func getOrCreateFallbackWorkspace(
             $0 != excludedWorkspace &&
                 $0.isEffectivelyEmpty &&
                 !$0.isArchived &&
+                // Saved workspaces are chosen by their display, never reused as scratch space.
+                !$0.isSaved &&
                 workspaceIsAvailableForMonitor($0, monitor: monitor)
         })
     {

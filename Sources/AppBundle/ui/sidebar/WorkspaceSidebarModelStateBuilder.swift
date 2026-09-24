@@ -13,7 +13,7 @@ func buildWorkspaceSidebarModelState() async -> WorkspaceSidebarModelState {
     let projects = buildWorkspaceSidebarProjectViewModels()
     let workspaces = await buildWorkspaceSidebarWorkspaceViewModels(
         currentFocus: currentFocus,
-        workspaceLabels: config.workspaceSidebar.workspaceLabels,
+        workspaceLabels: effectiveWorkspaceSidebarLabels(),
         availableMonitors: availableMonitors,
     )
     let gaps = ResolvedGaps(gaps: config.gaps, monitor: workspaceSidebarResolvedPanelMonitor())

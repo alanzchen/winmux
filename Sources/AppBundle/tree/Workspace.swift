@@ -24,6 +24,8 @@ enum WorkspaceMutationError: LocalizedError {
     case nameContainsControlCharacters
     case duplicateProjectName(String)
     case unreadableProjectOrder
+    case savedWorkspacesReadOnly(String)
+    case displayHasNoIdentity(String)
 
     var errorDescription: String? {
         switch self {
@@ -49,6 +51,10 @@ enum WorkspaceMutationError: LocalizedError {
                 "A project named '\(name)' already exists."
             case .unreadableProjectOrder:
                 "The project order could not be saved because project-order in the configuration is not a closed list."
+            case .savedWorkspacesReadOnly(let reason):
+                "Saved workspaces are read-only: \(reason)"
+            case .displayHasNoIdentity(let name):
+                "Display '\(name)' can't be identified, so a workspace can't be kept on it."
         }
     }
 }

@@ -39,7 +39,7 @@ func clearSidebarDraftWorkspaceLabelIfNeeded(_ workspaceName: String) {
 @MainActor
 func clearOrphanedWorkspaceSidebarLabels() {
     for workspaceName in config.workspaceSidebar.workspaceLabels.keys
-    where winMuxWorkspaceState.workspace(named: workspaceName) == nil
+    where winMuxWorkspaceState.workspace(named: workspaceName) == nil && !savedWorkspaceStore.contains(workspaceName: workspaceName)
     {
         clearWorkspaceSidebarLabelIfNeeded(workspaceName)
     }
@@ -62,6 +62,7 @@ func workspaceDefaultDisplayName(_ workspaceName: String) -> String {
     return workspaceName
 }
 
+/// The TOML label, then the saved name, then the automatic name.
 @MainActor
 func workspaceDisplayName(_ workspaceName: String) -> String {
     if let configuredName = config.workspaceSidebar.workspaceLabels[workspaceName]?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -69,5 +70,20 @@ func workspaceDisplayName(_ workspaceName: String) -> String {
     {
         return configuredName
     }
-    return workspaceDefaultDisplayName(workspaceName)
+    return savedWorkspaceDisplayName(workspaceName) ?? workspaceDefaultDisplayName(workspaceName)
+}
+
+/// TOML labels, with saved names filling in where a label is missing (a failed TOML write,
+/// another config file, or an older WinMux that cleared it).
+@MainActor
+func effectiveWorkspaceSidebarLabels() -> [String: String] {
+    var labels = config.workspaceSidebar.workspaceLabels
+    guard !savedWorkspaceStore.isEmpty else { return labels }
+    for record in savedWorkspaceStore.records {
+        guard labels[record.workspaceName]?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false,
+              let name = savedWorkspaceDisplayName(record.workspaceName)
+        else { continue }
+        labels[record.workspaceName] = name
+    }
+    return labels
 }

@@ -18,7 +18,11 @@ struct SummonWorkspaceCommand: Command {
             }
             return !args.failIfNoop
         }
+        if savedPinBlocks(workspace, on: monitor) {
+            return io.err(savedPinRefusalMessage(workspace))
+        }
         if activateWorkspaceOnMonitorPreservingSourceViewport(workspace, targetMonitor: monitor) {
+            noteSavedWorkspacePlacedByUser(workspace, on: monitor)
             return workspace.focusWorkspace()
         } else {
             return io.err("Can't move workspace '\(workspace.name)' to monitor '\(monitor.name)'. workspace-to-monitor-force-assignment doesn't allow it")

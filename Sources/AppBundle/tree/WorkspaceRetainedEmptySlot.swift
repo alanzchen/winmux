@@ -48,7 +48,7 @@ func workspaceScopeIsVisibleActiveProject(_ scope: WorkspaceScope) -> Bool {
 
 @MainActor
 func workspaceAnchorsEmptySlot(_ workspace: Workspace) -> Bool {
-    workspaceHasLifecycleWindows(workspace) || workspace.isConfiguredPersistent
+    workspaceHasLifecycleWindows(workspace) || workspace.isKeptWhenEmpty
 }
 
 @MainActor

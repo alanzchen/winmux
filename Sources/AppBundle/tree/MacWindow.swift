@@ -32,7 +32,7 @@ final class MacWindow: Window {
         }
         let firstSeenInActiveApp = macApp.nsApp.isActive
         let rect = try await macApp.getAxRect(windowId)
-        let data = try await unbindAndGetBindingDataForNewWindow(
+        let (data, windowType) = try await classifyAndGetBindingDataForNewWindow(
             windowId,
             macApp,
             isStartup
@@ -49,15 +49,11 @@ final class MacWindow: Window {
 
         try await debugWindowsIfRecording(window)
         let focusBeforeDetectionCallbacks = focusChangeGeneration
-        let didRestorePersistedFrozenWorld = try await restorePersistedFrozenWorldIfNeeded(newlyDetectedWindow: window)
-        let didRestoreClosedWindowsCache = try await restoreClosedWindowsCacheIfNeeded(newlyDetectedWindow: window)
-        window.popupPresentationState.wasRestored = didRestorePersistedFrozenWorld || didRestoreClosedWindowsCache
-        if !didRestorePersistedFrozenWorld && !didRestoreClosedWindowsCache {
-            try await tryOnWindowDetected(window)
-        }
+        let wasRestored = try await restoreOrDetectNewWindow(window, isRegularWindow: windowType == .window)
+        window.popupPresentationState.wasRestored = wasRestored
         newFloatingWindowPresentation?.recordDetection(
             window,
-            wasRestored: didRestorePersistedFrozenWorld || didRestoreClosedWindowsCache,
+            wasRestored: wasRestored,
             focusGenerationBeforeCallbacks: focusBeforeDetectionCallbacks,
         )
         return window

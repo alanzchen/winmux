@@ -13,6 +13,10 @@ import Foundation
             interceptTermination(SIGINT)
             interceptTermination(SIGKILL)
         }
+        // Saved names must exist before anything (config reload, sidebar refresh, focus) can
+        // hand them out as automatic workspace names.
+        loadSavedWorkspaceStoreForStartup()
+        materializeSavedWorkspaceNames()
         do {
             bootstrappedConfigUrl = try ensureBootstrapConfigExistsIfNeeded()
         } catch {
@@ -33,6 +37,7 @@ import Foundation
                 """,
             )
         }
+        materializePersistedWorkspaceProjects()
         MonitorConfigurationObserver.shared.prepareForStartup()
 
         checkAccessibilityPermissions()
@@ -41,23 +46,37 @@ import Foundation
         startUnixSocketServer()
         GlobalObserver.initObserver()
         MonitorConfigurationObserver.shared.startObserving()
+        installSavedWorkspaceObservers()
         Workspace.reconcileWorkspaceState() // init workspaces
-        _ = Workspace.all.first?.focusWorkspace()
+        // Not Workspace.all.first: that can be a hidden saved workspace, and focusing it would
+        // pull it onto a display in place of the one restored there.
+        _ = mainMonitor.activeWorkspace.focusWorkspace()
         let didLoadPersistedFrozenWorld = loadPersistedFrozenWorldForStartupIfPresent()
         try await runRefreshSessionBlocking(.startup, layoutWorkspaces: false)
         try await runLightSession(.startup, .forceRun) {
-            if !didLoadPersistedFrozenWorld {
+            if shouldApplySmartLayoutAtStartup(didLoadPersistedFrozenWorld: didLoadPersistedFrozenWorld) {
                 smartLayoutAtStartup()
             }
             _ = try await config.afterStartupCommand.runCmdSeq(.defaultEnv, .emptyStdin)
         }
         isWinMuxRuntimeReady = true
+        savedWorkspaceRuntime.runtimeReadyAt = savedWorkspaceRuntime.now
+        scheduleSavedWorkspaceCheckpoint()
+        if config.workspaceSidebar.openSavedWorkspaceAppsAtStartup {
+            Task { @MainActor in _ = await openMissingSavedWorkspaceApps(workspaceNames: nil) }
+        }
         if bootstrappedConfigUrl != nil {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 ShortcutSettingsModel.shared.requestWindowOpen()
             }
         }
     }
+}
+
+/// A saved workspace already has its own layout.
+@MainActor
+func shouldApplySmartLayoutAtStartup(didLoadPersistedFrozenWorld: Bool) -> Bool {
+    !didLoadPersistedFrozenWorld && !focus.workspace.isSaved
 }
 
 @MainActor

@@ -38,6 +38,9 @@ func setUpWorkspacesForTests() {
     // Don't create any bindings and workspaces for tests
     config.modes = [mainModeId: Mode(bindings: [:], tapBindings: [:])]
     config.persistentWorkspaces = []
+    // Renaming saves only in tests that opt in; saved state never touches disk in tests.
+    config.workspaceSidebar.saveNamedWorkspaces = false
+    resetSavedWorkspacesForTests()
     // The default callback's detached sessions outlive the test that changed monitors and
     // focus-sync windows that a later setUp already removed.
     config.onFocusedMonitorChanged = []

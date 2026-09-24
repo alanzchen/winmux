@@ -78,6 +78,7 @@ func replaceClosedWindowsCache(_ frozenWorld: FrozenWorld) {
 @MainActor
 func syncClosedWindowsCacheToCurrentWorld() {
     closedWindowsCache = snapshotCurrentFrozenWorld()
+    scheduleSavedWorkspaceCheckpoint()
 }
 
 @MainActor func restoreClosedWindowsCacheIfNeeded(newlyDetectedWindow: Window) async throws -> Bool {

@@ -79,6 +79,11 @@ on-mode-changed = []
     # Use monitor = 1, 'secondary', 2, or a list to restrict it.
     menu-bar-reserve-height = 28
     project-deletion-action = 'close-windows'
+    # Naming a workspace also saves it: its name, layout, apps and display come back after
+    # WinMux or your Mac restarts. Choose Forget Saved Workspace in its menu to stop.
+    save-named-workspaces = true
+    # Open the apps that saved workspaces are waiting for when WinMux starts.
+    open-saved-workspace-apps-at-startup = false
     show-status-pills = true
     show-clock = false
     show-seconds = true

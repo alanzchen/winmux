@@ -1,12 +1,14 @@
 @testable import AppBundle
 import Common
+import Foundation
 
 final class TestApp: AbstractApp {
     let pid: Int32
     let rawAppBundleId: String?
     let name: String?
     let execPath: String? = nil
-    let bundlePath: String? = nil
+    let bundlePath: String?
+    var launchDate: Date?
     @MainActor
     static let shared = TestApp()
 
@@ -14,6 +16,18 @@ final class TestApp: AbstractApp {
         self.pid = 0
         self.rawAppBundleId = "bobko.WinMux.test-app"
         self.name = rawAppBundleId
+        self.bundlePath = nil
+        self.launchDate = nil
+    }
+
+    /// Another app. `AbstractApp ==` compares pids, so every instance needs its own pid.
+    init(pid: Int32, bundleId: String?, name: String? = nil, bundlePath: String? = nil, launchDate: Date? = nil) {
+        check(pid != 0, "pid 0 belongs to TestApp.shared")
+        self.pid = pid
+        self.rawAppBundleId = bundleId
+        self.name = name ?? bundleId
+        self.bundlePath = bundlePath
+        self.launchDate = launchDate
     }
 
     var _windows: [Window] = []

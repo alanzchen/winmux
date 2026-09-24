@@ -15,7 +15,11 @@ struct MoveWorkspaceToMonitorCommand: Command {
                 if targetMonitor.monitorId_oneBased == prevMonitor.monitorId_oneBased {
                     return true
                 }
+                if savedPinBlocks(focusedWorkspace, on: targetMonitor) {
+                    return io.err(savedPinRefusalMessage(focusedWorkspace))
+                }
                 if activateWorkspaceOnMonitorPreservingSourceViewport(focusedWorkspace, targetMonitor: targetMonitor) {
+                    noteSavedWorkspacePlacedByUser(focusedWorkspace, on: targetMonitor)
                     return true
                 } else {
                     return io.err(

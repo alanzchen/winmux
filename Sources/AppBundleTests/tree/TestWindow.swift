@@ -21,18 +21,30 @@ final class TestWindow: Window, CustomStringConvertible {
         }
     }
 
+    private let testApp: TestApp
+    var customTitle: String?
+
     @MainActor
-    private init(_ id: UInt32, _ parent: NonLeafTreeNodeObject, _ adaptiveWeight: CGFloat, _ rect: Rect?) {
+    private init(_ id: UInt32, _ parent: NonLeafTreeNodeObject, _ adaptiveWeight: CGFloat, _ rect: Rect?, _ app: TestApp) {
         _rect = rect
-        super.init(id: id, TestApp.shared, lastFloatingSize: nil, parent: parent, adaptiveWeight: adaptiveWeight, index: INDEX_BIND_LAST)
+        testApp = app
+        super.init(id: id, app, lastFloatingSize: nil, parent: parent, adaptiveWeight: adaptiveWeight, index: INDEX_BIND_LAST)
         recordAuthoritativeActualRect(rect)
     }
 
     @discardableResult
     @MainActor
-    static func new(id: UInt32, parent: NonLeafTreeNodeObject, adaptiveWeight: CGFloat = 1, rect: Rect? = nil) -> TestWindow {
-        let wi = TestWindow(id, parent, adaptiveWeight, rect)
-        TestApp.shared._windows.append(wi)
+    static func new(
+        id: UInt32,
+        parent: NonLeafTreeNodeObject,
+        adaptiveWeight: CGFloat = 1,
+        rect: Rect? = nil,
+        app: TestApp = TestApp.shared,
+        title: String? = nil,
+    ) -> TestWindow {
+        let wi = TestWindow(id, parent, adaptiveWeight, rect, app)
+        wi.customTitle = title
+        app._windows.append(wi)
         return wi
     }
 
@@ -40,8 +52,8 @@ final class TestWindow: Window, CustomStringConvertible {
 
     @MainActor
     override func nativeFocus() {
-        appForTests = TestApp.shared
-        TestApp.shared.focusedWindow = self
+        appForTests = testApp
+        testApp.focusedWindow = self
     }
 
     override func closeAxWindow() {
@@ -50,7 +62,7 @@ final class TestWindow: Window, CustomStringConvertible {
 
     override var title: String {
         get async { // redundant async. todo create bug report to Swift
-            description
+            customTitle ?? description
         }
     }
 

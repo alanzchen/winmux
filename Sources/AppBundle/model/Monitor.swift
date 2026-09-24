@@ -8,6 +8,7 @@ private struct MonitorImpl {
     let rect: Rect
     let visibleRect: Rect
     let isMain: Bool
+    var displayIdentity: MonitorDisplayIdentity? = nil
 }
 
 extension MonitorImpl: Monitor {
@@ -25,6 +26,12 @@ protocol Monitor: WinMuxAny {
     var width: CGFloat { get }
     var height: CGFloat { get }
     var isMain: Bool { get }
+    /// Stable physical identity. nil for fake monitors and while displays reconfigure.
+    var displayIdentity: MonitorDisplayIdentity? { get }
+}
+
+extension Monitor {
+    var displayIdentity: MonitorDisplayIdentity? { nil }
 }
 
 final class LazyMonitor: Monitor {
@@ -36,6 +43,7 @@ final class LazyMonitor: Monitor {
     let isMain: Bool
     private var _rect: Rect?
     private var _visibleRect: Rect?
+    private var _displayIdentity: MonitorDisplayIdentity??
 
     init(monitorAppKitNsScreenScreensId: Int, isMain: Bool, _ screen: NSScreen) {
         self.monitorAppKitNsScreenScreensId = monitorAppKitNsScreenScreensId
@@ -52,6 +60,13 @@ final class LazyMonitor: Monitor {
 
     var visibleRect: Rect {
         _visibleRect ?? screen.visibleRect.also { _visibleRect = $0 }
+    }
+
+    var displayIdentity: MonitorDisplayIdentity? {
+        if let cached = _displayIdentity { return cached }
+        let identity = screen.displayId.map(MonitorDisplayIdentity.forDisplay)
+        _displayIdentity = .some(identity)
+        return identity
     }
 }
 
@@ -71,6 +86,7 @@ extension NSScreen {
             rect: rect,
             visibleRect: visibleRect,
             isMain: isMainScreen,
+            displayIdentity: displayId.map(MonitorDisplayIdentity.forDisplay),
         )
     }
 

@@ -157,11 +157,19 @@ func moveWorkspaceProject(_ projectId: WorkspaceProjectId, relativeTo targetId: 
 
 @MainActor
 func materializePersistedWorkspaceProjects() {
+    registerPersistedWorkspaceProjects()
+    // Between registering projects and giving empty projects a workspace, so a project whose
+    // saved workspaces are about to move in doesn't get a blank one.
+    assignSavedWorkspacesToProjectsIfNeeded()
+    ensureMinimumWorkspaceForAllProjects()
+}
+
+@MainActor
+private func registerPersistedWorkspaceProjects() {
     guard config.workspaceSidebar.projectLabels.contains(where: { rawId, label in
         winMuxWorkspaceState.projectsById[WorkspaceProjectId(rawId)] == nil
             && !label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }) else {
-        ensureMinimumWorkspaceForAllProjects()
         return
     }
     // Dictionary order varies between launches; restored projects need a stable creation order.
@@ -179,7 +187,6 @@ func materializePersistedWorkspaceProjects() {
         let order = winMuxWorkspaceState.nextProjectOrder()
         winMuxWorkspaceState.registerProject(WorkspaceProject(id: projectId, name: name, order: order))
     }
-    ensureMinimumWorkspaceForAllProjects()
 }
 
 @MainActor
@@ -196,9 +203,11 @@ func ensureMinimumWorkspace(for projectId: WorkspaceProjectId, monitor: Monitor 
     _ = createBlankWorkspace(projectId: projectId, monitor: monitor)
 }
 
+/// Names a workspace. With `save-named-workspaces` on (or `forceSave`), naming also saves it;
+/// the saved record is written before the TOML label so the name survives a failed TOML write.
 @MainActor
-func renameWorkspaceForSidebar(workspaceName: String, displayName: String) throws {
-    guard Workspace.existing(byName: workspaceName) != nil else {
+func renameWorkspaceForSidebar(workspaceName: String, displayName: String, forceSave: Bool = false) throws {
+    guard let workspace = Workspace.existing(byName: workspaceName) else {
         throw WorkspaceMutationError.workspaceNotFound(workspaceName)
     }
     let trimmedName = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -207,7 +216,16 @@ func renameWorkspaceForSidebar(workspaceName: String, displayName: String) throw
     }
     if trimmedName == workspaceDefaultDisplayName(workspaceName) {
         try resetWorkspaceSidebarName(workspaceName: workspaceName)
+        if forceSave {
+            try ensureSavedWorkspaceRecord(workspace)
+        }
         return
+    }
+    if forceSave || workspace.isSaved || config.workspaceSidebar.saveNamedWorkspaces {
+        try ensureSavedWorkspaceRecord(workspace)
+        if savedWorkspaceStore.update(named: workspaceName, { $0.displayName = trimmedName }) {
+            savedWorkspaceStore.flushNow()
+        }
     }
     config.workspaceSidebar.workspaceLabels[workspaceName] = trimmedName
     if !isUnitTest {
@@ -228,10 +246,14 @@ func normalizedWorkspaceProjectDisplayName(_ raw: String) throws -> String {
     return trimmed
 }
 
+/// Returns the workspace to its automatic name. A saved workspace stays saved.
 @MainActor
 func resetWorkspaceSidebarName(workspaceName: String) throws {
     guard Workspace.existing(byName: workspaceName) != nil else {
         throw WorkspaceMutationError.workspaceNotFound(workspaceName)
+    }
+    if savedWorkspaceStore.update(named: workspaceName, { $0.displayName = nil }) {
+        savedWorkspaceStore.flushNow()
     }
     config.workspaceSidebar.workspaceLabels.removeValue(forKey: workspaceName)
     if !isUnitTest {
@@ -383,7 +405,7 @@ private func deleteWorkspaceProjectMovingWindowsToFallback(_ projectId: Workspac
             monitor: workspace.workspaceMonitor,
         )
         moveWorkspaceContents(from: workspace, to: fallback)
-        removeWorkspaceFromRegistry(workspace)
+        removeWorkspaceFromRegistry(workspace, reason: .deleted)
     }
 
     winMuxWorkspaceState.projectsById.removeValue(forKey: projectId)
@@ -424,7 +446,7 @@ private func closeWindowsAndDeleteWorkspaceProject(_ projectId: WorkspaceProject
     }
 
     for workspace in Workspace.all.filter({ $0.projectId == projectId }) {
-        removeWorkspaceFromRegistry(workspace)
+        removeWorkspaceFromRegistry(workspace, reason: .deleted)
     }
 
     winMuxWorkspaceState.projectsById.removeValue(forKey: projectId)

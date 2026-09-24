@@ -36,6 +36,7 @@ struct ReloadConfigCommand: Command {
                 resetHotKeys()
                 config = parsedConfig
                 configUrl = url
+                noteSavedWorkspaceConfigLoaded(isDefaultFallback: url.standardizedFileURL == defaultConfigUrl.standardizedFileURL)
                 try await activateMode(activeMode)
                 syncStartAtLogin()
                 applyReloadedConfigurationToRunningApp()

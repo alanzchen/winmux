@@ -3,12 +3,24 @@ import Common
 
 @MainActor
 func unbindAndGetBindingDataForNewWindow(_ windowId: UInt32, _ macApp: MacApp, _ workspace: Workspace, window: Window?) async throws -> BindingData {
+    try await classifyAndGetBindingDataForNewWindow(windowId, macApp, workspace, window: window).binding
+}
+
+@MainActor
+func classifyAndGetBindingDataForNewWindow(
+    _ windowId: UInt32,
+    _ macApp: MacApp,
+    _ workspace: Workspace,
+    window: Window?,
+) async throws -> (binding: BindingData, type: AxUiElementWindowType) {
     let windowLevel = getWindowLevel(for: windowId)
-    return switch try await macApp.getAxUiElementWindowType(windowId, windowLevel) {
+    let type = try await macApp.getAxUiElementWindowType(windowId, windowLevel)
+    let binding = switch type {
         case .popup: BindingData(parent: macosPopupWindowsContainer, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
         case .dialog: BindingData(parent: workspace, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
         case .window: bindingDataForNewRegularWindow(workspace, window: window)
     }
+    return (binding, type)
 }
 
 @MainActor

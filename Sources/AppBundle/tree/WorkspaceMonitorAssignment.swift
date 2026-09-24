@@ -40,11 +40,15 @@ func activateWorkspaceOnMonitorPreservingSourceViewport(_ workspace: Workspace, 
 
 @MainActor
 func overrideWorkspaceOnMonitorBySwappingActiveViewports(_ workspace: Workspace, targetMonitor: Monitor) -> Bool {
-    guard isValidAssignment(workspace: workspace, screen: targetMonitor.rect.topLeftCorner) else {
+    guard isValidAssignment(workspace: workspace, screen: targetMonitor.rect.topLeftCorner),
+          !savedPinBlocks(workspace, on: targetMonitor)
+    else {
         return false
     }
     guard workspace.isVisible else {
-        return targetMonitor.setActiveWorkspace(workspace)
+        guard targetMonitor.setActiveWorkspace(workspace) else { return false }
+        noteSavedWorkspacePlacedByUser(workspace, on: targetMonitor)
+        return true
     }
 
     let sourceMonitor = workspace.workspaceMonitor
@@ -65,6 +69,7 @@ func overrideWorkspaceOnMonitorBySwappingActiveViewports(_ workspace: Workspace,
     }
     _ = winMuxWorkspaceState.setActiveWorkspace(workspace, on: MonitorViewportId(targetMonitor))
     checkWorkspaceHierarchyInvariants()
+    noteSavedWorkspacePlacedByUser(workspace, on: targetMonitor)
     return true
 }
 
@@ -80,6 +85,7 @@ func nearestWorkspaceForOverrideSourceMonitor(
                 candidate != workspace &&
                 !candidate.isArchived &&
                 isValidAssignment(workspace: candidate, screen: sourceMonitor.rect.topLeftCorner) &&
+                savedHomeAllows(candidate, on: sourceMonitor) &&
                 (!candidate.isVisible || candidate.workspaceMonitor.rect.topLeftCorner == targetMonitor.rect.topLeftCorner)
         }
     guard let workspaceIndex = orderedWorkspacesForPresentation().firstIndex(of: workspace) else {
@@ -145,7 +151,8 @@ func checkWorkspaceHierarchyInvariants(requireActiveMonitorViewports: Bool = fal
 @MainActor
 func rearrangeWorkspacesOnMonitors() {
     let oldViewportsById = winMuxWorkspaceState.monitorViewportsById
-    let currentMonitorIds = Set(monitors.map(MonitorViewportId.init))
+    let currentMonitors = monitors
+    let currentMonitorIds = Set(currentMonitors.map(MonitorViewportId.init))
     let activeViewportIds = Set(oldViewportsById.compactMap { viewportId, viewport -> MonitorViewportId? in
         guard let workspaceId = viewport.activeWorkspaceId,
               let workspace = winMuxWorkspaceState.workspaceById[workspaceId],
@@ -153,7 +160,10 @@ func rearrangeWorkspacesOnMonitors() {
         else { return nil }
         return viewportId
     })
-    if activeViewportIds == currentMonitorIds {
+    // Displays that trade places keep the same set of points, so the points alone can't tell
+    // that anything changed.
+    if activeViewportIds == currentMonitorIds && viewportDisplayKeysAgree(oldViewportsById, currentMonitors) {
+        fillMissingViewportDisplayKeys(currentMonitors)
         return
     }
 
@@ -164,14 +174,34 @@ func rearrangeWorkspacesOnMonitors() {
         return viewportId
     }.toSet()
 
-    let newMonitors = monitors.map(MonitorViewportId.init)
+    let newMonitors = currentMonitors.map(MonitorViewportId.init)
     var newMonitorToOldMonitorMapping: [MonitorViewportId: MonitorViewportId] = [:]
-    for newMonitor in newMonitors where oldVisibleMonitors.contains(newMonitor) {
-        check(oldVisibleMonitors.remove(newMonitor) != nil)
-        newMonitorToOldMonitorMapping[newMonitor] = newMonitor
+    // Pass 1: the same physical display.
+    for monitor in currentMonitors {
+        guard let key = monitor.displayIdentity?.key else { continue }
+        let newMonitor = MonitorViewportId(monitor)
+        let candidates = oldVisibleMonitors.filter { oldViewportsById[$0]?.displayKey == key }
+        if let oldMonitor = candidates.minBy({ ($0.topLeftCorner - newMonitor.topLeftCorner).vectorLength }) {
+            check(oldVisibleMonitors.remove(oldMonitor) != nil)
+            newMonitorToOldMonitorMapping[newMonitor] = oldMonitor
+        }
     }
-    for newMonitor in newMonitors {
-        if newMonitorToOldMonitorMapping[newMonitor] != nil { continue }
+    // Pass 2: a display that returns shows its saved workspace. Identity beats position, so
+    // these displays skip the point-based passes.
+    let unmappedMonitors = currentMonitors.filter { newMonitorToOldMonitorMapping[MonitorViewportId($0)] == nil }
+    let restoreTargets = savedWorkspaceRestoreTargets(
+        unmappedMonitors: unmappedMonitors,
+        oldViewportsById: oldViewportsById,
+        mappedOldViewportIds: newMonitorToOldMonitorMapping.values.toSet(),
+    )
+    // Passes 3 and 4: the same point, then the nearest point.
+    for newMonitor in newMonitors where newMonitorToOldMonitorMapping[newMonitor] == nil && restoreTargets.byViewport[newMonitor] == nil {
+        if oldVisibleMonitors.contains(newMonitor), oldViewportDisplayKeyMatches(oldViewportsById[newMonitor], newMonitor, currentMonitors) {
+            check(oldVisibleMonitors.remove(newMonitor) != nil)
+            newMonitorToOldMonitorMapping[newMonitor] = newMonitor
+        }
+    }
+    for newMonitor in newMonitors where newMonitorToOldMonitorMapping[newMonitor] == nil && restoreTargets.byViewport[newMonitor] == nil {
         if let oldMonitor = oldVisibleMonitors.minBy({ ($0.topLeftCorner - newMonitor.topLeftCorner).vectorLength }) {
             check(oldVisibleMonitors.remove(oldMonitor) != nil)
             newMonitorToOldMonitorMapping[newMonitor] = oldMonitor
@@ -180,25 +210,46 @@ func rearrangeWorkspacesOnMonitors() {
 
     winMuxWorkspaceState.monitorViewportsById = [:]
 
-    for newMonitor in newMonitors {
+    var assignedWorkspaceIds: Set<WorkspaceId> = []
+    for monitor in currentMonitors {
+        let newMonitor = MonitorViewportId(monitor)
         let newScreen = newMonitor.topLeftCorner
         let mappedOldMonitor = newMonitorToOldMonitorMapping[newMonitor]
         let preservedViewport = mappedOldMonitor.flatMap { oldViewportsById[$0] } ?? oldViewportsById[newMonitor]
-        if var preservedViewport {
-            preservedViewport = MonitorViewport(
+        let displayKey = monitor.displayIdentity?.key ?? mappedOldMonitor.flatMap { oldViewportsById[$0]?.displayKey }
+        if let preservedViewport {
+            winMuxWorkspaceState.monitorViewportsById[newMonitor] = MonitorViewport(
                 id: newMonitor,
                 activeWorkspaceId: nil,
                 previousWorkspaceId: preservedViewport.previousWorkspaceId,
                 lastActiveWorkspaceByProject: preservedViewport.lastActiveWorkspaceByProject,
+                displayKey: displayKey,
             )
-            winMuxWorkspaceState.monitorViewportsById[newMonitor] = preservedViewport
+        } else if displayKey != nil {
+            winMuxWorkspaceState.monitorViewportsById[newMonitor] = MonitorViewport(id: newMonitor, displayKey: displayKey)
+        }
+        if let target = restoreTargets.byViewport[newMonitor],
+           !assignedWorkspaceIds.contains(target.id),
+           newScreen.setActiveWorkspace(target)
+        {
+            assignedWorkspaceIds.insert(target.id)
+            continue
         }
         let existingVisibleWorkspace = mappedOldMonitor
             .flatMap { oldViewportsById[$0]?.activeWorkspaceId }
             .flatMap { winMuxWorkspaceState.workspaceById[$0] }
         if let existingVisibleWorkspace,
+           !restoreTargets.stolen.contains(existingVisibleWorkspace.id),
+           !assignedWorkspaceIds.contains(existingVisibleWorkspace.id),
            newScreen.setActiveWorkspace(existingVisibleWorkspace)
         {
+            assignedWorkspaceIds.insert(existingVisibleWorkspace.id)
+            continue
+        }
+        if let savedWorkspace = savedWorkspaceToRestore(on: monitor, excluding: assignedWorkspaceIds.union(restoreTargets.stolen)),
+           newScreen.setActiveWorkspace(savedWorkspace)
+        {
+            assignedWorkspaceIds.insert(savedWorkspace.id)
             continue
         }
         let projectId = existingVisibleWorkspace?.projectId ?? workspaceProjectDefaultId
@@ -209,6 +260,38 @@ func rearrangeWorkspacesOnMonitors() {
         )
         check(newScreen.setActiveWorkspace(workspace),
               "Generated incompatible fallback workspace (\(workspace)) for the display viewport (\(newScreen)")
+        assignedWorkspaceIds.insert(workspace.id)
+    }
+}
+
+/// Whether every connected display is still at the viewport it was last seen at. Viewports
+/// without a key yet (fake monitors, first run) agree with anything.
+@MainActor
+private func viewportDisplayKeysAgree(_ viewports: [MonitorViewportId: MonitorViewport], _ monitors: [Monitor]) -> Bool {
+    monitors.allSatisfy { monitor in
+        guard let key = monitor.displayIdentity?.key,
+              let viewportKey = viewports[MonitorViewportId(monitor)]?.displayKey
+        else { return true }
+        return key == viewportKey
+    }
+}
+
+@MainActor
+private func oldViewportDisplayKeyMatches(_ viewport: MonitorViewport?, _ newMonitor: MonitorViewportId, _ monitors: [Monitor]) -> Bool {
+    guard let viewportKey = viewport?.displayKey,
+          let monitorKey = monitors.first(where: { MonitorViewportId($0) == newMonitor })?.displayIdentity?.key
+    else { return true }
+    return viewportKey == monitorKey
+}
+
+@MainActor
+private func fillMissingViewportDisplayKeys(_ monitors: [Monitor]) {
+    for monitor in monitors {
+        guard let key = monitor.displayIdentity?.key else { continue }
+        let viewportId = MonitorViewportId(monitor)
+        guard var viewport = winMuxWorkspaceState.monitorViewportsById[viewportId], viewport.displayKey == nil else { continue }
+        viewport.displayKey = key
+        winMuxWorkspaceState.monitorViewportsById[viewportId] = viewport
     }
 }
 

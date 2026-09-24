@@ -64,6 +64,8 @@ private let workspaceSidebarParser: [String: any ParserProtocol<WorkspaceSidebar
     },
     "menu-bar-reserve-height": Parser(\.menuBarReserveHeight, parseWorkspaceSidebarMenuBarReserveHeight),
     "project-deletion-action": Parser(\.projectDeletionAction, parseWorkspaceProjectDeletionAction),
+    "save-named-workspaces": Parser(\.saveNamedWorkspaces, parseBool),
+    "open-saved-workspace-apps-at-startup": Parser(\.openSavedWorkspaceAppsAtStartup, parseBool),
     "workspace-labels": Parser(\.workspaceLabels, parseWorkspaceSidebarLabels),
     "project-labels": Parser(\.projectLabels, parseWorkspaceSidebarLabels),
     "project-order": Parser(\.projectOrder, parseArrayOfStrings),

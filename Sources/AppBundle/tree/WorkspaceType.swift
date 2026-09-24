@@ -66,6 +66,7 @@ final class Workspace: TreeNode, NonLeafTreeNodeObject, Hashable, Comparable {
 
     @MainActor
     static func reconcileWorkspaceState() {
+        materializeSavedWorkspaceNames()
         for workspace in winMuxWorkspaceState.workspaceById.values {
             workspace.refreshEmptyLifecycle()
         }
@@ -76,6 +77,7 @@ final class Workspace: TreeNode, NonLeafTreeNodeObject, Hashable, Comparable {
         clearOrphanedWorkspaceSidebarLabels()
         ensureVisibleActiveProjectWorkspaces()
         checkWorkspaceHierarchyInvariants(requireActiveMonitorViewports: true)
+        scheduleSavedWorkspaceCheckpoint()
     }
 
     nonisolated static func == (lhs: Workspace, rhs: Workspace) -> Bool {
@@ -140,7 +142,7 @@ extension Workspace {
 
     @MainActor
     var isOrdinaryEmptySlot: Bool {
-        !workspaceHasLifecycleWindows(self) && !isConfiguredPersistent
+        !workspaceHasLifecycleWindows(self) && !isKeptWhenEmpty
     }
 
     var usesAutomaticDisplayName: Bool {
@@ -155,6 +157,7 @@ extension Workspace {
     var workspaceMonitor: Monitor {
         visibleMonitor ??
             forceAssignedMonitor ??
+            savedHomeMonitor(of: self) ??
             preferredMonitorPoint?.monitorApproximation ??
             focus.workspace.visibleMonitor ??
             mainMonitor

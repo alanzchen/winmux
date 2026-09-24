@@ -6,6 +6,9 @@ final class MonitorConfigurationObserver {
 
     private var observer: NSObjectProtocol?
     private var screenChangeGeneration: UInt64 = 0
+    /// True between a display change and the settled refresh. Saved workspaces don't record
+    /// display affinity while displays are still reconfiguring.
+    private(set) var isSettling = false
 
     private init() {}
 
@@ -27,6 +30,7 @@ final class MonitorConfigurationObserver {
     }
 
     private func handleScreenParametersChanged() {
+        isSettling = true
         refreshMonitorPolicy(refreshReason: NSApplication.didChangeScreenParametersNotification.rawValue)
         scheduleSettledRefresh()
     }
@@ -45,6 +49,7 @@ final class MonitorConfigurationObserver {
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 750_000_000)
             guard generation == screenChangeGeneration else { return }
+            isSettling = false
             refreshMonitorPolicy(refreshReason: "\(NSApplication.didChangeScreenParametersNotification.rawValue).settled")
         }
     }

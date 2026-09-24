@@ -40,6 +40,7 @@ func nextAutomaticWorkspaceName(projectId _: WorkspaceProjectId = workspaceProje
     while true {
         let name = String(candidate)
         if winMuxWorkspaceState.workspaceIdByName[name] == nil,
+           !savedWorkspaceStore.contains(workspaceName: name),
            isValidAssignment(workspaceName: name, screen: monitor.rect.topLeftCorner)
         {
             return name

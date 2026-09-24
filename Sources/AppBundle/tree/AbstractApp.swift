@@ -1,4 +1,5 @@
 import Common
+import Foundation
 
 protocol AbstractApp: AnyObject, Hashable, WinMuxAny {
     var pid: Int32 { get }
@@ -9,10 +10,13 @@ protocol AbstractApp: AnyObject, Hashable, WinMuxAny {
     var name: String? { get }
     var execPath: String? { get }
     var bundlePath: String? { get }
+    /// When the app process launched. Saved workspaces route a relaunched app's first windows.
+    var launchDate: Date? { get }
 }
 
 extension AbstractApp {
     @MainActor var hasActiveTransientNativeFocus: Bool { false }
+    var launchDate: Date? { nil }
 
     static func == (lhs: Self, rhs: Self) -> Bool {
         if lhs.pid == rhs.pid {

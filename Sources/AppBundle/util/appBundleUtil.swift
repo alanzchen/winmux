@@ -27,6 +27,7 @@ private struct AppServerTerminationHandler: TerminationHandler {
     func beforeTermination() async throws {
         // CLI quit, restart, and handled termination signals share this path.
         SystemDockCoordinator.shared.shutdown()
+        savedWorkspaceStore.flushNow()
         persistFrozenWorldForRestartIfPossible()
         try await makeAllWindowsVisibleAndRestoreSize()
         await toggleReleaseServerIfDebug(.on)

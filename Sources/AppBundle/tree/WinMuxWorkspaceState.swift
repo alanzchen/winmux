@@ -6,6 +6,9 @@ struct MonitorViewport {
     var activeWorkspaceId: WorkspaceId?
     var previousWorkspaceId: WorkspaceId?
     var lastActiveWorkspaceByProject: [WorkspaceProjectId: WorkspaceId] = [:]
+    /// Stable identity of the physical display last seen at this viewport. Lets
+    /// rearrangeWorkspacesOnMonitors follow displays instead of top-left points.
+    var displayKey: String? = nil
 }
 
 @MainActor

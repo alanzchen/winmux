@@ -367,6 +367,13 @@ private func refresh() async throws {
             window.garbageCollect(skipClosedWindowsCache: false)
         }
     }
+    // Saved-workspace routing must not give a slot whose window is alive but not registered yet
+    // to another window of the same app.
+    savedWorkspaceRuntime.aliveWindowPidsDuringRefresh = savedWorkspaceStore.isEmpty ? [:] : Dictionary(
+        mapping.flatMap { app, windowIds in windowIds.map { ($0, app.pid) } },
+        uniquingKeysWith: { first, _ in first },
+    )
+    defer { savedWorkspaceRuntime.aliveWindowPidsDuringRefresh = [:] }
     // One task per app so the per-window AX round-trips of different apps overlap;
     // a single slow app no longer delays every other app's window registration.
     try await withThrowingTaskGroup(of: Void.self) { group in

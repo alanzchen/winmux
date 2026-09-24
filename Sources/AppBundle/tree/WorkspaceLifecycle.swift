@@ -69,7 +69,7 @@ func deleteWorkspace(_ workspace: Workspace) throws {
     if focus.workspace == workspace {
         _ = setFocus(to: fallback.toLiveFocus())
     }
-    removeWorkspaceFromRegistry(workspace)
+    removeWorkspaceFromRegistry(workspace, reason: .deleted)
     checkWorkspaceHierarchyInvariants()
 }
 
@@ -97,7 +97,7 @@ func closestWorkspaceForDeletion(
         orderedWorkspaces(in: projectId),
         focusedWorkspace: focus.workspace,
     )
-        .filter { isValidAssignment(workspace: $0, screen: monitor.rect.topLeftCorner) }
+        .filter { isValidAssignment(workspace: $0, screen: monitor.rect.topLeftCorner) && savedHomeAllows($0, on: monitor) }
     let automaticCandidates = scopedCandidates.filter(\.usesAutomaticDisplayName)
     let candidates = workspace.usesAutomaticDisplayName && automaticCandidates.contains(workspace)
         ? automaticCandidates
@@ -146,8 +146,28 @@ func moveWorkspaceContents(from source: Workspace, to target: Workspace) {
     }
 }
 
+enum WorkspaceRemovalReason {
+    /// Removed automatically because it emptied.
+    case pruned
+    /// The user deleted the workspace or its project.
+    case deleted
+}
+
 @MainActor
-func removeWorkspaceFromRegistry(_ workspace: Workspace) {
+func removeWorkspaceFromRegistry(_ workspace: Workspace, reason: WorkspaceRemovalReason) {
+    switch reason {
+        case .deleted:
+            if savedWorkspaceStore.remove(named: workspace.name) != nil {
+                savedWorkspaceStore.flushNow()
+            }
+        case .pruned:
+            // Saved workspaces are never pruned; if one ever is, the next reconcile brings it
+            // back, so keep its name.
+            if workspace.isSaved {
+                _ = winMuxWorkspaceState.removeWorkspace(workspace)
+                return
+            }
+    }
     clearWorkspaceSidebarLabelIfNeeded(workspace.name)
     _ = winMuxWorkspaceState.removeWorkspace(workspace)
 }
@@ -175,7 +195,7 @@ func pruneEmptyWorkspaces() {
         if workspace == focusedWorkspaceBeforePrune {
             focusedReplacement = focusReplacementForPrunedWorkspace(workspace) ?? replacement
         }
-        removeWorkspaceFromRegistry(workspace)
+        removeWorkspaceFromRegistry(workspace, reason: .pruned)
     }
 
     if let focusedReplacement, focus.workspace != focusedReplacement {
@@ -201,7 +221,7 @@ func workspaceShouldSurviveReconciliation(
     return workspace.isVisible ||
         workspace.retainsEmptyAfterProjectMove ||
         workspaceHasLifecycleWindows(workspace) ||
-        workspace.isConfiguredPersistent ||
+        workspace.isKeptWhenEmpty ||
         projectWorkspaces(projectId: workspace.projectId).filter { !$0.isArchived }.count == 1 ||
         retainedEmptyWorkspaceIds[WorkspaceScope(projectId: workspace.projectId)] == workspace.id
 }
@@ -222,7 +242,7 @@ func replacementWorkspaceForPrunedWorkspace(
     if let candidate = orderedWorkspaces(in: scope).first(where: {
         $0.id != workspace.id &&
             workspaceShouldSurviveReconciliation($0, retainedEmptyWorkspaceIds: retainedEmptyWorkspaceIds) &&
-            (workspaceHasSidebarVisibleWindows($0) || $0.isConfiguredPersistent) &&
+            (workspaceHasSidebarVisibleWindows($0) || $0.isKeptWhenEmpty) &&
             workspaceIsAvailableForMonitor($0, monitor: workspace.workspaceMonitor)
     }) {
         return candidate
@@ -274,7 +294,8 @@ func availablePreferredWorkspace(projectId: WorkspaceProjectId, monitor: Monitor
 @MainActor
 func workspaceIsAvailableForMonitor(_ workspace: Workspace, monitor: Monitor) -> Bool {
     isValidAssignment(workspace: workspace, screen: monitor.rect.topLeftCorner) &&
-        (!workspace.isVisible || workspace.workspaceMonitor.rect.topLeftCorner == monitor.rect.topLeftCorner)
+        (!workspace.isVisible || workspace.workspaceMonitor.rect.topLeftCorner == monitor.rect.topLeftCorner) &&
+        savedHomeAllows(workspace, on: monitor)
 }
 
 @MainActor
