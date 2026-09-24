@@ -59,6 +59,9 @@ let focus_help_generated = """
        OR: focus [-h|--help] --window-id <window-id>
        OR: focus [-h|--help] --dfs-index <dfs-index>
     """
+let forget_workspace_help_generated = """
+    USAGE: forget-workspace [-h|--help] [--workspace <workspace>] [--fail-if-noop] [--json]
+    """
 let fullscreen_help_generated = """
     USAGE: fullscreen [-h|--help]     [--window-id <window-id>] [--no-outer-gaps]
        OR: fullscreen [-h|--help] on  [--window-id <window-id>] [--no-outer-gaps] [--fail-if-noop]
@@ -154,6 +157,9 @@ let rename_project_help_generated = """
     """
 let resize_help_generated = """
     USAGE: resize [-h|--help] [--window-id <window-id>] (smart|smart-opposite|width|height) [+|-]<number>
+    """
+let save_workspace_help_generated = """
+    USAGE: save-workspace [-h|--help] [--workspace <workspace>] [--name <name>] [--pin-to-display|--unpin-display] [--fail-if-noop] [--json]
     """
 let set_project_color_help_generated = """
     USAGE: set-project-color [-h|--help] [--fail-if-noop] [--json] <project-id> (<#RRGGBB>|auto)

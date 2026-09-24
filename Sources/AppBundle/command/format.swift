@@ -160,8 +160,10 @@ extension String {
             case (.workspace(let w), .workspace(let f)):
                 return switch f {
                     case .workspaceName: .success(.string(w.name))
+                    case .workspaceDisplayName: .success(.string(workspaceDisplayName(w.name)))
                     case .workspaceVisible: .success(.bool(w.isVisible))
                     case .workspaceFocused: .success(.bool(focus.workspace == w))
+                    case .workspaceIsSaved: .success(.bool(w.isSaved))
                     case .workspaceRootContainerLayout: .success(.string(toLayoutString(tc: w.rootTilingContainer)))
                 }
             case (.project(let p), .project(let f)):

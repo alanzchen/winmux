@@ -16,6 +16,7 @@ public enum CmdKind: String, CaseIterable, Equatable, Sendable {
     case focus
     case focusBackAndForth = "focus-back-and-forth"
     case focusMonitor = "focus-monitor"
+    case forgetWorkspace = "forget-workspace"
     case fullscreen
     case joinWith = "join-with"
     case layout
@@ -41,6 +42,7 @@ public enum CmdKind: String, CaseIterable, Equatable, Sendable {
     case reloadConfig = "reload-config"
     case renameProject = "rename-project"
     case resize
+    case saveWorkspace = "save-workspace"
     case setProjectColor = "set-project-color"
     case split
     case stackWith = "stack-with"
@@ -87,6 +89,8 @@ func initSubcommands() -> [String: any SubCommandParserProtocol] {
                 result[kind.rawValue] = SubCommandParser(FocusBackAndForthCmdArgs.init)
             case .focusMonitor:
                 result[kind.rawValue] = SubCommandParser(parseFocusMonitorCmdArgs)
+            case .forgetWorkspace:
+                result[kind.rawValue] = SubCommandParser(ForgetWorkspaceCmdArgs.init)
             case .fullscreen:
                 result[kind.rawValue] = SubCommandParser(parseFullscreenCmdArgs)
             case .joinWith:
@@ -141,6 +145,8 @@ func initSubcommands() -> [String: any SubCommandParserProtocol] {
                 result[kind.rawValue] = SubCommandParser(parseRenameProjectCmdArgs)
             case .resize:
                 result[kind.rawValue] = SubCommandParser(parseResizeCmdArgs)
+            case .saveWorkspace:
+                result[kind.rawValue] = SubCommandParser(SaveWorkspaceCmdArgs.init)
             case .setProjectColor:
                 result[kind.rawValue] = SubCommandParser(parseSetProjectColorCmdArgs)
             case .split:

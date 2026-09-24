@@ -155,7 +155,8 @@ A project is a durable grouping with a stable ID, mutable name, color, and one
 or more workspaces. Workspaces are lazy: moving a window to `new` obtains a new
 workspace, and an ordinary workspace retires after its last window moves away.
 WinMux may keep a project's minimum empty workspace so the project remains
-navigable.
+navigable. Saved workspaces never retire; see
+[Saved workspaces](#saved-workspaces).
 
 ## Querying desktop state
 
@@ -197,8 +198,11 @@ The accepted interpolation field families are:
   `window-layout`, and `window-parent-container-layout`, plus workspace,
   monitor, and app fields.
 
-- Workspace: `workspace`, `workspace-is-focused`, `workspace-is-visible`, and
-  `workspace-root-container-layout`, plus monitor fields.
+- Workspace: `workspace`, `workspace-display-name`, `workspace-is-focused`,
+  `workspace-is-visible`, `workspace-is-saved`, and
+  `workspace-root-container-layout`, plus monitor fields. `workspace` is the
+  internal name that commands accept; `workspace-display-name` is the name shown
+  in the Dock and Sidebar.
 
 - Project: `project-index`, `project-id`, `project-name`, `project-color`,
   `project-is-focused`, `project-is-visible`, `project-workspace-count`, and
@@ -330,6 +334,37 @@ winmux summon-workspace work
 
 For relative navigation, `workspace next` and `workspace prev` can consume a
 newline-delimited candidate list only when `--stdin` is explicit.
+
+## Saved workspaces
+
+A saved workspace keeps its name, project, layout, app windows, and home display
+across WinMux, app, and Mac restarts (see
+[Saved workspaces](configuration.md#saved-workspaces)). Save the focused
+workspace, optionally naming it and keeping it on its current display:
+
+```sh
+winmux save-workspace --name Code --pin-to-display
+```
+
+Target another workspace with `--workspace <workspace>`. `--unpin-display` lets a
+pinned workspace move again; its display stays its home. Stop saving a workspace
+without closing its windows:
+
+```sh
+winmux forget-workspace --workspace 3
+```
+
+Both commands report a no-op on stderr and exit 0 unless `--fail-if-noop` is
+given. With `--json` they print `workspace`, `display-name`, `saved`, `pinned`,
+`changed`, and, when known, `saved-id` and `display`. `save-workspace` can be
+bound in the config; `forget-workspace` is CLI-only.
+
+List saved workspaces with their display names:
+
+```sh
+winmux list-workspaces --all --json \
+  --format '%{workspace} %{workspace-display-name} %{workspace-is-saved}'
+```
 
 ## Windows, layouts, and tab groups
 
@@ -596,12 +631,14 @@ syntax.
 | --- | --- |
 | `create-project` | Create a project and print its stable ID |
 | `delete-project` | Guardedly delete a project and move its windows to the fallback |
+| `forget-workspace` | Stop saving a workspace |
 | `list-projects` | Query projects, metadata, and counts |
 | `list-workspaces` | Query workspaces |
 | `move-node-to-project` | Move a window to a project's first workspace |
 | `move-node-to-workspace` | Move a window to a named, relative, or new workspace |
 | `project` | Focus a project by ID, index, or relative target |
 | `rename-project` | Rename a project by stable ID |
+| `save-workspace` | Save, name, or pin a workspace so it survives restarts |
 | `set-project-color` | Set or reset a project's sidebar color |
 | `summon-workspace` | Move a workspace to the focused monitor |
 | `workspace` | Focus a workspace |

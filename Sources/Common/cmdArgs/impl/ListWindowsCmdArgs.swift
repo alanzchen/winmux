@@ -142,8 +142,10 @@ public enum FormatVar: Equatable {
 
     public enum WorkspaceFormatVar: String, Equatable, CaseIterable {
         case workspaceName = "workspace"
+        case workspaceDisplayName = "workspace-display-name"
         case workspaceFocused = "workspace-is-focused"
         case workspaceVisible = "workspace-is-visible"
+        case workspaceIsSaved = "workspace-is-saved"
         case workspaceRootContainerLayout = "workspace-root-container-layout"
     }
 
