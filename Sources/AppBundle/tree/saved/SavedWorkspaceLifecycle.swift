@@ -89,9 +89,10 @@ func savedWorkspaceDisplayName(_ workspaceName: String) -> String? {
         .takeIf { !$0.isEmpty }
 }
 
+/// - Parameter flush: false when the caller changes the record further and flushes itself.
 @MainActor
 @discardableResult
-func ensureSavedWorkspaceRecord(_ workspace: Workspace) throws -> (record: SavedWorkspaceRecord, created: Bool) {
+func ensureSavedWorkspaceRecord(_ workspace: Workspace, flush: Bool = true) throws -> (record: SavedWorkspaceRecord, created: Bool) {
     if let existing = savedWorkspaceStore.record(named: workspace.name) {
         return (existing, false)
     }
@@ -117,7 +118,9 @@ func ensureSavedWorkspaceRecord(_ workspace: Workspace) throws -> (record: Saved
         savedWorkspaceRuntime.visibleOnHomeAtLastCheckpoint.insert(workspace.name)
     }
     savedWorkspaceStore.reorder(workspaceNamesInOrder: orderedWorkspacesForPresentation().map(\.name))
-    savedWorkspaceStore.flushNow()
+    if flush {
+        savedWorkspaceStore.flushNow()
+    }
     return (record, true)
 }
 
@@ -142,23 +145,32 @@ func forgetSavedWorkspace(_ workspace: Workspace) throws -> Bool {
 @MainActor
 @discardableResult
 func setSavedWorkspacePinned(_ workspace: Workspace, _ pinned: Bool) throws -> Bool {
-    if !pinned, savedWorkspaceStore.record(named: workspace.name)?.isPinnedToDisplay != true {
+    // Pinning again changes nothing: while the pinned display is disconnected, the workspace's
+    // current display must not become its home.
+    if savedWorkspaceStore.record(named: workspace.name)?.isPinnedToDisplay == pinned {
         return false
+    }
+    if !pinned, !workspace.isSaved {
+        return false
+    }
+    if let reason = savedWorkspaceStore.readOnlyReason {
+        throw WorkspaceMutationError.savedWorkspacesReadOnly(reason)
     }
     let monitor = workspace.visibleMonitor ?? workspace.workspaceMonitor
     let affinity = SavedDisplayAffinity(monitor: monitor)
-    // Checked before saving, so a pin that can't happen leaves the workspace unchanged.
-    if pinned, affinity == nil, savedWorkspaceStore.record(named: workspace.name)?.display == nil {
+    // Checked before saving, so a pin that can't happen leaves the workspace unchanged. The
+    // workspace is pinned to the display it is on, never silently to an older home.
+    if pinned, affinity == nil {
         throw WorkspaceMutationError.displayHasNoIdentity(monitor.name)
     }
-    try ensureSavedWorkspaceRecord(workspace)
+    let created = try ensureSavedWorkspaceRecord(workspace, flush: false).created
     let changed = savedWorkspaceStore.update(named: workspace.name) { record in
         record.isPinnedToDisplay = pinned
         if pinned, let affinity {
             record.display = affinity
         }
     }
-    if changed {
+    if changed || created {
         savedWorkspaceStore.flushNow()
     }
     return changed
@@ -204,15 +216,20 @@ func adoptLabeledWorkspacesIfNeeded() {
     guard !runtime.didRunLabelAdoption else { return }
     runtime.didRunLabelAdoption = true
     guard savedWorkspaceStore.fileWasAbsentAtLoad,
+          savedWorkspaceStore.adoptsLabels,
           !savedWorkspaceStore.isReadOnly,
           config.workspaceSidebar.saveNamedWorkspaces
     else { return }
+    var adopted = false
     for workspace in orderedWorkspacesForPresentation() {
         guard !workspace.isSaved,
               !isSidebarDraftWorkspaceName(workspace.name),
               config.workspaceSidebar.workspaceLabels[workspace.name]?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,
               workspaceHasLifecycleWindows(workspace)
         else { continue }
-        _ = try? ensureSavedWorkspaceRecord(workspace)
+        adopted = (try? ensureSavedWorkspaceRecord(workspace, flush: false)) != nil || adopted
+    }
+    if adopted {
+        savedWorkspaceStore.flushNow()
     }
 }

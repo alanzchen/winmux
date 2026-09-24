@@ -55,10 +55,9 @@ func workspaceSidebarSavedState(for workspace: Workspace, runningApps: [String: 
         homeDisplayName: record.display?.name.takeIf { !$0.isEmpty },
         isHomeConnected: savedHomeMonitor(of: workspace) != nil,
         isForceAssignedByConfig: resolvedForceAssignedMonitor(forWorkspaceName: workspace.name) != nil,
-        missingAppNames: missingSavedWorkspaceApps(workspaceNames: [workspace.name], runningApps: runningApps).map { app in
-            app.appName?.takeIf { !$0.isEmpty }
-                ?? app.bundlePath.map { URL(fileURLWithPath: $0).deletingPathExtension().lastPathComponent }
-                ?? app.bundleId
+        // WinMux doesn't open apps with --read-only, so it offers none.
+        missingAppNames: serverArgs.isReadOnly ? [] : missingSavedWorkspaceApps(workspaceNames: [workspace.name], runningApps: runningApps).map { app in
+            savedWorkspaceAppDisplayName(bundleId: app.bundleId, appName: app.appName, bundlePath: app.bundlePath)
         },
     )
 }

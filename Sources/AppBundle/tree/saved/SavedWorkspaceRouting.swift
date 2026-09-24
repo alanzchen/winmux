@@ -71,7 +71,7 @@ func routeNewWindowToSavedWorkspaceIfNeeded(_ window: Window, isRegularWindow: B
     let candidates = waitingSavedSlots(bundleId: bundleId, routingWindow: window).filter {
         $0.slot.lastPid != window.app.pid
     }
-    guard let location = bestSavedSlot(for: title, among: candidates) else {
+    guard let location = bestSavedSlot(for: title, among: candidates, appName: window.app.name) else {
         return false
     }
     return try await placeWindowInSavedSlot(window, location)
@@ -102,12 +102,16 @@ func waitingSavedSlots(bundleId: String, routingWindow: Window) -> [SavedSlotLoc
     return result
 }
 
-/// Picks the slot whose saved title best matches. Ties, including windows without a title,
-/// go to the first slot in saved order.
-func bestSavedSlot(for title: String?, among candidates: [SavedSlotLocation]) -> SavedSlotLocation? {
+/// Picks the slot whose saved title best matches; ties go to the first slot in saved order.
+/// A window whose title matches no slot only takes a slot when the choice is safe: it is the
+/// app's only waiting slot, or one of the two titles is unknown. Otherwise an unrelated window
+/// of a just-launched app would be moved into some saved workspace.
+func bestSavedSlot(for title: String?, among candidates: [SavedSlotLocation], appName: String? = nil) -> SavedSlotLocation? {
     var best: (location: SavedSlotLocation, score: Int)?
     for candidate in candidates {
-        let score = savedTitleMatchScore(title, candidate.slot.title)
+        let score = savedTitleMatchScore(title, candidate.slot.title, appName: appName ?? candidate.slot.appName)
+        let isEligible = score > 0 || candidates.count == 1 || title?.isEmpty != false || candidate.slot.title?.isEmpty != false
+        guard isEligible else { continue }
         if best == nil || score > best!.score {
             best = (candidate, score)
         }
@@ -115,21 +119,23 @@ func bestSavedSlot(for title: String?, among candidates: [SavedSlotLocation]) ->
     return best?.location
 }
 
-/// 3: same title. 2: same document part before " — " or " - ". 1: one title contains the other.
-func savedTitleMatchScore(_ lhs: String?, _ rhs: String?) -> Int {
+/// 3: same title. 2: the titles share a part between " — ", " - ", or " | " separators (for
+/// example the document or folder). 1: one title contains the other. The app's own name
+/// ("Chrome - Page") is never a match.
+func savedTitleMatchScore(_ lhs: String?, _ rhs: String?, appName: String? = nil) -> Int {
     guard let lhs = lhs?.lowercased(), let rhs = rhs?.lowercased(), !lhs.isEmpty, !rhs.isEmpty else { return 0 }
     if lhs == rhs { return 3 }
-    func documentPart(_ title: String) -> String? {
-        for separator in [" — ", " – ", " - "] {
-            if let range = title.range(of: separator) {
-                let prefix = String(title[..<range.lowerBound]).trimmingCharacters(in: .whitespaces)
-                return prefix.count >= 4 ? prefix : nil
-            }
+    let appName = appName?.lowercased()
+    func parts(_ title: String) -> Set<String> {
+        var parts = [title]
+        for separator in [" — ", " – ", " - ", " | "] {
+            parts = parts.flatMap { $0.components(separatedBy: separator) }
         }
-        return nil
+        return parts.map { $0.trimmingCharacters(in: .whitespaces) }.filter { $0.count >= 4 && $0 != appName }.toSet()
     }
-    if let lhsDocument = documentPart(lhs), lhsDocument == documentPart(rhs) { return 2 }
-    if lhs.count >= 4, rhs.count >= 4, lhs.contains(rhs) || rhs.contains(lhs) { return 1 }
+    if !parts(lhs).isDisjoint(with: parts(rhs)) { return 2 }
+    let shorter = lhs.count <= rhs.count ? lhs : rhs
+    if shorter.count >= 4, shorter != appName, lhs.contains(rhs) || rhs.contains(lhs) { return 1 }
     return 0
 }
 

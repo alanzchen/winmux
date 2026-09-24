@@ -16,6 +16,9 @@ import Foundation
         // Saved names must exist before anything (config reload, sidebar refresh, focus) can
         // hand them out as automatic workspace names.
         isDeferringOrphanedWorkspaceLabelCleanup = true
+        // Also after a failed startup: otherwise every saved app would stay armed for routing,
+        // nothing would be captured, and labels would never be cleaned up.
+        defer { finishSavedWorkspaceStartup() }
         loadSavedWorkspaceStoreForStartup()
         materializeSavedWorkspaceNames()
         do {
@@ -60,11 +63,8 @@ import Foundation
             }
             _ = try await config.afterStartupCommand.runCmdSeq(.defaultEnv, .emptyStdin)
         }
-        isDeferringOrphanedWorkspaceLabelCleanup = false
-        clearOrphanedWorkspaceSidebarLabels()
         isWinMuxRuntimeReady = true
-        savedWorkspaceRuntime.runtimeReadyAt = savedWorkspaceRuntime.now
-        scheduleSavedWorkspaceCheckpoint()
+        finishSavedWorkspaceStartup()
         if config.workspaceSidebar.openSavedWorkspaceAppsAtStartup {
             Task { @MainActor in _ = await openMissingSavedWorkspaceApps(workspaceNames: nil) }
         }
@@ -74,6 +74,15 @@ import Foundation
             }
         }
     }
+}
+
+@MainActor
+private func finishSavedWorkspaceStartup() {
+    guard savedWorkspaceRuntime.runtimeReadyAt == nil else { return }
+    isDeferringOrphanedWorkspaceLabelCleanup = false
+    clearOrphanedWorkspaceSidebarLabels()
+    savedWorkspaceRuntime.runtimeReadyAt = savedWorkspaceRuntime.now
+    scheduleSavedWorkspaceCheckpoint()
 }
 
 /// A saved workspace already has its own layout.

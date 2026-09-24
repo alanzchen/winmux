@@ -236,8 +236,13 @@ final class SavedWorkspaceLayoutMergeTest: XCTestCase {
     func testTitleScoring() {
         XCTAssertEqual(savedTitleMatchScore("main.swift — App", "main.swift — App"), 3)
         XCTAssertEqual(savedTitleMatchScore("README.md — Docs", "README.md — Docs (edited)"), 2)
-        XCTAssertEqual(savedTitleMatchScore("Project Alpha", "Project Alpha - Slack"), 1)
+        XCTAssertEqual(savedTitleMatchScore("Project Alpha", "Project Alpha - Slack"), 2)
+        XCTAssertEqual(savedTitleMatchScore("main.swift — MyProject — Code", "notes.md — MyProject — Code", appName: "Code"), 2)
+        XCTAssertEqual(savedTitleMatchScore("Inbox (3)", "Inbox (3) and more"), 1)
+        XCTAssertEqual(savedTitleMatchScore("Slack", "Slack general", appName: "Slack"), 0)
         XCTAssertEqual(savedTitleMatchScore("zsh", "bash"), 0)
         XCTAssertEqual(savedTitleMatchScore(nil, "anything"), 0)
+        // A leading app name isn't a document.
+        XCTAssertEqual(savedTitleMatchScore("Google Chrome - Work", "Google Chrome - Personal", appName: "Google Chrome"), 0)
     }
 }

@@ -9,10 +9,10 @@ func missingSavedWorkspaceApps(
     runningApps: [String: [SavedRunningApp]]? = nil,
 ) -> [(bundleId: String, appName: String?, bundlePath: String?)] {
     let runningApps = runningApps ?? savedWorkspaceRuntime.environment.runningApps()
-    let names = workspaceNames.map(Set.init)
+    let records = workspaceNames.map { $0.compactMap(savedWorkspaceStore.record(named:)) } ?? savedWorkspaceStore.records
     var seen: Set<String> = []
     var result: [(bundleId: String, appName: String?, bundlePath: String?)] = []
-    for record in savedWorkspaceStore.records where names?.contains(record.workspaceName) ?? true {
+    for record in records {
         for slot in record.layout.allSlots {
             guard runningApps[slot.bundleId] == nil,
                   slot.bundleId != winMuxAppId,
@@ -25,21 +25,46 @@ func missingSavedWorkspaceApps(
     return result
 }
 
+func savedWorkspaceAppDisplayName(bundleId: String, appName: String?, bundlePath: String?) -> String {
+    appName?.takeIf { !$0.isEmpty }
+        ?? bundlePath.map { URL(fileURLWithPath: $0).deletingPathExtension().lastPathComponent }
+        ?? bundleId
+}
+
+struct SavedWorkspaceAppLaunchResult: Equatable {
+    var opened: [String] = []
+    /// Apps that couldn't be opened, for example because they were uninstalled.
+    var failed: [String] = []
+}
+
 /// Opens the missing apps of the given saved workspaces (all when nil). Their windows then have
-/// a short while to return to their saved slots. Returns how many apps were asked to open.
+/// a short while to return to their saved slots.
 @MainActor
 @discardableResult
-func openMissingSavedWorkspaceApps(workspaceNames: [String]?) async -> Int {
-    guard !serverArgs.isReadOnly else { return 0 }
+func openMissingSavedWorkspaceApps(workspaceNames: [String]?) async -> SavedWorkspaceAppLaunchResult {
+    guard !serverArgs.isReadOnly else { return SavedWorkspaceAppLaunchResult() }
     let runtime = savedWorkspaceRuntime
-    var opened = 0
-    for app in missingSavedWorkspaceApps(workspaceNames: workspaceNames) {
-        runtime.manualArmUntilByBundleId[app.bundleId] = runtime.now.addingTimeInterval(SavedWorkspaceTiming.restoreWindow)
-        if await runtime.environment.openApplication(app.bundleId, app.bundlePath) {
-            opened += 1
+    let now = runtime.now
+    runtime.manualArmUntilByBundleId = runtime.manualArmUntilByBundleId.filter { $0.value > now }
+    let apps = missingSavedWorkspaceApps(workspaceNames: workspaceNames)
+    for app in apps {
+        runtime.manualArmUntilByBundleId[app.bundleId] = now.addingTimeInterval(SavedWorkspaceTiming.restoreWindow)
+    }
+    // Launch them together; one slow app shouldn't hold back the others.
+    let openApplication = runtime.environment.openApplication
+    let launches = apps.map { app in
+        Task { @MainActor in await openApplication(app.bundleId, app.bundlePath) }
+    }
+    var result = SavedWorkspaceAppLaunchResult()
+    for (app, launch) in zip(apps, launches) {
+        let name = savedWorkspaceAppDisplayName(bundleId: app.bundleId, appName: app.appName, bundlePath: app.bundlePath)
+        if await launch.value {
+            result.opened.append(name)
+        } else {
+            result.failed.append(name)
         }
     }
-    return opened
+    return result
 }
 
 @MainActor

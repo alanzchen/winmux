@@ -106,6 +106,23 @@ final class SavedWorkspaceCaptureTest: XCTestCase {
         XCTAssertEqual(slots.map(\.bundleId), [editor, terminal, editor])
     }
 
+    func testRelaunchedAppDropsSlotsOfWindowsItDidntBringBack() throws {
+        let app = TestApp(pid: 1001, bundleId: editor)
+        let workspace = Workspace.get(byName: "code")
+        TestWindow.new(id: 1, parent: workspace.rootTilingContainer, app: app)
+        let second = TestWindow.new(id: 2, parent: workspace.rootTilingContainer, app: app)
+        try ensureSavedWorkspaceRecord(workspace)
+        second.unbindFromParent()
+        // The editor restarted as pid 2002 long enough ago that it isn't bringing window 2 back.
+        let relaunched = [editor: [SavedRunningApp(pid: 2002, launchDate: savedTestNow.addingTimeInterval(-600))]]
+
+        captureSavedWorkspaces(facts: savedTestFacts(running: relaunched))
+        XCTAssertEqual(savedWorkspaceStore.record(named: "code")?.layout.root.allSlots.count, 2)
+        captureSavedWorkspaces(facts: savedTestFacts(now: savedTestNow.addingTimeInterval(16), running: relaunched))
+
+        XCTAssertEqual(savedWorkspaceStore.record(named: "code")?.layout.root.allSlots.map(\.lastWindowId), [1])
+    }
+
     func testClosedWindowOfRunningAppDroppedOnlyAfterGrace() throws {
         let app = TestApp(pid: 1001, bundleId: editor)
         let workspace = Workspace.get(byName: "code")
@@ -183,6 +200,26 @@ final class SavedWorkspaceCaptureTest: XCTestCase {
         captureSavedWorkspaces(facts: savedTestFacts(running: running([(editor, 1001)])))
 
         XCTAssertEqual(savedWorkspaceStore.record(named: "code")?.layout.root.allSlots.map(\.lastWindowId), [1])
+    }
+
+    func testMinimizedWindowWithoutAttributionKeepsItsSlot() throws {
+        let app = TestApp(pid: 1001, bundleId: editor)
+        let workspace = Workspace.get(byName: "code")
+        TestWindow.new(id: 1, parent: workspace.rootTilingContainer, app: app)
+        let minimized = TestWindow.new(id: 2, parent: workspace.rootTilingContainer, app: app)
+        try ensureSavedWorkspaceRecord(workspace)
+        let other = Workspace.get(byName: "other")
+        let moved = TestWindow.new(id: 3, parent: workspace.rootTilingContainer, app: app)
+        try ensureSavedWorkspaceRecord(workspace)
+        captureSavedWorkspaces(facts: savedTestFacts(running: running([(editor, 1001)])))
+
+        minimized.layoutReason = .macos(prevParentKind: .tilingContainer, prevWorkspaceName: nil)
+        minimized.bind(to: macosMinimizedWindowsContainer, adaptiveWeight: 1, index: INDEX_BIND_LAST)
+        moved.layoutReason = .macos(prevParentKind: .tilingContainer, prevWorkspaceName: other.name)
+        moved.bind(to: macosMinimizedWindowsContainer, adaptiveWeight: 1, index: INDEX_BIND_LAST)
+        captureSavedWorkspaces(facts: savedTestFacts(now: savedTestNow.addingTimeInterval(3600), running: running([(editor, 1001)])))
+
+        XCTAssertEqual(savedWorkspaceStore.record(named: "code")?.layout.root.allSlots.map(\.lastWindowId), [1, 2])
     }
 
     func testWindowStillClassifiedAsPopupKeepsItsSlot() throws {

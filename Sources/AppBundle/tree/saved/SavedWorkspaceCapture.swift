@@ -223,6 +223,14 @@ func savedSlotKeepsWaiting(
         if let window = Window.get(byId: windowId), window.app.pid == pid {
             // Still classified as a popup: it may be promoted to a window later.
             if window.parent is MacosPopupWindowsContainer { return true }
+            // Minimized windows live outside every workspace. Only one attributed to another
+            // existing workspace has moved.
+            if window.parent is MacosMinimizedWindowsContainer {
+                guard case .macos(_, let previousWorkspaceName?) = window.layoutReason,
+                      previousWorkspaceName != workspace.name,
+                      Workspace.existing(byName: previousWorkspaceName) != nil
+                else { return true }
+            }
             // The window is alive somewhere else: the user moved it.
             runtime.vanishedSlots.removeValue(forKey: slot.id)
             return false
@@ -230,8 +238,9 @@ func savedSlotKeepsWaiting(
         // Alive but not registered yet (a refresh is still registering windows).
         if runtime.aliveWindowPidsDuringRefresh[windowId] == pid { return true }
     }
-    // The app instance that owned the window is gone: wait for it to come back.
-    if !slotOwnerIsRunning(slot, facts: facts) { return true }
+    // The app quit: wait for its next launch. If a newer instance runs instead, the slot waits
+    // only while that instance may still bring the window back (the checks below).
+    if !slotOwnerIsRunning(slot, facts: facts), facts.runningApps[slot.bundleId]?.isEmpty != false { return true }
     if facts.startupRestoreActive || runtime.isAnyInstanceArmed(bundleId: slot.bundleId, runningApps: facts.runningApps, at: facts.now) {
         return true
     }

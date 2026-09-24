@@ -346,12 +346,14 @@ workspace, optionally naming it and keeping it on its current display:
 winmux save-workspace --name Code --pin-to-display
 ```
 
-Target another workspace with `--workspace <workspace>`. `--unpin-display` lets a
-pinned workspace move again; its display stays its home. Stop saving a workspace
-without closing its windows:
+Target another workspace with `--workspace <workspace>`. It takes the internal
+`%{workspace}` name, not the "Workspace N" position that `workspace N` accepts, so
+capture the name first. `--unpin-display` lets a pinned workspace move again; its
+display stays its home. Stop saving a workspace without closing its windows:
 
 ```sh
-winmux forget-workspace --workspace 3
+ws="$(winmux list-workspaces --focused --format '%{workspace}')"
+winmux forget-workspace --workspace "$ws"
 ```
 
 Both commands report a no-op on stderr and exit 0 unless `--fail-if-noop` is

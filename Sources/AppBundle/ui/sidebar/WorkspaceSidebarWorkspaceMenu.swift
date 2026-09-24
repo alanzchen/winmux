@@ -24,15 +24,19 @@ struct WorkspaceSidebarWorkspaceMenuContext: Equatable {
     /// The display the workspace is on, which Keep on pins it to.
     var currentDisplayName: String?
     var isForceAssignedByConfig = false
+    /// Pinning needs a display WinMux can recognize again later.
+    var currentDisplayHasIdentity = true
 }
 
 @MainActor
 func workspaceSidebarWorkspaceMenuContext(workspaceName: String) -> WorkspaceSidebarWorkspaceMenuContext {
     let workspace = Workspace.existing(byName: workspaceName)
+    let currentDisplay = workspace.map { $0.visibleMonitor ?? $0.workspaceMonitor }
     return WorkspaceSidebarWorkspaceMenuContext(
         monitorCount: monitors.count,
-        currentDisplayName: workspace.map { ($0.visibleMonitor ?? $0.workspaceMonitor).name },
+        currentDisplayName: currentDisplay?.name,
         isForceAssignedByConfig: resolvedForceAssignedMonitor(forWorkspaceName: workspaceName) != nil,
+        currentDisplayHasIdentity: currentDisplay.map { SavedDisplayAffinity(monitor: $0) != nil } ?? false,
     )
 }
 
@@ -81,8 +85,19 @@ private func workspaceSidebarKeepOnDisplayEntry(
         ?? saved?.homeDisplayName
     let title = "Keep on " + (displayName.map { "“\($0)”" } ?? "This Display")
     if isForceAssigned {
-        // workspace-to-monitor-force-assignment wins over the saved home.
+        // workspace-to-monitor-force-assignment wins over the saved home. An older pin can
+        // still be removed, so it doesn't come back when the config entry goes away.
+        if isPinned, let home = saved?.homeDisplayName {
+            return .init(
+                title: "Keep on “\(home)” (Overridden by Config)",
+                checked: true,
+                command: .send(.setSavedWorkspacePinned(workspace.name, false)),
+            )
+        }
         return .init(title: title + " (Set in Config)", checked: true, enabled: false)
+    }
+    if !isPinned, !context.currentDisplayHasIdentity {
+        return .init(title: title + " (Display Not Recognized)", enabled: false)
     }
     let suffix = isPinned && saved?.isHomeConnected == false ? " (Disconnected)" : ""
     return .init(

@@ -14,6 +14,9 @@ final class SavedWorkspaceStore {
     /// Set when the file came from a newer WinMux or when WinMux runs with --read-only.
     let readOnlyReason: String?
     let fileWasAbsentAtLoad: Bool
+    /// Whether the first launch saves workspaces that already have names. Off after restoring
+    /// from the backup, which already holds the user's saved workspaces.
+    var adoptsLabels = true
     private var indexByName: [String: Int] = [:]
     private var bundleIdsWithSlots: Set<String> = []
     private var lastWrittenData: Data?
@@ -100,7 +103,8 @@ final class SavedWorkspaceStore {
         guard url != nil, !isReadOnly, writeTask == nil else { return }
         writeTask = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: 1_000_000_000)
-            guard let self else { return }
+            // flushNow() cancels the task after writing; a cancelled task must not clear a newer one.
+            guard let self, !Task.isCancelled else { return }
             self.writeTask = nil
             self.flushNow()
         }
@@ -154,6 +158,18 @@ final class SavedWorkspaceStore {
             decoded = try JSONDecoder().decode(SavedWorkspacesFile.self, from: data)
         } catch {
             let movedTo = moveCorruptSavedWorkspacesFileAside(url)
+            let backupUrl = url.deletingLastPathComponent().appendingPathComponent(savedWorkspacesBackupFilename, isDirectory: false)
+            if let backup = try? Data(contentsOf: backupUrl),
+               var restored = try? JSONDecoder().decode(SavedWorkspacesFile.self, from: backup),
+               restored.version <= savedWorkspacesFileVersion
+            {
+                restored = deduplicatedSavedWorkspacesFile(restored)
+                restored.version = savedWorkspacesFileVersion
+                let store = SavedWorkspaceStore(file: restored, url: url, readOnlyReason: readOnlyReason, fileWasAbsentAtLoad: true)
+                store.adoptsLabels = false
+                let notice = "\(url.lastPathComponent) couldn't be read and was moved to \(movedTo ?? "a backup"). Saved workspaces were restored from the previous copy."
+                return (store, notice)
+            }
             let notice = "\(url.lastPathComponent) couldn't be read and was moved to \(movedTo ?? "a backup"). Saved workspaces start empty."
             return (SavedWorkspaceStore(url: url, readOnlyReason: readOnlyReason, fileWasAbsentAtLoad: true), notice)
         }

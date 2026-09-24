@@ -14,8 +14,9 @@ struct SaveWorkspaceCommand: Command {
         } catch {
             return io.err(error.localizedDescription)
         }
+        let isPinned = savedWorkspaceStore.record(named: workspace.name)?.isPinnedToDisplay == true
         // Checked before saving, so a pin that can't happen leaves the workspace unchanged.
-        if args.pinToDisplay == true {
+        if args.pinToDisplay == true, !isPinned {
             if resolvedForceAssignedMonitor(forWorkspaceName: workspace.name) != nil {
                 return io.err(
                     "Workspace '\(workspaceDisplayName(workspace.name))' (\(workspace.name)) can't be kept on a display: " +
@@ -23,7 +24,7 @@ struct SaveWorkspaceCommand: Command {
                 )
             }
             let monitor = workspace.visibleMonitor ?? workspace.workspaceMonitor
-            if SavedDisplayAffinity(monitor: monitor) == nil, savedWorkspaceStore.record(named: workspace.name)?.display == nil {
+            if SavedDisplayAffinity(monitor: monitor) == nil {
                 return io.err(WorkspaceMutationError.displayHasNoIdentity(monitor.name).localizedDescription)
             }
         }
@@ -32,8 +33,13 @@ struct SaveWorkspaceCommand: Command {
         let previousDisplayName = workspaceDisplayName(workspace.name)
         let pinChanged: Bool
         do {
-            try saveWorkspaceForSidebar(workspaceName: workspace.name, displayName: requestedName)
+            // Save and pin before naming: the name is also written to the TOML config, which can
+            // fail after the saved-workspace changes are already made.
+            try saveWorkspaceForSidebar(workspaceName: workspace.name, displayName: nil)
             pinChanged = try args.pinToDisplay.map { try setSavedWorkspacePinned(workspace, $0) } ?? false
+            if let requestedName {
+                try saveWorkspaceForSidebar(workspaceName: workspace.name, displayName: requestedName)
+            }
         } catch {
             return io.err(error.localizedDescription)
         }
@@ -99,7 +105,7 @@ private func writeSavedWorkspaceJson(_ workspace: Workspace, changed: Bool, to i
     if let record {
         result["saved-id"] = .string(record.id)
     }
-    if let display = record?.display?.name {
+    if let display = record?.display?.name, !display.isEmpty {
         result["display"] = .string(display)
     }
     return JSONEncoder.winMuxDefault.encodeToString(result).map(io.out)

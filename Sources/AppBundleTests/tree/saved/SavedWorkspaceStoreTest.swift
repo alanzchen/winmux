@@ -110,6 +110,23 @@ final class SavedWorkspaceStoreTest: XCTestCase {
         XCTAssertEqual(names.filter { $0.hasPrefix("saved-workspaces.corrupt-") }.count, 1)
     }
 
+    func testCorruptFileIsRestoredFromThePreviousCopy() throws {
+        let store = SavedWorkspaceStore(url: fileUrl, fileWasAbsentAtLoad: true)
+        store.insert(sampleRecord("1"))
+        store.flushNow()
+        let (next, _) = SavedWorkspaceStore.load(from: fileUrl)
+        next.insert(sampleRecord("2"))
+        next.flushNow()
+        try "{broken".write(to: fileUrl, atomically: true, encoding: .utf8)
+
+        let (loaded, notice) = SavedWorkspaceStore.load(from: fileUrl)
+
+        XCTAssertTrue(notice?.contains("previous copy") == true, notice ?? "")
+        XCTAssertEqual(loaded.records.map(\.workspaceName), ["1"])
+        XCTAssertFalse(loaded.adoptsLabels)
+        XCTAssertFalse(loaded.isReadOnly)
+    }
+
     func testFirstWriteOfSessionKeepsPreviousGeneration() throws {
         let first = SavedWorkspaceStore(url: fileUrl, fileWasAbsentAtLoad: true)
         first.insert(sampleRecord("1"))

@@ -266,6 +266,30 @@ final class SavedWorkspaceDisplayAffinityTest: XCTestCase {
         checkWorkspaceHierarchyInvariants(requireActiveMonitorViewports: true)
     }
 
+    func testSavedHomeWithNothingToRestoreKeepsItsWorkspace() throws {
+        // Viewports without display keys (as before the first rearrange) force the point passes.
+        let side = SavedWorkspaceTestMonitor(id: 1, name: "Side", x: 0, isMain: true, uuid: "SIDE")
+        let home = SavedWorkspaceTestMonitor(id: 2, name: "Home", x: 1920, uuid: "HOME")
+        setMonitorsForTests([side, home])
+        winMuxWorkspaceState.monitorViewportsById = [:]
+        let soft = Workspace.get(byName: "soft")
+        TestWindow.new(id: 1, parent: soft.rootTilingContainer)
+        XCTAssertTrue(home.setActiveWorkspace(soft))
+        try ensureSavedWorkspaceRecord(soft)
+        let other = Workspace.get(byName: "other")
+        TestWindow.new(id: 2, parent: other.rootTilingContainer)
+        XCTAssertTrue(home.setActiveWorkspace(other))
+        XCTAssertTrue(side.setActiveWorkspace(soft))
+        let third = SavedWorkspaceTestMonitor(id: 3, name: "Third", x: 3840, uuid: "THIRD")
+
+        setMonitorsForTests([side, home, third])
+        Workspace.reconcileWorkspaceState()
+
+        XCTAssertTrue(home.activeWorkspace === other)
+        XCTAssertTrue(side.activeWorkspace === soft)
+        XCTAssertFalse(third.activeWorkspace === other)
+    }
+
     func testSameModelWithoutSerialIsNotTheSameDisplay() {
         let affinity = SavedDisplayAffinity(uuid: nil, vendor: 1, model: 2, serial: nil, isBuiltin: false, name: "Panel", lastTopLeft: .zero)
         let sameModel = MonitorIdentityTestMonitor(identity: MonitorDisplayIdentity(uuid: "OTHER", vendor: 1, model: 2, serial: 0))
@@ -316,6 +340,43 @@ final class SavedWorkspaceDisplayAffinityTest: XCTestCase {
         XCTAssertTrue(focusWorkspaceFromSidebar(pinned, targetMonitorScopeId: workspaceSidebarMonitorScopeId(for: laptop)))
 
         XCTAssertTrue(dell.activeWorkspace === pinned)
+    }
+
+    func testPinningAgainWhileHomeIsDisconnectedKeepsTheHome() throws {
+        setMonitorsForTests([laptop, dell])
+        Workspace.reconcileWorkspaceState()
+        let pinned = try savedWorkspace("pinned", on: dell, windowId: 1)
+        XCTAssertTrue(try setSavedWorkspacePinned(pinned, true))
+        setMonitorsForTests([laptop])
+        Workspace.reconcileWorkspaceState()
+        XCTAssertTrue(laptop.setActiveWorkspace(pinned))
+
+        XCTAssertFalse(try setSavedWorkspacePinned(pinned, true))
+
+        XCTAssertEqual(savedWorkspaceStore.record(named: "pinned")?.display?.uuid, "DELL")
+    }
+
+    func testPinChangesAreRefusedWithAReadOnlyStore() throws {
+        setMonitorsForTests([laptop, dell])
+        Workspace.reconcileWorkspaceState()
+        let workspace = try savedWorkspace("code", on: dell, windowId: 1)
+        let record = try XCTUnwrap(savedWorkspaceStore.record(named: "code"))
+        savedWorkspaceStore = SavedWorkspaceStore(file: SavedWorkspacesFile(workspaces: [record]), url: nil, readOnlyReason: "newer")
+
+        XCTAssertThrowsError(try setSavedWorkspacePinned(workspace, true))
+        XCTAssertEqual(savedWorkspaceStore.record(named: "code")?.isPinnedToDisplay, false)
+    }
+
+    func testPinningOnAnUnrecognizedDisplayIsRefusedEvenWithAnOlderHome() throws {
+        let projector = SavedWorkspaceTestMonitor(id: 3, name: "Projector", x: 4480, uuid: nil)
+        setMonitorsForTests([laptop, dell, projector])
+        Workspace.reconcileWorkspaceState()
+        let workspace = try savedWorkspace("code", on: dell, windowId: 1)
+        XCTAssertTrue(dell.setActiveWorkspace(Workspace.get(byName: "other")))
+        XCTAssertTrue(projector.setActiveWorkspace(workspace))
+
+        XCTAssertThrowsError(try setSavedWorkspacePinned(workspace, true))
+        XCTAssertEqual(savedWorkspaceStore.record(named: "code")?.isPinnedToDisplay, false)
     }
 
     func testUnpinKeepsSoftHome() throws {

@@ -172,11 +172,13 @@ final class WorkspaceSidebarSavedWorkspaceTest: XCTestCase {
         monitorCount: Int = 2,
         currentDisplay: String? = "DELL U2723QE",
         forceAssigned: Bool = false,
+        currentDisplayHasIdentity: Bool = true,
     ) -> [WorkspaceSidebarWorkspaceMenuEntry] {
         workspaceSidebarWorkspaceMenuEntries(model("code", savedState: savedState), context: .init(
             monitorCount: monitorCount,
             currentDisplayName: currentDisplay,
             isForceAssignedByConfig: forceAssigned,
+            currentDisplayHasIdentity: currentDisplayHasIdentity,
         ))
     }
 
@@ -259,10 +261,29 @@ final class WorkspaceSidebarSavedWorkspaceTest: XCTestCase {
         XCTAssertEqual(keepOn.command, .send(.setSavedWorkspacePinned("code", true)))
     }
 
+    func testForceAssignedPinnedWorkspaceCanStillBeUnpinned() throws {
+        let menu = entries(saved(pinned: true, forceAssigned: true), currentDisplay: "Built-in Display")
+
+        let keepOn = try entry("Keep on “DELL U2723QE” (Overridden by Config)", in: menu)
+        XCTAssertTrue(keepOn.enabled)
+        XCTAssertTrue(keepOn.checked)
+        XCTAssertEqual(keepOn.command, .send(.setSavedWorkspacePinned("code", false)))
+    }
+
+    func testUnrecognizedDisplayCantBePinnedTo() throws {
+        let keepOn = try entry("Keep on “Projector” (Display Not Recognized)",
+            in: entries(saved(), currentDisplay: "Projector", currentDisplayHasIdentity: false))
+
+        XCTAssertFalse(keepOn.enabled)
+        XCTAssertNil(keepOn.command)
+        let pinned = try entry("Keep on “DELL U2723QE”",
+            in: entries(saved(pinned: true), currentDisplay: "Projector", currentDisplayHasIdentity: false))
+        XCTAssertEqual(pinned.command, .send(.setSavedWorkspacePinned("code", false)), "Unpinning always works")
+    }
+
     func testConfigForceAssignmentDisablesKeepOn() throws {
         for menu in [
             entries(saved(forceAssigned: true), currentDisplay: "Built-in Display"),
-            entries(saved(pinned: true, forceAssigned: true), currentDisplay: "Built-in Display"),
             entries(nil, currentDisplay: "Built-in Display", forceAssigned: true),
         ] {
             let keepOn = try entry("Keep on “Built-in Display” (Set in Config)", in: menu)
@@ -435,11 +456,30 @@ final class WorkspaceSidebarSavedWorkspaceTest: XCTestCase {
         }
         savedWorkspaceRuntime.environment = environment
 
-        let count = await openSavedWorkspaceAppsFromSidebar("code")?.value
+        let result = await openSavedWorkspaceAppsFromSidebar("code")?.value
 
-        XCTAssertEqual(count, 1)
+        XCTAssertEqual(result?.opened.count, 1)
         XCTAssertEqual(opened, ["com.test.editor"])
         XCTAssertNotNil(savedWorkspaceRuntime.manualArmUntilByBundleId["com.test.editor"], "Its windows may return to their slots")
         XCTAssertNil(savedWorkspaceRuntime.manualArmUntilByBundleId["com.test.notes"])
+    }
+
+    func testOpenMissingAppsReportsAppsThatCouldntOpen() async throws {
+        let workspace = try makeSavedTestWorkspace("gone")
+        savedWorkspaceStore.update(named: workspace.name) { record in
+            record.layout = SavedWorkspaceLayout(root: SavedLayoutContainer(children: [
+                .slot(.init(id: "old", bundleId: "com.test.uninstalled", appName: "Old App")),
+            ]))
+        }
+        var environment = SavedWorkspaceEnvironment.forTests(now: savedTestNow)
+        environment.openApplication = { _, _ in false }
+        savedWorkspaceRuntime.environment = environment
+        MessageModel.shared.message = nil
+        defer { MessageModel.shared.message = nil }
+
+        let result = await openSavedWorkspaceAppsFromSidebar("gone")?.value
+
+        XCTAssertEqual(result?.failed, ["Old App"])
+        XCTAssertEqual(MessageModel.shared.message?.body, "Couldn't open Old App.")
     }
 }

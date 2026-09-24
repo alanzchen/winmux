@@ -130,6 +130,54 @@ final class SavedWorkspaceCommandTest: XCTestCase {
         XCTAssertEqual(noop.stderr, ["Workspace 'code' is not saved"])
     }
 
+    func testRenamingASavedWorkspaceIsAChange() async throws {
+        TestWindow.new(id: 1, parent: Workspace.get(byName: "code").rootTilingContainer)
+        _ = try await run("save-workspace --workspace code --name Code")
+
+        let renamed = try await run("save-workspace --workspace code --name Review --fail-if-noop --json")
+
+        XCTAssertEqual(try jsonObject(renamed)["changed"] as? Bool, true)
+        XCTAssertEqual(workspaceDisplayName("code"), "Review")
+    }
+
+    func testNamingASavedWorkspaceItsDefaultNameClearsTheName() async throws {
+        TestWindow.new(id: 1, parent: Workspace.get(byName: "code").rootTilingContainer)
+        _ = try await run("save-workspace --workspace code --name Code")
+
+        let reset = try await run("save-workspace --workspace code --name code --json")
+
+        XCTAssertEqual(try jsonObject(reset)["changed"] as? Bool, true)
+        XCTAssertNil(savedWorkspaceStore.record(named: "code")?.displayName)
+        XCTAssertNil(config.workspaceSidebar.workspaceLabels["code"])
+        XCTAssertTrue(Workspace.get(byName: "code").isSaved)
+    }
+
+    func testUnpinningAnUnpinnedWorkspaceIsANoop() async throws {
+        TestWindow.new(id: 1, parent: Workspace.get(byName: "code").rootTilingContainer)
+        _ = try await run("save-workspace --workspace code")
+
+        let noop = try await run("save-workspace --workspace code --unpin-display --fail-if-noop")
+        let json = try await run("save-workspace --workspace code --json")
+
+        XCTAssertEqual(noop.exitCode, 1)
+        XCTAssertEqual(noop.stderr, ["Workspace 'code' is already saved and not kept on a display"])
+        XCTAssertEqual(json.exitCode, 0)
+        XCTAssertEqual(json.stderr, ["Workspace 'code' is already saved. Tip: use --fail-if-noop to exit with non-zero code"])
+        XCTAssertEqual(try jsonObject(json)["changed"] as? Bool, false)
+    }
+
+    func testPinChangesAreRefusedWithAReadOnlyStore() async throws {
+        TestWindow.new(id: 1, parent: Workspace.get(byName: "code").rootTilingContainer)
+        _ = try await run("save-workspace --workspace code")
+        let record = try XCTUnwrap(savedWorkspaceStore.record(named: "code"))
+        savedWorkspaceStore = SavedWorkspaceStore(file: SavedWorkspacesFile(workspaces: [record]), url: nil, readOnlyReason: "newer")
+
+        let result = try await run("save-workspace --workspace code --pin-to-display")
+
+        XCTAssertEqual(result.exitCode, 1)
+        XCTAssertEqual(savedWorkspaceStore.record(named: "code")?.isPinnedToDisplay, false)
+    }
+
     func testReadOnlyStoreReportsError() async throws {
         savedWorkspaceStore = SavedWorkspaceStore(url: nil, readOnlyReason: "written by a newer WinMux")
 

@@ -225,8 +225,8 @@ func renameWorkspaceForSidebar(workspaceName: String, displayName: String, force
     // naming still works.
     let savesImplicitly = config.workspaceSidebar.saveNamedWorkspaces && !savedWorkspaceStore.isReadOnly
     if forceSave || workspace.isSaved || savesImplicitly {
-        try ensureSavedWorkspaceRecord(workspace)
-        if savedWorkspaceStore.update(named: workspaceName, { $0.displayName = trimmedName }) {
+        let created = try ensureSavedWorkspaceRecord(workspace, flush: false).created
+        if savedWorkspaceStore.update(named: workspaceName, { $0.displayName = trimmedName }) || created {
             savedWorkspaceStore.flushNow()
         }
     }

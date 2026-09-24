@@ -602,10 +602,14 @@ func setSavedWorkspacePinnedFromSidebar(_ workspaceName: String, pinned: Bool) -
 /// sidebar, and the new windows return to their slots through normal window detection.
 @MainActor
 @discardableResult
-func openSavedWorkspaceAppsFromSidebar(_ workspaceName: String) -> Task<Int, Never>? {
+func openSavedWorkspaceAppsFromSidebar(_ workspaceName: String) -> Task<SavedWorkspaceAppLaunchResult, Never>? {
     guard TrayMenuModel.shared.isEnabled else { return nil }
     return Task { @MainActor in
-        await openMissingSavedWorkspaceApps(workspaceNames: [workspaceName])
+        let result = await openMissingSavedWorkspaceApps(workspaceNames: [workspaceName])
+        if !result.failed.isEmpty {
+            showWorkspaceSidebarError("Couldn't open \(result.failed.joined(separator: ", ")).")
+        }
+        return result
     }
 }
 

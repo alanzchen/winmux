@@ -166,8 +166,11 @@ Windows return to their places:
 - **WinMux relaunches** (Quit, update, or crash) while apps keep running: every
   window returns to its slot in the saved layout.
 - **An app relaunches** after it quit: its first windows within about 45 seconds
-  of launching fill the waiting slots, matched by title (in saved order when no
-  title matches). Windows opened later, for example with Cmd-N, behave normally.
+  of launching fill the waiting slots, matched by title. A window whose title
+  matches none of them takes a slot only if it is the app's only waiting slot or
+  either title is unknown. Windows opened later, for example with Cmd-N, behave
+  normally. Places the relaunched app doesn't fill in that time are dropped about
+  15 seconds later.
 - **Your Mac restarts or you log out:** after you log in, each app works like a
   relaunch. macOS may reopen apps itself; WinMux opens them only when you ask
   (see [Missing apps](#missing-apps)).
@@ -180,8 +183,9 @@ places. WinMux pauses saving while the screen is locked, the Mac sleeps, or you
 switch users, and during logout, restart, or shutdown, so windows closed as the Mac
 shuts down keep their places.
 
-Windows restored into a saved workspace don't run `on-window-detected` callbacks,
-so rules can't move them out again. Other new windows run the callbacks as usual.
+Windows restored into a saved workspace don't run `on-window-detected` callbacks
+at all, so no rule moves, resizes, or re-lays them out. Other new windows run the
+callbacks as usual.
 
 ### Missing apps
 
@@ -208,9 +212,11 @@ disconnected, the move is temporary.
 Choose **Keep on “<Display>”** in the workspace menu to pin a workspace to its
 current display, saving it if needed. While that display is connected, the
 workspace won't move to another display, and when the display reconnects the
-workspace returns even if it is showing elsewhere. A
+workspace returns even if it is showing elsewhere. Pinning again changes nothing,
+so a workspace shown elsewhere while its display is disconnected keeps its home.
+Displays WinMux can't identify can't be pinned to. A
 `[workspace-to-monitor-force-assignment]` entry for the workspace wins over both
-the home display and Keep on.
+the home display and Keep on; the menu still lets you remove an older pin.
 
 ## Shortcuts and app launching
 

@@ -200,8 +200,12 @@ func rearrangeWorkspacesOnMonitors() {
             newMonitorToOldMonitorMapping[newMonitor] = newMonitor
         }
     }
+    // An unmapped saved home may still fall back to its own old viewport below.
+    let oldViewportsOfUnmappedSavedHomes = unmappedSavedHomes.map(MonitorViewportId.init).toSet()
     for newMonitor in newMonitors where newMonitorToOldMonitorMapping[newMonitor] == nil && !savedHomes.contains(newMonitor) {
-        if let oldMonitor = oldVisibleMonitors.minBy({ ($0.topLeftCorner - newMonitor.topLeftCorner).vectorLength }) {
+        if let oldMonitor = oldVisibleMonitors.subtracting(oldViewportsOfUnmappedSavedHomes)
+            .minBy({ ($0.topLeftCorner - newMonitor.topLeftCorner).vectorLength })
+        {
             check(oldVisibleMonitors.remove(oldMonitor) != nil)
             newMonitorToOldMonitorMapping[newMonitor] = oldMonitor
         }
@@ -212,6 +216,16 @@ func rearrangeWorkspacesOnMonitors() {
         oldViewportsById: oldViewportsById,
         mappedOldViewportIds: newMonitorToOldMonitorMapping.values.toSet(),
     )
+    // A saved home with nothing to restore keeps what was on screen there, like any display.
+    for newMonitor in unmappedSavedHomes.map(MonitorViewportId.init) where restoreTargets.byViewport[newMonitor] == nil {
+        if oldVisibleMonitors.contains(newMonitor), oldViewportDisplayKeyMatches(oldViewportsById[newMonitor], newMonitor, currentMonitors) {
+            check(oldVisibleMonitors.remove(newMonitor) != nil)
+            newMonitorToOldMonitorMapping[newMonitor] = newMonitor
+        } else if let oldMonitor = oldVisibleMonitors.minBy({ ($0.topLeftCorner - newMonitor.topLeftCorner).vectorLength }) {
+            check(oldVisibleMonitors.remove(oldMonitor) != nil)
+            newMonitorToOldMonitorMapping[newMonitor] = oldMonitor
+        }
+    }
     let reservedTargetIds = restoreTargets.byViewport.values.map(\.id).toSet()
     // Workspaces that stay on their mapped display; mid-rebuild, isVisible can't tell.
     let keptVisibleIds = newMonitorToOldMonitorMapping.values
