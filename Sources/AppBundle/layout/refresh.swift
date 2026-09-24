@@ -40,12 +40,17 @@ func shouldSyncFocusBackToMacOs(
     nativeFocused: Window?,
     frontmostActivationPolicy: NSApplication.ActivationPolicy?,
     nativeFocusIsTransient: Bool = false,
+    systemSettingsIsOpening: Bool = false,
 ) -> Bool {
     if nativeFocusIsTransient { return false }
     if nativeFocused?.participatesInWorkspaceFocus == false {
         return false
     }
     if nativeFocused == nil && frontmostActivationPolicy == .accessory {
+        return false
+    }
+    // System Settings activates before its window exists; focusing the previous window would bury it.
+    if nativeFocused == nil && systemSettingsIsOpening {
         return false
     }
     return true
@@ -138,11 +143,20 @@ func runRefreshSessionBlocking(
         try await $refreshSessionEvent.withValue(event) {
             try await $_isStartup.withValue(event.isStartup) {
                 try await $_refreshSessionFocusSnapshot.withValue(focusSnapshot) {
-                    let frontmostActivationPolicy = NSWorkspace.shared.frontmostApplication?.activationPolicy
+                    let frontmostApplication = NSWorkspace.shared.frontmostApplication
+                    let frontmostActivationPolicy = frontmostApplication?.activationPolicy
                     let nativeObservation = try await getNativeFocusObservation()
                     let nativeFocused = nativeObservation.window
                     try checkCancellation()
                     if let nativeFocused { try await debugWindowsIfRecording(nativeFocused) }
+                    // The activated app is resolved directly: the frontmost app may lag its notification.
+                    let activatedApp = activationPid.flatMap { NSRunningApplication(processIdentifier: $0) }
+                    if let activationPid, activatedApp?.bundleIdentifier == SystemFrontApp.systemSettings {
+                        noteSystemSettingsActivation()
+                        if let nativeFocused, nativeFocused.app.pid == activationPid {
+                            bringSystemSettingsToFocusedWorkspace(nativeFocused)
+                        }
+                    }
                     if !nativeObservation.isTransient { updateFocusCache(nativeFocused, preserveLogicalFocus: presentation.callbacksChangedFocus) }
                     presentation.recordNativeFocusBeforeLayout(nativeFocused)
                     try checkCancellation()
@@ -186,6 +200,8 @@ func runRefreshSessionBlocking(
                             nativeFocused: nativeFocused,
                             frontmostActivationPolicy: frontmostActivationPolicy,
                             nativeFocusIsTransient: nativeObservation.isTransient,
+                            systemSettingsIsOpening: (activatedApp?.bundleIdentifier ?? frontmostApplication?.bundleIdentifier) ==
+                                SystemFrontApp.systemSettings && isSystemSettingsOpening(),
                         ) {
                             let logicalFocused = focus.windowOrNil
                             if logicalFocused?.windowId != nativeFocused?.windowId {
@@ -201,6 +217,7 @@ func runRefreshSessionBlocking(
                         }
                     }
                     await updateWindowTabModel()
+                    updateSystemFrontWindows()
                     debugFocusLog("runRefreshSessionBlocking end event=\(event) nativeFocused=\(nativeFocused?.windowId.description ?? "nil") focus=\(debugDescribe(focus))")
                 }
             }

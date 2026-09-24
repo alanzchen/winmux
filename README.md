@@ -86,6 +86,9 @@ auto-hide setting and restores your previous setting afterward. See
 - **Use multiple displays:** each display can show a different workspace. Each
   Dock initially filters to its own display. Moving a workspace already shown
   elsewhere requires confirming **Override**.
+- **Grant permissions without hunting:** System Settings opens in front on your
+  current workspace, and an Accessibility or Screen Recording request returns to
+  the front until you answer it. The Dock and Sidebar stay beneath both.
 
 Empty workspaces normally disappear. Add names under **Settings → Projects &
 Workspaces → Persistent workspaces** to keep them available.

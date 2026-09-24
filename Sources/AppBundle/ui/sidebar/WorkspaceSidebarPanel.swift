@@ -115,6 +115,11 @@ extension WorkspaceSidebarPanel {
             )],
         )
         viewModel.isWorkspaceSidebarExpanded = true
+        // Opened for use, the panel comes back above System Settings or a prompt it yielded to.
+        if !systemFrontWindows.isEmpty, !isAtRest {
+            applyWorkspaceSidebarLayer(stayOnTop: config.workspaceSidebar.stayOnTop, yieldsToSystemWindows: false)
+            orderFrontRegardless()
+        }
         if !isVisible {
             refresh()
         }
@@ -905,6 +910,10 @@ extension WorkspaceSidebarPanel {
             viewModel.isWorkspaceSidebarExpanded = false
             self.expandedDockHoverSource = nil
             self.updateMousePassthrough()
+            // Collapsed again, the panel returns beneath System Settings or a prompt.
+            if !systemFrontWindows.isEmpty {
+                self.applyWorkspaceSidebarLayer(stayOnTop: config.workspaceSidebar.stayOnTop, yieldsToSystemWindows: self.isAtRest)
+            }
         }
         pendingCollapseFinalize = finalize
         DispatchQueue.main.asyncAfter(deadline: .now() + animationDuration, execute: finalize)
@@ -1118,7 +1127,7 @@ extension WorkspaceSidebarPanel {
     }
 
     func refresh(on monitor: Monitor, mouseLocation: CGPoint = NSEvent.mouseLocation) {
-        applyWorkspaceSidebarLayer(stayOnTop: config.workspaceSidebar.stayOnTop)
+        applyWorkspaceSidebarLayer(stayOnTop: config.workspaceSidebar.stayOnTop, yieldsToSystemWindows: isAtRest)
         guard let layout = currentSidebarPanelLayout(on: monitor) else {
             if config.workspaceSidebar.enabled, TrayMenuModel.shared.isEnabled,
                workspaceSidebarPanelScreen(for: monitor) != nil, sidebarIsSuppressed(on: monitor) {
@@ -1197,6 +1206,8 @@ extension WorkspaceSidebarPanel {
         }
         updateMousePassthrough()
         orderFrontRegardless()
+        // Ordering in must not lift a yielding panel back over System Settings or a prompt.
+        if !systemFrontWindows.isEmpty { applyWorkspaceSidebarLayer(stayOnTop: config.workspaceSidebar.stayOnTop, yieldsToSystemWindows: isAtRest) }
         // Panel geometry may have just changed under a stationary cursor; hover is otherwise
         // event-driven from the pointer monitors.
         scheduleHoverRecheckSoon()

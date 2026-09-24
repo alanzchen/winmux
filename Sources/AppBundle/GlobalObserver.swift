@@ -106,6 +106,7 @@ enum GlobalObserver {
         guard !isInitialized else { return }
         isInitialized = true
         DoubleSidedWindowGesture.shared.install()
+        startSystemFrontWindowWatcher()
 
         let nc = NSWorkspace.shared.notificationCenter
         notificationObserverTokens.append(nc.addObserver(forName: NSWorkspace.didLaunchApplicationNotification, object: nil, queue: .main, using: onNotif))
