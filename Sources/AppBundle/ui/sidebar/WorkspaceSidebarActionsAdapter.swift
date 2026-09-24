@@ -124,6 +124,14 @@ func handleWorkspaceSidebarAction(
             if let workspace = workspaceSidebarWorkspaceViewModel(name) {
                 deleteWorkspaceFromSidebar(workspace)
             }
+        case .saveWorkspace(let name):
+            saveWorkspaceFromSidebar(name)
+        case .forgetSavedWorkspace(let name):
+            forgetSavedWorkspaceFromSidebar(name)
+        case .setSavedWorkspacePinned(let name, let pinned):
+            setSavedWorkspacePinnedFromSidebar(name, pinned: pinned)
+        case .openSavedWorkspaceApps(let name):
+            openSavedWorkspaceAppsFromSidebar(name)
         case .moveProject(let projectId, let targetId, let after):
             moveWorkspaceSidebarProject(projectId, relativeTo: targetId, after: after)
         case .moveWorkspace(let workspaceName, let projectId):

@@ -1,3 +1,6 @@
+import Common
+import Foundation
+
 @MainActor
 func buildWorkspaceSidebarWorkspaceViewModels(
     currentFocus: LiveFocus,
@@ -5,12 +8,15 @@ func buildWorkspaceSidebarWorkspaceViewModels(
     availableMonitors: [Monitor],
 ) async -> [WorkspaceSidebarWorkspaceViewModel] {
     var workspaces: [WorkspaceSidebarWorkspaceViewModel] = []
+    // Read running apps once per build, and only when something is saved.
+    let runningApps = savedWorkspaceStore.isEmpty ? nil : savedWorkspaceRuntime.environment.runningApps()
     for workspace in orderedWorkspacesForPresentation() {
         workspaces.append(await makeWorkspaceSidebarWorkspaceViewModel(
             workspace,
             currentFocus: currentFocus,
             workspaceLabels: workspaceLabels,
             availableMonitors: availableMonitors,
+            runningApps: runningApps,
         ))
     }
     return workspaceSidebarIdentityLabels(workspaces, mode: config.workspaceSidebar.dockIdentityLabels)
@@ -22,6 +28,7 @@ private func makeWorkspaceSidebarWorkspaceViewModel(
     currentFocus: LiveFocus,
     workspaceLabels: [String: String],
     availableMonitors: [Monitor],
+    runningApps: [String: [SavedRunningApp]]?,
 ) async -> WorkspaceSidebarWorkspaceViewModel {
     let workspaceMonitor = workspace.workspaceMonitor
     return WorkspaceSidebarWorkspaceViewModel(
@@ -36,6 +43,23 @@ private func makeWorkspaceSidebarWorkspaceViewModel(
         isVisible: workspace.isVisible,
         items: await buildWorkspaceSidebarItems(for: workspace, currentFocus: currentFocus),
         apps: buildWorkspaceSidebarAppSummaries(for: workspace),
+        savedState: runningApps.flatMap { workspaceSidebarSavedState(for: workspace, runningApps: $0) },
+    )
+}
+
+@MainActor
+func workspaceSidebarSavedState(for workspace: Workspace, runningApps: [String: [SavedRunningApp]]) -> WorkspaceSidebarSavedState? {
+    guard let record = savedWorkspaceStore.record(named: workspace.name) else { return nil }
+    return WorkspaceSidebarSavedState(
+        isPinnedToDisplay: record.isPinnedToDisplay,
+        homeDisplayName: record.display?.name.takeIf { !$0.isEmpty },
+        isHomeConnected: savedHomeMonitor(of: workspace) != nil,
+        isForceAssignedByConfig: resolvedForceAssignedMonitor(forWorkspaceName: workspace.name) != nil,
+        missingAppNames: missingSavedWorkspaceApps(workspaceNames: [workspace.name], runningApps: runningApps).map { app in
+            app.appName?.takeIf { !$0.isEmpty }
+                ?? app.bundlePath.map { URL(fileURLWithPath: $0).deletingPathExtension().lastPathComponent }
+                ?? app.bundleId
+        },
     )
 }
 

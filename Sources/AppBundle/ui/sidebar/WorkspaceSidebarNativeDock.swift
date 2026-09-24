@@ -313,7 +313,7 @@ final class WorkspaceSidebarNativeDockView: NSView {
             for index in frames.indices where displayedIconFrame(section: section, icon: index)
                 .intersection(contents.frame).contains(point) {
                 let workspace = input.workspaces[section].workspace
-                if index == 0 { return input.configuration.showWorkspaceTooltips ? workspace.displayName : "" }
+                if index == 0 { return input.configuration.showWorkspaceTooltips ? workspaceSidebarWorkspaceTooltip(workspace) : "" }
                 return input.configuration.showAppTooltips ? workspaceSidebarAppTooltip(workspace.apps[index - 1]) : ""
             }
         }
@@ -869,17 +869,8 @@ final class WorkspaceSidebarNativeDockView: NSView {
         if let appId, entry.isEnabled, let app = entry.workspace.apps.first(where: { $0.id == appId }) {
             return workspaceSidebarNativeAppMenu(workspaceSidebarAppMenu(workspaceName: workspaceName, app: app))
         }
-        let menu = NSMenu()
-        menu.addItem(WorkspaceSidebarNativeDockMenuItem("Customize Dock & Sidebar…") {
-            ShortcutSettingsModel.shared.requestDockSettings()
-        })
-        menu.addItem(.separator())
-        menu.addItem(WorkspaceSidebarNativeDockMenuItem("Rename Workspace", perform: entry.rename))
-        menu.addItem(.separator())
-        menu.addItem(WorkspaceSidebarNativeDockMenuItem("Delete Workspace") {
-            input.actions.send(.deleteWorkspace(entry.workspace.name))
-        })
-        return menu
+        let entries = workspaceSidebarWorkspaceMenu(entry.workspace, rename: entry.rename, send: input.actions.send)
+        return workspaceSidebarNativeAppMenu(entries)
     }
 
     func dropTarget(at point: CGPoint) -> WorkspaceSidebarDropTargetKind? {

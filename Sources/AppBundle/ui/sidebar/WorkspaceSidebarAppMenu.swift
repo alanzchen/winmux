@@ -7,6 +7,7 @@ struct WorkspaceSidebarAppMenuEntry {
     var title: String = ""
     var checked = false
     var enabled = true
+    var isDestructive = false
     var children: [WorkspaceSidebarAppMenuEntry] = []
     var perform: (() -> Void)? = nil
 
@@ -211,7 +212,7 @@ struct WorkspaceSidebarAppContextMenu: View {
             else if !entry.children.isEmpty {
                 Menu(entry.title) { AnyView(WorkspaceSidebarAppContextMenu(entries: entry.children)) }
             } else {
-                Button(action: { entry.perform?() }) {
+                Button(role: entry.isDestructive ? .destructive : nil, action: { entry.perform?() }) {
                     if entry.checked { Label(entry.title, systemImage: "checkmark") }
                     else { Text(entry.title) }
                 }

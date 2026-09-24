@@ -17,9 +17,21 @@ func focusWorkspaceFromSidebar(_ workspaceName: String, targetMonitorScopeId: St
 /// (after an AX round-trip and title fetches) and corrects any difference.
 @MainActor
 private func optimisticallyMarkWorkspaceFocusedInSidebar(_ workspaceName: String) {
-    let workspaces = TrayMenuModel.shared.workspaceSidebarWorkspaces
-    guard let target = workspaces.first(where: { $0.name == workspaceName }), !target.isFocused else { return }
-    TrayMenuModel.shared.workspaceSidebarWorkspaces = workspaces.map { w in
+    guard let workspaces = workspaceSidebarWorkspacesMarkingFocused(
+        workspaceName,
+        in: TrayMenuModel.shared.workspaceSidebarWorkspaces,
+    ) else { return }
+    TrayMenuModel.shared.workspaceSidebarWorkspaces = workspaces
+    WorkspaceSidebarPanel.syncVisiblePanelModelsFromShared()
+}
+
+/// nil when the workspace is missing or already focused.
+func workspaceSidebarWorkspacesMarkingFocused(
+    _ workspaceName: String,
+    in workspaces: [WorkspaceSidebarWorkspaceViewModel],
+) -> [WorkspaceSidebarWorkspaceViewModel]? {
+    guard let target = workspaces.first(where: { $0.name == workspaceName }), !target.isFocused else { return nil }
+    return workspaces.map { w in
         let isFocused = w.name == workspaceName
         let isVisible = w.monitorScopeId == target.monitorScopeId ? isFocused : w.isVisible
         if isFocused == w.isFocused, isVisible == w.isVisible { return w }
@@ -35,9 +47,9 @@ private func optimisticallyMarkWorkspaceFocusedInSidebar(_ workspaceName: String
             isVisible: isVisible,
             items: w.items,
             apps: w.apps,
+            savedState: w.savedState,
         )
     }
-    WorkspaceSidebarPanel.syncVisiblePanelModelsFromShared()
 }
 
 @MainActor
@@ -556,6 +568,44 @@ func renameWorkspaceFromSidebar(_ workspaceName: String, displayName: String) {
     runWorkspaceSidebarSession {
         try renameWorkspaceForSidebar(workspaceName: workspaceName, displayName: displayName)
         await updateWorkspaceSidebarModel()
+    }
+}
+
+@MainActor
+@discardableResult
+func saveWorkspaceFromSidebar(_ workspaceName: String) -> Task<Void, Never>? {
+    runWorkspaceSidebarSession {
+        try saveWorkspaceForSidebar(workspaceName: workspaceName, displayName: nil)
+        await updateWorkspaceSidebarModel()
+    }
+}
+
+@MainActor
+@discardableResult
+func forgetSavedWorkspaceFromSidebar(_ workspaceName: String) -> Task<Void, Never>? {
+    runWorkspaceSidebarSession {
+        try forgetSavedWorkspaceForSidebar(workspaceName: workspaceName)
+        await updateWorkspaceSidebarModel()
+    }
+}
+
+@MainActor
+@discardableResult
+func setSavedWorkspacePinnedFromSidebar(_ workspaceName: String, pinned: Bool) -> Task<Void, Never>? {
+    runWorkspaceSidebarSession {
+        try setSavedWorkspacePinnedForSidebar(workspaceName: workspaceName, pinned: pinned)
+        await updateWorkspaceSidebarModel()
+    }
+}
+
+/// Launching can take seconds, so this doesn't hold a session open. Each launch refreshes the
+/// sidebar, and the new windows return to their slots through normal window detection.
+@MainActor
+@discardableResult
+func openSavedWorkspaceAppsFromSidebar(_ workspaceName: String) -> Task<Int, Never>? {
+    guard TrayMenuModel.shared.isEnabled else { return nil }
+    return Task { @MainActor in
+        await openMissingSavedWorkspaceApps(workspaceNames: [workspaceName])
     }
 }
 

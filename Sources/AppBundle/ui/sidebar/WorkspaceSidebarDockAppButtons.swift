@@ -23,7 +23,7 @@ struct WorkspaceSidebarDockAppButtons: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Switch to workspace \(workspace.displayName)")
-                .modifier(WorkspaceSidebarIconTooltip(text: workspace.displayName, kind: .workspace))
+                .modifier(WorkspaceSidebarIconTooltip(text: workspaceSidebarWorkspaceTooltip(workspace), kind: .workspace))
                 .modifier(WorkspaceSidebarDockIconFrameReporter())
                 .position(x: rect.midX, y: rect.midY)
             }

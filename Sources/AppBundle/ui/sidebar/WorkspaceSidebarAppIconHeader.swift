@@ -56,7 +56,7 @@ struct WorkspaceSidebarAppIconHeader: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Switch to workspace \(workspace.displayName)")
-                    .modifier(WorkspaceSidebarIconTooltip(text: workspace.displayName, kind: .workspace))
+                    .modifier(WorkspaceSidebarIconTooltip(text: workspaceSidebarWorkspaceTooltip(workspace), kind: .workspace))
                     .modifier(WorkspaceSidebarDockIconMotion(index: 0, itemSize: layout.itemSize))
                     ForEach(Array(workspace.apps.prefix(layout.visibleAppCount).enumerated()), id: \.element.id) { index, app in
                         WorkspaceSidebarDockMovingAppButton(

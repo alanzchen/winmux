@@ -41,6 +41,7 @@ private func workspaceSidebarFilteredWorkspace(
             isVisible: workspace.isVisible,
             items: matchingItems,
             apps: workspace.apps,
+            savedState: workspace.savedState,
         )
     }
     if workspaceSidebarWorkspaceMatchesSearch(workspace, projectName: projectName, terms: terms) {

@@ -2,10 +2,13 @@ import AppKit
 import Common
 
 /// Apps that saved workspaces are waiting for and that aren't running, by bundle id, in saved
-/// order.
+/// order. Callers checking many workspaces pass `runningApps` so it is read once.
 @MainActor
-func missingSavedWorkspaceApps(workspaceNames: [String]?) -> [(bundleId: String, appName: String?, bundlePath: String?)] {
-    let runningApps = savedWorkspaceRuntime.environment.runningApps()
+func missingSavedWorkspaceApps(
+    workspaceNames: [String]?,
+    runningApps: [String: [SavedRunningApp]]? = nil,
+) -> [(bundleId: String, appName: String?, bundlePath: String?)] {
+    let runningApps = runningApps ?? savedWorkspaceRuntime.environment.runningApps()
     let names = workspaceNames.map(Set.init)
     var seen: Set<String> = []
     var result: [(bundleId: String, appName: String?, bundlePath: String?)] = []

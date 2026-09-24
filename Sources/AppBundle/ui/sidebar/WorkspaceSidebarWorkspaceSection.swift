@@ -124,20 +124,10 @@ struct WorkspaceSidebarWorkspaceSection: View, Animatable {
             .opacity(compactFocusOpacity)
             .contentShape(Rectangle().inset(by: layout.showAppIcons ? -layout.compactHorizontalInset * (1 - morphProgress) : 0))
             .contextMenu {
-                Button("Customize Dock & Sidebar…") { ShortcutSettingsModel.shared.requestDockSettings() }
-                Divider()
-                Button {
+                WorkspaceSidebarWorkspaceMenuContent(workspace: workspace, rename: {
                     debugWorkspaceSidebarRenameLog("workspaceContextRename workspace=\(workspace.name) displayName=\(workspace.displayName) compact=\(isCompact)")
                     onBeginRenameWorkspace()
-                } label: {
-                    Text("Rename Workspace")
-                }
-                Divider()
-                Button(role: .destructive) {
-                    actions.send(.deleteWorkspace(workspace.name))
-                } label: {
-                    Text("Delete Workspace")
-                }
+                }, send: actions.send)
             }
             .onHover { hover in
                 // Compact Dock has no workspace hover card. Publishing every crossing
@@ -159,7 +149,8 @@ struct WorkspaceSidebarWorkspaceSection: View, Animatable {
                 isTargeted: $isDropTargeted,
                 isSettling: $isDropSettling,
             ))
-            .modifier(WorkspaceSidebarSectionTooltip(text: layout.showAppIcons ? nil : (isInUseOnOtherDisplay ? inUseOverrideText : workspace.displayName)))
+            .modifier(WorkspaceSidebarSectionTooltip(text: layout.showAppIcons ? nil
+                : (isInUseOnOtherDisplay ? inUseOverrideText : workspaceSidebarWorkspaceTooltip(workspace))))
             .zIndex(isDropTarget ? 1 : 0)
             .animation(reduceMotion ? nil : (layout.showAppIcons ? workspaceSidebarDockSettleAnimation : .spring(response: 0.2, dampingFraction: 0.82)), value: dragPreview)
             .modifier(WorkspaceSidebarLegacyExpansionAnimation(isEnabled: !layout.showAppIcons, reduceMotion: reduceMotion, progress: expansionProgress))
@@ -621,6 +612,12 @@ extension WorkspaceSidebarWorkspaceSection {
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .modifier(WorkspaceSidebarMorphAnchor(element: .expandedTitle, isEnabled: morphsTitle))
+            }
+            if let savedState = workspace.savedState {
+                Image(systemName: savedState.isPinnedToDisplay ? "pin.fill" : "bookmark.fill")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(Color.white.opacity(0.6))
+                    .accessibilityLabel(workspaceSidebarSavedWorkspaceDescription(savedState))
             }
             if let projectContextLabel, let projectContextColor {
                 Text(projectContextLabel)
