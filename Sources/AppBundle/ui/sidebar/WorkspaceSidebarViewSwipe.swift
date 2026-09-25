@@ -34,6 +34,8 @@ extension WorkspaceSidebarView {
             resetProjectSwipe()
             return
         }
+        // A swipe takes over from a switch still sliding into place.
+        endProjectPageTransition()
         if projectSwipeStartProjectId == nil,
            let selectedProjectIndex {
             projectSwipeStartProjectId = snapshot.projects[selectedProjectIndex].id

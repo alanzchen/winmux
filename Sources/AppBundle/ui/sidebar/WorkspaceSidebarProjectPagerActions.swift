@@ -39,6 +39,9 @@ extension WorkspaceSidebarProjectPager {
                             .id(project.id)
                     }
                 }
+                // The named pill moves to the new project as its workspaces slide in; with
+                // Reduce Motion it just changes, while the workspaces crossfade.
+                .animation(reduceMotion ? nil : workspaceSidebarProjectPageAnimation(reduceMotion: false), value: selectedProjectId)
                 .padding(.horizontal, 4)
                 .frame(minHeight: workspaceSidebarPagerHeight, alignment: .leading)
                 .background {
@@ -63,8 +66,20 @@ extension WorkspaceSidebarProjectPager {
             .onAppear {
                 scrollProjectTrackToCurrent(proxy)
             }
-            .onChange(of: selectedProjectId) { _ in
+            .onChange(of: selectedProjectId) { projectId in
+                // The clicked project is now the current one; a later switch by shortcut or
+                // command scrolls to its own project.
+                projectTrackScrollTargetId = nil
                 scrollProjectTrackToCurrent(proxy)
+                // Centered again once the chips have finished resizing, unless another switch
+                // came meanwhile.
+                projectTrackRecenterSerial += 1
+                let serial = projectTrackRecenterSerial
+                guard !reduceMotion else { return }
+                DispatchQueue.main.asyncAfter(deadline: .now() + workspaceSidebarProjectPageTransitionDuration) {
+                    guard projectTrackRecenterSerial == serial else { return }
+                    withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(projectId, anchor: .center) }
+                }
             }
             .onChange(of: projectTrackScrollTargetId) { projectId in
                 scrollProjectTrack(to: projectId, proxy: proxy)

@@ -10,6 +10,12 @@ struct WorkspaceSidebarView: View {
     @State var projectSwipeTranslation: CGFloat = 0
     @State var projectSwipeStartProjectId: WorkspaceProjectId? = nil
     @State var projectSwipeDidCrossBreakPoint = false
+    /// Set when a swipe selects a project, which has already slid its pages into place.
+    @State var projectSwipeCommit: WorkspaceSidebarProjectSwipeCommit? = nil
+    @State var lastActiveProjectId: WorkspaceProjectId? = nil
+    @State var projectPageTransition: WorkspaceSidebarProjectPageTransition? = nil
+    @State var projectPageTransitionProgress: CGFloat = 1
+    @State var projectPageTransitionSerial = 0
     @State var projectPagerWidth: CGFloat = 0
     @State var browseMode: WorkspaceSidebarBrowseMode = .activeProject
     @State var collapsedProjectIds: Set<WorkspaceProjectId> = []
@@ -173,10 +179,16 @@ struct WorkspaceSidebarView: View {
                 isSidebarExpanding = false
             }
         }
+        .onAppear { lastActiveProjectId = snapshot.activeProjectId }
         .onChange(of: snapshot.activeProjectId) { projectId in
             debugWorkspaceSidebarProjectLog(
                 "snapshotActiveProjectChanged active=\(projectId.rawValue) visibleWidth=\(snapshot.visibleWidth) projects=\(snapshot.projects.map(\.id.rawValue))"
             )
+            let previousProjectId = lastActiveProjectId
+            let wasBrowsingAnotherProject = browsedProjectId != nil
+            let swipeSlidPages = projectSwipeCommit?.projectId == projectId
+            lastActiveProjectId = projectId
+            projectSwipeCommit = nil
             browseMode = .activeProject
             showsPinnedActiveWorkspaceForBrowsedProject = true
             activeInUseOverrideWorkspaceName = nil
@@ -185,8 +197,14 @@ struct WorkspaceSidebarView: View {
             if !usesProjectColumns || renamingProjectId != projectId { finishProjectRename(cancelled: true) }
             finishSidebarSearch(clearText: true)
             resetProjectSwipeWithoutAnimation()
+            if swipeSlidPages || wasBrowsingAnotherProject {
+                endProjectPageTransition()
+            } else {
+                startProjectPageTransitionIfNeeded(from: previousProjectId, to: projectId)
+            }
         }
         .onChange(of: browseMode) { mode in
+            endProjectPageTransition()
             guard snapshot.visibleWidth > collapsedWidth + 0.5,
                   let panel = WorkspaceSidebarPanel.panel(for: snapshot.targetMonitorScopeId)
             else { return }
@@ -208,6 +226,11 @@ struct WorkspaceSidebarView: View {
             }
             if let renamingWorkspaceName, !snapshot.workspaces.contains(where: { $0.name == renamingWorkspaceName }) {
                 finishWorkspaceRename(cancelled: true)
+            }
+            if let projectPageTransition, [projectPageTransition.fromProjectId, projectPageTransition.toProjectId]
+                .contains(where: { projectId in !snapshot.projects.contains { $0.id == projectId } })
+            {
+                endProjectPageTransition()
             }
             resetProjectSwipeWithoutAnimation()
         }
@@ -629,6 +652,8 @@ extension WorkspaceSidebarView {
             onResetProjectEmoji: { project in
                 actions.send(.setProjectEmoji(project.id, emoji: nil))
             },
+            // The switcher morphs, or not, exactly as the pages slide.
+            reduceMotionOverride: reduceDockMotion,
         )
         .zIndex(2)
         .padding(.leading, leadingInset)
@@ -664,6 +689,13 @@ extension WorkspaceSidebarView {
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
             guard projectSwipeStartProjectId == startProjectId else { return }
+            projectPageTransitionSerial += 1
+            let commit = WorkspaceSidebarProjectSwipeCommit(projectId: projectId, serial: projectPageTransitionSerial)
+            projectSwipeCommit = commit
+            // Only the switch this swipe asks for; if none arrives, a later one still slides.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                if projectSwipeCommit == commit { projectSwipeCommit = nil }
+            }
             actions.send(.selectProject(projectId))
             resetProjectSwipeWithoutAnimation()
         }
@@ -774,6 +806,8 @@ extension WorkspaceSidebarView {
         finishWorkspaceRename(cancelled: true)
         resetProjectEdgeDrag()
         resetProjectSwipeWithoutAnimation()
+        projectSwipeCommit = nil
+        endProjectPageTransition()
     }
 
     func performWorkspaceSidebarProjectHaptic(_ pattern: NSHapticFeedbackManager.FeedbackPattern) {
@@ -1068,7 +1102,9 @@ extension WorkspaceSidebarView {
         visibleWorkspacesByProject: [WorkspaceProjectId: [WorkspaceSidebarWorkspaceViewModel]],
         swipeDirection: Int?,
     ) -> some View {
-        if shouldRenderWorkspaceSidebarProjectPage(
+        let transitionPlacement = projectPageTransitionPlacement(index: index, projectId: project.id,
+            displayIndex: displayIndex, pageWidth: pageWidth)
+        if transitionPlacement != nil || shouldRenderWorkspaceSidebarProjectPage(
             index: index,
             displayIndex: displayIndex,
             swipeDirection: swipeDirection,
@@ -1088,7 +1124,10 @@ extension WorkspaceSidebarView {
                 allowsActivation: allowsWorkspaceActivation(projectId: project.id),
             )
                     .frame(width: pageWidth, alignment: .topLeading)
+                    .offset(x: transitionPlacement?.offset ?? 0)
+                    .opacity(transitionPlacement?.opacity ?? 1)
                     .allowsHitTesting(index == displayIndex)
+                    .accessibilityHidden(transitionPlacement != nil && index != displayIndex)
         } else {
             Color.clear
                 .frame(width: pageWidth, alignment: .topLeading)

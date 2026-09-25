@@ -18,6 +18,7 @@ struct WorkspaceSidebarProjectPager: View {
     let onDeleteProject: (WorkspaceSidebarProjectViewModel) -> Void
     var onEditProjectEmoji: (WorkspaceSidebarProjectViewModel) -> Void = { _ in }
     var onResetProjectEmoji: (WorkspaceSidebarProjectViewModel) -> Void = { _ in }
+    var reduceMotionOverride: Bool? = nil
 
     @State var isHovered = false
     @State var hoveredProjectDotId: WorkspaceProjectId? = nil
@@ -25,6 +26,9 @@ struct WorkspaceSidebarProjectPager: View {
     @State var projectTrackContentMinX: CGFloat = 0
     @State var projectTrackContentWidth: CGFloat = 0
     @State var projectTrackViewportWidth: CGFloat = 0
+    @State var projectTrackRecenterSerial = 0
+    @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
+    var reduceMotion: Bool { reduceMotionOverride ?? systemReduceMotion }
 
     var horizontalCompact: Bool { isCompact && layout.showAppIcons && layout.dockPosition == .bottom }
     var sectionWidth: CGFloat {
