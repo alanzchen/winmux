@@ -128,6 +128,18 @@ WinMux discovers them. You can still tile a window with `winmux layout tiling`.
 The second disables the gesture that toggles floating/tiling when you shake a
 window by its title bar. Omit it to keep the gesture enabled.
 
+## Close windows with a middle click
+
+Middle-click a window tab, or a window in the expanded sidebar, to close that window.
+This presses the window's close button, so an app can still ask to save changes. If
+the window was hidden, such as a background tab or a window on another workspace, and
+it is still open a moment later, WinMux switches to it so you can see the prompt. To
+turn this off, set this at the top of the file:
+
+```toml
+middle-click-closes-windows = false
+```
+
 ## Keep empty workspaces
 
 Persistent workspaces require configuration version 2. Set these at the top level:

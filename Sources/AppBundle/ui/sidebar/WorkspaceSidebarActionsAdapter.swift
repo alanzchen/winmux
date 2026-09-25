@@ -81,6 +81,8 @@ func handleWorkspaceSidebarAction(
             WorkspaceSidebarPanel.panel(for: scopeId)?.expandSidebar(to: CGFloat(config.workspaceSidebar.width))
         case .selectWindow(let windowId):
             focusWindowFromSidebar(windowId)
+        case .closeWindow(let windowId):
+            closeWindowFromMiddleClick(windowId) { focusWindowFromSidebar(windowId) }
         case .selectApp(let workspaceName, let appId):
             focusAppFromSidebar(workspaceName: workspaceName, appId: appId, targetMonitorScopeId: targetMonitorScopeId)
         case .overrideWorkspaceInUseAndSelectApp(let workspaceName, let appId):

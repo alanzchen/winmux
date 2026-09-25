@@ -834,6 +834,12 @@ extension WorkspaceSidebarWorkspaceSection {
         .buttonStyle(.plain)
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
+        .overlay {
+            WindowMiddleClickCatcher {
+                guard !isWorkspaceSidebarDragInProgress() else { return }
+                actions.send(.closeWindow(window.windowId))
+            }
+        }
         .modifier(WorkspaceSidebarOptionalDragModifier(
             isEnabled: allowsDrag,
             onChanged: { pointer in
