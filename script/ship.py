@@ -5,8 +5,9 @@
                                     check, push to main, and start the release in the background;
                                     --dry-run stops after the checks and preflight
     ship.py wait [RUN] [--timeout MINUTES]
-                                    block until the release ends, print its summary, and exit 0
-                                    when it was published, 1 when it failed, 2 on timeout
+                                    block until the release ends and print its summary; exit 0
+                                    published, 1 failed, 2 still running at the timeout,
+                                    3 published but a post-publication check failed
     ship.py status [RUN]            print one line about the latest (or given) run
 
 Releases build in a dedicated worktree (default ~/Developer/winmux-worktrees/release), so they
@@ -41,8 +42,12 @@ def load_module(name, filename):
 
 preview = load_module("ci_prerelease", "ci-prerelease.py")
 BRANCH = "main"
+# The starter writes request.json and the released commit's copy of this script runs it.
+SCHEMA = 1
 PHASES = ("preflight", "tests", "build", "notarize", "publish", "verify")
-TERMINAL = ("succeeded", "failed")
+EXIT_CODES = {"succeeded": 0, "failed": 1, "unverified": 3}
+TERMINAL = tuple(EXIT_CODES)
+KEPT_RUNS = 20
 GENERATED = ("Sources/Common/gitHashGenerated.swift", "Sources/Common/versionGenerated.swift")
 SETTINGS_FILE = Path.home() / "Library/Application Support/WinMux/ship.env"
 DEFAULTS = {
@@ -55,12 +60,14 @@ DEFAULTS = {
     # Optional shell command run when a release ends, with the summary on stdin.
     "WINMUX_SHIP_NOTIFY": "",
 }
-# Set by `make`; the release worktree's own make must choose them itself.
-INHERITED_MAKE_VARIABLES = (
+RELEASE_SETTINGS = ("CODESIGN_IDENTITY", "DEVELOPMENT_TEAM", "NOTARYTOOL_KEYCHAIN", "TOOLCHAINS", "SWIFT_EXEC_MANIFEST")
+# Set by the caller's `make` (or a CI shell); the release worktree's own make chooses them.
+INHERITED_VARIABLES = (
     "MAKEFLAGS", "MAKELEVEL", "MFLAGS", "MAKEOVERRIDES", "VERSION", "RELEASE_DIR", "RELEASE_TAG",
     "CLI_STAGE_PATH", "PUBLISH", "NOTARIZE", "GENERATE_APPCAST", "UPDATE_FEED_URL", "RELEASE_NOTES",
     "RELEASE_DERIVED_DATA_DIR",
 )
+NOTIFY_VARIABLES = ("PATH", "HOME", "USER", "LOGNAME", "LANG", "TMPDIR")
 
 
 def command(*args, cwd=None, env=None, check=True, strip=True):
@@ -89,6 +96,35 @@ def pid_alive(pid):
     except PermissionError:
         return True
     return True
+
+
+def group_alive(pgid):
+    if not pgid:
+        return False
+    try:
+        os.killpg(pgid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def stop_process_group(process, grace=30):
+    """SIGTERM the release's whole process group, then SIGKILL whatever outlives the grace."""
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        return
+    try:
+        process.wait(timeout=grace)
+    except subprocess.TimeoutExpired:
+        pass
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    process.wait()
 
 
 def read_settings_file(path):
@@ -122,13 +158,14 @@ def load_settings():
 
 
 def release_environment(environ, settings):
-    env = {key: value for key, value in environ.items() if key not in INHERITED_MAKE_VARIABLES}
-    env.update(
-        TOOLCHAINS=settings["TOOLCHAINS"],
-        SWIFT_EXEC_MANIFEST=settings["SWIFT_EXEC_MANIFEST"],
-        RELEASE_BRANCH=BRANCH,
-        PYTHONUNBUFFERED="1",
-    )
+    env = {key: value for key, value in environ.items()
+           if key not in INHERITED_VARIABLES and not key.startswith("GITHUB_")}
+    for key in RELEASE_SETTINGS:
+        if settings[key]:
+            env[key] = settings[key]
+        else:
+            env.pop(key, None)
+    env.update(RELEASE_BRANCH=BRANCH, PYTHONUNBUFFERED="1")
     return env
 
 
@@ -143,7 +180,8 @@ def relation(commit, tip, ancestor):
 
 
 class ShipLock:
-    """One release at a time across every worktree of the repository."""
+    """One release at a time across every worktree of the repository. owner.json names the
+    run holding it and a process that stays alive while it does (the starter, then the runner)."""
 
     def __init__(self, path):
         self.path = Path(path)
@@ -155,33 +193,58 @@ class ShipLock:
         except (OSError, ValueError):
             return None
 
-    def acquire(self, run_id, run_status=lambda owner: None):
-        for _ in range(2):
+    def acquire(self, run_id, is_active=lambda owner: False):
+        for _ in range(3):
             try:
-                self.path.mkdir(parents=False)
+                self.path.mkdir()
             except FileExistsError:
                 owner = self.owner()
-                if owner is None and time.time() - self.path.stat().st_mtime < 30:
-                    raise ValueError("Another release is starting; try again in a moment.")
-                if owner and pid_alive(owner.get("pid")) and run_status(owner) not in TERMINAL:
+                if owner is None:
+                    try:
+                        age = time.time() - self.path.stat().st_mtime
+                    except FileNotFoundError:
+                        continue
+                    if age < 30:
+                        raise ValueError("Another release is starting; try again in a moment.")
+                elif is_active(owner):
                     raise ValueError(f"Release {owner.get('run')} is still running; wait for it with `make ship-wait`.")
-                # Its process is gone: a stopped or crashed run.
+                # A stopped or crashed run: nothing of it is running any more.
                 shutil.rmtree(self.path, ignore_errors=True)
                 continue
-            self.hand_over(os.getpid(), run_id)
+            self.write(os.getpid(), run_id)
             return
         raise ValueError(f"Couldn't take the release lock at {self.path}.")
 
-    def hand_over(self, pid, run_id):
-        try:
-            self.owner_path.write_text(json.dumps({"pid": pid, "run": run_id}))
-        except FileNotFoundError:
-            pass  # The run already finished and released the lock.
+    def write(self, pid, run_id):
+        temporary = self.path / "owner.tmp"
+        temporary.write_text(json.dumps({"pid": pid, "run": run_id}))
+        temporary.replace(self.owner_path)
 
-    def release(self, *pids):
+    def hand_over(self, pid, run_id):
+        """Records the run's live process, only while the lock still belongs to that run."""
         owner = self.owner()
-        if owner is None or owner.get("pid") in pids:
+        if owner and owner.get("run") == run_id:
+            try:
+                self.write(pid, run_id)
+            except FileNotFoundError:
+                pass  # The run finished and released the lock meanwhile.
+
+    def release(self, run_id):
+        owner = self.owner()
+        if owner and owner.get("run") == run_id:
             shutil.rmtree(self.path, ignore_errors=True)
+
+
+def run_is_active(owner, runs):
+    """Whether any process of the lock owner's run may still be running."""
+    try:
+        data = json.loads((runs / owner["run"] / "status.json").read_text())
+    except (OSError, ValueError, KeyError, TypeError):
+        return pid_alive(owner.get("pid"))
+    # A killed runner's build can outlive it; its process group is recorded as "child".
+    if group_alive(data.get("child")):
+        return True
+    return data.get("state") not in TERMINAL and (pid_alive(owner.get("pid")) or pid_alive(data.get("pid")))
 
 
 class Status:
@@ -194,7 +257,7 @@ class Status:
         now = time.time()
         data = {"state": "starting", "started": now, "ended": None, "phase": "preflight",
                 "phases": [{"name": "preflight", "started": now, "ended": None}],
-                "tag": None, "url": None, "checks": [], "error": [], **values}
+                "tag": None, "url": None, "checks": [], "error": [], "pid": None, "child": None, **values}
         path = Path(run_dir) / "status.json"
         path.write_text(json.dumps(data, indent=2))
         return Status(run_dir)
@@ -248,17 +311,18 @@ class PhaseTracker:
     def observe(self, line):
         line = line.rstrip("\n")
         self.recent.append(line)
+        # The first tag and URL win: the release scripts' own tests print look-alikes later.
         if line.startswith("::phase:: "):
             self.enter(line.split(None, 1)[1].strip())
-        elif line.startswith("::tag:: "):
+        elif line.startswith("::tag:: ") and not self.status.data["tag"]:
             self.status.update(tag=line.split(None, 1)[1].strip())
-        elif line.startswith("Local preview ready: "):
+        elif line.startswith("Local preview ready: ") and not self.status.data["url"]:
             self.status.update(url=line.split(": ", 1)[1].strip())
         elif self.NOTARIZATION in line and self.phase == "build":
             self.enter("notarize")
 
 
-ERROR_LINE = re.compile(r"error:|\bError\b|ERROR|failed|FAILED|[Rr]efusing|Traceback|fatal:|exited with")
+ERROR_LINE = re.compile(r"error:|\bError\b|ERROR|failed|FAILED|[Rr]efusing|Traceback|fatal:|exited with|holds ")
 NOISE_LINE = re.compile(r"^\[\d+/\d+\]|^Test Case .* (started\.|passed \()|with 0 failures")
 
 
@@ -267,73 +331,101 @@ def error_excerpt(lines, limit=12):
     lines = [line for line in lines if line.strip() and not NOISE_LINE.search(line)]
     tail = lines[-3:]
     errors = [line for line in lines if ERROR_LINE.search(line) and line not in tail]
-    picked = errors[-(limit - 3):] + tail
+    picked = errors[len(errors) - min(len(errors), max(limit - len(tail), 0)):] + tail
     seen = set()
     return [line[:300] for line in picked if not (line in seen or seen.add(line))]
 
 
-def gh_json(path, run=command):
-    try:
-        return json.loads(run("gh", "api", path))
-    except ValueError:
-        return None
+def log_tail(*paths):
+    lines = []
+    for path in paths:
+        if Path(path).exists():
+            lines += Path(path).read_text(errors="replace").splitlines()[-400:]
+    return lines
 
 
-def verify_release(tag, commit, directory, run=command):
-    """Read the published release back from GitHub. Returns a list of checks."""
+def gh_json(path, run=command, attempts=3, sleep=time.sleep):
+    """A GitHub API response; None when it doesn't exist. Other failures are retried, then raised."""
+    for attempt in range(attempts):
+        try:
+            return json.loads(run("gh", "api", path))
+        except ValueError as error:
+            if "HTTP 404" in str(error):
+                return None
+            if attempt == attempts - 1:
+                raise
+            sleep(2 * (attempt + 1))
+
+
+def assess_dmg(dmg):
+    result = subprocess.run(["spctl", "-a", "-vv", "-t", "install", str(dmg)], text=True, capture_output=True)
+    output = result.stdout + result.stderr
+    ok = result.returncode == 0 and "source=Notarized Developer ID" in output
+    return ok, "DMG accepted as notarized Developer ID" if ok else output.strip()[-200:]
+
+
+def verify_release(tag, commit, directory, run=command, assess=assess_dmg, sleep=time.sleep):
+    """Reads the published release back from GitHub. Every check is recorded, never raised."""
     repo = preview.REPOSITORY
     version = tag[1:]
+    directory = Path(directory)
     checks = []
+    record = {}
 
-    def check(name, ok, detail):
+    def check(name, compute):
+        try:
+            ok, detail = compute()
+        except Exception as error:  # A check that can't run is a failed check, not a crash.
+            ok, detail = False, f"couldn't check: {error}"
         checks.append({"name": name, "ok": bool(ok), "detail": detail})
 
-    record = gh_json(f"repos/{repo}/releases/tags/{tag}", run)
-    if not record:
-        check("release", False, f"GitHub has no release {tag}")
-        return checks
-    published = not record["draft"] and record["prerelease"]
-    check("release", published, "published prerelease" if published
-          else f"draft={record['draft']} prerelease={record['prerelease']}")
+    def release():
+        record.update(gh_json(f"repos/{repo}/releases/tags/{tag}", run, sleep=sleep) or {})
+        if not record:
+            return False, f"GitHub has no release {tag}"
+        published = not record["draft"] and record["prerelease"]
+        return published, ("published prerelease" if published
+                           else f"draft={record['draft']} prerelease={record['prerelease']}")
 
-    uploaded = sorted(asset["name"] for asset in record["assets"] if asset["state"] == "uploaded")
-    if Path(directory).is_dir():
-        try:
+    def assets():
+        uploaded = sorted(asset["name"] for asset in record["assets"] if asset["state"] == "uploaded")
+        if directory.is_dir():
             paths = preview.release.release_assets(tag, directory)
-            preview.release.verify_uploaded_assets(paths, record["assets"])
-            check("assets", True, f"{len(paths)} assets match the local build")
-        except ValueError as error:
-            check("assets", False, f"{error} (uploaded: {', '.join(uploaded) or 'none'})")
-    else:
+            try:
+                preview.release.verify_uploaded_assets(paths, record["assets"])
+            except ValueError as error:
+                return False, f"{error} (uploaded: {', '.join(uploaded) or 'none'})"
+            return True, f"{len(paths)} assets match the local build"
         # Published earlier from another checkout; same names as ci-release.release_assets.
         expected = sorted([f"WinMux-{version}.zip", f"WinMux-{version}-macOS.zip", f"WinMux-{version}.dmg",
                            "appcast.xml", "SHA256SUMS"])
-        check("assets", uploaded == expected, f"{len(uploaded)} assets uploaded (built in another checkout)"
-              if uploaded == expected else f"uploaded: {', '.join(uploaded) or 'none'}")
+        return uploaded == expected, (f"{len(uploaded)} assets uploaded (built in another checkout)"
+                                      if uploaded == expected else f"uploaded: {', '.join(uploaded) or 'none'}")
 
-    refs = run("git", "ls-remote", f"https://github.com/{repo}.git", f"refs/tags/{tag}", f"refs/tags/{tag}^{{}}")
-    tagged = dict(line.split()[::-1] for line in refs.splitlines() if line.strip())
-    tag_commit = tagged.get(f"refs/tags/{tag}^{{}}", tagged.get(f"refs/tags/{tag}"))
-    check("tag", tag_commit == commit, f"{tag} is {(tag_commit or 'missing')[:8]}, expected {commit[:8]}")
+    def tagged():
+        refs = run("git", "ls-remote", f"https://github.com/{repo}.git", f"refs/tags/{tag}", f"refs/tags/{tag}^{{}}")
+        found = dict(line.split()[::-1] for line in refs.splitlines() if line.strip())
+        tag_commit = found.get(f"refs/tags/{tag}^{{}}", found.get(f"refs/tags/{tag}"))
+        return tag_commit == commit, f"{tag} is {(tag_commit or 'missing')[:8]}, expected {commit[:8]}"
 
-    feed = gh_json(f"repos/{repo}/contents/{preview.FEED_PATH}?ref={preview.FEED_BRANCH}", run)
-    offered = None
-    if feed:
-        items = ET.fromstring(base64.b64decode(feed["content"])).findall("./channel/item")
+    def feed():
+        content = gh_json(f"repos/{repo}/contents/{preview.FEED_PATH}?ref={preview.FEED_BRANCH}", run, sleep=sleep)
+        items = ET.fromstring(base64.b64decode(content["content"])).findall("./channel/item") if content else []
         offered = items[0].findtext(preview.appcast.SPARKLE + "version") if items else None
-    if offered == version:
-        check("feed", True, f"preview feed offers {version}")
-    elif offered and preview.release.version_tuple(f"v{offered}") > preview.release.version_tuple(tag):
-        check("feed", True, f"preview feed already offers newer {offered}")
-    else:
-        check("feed", False, f"preview feed offers {offered or 'nothing'}, expected {version}")
+        if offered == version:
+            return True, f"preview feed offers {version}"
+        if offered and preview.release.version_tuple(f"v{offered}") > preview.release.version_tuple(tag):
+            return True, f"preview feed already offers newer {offered}"
+        return False, f"preview feed offers {offered or 'nothing'}, expected {version}"
 
-    dmg = Path(directory) / f"WinMux-{version}.dmg"
+    check("release", release)
+    if record:
+        check("assets", assets)
+    check("tag", tagged)
+    check("feed", feed)
+    dmg = directory / f"WinMux-{version}.dmg"
     if dmg.is_file():
-        result = subprocess.run(["spctl", "-a", "-vv", "-t", "install", str(dmg)], text=True, capture_output=True)
-        output = result.stdout + result.stderr
-        ok = result.returncode == 0 and "source=Notarized Developer ID" in output
-        check("gatekeeper", ok, "DMG accepted as notarized Developer ID" if ok else output.strip()[-200:])
+        check("gatekeeper", lambda: assess(dmg))
     return checks
 
 
@@ -343,35 +435,40 @@ def duration(seconds):
 
 
 def summarize(data):
-    total = duration((data["ended"] or time.time()) - data["started"])
+    total = duration((data.get("ended") or time.time()) - data["started"])
     phases = ", ".join(f"{phase['name']} {duration(phase['ended'] - phase['started'])}"
                        for phase in data["phases"] if phase["ended"])
     commit = data["commit"][:8]
-    lines = []
+    failed_checks = [f"  {check['name']}: {check['detail']}" for check in data.get("checks", []) if not check["ok"]]
+    errors = [f"  {line}" for line in data.get("error", [])]
     if data["state"] == "succeeded":
-        lines.append(f"Published WinMux {data['tag'][1:]} preview: {data['url']}")
-        lines.append(f"Commit {commit}, {total} ({phases})")
-        lines.append("Checks passed: " + "; ".join(check["detail"] for check in data["checks"]))
+        lines = [f"Published WinMux {data['tag'][1:]} preview: {data['url']}",
+                 f"Commit {commit}, {total} ({phases})",
+                 "Checks passed: " + "; ".join(check["detail"] for check in data["checks"])]
+    elif data["state"] == "unverified":
+        lines = [f"Published WinMux {data['tag'][1:]} preview, but a post-publication check failed: {data['url']}",
+                 f"Commit {commit}, {total} ({phases})"] + failed_checks + errors
     else:
-        lines.append(f"Release failed during {data['phase']} after {total} (commit {commit}"
-                     + (f", {data['tag']}" if data["tag"] else "") + ").")
-        lines += [f"  {check['name']}: {check['detail']}" for check in data["checks"] if not check["ok"]]
-        lines += [f"  {line}" for line in data["error"]]
+        lines = [f"Release failed during {data['phase']} after {total} (commit {commit}"
+                 + (f", {data['tag']}" if data.get("tag") else "") + ")."] + failed_checks + errors
     lines.append(f"Log: {data['log']}")
     return "\n".join(lines) + "\n"
 
 
-def notify(data, summary, settings):
+def notify(data, summary, settings, environ=os.environ):
     ok = data["state"] == "succeeded"
-    title = "WinMux preview published" if ok else "WinMux release failed"
-    message = f"{data['tag'][1:]} is live" if ok else f"Failed during {data['phase']}"
+    title = {"succeeded": "WinMux preview published", "unverified": "WinMux preview published, check failed"}.get(
+        data["state"], "WinMux release failed")
+    message = f"{data['tag'][1:]} is live" if data["state"] != "failed" else f"Failed during {data['phase']}"
     subprocess.run(["osascript", "-e", "on run argv", "-e",
                     "display notification (item 2 of argv) with title (item 1 of argv)", "-e", "end run",
                     title, message], capture_output=True, timeout=10)
     hook = settings.get("WINMUX_SHIP_NOTIFY")
     if hook:
-        env = dict(os.environ, SHIP_STATE=data["state"], SHIP_TAG=data["tag"] or "", SHIP_URL=data["url"] or "",
-                   SHIP_LOG=data["log"])
+        # Only what a notifier needs: never the release environment and its credentials.
+        env = {key: environ[key] for key in NOTIFY_VARIABLES if key in environ}
+        env.update(SHIP_STATE=data["state"], SHIP_OK="1" if ok else "0", SHIP_TAG=data.get("tag") or "",
+                   SHIP_URL=data.get("url") or "", SHIP_LOG=data["log"])
         subprocess.run(hook, shell=True, input=summary, text=True, env=env, capture_output=True, timeout=60)
 
 
@@ -392,23 +489,53 @@ def find_run(settings, run_id=None):
     return run_dir
 
 
+def prune_runs(root, keep=KEPT_RUNS):
+    """Removes the oldest finished runs beyond the last `keep`."""
+    runs = sorted(path for path in root.iterdir() if path.is_dir()) if root.is_dir() else []
+    for run_dir in runs[:-keep]:
+        try:
+            finished = json.loads((run_dir / "status.json").read_text())["state"] in TERMINAL
+        except (OSError, ValueError, KeyError):
+            finished = False
+        if finished:
+            shutil.rmtree(run_dir, ignore_errors=True)
+
+
+def changed_paths(path):
+    raw = git("status", "--porcelain=v1", "-z", "--untracked-files=all", cwd=path, strip=False)
+    paths, entries = [], iter(raw.split("\0"))
+    for entry in entries:
+        if not entry:
+            continue
+        paths.append(entry[3:])
+        if entry[0] in "RC":
+            next(entries, None)  # A rename's original path follows.
+    return paths
+
+
 def prepare_worktree(path, commit, common_dir, source):
+    """Checks the release worktree out at the commit. Call with the release lock held."""
     if not path.exists():
+        git("worktree", "prune", cwd=source)  # A deleted worktree may still be registered.
         path.parent.mkdir(parents=True, exist_ok=True)
         git("worktree", "add", "--detach", "--quiet", str(path), commit, cwd=source)
         return
     other = Path(git("rev-parse", "--path-format=absolute", "--git-common-dir", cwd=path))
     if other.resolve() != Path(common_dir).resolve():
         raise ValueError(f"{path} isn't a worktree of this repository; set WINMUX_RELEASE_WORKTREE.")
-    # Unstripped: the status columns start with a space.
-    changed = [line[3:] for line in git("status", "--porcelain", cwd=path, strip=False).splitlines() if line]
+    changed = changed_paths(path)
     leftovers = sorted(set(changed) - set(GENERATED))
     if leftovers:
         raise ValueError(f"The release worktree {path} has changes; inspect them before releasing:\n  "
                          + "\n  ".join(leftovers))
     if changed:
         # Version stamps left by a stopped release.
-        git("checkout", "--quiet", "--", *changed, cwd=path)
+        git("checkout", "--quiet", "HEAD", "--", *changed, cwd=path)
+    stale = path / ".local/prerelease.lock"
+    if stale.is_dir():
+        # Left by a killed release; with the release lock held, none is running.
+        shutil.rmtree(stale)
+        print(f"Removed a stopped release's lock: {stale}")
     git("checkout", "--quiet", "--detach", commit, cwd=path)
 
 
@@ -442,24 +569,18 @@ def start(args):
         raise ValueError(f"{commit[:8]} has diverged from origin/{BRANCH}; rebase onto it first.")
 
     worktree = Path(settings["WINMUX_RELEASE_WORKTREE"]).expanduser()
+    runs = runs_root(settings)
     common_dir = Path(git("rev-parse", "--path-format=absolute", "--git-common-dir", cwd=source))
     run_id = time.strftime("%Y%m%d-%H%M%S") + f"-{commit[:8]}"
-    run_dir = runs_root(settings) / run_id
+    run_dir = runs / run_id
     lock = ShipLock(common_dir / "winmux-ship.lock")
-
-    def run_status(owner):
-        try:
-            return json.loads((runs_root(settings) / owner["run"] / "status.json").read_text())["state"]
-        except (OSError, ValueError, KeyError, TypeError):
-            return None
-
-    lock.acquire(run_id, run_status)
+    lock.acquire(run_id, lambda owner: run_is_active(owner, runs))
+    runner = None
     try:
         env = release_environment(os.environ, settings)
         prepare_worktree(worktree, commit, common_dir, source)
         preflight(worktree, settings, env)
         if args.dry_run:
-            lock.release(os.getpid())
             action = f"push it to {BRANCH} and release it" if state == "ahead" else "release it"
             print(f"Ready: `make ship` would {action} ({commit[:8]}) from {worktree}.")
             return 0
@@ -467,22 +588,28 @@ def start(args):
             git("push", "--quiet", "origin", f"{commit}:refs/heads/{BRANCH}", cwd=source)
         run_dir.mkdir(parents=True)
         (run_dir / "request.json").write_text(json.dumps({
-            "commit": commit, "worktree": str(worktree), "lock": str(lock.path), "starter": os.getpid(),
+            "schema": SCHEMA, "commit": commit, "worktree": str(worktree), "lock": str(lock.path),
             "settings": settings,
         }, indent=2))
-        Status.create(run_dir, run=run_id, commit=commit, log=str(run_dir / "log.txt"), pid=None)
-        (run_dir.parent / "latest").write_text(run_id + "\n")
+        Status.create(run_dir, run=run_id, commit=commit, log=str(run_dir / "log.txt"))
+        (runs / "latest").write_text(run_id + "\n")
+        prune_runs(runs)
         with (run_dir / "runner.log").open("w") as runner_log:
             runner = subprocess.Popen([sys.executable, "-B", str(worktree / "script/ship.py"), "run", str(run_dir)],
                                       cwd=worktree, env=env, stdin=subprocess.DEVNULL, stdout=runner_log,
                                       stderr=subprocess.STDOUT, start_new_session=True)
+        # The runner also records itself when it starts; this covers the moment before.
         lock.hand_over(runner.pid, run_id)
-    except BaseException:
-        lock.release(os.getpid())
+    except BaseException as error:
+        if runner is None and (run_dir / "status.json").exists():
+            Status(run_dir).finish("failed", [f"Couldn't start the runner: {error}"])
         raise
+    finally:
+        if runner is None:
+            lock.release(run_id)
     pushed = f", pushed to {BRANCH}" if state == "ahead" else ""
     print(f"Started the preview release of {commit[:8]}{pushed} (run {run_id}).\n"
-          f"Wait:   make ship-wait    (prints the summary; exits 0 when published, 1 on failure)\n"
+          f"Wait:   make ship-wait    (prints the summary; exit 0 published, 1 failed, 3 published with a failed check)\n"
           f"Status: make ship-status\n"
           f"Log:    {run_dir / 'log.txt'}")
     return 0
@@ -492,16 +619,19 @@ def run_release(args):
     run_dir = Path(args.run_dir)
     request = json.loads((run_dir / "request.json").read_text())
     status = Status(run_dir)
+    run_id = status.data["run"]
     tracker = PhaseTracker(status)
     lock = ShipLock(request["lock"])
+    lock.hand_over(os.getpid(), run_id)
     process = None
 
     def stop(signum, _frame):
         raise SystemExit(f"Stopped by signal {signum}.")
 
-    signal.signal(signal.SIGTERM, stop)
-    signal.signal(signal.SIGHUP, stop)
+    previous = {signum: signal.signal(signum, stop) for signum in (signal.SIGTERM, signal.SIGHUP)}
     try:
+        if request.get("schema") != SCHEMA:
+            raise ValueError(f"The release was started by an incompatible ship.py (schema {request.get('schema')}).")
         status.update(state="running", pid=os.getpid())
         settings = request["settings"]
         # Tests replace the command.
@@ -509,8 +639,11 @@ def run_release(args):
             "make", "prerelease-local", f"CODESIGN_IDENTITY={settings['CODESIGN_IDENTITY']}",
             f"DEVELOPMENT_TEAM={settings['DEVELOPMENT_TEAM']}", f"NOTARYTOOL_KEYCHAIN={settings['NOTARYTOOL_KEYCHAIN']}"]
         with open(status.data["log"], "w") as log:
+            # Its own process group, so stopping the release stops everything it started.
             process = subprocess.Popen(release_command, cwd=request["worktree"], stdout=subprocess.PIPE,
-                                       stderr=subprocess.STDOUT, text=True, errors="replace", bufsize=1)
+                                       stderr=subprocess.STDOUT, text=True, errors="replace", bufsize=1,
+                                       start_new_session=True)
+            status.update(child=process.pid)
             try:
                 for line in process.stdout:
                     log.write(line)
@@ -524,26 +657,30 @@ def run_release(args):
         elif not status.data["tag"]:
             status.finish("failed", ["The release ended without reporting its tag."] + error_excerpt(tracker.recent))
         else:
-            tracker.enter("verify")
             tag = status.data["tag"]
-            checks = verify_release(tag, request["commit"],
-                                    Path(request["worktree"]) / ".local/prereleases" / tag)
             status.update(url=status.data["url"] or f"https://github.com/{preview.REPOSITORY}/releases/tag/{tag}")
-            status.finish("succeeded" if all(check["ok"] for check in checks) else "failed", checks=checks)
+            tracker.enter("verify")
+            checks = verify_release(tag, request["commit"], Path(request["worktree"]) / ".local/prereleases" / tag)
+            status.finish("succeeded" if all(check["ok"] for check in checks) else "unverified", checks=checks)
     except BaseException as error:
         if process and process.poll() is None:
-            process.terminate()
-        status.finish("failed", [str(error) or type(error).__name__] + error_excerpt(tracker.recent)[-4:])
+            stop_process_group(process)
+        reason = [str(error) or type(error).__name__]
+        if status.data["phase"] == "publish":
+            reason.append("The release may be partly published; `make ship` again repairs or reuses it.")
+        published = status.data["phase"] == "verify"
+        status.finish("unverified" if published else "failed", reason + error_excerpt(tracker.recent)[-4:])
     finally:
+        for signum, handler in previous.items():
+            signal.signal(signum, handler)
         summary = summarize(status.data)
         (run_dir / "summary.txt").write_text(summary)
         try:
             notify(status.data, summary, request["settings"])
         except (OSError, subprocess.SubprocessError):
             pass
-        # The starter may not have handed the lock over yet.
-        lock.release(os.getpid(), request["starter"])
-    return 0 if status.data["state"] == "succeeded" else 1
+        lock.release(run_id)
+    return EXIT_CODES.get(status.data["state"], 1)
 
 
 def wait(args, sleep=time.sleep, clock=time.monotonic):
@@ -556,16 +693,23 @@ def wait(args, sleep=time.sleep, clock=time.monotonic):
         if data["state"] in TERMINAL:
             summary = run_dir / "summary.txt"
             print(summary.read_text() if summary.exists() else summarize(data), end="")
-            return 0 if data["state"] == "succeeded" else 1
-        stalled = data["pid"] is None and time.time() - data["started"] > 60
-        if stalled or (data["pid"] is not None and not pid_alive(data["pid"])):
-            if json.loads((run_dir / "status.json").read_text())["state"] in TERMINAL:
+            return EXIT_CODES[data["state"]]
+        runner = data.get("pid")
+        stalled = runner is None and time.time() - data["started"] > 60
+        if stalled or (runner is not None and not pid_alive(runner)):
+            status = Status(run_dir)
+            if status.data["state"] in TERMINAL:
                 continue
-            log = Path(data["log"])
-            tail = log.read_text(errors="replace").splitlines() if log.exists() else []
-            print(f"The release runner stopped during {data['phase']} without finishing (run {run_dir.name}).")
-            print("\n".join(f"  {line}" for line in error_excerpt(tail)))
-            print(f"Log: {log}")
+            # Record it, so status and the next release see the run as over.
+            error = ["The release runner stopped without finishing."]
+            error += error_excerpt(log_tail(data["log"], run_dir / "runner.log"))
+            if group_alive(status.data.get("child")):
+                error.append(f"Its build (process group {status.data['child']}) is still running; "
+                             "the next release waits until it ends.")
+            status.finish("failed", error)
+            summary = summarize(status.data)
+            (run_dir / "summary.txt").write_text(summary)
+            print(summary, end="")
             return 1
         if clock() >= deadline:
             elapsed = duration(time.time() - data["started"])
@@ -583,10 +727,12 @@ def status_line(args):
     data = json.loads((run_dir / "status.json").read_text())
     if data["state"] in TERMINAL:
         print(summarize(data).splitlines()[0])
-    else:
-        alive = "" if data["pid"] is None or pid_alive(data["pid"]) else ", runner not running"
-        print(f"Release {run_dir.name}: {data['state']}, {data['phase']} after "
-              f"{duration(time.time() - data['started'])}{alive}")
+        return 0
+    runner = data.get("pid")
+    elapsed = time.time() - data["started"]
+    missing = (runner is None and elapsed > 60) or (runner is not None and not pid_alive(runner))
+    print(f"Release {run_dir.name}: {data['state']}, {data['phase']} after {duration(elapsed)}"
+          + (" (runner not running; `make ship-wait` reports it)" if missing else ""))
     return 0
 
 

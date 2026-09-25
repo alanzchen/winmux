@@ -144,10 +144,10 @@ ship-check:
 	python3 -B script/ship.py start --dry-run $(if $(COMMIT),--commit "$(COMMIT)")
 
 ship-wait:
-	python3 -B script/ship.py wait $(if $(TIMEOUT),--timeout "$(TIMEOUT)")
+	python3 -B script/ship.py wait $(if $(RUN),"$(RUN)") $(if $(TIMEOUT),--timeout "$(TIMEOUT)")
 
 ship-status:
-	python3 -B script/ship.py status
+	python3 -B script/ship.py status $(if $(RUN),"$(RUN)")
 
 install:
 	/bin/bash -lc 'cd "$(CURDIR)" && \

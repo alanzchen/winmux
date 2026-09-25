@@ -88,24 +88,43 @@ preflight fails immediately instead.
 ```sh
 make ship-check           # optional: everything up to the push, without releasing
 make ship                 # or: make ship COMMIT=origin/main
-make ship-wait            # blocks; prints a short summary; exit 0 published, 1 failed, 2 timed out
-make ship-status          # one line: phase and elapsed time
+make ship-wait            # blocks, then prints a short summary
+make ship-status          # one line: phase and elapsed time (RUN=<id> for an older run)
 ```
 
+`make ship-wait` exits 0 when the preview is published and verified, 1 when the
+release failed, 2 when it is still running at the timeout (`TIMEOUT=<minutes>`,
+default 60), and 3 when it was published but a post-publication check failed or
+couldn't run, for example because GitHub was unreachable.
+
+`make ship` pushes the commit to `main` before building, as delivery requires
+anyway, so a failed release still leaves `main` advanced. A stopped or killed
+release may also leave its version tag without a release; the next run takes the
+next number. A release stopped while publishing may leave a draft or a published
+release whose feed didn't advance; `make ship` again reuses and repairs it.
+
 The release worktree is never edited by hand and never wiped: a run refuses if it has
-changes other than version stamps left by a stopped release. It keeps its own build
-caches, so its first release is a cold build and later ones are incremental. Other
-checkouts and the sessions working in them are not touched.
+changes other than version stamps left by a stopped release, which it restores along
+with a stopped release's `.local/prerelease.lock`. It keeps its own build caches, so
+its first release is a cold build and later ones are incremental. Other checkouts
+and the sessions working in them are not touched. A new release waits until every
+process of the previous one, including a killed runner's build, has ended.
+
+Local previews normally come from a checked-out integration branch. The release
+worktree is detached instead and names its branch in `RELEASE_BRANCH`, which is
+honored only when no branch is checked out. The non-forced push of `HEAD` to that
+branch remains the containment: GitHub rejects anything but a fast-forward.
 
 Each run keeps `status.json` (state, phase timings, tag, URL, checks), `summary.txt`,
-and the full `log.txt` in the release worktree's `.local/ship/<run>/`. After
+and the full `log.txt` in the release worktree's `.local/ship/<run>/`; the last 20
+runs are kept. After
 publishing, the runner reads the release back from GitHub: a published prerelease,
 assets matching the local build, the tag at the released commit, the preview feed
 offering the version, and a notarized DMG. A failure names its phase (preflight,
 tests, build, notarize, publish, verify) and the relevant log lines. The runner posts
 a macOS notification when it ends; set `WINMUX_SHIP_NOTIFY` to also run a command of
 your own, which receives the summary on stdin and `SHIP_STATE`, `SHIP_TAG`,
-`SHIP_URL`, and `SHIP_LOG` in its environment.
+`SHIP_URL`, `SHIP_LOG`, and `SHIP_OK` in an otherwise minimal environment.
 
 The documented signing identity, team, notarization Keychain, and pinned toolchain
 are the defaults. Override them in the environment or in

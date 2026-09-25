@@ -68,7 +68,8 @@ when the user explicitly requests a GitHub run.
 Work directly on `main` unless the user explicitly specifies another branch.
 After validation, push completed changes to that branch.
 For authorized publication, run `make ship` from the reviewed commit, then
-`make ship-wait` once (backgrounded if your tools allow) and relay its summary.
+`make ship-wait` once (backgrounded if your tools allow) and relay its summary
+(exit 0 published, 1 failed, 2 still running, 3 published with a failed check).
 `make ship` pushes the commit to `main` and runs `make prerelease-local` (test,
 build, sign, notarize, upload, advance the preview feed) unattended in the dedicated
 release worktree; the summary includes the post-publication checks of the assets,

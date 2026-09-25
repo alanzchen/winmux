@@ -84,7 +84,9 @@ def main():
                                UPDATE_FEED_URL=f"https://raw.githubusercontent.com/{preview.REPOSITORY}/updates/prerelease.xml")
             phase("tests")
             run("/bin/bash", "-c", "source script/setup.sh; swift test --arch arm64; swift build --arch arm64", env=environment)
-            run("python3", "-B", "-m", "unittest", "discover", "-s", "script", "-p", "test_*.py")
+            # The script tests expect a developer shell, not this release's branch override.
+            run("python3", "-B", "-m", "unittest", "discover", "-s", "script", "-p", "test_*.py",
+                env={key: value for key, value in os.environ.items() if key != "RELEASE_BRANCH"})
             phase("build")
             run("make", "release", f"VERSION={version}", f"RELEASE_TAG={tag}",
                 f"RELEASE_DIR={directory.resolve()}", f"CLI_STAGE_PATH={directory.resolve() / 'winmux'}",
