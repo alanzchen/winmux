@@ -93,7 +93,7 @@ extension WorkspaceSidebarPanel {
     /// Saves the dragged width. Returns the save, for tests to await.
     @discardableResult
     func endSidebarResize() -> Task<Void, Never>? {
-        guard let session = finishSidebarResizeSession() else { return nil }
+        guard let session = finishSidebarResizeSession(keepingPendingRefresh: true) else { return nil }
         let width = config.workspaceSidebar.width
         guard width == session.lastAppliedWidth, width != session.startWidth else { return nil }
         return commitWorkspaceSidebarWidth(width, previousWidth: session.startWidth)
@@ -103,7 +103,8 @@ extension WorkspaceSidebarPanel {
     /// Cancelling happens inside refresh and hide, so panels and windows catch up on the
     /// next turn of the run loop instead of re-entering them.
     func cancelSidebarResize() {
-        guard let session = finishSidebarResizeSession() else { return }
+        // Drop the dragged width's pending refresh rather than running it here.
+        guard let session = finishSidebarResizeSession(keepingPendingRefresh: false) else { return }
         guard config.workspaceSidebar.width == session.lastAppliedWidth,
               session.lastAppliedWidth != session.startWidth else { return }
         config.workspaceSidebar.width = session.startWidth
@@ -113,11 +114,15 @@ extension WorkspaceSidebarPanel {
         }
     }
 
-    private func finishSidebarResizeSession() -> WorkspaceSidebarResizeSession? {
+    private func finishSidebarResizeSession(keepingPendingRefresh: Bool) -> WorkspaceSidebarResizeSession? {
         guard let session = sidebarResize else { return nil }
         sidebarResize = nil
         removeSidebarResizeMouseUpMonitors()
-        workspaceSidebarLiveResizeRefresh.flush()
+        if keepingPendingRefresh {
+            workspaceSidebarLiveResizeRefresh.flush()
+        } else {
+            workspaceSidebarLiveResizeRefresh.reset()
+        }
         resizeHandleView.isResizing = false
         updateMousePassthrough()
         return session
@@ -131,9 +136,9 @@ extension WorkspaceSidebarPanel {
             self?.finishSidebarResizeFromMouseUp(atScreenX: NSEvent.mouseLocation.x)
             return event
         }
-        let global = NSEvent.addGlobalMonitorForEvents(matching: .leftMouseUp) { [weak self] _ in
-            // Where the button went up, not where the pointer is once the task runs.
-            let pointerX = NSEvent.mouseLocation.x
+        let global = NSEvent.addGlobalMonitorForEvents(matching: .leftMouseUp) { [weak self] event in
+            // Where the button went up; another app's event carries screen coordinates.
+            let pointerX = event.locationInWindow.x
             Task { @MainActor in self?.finishSidebarResizeFromMouseUp(atScreenX: pointerX) }
         }
         sidebarResizeMouseUpMonitors = [local, global].compactMap { $0 }
@@ -265,9 +270,11 @@ final class WorkspaceSidebarResizeHandleView: NSView {
     weak var panel: WorkspaceSidebarPanel?
     var isResizing = false {
         didSet {
-            updateIndicator()
-            // A drag that ended outside the handle leaves no mouse-up here to restore the cursor.
+            // Hover isn't tracked during the drag, and a drag that ended elsewhere leaves no
+            // mouse-up here, so check where the pointer is now.
+            if oldValue, !isResizing { isHovered = isPointerInside() }
             if oldValue, !isResizing, !isHovered { releaseResizeCursor() }
+            updateIndicator()
         }
     }
     private let resizeCursor = NSCursor.resizeLeftRight
@@ -325,10 +332,18 @@ final class WorkspaceSidebarResizeHandleView: NSView {
     }
 
     private func updateIndicator() {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
         effectiveAppearance.performAsCurrentDrawingAppearance {
             indicator.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(0.8).cgColor
         }
         indicator.opacity = isHovered || isResizing ? 1 : 0
+        CATransaction.commit()
+    }
+
+    private func isPointerInside() -> Bool {
+        guard let window, !isHidden else { return false }
+        return bounds.contains(convert(window.mouseLocationOutsideOfEventStream, from: nil))
     }
 
     /// Leaves any cursor the content beside the edge set, such as a text field's I-beam.
@@ -340,7 +355,7 @@ final class WorkspaceSidebarResizeHandleView: NSView {
         super.updateTrackingAreas()
         if let trackingArea { removeTrackingArea(trackingArea) }
         let area = NSTrackingArea(rect: .zero,
-            options: [.mouseEnteredAndExited, .mouseMoved, .cursorUpdate, .activeAlways, .inVisibleRect],
+            options: [.mouseEnteredAndExited, .mouseMoved, .cursorUpdate, .activeAlways, .inVisibleRect, .enabledDuringMouseDrag],
             owner: self)
         addTrackingArea(area)
         trackingArea = area

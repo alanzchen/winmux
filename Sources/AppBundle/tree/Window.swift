@@ -87,14 +87,16 @@ open class Window: TreeNode, Hashable {
     @MainActor
     func closeAxWindow() { die("Not implemented") }
 
-    /// When WinMux first saw the window. Tests set it to model an older window.
-    @MainActor var firstSeenAt = Date()
+    /// When WinMux first saw the window, on the monotonic clock so sleep or a clock change
+    /// can't age it. Tests set it to model an older window.
+    @MainActor var firstSeenUptime = ProcessInfo.processInfo.systemUptime
     /// A window already open at startup or put back by a restore.
     @MainActor var wasFirstSeenDuringStartupOrRestored: Bool { false }
     /// A window opened moments ago. One first seen as a popup and promoted later only
     /// counts while it is this new, so a window already in use is never moved as new.
     @MainActor var wasOpenedRecently: Bool {
-        !wasFirstSeenDuringStartupOrRestored && Date().timeIntervalSince(firstSeenAt) < windowRecentlyOpenedLimit
+        !wasFirstSeenDuringStartupOrRestored &&
+            ProcessInfo.processInfo.systemUptime - firstSeenUptime < windowRecentlyOpenedLimit
     }
 
     public func hash(into hasher: inout Hasher) {

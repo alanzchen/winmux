@@ -104,6 +104,7 @@ final class WorkspaceSidebarResizeTest: XCTestCase {
             panel.updateSidebarResize(toScreenX: 560)
             panel.hideSidebar(.systemChrome, animated: false)
             XCTAssertNil(panel.sidebarResize)
+            XCTAssertEqual(panel.autoHideReason, .systemChrome, "Cancelling must not reveal the panel it is hiding")
             XCTAssertEqual(config.workspaceSidebar.width, 240)
             XCTAssertEqual(saves, 0, "Fullscreen suppression mid-drag saves nothing")
         }
@@ -132,6 +133,9 @@ final class WorkspaceSidebarResizeTest: XCTestCase {
             XCTAssertEqual(written.count, 1, "Only the release writes, never each step")
             XCTAssertTrue(written[0].contains("width = 300"), written[0])
             XCTAssertNil(panel.endSidebarResize(), "A second release has nothing to save")
+            XCTAssertTrue(panel.beginSidebarResize(atScreenX: 500))
+            XCTAssertNil(panel.endSidebarResize(), "A click on the edge without moving saves nothing")
+            XCTAssertEqual(written.count, 1)
         }
     }
 

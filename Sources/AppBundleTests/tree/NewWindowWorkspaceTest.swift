@@ -125,7 +125,7 @@ final class NewWindowWorkspaceTest: XCTestCase {
         let workspace = focus.workspace
         _ = TestWindow.new(id: 1, parent: workspace.rootTilingContainer)
         let old = TestWindow.new(id: 2, parent: workspace.rootTilingContainer)
-        old.firstSeenAt = Date().addingTimeInterval(-60)
+        old.firstSeenUptime -= 60
         try await runCallbacksAfterPopupPromotion(old, mayPresent: true)
         XCTAssertTrue(old.nodeWorkspace === workspace, "A window in use for a minute is not moved as new")
 
