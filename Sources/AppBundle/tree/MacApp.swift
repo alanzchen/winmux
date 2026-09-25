@@ -57,6 +57,10 @@ final class MacApp: AbstractApp {
     @MainActor
     @discardableResult
     static func getOrRegister(_ nsApp: NSRunningApplication) async throws -> MacApp? {
+        // Unit tests drive test apps only, like focusedApp. Where the test runner is trusted for
+        // Accessibility (a VM's guest agent, a developer's terminal), a real app would feed real
+        // AX elements into code that expects mocks.
+        if isUnitTest { return nil }
         // Don't perceive any of the lock screen windows as real windows
         // Otherwise, false positive ax notifications might trigger that lead to gcWindows
         if nsApp.bundleIdentifier == lockScreenAppBundleId { return nil }
