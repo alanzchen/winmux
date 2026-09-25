@@ -37,6 +37,20 @@ if /bin/test -z "${NUKE_PATH:-}"; then
     export NUKE_PATH=1
 fi
 
+# SwiftPM run through swiftly takes the default SDK, which follows the Command Line Tools and can
+# be newer than the pinned toolchain and Xcode's manifest compiler support (macOS 27's SDK needs
+# Swift 6.4). Build against the selected developer directory's macOS SDK (Xcode's, when Xcode is
+# selected) unless the caller chose one. A newer Xcode needs a newer pinned toolchain anyway.
+if /bin/test -z "${SDKROOT:-}"; then
+    SDKROOT="$(/usr/bin/xcrun --sdk macosx --show-sdk-path 2> /dev/null || true)"
+    if /bin/test -n "$SDKROOT"; then
+        export SDKROOT
+    else
+        unset SDKROOT
+        echo "warning: xcrun found no macOS SDK in the selected developer directory; SwiftPM picks its default" > /dev/stderr
+    fi
+fi
+
 swift() {
     if /usr/bin/which swiftly &> /dev/null; then
         swiftly run swift "$@"
