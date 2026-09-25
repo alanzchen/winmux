@@ -92,6 +92,18 @@ class PreviewTest(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     preview.check_context()
 
+    def test_detached_release_worktree_names_its_integration_branch(self):
+        with patch.object(preview.release, "run", side_effect=["", "commit"]), \
+                patch.dict("os.environ", {"RELEASE_BRANCH": "main"}):
+            self.assertEqual(preview.check_context(local=True), "commit")
+        with patch.object(preview.release, "run", return_value=""), patch.dict("os.environ", {"RELEASE_BRANCH": "updates"}):
+            with self.assertRaisesRegex(ValueError, "integration branch"):
+                preview.check_context(local=True)
+        # A checked-out feature branch can't borrow the release branch name.
+        with patch.object(preview.release, "run", return_value="feature"), patch.dict("os.environ", {"RELEASE_BRANCH": "main"}):
+            with self.assertRaisesRegex(ValueError, "integration branch"):
+                preview.check_context(local=True)
+
     def test_upload_verification_failure_never_publishes_or_advances_feed(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "archive.zip"

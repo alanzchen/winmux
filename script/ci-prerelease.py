@@ -76,11 +76,17 @@ def api(path, method="GET", data=None):
     return json.loads(result.stdout) if result.stdout.strip() else None
 
 
+def local_branch():
+    # A dedicated release worktree checks the commit out detached and names its branch instead.
+    branch = release.run("git", "branch", "--show-current") or os.environ.get("RELEASE_BRANCH", "")
+    if branch not in BRANCHES:
+        raise ValueError("Local previews must come from an integration branch.")
+    return branch
+
+
 def check_context(local=False):
     if local:
-        branch = release.run("git", "branch", "--show-current")
-        if branch not in BRANCHES:
-            raise ValueError("Local previews must come from an integration branch.")
+        local_branch()
         return release.run("git", "rev-parse", "HEAD")
     if os.environ.get("GITHUB_REPOSITORY") != REPOSITORY:
         raise ValueError("Prereleases are restricted to the configured fork.")

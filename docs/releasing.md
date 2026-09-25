@@ -75,6 +75,47 @@ If a local build fails, fix it and rerun locally. There is no automatic hosted
 fallback. Already-published commits reuse their verified release and can repair
 its feed; they never replace published artifacts.
 
+### Unattended previews: `make ship`
+
+`make ship` publishes the committed `HEAD` of any checkout without anyone watching
+the build. It checks that `HEAD` is `origin/main` or a fast-forward of it, takes a
+repository-wide release lock, prepares the dedicated release worktree
+(`~/Developer/winmux-worktrees/release`, detached at that commit), runs the signing
+and toolchain preflight there, pushes `HEAD` to `main`, and starts
+`make prerelease-local` in the background. It returns within seconds; a failed
+preflight fails immediately instead.
+
+```sh
+make ship-check           # optional: everything up to the push, without releasing
+make ship                 # or: make ship COMMIT=origin/main
+make ship-wait            # blocks; prints a short summary; exit 0 published, 1 failed, 2 timed out
+make ship-status          # one line: phase and elapsed time
+```
+
+The release worktree is never edited by hand and never wiped: a run refuses if it has
+changes other than version stamps left by a stopped release. It keeps its own build
+caches, so its first release is a cold build and later ones are incremental. Other
+checkouts and the sessions working in them are not touched.
+
+Each run keeps `status.json` (state, phase timings, tag, URL, checks), `summary.txt`,
+and the full `log.txt` in the release worktree's `.local/ship/<run>/`. After
+publishing, the runner reads the release back from GitHub: a published prerelease,
+assets matching the local build, the tag at the released commit, the preview feed
+offering the version, and a notarized DMG. A failure names its phase (preflight,
+tests, build, notarize, publish, verify) and the relevant log lines. The runner posts
+a macOS notification when it ends; set `WINMUX_SHIP_NOTIFY` to also run a command of
+your own, which receives the summary on stdin and `SHIP_STATE`, `SHIP_TAG`,
+`SHIP_URL`, and `SHIP_LOG` in its environment.
+
+The documented signing identity, team, notarization Keychain, and pinned toolchain
+are the defaults. Override them in the environment or in
+`~/Library/Application Support/WinMux/ship.env` (`KEY=VALUE` lines, never secrets),
+for example `TOOLCHAINS`, `WINMUX_RELEASE_WORKTREE`, or `WINMUX_SHIP_NOTIFY`.
+
+Nothing depends on a particular coding agent. An agent starts `make ship`, runs
+`make ship-wait` once (in the background if it can), and relays the summary; it
+should not stream or poll the release log.
+
 ### Faster repeated builds
 
 Reuse the same clean release checkout. Xcode keeps dependency checkouts and

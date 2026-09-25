@@ -134,6 +134,21 @@ release:
 prerelease-local:
 	python3 -B script/local-prerelease.py
 
+# Unattended previews: `ship` returns once the release runs in the dedicated release worktree;
+# `ship-wait` blocks until it ends and prints a short summary (exit 0 = published).
+.PHONY: ship ship-check ship-wait ship-status
+ship:
+	python3 -B script/ship.py start $(if $(COMMIT),--commit "$(COMMIT)")
+
+ship-check:
+	python3 -B script/ship.py start --dry-run $(if $(COMMIT),--commit "$(COMMIT)")
+
+ship-wait:
+	python3 -B script/ship.py wait $(if $(TIMEOUT),--timeout "$(TIMEOUT)")
+
+ship-status:
+	python3 -B script/ship.py status
+
 install:
 	/bin/bash -lc 'cd "$(CURDIR)" && \
 	set -euo pipefail && \

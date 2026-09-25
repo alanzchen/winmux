@@ -18,6 +18,11 @@ def run(*args, **kwargs):
     subprocess.run(args, check=True, **kwargs)
 
 
+def phase(name):
+    # Read by script/ship.py to report progress; harmless in an interactive log.
+    print(f"::phase:: {name}", flush=True)
+
+
 def verify_source(commit, expected_generated):
     if preview.release.run("git", "rev-parse", "HEAD") != commit:
         raise ValueError("HEAD changed during the build; refusing publication.")
@@ -52,7 +57,8 @@ def main():
     original = {path: path.read_bytes() for path in GENERATED}
     expected = {}
     try:
-        branch = preview.release.run("git", "branch", "--show-current")
+        phase("preflight")
+        branch = preview.local_branch()
         run("git", "push", "origin", f"HEAD:refs/heads/{branch}")
         if not os.environ.get("DEVELOPMENT_TEAM") or os.environ.get("CODESIGN_IDENTITY") == "-":
             raise ValueError("Set DEVELOPMENT_TEAM and a Developer ID Application CODESIGN_IDENTITY before building locally.")
@@ -64,6 +70,7 @@ def main():
         run("python3", "-B", "script/sign-sparkle-update.py", "--check-credentials")
         run("python3", "-B", "script/check-signing-keychain.py")
         tag, already_published = preview.prepare(local=True)
+        print(f"::tag:: {tag}", flush=True)
         if not already_published:
             version = tag[1:]
             short_hash = preview.release.run("git", "rev-parse", "--short", "HEAD")
@@ -75,13 +82,16 @@ def main():
             directory.mkdir(parents=True, exist_ok=True)
             environment = dict(os.environ, VERSION=version, RELEASE_TAG=tag, RELEASE_DIR=str(directory.resolve()),
                                UPDATE_FEED_URL=f"https://raw.githubusercontent.com/{preview.REPOSITORY}/updates/prerelease.xml")
+            phase("tests")
             run("/bin/bash", "-c", "source script/setup.sh; swift test --arch arm64; swift build --arch arm64", env=environment)
             run("python3", "-B", "-m", "unittest", "discover", "-s", "script", "-p", "test_*.py")
+            phase("build")
             run("make", "release", f"VERSION={version}", f"RELEASE_TAG={tag}",
                 f"RELEASE_DIR={directory.resolve()}", f"CLI_STAGE_PATH={directory.resolve() / 'winmux'}",
                 "NOTARIZE=1", "GENERATE_APPCAST=1", "PUBLISH=0", env=environment)
             verify_source(commit, expected)
             os.environ.update(VERSION=version, RELEASE_TAG=tag, RELEASE_DIR=str(directory.resolve()))
+            phase("publish")
             tag = preview.publish(local=True)
         print(f"Local preview ready: https://github.com/{preview.REPOSITORY}/releases/tag/{tag}")
     finally:

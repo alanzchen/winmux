@@ -67,11 +67,16 @@ when the user explicitly requests a GitHub run.
 
 Work directly on `main` unless the user explicitly specifies another branch.
 After validation, push completed changes to that branch.
-For authorized publication, use `make prerelease-local` to test, build, sign,
-notarize, upload, and advance the preview feed from this Mac. A failed local build
-must not trigger a hosted fallback. Verify the published assets and update feed,
-and link the prerelease when delivering it. Never replace published version assets
-or move the feed backwards.
+For authorized publication, run `make ship` from the reviewed commit, then
+`make ship-wait` once (backgrounded if your tools allow) and relay its summary.
+`make ship` pushes the commit to `main` and runs `make prerelease-local` (test,
+build, sign, notarize, upload, advance the preview feed) unattended in the dedicated
+release worktree; the summary includes the post-publication checks of the assets,
+tag, and update feed. Don't stream or poll the release log; read `log.txt` only when
+the summary reports a failure. A failed local build must not trigger a hosted
+fallback. Link the prerelease when delivering it. Never replace published version
+assets or move the feed backwards. See
+[Unattended previews](docs/releasing.md#unattended-previews-make-ship).
 
 ## Headless Signing
 
