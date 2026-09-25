@@ -16,6 +16,7 @@ import tempfile
 import time
 import unittest
 from unittest.mock import patch
+import warnings
 
 spec = importlib.util.spec_from_file_location("ship", Path(__file__).with_name("ship.py"))
 ship = importlib.util.module_from_spec(spec)
@@ -140,6 +141,7 @@ class WorktreeTest(unittest.TestCase):
         self.git("init", "--quiet", cwd=source)
         for name in [*ship.GENERATED, "README.md"]:
             (source / name).write_text("original\n")
+        (source / ".gitignore").write_text("/.local\n")  # As in the real repository.
         self.git("add", ".", cwd=source)
         self.git("commit", "--quiet", "-m", "one", cwd=source)
         first = self.git("rev-parse", "HEAD", cwd=source)
@@ -168,10 +170,24 @@ class WorktreeTest(unittest.TestCase):
             self.assertEqual(self.git("status", "--porcelain", cwd=release), "")
             self.assertFalse((release / ".local/prerelease.lock").exists())
 
+            # A release that is still running keeps its lock.
+            (release / ".local/prerelease.lock").mkdir(parents=True)
+            (release / ".local/prerelease.lock/pid").write_text(str(os.getpid()))
+            with self.assertRaisesRegex(ValueError, f"still running in {release} \\(pid {os.getpid()}\\)"):
+                ship.prepare_worktree(release, first, common, source)
+            (release / ".local/prerelease.lock/pid").write_text("999999999")
+            with contextlib.redirect_stdout(io.StringIO()):
+                ship.prepare_worktree(release, second, common, source)
+            self.assertFalse((release / ".local/prerelease.lock").exists())
+
             (release / "README.md").write_text("someone's edit\n")
             with self.assertRaisesRegex(ValueError, "has changes"):
                 ship.prepare_worktree(release, first, common, source)
             self.assertEqual((release / "README.md").read_text(), "someone's edit\n")
+            self.git("checkout", "--", "README.md", cwd=release)
+            self.git("mv", "README.md", "RENAMED.md", cwd=release)
+            with self.assertRaisesRegex(ValueError, r"has changes; inspect them before releasing:\n  RENAMED\.md$"):
+                ship.prepare_worktree(release, first, common, source)
 
             other = Path(directory) / "other"
             other.mkdir()
@@ -195,17 +211,25 @@ class LockTest(unittest.TestCase):
     def test_one_release_at_a_time_and_finished_runs_are_taken_over(self):
         with tempfile.TemporaryDirectory() as directory:
             lock = ship.ShipLock(Path(directory) / "ship.lock")
-            lock.acquire("run-1")
+            lock.acquire("run-1", booted=0)
             self.assertEqual(lock.owner(), {"pid": os.getpid(), "run": "run-1"})
-            with self.assertRaisesRegex(ValueError, "run-1 is still running"):
-                ship.ShipLock(lock.path).acquire("run-2", lambda owner: True)
-            ship.ShipLock(lock.path).acquire("run-2", lambda owner: False)
+            with self.assertRaisesRegex(ValueError, "Release run-1 is not over: its runner is still running."):
+                ship.ShipLock(lock.path).acquire("run-2", lambda owner: "its runner is still running", booted=0)
+            ship.ShipLock(lock.path).acquire("run-2", lambda owner: None, booted=0)
+            self.assertEqual(lock.owner()["run"], "run-2")
+
+    def test_nothing_from_before_a_restart_holds_the_lock(self):
+        with tempfile.TemporaryDirectory() as directory:
+            lock = ship.ShipLock(Path(directory) / "ship.lock")
+            lock.acquire("run-1", booted=0)
+            # Its recorded processes may belong to someone else by now.
+            ship.ShipLock(lock.path).acquire("run-2", lambda owner: "its runner is still running", booted=time.time() + 1)
             self.assertEqual(lock.owner()["run"], "run-2")
 
     def test_handover_and_release_only_touch_their_own_run(self):
         with tempfile.TemporaryDirectory() as directory:
             lock = ship.ShipLock(Path(directory) / "ship.lock")
-            lock.acquire("run-2")
+            lock.acquire("run-2", booted=0)
             # A late handover from an earlier run can't take over this one.
             lock.hand_over(4242, "run-1")
             lock.release("run-1")
@@ -224,10 +248,10 @@ class LockTest(unittest.TestCase):
             lock.release("run-1")
             self.assertTrue(lock.path.exists())
             with self.assertRaisesRegex(ValueError, "starting"):
-                lock.acquire("run-2")
+                lock.acquire("run-2", booted=0)
             old = time.time() - 60
             os.utime(lock.path, (old, old))
-            lock.acquire("run-2")
+            lock.acquire("run-2", booted=0)
             self.assertEqual(lock.owner()["run"], "run-2")
 
     def test_a_run_is_active_while_any_of_its_processes_lives(self):
@@ -240,38 +264,42 @@ class LockTest(unittest.TestCase):
                 (runs / "run-1/status.json").write_text(json.dumps({"state": state, "pid": 22, "child": 33}))
                 with patch.object(ship, "pid_alive", side_effect=lambda pid: pid in alive), \
                         patch.object(ship, "group_alive", side_effect=lambda pgid: pgid in groups):
-                    return ship.run_is_active(owner, runs)
+                    return ship.run_activity(owner, runs)
 
-            self.assertFalse(active("running"))
+            self.assertIsNone(active("running"))
             # The starter died before handing over, but its runner lives.
-            self.assertTrue(active("running", alive={22}))
-            self.assertTrue(active("running", alive={11}))
+            self.assertIn("its runner (pid 22)", active("running", alive={22}))
+            self.assertIn("its runner (pid 11)", active("running", alive={11}))
             # A killed runner's build outlives it.
-            self.assertTrue(active("failed", groups={33}))
-            self.assertFalse(active("succeeded", alive={11, 22}))
+            self.assertIn("kill -TERM -33", active("failed", groups={33}))
+            self.assertIsNone(active("succeeded", alive={11, 22}))
+            # A finished run's recorded group id may since belong to someone else.
+            self.assertIsNone(active("succeeded", groups={33}))
+            self.assertIsNone(active("unverified", groups={33}))
             with patch.object(ship, "pid_alive", return_value=True):
-                self.assertTrue(ship.run_is_active({"pid": 11, "run": "missing"}, runs))
+                self.assertIn("process 11", ship.run_activity({"pid": 11, "run": "missing"}, runs))
 
 
 class TrackerTest(unittest.TestCase):
     def tracker(self, directory):
-        return ship.PhaseTracker(ship.Status.create(directory, run="run-1", commit=COMMIT, log="log.txt"))
+        return ship.PhaseTracker(ship.Status.create(directory, run="run-1", commit=COMMIT, log="log.txt"), "t0k3n")
 
-    def test_follows_markers_forward_and_ignores_script_test_output(self):
+    def test_follows_this_runs_markers_forward_and_ignores_look_alikes(self):
         with tempfile.TemporaryDirectory() as directory:
             tracker = self.tracker(directory)
-            for line in ["::phase:: preflight", "::tag:: v0.6.9", "::phase:: tests",
-                         # The release scripts' own unit tests print these.
-                         "Prepared v0.6.303 from commit.", "Published preview https://example/v0.6.302 and advanced the feed.",
-                         "::tag:: v0.6.302", "Local preview ready: https://example/v0.6.302",
-                         "Conducting pre-submission checks for WinMux-0.6.9.zip", "::phase:: build",
+            for line in ["::phase:t0k3n:: preflight", "::tag:t0k3n:: v0.6.9", "::phase:t0k3n:: tests",
+                         # The release scripts' own unit tests may print these.
+                         "::phase:: publish", "::tag:other:: v0.6.302", "::url:other:: https://example/v0.6.302",
+                         "Local preview ready: https://example/v0.6.302",
+                         "Conducting pre-submission checks for WinMux-0.6.9.zip", "::phase:t0k3n:: build",
                          "Conducting pre-submission checks for WinMux-0.6.9.zip and initiating connection",
-                         "::phase:: tests", "::phase:: publish"]:
+                         "::phase:t0k3n:: tests", "::phase:t0k3n:: publish", "::url:t0k3n:: https://example/v0.6.9",
+                         "::url:t0k3n:: https://example/other"]:
                 tracker.observe(line + "\n")
             data = tracker.status.data
             self.assertEqual([phase["name"] for phase in data["phases"]], ["preflight", "tests", "build", "notarize", "publish"])
             self.assertEqual(data["tag"], "v0.6.9")
-            self.assertEqual(data["url"], "https://example/v0.6.302")
+            self.assertEqual(data["url"], "https://example/v0.6.9")
             self.assertTrue(all(phase["ended"] for phase in data["phases"][:-1]))
 
     def test_error_excerpt_keeps_failures_and_the_exit_reason(self):
@@ -372,20 +400,24 @@ class SummaryTest(unittest.TestCase):
 
 
 class WaitTest(unittest.TestCase):
-    def wait(self, run_dir, statuses=(), timeout=60, alive=True):
-        """Runs `wait`; each sleep advances to the next status."""
+    def wait(self, run_dir, statuses=(), timeout=60, alive=True, groups=lambda sleeps: False):
+        """Runs `wait`; each sleep advances to the next status. `groups(sleeps)` says whether a
+        recorded process group is alive after that many sleeps."""
         pending = list(statuses)
         clock = [0.0]
+        sleeps = [0]
 
         def sleep(_seconds):
             clock[0] += 5
+            sleeps[0] += 1
             if pending:
                 (run_dir / "status.json").write_text(json.dumps(pending.pop(0)))
 
         settings = {"WINMUX_RELEASE_WORKTREE": str(run_dir.parent.parent.parent)}
         args = argparse.Namespace(run=run_dir.name, timeout=timeout, interval=5, settings=settings)
         output = io.StringIO()
-        with patch.object(ship, "pid_alive", return_value=alive), patch.object(ship, "group_alive", return_value=False), \
+        with patch.object(ship, "pid_alive", side_effect=lambda pid: bool(pid) and alive(pid) if callable(alive) else bool(pid) and alive), \
+                patch.object(ship, "group_alive", side_effect=lambda pgid: bool(pgid) and groups(sleeps[0])), \
                 contextlib.redirect_stdout(output):
             code = ship.wait(args, sleep=sleep, clock=lambda: clock[0])
         return code, output.getvalue()
@@ -432,6 +464,34 @@ class WaitTest(unittest.TestCase):
             self.assertEqual(code, 1)
             self.assertIn("stopped without finishing", output)
 
+    def test_runner_that_just_started_or_only_holds_the_lock_is_not_declared_dead(self):
+        with tempfile.TemporaryDirectory() as directory:
+            # No pid in the status yet, a minute after starting, but the lock names a live runner.
+            run_dir = self.run_dir(directory, status_data("starting", pid=None, started=time.time() - 120))
+            lock = ship.ShipLock(Path(directory) / "ship.lock")
+            lock.acquire("run-1", booted=0)
+            lock.hand_over(4242, "run-1")
+            (run_dir / "request.json").write_text(json.dumps({"lock": str(lock.path)}))
+            code, output = self.wait(run_dir, [status_data(pid=4242), status_data("succeeded", pid=4242)],
+                                     alive=lambda pid: pid == 4242)
+            self.assertEqual(code, 0)
+            self.assertEqual(json.loads((run_dir / "status.json").read_text())["state"], "succeeded")
+
+    def test_waits_for_a_dead_runners_build_before_reporting(self):
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = self.run_dir(directory, status_data(pid=1234, child=5678))
+            code, output = self.wait(run_dir, alive=False, groups=lambda sleeps: sleeps < 3)
+            self.assertEqual(code, 1)
+            self.assertIn("Waiting for the stopped release's build (process group 5678) to end...", output)
+            self.assertIn("was still running then", output)
+
+    def test_times_out_while_a_dead_runners_build_keeps_running(self):
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = self.run_dir(directory, status_data("failed", pid=1234, child=5678, ended=time.time()))
+            code, output = self.wait(run_dir, timeout=0.2, alive=False, groups=lambda sleeps: True)
+            self.assertEqual(code, 2)
+            self.assertIn("kill -TERM -5678", output)
+
     def test_timeout_leaves_the_release_running(self):
         with tempfile.TemporaryDirectory() as directory:
             run_dir = self.run_dir(directory, status_data(pid=1234))
@@ -441,15 +501,23 @@ class WaitTest(unittest.TestCase):
 
 
 class RunnerTest(unittest.TestCase):
-    PUBLISHED = "\n".join([
-        "print('::phase:: preflight')", "print('::tag:: v0.6.9')", "print('::phase:: tests')",
-        "print('::phase:: build')", "print('Conducting pre-submission checks for WinMux-0.6.9.zip')",
-        "print('::phase:: publish')", "print('Local preview ready: https://example/v0.6.9')"])
+    @staticmethod
+    def release_script(*lines, exit_code=0):
+        """A fake release printing this run's markers: ("phase", "tests") or plain lines."""
+        body = ["import os, sys", "token = os.environ['WINMUX_SHIP_TOKEN']"]
+        for line in lines:
+            body.append(f"print('::{line[0]}:' + token + ':: {line[1]}')" if isinstance(line, tuple) else f"print({line!r})")
+        body.append(f"sys.exit({exit_code!r})")
+        return [sys.executable, "-c", "\n".join(body)]
+
+    PUBLISHED = (("phase", "preflight"), ("tag", "v0.6.9"), ("phase", "tests"), ("phase", "build"),
+                 "Conducting pre-submission checks for WinMux-0.6.9.zip", ("phase", "publish"),
+                 ("url", "https://example/v0.6.9"))
 
     def test_runner_follows_the_release_verifies_and_releases_the_lock(self):
         with tempfile.TemporaryDirectory() as directory:
             before = signal.getsignal(signal.SIGTERM)
-            code, data, summary, lock = self.run_release(directory, [sys.executable, "-c", self.PUBLISHED],
+            code, data, summary, lock = self.run_release(directory, self.release_script(*self.PUBLISHED),
                                                          checks=[{"name": "feed", "ok": True, "detail": "feed ok"}])
             self.assertEqual(code, 0)
             self.assertEqual(data["state"], "succeeded")
@@ -461,15 +529,44 @@ class RunnerTest(unittest.TestCase):
 
     def test_published_release_with_a_failed_check_is_unverified(self):
         with tempfile.TemporaryDirectory() as directory:
-            code, data, summary, _ = self.run_release(directory, [sys.executable, "-c", self.PUBLISHED],
+            code, data, summary, _ = self.run_release(directory, self.release_script(*self.PUBLISHED),
                                                       checks=[{"name": "feed", "ok": False, "detail": "offline"}])
             self.assertEqual((code, data["state"]), (3, "unverified"))
             self.assertIn("https://example/v0.6.9", summary.splitlines()[0])
 
-    def test_failed_release_reports_its_phase_and_error(self):
-        script = "import sys\nprint('::phase:: tests')\nprint('/src/A.swift:3: error: nope')\nsys.exit('Tests failed')"
+    def test_release_github_doesnt_have_is_a_failure_not_unverified(self):
         with tempfile.TemporaryDirectory() as directory:
-            code, data, summary, lock = self.run_release(directory, [sys.executable, "-c", script])
+            code, data, summary, _ = self.run_release(directory, self.release_script(*self.PUBLISHED), checks=[
+                {"name": "release", "ok": False, "detail": "GitHub has no release v0.6.9"}])
+            self.assertEqual((code, data["state"]), (1, "failed"))
+            self.assertTrue(summary.startswith("Release failed during verify"))
+
+    def test_unreachable_github_is_unverified(self):
+        with tempfile.TemporaryDirectory() as directory:
+            code, data, _, _ = self.run_release(directory, self.release_script(*self.PUBLISHED), checks=[
+                {"name": "release", "ok": False, "detail": "couldn't check: offline", "unreachable": True}])
+            self.assertEqual((code, data["state"]), (3, "unverified"))
+
+    def test_stop_while_verifying_is_unverified(self):
+        with tempfile.TemporaryDirectory() as directory:
+            code, data, _, lock = self.run_release(directory, self.release_script(*self.PUBLISHED),
+                                                   verify=SystemExit("Stopped by signal 15."))
+            self.assertEqual((code, data["state"]), (3, "unverified"))
+            self.assertIn("Stopped by signal 15.", data["error"])
+            self.assertFalse(lock.path.exists())
+
+    def test_failure_while_publishing_says_how_to_repair(self):
+        with tempfile.TemporaryDirectory() as directory:
+            command = self.release_script(("phase", "preflight"), ("tag", "v0.6.9"), ("phase", "publish"),
+                                          "gh: HTTP 502", exit_code=1)
+            code, data, _, _ = self.run_release(directory, command)
+            self.assertEqual((code, data["phase"]), (1, "publish"))
+            self.assertIn(ship.PUBLISH_HINT, data["error"])
+
+    def test_failed_release_reports_its_phase_and_error(self):
+        command = self.release_script(("phase", "tests"), "/src/A.swift:3: error: nope", exit_code="Tests failed")
+        with tempfile.TemporaryDirectory() as directory:
+            code, data, summary, lock = self.run_release(directory, command)
             self.assertEqual(code, 1)
             self.assertEqual(data["phase"], "tests")
             self.assertIn("/src/A.swift:3: error: nope", data["error"])
@@ -484,30 +581,115 @@ class RunnerTest(unittest.TestCase):
             self.assertIn("incompatible ship.py", data["error"][0])
             self.assertFalse(lock.path.exists())
 
-    def test_stopping_the_release_stops_its_whole_process_group(self):
-        script = "import subprocess, time\nsubprocess.Popen(['sleep', '60'])\nprint('ready', flush=True)\ntime.sleep(60)"
+    def stop(self, script, grace):
         process = subprocess.Popen([sys.executable, "-c", script], stdout=subprocess.PIPE, text=True, start_new_session=True)
+        self.addCleanup(process.stdout.close)
         self.assertEqual(process.stdout.readline().strip(), "ready")
-        ship.stop_process_group(process, grace=5)
-        process.stdout.close()
+        started = time.monotonic()
+        ship.stop_process_group(process, grace=grace, poll=0.02)
+        elapsed = time.monotonic() - started
         self.assertIsNotNone(process.returncode)
-        deadline = time.time() + 5
-        while ship.group_alive(process.pid) and time.time() < deadline:
-            time.sleep(0.05)
         self.assertFalse(ship.group_alive(process.pid))
+        return elapsed
 
-    def run_release(self, directory, command, checks=(), schema=None):
+    def test_stopping_the_release_stops_its_whole_process_group(self):
+        # The leader exits on SIGTERM at once, as make does, but its child ignores it.
+        script = ("import subprocess\nsubprocess.Popen(['/bin/sh', '-c', 'trap \"\" TERM; sleep 60 & wait'])\n"
+                  "import time\ntime.sleep(0.2)\nprint('ready', flush=True)\ntime.sleep(60)")
+        elapsed = self.stop(script, grace=0.5)
+        self.assertGreaterEqual(elapsed, 0.5)  # The child got its grace before SIGKILL.
+
+    def test_a_group_that_exits_on_sigterm_is_not_kept_waiting(self):
+        script = "import subprocess, time\nsubprocess.Popen(['sleep', '60'])\nprint('ready', flush=True)\ntime.sleep(60)"
+        self.assertLess(self.stop(script, grace=5), 4)
+
+    def run_release(self, directory, command, checks=(), schema=None, verify=None):
         run_dir = Path(directory) / "run-1"
         run_dir.mkdir()
         lock = ship.ShipLock(Path(directory) / "ship.lock")
-        lock.acquire("run-1")
+        lock.acquire("run-1", booted=0)
         (run_dir / "request.json").write_text(json.dumps({
             "schema": schema or ship.SCHEMA, "commit": COMMIT, "worktree": directory, "lock": str(lock.path),
             "settings": ship.resolve_settings({}, {}, ""), "command": command}))
         ship.Status.create(run_dir, run="run-1", commit=COMMIT, log=str(run_dir / "log.txt"))
-        with patch.object(ship, "verify_release", return_value=list(checks)), patch.object(ship, "notify"):
+        verifying = patch.object(ship, "verify_release", side_effect=verify) if verify else \
+            patch.object(ship, "verify_release", return_value=list(checks))
+        with verifying, patch.object(ship, "notify"):
             code = ship.run_release(argparse.Namespace(run_dir=str(run_dir)))
         return code, json.loads((run_dir / "status.json").read_text()), (run_dir / "summary.txt").read_text(), lock
+
+
+class StartTest(unittest.TestCase):
+    """`start` against a throwaway repository whose origin is a local bare repository."""
+
+    def setUp(self):
+        environment = patch.dict(os.environ, ISOLATED_GIT)
+        environment.start()
+        self.addCleanup(environment.stop)
+        self.directory = Path(tempfile.mkdtemp())
+        self.addCleanup(subprocess.run, ["rm", "-rf", str(self.directory)])
+        git = lambda *args, cwd: subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True)
+        origin, self.source = self.directory / "origin.git", self.directory / "source"
+        git("init", "--quiet", "--bare", "-b", "main", str(origin), cwd=self.directory)
+        git("init", "--quiet", "-b", "main", str(self.source), cwd=self.directory)
+        (self.source / "README.md").write_text("one\n")
+        (self.source / ".gitignore").write_text("/.local\n")  # As in the real repository.
+        git("add", ".", cwd=self.source)
+        git("commit", "--quiet", "-m", "one", cwd=self.source)
+        git("remote", "add", "origin", str(origin), cwd=self.source)
+        git("push", "--quiet", "origin", "main", cwd=self.source)
+        self.settings = ship.resolve_settings({}, {"WINMUX_RELEASE_WORKTREE": str(self.directory / "release")}, "")
+        previous = os.getcwd()
+        os.chdir(self.source)
+        self.addCleanup(os.chdir, previous)
+        self.common = Path(subprocess.run(["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
+                                          check=True, capture_output=True, text=True).stdout.strip())
+
+    def start(self, dry_run=False):
+        output = io.StringIO()
+        with patch.object(ship, "load_settings", return_value=self.settings), patch.object(ship, "preflight"), \
+                contextlib.redirect_stdout(output):
+            code = ship.start(argparse.Namespace(commit="HEAD", dry_run=dry_run))
+        return code, output.getvalue()
+
+    def test_runner_that_dies_at_once_is_reported_and_frees_the_lock(self):
+        # The throwaway worktree has no script/ship.py, so the runner exits immediately. Nobody
+        # waits for a detached runner, which is the point.
+        warnings.filterwarnings("ignore", "subprocess .* is still running", ResourceWarning)
+        code, output = self.start()
+        self.assertEqual(code, 0)
+        self.assertIn("Started the preview release", output)
+        # launchd reaps a real runner once `make ship` exits; here the test is its parent.
+        os.waitpid(ship.ShipLock(self.common / "winmux-ship.lock").owner()["pid"], 0)
+        run_dir = ship.find_run(self.settings)
+        args = argparse.Namespace(run=None, timeout=1, interval=0.05, settings=self.settings)
+        with contextlib.redirect_stdout(io.StringIO()) as waited:
+            self.assertEqual(ship.wait(args), 1)
+        self.assertIn("The release runner stopped without finishing.", waited.getvalue())
+        self.assertIn("No such file or directory", waited.getvalue())
+        self.assertEqual(json.loads((run_dir / "status.json").read_text())["state"], "failed")
+        # The dead run no longer holds the release lock.
+        self.assertEqual(self.start(dry_run=True)[0], 0)
+
+    def test_runner_that_cant_be_started_leaves_a_failed_run_and_no_lock(self):
+        real_popen = subprocess.Popen
+
+        def popen(args, **kwargs):
+            if "run" in args:  # Only the runner; git still works.
+                raise OSError("exec failed")
+            return real_popen(args, **kwargs)
+
+        with patch.object(ship.subprocess, "Popen", side_effect=popen):
+            with self.assertRaisesRegex(OSError, "exec failed"):
+                self.start()
+        data = json.loads((ship.find_run(self.settings) / "status.json").read_text())
+        self.assertEqual(data["state"], "failed")
+        self.assertIn("Couldn't start the runner: exec failed", data["error"])
+        self.assertFalse((self.common / "winmux-ship.lock").exists())
+
+    def test_dry_run_releases_the_lock(self):
+        self.assertEqual(self.start(dry_run=True), (0, f"Ready: `make ship` would release it ({subprocess.run(['git', 'rev-parse', '--short=8', 'HEAD'], capture_output=True, text=True).stdout.strip()}) from {self.directory / 'release'}.\n"))
+        self.assertFalse((self.common / "winmux-ship.lock").exists())
 
 
 class HousekeepingTest(unittest.TestCase):
@@ -531,7 +713,7 @@ class HousekeepingTest(unittest.TestCase):
 
             def run(args, **kwargs):
                 # No real banner from a test; the hook itself runs.
-                if args[0] == "osascript":
+                if isinstance(args, list) and args[0] == "osascript":
                     banners.append(args[-2:])
                     return subprocess.CompletedProcess(args, 0)
                 return real_run(args, **kwargs)

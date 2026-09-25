@@ -12,6 +12,19 @@ spec.loader.exec_module(local)
 
 
 class LocalPreviewTest(unittest.TestCase):
+    def test_progress_markers_appear_only_for_script_ship(self):
+        import contextlib, io, os
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("WINMUX_SHIP_TOKEN", None)
+            with contextlib.redirect_stdout(io.StringIO()) as output:
+                local.phase("tests")
+            self.assertEqual(output.getvalue(), "")
+            os.environ["WINMUX_SHIP_TOKEN"] = "t0k3n"
+            with contextlib.redirect_stdout(io.StringIO()) as output:
+                local.phase("tests")
+                local.marker("url", "https://example/v1")
+            self.assertEqual(output.getvalue(), "::phase:t0k3n:: tests\n::url:t0k3n:: https://example/v1\n")
+
     def test_changed_head_cannot_be_published(self):
         with patch.object(local.preview.release, "run", return_value="other"):
             with self.assertRaisesRegex(ValueError, "HEAD changed"):

@@ -5,6 +5,7 @@ import importlib.util
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
 
@@ -18,9 +19,15 @@ def run(*args, **kwargs):
     subprocess.run(args, check=True, **kwargs)
 
 
+def marker(kind, value):
+    # Read by script/ship.py, which sets a per-run token so look-alikes in test output don't count.
+    token = os.environ.get("WINMUX_SHIP_TOKEN")
+    if token:
+        print(f"::{kind}:{token}:: {value}", flush=True)
+
+
 def phase(name):
-    # Read by script/ship.py to report progress; harmless in an interactive log.
-    print(f"::phase:: {name}", flush=True)
+    marker("phase", name)
 
 
 def verify_source(commit, expected_generated):
@@ -54,6 +61,8 @@ def main():
         lock.mkdir()
     except FileExistsError as error:
         raise ValueError("Another local prerelease build holds .local/prerelease.lock.") from error
+    # Lets script/ship.py tell a stopped release's lock from a running one's.
+    (lock / "pid").write_text(str(os.getpid()))
     original = {path: path.read_bytes() for path in GENERATED}
     expected = {}
     try:
@@ -70,7 +79,7 @@ def main():
         run("python3", "-B", "script/sign-sparkle-update.py", "--check-credentials")
         run("python3", "-B", "script/check-signing-keychain.py")
         tag, already_published = preview.prepare(local=True)
-        print(f"::tag:: {tag}", flush=True)
+        marker("tag", tag)
         if not already_published:
             version = tag[1:]
             short_hash = preview.release.run("git", "rev-parse", "--short", "HEAD")
@@ -84,9 +93,10 @@ def main():
                                UPDATE_FEED_URL=f"https://raw.githubusercontent.com/{preview.REPOSITORY}/updates/prerelease.xml")
             phase("tests")
             run("/bin/bash", "-c", "source script/setup.sh; swift test --arch arm64; swift build --arch arm64", env=environment)
-            # The script tests expect a developer shell, not this release's branch override.
+            # The script tests expect a developer shell, not this release's overrides.
             run("python3", "-B", "-m", "unittest", "discover", "-s", "script", "-p", "test_*.py",
-                env={key: value for key, value in os.environ.items() if key != "RELEASE_BRANCH"})
+                env={key: value for key, value in os.environ.items()
+                     if key not in ("RELEASE_BRANCH", "WINMUX_SHIP_TOKEN")})
             phase("build")
             run("make", "release", f"VERSION={version}", f"RELEASE_TAG={tag}",
                 f"RELEASE_DIR={directory.resolve()}", f"CLI_STAGE_PATH={directory.resolve() / 'winmux'}",
@@ -95,12 +105,14 @@ def main():
             os.environ.update(VERSION=version, RELEASE_TAG=tag, RELEASE_DIR=str(directory.resolve()))
             phase("publish")
             tag = preview.publish(local=True)
-        print(f"Local preview ready: https://github.com/{preview.REPOSITORY}/releases/tag/{tag}")
+        url = f"https://github.com/{preview.REPOSITORY}/releases/tag/{tag}"
+        marker("url", url)
+        print(f"Local preview ready: {url}")
     finally:
         for path, generated in expected.items():
             if path.exists() and path.read_bytes() == generated:
                 path.write_bytes(original[path])
-        lock.rmdir()
+        shutil.rmtree(lock, ignore_errors=True)
 
 
 if __name__ == "__main__":

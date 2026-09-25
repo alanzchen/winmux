@@ -20,11 +20,14 @@ and read those files.
 import argparse
 from collections import deque
 import base64
+import contextlib
+import fcntl
 import importlib.util
 import json
 import os
 from pathlib import Path
 import re
+import secrets
 import shutil
 import signal
 import subprocess
@@ -61,11 +64,14 @@ DEFAULTS = {
     "WINMUX_SHIP_NOTIFY": "",
 }
 RELEASE_SETTINGS = ("CODESIGN_IDENTITY", "DEVELOPMENT_TEAM", "NOTARYTOOL_KEYCHAIN", "TOOLCHAINS", "SWIFT_EXEC_MANIFEST")
-# Set by the caller's `make` (or a CI shell); the release worktree's own make chooses them.
+# Set by the caller's `make`, or by a hosted workflow shell (which the release scripts would
+# take for a hosted run); the release worktree's own make chooses them. GITHUB_TOKEN stays: gh
+# may authenticate with it.
 INHERITED_VARIABLES = (
     "MAKEFLAGS", "MAKELEVEL", "MFLAGS", "MAKEOVERRIDES", "VERSION", "RELEASE_DIR", "RELEASE_TAG",
     "CLI_STAGE_PATH", "PUBLISH", "NOTARIZE", "GENERATE_APPCAST", "UPDATE_FEED_URL", "RELEASE_NOTES",
-    "RELEASE_DERIVED_DATA_DIR",
+    "RELEASE_DERIVED_DATA_DIR", "GITHUB_ACTIONS", "GITHUB_REF", "GITHUB_SHA", "GITHUB_REPOSITORY", "GITHUB_ENV",
+    "WINMUX_SHIP_TOKEN",
 )
 NOTIFY_VARIABLES = ("PATH", "HOME", "USER", "LOGNAME", "LANG", "TMPDIR")
 
@@ -110,20 +116,35 @@ def group_alive(pgid):
     return True
 
 
-def stop_process_group(process, grace=30):
-    """SIGTERM the release's whole process group, then SIGKILL whatever outlives the grace."""
-    try:
-        os.killpg(process.pid, signal.SIGTERM)
-    except ProcessLookupError:
-        return
-    try:
-        process.wait(timeout=grace)
-    except subprocess.TimeoutExpired:
-        pass
-    try:
-        os.killpg(process.pid, signal.SIGKILL)
-    except ProcessLookupError:
-        pass
+def boot_time():
+    match = re.search(r"sec = (\d+)", command("sysctl", "-n", "kern.boottime", check=False))
+    return int(match.group(1)) if match else 0
+
+
+def stop_process_group(process, grace=30, poll=0.1):
+    """SIGTERMs the release's whole process group, SIGKILLs whatever is left after the grace,
+    and returns once the group is gone."""
+
+    def signal_group(signum):
+        try:
+            os.killpg(process.pid, signum)
+        except ProcessLookupError:
+            pass
+
+    def group_ended(timeout):
+        deadline = time.monotonic() + timeout
+        while True:
+            process.poll()  # Reap the leader; an unreaped leader still counts as the group.
+            if not group_alive(process.pid):
+                return True
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(poll)
+
+    signal_group(signal.SIGTERM)
+    if not group_ended(grace):
+        signal_group(signal.SIGKILL)
+        group_ended(10)
     process.wait()
 
 
@@ -158,8 +179,7 @@ def load_settings():
 
 
 def release_environment(environ, settings):
-    env = {key: value for key, value in environ.items()
-           if key not in INHERITED_VARIABLES and not key.startswith("GITHUB_")}
+    env = {key: value for key, value in environ.items() if key not in INHERITED_VARIABLES}
     for key in RELEASE_SETTINGS:
         if settings[key]:
             env[key] = settings[key]
@@ -181,11 +201,19 @@ def relation(commit, tip, ancestor):
 
 class ShipLock:
     """One release at a time across every worktree of the repository. owner.json names the
-    run holding it and a process that stays alive while it does (the starter, then the runner)."""
+    run holding it and a process that stays alive while it does (the starter, then the runner).
+    Taking, handing over, and releasing it happen under a short flock, so they're atomic."""
 
     def __init__(self, path):
         self.path = Path(path)
         self.owner_path = self.path / "owner.json"
+        self.guard_path = self.path.with_name(self.path.name + ".guard")
+
+    @contextlib.contextmanager
+    def guarded(self):
+        with open(self.guard_path, "a") as guard:
+            fcntl.flock(guard, fcntl.LOCK_EX)
+            yield
 
     def owner(self):
         try:
@@ -193,27 +221,29 @@ class ShipLock:
         except (OSError, ValueError):
             return None
 
-    def acquire(self, run_id, is_active=lambda owner: False):
-        for _ in range(3):
-            try:
-                self.path.mkdir()
-            except FileExistsError:
+    def written_before_boot(self, booted):
+        try:
+            return self.owner_path.stat().st_mtime < booted
+        except OSError:
+            return False
+
+    def acquire(self, run_id, activity=lambda owner: None, booted=None):
+        """`activity(owner)` says what of the owner's run is still running, or None."""
+        booted = boot_time() if booted is None else booted
+        with self.guarded():
+            if self.path.exists():
                 owner = self.owner()
                 if owner is None:
-                    try:
-                        age = time.time() - self.path.stat().st_mtime
-                    except FileNotFoundError:
-                        continue
-                    if age < 30:
+                    if time.time() - self.path.stat().st_mtime < 30:
                         raise ValueError("Another release is starting; try again in a moment.")
-                elif is_active(owner):
-                    raise ValueError(f"Release {owner.get('run')} is still running; wait for it with `make ship-wait`.")
+                elif not self.written_before_boot(booted):  # Nothing survives a restart.
+                    running = activity(owner)
+                    if running:
+                        raise ValueError(f"Release {owner.get('run')} is not over: {running}.")
                 # A stopped or crashed run: nothing of it is running any more.
                 shutil.rmtree(self.path, ignore_errors=True)
-                continue
+            self.path.mkdir()
             self.write(os.getpid(), run_id)
-            return
-        raise ValueError(f"Couldn't take the release lock at {self.path}.")
 
     def write(self, pid, run_id):
         temporary = self.path / "owner.tmp"
@@ -222,29 +252,35 @@ class ShipLock:
 
     def hand_over(self, pid, run_id):
         """Records the run's live process, only while the lock still belongs to that run."""
-        owner = self.owner()
-        if owner and owner.get("run") == run_id:
-            try:
+        with self.guarded():
+            owner = self.owner()
+            if owner and owner.get("run") == run_id:
                 self.write(pid, run_id)
-            except FileNotFoundError:
-                pass  # The run finished and released the lock meanwhile.
 
     def release(self, run_id):
-        owner = self.owner()
-        if owner and owner.get("run") == run_id:
-            shutil.rmtree(self.path, ignore_errors=True)
+        with self.guarded():
+            owner = self.owner()
+            if owner and owner.get("run") == run_id:
+                shutil.rmtree(self.path, ignore_errors=True)
 
 
-def run_is_active(owner, runs):
-    """Whether any process of the lock owner's run may still be running."""
+def run_activity(owner, runs):
+    """What of the lock owner's run may still be running, or None."""
     try:
         data = json.loads((runs / owner["run"] / "status.json").read_text())
     except (OSError, ValueError, KeyError, TypeError):
-        return pid_alive(owner.get("pid"))
-    # A killed runner's build can outlive it; its process group is recorded as "child".
-    if group_alive(data.get("child")):
-        return True
-    return data.get("state") not in TERMINAL and (pid_alive(owner.get("pid")) or pid_alive(data.get("pid")))
+        return f"its process {owner.get('pid')} is still running" if pid_alive(owner.get("pid")) else None
+    # A killed runner's build can outlive it. The runner clears "child" once its group is gone,
+    # so a recorded group only remains for a run whose runner died.
+    child = data.get("child")
+    if data.get("state") not in ("succeeded", "unverified") and group_alive(child):
+        return (f"its build (process group {child}) is still running; wait for it with `make ship-wait` "
+                f"or stop it with `kill -TERM -{child}`")
+    if data.get("state") not in TERMINAL:
+        for pid in (data.get("pid"), owner.get("pid")):
+            if pid_alive(pid):
+                return f"its runner (pid {pid}) is still running; wait for it with `make ship-wait`"
+    return None
 
 
 class Status:
@@ -291,13 +327,15 @@ class Status:
 
 
 class PhaseTracker:
-    """Follows the release log: phase markers from local-prerelease.py, the notarization
-    handoff from build-release.sh, the tag, and the published URL."""
+    """Follows the release log: markers from local-prerelease.py (phase, tag, URL) and the
+    notarization handoff from build-release.sh. Markers carry this run's token, so look-alikes
+    printed by the release scripts' own tests never count."""
 
     NOTARIZATION = "Conducting pre-submission checks for "
 
-    def __init__(self, status):
+    def __init__(self, status, token):
         self.status = status
+        self.marker = re.compile(rf"^::(phase|tag|url):{re.escape(token)}:: (.+)$")
         self.recent = deque(maxlen=400)
 
     @property
@@ -311,18 +349,19 @@ class PhaseTracker:
     def observe(self, line):
         line = line.rstrip("\n")
         self.recent.append(line)
-        # The first tag and URL win: the release scripts' own tests print look-alikes later.
-        if line.startswith("::phase:: "):
-            self.enter(line.split(None, 1)[1].strip())
-        elif line.startswith("::tag:: ") and not self.status.data["tag"]:
-            self.status.update(tag=line.split(None, 1)[1].strip())
-        elif line.startswith("Local preview ready: ") and not self.status.data["url"]:
-            self.status.update(url=line.split(": ", 1)[1].strip())
+        match = self.marker.match(line)
+        if match:
+            kind, value = match.group(1), match.group(2).strip()
+            if kind == "phase":
+                self.enter(value)
+            elif not self.status.data[kind]:
+                self.status.update(**{kind: value})
         elif self.NOTARIZATION in line and self.phase == "build":
             self.enter("notarize")
 
 
-ERROR_LINE = re.compile(r"error:|\bError\b|ERROR|failed|FAILED|[Rr]efusing|Traceback|fatal:|exited with|holds ")
+ERROR_LINE = re.compile(r"error:|\bError\b|ERROR|failed|FAILED|[Rr]efusing|Traceback|fatal:|exited with|"
+                        r"holds \.local/prerelease\.lock")
 NOISE_LINE = re.compile(r"^\[\d+/\d+\]|^Test Case .* (started\.|passed \()|with 0 failures")
 
 
@@ -375,9 +414,9 @@ def verify_release(tag, commit, directory, run=command, assess=assess_dmg, sleep
     def check(name, compute):
         try:
             ok, detail = compute()
+            checks.append({"name": name, "ok": bool(ok), "detail": detail})
         except Exception as error:  # A check that can't run is a failed check, not a crash.
-            ok, detail = False, f"couldn't check: {error}"
-        checks.append({"name": name, "ok": bool(ok), "detail": detail})
+            checks.append({"name": name, "ok": False, "detail": f"couldn't check: {error}", "unreachable": True})
 
     def release():
         record.update(gh_json(f"repos/{repo}/releases/tags/{tag}", run, sleep=sleep) or {})
@@ -496,7 +535,8 @@ def prune_runs(root, keep=KEPT_RUNS):
         try:
             finished = json.loads((run_dir / "status.json").read_text())["state"] in TERMINAL
         except (OSError, ValueError, KeyError):
-            finished = False
+            # A start interrupted before it wrote a status, long ago.
+            finished = time.time() - run_dir.stat().st_mtime > 3600
         if finished:
             shutil.rmtree(run_dir, ignore_errors=True)
 
@@ -533,7 +573,12 @@ def prepare_worktree(path, commit, common_dir, source):
         git("checkout", "--quiet", "HEAD", "--", *changed, cwd=path)
     stale = path / ".local/prerelease.lock"
     if stale.is_dir():
-        # Left by a killed release; with the release lock held, none is running.
+        try:
+            holder = int((stale / "pid").read_text())
+        except (OSError, ValueError):
+            holder = None
+        if pid_alive(holder):
+            raise ValueError(f"A release is still running in {path} (pid {holder}); wait for it or stop it first.")
         shutil.rmtree(stale)
         print(f"Removed a stopped release's lock: {stale}")
     git("checkout", "--quiet", "--detach", commit, cwd=path)
@@ -574,7 +619,7 @@ def start(args):
     run_id = time.strftime("%Y%m%d-%H%M%S") + f"-{commit[:8]}"
     run_dir = runs / run_id
     lock = ShipLock(common_dir / "winmux-ship.lock")
-    lock.acquire(run_id, lambda owner: run_is_active(owner, runs))
+    lock.acquire(run_id, lambda owner: run_activity(owner, runs))
     runner = None
     try:
         env = release_environment(os.environ, settings)
@@ -602,7 +647,8 @@ def start(args):
         lock.hand_over(runner.pid, run_id)
     except BaseException as error:
         if runner is None and (run_dir / "status.json").exists():
-            Status(run_dir).finish("failed", [f"Couldn't start the runner: {error}"])
+            with contextlib.suppress(OSError, ValueError):
+                Status(run_dir).finish("failed", [f"Couldn't start the runner: {error}"])
         raise
     finally:
         if runner is None:
@@ -615,18 +661,25 @@ def start(args):
     return 0
 
 
+PUBLISH_HINT = "The release may be partly published; `make ship` again repairs or reuses it."
+
+
 def run_release(args):
     run_dir = Path(args.run_dir)
     request = json.loads((run_dir / "request.json").read_text())
     status = Status(run_dir)
     run_id = status.data["run"]
-    tracker = PhaseTracker(status)
+    token = secrets.token_hex(8)
+    tracker = PhaseTracker(status, token)
     lock = ShipLock(request["lock"])
     lock.hand_over(os.getpid(), run_id)
     process = None
 
     def stop(signum, _frame):
         raise SystemExit(f"Stopped by signal {signum}.")
+
+    def failure(error):
+        return error + ([PUBLISH_HINT] if status.data["phase"] == "publish" else [])
 
     previous = {signum: signal.signal(signum, stop) for signum in (signal.SIGTERM, signal.SIGHUP)}
     try:
@@ -642,7 +695,7 @@ def run_release(args):
             # Its own process group, so stopping the release stops everything it started.
             process = subprocess.Popen(release_command, cwd=request["worktree"], stdout=subprocess.PIPE,
                                        stderr=subprocess.STDOUT, text=True, errors="replace", bufsize=1,
-                                       start_new_session=True)
+                                       start_new_session=True, env=dict(os.environ, WINMUX_SHIP_TOKEN=token))
             status.update(child=process.pid)
             try:
                 for line in process.stdout:
@@ -652,8 +705,11 @@ def run_release(args):
                 code = process.wait()
             finally:
                 process.stdout.close()
+        if group_alive(process.pid):
+            stop_process_group(process, grace=5)  # Something the release started outlived it.
+        status.update(child=None)
         if code:
-            status.finish("failed", error_excerpt(tracker.recent))
+            status.finish("failed", failure(error_excerpt(tracker.recent)))
         elif not status.data["tag"]:
             status.finish("failed", ["The release ended without reporting its tag."] + error_excerpt(tracker.recent))
         else:
@@ -661,63 +717,94 @@ def run_release(args):
             status.update(url=status.data["url"] or f"https://github.com/{preview.REPOSITORY}/releases/tag/{tag}")
             tracker.enter("verify")
             checks = verify_release(tag, request["commit"], Path(request["worktree"]) / ".local/prereleases" / tag)
-            status.finish("succeeded" if all(check["ok"] for check in checks) else "unverified", checks=checks)
+            release = next((check for check in checks if check["name"] == "release"), None)
+            if release and not release["ok"] and not release.get("unreachable"):
+                state = "failed"  # GitHub says it isn't a published prerelease.
+            else:
+                state = "succeeded" if all(check["ok"] for check in checks) else "unverified"
+            status.finish(state, checks=checks)
     except BaseException as error:
-        if process and process.poll() is None:
+        if process and (process.poll() is None or group_alive(process.pid)):
             stop_process_group(process)
-        reason = [str(error) or type(error).__name__]
-        if status.data["phase"] == "publish":
-            reason.append("The release may be partly published; `make ship` again repairs or reuses it.")
+        if process:
+            status.update(child=None)
         published = status.data["phase"] == "verify"
-        status.finish("unverified" if published else "failed", reason + error_excerpt(tracker.recent)[-4:])
+        status.finish("unverified" if published else "failed",
+                      failure([str(error) or type(error).__name__]) + error_excerpt(tracker.recent)[-4:])
     finally:
         for signum, handler in previous.items():
             signal.signal(signum, handler)
         summary = summarize(status.data)
         (run_dir / "summary.txt").write_text(summary)
+        # The worktree is free now; the notification doesn't need it.
+        lock.release(run_id)
         try:
             notify(status.data, summary, request["settings"])
         except (OSError, subprocess.SubprocessError):
             pass
-        lock.release(run_id)
     return EXIT_CODES.get(status.data["state"], 1)
+
+
+def runner_alive(run_dir, data):
+    """Whether the run's runner is alive: True or False when that's known, None just after the
+    start, before the runner or the lock recorded anything."""
+    if pid_alive(data.get("pid")):
+        return True
+    try:
+        owner = ShipLock(json.loads((run_dir / "request.json").read_text())["lock"]).owner()
+    except (OSError, ValueError, KeyError):
+        owner = None
+    if owner and owner.get("run") == run_dir.name:
+        return pid_alive(owner.get("pid"))  # The starter hands the lock to the runner's pid.
+    if data.get("pid") is not None:
+        return False
+    return False if time.time() - data["started"] > 60 else None
 
 
 def wait(args, sleep=time.sleep, clock=time.monotonic):
     settings = load_settings() if args.settings is None else args.settings
     run_dir = find_run(settings, args.run)
     deadline = clock() + args.timeout * 60
-    announced = False
+    announced = set()
+
+    def announce(key, message):
+        if key not in announced:
+            print(message, flush=True)
+            announced.add(key)
+
     while True:
         data = json.loads((run_dir / "status.json").read_text())
+        child = data.get("child")
         if data["state"] in TERMINAL:
+            # A dead runner's build may still be running; the next release waits for it too.
+            if group_alive(child):
+                if clock() >= deadline:
+                    print(f"The release ended ({data['state']}), but its build (process group {child}) is still "
+                          f"running; wait again with `make ship-wait` or stop it with `kill -TERM -{child}`.")
+                    return 2
+                announce("group", f"Waiting for the stopped release's build (process group {child}) to end...")
+                sleep(args.interval)
+                continue
             summary = run_dir / "summary.txt"
             print(summary.read_text() if summary.exists() else summarize(data), end="")
             return EXIT_CODES[data["state"]]
-        runner = data.get("pid")
-        stalled = runner is None and time.time() - data["started"] > 60
-        if stalled or (runner is not None and not pid_alive(runner)):
+        if runner_alive(run_dir, data) is False:
             status = Status(run_dir)
-            if status.data["state"] in TERMINAL:
+            if status.data["state"] in TERMINAL or runner_alive(run_dir, status.data) is not False:
                 continue
             # Record it, so status and the next release see the run as over.
             error = ["The release runner stopped without finishing."]
             error += error_excerpt(log_tail(data["log"], run_dir / "runner.log"))
             if group_alive(status.data.get("child")):
-                error.append(f"Its build (process group {status.data['child']}) is still running; "
-                             "the next release waits until it ends.")
+                error.append(f"Its build (process group {status.data['child']}) was still running then.")
             status.finish("failed", error)
-            summary = summarize(status.data)
-            (run_dir / "summary.txt").write_text(summary)
-            print(summary, end="")
-            return 1
+            (run_dir / "summary.txt").write_text(summarize(status.data))
+            continue
         if clock() >= deadline:
             elapsed = duration(time.time() - data["started"])
             print(f"Still running: {data['phase']} after {elapsed} (run {run_dir.name}); wait again with `make ship-wait`.")
             return 2
-        if not announced:
-            print(f"Waiting for release {run_dir.name} ({data['phase']})...", flush=True)
-            announced = True
+        announce("run", f"Waiting for release {run_dir.name} ({data['phase']})...")
         sleep(args.interval)
 
 

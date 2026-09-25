@@ -108,7 +108,9 @@ changes other than version stamps left by a stopped release, which it restores a
 with a stopped release's `.local/prerelease.lock`. It keeps its own build caches, so
 its first release is a cold build and later ones are incremental. Other checkouts
 and the sessions working in them are not touched. A new release waits until every
-process of the previous one, including a killed runner's build, has ended.
+process of the previous one, including a killed runner's build, has ended; its error
+says which process and how to wait for or stop it. A lock written before the Mac last
+started is ignored.
 
 Local previews normally come from a checked-out integration branch. The release
 worktree is detached instead and names its branch in `RELEASE_BRANCH`, which is
