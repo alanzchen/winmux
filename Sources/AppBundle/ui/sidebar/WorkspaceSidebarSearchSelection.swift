@@ -12,7 +12,8 @@ func workspaceSidebarSearchSelections(
                 case .window(let window):
                     return [.window(window.windowId)]
                 case .tabGroup(let group):
-                    return (group.searchVisibleTabs ?? group.tabs).map { .window($0.windowId) }
+                    // The same windows the stack renders, in the same order.
+                    return workspaceSidebarTabGroupWindows(group).map { .window($0.windowId) }
             }
         }
         return itemSelections.isEmpty ? [.workspace(workspace.name)] : itemSelections

@@ -65,6 +65,76 @@ final class WorkspaceSidebarTabsModeTest: XCTestCase {
         XCTAssertEqual(rows, [.window(window(4, "Notes", focused: true), isGroupChild: false)])
     }
 
+    func testSearchFindsEveryStackWindowAndKeyboardOrderMatchesTheRows() throws {
+        // Tab 5 is a split whose second window, 7, has no tab of its own.
+        let stack = WorkspaceSidebarTabGroupViewModel(representativeWindowId: 5, workspaceName: "1", title: "Research",
+            windowCount: 3, isFocused: false,
+            tabs: [window(5, "Dia browser review", focused: false), window(6, "Arc spaces", focused: false)],
+            allWindows: [window(5, "Dia browser review", focused: false), window(6, "Arc spaces", focused: false),
+                         window(7, "Volcanic islands", focused: false, app: "Preview", bundleId: "com.apple.Preview")])
+        let workspace = tabsWorkspace("1", displayName: "Planning", windows: [window(1, "Inbox", focused: false)], group: stack)
+        let byProject = [workspaceProjectDefaultId: [workspace]]
+        let projects = [WorkspaceSidebarProjectViewModel(id: workspaceProjectDefaultId, displayName: "Research", colorHex: nil)]
+
+        let nested = try XCTUnwrap(workspaceSidebarFilteredWorkspacesByProject(byProject, projects: projects,
+            query: "volcanic")[workspaceProjectDefaultId]?.first)
+        XCTAssertEqual(workspaceSidebarTabRows(for: nested, isCollapsed: false, isSearching: true).map(\.id),
+            ["group:5", "window:7"], "A window inside a split is found by its own title")
+
+        let byWorkspaceName = try XCTUnwrap(workspaceSidebarFilteredWorkspacesByProject(byProject, projects: projects,
+            query: "planning")[workspaceProjectDefaultId]?.first)
+        let rows = workspaceSidebarTabRows(for: byWorkspaceName, isCollapsed: false, isSearching: true)
+        XCTAssertEqual(rows.map(\.id), ["window:1", "group:5", "window:5", "window:6", "window:7"],
+            "A workspace match keeps every window of its stacks")
+        let renderedWindows: [WorkspaceSidebarSearchSelection] = rows.compactMap {
+            if case .window(let window, _) = $0 { return .window(window.windowId) }
+            return nil
+        }
+        XCTAssertEqual(workspaceSidebarSearchSelections(workspaces: [byWorkspaceName]), renderedWindows,
+            "Arrow keys walk the same windows, in the same order, as the list shows")
+    }
+
+    func testActivationFollowsTheSidebarRules() {
+        var sent: [WorkspaceSidebarAction] = []
+        var overrides = 0
+        func activation(allows: Bool, inUse: Bool) -> WorkspaceSidebarTabActivation {
+            WorkspaceSidebarTabActivation(allowsActivation: allows, isInUseOnOtherDisplay: inUse,
+                requestOverride: { overrides += 1 })
+        }
+        activation(allows: true, inUse: false).select(.selectWindow(1)) { sent.append($0) }
+        XCTAssertEqual(sent, [.selectWindow(1)])
+        activation(allows: false, inUse: false).select(.selectWindow(2)) { sent.append($0) }
+        XCTAssertEqual(sent, [.selectWindow(1)], "A browsed or pinned folder isn't activated from its rows")
+        activation(allows: true, inUse: true).select(.selectWorkspace("3")) { sent.append($0) }
+        XCTAssertEqual(sent, [.selectWindow(1)])
+        XCTAssertEqual(overrides, 1, "A workspace shown on another display asks before taking it over")
+    }
+
+    func testCollapsedFoldersForgetDeletedWorkspacesAndFocusedRowsAreFound() {
+        XCTAssertEqual(workspaceSidebarPrunedCollapsedFolders(["1", "gone"], workspaceNames: ["1", "2"]), ["1"])
+        let workspace = tabsWorkspace("1", windows: [window(1, "A", focused: false)],
+            group: group(representative: 3, windows: [window(3, "B", focused: false), window(4, "C", focused: true)]))
+        XCTAssertEqual(workspaceSidebarFocusedTabRowId(in: workspace), "window:4")
+        XCTAssertNil(workspaceSidebarFocusedTabRowId(in: tabsWorkspace("2", windows: [window(9, "D", focused: false)])))
+    }
+
+    func testAFolderWithHundredsOfWindowsRendersEveryRowQuickly() throws {
+        var fixture = tabsSnapshot()
+        let windows = (1...300).map { index in
+            window(UInt32(1000 + index), "Window \(index)", focused: index == 150)
+        }
+        fixture.workspaces = [tabsWorkspace("1", displayName: "Big", windows: windows, isVisible: true)]
+        let view = WorkspaceSidebarView(snapshot: fixture, reduceMotionOverride: true, reduceTransparencyOverride: true)
+        let started = Date()
+        let host = NSHostingView(rootView: view.sidebarContent(expansionProgress: 1, layout: fixture.configuration)
+            .coordinateSpace(name: "workspaceSidebarContent")
+            .frame(width: 280, height: 620))
+        host.frame = CGRect(x: 0, y: 0, width: 280, height: 620)
+        host.layoutSubtreeIfNeeded()
+        XCTAssertLessThan(Date().timeIntervalSince(started), 5, "Laying out 300 tabs stays interactive")
+        XCTAssertEqual(workspaceSidebarTabRows(for: fixture.workspaces[0], isCollapsed: false, isSearching: false).count, 300)
+    }
+
     func testStacksListEveryWindowIncludingSplitsInsideATab() async {
         setUpWorkspacesForTests()
         config.workspaceSidebar.mode = .tabs

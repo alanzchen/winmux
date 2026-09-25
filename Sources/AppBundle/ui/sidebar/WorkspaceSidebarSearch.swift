@@ -81,7 +81,9 @@ private func workspaceSidebarSearchResultItem(
             }
             return nil
         case .tabGroup(let group):
-            let matchingTabs = group.tabs.filter { tab in
+            // Tabs mode lists every window of the stack, so search every window it can show.
+            let searchable = group.allWindows.isEmpty ? group.tabs : group.allWindows
+            let matchingTabs = searchable.filter { tab in
                 workspaceSidebarSearchTextMatches(
                     [tab.title, tab.appName, tab.appBundleId, workspaceSidebarSearchableBundleName(tab.appBundlePath),
                      workspace.displayName, workspace.name, projectName],
@@ -97,6 +99,7 @@ private func workspaceSidebarSearchResultItem(
                     isFocused: group.isFocused,
                     tabs: group.tabs,
                     searchVisibleTabs: matchingTabs,
+                    allWindows: group.allWindows,
                 )))
             }
             guard workspaceSidebarSearchTextMatches(
@@ -118,6 +121,7 @@ private func workspaceSidebarSearchResultItem(
                 isFocused: group.isFocused,
                 tabs: group.tabs,
                 searchVisibleTabs: [],
+                allWindows: group.allWindows,
             )))
     }
 }

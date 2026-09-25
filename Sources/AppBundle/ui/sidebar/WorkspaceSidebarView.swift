@@ -241,6 +241,8 @@ struct WorkspaceSidebarView: View {
             activeInUseOverrideWorkspaceName = nil
         }
         .onChange(of: snapshot.workspaces) { workspaces in
+            let prunedFolders = workspaceSidebarPrunedCollapsedFolders(collapsedTabFolderNames, workspaceNames: workspaces.map(\.name))
+            if prunedFolders != collapsedTabFolderNames { collapsedTabFolderNames = prunedFolders }
             if let name = activeInUseOverrideWorkspaceName,
                !workspaces.contains(where: { $0.name == name }) {
                 activeInUseOverrideWorkspaceName = nil
@@ -961,6 +963,10 @@ extension WorkspaceSidebarView {
                     reduceTransparencyOverride: reduceSidebarTransparency)
                     .opacity(Double(dockSurfaceProgress))
             }
+            if snapshot.configuration.usesTabsList {
+                // Like a Dia space, the panel takes on the current project's color.
+                shape.fill(projectColor(snapshot.activeProjectId).opacity(0.14))
+            }
         }
         // This panel has no safe-area inset. Expanding the material here gives the native
         // glass backing layer a rectangular area outside the rounded trailing corners.
@@ -1106,7 +1112,8 @@ extension WorkspaceSidebarView {
         if layout.usesTabsList, expansionProgress >= workspaceSidebarRowsRevealProgress {
             tabsWorkspacePage(layout: layout, projectId: projectId, workspaces: workspaces,
                 leadingInset: leadingInset, trailingInset: trailingInset, topPadding: topPadding,
-                showsPinnedActiveWorkspace: showsPinnedActiveWorkspace, showsCreateWorkspace: showsCreateWorkspace)
+                showsPinnedActiveWorkspace: showsPinnedActiveWorkspace, showsCreateWorkspace: showsCreateWorkspace,
+                allowsActivation: allowsActivation)
         } else {
             sectionsWorkspacePage(layout: layout, projectId: projectId, workspaces: workspaces,
                 expansionProgress: expansionProgress, leadingInset: leadingInset, trailingInset: trailingInset,
@@ -1381,11 +1388,11 @@ extension WorkspaceSidebarView {
         snapshot.projects.first { $0.id == projectId }?.colorHex
     }
 
-    private func projectName(_ projectId: WorkspaceProjectId) -> String {
+    func projectName(_ projectId: WorkspaceProjectId) -> String {
         snapshot.projects.first { $0.id == projectId }?.displayName ?? "Project"
     }
 
-    private func projectColor(_ projectId: WorkspaceProjectId) -> Color {
+    func projectColor(_ projectId: WorkspaceProjectId) -> Color {
         workspaceSidebarProjectColor(projectId: projectId, configuredHex: projectColorHex(projectId))
     }
 
