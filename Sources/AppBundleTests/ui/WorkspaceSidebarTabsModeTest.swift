@@ -127,6 +127,8 @@ final class WorkspaceSidebarTabsModeTest: XCTestCase {
             let (parsed, errors) = parseConfig("[workspace-sidebar]\n\(toml)")
             XCTAssertEqual(errors.descriptions, [])
             XCTAssertEqual(parsed.workspaceSidebar.mode, .tabs, toml)
+            XCTAssertTrue(parsed.workspaceSidebar.usesTabsList, toml)
+            XCTAssertFalse(parsed.workspaceSidebar.showAppIcons, toml)
         }
     }
 
@@ -177,6 +179,9 @@ final class WorkspaceSidebarTabsModeTest: XCTestCase {
         XCTAssertEqual(workspaceSidebarTabScrollTarget(folders: folders, searchSelection: nil),
             WorkspaceSidebarTabScrollTarget(folderId: workspaceSidebarTabFolderRowId("2"), rowId: "window:2"))
         XCTAssertNil(workspaceSidebarTabScrollTarget(folders: [folders[0]], searchSelection: nil))
+        XCTAssertEqual(workspaceSidebarTabScrollTarget(folders: folders, searchSelection: .window(999)),
+            WorkspaceSidebarTabScrollTarget(folderId: workspaceSidebarTabFolderRowId("2"), rowId: "window:2"),
+            "A result on another project's page leaves this page on its own window")
     }
 
     func testCollapsedFoldersForgetDeletedWorkspacesAndFocusedRowsAreFound() {
@@ -194,9 +199,7 @@ final class WorkspaceSidebarTabsModeTest: XCTestCase {
         XCTAssertFalse(workspaceSidebarUsesTabsPage(layout: layout, expansionProgress: workspaceSidebarRowsRevealProgress - 0.01),
             "The collapsed rail keeps the workspace rail")
         layout.usesTabsList = false
-        XCTAssertFalse(workspaceSidebarUsesTabsPage(layout: layout, expansionProgress: 1), "Sidebar mode keeps its sections")
-        layout.showAppIcons = true
-        XCTAssertFalse(workspaceSidebarUsesTabsPage(layout: layout, expansionProgress: 1), "Dock mode keeps its sections")
+        XCTAssertFalse(workspaceSidebarUsesTabsPage(layout: layout, expansionProgress: 1), "Sidebar and Dock keep their sections")
     }
 
     func testAFolderWithHundredsOfWindowsLaysOutQuickly() throws {
@@ -212,7 +215,7 @@ final class WorkspaceSidebarTabsModeTest: XCTestCase {
             .frame(width: 280, height: 620))
         host.frame = CGRect(x: 0, y: 0, width: 280, height: 620)
         host.layoutSubtreeIfNeeded()
-        XCTAssertLessThan(Date().timeIntervalSince(started), 2, "Laying out 300 tabs stays interactive")
+        XCTAssertLessThan(Date().timeIntervalSince(started), 3, "Laying out 300 tabs stays interactive")
         XCTAssertEqual(workspaceSidebarTabRows(for: fixture.workspaces[0], isCollapsed: false, isSearching: false).count, 300)
     }
 

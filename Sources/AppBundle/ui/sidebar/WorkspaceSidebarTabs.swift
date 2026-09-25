@@ -375,6 +375,7 @@ struct WorkspaceSidebarTabFolderView: View {
             // stays, so titles don't move when a search starts.
             if isSearching {
                 Color.clear.frame(width: 16, height: workspaceSidebarTabFolderHeaderHeight)
+                    .allowsHitTesting(false)
             } else {
                 Button(action: onToggleCollapsed) {
                     Image(systemName: "chevron.right")
@@ -522,13 +523,15 @@ extension WorkspaceSidebarView {
             focusedScopeId: snapshot.focusedMonitorScopeId,
         )
         return GeometryReader { viewport in
+            // Measured once per page: every folder shares the width.
+            let overrideMinHeight = workspaceSidebarInUseOverrideMinHeight(sectionWidth: viewport.size.width - leadingInset - trailingInset)
             ScrollViewReader { proxy in
                 ScrollView(.vertical, showsIndicators: false) {
                     LazyVStack(alignment: .leading, spacing: 8) {
                         ForEach(folders) { workspace in
                             tabFolder(workspace, isPinned: workspace.id == pinnedWorkspace?.id,
                                 projectId: projectId, pageAllowsActivation: pageAllowsActivation, isSearching: isSearching,
-                                folderWidth: viewport.size.width - leadingInset - trailingInset)
+                                overrideMinHeight: overrideMinHeight)
                                 .id(workspaceSidebarTabFolderRowId(workspace.name))
                         }
                         if showsCreateWorkspace && workspaceSidebarShowsCreateWorkspace(selectedScopeId: snapshot.selectedMonitorScopeId) {
@@ -568,7 +571,7 @@ extension WorkspaceSidebarView {
         projectId: WorkspaceProjectId,
         pageAllowsActivation: Bool,
         isSearching: Bool,
-        folderWidth: CGFloat,
+        overrideMinHeight: CGFloat,
     ) -> WorkspaceSidebarTabFolderView {
         let isCollapsed = collapsedTabFolderNames.contains(workspace.name)
         // The pinned active workspace is already in use: its header does nothing, as in the Sidebar.
@@ -597,7 +600,7 @@ extension WorkspaceSidebarView {
                 dismissOverride: { activeInUseOverrideWorkspaceName = nil },
             ),
             isShowingOverride: isInUseOnOtherDisplay && activeInUseOverrideWorkspaceName == workspace.name,
-            overrideMinHeight: workspaceSidebarInUseOverrideMinHeight(sectionWidth: folderWidth),
+            overrideMinHeight: overrideMinHeight,
             projectContext: showsProjectContext
                 ? (projectName(contextProjectId), projectColor(contextProjectId))
                 : nil,
@@ -657,9 +660,11 @@ func workspaceSidebarTabScrollTarget(
         case .workspace(let name):
             return WorkspaceSidebarTabScrollTarget(folderId: workspaceSidebarTabFolderRowId(name), rowId: nil)
         case .window(let windowId):
-            let rowId = "window:\(windowId)"
-            guard let folder = folders.first(where: { workspaceSidebarTabWindowIds(in: $0).contains(windowId) }) else { return nil }
-            return WorkspaceSidebarTabScrollTarget(folderId: workspaceSidebarTabFolderRowId(folder.name), rowId: rowId)
+            if let folder = folders.first(where: { workspaceSidebarTabWindowIds(in: $0).contains(windowId) }) {
+                return WorkspaceSidebarTabScrollTarget(folderId: workspaceSidebarTabFolderRowId(folder.name), rowId: "window:\(windowId)")
+            }
+            // The selected result is on another project's page; this page keeps its own window in view.
+            return workspaceSidebarTabScrollTarget(folders: folders, searchSelection: nil)
         case nil:
             for folder in folders {
                 if let rowId = workspaceSidebarFocusedTabRowId(in: folder) {
