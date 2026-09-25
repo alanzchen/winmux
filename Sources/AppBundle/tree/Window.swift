@@ -87,8 +87,8 @@ open class Window: TreeNode, Hashable {
     @MainActor
     func closeAxWindow() { die("Not implemented") }
 
-    /// When WinMux first saw the window, on the monotonic clock so sleep or a clock change
-    /// can't age it. Tests set it to model an older window.
+    /// When WinMux first saw the window, on the monotonic clock so a clock change can't age
+    /// it. Time asleep doesn't count. Tests set it to model an older window.
     @MainActor var firstSeenUptime = ProcessInfo.processInfo.systemUptime
     /// A window already open at startup or put back by a restore.
     @MainActor var wasFirstSeenDuringStartupOrRestored: Bool { false }

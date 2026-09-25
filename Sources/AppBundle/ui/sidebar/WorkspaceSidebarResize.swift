@@ -105,9 +105,10 @@ extension WorkspaceSidebarPanel {
     func cancelSidebarResize() {
         // Drop the dragged width's pending refresh rather than running it here.
         guard let session = finishSidebarResizeSession(keepingPendingRefresh: false) else { return }
-        guard config.workspaceSidebar.width == session.lastAppliedWidth,
-              session.lastAppliedWidth != session.startWidth else { return }
-        config.workspaceSidebar.width = session.startWidth
+        if config.workspaceSidebar.width == session.lastAppliedWidth, session.lastAppliedWidth != session.startWidth {
+            config.workspaceSidebar.width = session.startWidth
+        }
+        // Either the restored width or the dropped refresh still has to reach panels and tiles.
         DispatchQueue.main.async {
             WorkspaceSidebarPanel.refreshAll()
             if isWinMuxRuntimeReady { scheduleRefreshSession(.onSidebarResized) }
@@ -270,8 +271,8 @@ final class WorkspaceSidebarResizeHandleView: NSView {
     weak var panel: WorkspaceSidebarPanel?
     var isResizing = false {
         didSet {
-            // Hover isn't tracked during the drag, and a drag that ended elsewhere leaves no
-            // mouse-up here, so check where the pointer is now.
+            // A drag that ends over another app, or by cancelling, sends no exit or mouse-up
+            // here, so check where the pointer is now.
             if oldValue, !isResizing { isHovered = isPointerInside() }
             if oldValue, !isResizing, !isHovered { releaseResizeCursor() }
             updateIndicator()
@@ -342,7 +343,7 @@ final class WorkspaceSidebarResizeHandleView: NSView {
     }
 
     private func isPointerInside() -> Bool {
-        guard let window, !isHidden else { return false }
+        guard let window, window.isVisible, !isHiddenOrHasHiddenAncestor else { return false }
         return bounds.contains(convert(window.mouseLocationOutsideOfEventStream, from: nil))
     }
 
@@ -389,10 +390,13 @@ final class WorkspaceSidebarResizeHandleView: NSView {
     }
 
     override func mouseUp(with event: NSEvent) {
-        // The panel's mouse-up monitor usually ends the drag first; this is then a no-op.
-        panel?.endSidebarResize()
-        let inside = bounds.contains(convert(event.locationInWindow, from: nil))
-        isHovered = inside
-        if !inside { releaseResizeCursor() }
+        if isResizing {
+            // Ending the drag rechecks hover and the cursor.
+            panel?.endSidebarResize()
+            return
+        }
+        // A click that never started a drag, or one the panel's mouse-up monitor already ended.
+        isHovered = bounds.contains(convert(event.locationInWindow, from: nil))
+        if !isHovered { releaseResizeCursor() }
     }
 }

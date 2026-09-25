@@ -110,6 +110,21 @@ final class WorkspaceSidebarResizeTest: XCTestCase {
         }
     }
 
+    func testCancellingAfterReturningToTheStartWidthStillRefreshes() async throws {
+        try await withAlwaysExpandedPanel { panel in
+            XCTAssertTrue(panel.beginSidebarResize(atScreenX: 500))
+            panel.updateSidebarResize(toScreenX: 560)
+            XCTAssertEqual(panel.viewModel.workspaceSidebarVisibleWidth, 300)
+            // Within the throttle interval, so this width only waits in the throttle.
+            panel.updateSidebarResize(toScreenX: 500)
+            panel.cancelSidebarResize()
+            XCTAssertEqual(config.workspaceSidebar.width, 240)
+            // The deferred refresh runs on the next turn of the main queue.
+            try await Task.sleep(for: .milliseconds(50))
+            XCTAssertEqual(panel.viewModel.workspaceSidebarVisibleWidth, 240, "The panel must not stay at the dropped width")
+        }
+    }
+
     func testAReloadDuringTheDragIsNotOverwrittenByCancelling() async throws {
         try await withAlwaysExpandedPanel { panel in
             XCTAssertTrue(panel.beginSidebarResize(atScreenX: 500))
