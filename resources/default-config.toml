@@ -21,6 +21,8 @@ enable-shake-to-toggle-tiling = true
 # Middle-click a window tab, or a window in the expanded sidebar, to close that window.
 middle-click-closes-windows = true
 auto-add-new-windows-to-tab-group = true
+# Give each window you open its own empty workspace in the current project.
+open-new-windows-in-new-workspace = false
 shortcuts-preset = 'none'
 persistent-workspaces = []
 on-mode-changed = []

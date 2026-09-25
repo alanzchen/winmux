@@ -21,7 +21,10 @@ struct PopupWindowPresentationState {
 @MainActor
 func runCallbacksAfterPopupPromotion(_ window: Window, mayPresent: Bool) async throws {
     let focusBeforeCallbacks = focusChangeGeneration
+    let detectedIn = window.nodeWorkspace
     try await tryOnWindowDetected(window)
+    // Only a window the user just opened; not one first seen at startup or restored.
+    moveNewWindowToNewWorkspaceIfNeeded(window, detectedIn: detectedIn, isNewRegularWindow: mayPresent)
     if mayPresent {
         newFloatingWindowPresentation?.recordDetection(
             window,

@@ -128,6 +128,19 @@ WinMux discovers them. You can still tile a window with `winmux layout tiling`.
 The second disables the gesture that toggles floating/tiling when you shake a
 window by its title bar. Omit it to keep the gesture enabled.
 
+## Open each new window in its own workspace
+
+```toml
+open-new-windows-in-new-workspace = true
+```
+
+A window you open moves to an empty workspace in the current project, on the same
+display. The app normally focuses its new window, so WinMux switches to that workspace.
+A window that opens into an empty workspace stays there. Dialogs, popups, windows
+already open when WinMux starts, restored windows, windows claimed by saved workspaces,
+and windows that `[[on-window-detected]]` rules move all keep their place. This option
+takes precedence over `auto-add-new-windows-to-tab-group`.
+
 ## Close windows with a middle click
 
 Middle-click a window tab, or a window in the expanded sidebar, to close that window.

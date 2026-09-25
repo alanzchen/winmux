@@ -16,7 +16,9 @@ func restoreOrDetectNewWindow(_ window: Window, isRegularWindow: Bool) async thr
         broadcastWindowDetected(window)
         return true
     }
+    let detectedIn = window.nodeWorkspace
     try await tryOnWindowDetected(window)
+    moveNewWindowToNewWorkspaceIfNeeded(window, detectedIn: detectedIn, isNewRegularWindow: isRegularWindow)
     return false
 }
 

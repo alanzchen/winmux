@@ -45,6 +45,7 @@ struct Config: ConvenienceCopyable {
     var autoReloadConfig: Bool = false
     var automaticallyUnhideMacosHiddenApps: Bool = false
     var automaticallyTileNewWindows: Bool = true
+    var openNewWindowsInNewWorkspace: Bool = false
     var enableShakeToToggleTiling: Bool = true
     /// Middle-clicking a window tab or an expanded sidebar row closes that window.
     var middleClickClosesWindows: Bool = true
