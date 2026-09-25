@@ -241,8 +241,10 @@ struct WorkspaceSidebarView: View {
             activeInUseOverrideWorkspaceName = nil
         }
         .onChange(of: snapshot.workspaces) { workspaces in
-            let prunedFolders = workspaceSidebarPrunedCollapsedFolders(collapsedTabFolderNames, workspaceNames: workspaces.map(\.name))
-            if prunedFolders != collapsedTabFolderNames { collapsedTabFolderNames = prunedFolders }
+            if !collapsedTabFolderNames.isEmpty {
+                let prunedFolders = workspaceSidebarPrunedCollapsedFolders(collapsedTabFolderNames, workspaceNames: workspaces.map(\.name))
+                if prunedFolders != collapsedTabFolderNames { collapsedTabFolderNames = prunedFolders }
+            }
             if let name = activeInUseOverrideWorkspaceName,
                !workspaces.contains(where: { $0.name == name }) {
                 activeInUseOverrideWorkspaceName = nil
@@ -1109,7 +1111,7 @@ extension WorkspaceSidebarView {
         showsCreateWorkspace: Bool = true,
         allowsActivation: Bool? = nil,
     ) -> some View {
-        if layout.usesTabsList, expansionProgress >= workspaceSidebarRowsRevealProgress {
+        if workspaceSidebarUsesTabsPage(layout: layout, expansionProgress: expansionProgress) {
             tabsWorkspacePage(layout: layout, projectId: projectId, workspaces: workspaces,
                 leadingInset: leadingInset, trailingInset: trailingInset, topPadding: topPadding,
                 showsPinnedActiveWorkspace: showsPinnedActiveWorkspace, showsCreateWorkspace: showsCreateWorkspace,

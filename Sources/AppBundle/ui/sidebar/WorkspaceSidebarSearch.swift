@@ -120,7 +120,9 @@ private func workspaceSidebarSearchResultItem(
                 windowCount: group.windowCount,
                 isFocused: group.isFocused,
                 tabs: group.tabs,
-                searchVisibleTabs: [],
+                // A stack found by its title: the Sidebar shows its header alone, while Tabs
+                // mode lists windows and shows all of them.
+                searchVisibleTabs: group.allWindows,
                 allWindows: group.allWindows,
             )))
     }

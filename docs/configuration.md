@@ -55,7 +55,9 @@ always-expanded = true
 ```
 
 - Each window is a tab showing its app icon and title. Click a tab to switch to that
-  window, even on another workspace. The focused window is highlighted.
+  window, even on another workspace. The focused window is highlighted. As in the
+  Sidebar, tabs of a project you are only browsing don't switch, and a workspace shown
+  on another display asks before it moves to this one.
 - Hover a tab and click **×**, or middle-click it, to close the window.
 - Workspaces are folders. Click the chevron to collapse one; a collapsed folder still
   shows the window you are using, and a search shows every match. Click a folder's name

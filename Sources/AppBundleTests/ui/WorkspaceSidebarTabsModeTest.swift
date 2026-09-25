@@ -106,16 +106,77 @@ final class WorkspaceSidebarTabsModeTest: XCTestCase {
         activation(allows: false, inUse: false).select(.selectWindow(2)) { sent.append($0) }
         XCTAssertEqual(sent, [.selectWindow(1)], "A browsed or pinned folder isn't activated from its rows")
         activation(allows: true, inUse: true).select(.selectWorkspace("3")) { sent.append($0) }
-        XCTAssertEqual(sent, [.selectWindow(1)])
-        XCTAssertEqual(overrides, 1, "A workspace shown on another display asks before taking it over")
+        XCTAssertEqual(sent, [.selectWindow(1), .expandForWorkspaceOverride],
+            "A workspace shown on another display asks first, with the panel fully open to read the prompt")
+        XCTAssertEqual(overrides, 1)
+
+        var dismissed = 0
+        WorkspaceSidebarTabActivation(allowsActivation: true, isInUseOnOtherDisplay: false, requestOverride: {},
+            dismissOverride: { dismissed += 1 }).select(.selectWindow(4)) { sent.append($0) }
+        XCTAssertEqual(dismissed, 1, "Switching elsewhere dismisses a prompt left on another folder")
+
+        beginWorkspaceSidebarItemDrag()
+        defer { endWorkspaceSidebarItemDrag() }
+        let before = sent
+        activation(allows: true, inUse: false).select(.selectWindow(5)) { sent.append($0) }
+        XCTAssertEqual(sent, before, "Releasing a drag never activates the row under the pointer")
+    }
+
+    func testTabsModeWinsOverLegacyShowAppIconsInEitherOrder() {
+        for toml in ["mode = 'tabs'\nshow-app-icons = false", "show-app-icons = true\nmode = 'tabs'"] {
+            let (parsed, errors) = parseConfig("[workspace-sidebar]\n\(toml)")
+            XCTAssertEqual(errors.descriptions, [])
+            XCTAssertEqual(parsed.workspaceSidebar.mode, .tabs, toml)
+        }
+    }
+
+    func testStackTitleSearchShowsItsWindowsInTabsModeOnly() throws {
+        let tabs = [window(5, "Paper", focused: false), window(6, "Notes", focused: false)]
+        func workspace(allWindows: [WorkspaceSidebarWindowViewModel]) -> WorkspaceSidebarWorkspaceViewModel {
+            // The stack's title matches nothing in its windows' own fields.
+            let stack = WorkspaceSidebarTabGroupViewModel(representativeWindowId: 5, workspaceName: "1", title: "Thesis stack",
+                windowCount: 2, isFocused: false, tabs: tabs, allWindows: allWindows)
+            return tabsWorkspace("1", displayName: "Planning", windows: [], group: stack)
+        }
+        let projects = [WorkspaceSidebarProjectViewModel(id: workspaceProjectDefaultId, displayName: "Research", colorHex: nil)]
+        func filtered(_ workspace: WorkspaceSidebarWorkspaceViewModel) throws -> WorkspaceSidebarWorkspaceViewModel {
+            try XCTUnwrap(workspaceSidebarFilteredWorkspacesByProject([workspaceProjectDefaultId: [workspace]],
+                projects: projects, query: "thesis")[workspaceProjectDefaultId]?.first)
+        }
+        let tabsResult = try filtered(workspace(allWindows: tabs))
+        XCTAssertEqual(workspaceSidebarTabRows(for: tabsResult, isCollapsed: false, isSearching: true).map(\.id),
+            ["group:5", "window:5", "window:6"])
+        XCTAssertEqual(workspaceSidebarSearchSelections(workspaces: [tabsResult]), [.window(5), .window(6)])
+
+        guard case .tabGroup(let sidebarGroup) = try filtered(workspace(allWindows: [])).items.first?.kind else {
+            return XCTFail("The stack still matches")
+        }
+        XCTAssertEqual(sidebarGroup.searchVisibleTabs, [], "Sidebar mode keeps showing the stack's header alone")
+    }
+
+    func testCountsDuringSearchMatchWhatIsShown() {
+        let stack = WorkspaceSidebarTabGroupViewModel(representativeWindowId: 5, workspaceName: "1", title: "Research",
+            windowCount: 6, isFocused: false, tabs: [window(5, "A", focused: false)],
+            searchVisibleTabs: [window(5, "A", focused: false)], allWindows: [window(5, "A", focused: false)])
+        let workspace = tabsWorkspace("1", windows: [window(1, "B", focused: false)], group: stack)
+        XCTAssertEqual(workspaceSidebarTabWindowCount(workspace, isSearching: true), 2)
+        XCTAssertEqual(workspaceSidebarTabWindowCount(workspace, isSearching: false), 7)
     }
 
     func testSearchSelectionStaysInViewAndOtherwiseTheFocusedWindowDoes() {
-        XCTAssertEqual(workspaceSidebarTabScrollTargetId(searchSelection: .window(7), focusedRowId: "window:1"), "window:7",
-            "Enter activates the selected result, so it must be visible")
-        XCTAssertEqual(workspaceSidebarTabScrollTargetId(searchSelection: .workspace("2"), focusedRowId: "window:1"),
-            workspaceSidebarTabFolderRowId("2"))
-        XCTAssertEqual(workspaceSidebarTabScrollTargetId(searchSelection: nil, focusedRowId: "window:1"), "window:1")
+        let folders = [
+            tabsWorkspace("1", windows: [window(1, "A", focused: false)]),
+            tabsWorkspace("2", windows: [window(2, "B", focused: true)],
+                group: group(representative: 7, windows: [window(7, "C", focused: false), window(8, "D", focused: false)])),
+        ]
+        XCTAssertEqual(workspaceSidebarTabScrollTarget(folders: folders, searchSelection: .window(8)),
+            WorkspaceSidebarTabScrollTarget(folderId: workspaceSidebarTabFolderRowId("2"), rowId: "window:8"),
+            "Enter activates the selected result, so its folder and row must come into view")
+        XCTAssertEqual(workspaceSidebarTabScrollTarget(folders: folders, searchSelection: .workspace("1")),
+            WorkspaceSidebarTabScrollTarget(folderId: workspaceSidebarTabFolderRowId("1"), rowId: nil))
+        XCTAssertEqual(workspaceSidebarTabScrollTarget(folders: folders, searchSelection: nil),
+            WorkspaceSidebarTabScrollTarget(folderId: workspaceSidebarTabFolderRowId("2"), rowId: "window:2"))
+        XCTAssertNil(workspaceSidebarTabScrollTarget(folders: [folders[0]], searchSelection: nil))
     }
 
     func testCollapsedFoldersForgetDeletedWorkspacesAndFocusedRowsAreFound() {
@@ -126,7 +187,19 @@ final class WorkspaceSidebarTabsModeTest: XCTestCase {
         XCTAssertNil(workspaceSidebarFocusedTabRowId(in: tabsWorkspace("2", windows: [window(9, "D", focused: false)])))
     }
 
-    func testAFolderWithHundredsOfWindowsRendersEveryRowQuickly() throws {
+    func testOnlyExpandedTabsModeSwapsTheWorkspacePage() {
+        var layout = tabsSnapshot().configuration
+        XCTAssertTrue(workspaceSidebarUsesTabsPage(layout: layout, expansionProgress: 1))
+        XCTAssertTrue(workspaceSidebarUsesTabsPage(layout: layout, expansionProgress: workspaceSidebarRowsRevealProgress))
+        XCTAssertFalse(workspaceSidebarUsesTabsPage(layout: layout, expansionProgress: workspaceSidebarRowsRevealProgress - 0.01),
+            "The collapsed rail keeps the workspace rail")
+        layout.usesTabsList = false
+        XCTAssertFalse(workspaceSidebarUsesTabsPage(layout: layout, expansionProgress: 1), "Sidebar mode keeps its sections")
+        layout.showAppIcons = true
+        XCTAssertFalse(workspaceSidebarUsesTabsPage(layout: layout, expansionProgress: 1), "Dock mode keeps its sections")
+    }
+
+    func testAFolderWithHundredsOfWindowsLaysOutQuickly() throws {
         var fixture = tabsSnapshot()
         let windows = (1...300).map { index in
             window(UInt32(1000 + index), "Window \(index)", focused: index == 150)
@@ -139,7 +212,7 @@ final class WorkspaceSidebarTabsModeTest: XCTestCase {
             .frame(width: 280, height: 620))
         host.frame = CGRect(x: 0, y: 0, width: 280, height: 620)
         host.layoutSubtreeIfNeeded()
-        XCTAssertLessThan(Date().timeIntervalSince(started), 5, "Laying out 300 tabs stays interactive")
+        XCTAssertLessThan(Date().timeIntervalSince(started), 2, "Laying out 300 tabs stays interactive")
         XCTAssertEqual(workspaceSidebarTabRows(for: fixture.workspaces[0], isCollapsed: false, isSearching: false).count, 300)
     }
 
@@ -193,6 +266,16 @@ final class WorkspaceSidebarTabsModeTest: XCTestCase {
         XCTAssertLessThan(first.frame.maxY, second.frame.minY)
         XCTAssertGreaterThanOrEqual(first.frame.height,
             workspaceSidebarTabFolderHeaderHeight + 3 * workspaceSidebarTabRowHeight, "Every window has a row")
+        // A drop lands where the pointer is: inside folder 2's card, or on the New Workspace row.
+        let surface = host.bounds
+        XCTAssertEqual(workspaceSidebarLocalDropTarget(at: CGPoint(x: second.frame.midX, y: second.frame.maxY - 4),
+            targets: probe.targets, surface: surface)?.kind, .workspace("2"))
+        let newWorkspace = try XCTUnwrap(probe.targets.first { kind in
+            if case .newWorkspace = kind.kind { return true }
+            return false
+        })
+        XCTAssertEqual(workspaceSidebarLocalDropTarget(at: CGPoint(x: newWorkspace.frame.midX, y: newWorkspace.frame.midY),
+            targets: probe.targets, surface: surface)?.kind, newWorkspace.kind)
 
         let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
         host.cacheDisplay(in: host.bounds, to: bitmap)

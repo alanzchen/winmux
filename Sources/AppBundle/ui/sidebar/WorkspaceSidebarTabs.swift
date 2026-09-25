@@ -57,19 +57,26 @@ func workspaceSidebarTabRows(
     return rows
 }
 
-/// Windows a folder holds, counting every window of each stack.
-func workspaceSidebarTabWindowCount(_ workspace: WorkspaceSidebarWorkspaceViewModel) -> Int {
+/// Windows a folder holds, counting every window of each stack. A search counts its matches.
+func workspaceSidebarTabWindowCount(_ workspace: WorkspaceSidebarWorkspaceViewModel, isSearching: Bool = false) -> Int {
     workspace.items.reduce(0) { count, item in
         switch item.kind {
             case .window: count + 1
-            case .tabGroup(let group): count + max(group.windowCount, workspaceSidebarTabGroupWindows(group).count)
+            case .tabGroup(let group): count + workspaceSidebarTabGroupWindowCount(group, isSearching: isSearching)
         }
     }
 }
 
-/// Folders get a stable color of their own, like Dia's tab groups.
+func workspaceSidebarTabGroupWindowCount(_ group: WorkspaceSidebarTabGroupViewModel, isSearching: Bool) -> Int {
+    let windows = workspaceSidebarTabGroupWindows(group)
+    return isSearching ? windows.count : max(group.windowCount, windows.count)
+}
+
+/// Folders get a stable color of their own, like Dia's tab groups. The prefix keeps a
+/// workspace from borrowing the hue of a project with the same id.
 func workspaceSidebarTabFolderColor(_ workspaceName: String) -> Color {
-    Color(hue: workspaceSidebarProjectHue(projectId: WorkspaceProjectId(workspaceName)), saturation: 0.42, brightness: 0.92)
+    Color(hue: workspaceSidebarProjectHue(projectId: WorkspaceProjectId("workspace-folder:\(workspaceName)")),
+        saturation: 0.42, brightness: 0.92)
 }
 
 /// Collapsed folders whose workspace no longer exists, so a new workspace reusing the name
@@ -85,13 +92,18 @@ struct WorkspaceSidebarTabActivation {
     let allowsActivation: Bool
     let isInUseOnOtherDisplay: Bool
     let requestOverride: () -> Void
+    var dismissOverride: () -> Void = {}
 
     func select(_ action: WorkspaceSidebarAction, send: @MainActor (WorkspaceSidebarAction) -> Void) {
         guard allowsActivation, !isWorkspaceSidebarDragInProgress() else { return }
         if isInUseOnOtherDisplay {
             requestOverride()
+            // Keep the panel open at full width so the prompt can be read, as in the Sidebar.
+            send(.expandForWorkspaceOverride)
             return
         }
+        // A prompt left open on another folder no longer applies.
+        dismissOverride()
         send(action)
     }
 }
@@ -99,6 +111,7 @@ struct WorkspaceSidebarTabActivation {
 struct WorkspaceSidebarTabRowView: View {
     let window: WorkspaceSidebarWindowViewModel
     let indent: CGFloat
+    var isInStack = false
     let isSearchSelected: Bool
     let isDragSource: Bool
     let actions: WorkspaceSidebarActions
@@ -109,30 +122,33 @@ struct WorkspaceSidebarTabRowView: View {
     private var isActive: Bool { window.isFocused }
 
     var body: some View {
-        HStack(spacing: 0) {
-            Button(action: onSelect) {
-                HStack(spacing: 9) {
-                    WorkspaceSidebarTabIcon(bundleId: window.appBundleId, bundlePath: window.appBundlePath,
-                        isOnLightBackground: isActive)
-                    Text(title)
-                        .font(.system(size: 13, weight: isActive ? .medium : .regular))
-                        .foregroundStyle(isActive ? Color.black.opacity(0.86) : Color.white.opacity(0.82))
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                    Spacer(minLength: 0)
-                }
-                .padding(.leading, 10 + indent)
-                .frame(maxWidth: .infinity, minHeight: workspaceSidebarTabRowHeight, maxHeight: workspaceSidebarTabRowHeight,
-                    alignment: .leading)
-                .contentShape(Rectangle())
+        Button(action: onSelect) {
+            HStack(spacing: 9) {
+                WorkspaceSidebarTabIcon(bundleId: window.appBundleId, bundlePath: window.appBundlePath,
+                    isOnLightBackground: isActive)
+                Text(title)
+                    .font(.system(size: 13, weight: isActive ? .medium : .regular))
+                    .foregroundStyle(isActive ? Color.black.opacity(0.86) : Color.white.opacity(0.82))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Spacer(minLength: 0)
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("\(title), \(window.appName)")
-            .accessibilityAddTraits(isActive ? .isSelected : [])
-            .accessibilityAction(named: "Close") { close() }
-            .help(window.title.map { "\(window.appName) — \($0)" } ?? window.appName)
-            // A sibling of the row button in a reserved slot: closing never also focuses the
-            // window, and the title doesn't shift when the button appears.
+            .padding(.leading, 10 + indent)
+            // Room for the close button, so the title doesn't shift when it appears.
+            .padding(.trailing, workspaceSidebarTabCloseSlotWidth)
+            .frame(maxWidth: .infinity, minHeight: workspaceSidebarTabRowHeight, maxHeight: workspaceSidebarTabRowHeight,
+                alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(title), \(window.appName)")
+        .accessibilityValue(isInStack ? "In stack" : "")
+        .accessibilityAddTraits(isActive ? .isSelected : [])
+        .accessibilityAction(named: "Close") { close() }
+        .help(window.title.map { "\(window.appName) — \($0)" } ?? window.appName)
+        // Layered over the row button rather than inside it: closing never also focuses the
+        // window, and an unhovered click in this corner still selects the tab.
+        .overlay(alignment: .trailing) {
             Button(action: close) {
                 Image(systemName: "xmark")
                     .font(.system(size: 9, weight: .bold))
@@ -147,9 +163,9 @@ struct WorkspaceSidebarTabRowView: View {
             .buttonStyle(.plain)
             .help("Close Window")
             .accessibilityHidden(true)
+            .frame(width: workspaceSidebarTabCloseSlotWidth)
             .opacity(isHovered ? 1 : 0)
             .allowsHitTesting(isHovered)
-            .frame(width: workspaceSidebarTabCloseSlotWidth)
         }
         .background {
             RoundedRectangle(cornerRadius: workspaceSidebarTabCornerRadius, style: .continuous)
@@ -206,13 +222,15 @@ struct WorkspaceSidebarTabIcon: View {
 
 struct WorkspaceSidebarTabGroupRowView: View {
     let group: WorkspaceSidebarTabGroupViewModel
+    var isSearching = false
+    var isDragSource = false
     let actions: WorkspaceSidebarActions
     let onSelect: () -> Void
     @State private var isHovered = false
 
     var body: some View {
         let windows = workspaceSidebarTabGroupWindows(group)
-        let count = max(group.windowCount, windows.count)
+        let count = workspaceSidebarTabGroupWindowCount(group, isSearching: isSearching)
         Button(action: onSelect) {
             HStack(spacing: 9) {
                 // A small cluster of the stack's icons, as Dia shows a collapsed group.
@@ -232,6 +250,8 @@ struct WorkspaceSidebarTabGroupRowView: View {
                 Text("\(count)")
                     .font(.system(size: 11, weight: .medium).monospacedDigit())
                     .foregroundStyle(Color.white.opacity(0.4))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
                     .frame(width: workspaceSidebarTabCloseSlotWidth)
             }
             .padding(.leading, 10)
@@ -243,6 +263,7 @@ struct WorkspaceSidebarTabGroupRowView: View {
             RoundedRectangle(cornerRadius: workspaceSidebarTabCornerRadius, style: .continuous)
                 .fill(isHovered ? Color.white.opacity(0.06) : .clear)
         }
+        .opacity(isDragSource ? 0.45 : 1)
         .modifier(WorkspaceSidebarOptionalDragModifier(
             isEnabled: true,
             onChanged: { actions.tabGroupDragChanged(group.representativeWindowId, $0) },
@@ -280,6 +301,14 @@ struct WorkspaceSidebarTabFolderView: View {
 
     private var color: Color { workspaceSidebarTabFolderColor(workspace.name) }
 
+    private var headerAccessibilityLabel: String {
+        var parts = ["Workspace \(workspace.displayName)"]
+        if let projectContext { parts.append("project \(projectContext.label)") }
+        if let savedState = workspace.savedState { parts.append(workspaceSidebarSavedWorkspaceDescription(savedState)) }
+        parts.append("\(windowCount) windows")
+        return parts.joined(separator: ", ")
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             header
@@ -289,6 +318,7 @@ struct WorkspaceSidebarTabFolderView: View {
                         WorkspaceSidebarTabRowView(
                             window: window,
                             indent: isGroupChild ? workspaceSidebarTabGroupIndent : 0,
+                            isInStack: isGroupChild,
                             isSearchSelected: selectedSearchTarget == .window(window.windowId),
                             isDragSource: dragSourceWindowId == window.windowId,
                             actions: actions,
@@ -296,7 +326,9 @@ struct WorkspaceSidebarTabFolderView: View {
                         )
                         .id(row.id)
                     case .group(let group):
-                        WorkspaceSidebarTabGroupRowView(group: group, actions: actions,
+                        WorkspaceSidebarTabGroupRowView(group: group, isSearching: isSearching,
+                            isDragSource: dragSourceWindowId == group.representativeWindowId,
+                            actions: actions,
                             onSelect: { activation.select(.selectWindow(group.representativeWindowId), send: actions.send) })
                 }
             }
@@ -339,8 +371,11 @@ struct WorkspaceSidebarTabFolderView: View {
 
     private var header: some View {
         HStack(spacing: 4) {
-            // A search shows every match, so collapsing would visibly do nothing.
-            if !isSearching {
+            // A search shows every match, so collapsing would visibly do nothing. The slot
+            // stays, so titles don't move when a search starts.
+            if isSearching {
+                Color.clear.frame(width: 16, height: workspaceSidebarTabFolderHeaderHeight)
+            } else {
                 Button(action: onToggleCollapsed) {
                     Image(systemName: "chevron.right")
                         .font(.system(size: 9.5, weight: .bold))
@@ -350,7 +385,7 @@ struct WorkspaceSidebarTabFolderView: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(workspace.displayName)
+                .accessibilityLabel("\(workspace.displayName) folder")
                 .accessibilityValue(isCollapsed ? "Collapsed" : "Expanded")
                 .accessibilityHint(isCollapsed ? "Shows the folder's windows" : "Hides the folder's windows")
             }
@@ -390,15 +425,21 @@ struct WorkspaceSidebarTabFolderView: View {
                         Text("\(windowCount)")
                             .font(.system(size: 11, weight: .medium).monospacedDigit())
                             .foregroundStyle(Color.white.opacity(0.38))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
                             .frame(width: workspaceSidebarTabCloseSlotWidth)
                     }
-                    .padding(.leading, isSearching ? 10 : 0)
                     .frame(maxWidth: .infinity, minHeight: workspaceSidebarTabFolderHeaderHeight, alignment: .leading)
                     .contentShape(Rectangle())
+                    .background {
+                        // The arrow keys can select a folder itself; show where Enter goes.
+                        RoundedRectangle(cornerRadius: workspaceSidebarTabCornerRadius, style: .continuous)
+                            .fill(Color.white.opacity(selectedSearchTarget == .workspace(workspace.name) ? 0.1 : 0))
+                    }
                 }
                 .buttonStyle(.plain)
                 .help(workspaceSidebarWorkspaceTooltip(workspace))
-                .accessibilityLabel("Workspace \(workspace.displayName), \(windowCount) windows")
+                .accessibilityLabel(headerAccessibilityLabel)
                 .accessibilityAddTraits(isActive ? .isSelected : [])
             }
         }
@@ -473,10 +514,8 @@ extension WorkspaceSidebarView {
         let folders = (pinnedWorkspace.map { [$0] } ?? []) + workspaces
         let isSearching = !searchText.isEmpty
         let pageAllowsActivation = allowsActivation ?? allowsWorkspaceActivation(projectId: projectId)
-        let scrollTargetId = workspaceSidebarTabScrollTargetId(
-            searchSelection: isSearching ? selectedSearchTarget : nil,
-            focusedRowId: folders.lazy.compactMap { workspaceSidebarFocusedTabRowId(in: $0) }.first,
-        )
+        let scrollTarget = workspaceSidebarTabScrollTarget(folders: folders,
+            searchSelection: isSearching ? selectedSearchTarget : nil)
         let createMonitorScopeId = workspaceSidebarWorkspaceCreateScope(
             selectedScopeId: snapshot.selectedMonitorScopeId,
             targetMonitorScopeId: snapshot.targetMonitorScopeId,
@@ -512,12 +551,8 @@ extension WorkspaceSidebarView {
                 }
                 // The list is rebuilt when the panel expands; show the window in use, or while
                 // searching, the result the arrow keys selected.
-                .onAppear {
-                    if let scrollTargetId { proxy.scrollTo(scrollTargetId) }
-                }
-                .onChange(of: scrollTargetId) { rowId in
-                    if let rowId { proxy.scrollTo(rowId) }
-                }
+                .onAppear { workspaceSidebarScrollTabsList(to: scrollTarget, with: proxy) }
+                .onChange(of: scrollTarget) { workspaceSidebarScrollTabsList(to: $0, with: proxy) }
             }
             .transformPreference(WorkspaceSidebarDropTargetPreferenceKey.self) { targets in
                 targets = workspaceSidebarClippedDropTargets(targets,
@@ -545,7 +580,7 @@ extension WorkspaceSidebarView {
         return WorkspaceSidebarTabFolderView(
             workspace: workspace,
             rows: workspaceSidebarTabRows(for: workspace, isCollapsed: isCollapsed, isSearching: isSearching),
-            windowCount: workspaceSidebarTabWindowCount(workspace),
+            windowCount: workspaceSidebarTabWindowCount(workspace, isSearching: isSearching),
             isCollapsed: isCollapsed && !isSearching,
             isSearching: isSearching,
             isActive: workspace.monitorScopeId == snapshot.targetMonitorScopeId && workspace.isVisible,
@@ -559,6 +594,7 @@ extension WorkspaceSidebarView {
                     pendingInUseOverrideAppId = nil
                     activeInUseOverrideWorkspaceName = workspace.name
                 },
+                dismissOverride: { activeInUseOverrideWorkspaceName = nil },
             ),
             isShowingOverride: isInUseOnOtherDisplay && activeInUseOverrideWorkspaceName == workspace.name,
             overrideMinHeight: workspaceSidebarInUseOverrideMinHeight(sectionWidth: folderWidth),
@@ -604,12 +640,58 @@ func workspaceSidebarFocusedTabRowId(in workspace: WorkspaceSidebarWorkspaceView
 
 func workspaceSidebarTabFolderRowId(_ workspaceName: String) -> String { "folder:\(workspaceName)" }
 
-/// What the list keeps in view: the search result the arrow keys selected, which Enter will
-/// activate, and otherwise the window in use.
-func workspaceSidebarTabScrollTargetId(searchSelection: WorkspaceSidebarSearchSelection?, focusedRowId: String?) -> String? {
+/// A row to keep in view, with the folder holding it. Folders are lazy, so an unrealized
+/// folder's rows can't be found until the folder itself is scrolled to.
+struct WorkspaceSidebarTabScrollTarget: Equatable {
+    let folderId: String
+    let rowId: String?
+}
+
+/// The search result the arrow keys selected, which Enter will activate, and otherwise the
+/// window in use.
+func workspaceSidebarTabScrollTarget(
+    folders: [WorkspaceSidebarWorkspaceViewModel],
+    searchSelection: WorkspaceSidebarSearchSelection?,
+) -> WorkspaceSidebarTabScrollTarget? {
     switch searchSelection {
-        case .window(let windowId): "window:\(windowId)"
-        case .workspace(let name): workspaceSidebarTabFolderRowId(name)
-        case nil: focusedRowId
+        case .workspace(let name):
+            return WorkspaceSidebarTabScrollTarget(folderId: workspaceSidebarTabFolderRowId(name), rowId: nil)
+        case .window(let windowId):
+            let rowId = "window:\(windowId)"
+            guard let folder = folders.first(where: { workspaceSidebarTabWindowIds(in: $0).contains(windowId) }) else { return nil }
+            return WorkspaceSidebarTabScrollTarget(folderId: workspaceSidebarTabFolderRowId(folder.name), rowId: rowId)
+        case nil:
+            for folder in folders {
+                if let rowId = workspaceSidebarFocusedTabRowId(in: folder) {
+                    return WorkspaceSidebarTabScrollTarget(folderId: workspaceSidebarTabFolderRowId(folder.name), rowId: rowId)
+                }
+            }
+            return nil
     }
+}
+
+func workspaceSidebarTabWindowIds(in workspace: WorkspaceSidebarWorkspaceViewModel) -> [UInt32] {
+    workspace.items.flatMap { item -> [UInt32] in
+        switch item.kind {
+            case .window(let window): [window.windowId]
+            case .tabGroup(let group): workspaceSidebarTabGroupWindows(group).map(\.windowId)
+        }
+    }
+}
+
+/// Scrolls once layout settles: a scroll requested while the list is being created is dropped.
+@MainActor
+func workspaceSidebarScrollTabsList(to target: WorkspaceSidebarTabScrollTarget?, with proxy: ScrollViewProxy) {
+    guard let target else { return }
+    DispatchQueue.main.async {
+        proxy.scrollTo(target.folderId)
+        guard let rowId = target.rowId else { return }
+        DispatchQueue.main.async { proxy.scrollTo(rowId) }
+    }
+}
+
+/// Tabs mode replaces the workspace sections only once rows are revealed; the collapsed rail
+/// and every other mode keep the sections page.
+func workspaceSidebarUsesTabsPage(layout: WorkspaceSidebarConfiguration, expansionProgress: CGFloat) -> Bool {
+    layout.usesTabsList && expansionProgress >= workspaceSidebarRowsRevealProgress
 }
