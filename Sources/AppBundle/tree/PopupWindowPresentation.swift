@@ -23,9 +23,7 @@ func runCallbacksAfterPopupPromotion(_ window: Window, mayPresent: Bool) async t
     let focusBeforeCallbacks = focusChangeGeneration
     let detectedIn = window.nodeWorkspace
     try await tryOnWindowDetected(window)
-    // Only a window the user just opened; not one first seen at startup or restored.
-    let isNewWindow = (window as? MacWindow).map { !$0.wasFirstSeenDuringStartupOrRestored } ?? mayPresent
-    moveNewWindowToNewWorkspaceIfNeeded(window, detectedIn: detectedIn, isNewRegularWindow: isNewWindow)
+    moveNewWindowToNewWorkspaceIfNeeded(window, detectedIn: detectedIn, isNewRegularWindow: window.wasOpenedRecently)
     if mayPresent {
         newFloatingWindowPresentation?.recordDetection(
             window,

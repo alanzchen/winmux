@@ -5,7 +5,10 @@ import XCTest
 
 @MainActor
 final class NewWindowWorkspaceTest: XCTestCase {
+    private var defaultAppIsFrontmost: (@MainActor (Window) -> Bool)?
+
     override func setUp() async throws {
+        defaultAppIsFrontmost = newWindowAppIsFrontmost
         setUpWorkspacesForTests()
         setSavedWorkspaceTestEnvironment()
         // A window id cached as closed by an earlier test would be restored instead of detected.
@@ -15,9 +18,8 @@ final class NewWindowWorkspaceTest: XCTestCase {
     }
 
     override func tearDown() async throws {
-        newWindowAppIsFrontmost = { window in
-            window.app.pid == NSWorkspace.shared.frontmostApplication?.processIdentifier
-        }
+        if let defaultAppIsFrontmost { newWindowAppIsFrontmost = defaultAppIsFrontmost }
+        config = defaultConfig
     }
 
     func testOptionIsOffByDefaultAndParses() {
@@ -117,6 +119,20 @@ final class NewWindowWorkspaceTest: XCTestCase {
         moveNewWindowToNewWorkspaceIfNeeded(window, detectedIn: workspace, isNewRegularWindow: true)
 
         XCTAssertTrue(window.nodeWorkspace === workspace, "Saved workspaces will place it once its title arrives")
+    }
+
+    func testAPromotedPopupCountsAsNewOnlyWhileRecent() async throws {
+        let workspace = focus.workspace
+        _ = TestWindow.new(id: 1, parent: workspace.rootTilingContainer)
+        let old = TestWindow.new(id: 2, parent: workspace.rootTilingContainer)
+        old.firstSeenAt = Date().addingTimeInterval(-60)
+        try await runCallbacksAfterPopupPromotion(old, mayPresent: true)
+        XCTAssertTrue(old.nodeWorkspace === workspace, "A window in use for a minute is not moved as new")
+
+        let fresh = TestWindow.new(id: 3, parent: workspace.rootTilingContainer)
+        try await runCallbacksAfterPopupPromotion(fresh, mayPresent: false)
+        XCTAssertFalse(fresh.nodeWorkspace === workspace,
+            "A just-opened window promoted from a popup moves even if its app wasn't frontmost")
     }
 
     func testFocusFollowsOnlyAWindowFromTheAppInUse() async throws {

@@ -4,8 +4,7 @@ import Common
 final class MacWindow: Window {
     let macApp: MacApp
     private var popupPresentationState: PopupWindowPresentationState
-    /// A window already open at startup or put back by a restore, as opposed to one just opened.
-    var wasFirstSeenDuringStartupOrRestored: Bool {
+    override var wasFirstSeenDuringStartupOrRestored: Bool {
         popupPresentationState.firstSeenDuringStartup || popupPresentationState.wasRestored
     }
     private var prevUnhiddenProportionalPositionInsideWorkspaceRect: CGPoint?

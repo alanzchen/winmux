@@ -1,6 +1,8 @@
 import AppKit
 import Common
 
+let windowRecentlyOpenedLimit: TimeInterval = 5
+
 open class Window: TreeNode, Hashable {
     let windowId: UInt32
     let app: any AbstractApp
@@ -84,6 +86,16 @@ open class Window: TreeNode, Hashable {
 
     @MainActor
     func closeAxWindow() { die("Not implemented") }
+
+    /// When WinMux first saw the window. Tests set it to model an older window.
+    @MainActor var firstSeenAt = Date()
+    /// A window already open at startup or put back by a restore.
+    @MainActor var wasFirstSeenDuringStartupOrRestored: Bool { false }
+    /// A window opened moments ago. One first seen as a popup and promoted later only
+    /// counts while it is this new, so a window already in use is never moved as new.
+    @MainActor var wasOpenedRecently: Bool {
+        !wasFirstSeenDuringStartupOrRestored && Date().timeIntervalSince(firstSeenAt) < windowRecentlyOpenedLimit
+    }
 
     public func hash(into hasher: inout Hasher) {
         hasher.combine(windowId)
