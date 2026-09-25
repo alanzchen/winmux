@@ -110,7 +110,9 @@ its first release is a cold build and later ones are incremental. Other checkout
 and the sessions working in them are not touched. A new release waits until every
 process of the previous one, including a killed runner's build, has ended; its error
 says which process and how to wait for or stop it. A lock written before the Mac last
-started is ignored.
+started is ignored. If a refusal names a process group that `ps -o pid,command -g <id>`
+shows isn't a release, remove `winmux-ship.lock` from the repository's common Git
+directory (`git rev-parse --git-common-dir`).
 
 Local previews normally come from a checked-out integration branch. The release
 worktree is detached instead and names its branch in `RELEASE_BRANCH`, which is

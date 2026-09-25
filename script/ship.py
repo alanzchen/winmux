@@ -231,19 +231,25 @@ class ShipLock:
         """`activity(owner)` says what of the owner's run is still running, or None."""
         booted = boot_time() if booted is None else booted
         with self.guarded():
-            if self.path.exists():
-                owner = self.owner()
-                if owner is None:
-                    if time.time() - self.path.stat().st_mtime < 30:
-                        raise ValueError("Another release is starting; try again in a moment.")
-                elif not self.written_before_boot(booted):  # Nothing survives a restart.
-                    running = activity(owner)
-                    if running:
-                        raise ValueError(f"Release {owner.get('run')} is not over: {running}.")
-                # A stopped or crashed run: nothing of it is running any more.
-                shutil.rmtree(self.path, ignore_errors=True)
-            self.path.mkdir()
-            self.write(os.getpid(), run_id)
+            for _ in range(2):  # Once more if the lock vanished while it was being inspected.
+                try:
+                    if self.path.exists():
+                        owner = self.owner()
+                        if owner is None:
+                            if time.time() - self.path.stat().st_mtime < 30:
+                                raise ValueError("Another release is starting; try again in a moment.")
+                        elif not self.written_before_boot(booted):  # Nothing survives a restart.
+                            running = activity(owner)
+                            if running:
+                                raise ValueError(f"Release {owner.get('run')} is not over: {running}.")
+                        # A stopped or crashed run: nothing of it is running any more.
+                        shutil.rmtree(self.path, ignore_errors=True)
+                    self.path.mkdir()
+                except (FileNotFoundError, FileExistsError):
+                    continue
+                self.write(os.getpid(), run_id)
+                return
+        raise ValueError(f"Couldn't take the release lock at {self.path}.")
 
     def write(self, pid, run_id):
         temporary = self.path / "owner.tmp"
@@ -274,8 +280,8 @@ def run_activity(owner, runs):
     # so a recorded group only remains for a run whose runner died.
     child = data.get("child")
     if data.get("state") not in ("succeeded", "unverified") and group_alive(child):
-        return (f"its build (process group {child}) is still running; wait for it with `make ship-wait` "
-                f"or stop it with `kill -TERM -{child}`")
+        return (f"its build (process group {child}) is still running; wait for it with `make ship-wait`, or "
+                f"check it with `ps -o pid,command -g {child}` and stop it with `kill -TERM -{child}`")
     if data.get("state") not in TERMINAL:
         for pid in (data.get("pid"), owner.get("pid")):
             if pid_alive(pid):
@@ -815,10 +821,8 @@ def status_line(args):
     if data["state"] in TERMINAL:
         print(summarize(data).splitlines()[0])
         return 0
-    runner = data.get("pid")
-    elapsed = time.time() - data["started"]
-    missing = (runner is None and elapsed > 60) or (runner is not None and not pid_alive(runner))
-    print(f"Release {run_dir.name}: {data['state']}, {data['phase']} after {duration(elapsed)}"
+    missing = runner_alive(run_dir, data) is False
+    print(f"Release {run_dir.name}: {data['state']}, {data['phase']} after {duration(time.time() - data['started'])}"
           + (" (runner not running; `make ship-wait` reports it)" if missing else ""))
     return 0
 

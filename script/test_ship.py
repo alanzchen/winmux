@@ -9,6 +9,7 @@ import io
 import json
 import os
 from pathlib import Path
+import shutil
 import signal
 import subprocess
 import sys
@@ -216,6 +217,18 @@ class LockTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "Release run-1 is not over: its runner is still running."):
                 ship.ShipLock(lock.path).acquire("run-2", lambda owner: "its runner is still running", booted=0)
             ship.ShipLock(lock.path).acquire("run-2", lambda owner: None, booted=0)
+            self.assertEqual(lock.owner()["run"], "run-2")
+
+    def test_lock_that_vanishes_while_inspected_is_taken(self):
+        with tempfile.TemporaryDirectory() as directory:
+            lock = ship.ShipLock(Path(directory) / "ship.lock")
+            lock.acquire("run-1", booted=0)
+
+            def gone(owner):
+                shutil.rmtree(lock.path)  # An older runner releasing without the guard.
+                return None
+
+            ship.ShipLock(lock.path).acquire("run-2", gone, booted=0)
             self.assertEqual(lock.owner()["run"], "run-2")
 
     def test_nothing_from_before_a_restart_holds_the_lock(self):
