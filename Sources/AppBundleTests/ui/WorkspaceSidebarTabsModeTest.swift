@@ -110,6 +110,14 @@ final class WorkspaceSidebarTabsModeTest: XCTestCase {
         XCTAssertEqual(overrides, 1, "A workspace shown on another display asks before taking it over")
     }
 
+    func testSearchSelectionStaysInViewAndOtherwiseTheFocusedWindowDoes() {
+        XCTAssertEqual(workspaceSidebarTabScrollTargetId(searchSelection: .window(7), focusedRowId: "window:1"), "window:7",
+            "Enter activates the selected result, so it must be visible")
+        XCTAssertEqual(workspaceSidebarTabScrollTargetId(searchSelection: .workspace("2"), focusedRowId: "window:1"),
+            workspaceSidebarTabFolderRowId("2"))
+        XCTAssertEqual(workspaceSidebarTabScrollTargetId(searchSelection: nil, focusedRowId: "window:1"), "window:1")
+    }
+
     func testCollapsedFoldersForgetDeletedWorkspacesAndFocusedRowsAreFound() {
         XCTAssertEqual(workspaceSidebarPrunedCollapsedFolders(["1", "gone"], workspaceNames: ["1", "2"]), ["1"])
         let workspace = tabsWorkspace("1", windows: [window(1, "A", focused: false)],

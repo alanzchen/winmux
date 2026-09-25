@@ -112,7 +112,8 @@ struct WorkspaceSidebarTabRowView: View {
         HStack(spacing: 0) {
             Button(action: onSelect) {
                 HStack(spacing: 9) {
-                    WorkspaceSidebarTabIcon(bundleId: window.appBundleId, bundlePath: window.appBundlePath)
+                    WorkspaceSidebarTabIcon(bundleId: window.appBundleId, bundlePath: window.appBundlePath,
+                        isOnLightBackground: isActive)
                     Text(title)
                         .font(.system(size: 13, weight: isActive ? .medium : .regular))
                         .foregroundStyle(isActive ? Color.black.opacity(0.86) : Color.white.opacity(0.82))
@@ -187,6 +188,8 @@ struct WorkspaceSidebarTabIcon: View {
     let bundleId: String?
     let bundlePath: String?
     var size: CGFloat = workspaceSidebarTabIconSize
+    /// The active tab's white pill needs a dark fallback glyph.
+    var isOnLightBackground = false
 
     var body: some View {
         AppIconView(bundleIdentifier: bundleId, bundlePath: bundlePath) { icon in
@@ -194,7 +197,7 @@ struct WorkspaceSidebarTabIcon: View {
                 Image(nsImage: icon).resizable().aspectRatio(contentMode: .fit)
             } else {
                 Image(systemName: "macwindow").resizable().aspectRatio(contentMode: .fit)
-                    .foregroundStyle(Color.white.opacity(0.6))
+                    .foregroundStyle(isOnLightBackground ? Color.black.opacity(0.55) : Color.white.opacity(0.6))
             }
         }
         .frame(width: size, height: size)
@@ -262,6 +265,7 @@ struct WorkspaceSidebarTabFolderView: View {
     let selectedSearchTarget: WorkspaceSidebarSearchSelection?
     let activation: WorkspaceSidebarTabActivation
     let isShowingOverride: Bool
+    let overrideMinHeight: CGFloat
     let projectContext: (label: String, color: Color)?
     let isRenaming: Bool
     @Binding var renamingText: String
@@ -299,9 +303,12 @@ struct WorkspaceSidebarTabFolderView: View {
         }
         .padding(.horizontal, 5)
         .padding(.bottom, rows.isEmpty ? 0 : 5)
+        // The take-over prompt needs the same room as in the Sidebar, even for a collapsed folder.
+        .frame(minHeight: isShowingOverride ? overrideMinHeight : nil, alignment: .top)
         .background {
             RoundedRectangle(cornerRadius: workspaceSidebarTabFolderCornerRadius, style: .continuous)
-                .fill(color.opacity(isDropTarget ? 0.26 : (isActive ? 0.16 : 0.1)))
+                // Quieter than the selected window's pill, which should read first.
+                .fill(color.opacity(isDropTarget ? 0.24 : (isActive ? 0.12 : 0.075)))
                 .overlay {
                     RoundedRectangle(cornerRadius: workspaceSidebarTabFolderCornerRadius, style: .continuous)
                         .strokeBorder(color.opacity(isDropTarget ? 0.7 : 0.18), lineWidth: isDropTarget ? 1 : 0.5)
@@ -466,7 +473,10 @@ extension WorkspaceSidebarView {
         let folders = (pinnedWorkspace.map { [$0] } ?? []) + workspaces
         let isSearching = !searchText.isEmpty
         let pageAllowsActivation = allowsActivation ?? allowsWorkspaceActivation(projectId: projectId)
-        let focusedRowId = folders.lazy.compactMap { workspaceSidebarFocusedTabRowId(in: $0) }.first
+        let scrollTargetId = workspaceSidebarTabScrollTargetId(
+            searchSelection: isSearching ? selectedSearchTarget : nil,
+            focusedRowId: folders.lazy.compactMap { workspaceSidebarFocusedTabRowId(in: $0) }.first,
+        )
         let createMonitorScopeId = workspaceSidebarWorkspaceCreateScope(
             selectedScopeId: snapshot.selectedMonitorScopeId,
             targetMonitorScopeId: snapshot.targetMonitorScopeId,
@@ -478,7 +488,9 @@ extension WorkspaceSidebarView {
                     LazyVStack(alignment: .leading, spacing: 8) {
                         ForEach(folders) { workspace in
                             tabFolder(workspace, isPinned: workspace.id == pinnedWorkspace?.id,
-                                projectId: projectId, pageAllowsActivation: pageAllowsActivation, isSearching: isSearching)
+                                projectId: projectId, pageAllowsActivation: pageAllowsActivation, isSearching: isSearching,
+                                folderWidth: viewport.size.width - leadingInset - trailingInset)
+                                .id(workspaceSidebarTabFolderRowId(workspace.name))
                         }
                         if showsCreateWorkspace && workspaceSidebarShowsCreateWorkspace(selectedScopeId: snapshot.selectedMonitorScopeId) {
                             WorkspaceSidebarTabNewWorkspaceRow(
@@ -498,11 +510,12 @@ extension WorkspaceSidebarView {
                     .padding(.bottom, 10)
                     .frame(width: viewport.size.width, alignment: .leading)
                 }
-                // The list is rebuilt when the panel expands; show the window in use.
+                // The list is rebuilt when the panel expands; show the window in use, or while
+                // searching, the result the arrow keys selected.
                 .onAppear {
-                    if let focusedRowId { proxy.scrollTo(focusedRowId) }
+                    if let scrollTargetId { proxy.scrollTo(scrollTargetId) }
                 }
-                .onChange(of: focusedRowId) { rowId in
+                .onChange(of: scrollTargetId) { rowId in
                     if let rowId { proxy.scrollTo(rowId) }
                 }
             }
@@ -520,6 +533,7 @@ extension WorkspaceSidebarView {
         projectId: WorkspaceProjectId,
         pageAllowsActivation: Bool,
         isSearching: Bool,
+        folderWidth: CGFloat,
     ) -> WorkspaceSidebarTabFolderView {
         let isCollapsed = collapsedTabFolderNames.contains(workspace.name)
         // The pinned active workspace is already in use: its header does nothing, as in the Sidebar.
@@ -547,6 +561,7 @@ extension WorkspaceSidebarView {
                 },
             ),
             isShowingOverride: isInUseOnOtherDisplay && activeInUseOverrideWorkspaceName == workspace.name,
+            overrideMinHeight: workspaceSidebarInUseOverrideMinHeight(sectionWidth: folderWidth),
             projectContext: showsProjectContext
                 ? (projectName(contextProjectId), projectColor(contextProjectId))
                 : nil,
@@ -585,4 +600,16 @@ func workspaceSidebarFocusedTabRowId(in workspace: WorkspaceSidebarWorkspaceView
         }
     }
     return nil
+}
+
+func workspaceSidebarTabFolderRowId(_ workspaceName: String) -> String { "folder:\(workspaceName)" }
+
+/// What the list keeps in view: the search result the arrow keys selected, which Enter will
+/// activate, and otherwise the window in use.
+func workspaceSidebarTabScrollTargetId(searchSelection: WorkspaceSidebarSearchSelection?, focusedRowId: String?) -> String? {
+    switch searchSelection {
+        case .window(let windowId): "window:\(windowId)"
+        case .workspace(let name): workspaceSidebarTabFolderRowId(name)
+        case nil: focusedRowId
+    }
 }
