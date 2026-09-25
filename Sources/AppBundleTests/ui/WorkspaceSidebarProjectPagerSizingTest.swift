@@ -109,6 +109,20 @@ final class WorkspaceSidebarProjectPagerSizingTest: XCTestCase {
             "Long names truncate instead of pushing other projects out of view")
     }
 
+    func testCurrentProjectPillShrinksWithANarrowSidebar() {
+        for points in stride(from: workspaceSidebarResizableWidthRange.lowerBound, through: workspaceSidebarResizableWidthRange.upperBound, by: 20) {
+            let width = CGFloat(points)
+            let pager = expandedPager(showAppIcons: false, projectCount: 3, firstName: String(repeating: "Research ", count: 6),
+                                      expandedWidth: width)
+            XCTAssertLessThanOrEqual(pager.currentProjectPillMaxWidth, pager.projectTrackWidth, "\(width)")
+            let pill = NSHostingView(rootView: pager.projectDot(pager.projects[0], index: 0).fixedSize()).fittingSize.width
+            XCTAssertLessThanOrEqual(pill, pager.projectTrackWidth, "The current project fits the track at \(width) points")
+        }
+        let narrow = expandedPager(showAppIcons: false, projectCount: 3, expandedWidth: 120)
+        XCTAssertFalse(narrow.showsProjectName(isCurrent: true), "A 120-point sidebar has no room for the name")
+        XCTAssertTrue(expandedPager(showAppIcons: false, projectCount: 3).showsProjectName(isCurrent: true))
+    }
+
     func testExpandedSwitcherShowsProjectEmojiInBothModes() {
         for showAppIcons in [false, true] {
             let pager = expandedPager(showAppIcons: showAppIcons, projectCount: 3)
@@ -224,12 +238,13 @@ final class WorkspaceSidebarProjectPagerSizingTest: XCTestCase {
         XCTAssertEqual(states.count, 4, "Both selected and unselected emoji need visible hover feedback")
     }
 
-    private func expandedPager(showAppIcons: Bool, projectCount: Int, firstName: String = "Research") -> WorkspaceSidebarProjectPager {
+    private func expandedPager(showAppIcons: Bool, projectCount: Int, firstName: String = "Research",
+                               expandedWidth: CGFloat = 240) -> WorkspaceSidebarProjectPager {
         var layout = WorkspaceSidebarConfiguration.empty
         layout.showAppIcons = showAppIcons
         layout.dockIconSize = 48
         layout.collapsedWidth = 44
-        layout.expandedWidth = 240
+        layout.expandedWidth = expandedWidth
         let projects: [WorkspaceSidebarProjectViewModel] = [
             .init(id: workspaceProjectDefaultId, displayName: firstName, colorHex: "#7BA3C9", emoji: "🔬"),
             .init(id: WorkspaceProjectId("itss"), displayName: "ITSS", colorHex: "#7DBF8E", emoji: "🛰️"),

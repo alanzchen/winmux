@@ -1,6 +1,8 @@
 import SwiftUI
 
 let workspaceSidebarCurrentProjectPillMaxWidth: CGFloat = 132
+/// Below this, a narrow sidebar shows the current project's emoji or bar without its name.
+let workspaceSidebarCurrentProjectPillMinWidthForName: CGFloat = 72
 
 extension WorkspaceSidebarProjectPager {
     /// Every expanded project shows its emoji. The collapsed Sidebar rail keeps its bars.
@@ -8,8 +10,15 @@ extension WorkspaceSidebarProjectPager {
         project.emoji != nil && (layout.showAppIcons || !isCompact)
     }
 
+    /// The pill never outgrows the track, so a narrow sidebar keeps the switcher usable.
+    var currentProjectPillMaxWidth: CGFloat {
+        min(workspaceSidebarCurrentProjectPillMaxWidth, projectTrackWidth - 8)
+    }
+
     /// The expanded switcher names the current project in place of a separate menu.
-    func showsProjectName(isCurrent: Bool) -> Bool { isCurrent && !isCompact }
+    func showsProjectName(isCurrent: Bool) -> Bool {
+        isCurrent && !isCompact && currentProjectPillMaxWidth >= workspaceSidebarCurrentProjectPillMinWidthForName
+    }
 
     @ViewBuilder
     func projectDot(
@@ -92,7 +101,7 @@ extension WorkspaceSidebarProjectPager {
                 .truncationMode(.tail)
         }
         .padding(.horizontal, 9)
-        .frame(minWidth: 36, maxWidth: workspaceSidebarCurrentProjectPillMaxWidth, minHeight: 26, maxHeight: 26)
+        .frame(minWidth: 36, maxWidth: currentProjectPillMaxWidth, minHeight: 26, maxHeight: 26)
         .fixedSize(horizontal: true, vertical: false)
         // Slightly under a full capsule: a capsule's hairline stroke leaves ticks at its ends.
         .background {
