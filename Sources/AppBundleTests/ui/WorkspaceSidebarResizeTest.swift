@@ -127,11 +127,11 @@ final class WorkspaceSidebarResizeTest: XCTestCase {
             XCTAssertTrue(panel.beginSidebarResize(atScreenX: 500))
             panel.updateSidebarResize(toScreenX: 530)
             panel.updateSidebarResize(toScreenX: 560)
-            panel.endSidebarResize()
-            let task = try XCTUnwrap(commitWorkspaceSidebarWidth(300, previousWidth: 240))
-            await task.value
-            XCTAssertEqual(written.count, 2)
-            XCTAssertTrue(written.allSatisfy { $0.contains("width = 300") }, written.joined(separator: "\n---\n"))
+            let save = try XCTUnwrap(panel.endSidebarResize())
+            await save.value
+            XCTAssertEqual(written.count, 1, "Only the release writes, never each step")
+            XCTAssertTrue(written[0].contains("width = 300"), written[0])
+            XCTAssertNil(panel.endSidebarResize(), "A second release has nothing to save")
         }
     }
 
@@ -142,9 +142,9 @@ final class WorkspaceSidebarResizeTest: XCTestCase {
             defer { MessageModel.shared.message = oldMessage }
             XCTAssertTrue(panel.beginSidebarResize(atScreenX: 500))
             panel.updateSidebarResize(toScreenX: 560)
-            panel.endSidebarResize()
-            let task = try XCTUnwrap(commitWorkspaceSidebarWidth(300, previousWidth: 240))
-            await task.value
+            let save = try XCTUnwrap(panel.endSidebarResize())
+            XCTAssertEqual(config.workspaceSidebar.width, 300)
+            await save.value
             XCTAssertEqual(config.workspaceSidebar.width, 240)
             XCTAssertEqual(MessageModel.shared.message?.description, "Workspace Sidebar Error")
         }
@@ -161,6 +161,10 @@ final class WorkspaceSidebarResizeTest: XCTestCase {
         XCTAssertEqual(runs, [1, 3], "Only the latest waiting request runs")
         throttle.flush()
         XCTAssertEqual(runs, [1, 3])
+        throttle.run { runs.append(4) }
+        throttle.reset()
+        throttle.run { runs.append(5) }
+        XCTAssertEqual(runs, [1, 3, 5], "Reset drops waiting work and runs the next request at once")
     }
 
     private func fakePersistence(onWrite: @escaping (String) -> Void, failsRead: Bool = false) -> SettingsPersistence {
@@ -186,6 +190,8 @@ final class WorkspaceSidebarResizeTest: XCTestCase {
         config.workspaceSidebar.alwaysExpanded = true
         config.workspaceSidebar.width = 240
         TrayMenuModel.shared.isEnabled = true
+        // An earlier drag in this process must not defer the first live update.
+        workspaceSidebarLiveResizeRefresh.reset()
         // Live resizing refreshes every display's panel, so drive the one refreshAll owns.
         WorkspaceSidebarPanel.refreshAll()
         let panel = try XCTUnwrap(WorkspaceSidebarPanel.panel(for: workspaceSidebarMonitorScopeId(for: mainMonitor)))
