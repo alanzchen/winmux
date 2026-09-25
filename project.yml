@@ -22,6 +22,8 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         LSUIElement: true
+        # Shown when the app launcher first asks an app, such as Safari, for a new window.
+        NSAppleEventsUsageDescription: WinMux asks apps you choose in its launcher to open a new window in the workspace you picked.
         SUEnableAutomaticChecks: true
         SUAutomaticallyUpdate: true
         SUFeedURL: ${XCODEGEN_WINMUX_UPDATE_FEED_URL}
@@ -74,3 +76,5 @@ targets:
       properties:
         # Accessibility API doesn't work in sandboxed apps
         com.apple.security.app-sandbox: false
+        # The app launcher asks apps like Safari and Terminal for a new window with Apple events.
+        com.apple.security.automation.apple-events: true

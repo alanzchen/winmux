@@ -20,6 +20,8 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>LSUIElement</key>
 	<true/>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>WinMux asks apps you choose in its launcher to open a new window in the workspace you picked.</string>
 	<key>UTExportedTypeDeclarations</key>
 	<array>
 		<dict>

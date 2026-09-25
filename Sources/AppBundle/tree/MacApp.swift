@@ -130,6 +130,29 @@ final class MacApp: AbstractApp {
         } ?? false
     }
 
+    /// Presses the app's own New Window menu item: the launcher's opt-in fallback for apps
+    /// WinMux has no tested adapter for. Items with submenus are never pressed.
+    func pressNewWindowMenuItem() async throws -> Bool {
+        if serverArgs.isReadOnly { return false }
+        return try await thread?.runInLoop { [axApp] _ in
+            guard let menuBar = axApp.threadGuarded.get(Ax.menuBarAttr) else { return false }
+            var items: [(title: String, element: AXUIElement)] = []
+            for menuBarItem in menuBar.get(Ax.childrenAttr) ?? [] {
+                for menu in menuBarItem.get(Ax.childrenAttr) ?? [] {
+                    for item in menu.get(Ax.childrenAttr) ?? [] {
+                        guard let title = item.get(Ax.titleAttr), !title.isEmpty,
+                              item.get(Ax.enabledAttr) != false,
+                              (item.get(Ax.childrenAttr) ?? []).isEmpty
+                        else { continue }
+                        items.append((title, item))
+                    }
+                }
+            }
+            guard let index = bestNewWindowMenuItemIndex(items.map(\.title)) else { return false }
+            return AXUIElementPerformAction(items[index].element, kAXPressAction as CFString) == .success
+        } ?? false
+    }
+
     /// Whether the window shows a sheet, such as an app asking to save before it closes.
     func windowShowsSheet(_ windowId: UInt32) async throws -> Bool {
         try await withWindow(windowId) { window, _ in

@@ -270,6 +270,10 @@ enum Ax {
     //    key: kAXMainWindowAttribute,
     //    getter: tryGetWindow
     //)
+    static let menuBarAttr = ReadableAttrImpl<AXUIElement>(
+        key: kAXMenuBarAttribute,
+        getter: { CFGetTypeID($0 as CFTypeRef) == AXUIElementGetTypeID() ? ($0 as! AXUIElement) : nil },
+    )
     static let childrenAttr = ReadableAttrImpl<[AXUIElement]>(
         key: kAXChildrenAttribute,
         // Element by element, so one unexpected child doesn't hide the rest.

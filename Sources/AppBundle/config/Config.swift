@@ -151,6 +151,10 @@ struct WorkspaceSidebarConfig: ConvenienceCopyable, Equatable, Sendable {
     var saveNamedWorkspaces: Bool = true
     /// Open the apps saved workspaces are waiting for when WinMux starts.
     var openSavedWorkspaceAppsAtStartup: Bool = false
+    /// Creating a workspace from the sidebar shows an app launcher that opens new windows there.
+    var newWorkspaceLauncher: Bool = false
+    /// For apps without a tested adapter, the launcher presses the app's own New Window menu item.
+    var launcherMenuFallback: Bool = false
     var workspaceLabels: [String: String] = [:]
     var projectLabels: [String: String] = [:]
     /// Project ids in display order. Projects missing from the list follow in creation order.

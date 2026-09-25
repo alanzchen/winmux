@@ -89,6 +89,10 @@ on-mode-changed = []
     save-named-workspaces = true
     # Open the apps that saved workspaces are waiting for when WinMux starts.
     open-saved-workspace-apps-at-startup = false
+    # After + New Workspace, show a launcher that opens a new window of the app you pick there.
+    new-workspace-launcher = false
+    # For apps without a tested adapter, let the launcher press the app's own New Window menu item.
+    launcher-menu-fallback = false
     show-status-pills = true
     show-clock = false
     show-seconds = true

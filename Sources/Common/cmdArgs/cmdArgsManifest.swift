@@ -36,6 +36,7 @@ public enum CmdKind: String, CaseIterable, Equatable, Sendable {
     case moveNodeToProject = "move-node-to-project"
     case moveNodeToWorkspace = "move-node-to-workspace"
     case moveWorkspaceToMonitor = "move-workspace-to-monitor"
+    case openLauncher = "open-launcher"
     case openSidebar = "open-sidebar"
     case palette
     case project
@@ -133,6 +134,8 @@ func initSubcommands() -> [String: any SubCommandParserProtocol] {
                 result[kind.rawValue] = SubCommandParser(parseWorkspaceToMonitorCmdArgs)
                 // deprecated
                 result["move-workspace-to-display"] = SubCommandParser(MoveWorkspaceToMonitorCmdArgs.init)
+            case .openLauncher:
+                result[kind.rawValue] = SubCommandParser(OpenLauncherCmdArgs.init)
             case .openSidebar:
                 result[kind.rawValue] = SubCommandParser(OpenSidebarCmdArgs.init)
             case .palette:

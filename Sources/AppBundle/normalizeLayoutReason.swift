@@ -18,6 +18,16 @@ private func validateStillPopups() async throws {
             // Relayout rechecks classification after AX suspension points. Leave
             // eligibility intact if the element is still a popup for now.
             guard !(popup.parent is MacosPopupWindowsContainer) else { continue }
+            // A window the launcher asked for may first look like a popup.
+            if let target = NewWindowIntentRegistry.shared.claim(windowId: popup.windowId, pid: popup.app.pid,
+                   bundleId: popup.app.rawAppBundleId, firstSeenUptime: popup.firstSeenUptime),
+               let claim = NewWindowIntentRegistry.shared.consumeClaim(windowId: popup.windowId)
+            {
+                _ = popup.consumePendingPopupPresentation()
+                _ = moveWindowToWorkspace(popup, target, CmdIo(stdin: .emptyStdin), focusFollowsWindow: false, failIfNoop: true)
+                finishNewWindowIntentPlacement(popup, claim: claim)
+                continue
+            }
             // A window first seen as a popup can still belong in a saved workspace.
             if try await routePromotedPopupToSavedWorkspaceIfNeeded(popup) {
                 _ = popup.consumePendingPopupPresentation()

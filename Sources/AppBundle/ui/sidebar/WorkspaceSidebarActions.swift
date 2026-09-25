@@ -217,10 +217,17 @@ func createWorkspaceFromSidebarButton() {
 
 @MainActor
 func createWorkspaceFromSidebarButton(projectId: WorkspaceProjectId, monitorScopeId: String) {
-    runWorkspaceSidebarSession {
+    var launcherWorkspaceName: String?
+    runWorkspaceSidebarSession(afterLayout: {
+        // Like a browser's new tab: offer to open a new window in the empty workspace.
+        guard let launcherWorkspaceName else { return }
+        WorkspaceLauncherPanel.shared.show(forWorkspaceNamed: launcherWorkspaceName)
+    }) {
         let targetMonitor = workspaceSidebarTargetMonitor(scopeId: monitorScopeId)
         let workspace = getOrCreateAdjacentBlankWorkspace(projectId: projectId, monitor: targetMonitor)
-        _ = workspace.focusWorkspace()
+        if workspace.focusWorkspace(), config.workspaceSidebar.newWorkspaceLauncher, workspace.isEffectivelyEmpty {
+            launcherWorkspaceName = workspace.name
+        }
     }
 }
 

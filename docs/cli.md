@@ -96,11 +96,16 @@ Open WinMux's two interactive interfaces:
 ```sh
 winmux open-sidebar
 winmux palette
+winmux open-launcher [--new-workspace]
 ```
 
 `open-sidebar` gives keyboard focus to the sidebar search. Typed letters search
 the sidebar until it is dismissed or a selection is completed. `palette`
-toggles the fuzzy window switcher.
+toggles the fuzzy window switcher. `open-launcher` shows the app launcher:
+choosing an app opens a new window of it in the focused workspace, or with
+`--new-workspace` in a new empty one, even when the app is already running. See
+[the launcher](configuration.md#open-a-new-window-from-new-workspace) for which
+apps support new windows.
 
 ## Command conventions
 
@@ -680,6 +685,7 @@ syntax.
 | `list-windows` | Query scoped windows and their metadata |
 | `mode` | Activate a binding mode |
 | `move-mouse` | Move the pointer to a monitor or window position |
+| `open-launcher [--new-workspace]` | Open the app launcher to open a new window here or in a new workspace |
 | `open-sidebar` | Open the sidebar with type-to-search active |
 | `palette` | Toggle the fuzzy window switcher |
 | `volume` | Adjust or mute system volume |

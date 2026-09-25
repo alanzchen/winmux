@@ -18,7 +18,17 @@ func classifyAndGetBindingDataForNewWindow(
     let binding = switch type {
         case .popup: BindingData(parent: macosPopupWindowsContainer, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
         case .dialog: BindingData(parent: workspace, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
-        case .window: bindingDataForNewRegularWindow(workspace, window: window)
+        case .window:
+            // A window the launcher asked for goes straight to its workspace, before a stack
+            // or the focused workspace can take it.
+            if window == nil, !isStartup,
+               let target = NewWindowIntentRegistry.shared.claim(windowId: windowId, pid: macApp.pid,
+                   bundleId: macApp.rawAppBundleId, firstSeenUptime: ProcessInfo.processInfo.systemUptime)
+            {
+                newWindowIntentBinding(targetWorkspace: target)
+            } else {
+                bindingDataForNewRegularWindow(workspace, window: window)
+            }
     }
     return (binding, type)
 }

@@ -189,6 +189,7 @@ func runRefreshSessionBlocking(
                     updateTrayText()
                     await updateWorkspaceSidebarModel()
                     SecureInputPanel.shared.refresh()
+                    WorkspaceLauncherPanel.shared.revalidate()
                     if shouldLayoutWorkspaces {
                         try await layoutWorkspaces()
                         try checkCancellation()
@@ -273,6 +274,7 @@ func runLightSession<T>(
                     updateTrayText()
                     await updateWorkspaceSidebarModel()
                     SecureInputPanel.shared.refresh()
+                    WorkspaceLauncherPanel.shared.revalidate()
                     try await layoutWorkspaces()
                     try checkCancellation()
                     var didPresentFloatingWindow = false

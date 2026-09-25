@@ -37,6 +37,7 @@ let subcommandDescriptions = [
     ["  move-node-to-workspace", "Move the focused window to the specified workspace"],
     ["  move-workspace-to-monitor", "Move workspace to monitor targeted by relative direction, by order, or by pattern."],
     ["  move", "Move the focused window in the given direction"],
+    ["  open-launcher", "Open the app launcher to open a new window in the focused or a new workspace"],
     ["  open-sidebar", "Open the workspace sidebar and arm type-to-search"],
     ["  project", "Focus the specified project"],
     ["  reload-config", "Reload currently active config"],

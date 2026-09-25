@@ -11,6 +11,10 @@ func restoreOrDetectNewWindow(_ window: Window, isRegularWindow: Bool) async thr
         savedWorkspaceRuntime.noteWindowSeen(pid: window.app.pid)
     }
     if didRestorePersisted || didRestoreClosed { return true }
+    if let claim = NewWindowIntentRegistry.shared.consumeClaim(windowId: window.windowId) {
+        finishNewWindowIntentPlacement(window, claim: claim)
+        return false
+    }
     if try await routeNewWindowToSavedWorkspaceIfNeeded(window, isRegularWindow: isRegularWindow) {
         // Subscribers still learn about the window; callbacks don't move it out again.
         broadcastWindowDetected(window)
