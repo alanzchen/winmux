@@ -69,6 +69,16 @@ open class Window: TreeNode, Hashable {
         lastKnownActualRect = rect
     }
 
+    /// For writers that move the window without learning the resulting frame (layout: an app
+    /// may clamp it). The move's own AX events are suppressed right after a drag, so they can't
+    /// be relied on to invalidate. Also discards observations in flight from before the move.
+    /// A move doesn't change the fullscreen or minimized state, so those cached values stay.
+    @MainActor
+    func invalidateLastKnownActualRect() {
+        lastKnownNativeStateGeneration += 1
+        lastKnownActualRect = nil
+    }
+
     @MainActor
     init(id: UInt32, _ app: any AbstractApp, lastFloatingSize: CGSize?, parent: NonLeafTreeNodeObject, adaptiveWeight: CGFloat, index: Int) {
         self.windowId = id

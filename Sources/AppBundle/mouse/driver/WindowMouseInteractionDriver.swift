@@ -116,6 +116,9 @@ extension WindowMouseInteractionDriver {
     func stop() {
         logWindowDragLive("driver.stop moveSession=\(String(describing: moveSession)) resizeSession=\(String(describing: resizeSession)) manipulated=\(currentlyManipulatedWithMouseWindowId?.description ?? "nil") kind=\(getCurrentMouseManipulationKind()) mouseDown=\(isLeftMouseButtonDown)")
         DisplayRefreshDriver.shared.remove(owner: self)
+        for windowId in [moveSession?.windowId, resizeSession?.windowId].compactMap(\.self) {
+            dropManipulatedWindowFrame(windowId: windowId)
+        }
         moveSession = nil
         resizeSession = nil
         dragSourcePreviewState = nil
@@ -130,6 +133,7 @@ extension WindowMouseInteractionDriver {
     }
 
     func finishResizeFlush(session: ResizeSession) {
+        dropManipulatedWindowFrame(windowId: session.windowId)
         if resizeSession == session {
             resizeSession = nil
         }
@@ -137,6 +141,14 @@ extension WindowMouseInteractionDriver {
         resetResizeTrackingState()
         WindowResizePreviewPanel.shared.endStableFrame()
         WindowResizePreviewPanel.shared.hide(reason: "driver.finishResizeFlush")
+    }
+
+    /// A dragged or resized tiled window's cached rect is where the user left it. Layout now
+    /// reasserts its tile, even an unchanged one, and the resulting events are suppressed after
+    /// the drag. A floating window stays where it was dropped, so its rect is kept.
+    func dropManipulatedWindowFrame(windowId: UInt32) {
+        guard let window = Window.get(byId: windowId), !window.isFloating else { return }
+        window.invalidateLastKnownActualRect()
     }
 }
 
@@ -579,6 +591,9 @@ extension WindowMouseInteractionDriver {
         if isNewSession {
             resetResizeTrackingState()
             clearPendingWindowDragIntent()
+            // Drag-start frame snapshots belong to move drags. A leftover one would stand in for
+            // a frame that layout dropped.
+            cancelWindowDragActualRectRefresh()
         }
         resizeSession = session
         currentlyManipulatedWithMouseWindowId = windowId

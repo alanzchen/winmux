@@ -12,6 +12,8 @@ func refreshActualRects(_ windows: [Window], sourceWindowId: UInt32) async {
     for window in windows {
         let previousRect = window.lastKnownActualRect
         let refreshedRect = try? await window.getAxRect()
+        // The drag may have ended, and its cleared snapshots must stay cleared.
+        guard !Task.isCancelled else { return }
         if let refreshedRect {
             windowDragActualRectCache[window.windowId] = resolveWindowDragActualRect(
                 cached: windowDragActualRectCache[window.windowId],

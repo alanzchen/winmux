@@ -2,6 +2,8 @@
 func refreshVisibleWindowActualRectsForCurrentDrag(sourceWindowId: UInt32) {
     windowDragActualRectRefreshTask?.cancel()
     windowDragActualRectRefreshTask = Task { @MainActor in
+        // A task cancelled before it first runs still runs; don't refill cleared snapshots.
+        guard !Task.isCancelled else { return }
         let visibleWindows = Workspace.all
             .filter(\.isVisible)
             .flatMap(\.allLeafWindowsRecursive)

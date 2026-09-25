@@ -64,6 +64,12 @@ extension TreeNode {
                             window.isFullscreen = false
                         }
                         if !canReuseLastAppliedWindowFrame(previousPhysicalRect: previousPhysicalRect, nextPhysicalRect: physicalRect) {
+                            // Layout doesn't learn the frame it sets, and right after a drag the move's
+                            // AX events are suppressed, so a move drops the cached rect itself. Re-sending
+                            // an unchanged frame keeps it: an app that clamps the frame doesn't move.
+                            if previousPhysicalRect.map({ !$0.isApproximatelyEqual(to: physicalRect, tolerance: 0.5) }) ?? true {
+                                window.invalidateLastKnownActualRect()
+                            }
                             window.setAxFrame(point, CGSize(width: width, height: height))
                         }
                     }
@@ -140,6 +146,9 @@ extension Window {
             newX = newX.coerce(in: workspaceRect.minX ... max(workspaceRect.minX, workspaceRect.maxX - windowWidth))
             newY = newY.coerce(in: workspaceRect.minY ... max(workspaceRect.minY, workspaceRect.maxY - windowHeight))
 
+            // The move's events may be suppressed after a drag, and there's no layout rect to
+            // fall back on, so record the known destination.
+            recordAuthoritativeActualRect(Rect(topLeftX: newX, topLeftY: newY, width: windowWidth, height: windowHeight))
             setAxFrame(CGPoint(x: newX, y: newY), nil)
         }
         if isFullscreen {

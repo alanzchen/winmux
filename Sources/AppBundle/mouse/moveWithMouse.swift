@@ -18,9 +18,9 @@ private func handleMovedEvent(windowId: UInt32?, notif: String) async {
         WindowMouseInteractionOpacityController.shared.shouldSuppressObserverEvent(windowId: windowId) ||
         shouldIgnoreAxObserverEventForPostDragSuppression(windowId: windowId, notif: notif)
     {
-        // Suppressed events are our own parking/restore/post-drag moves: their authors write
-        // the resulting rect into the cache themselves, so invalidating here would wipe
-        // deliberately recorded values.
+        // Suppressed events are mostly our own parking/restore/post-drag moves, whose authors
+        // maintain the cache (parking and restore record the rect, layout drops it), so
+        // invalidating here would wipe deliberately recorded values.
         return
     }
     // The cached native state (rect, fullscreen) is stale the moment the window reports

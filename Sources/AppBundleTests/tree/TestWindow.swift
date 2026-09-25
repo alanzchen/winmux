@@ -23,6 +23,8 @@ final class TestWindow: Window, CustomStringConvertible {
 
     private let testApp: TestApp
     var customTitle: String?
+    /// MacWindow.setAxFrame doesn't record the resulting frame; clear to model that.
+    var recordsFrameOnSetAxFrame = true
 
     @MainActor
     private init(_ id: UInt32, _ parent: NonLeafTreeNodeObject, _ adaptiveWeight: CGFloat, _ rect: Rect?, _ app: TestApp) {
@@ -92,7 +94,10 @@ final class TestWindow: Window, CustomStringConvertible {
 
     override var isHiddenInCorner: Bool { _isHiddenInCorner }
 
+    private(set) var setAxFrameCount = 0
+
     override func setAxFrame(_ topLeft: CGPoint?, _ size: CGSize?) {
+        setAxFrameCount += 1
         let currentRect = _rect ?? Rect(topLeftX: topLeft?.x ?? 0, topLeftY: topLeft?.y ?? 0, width: size?.width ?? 0, height: size?.height ?? 0)
         _rect = Rect(
             topLeftX: topLeft?.x ?? currentRect.topLeftX,
@@ -102,8 +107,10 @@ final class TestWindow: Window, CustomStringConvertible {
         )
         let windowId = self.windowId
         let rect = _rect
-        Task { @MainActor in
-            Window.get(byId: windowId)?.recordAuthoritativeActualRect(rect)
+        if recordsFrameOnSetAxFrame {
+            Task { @MainActor in
+                Window.get(byId: windowId)?.recordAuthoritativeActualRect(rect)
+            }
         }
         _isHiddenInCorner = false
     }

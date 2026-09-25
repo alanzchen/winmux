@@ -57,7 +57,6 @@ func synchronizeTabbedWindowCache(_ window: Window, rect: Rect) {
     window.lastFloatingSize = rect.size
     window.recordAuthoritativeActualRect(rect)
     window.lastAppliedLayoutPhysicalRect = rect
-    windowDragActualRectCache[window.windowId] = rect
 }
 
 @MainActor

@@ -241,6 +241,9 @@ final class MacWindow: Window {
             let windowHeight = lastKnownActualRect?.height ?? lastFloatingSize?.height ?? 0
             newX = newX.coerce(in: workspaceRect.minX ... max(workspaceRect.minX, workspaceRect.maxX - windowWidth))
             newY = newY.coerce(in: workspaceRect.minY ... max(workspaceRect.minY, workspaceRect.maxY - windowHeight))
+            // The cached rect may be the parked one, and the move's events may be suppressed
+            // after a drag.
+            invalidateLastKnownActualRect()
             setAxFrame(CGPoint(x: newX, y: newY), nil)
         }
 
