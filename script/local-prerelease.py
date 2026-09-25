@@ -72,10 +72,13 @@ def main():
         if not os.environ.get("DEVELOPMENT_TEAM") or os.environ.get("CODESIGN_IDENTITY") == "-":
             raise ValueError("Set DEVELOPMENT_TEAM and a Developer ID Application CODESIGN_IDENTITY before building locally.")
         pinned = Path(".swift-version").read_text().strip()
-        for args in (["/bin/bash", "-c", "source script/setup.sh; swift --version"], ["xcrun", "swift", "--version"]):
+        checks = {"setup.sh's swift": ["/bin/bash", "-c", "source script/setup.sh; swift --version"],
+                  "xcrun swift": ["xcrun", "swift", "--version"]}
+        for name, args in checks.items():
             output = subprocess.check_output(args, text=True)
             if not re.search(preview.pinned_swift_version_pattern(pinned), output):
-                raise ValueError(f"Select an Xcode that bundles the pinned Swift {pinned}, or remove or correct TOOLCHAINS, before building locally.")
+                raise ValueError(f"{name} isn't the pinned Swift {pinned}; select an Xcode that bundles it, "
+                                 "or remove or correct TOOLCHAINS, before building locally.")
         run("python3", "-B", "script/sign-sparkle-update.py", "--check-credentials")
         run("python3", "-B", "script/check-signing-keychain.py")
         tag, already_published = preview.prepare(local=True)

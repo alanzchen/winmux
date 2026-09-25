@@ -23,7 +23,9 @@ tart run winmux-tests --no-graphics --no-audio --no-clipboard \
 `script/tart-tests.sh test` fails when the guest's Swift isn't the version in
 `.swift-version`; move to a newer image when the pin changes.
 
-Skip `clone` and `set` for the existing VM. `tart run` stays active until the VM
+Skip `clone` and `set` when `winmux-tests` already runs this image. When the digest
+changes, clone the new image under another name, validate it, then retire the old VM
+(`tart delete`) and rename the new one to `winmux-tests`. `tart run` stays active until the VM
 stops. The guest agent supports `tart exec` without SSH credentials. To see the
 VM in a window, omit `--no-graphics` on its next start.
 

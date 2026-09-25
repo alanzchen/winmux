@@ -46,8 +46,8 @@ rsync -a --delete --exclude '/.build' --exclude '/.git' "$source_stage/" ./
 # no host history, remotes, credentials, or Git configuration are copied.
 git init --quiet
 # The guest's Xcode bundles the pinned Swift. Refuse to test with a different compiler.
-xcodebuild -version
-xcrun swift --version
+xcodebuild -version || true
+xcrun swift --version || true
 expected="$(cat .swift-version)"
 actual="$(xcrun swift --version 2> /dev/null | sed -nE 's/.*Swift version ([0-9]+\.[0-9]+(\.[0-9]+)?)[ )].*/\1/p' || true)"
 test "$actual" = "$expected" || test "$actual.0" = "$expected" || {

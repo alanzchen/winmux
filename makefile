@@ -104,6 +104,8 @@ cli:
 	$(MAKE) build VERSION="$(VERSION)"
 	/bin/bash -lc 'cd "$(CURDIR)" && exec ./.debug/winmux $(ARGS)'
 
+# The release CLI uses SwiftPM's native build engine, as every release before Swift 6.4 did: 6.4's
+# default Swift Build engine links it without the SDK version (LC_BUILD_VERSION sdk 13.0).
 cli-release:
 	$(MAKE) generate VERSION="$(VERSION)"
 	/bin/bash -lc 'cd "$(CURDIR)" && \
@@ -113,6 +115,9 @@ cli-release:
 	cli_build_dir="$$(swift build -c release --arch arm64 --build-system native --show-bin-path | /usr/bin/tail -n 1)" && \
 	cli_stage_path="$(CLI_STAGE_PATH)" && \
 	test -x "$$cli_build_dir/winmux" && \
+	sdk="$$(/usr/bin/vtool -show-build-version "$$cli_build_dir/winmux" | /usr/bin/sed -nE "s/^ *sdk ([0-9.]+).*/\1/p" | /usr/bin/head -n 1)" && \
+	expected_sdk="$$(/usr/bin/xcrun --show-sdk-version)" && \
+	if [ "$$sdk" != "$$expected_sdk" ]; then echo "CLI must record the macOS $$expected_sdk SDK it was built with; found $${sdk:-none}" >&2; exit 1; fi && \
 	mkdir -p "$$(dirname "$$cli_stage_path")" && \
 	/usr/bin/install -m 755 "$$cli_build_dir/winmux" "$$cli_stage_path" && \
 	if [ "$(CODESIGN_IDENTITY)" = "-" ]; then \
@@ -122,10 +127,7 @@ cli-release:
 	fi && \
 	/usr/bin/codesign --verify --strict --verbose=2 "$$cli_stage_path" && \
 	archs="$$(/usr/bin/lipo -archs "$$cli_stage_path")" && \
-	if [ "$$archs" != arm64 ]; then echo "CLI must contain only arm64; found $$archs" >&2; exit 1; fi && \
-	sdk="$$(/usr/bin/vtool -show-build-version "$$cli_stage_path" | /usr/bin/sed -nE "s/^ *sdk ([0-9.]+).*/\1/p" | /usr/bin/head -n 1)" && \
-	expected_sdk="$$(/usr/bin/xcrun --show-sdk-version)" && \
-	if [ "$$sdk" != "$$expected_sdk" ]; then echo "CLI must record the macOS $$expected_sdk SDK it was built with; found $$sdk" >&2; exit 1; fi'
+	if [ "$$archs" != arm64 ]; then echo "CLI must contain only arm64; found $$archs" >&2; exit 1; fi'
 
 release:
 	/bin/bash script/build-release.sh --check

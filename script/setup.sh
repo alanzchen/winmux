@@ -51,8 +51,9 @@ if /bin/test -z "${SDKROOT:-}"; then
     fi
 fi
 
-# The pinned Swift, read next to this script so a later cd doesn't lose it.
-winmux_pinned_swift="$(/bin/cat "$(/usr/bin/dirname "${BASH_SOURCE[0]}")/../.swift-version" 2> /dev/null || true)"
+# The pinned Swift, read next to this script so a later cd doesn't lose it. zsh, when a developer
+# sources this interactively, has no BASH_SOURCE but names the sourced file in $0.
+winmux_pinned_swift="$(/bin/cat "$(/usr/bin/dirname "${BASH_SOURCE[0]:-$0}")/../.swift-version" 2> /dev/null || true)"
 
 # True when `xcrun swift` is the pinned Swift: the selected Xcode's own, or the toolchain TOOLCHAINS
 # names (swift --version prints an X.Y.0 release as X.Y). Call it only as a condition: setup.sh
@@ -71,7 +72,11 @@ swift() {
     if selected_xcode_swift_is_pinned; then
         /usr/bin/xcrun swift "$@"
     elif /usr/bin/which swiftly &> /dev/null; then
-        echo "warning: xcrun swift isn't the pinned Swift $winmux_pinned_swift; using swiftly, so Xcode builds the app with a different compiler" > /dev/stderr
+        if /bin/test -z "$winmux_pinned_swift"; then
+            echo "warning: no .swift-version next to script/setup.sh; using swiftly's default Swift" > /dev/stderr
+        else
+            echo "warning: xcrun swift isn't the pinned Swift $winmux_pinned_swift; using swiftly, so Xcode builds the app with a different compiler" > /dev/stderr
+        fi
         swiftly run swift "$@"
     else
         echo "warning: swiftly is not installed. Fallback to plain swift. Swift compilation might not be reproducible" > /dev/stderr
