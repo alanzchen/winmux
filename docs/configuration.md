@@ -21,11 +21,11 @@ winmux reload-config
 The [default configuration](../resources/default-config.toml) lists the available
 starting values. See the [Settings guide](settings-ux.md) for saving and recovery.
 
-## Dock or Sidebar
+## Dock, Sidebar, or Tabs
 
 ```toml
 [workspace-sidebar]
-mode = 'dock' # 'dock' or 'sidebar'
+mode = 'dock' # 'dock', 'sidebar', or 'tabs'
 dock-position = 'left' # Dock only: 'left', 'bottom', or 'right'
 dock-icon-size = 48 # Maximum; icons shrink together when space is tight.
 dock-left-gap = 2 # Gap at the selected edge; closes when expanded.
@@ -42,6 +42,30 @@ Legacy `show-app-icons` settings still apply when `mode` is absent, including
 `show-app-icons = false` for Sidebar. Each mode retains its saved appearance options.
 See [appearance](sidebar-appearance.md) for glass, solid colors, and blur, and
 [Dock placement](dock-placement.md) for position and native Dock behavior.
+
+### Tabs
+
+`mode = 'tabs'` turns the expanded Sidebar into a list of vertical tabs, like a
+browser sidebar. It works well kept open:
+
+```toml
+[workspace-sidebar]
+mode = 'tabs'
+always-expanded = true
+```
+
+- Each window is a tab showing its app icon and title. Click a tab to switch to that
+  window, even on another workspace. The focused window is highlighted.
+- Hover a tab and click **×**, or middle-click it, to close the window.
+- Workspaces are folders. Click the chevron to collapse one; a collapsed folder still
+  shows the window you are using, and a search shows every match. Click a folder's name
+  to switch to that workspace, or right-click it to rename, save, or delete it.
+- A stack of tabbed windows appears as an indented group.
+- Drag a tab onto another folder to move the window there, or onto **New Workspace** to
+  give it its own workspace.
+- The emoji project switcher sits at the bottom.
+
+Tabs mode uses the Sidebar's placement, collapsed rail, auto-hide, and edge resizing.
 
 ## Hide the rail or keep it expanded
 

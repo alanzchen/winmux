@@ -19,7 +19,32 @@ func makeWorkspaceSidebarTabGroupViewModel(
         windowCount: container.allLeafWindowsRecursive.count,
         isFocused: representativeWindow.moveNode == currentFocus.windowOrNil?.moveNode,
         tabs: tabs,
+        allWindows: config.workspaceSidebar.usesTabsList
+            ? await buildWorkspaceSidebarTabGroupWindows(for: container, reusing: tabs,
+                workspaceName: workspaceName, currentFocus: currentFocus)
+            : [],
     )
+}
+
+/// All bound windows of the stack in tree order. Windows already built as tabs are reused.
+@MainActor
+func buildWorkspaceSidebarTabGroupWindows(
+    for container: TilingContainer,
+    reusing tabs: [WorkspaceSidebarWindowViewModel],
+    workspaceName: String,
+    currentFocus: LiveFocus,
+) async -> [WorkspaceSidebarWindowViewModel] {
+    let built = Dictionary(tabs.map { ($0.windowId, $0) }, uniquingKeysWith: { first, _ in first })
+    var windows: [WorkspaceSidebarWindowViewModel] = []
+    for window in container.allLeafWindowsRecursive where window.isBound {
+        if let existing = built[window.windowId] {
+            windows.append(existing)
+        } else {
+            windows.append(await makeWorkspaceSidebarWindowViewModel(
+                for: window, workspaceName: workspaceName, currentFocus: currentFocus))
+        }
+    }
+    return windows
 }
 
 @MainActor

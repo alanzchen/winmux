@@ -29,6 +29,8 @@ struct WorkspaceSidebarView: View {
     @State var isSearchEditing = false
     @State var searchEditingPanel: WorkspaceSidebarPanel? = nil
     @State var selectedSearchTarget: WorkspaceSidebarSearchSelection? = nil
+    /// Tabs mode folders the user collapsed, by workspace name. Kept for the panel's lifetime.
+    @State var collapsedTabFolderNames: Set<String> = []
     @State var lastProjectEdgeDragDirection: Int? = nil
     @State var lastProjectEdgeDragSwitchAt: Date = .distantPast
     @State var showsPinnedActiveWorkspaceForBrowsedProject = true
@@ -1086,7 +1088,74 @@ extension WorkspaceSidebarView {
         }
     }
 
+    /// Tabs mode lists windows as tabs once expanded; the collapsed rail stays the workspace rail.
+    @ViewBuilder
     func workspacePage(
+        layout: WorkspaceSidebarConfiguration,
+        projectId: WorkspaceProjectId,
+        workspaces: [WorkspaceSidebarWorkspaceViewModel],
+        expansionProgress: CGFloat,
+        leadingInset: CGFloat,
+        trailingInset: CGFloat,
+        topPadding: CGFloat,
+        isInteractive: Bool,
+        showsPinnedActiveWorkspace: Bool = true,
+        showsCreateWorkspace: Bool = true,
+        allowsActivation: Bool? = nil,
+    ) -> some View {
+        if layout.usesTabsList, expansionProgress >= workspaceSidebarRowsRevealProgress {
+            tabsWorkspacePage(layout: layout, projectId: projectId, workspaces: workspaces,
+                leadingInset: leadingInset, trailingInset: trailingInset, topPadding: topPadding,
+                showsPinnedActiveWorkspace: showsPinnedActiveWorkspace, showsCreateWorkspace: showsCreateWorkspace)
+        } else {
+            sectionsWorkspacePage(layout: layout, projectId: projectId, workspaces: workspaces,
+                expansionProgress: expansionProgress, leadingInset: leadingInset, trailingInset: trailingInset,
+                topPadding: topPadding, isInteractive: isInteractive, showsPinnedActiveWorkspace: showsPinnedActiveWorkspace,
+                showsCreateWorkspace: showsCreateWorkspace, allowsActivation: allowsActivation)
+        }
+    }
+
+    func createWorkspaceSection(layout: WorkspaceSidebarConfiguration, projectId: WorkspaceProjectId,
+                                expansionProgress: CGFloat) -> some View {
+        let createMonitorScopeId = workspaceSidebarWorkspaceCreateScope(
+            selectedScopeId: snapshot.selectedMonitorScopeId,
+            targetMonitorScopeId: snapshot.targetMonitorScopeId,
+            focusedScopeId: snapshot.focusedMonitorScopeId,
+        )
+        return WorkspaceSidebarCreateWorkspaceSection(
+            projectId: projectId,
+            monitorScopeId: createMonitorScopeId,
+            dragPreview: snapshot.dropPreview,
+            expansionProgress: expansionProgress,
+            layout: layout,
+            emitsDropTarget: true,
+            onCreateWorkspace: {
+                actions.send(.createWorkspace(
+                    projectId: projectId,
+                    monitorScopeId: createMonitorScopeId
+                ))
+            },
+            onDropPayload: { payload in
+                switch payload {
+                    case .window(let windowId):
+                        actions.send(.moveWindowToNewWorkspace(
+                            windowId,
+                            projectId: projectId,
+                            monitorScopeId: createMonitorScopeId,
+                        ))
+                    case .tabGroup(let representativeWindowId):
+                        actions.send(.moveTabGroupToNewWorkspace(
+                            representativeWindowId,
+                            projectId: projectId,
+                            monitorScopeId: createMonitorScopeId,
+                        ))
+                }
+            },
+            actions: actions,
+        )
+    }
+
+    func sectionsWorkspacePage(
         layout: WorkspaceSidebarConfiguration,
         projectId: WorkspaceProjectId,
         workspaces: [WorkspaceSidebarWorkspaceViewModel],
@@ -1160,42 +1229,7 @@ extension WorkspaceSidebarView {
                 }
             }
             if showsCreateWorkspace && workspaceSidebarShowsCreateWorkspace(selectedScopeId: snapshot.selectedMonitorScopeId) {
-                let createMonitorScopeId = workspaceSidebarWorkspaceCreateScope(
-                    selectedScopeId: snapshot.selectedMonitorScopeId,
-                    targetMonitorScopeId: snapshot.targetMonitorScopeId,
-                    focusedScopeId: snapshot.focusedMonitorScopeId,
-                )
-                WorkspaceSidebarCreateWorkspaceSection(
-                    projectId: projectId,
-                    monitorScopeId: createMonitorScopeId,
-                    dragPreview: snapshot.dropPreview,
-                    expansionProgress: expansionProgress,
-                    layout: layout,
-                    emitsDropTarget: true,
-                    onCreateWorkspace: {
-                        actions.send(.createWorkspace(
-                            projectId: projectId,
-                            monitorScopeId: createMonitorScopeId
-                        ))
-                    },
-                    onDropPayload: { payload in
-                        switch payload {
-                            case .window(let windowId):
-                                actions.send(.moveWindowToNewWorkspace(
-                                    windowId,
-                                    projectId: projectId,
-                                    monitorScopeId: createMonitorScopeId,
-                                ))
-                            case .tabGroup(let representativeWindowId):
-                                actions.send(.moveTabGroupToNewWorkspace(
-                                    representativeWindowId,
-                                    projectId: projectId,
-                                    monitorScopeId: createMonitorScopeId,
-                                ))
-                        }
-                    },
-                    actions: actions,
-                )
+                createWorkspaceSection(layout: layout, projectId: projectId, expansionProgress: expansionProgress)
             }
         }
         return GeometryReader { viewport in
@@ -1355,7 +1389,7 @@ extension WorkspaceSidebarView {
         workspaceSidebarProjectColor(projectId: projectId, configuredHex: projectColorHex(projectId))
     }
 
-    private func pinnedActiveWorkspace(
+    func pinnedActiveWorkspace(
         displayedProjectId: WorkspaceProjectId,
         pageWorkspaces: [WorkspaceSidebarWorkspaceViewModel]
     ) -> WorkspaceSidebarWorkspaceViewModel? {

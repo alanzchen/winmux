@@ -84,6 +84,8 @@ enum ShortcutsPreset: String, Equatable, Sendable {
 enum WorkspaceSidebarMode: String, CaseIterable, Identifiable, Sendable {
     case sidebar
     case dock
+    /// Sidebar-mode panel whose expanded view lists windows as vertical tabs.
+    case tabs
 
     var id: String { rawValue }
 }
@@ -165,6 +167,8 @@ struct WorkspaceSidebarConfig: ConvenienceCopyable, Equatable, Sendable {
     var usesDockMagnification: Bool { showAppIcons && dockMagnification && !alwaysExpanded }
     // A collapsible Dock stays in place and opens project columns in a floating view beside it.
     var floatsExpandedDockView: Bool { showAppIcons && !alwaysExpanded }
+    /// Tabs mode keeps Sidebar-mode geometry; only the expanded content differs.
+    var usesTabsList: Bool { mode == .tabs }
 }
 
 enum ChromeStyle: String, CaseIterable, Identifiable, Sendable {

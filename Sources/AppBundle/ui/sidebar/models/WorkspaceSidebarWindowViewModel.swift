@@ -18,6 +18,9 @@ struct WorkspaceSidebarTabGroupViewModel: Hashable, Identifiable {
     let isFocused: Bool
     let tabs: [WorkspaceSidebarWindowViewModel]
     var searchVisibleTabs: [WorkspaceSidebarWindowViewModel]? = nil
+    /// Every window in the stack, including all windows of a split inside one tab. Tabs mode
+    /// lists windows, not tabs; other modes leave this empty.
+    var allWindows: [WorkspaceSidebarWindowViewModel] = []
 
     var id: String { "group:\(representativeWindowId)" }
 }

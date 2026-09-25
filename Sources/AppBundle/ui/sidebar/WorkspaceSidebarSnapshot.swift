@@ -45,6 +45,7 @@ struct WorkspaceSidebarConfiguration: Equatable {
     var solidChromeColor: ChromeSolidColor
     var solidChromeCustomColor: String
     var showAppIcons: Bool = false
+    var usesTabsList: Bool = false
     var showWorkspaceTooltips: Bool = true
     var showAppTooltips: Bool = true
     var showHiddenWorkspaceAppReminders: Bool = false

@@ -51,6 +51,7 @@ on-mode-changed = []
     # Keep the full sidebar open and reserve its width for tiled windows.
     always-expanded = false
     # Dock is the default: it shows icons and opens a floating view of every project beside itself.
+    # 'sidebar' is a compact rail that expands into window details; 'tabs' lists windows as vertical tabs.
     mode = 'dock'
     # Legacy show-app-icons remains supported when mode is omitted.
     # Mirror app badge labels from the native macOS Dock (Dock mode only).

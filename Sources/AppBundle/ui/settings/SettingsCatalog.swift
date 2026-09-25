@@ -80,7 +80,7 @@ enum SettingsCatalog {
         if field.group == .dockAppearance && !dock || ["dock-position", "dock-left-gap", "show-app-badges", "show-app-tooltips", "show-hidden-workspace-app-reminders"].contains(field.key) && !dock {
             return "Choose Dock mode to use this setting."
         }
-        if ["collapsed-width", "stay-on-top"].contains(field.key) { return "Choose Sidebar mode to use this setting." }
+        if ["collapsed-width", "stay-on-top"].contains(field.key) { return "Choose Sidebar or Tabs mode to use this setting." }
         if field.key == "dock-magnification-amount" { return "Enable Magnify icons on hover to adjust the amount." }
         if ["show-seconds", "show-date", "show-weekday"].contains(field.key) { return "Enable Show clock to use this setting." }
         if field.key == "height" || field.key == "tab-group-padding" { return "Enable Show window tabs to use this setting." }
@@ -129,8 +129,8 @@ enum SettingsCatalog {
             bool(.startup, "start-at-login", "Start at login", "Launch WinMux after you sign in.", path: \.startAtLogin),
             bool(.startup, "auto-reload-config", "Reload TOML automatically", "Apply valid configuration edits saved from another editor.", path: \.autoReloadConfig),
             bool(.dockMode, "enabled", "Show Dock or Sidebar", "Show the workspace rail on the configured displays.", section: sidebar, path: \.workspaceSidebar.enabled),
-            choice(.dockMode, "mode", "Mode", "Dock shows workspace tiles and app icons. Sidebar shows a compact rail that expands into window details.", section: sidebar,
-                options: [.init("Dock", "dock"), .init("Sidebar", "sidebar")], read: { $0.workspaceSidebar.mode.rawValue }),
+            choice(.dockMode, "mode", "Mode", "Dock shows workspace tiles and app icons. Sidebar shows a compact rail that expands into window details. Tabs lists every window as a vertical tab, grouped into workspace folders.", section: sidebar,
+                options: [.init("Dock", "dock"), .init("Sidebar", "sidebar"), .init("Tabs", "tabs")], read: { $0.workspaceSidebar.mode.rawValue }),
             SettingsField(group: .placement, section: sidebar, key: "dock-position", title: "Position", help: "Bottom temporarily enables macOS Dock auto-hide and restores your previous setting afterward. WinMux hides only when the macOS Dock appears on the same edge of the same display.",
                 control: .position, read: { .text($0.workspaceSidebar.dockPosition.rawValue) }),
             int(.placement, "dock-left-gap", "Edge gap", "Space from the selected display edge, in points. The gap closes when the panel expands.", section: sidebar, range: 0...24, path: \.workspaceSidebar.dockLeftGap),

@@ -101,7 +101,7 @@ func parseWorkspaceSidebar(
 
 private func parseWorkspaceSidebarMode(_ raw: TOMLValueConvertible, _ backtrace: TomlBacktrace) -> ParsedToml<WorkspaceSidebarMode> {
     parseString(raw, backtrace).flatMap { value in
-        WorkspaceSidebarMode(rawValue: value).orFailure(.semantic(backtrace, "Possible values: sidebar, dock"))
+        WorkspaceSidebarMode(rawValue: value).orFailure(.semantic(backtrace, "Possible values: sidebar, dock, tabs"))
     }
 }
 

@@ -24,6 +24,7 @@ func workspaceSidebarConfiguration() -> WorkspaceSidebarConfiguration {
         solidChromeColor: config.workspaceSidebar.dockSolidColor,
         solidChromeCustomColor: config.workspaceSidebar.dockCustomColor,
         showAppIcons: config.workspaceSidebar.showAppIcons,
+        usesTabsList: config.workspaceSidebar.usesTabsList,
         showWorkspaceTooltips: config.workspaceSidebar.showWorkspaceTooltips,
         showAppTooltips: config.workspaceSidebar.showAppTooltips,
         showHiddenWorkspaceAppReminders: config.workspaceSidebar.showHiddenWorkspaceAppReminders,
