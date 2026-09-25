@@ -1,9 +1,9 @@
 # Native macOS testing with Tart
 
 The local `winmux-tests` VM provides a separate desktop for tests and screenshots.
-It uses macOS 26.6.2, 8 virtual CPUs, 24 GB memory, and the repository's Swift 6.2.4
-toolchain. Source and the toolchain are shared read-only; generated screenshots and
-logs use a separate writable results directory. No host signing keys or Apple
+It uses macOS 27 (Golden Gate) with Xcode 27, whose bundled Swift is the pinned 6.4.0,
+8 virtual CPUs, and 24 GB memory. Source is shared read-only; generated screenshots
+and logs use a separate writable results directory. No host signing keys or Apple
 Account are needed in the guest.
 
 ## Start or recreate the VM
@@ -12,14 +12,16 @@ Install Tart using its [official quick start](https://tart.run/quick-start/).
 The image used for this validation is pinned by digest:
 
 ```sh
-tart clone ghcr.io/cirruslabs/macos-tahoe-xcode@sha256:923c98d32e40ffadb6e6815a9722124b7a57bdf7d7763a708a2b28d1970831bd winmux-tests
+tart clone ghcr.io/cirruslabs/macos-golden-gate-xcode@sha256:324ea5656dee8ab9b0a0df70fda2cfed8912051ad0eca3b1b883bf6ddac88fab winmux-tests
 tart set winmux-tests --cpu 8 --memory 24576 --display 1600x1000pt
 mkdir -p .local/vm-share/input .local/vm-share/results
 tart run winmux-tests --no-graphics --no-audio --no-clipboard \
   --dir "inputs:$PWD/.local/vm-share/input:ro" \
-  --dir "results:$PWD/.local/vm-share/results" \
-  --dir "swift-toolchain:$HOME/Library/Developer/Toolchains/swift-6.2.4-RELEASE.xctoolchain:ro"
+  --dir "results:$PWD/.local/vm-share/results"
 ```
+
+`script/tart-tests.sh test` fails when the guest's Swift isn't the version in
+`.swift-version`; move to a newer image when the pin changes.
 
 Skip `clone` and `set` for the existing VM. `tart run` stays active until the VM
 stops. The guest agent supports `tart exec` without SSH credentials. To see the

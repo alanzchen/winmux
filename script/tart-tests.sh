@@ -35,10 +35,7 @@ PY
 cat > "$run_dir/test.sh" <<'GUEST'
 #!/bin/bash
 set -euo pipefail
-mkdir -p /Users/admin/winmux /Users/admin/Library/Developer/Toolchains
-if [ ! -e /Users/admin/Library/Developer/Toolchains/swift-6.2.4-RELEASE.xctoolchain ]; then
-    ln -s '/Volumes/My Shared Files/swift-toolchain' /Users/admin/Library/Developer/Toolchains/swift-6.2.4-RELEASE.xctoolchain
-fi
+mkdir -p /Users/admin/winmux
 cd /Users/admin/winmux
 source_stage="$(mktemp -d /Users/admin/winmux-source.XXXXXX)"
 trap 'rm -rf "$source_stage"' EXIT
@@ -48,11 +45,16 @@ rsync -a --delete --exclude '/.build' --exclude '/.git' "$source_stage/" ./
 # Debug configuration discovery uses a Git root. This is fresh guest metadata;
 # no host history, remotes, credentials, or Git configuration are copied.
 git init --quiet
-export PATH="/Volumes/My Shared Files/swift-toolchain/usr/bin:$PATH"
-export TOOLCHAINS=org.swift.624202602241a
-export SWIFT_EXEC_MANIFEST=/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc
-swift --version
-swift test --arch arm64
-swift build --arch arm64
+# The guest's Xcode bundles the pinned Swift. Refuse to test with a different compiler.
+xcodebuild -version
+xcrun swift --version
+expected="$(cat .swift-version)"
+actual="$(xcrun swift --version 2> /dev/null | sed -nE 's/.*Swift version ([0-9]+\.[0-9]+(\.[0-9]+)?)[ )].*/\1/p' || true)"
+test "$actual" = "$expected" || test "$actual.0" = "$expected" || {
+    echo "The guest's Swift $actual isn't the pinned $expected; update the VM's Xcode (docs/tart-testing.md)." >&2
+    exit 1
+}
+xcrun swift test --arch arm64
+xcrun swift build --arch arm64
 GUEST
 tart exec "$vm_name" /bin/bash "$guest_run_dir/test.sh" "$guest_run_dir/source.tar" 2>&1 | tee "$share_dir/results/tests.log"
