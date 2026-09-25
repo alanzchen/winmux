@@ -10,7 +10,7 @@
 
 ## Build, Test, and Development Commands
 
-Develop on macOS with Swift **6.2.4**, pinned in `.swift-version`. Verify `swift --version`; use `swiftly run swift …` when managing toolchains with Swiftly.
+Develop on macOS with Xcode 27 and Swift **6.4.0**, pinned in `.swift-version` (`swift --version` prints it as 6.4). Verify `swift --version`; use `swiftly run swift …` when managing toolchains with Swiftly.
 
 - `swift build --arch arm64`: build the debug app and CLI.
 - `swift test --arch arm64`: run the complete `AppBundleTests` suite.

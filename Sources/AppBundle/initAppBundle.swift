@@ -3,7 +3,7 @@ import Common
 import Foundation
 
 @MainActor public func initAppBundle() {
-    Task {
+    _ = Task {
         initTerminationHandler()
         isCli = false
         initServerArgs()

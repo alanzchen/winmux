@@ -57,7 +57,8 @@ DEFAULTS = {
     "CODESIGN_IDENTITY": "Developer ID Application",
     "DEVELOPMENT_TEAM": "N9YEGD9WDP",
     "NOTARYTOOL_KEYCHAIN": str(Path.home() / "Library/Keychains/login.keychain-db"),
-    "TOOLCHAINS": "org.swift.624202602241a",
+    # Xcode 27 bundles the pinned Swift; set TOOLCHAINS only for an Xcode that bundles another.
+    "TOOLCHAINS": "",
     "SWIFT_EXEC_MANIFEST": "",
     "WINMUX_RELEASE_WORKTREE": str(Path.home() / "Developer/winmux-worktrees/release"),
     # Optional shell command run when a release ends, with the summary on stdin.
@@ -594,10 +595,13 @@ def preflight(worktree, settings, env):
     if not settings["DEVELOPMENT_TEAM"] or settings["CODESIGN_IDENTITY"] in ("", "-"):
         raise ValueError("Set DEVELOPMENT_TEAM and a Developer ID CODESIGN_IDENTITY (see docs/releasing.md).")
     pinned = (worktree / ".swift-version").read_text().strip()
-    for args in (["/bin/bash", "-c", "source script/setup.sh; swift --version"], ["xcrun", "swift", "--version"]):
+    checks = {"setup.sh's swift": ["/bin/bash", "-c", "source script/setup.sh; swift --version"],
+              "xcrun swift": ["xcrun", "swift", "--version"]}
+    for name, args in checks.items():
         output = command(*args, cwd=worktree, env=env)
-        if not re.search(rf"Swift version {re.escape(pinned)}(?:\s|$)", output):
-            raise ValueError(f"{' '.join(args[-2:])} isn't the pinned Swift {pinned}; set TOOLCHAINS in {SETTINGS_FILE}.")
+        if not re.search(preview.pinned_swift_version_pattern(pinned), output):
+            raise ValueError(f"{name} isn't the pinned Swift {pinned}; select an Xcode that bundles it, "
+                             f"or remove or correct TOOLCHAINS in {SETTINGS_FILE}.")
     command(sys.executable, "-B", "script/sign-sparkle-update.py", "--check-credentials", cwd=worktree, env=env)
     command(sys.executable, "-B", "script/check-signing-keychain.py", cwd=worktree, env=env)
 

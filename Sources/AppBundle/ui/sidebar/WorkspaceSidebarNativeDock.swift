@@ -25,6 +25,7 @@ private struct WorkspaceSidebarNativeDockArtworkKey: Equatable {
     let backingScale: CGFloat
     let scale: CGFloat
 
+    @MainActor
     init(_ input: WorkspaceSidebarNativeDock, backingScale: CGFloat) {
         sections = input.workspaces.map {
             Section(name: $0.workspace.name, identifier: workspaceSidebarAppSummaryIdentifier($0.workspace),

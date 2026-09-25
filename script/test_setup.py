@@ -2,6 +2,7 @@
 
 import os
 from pathlib import Path
+import re
 import shlex
 import subprocess
 import sys
@@ -38,6 +39,35 @@ class SetupTest(unittest.TestCase):
                           env=dict(os.environ, **broken), capture_output=True).returncode == 0:
             self.skipTest("xcrun still resolves an SDK")
         self.assertEqual(exported_sdkroot(**broken), "")
+
+    @unittest.skipUnless(sys.platform == "darwin", "macOS release tool")
+    def test_builds_use_xcode_swift_only_when_it_is_the_pinned_one(self):
+        xcode_version = subprocess.run(["/usr/bin/xcrun", "swift", "--version"], text=True, capture_output=True,
+                                       check=True).stdout
+        version = re.search(r"Swift version ([0-9]+\.[0-9]+(?:\.[0-9]+)?)[ )]", xcode_version).group(1)
+        self.assertTrue(xcode_swift_is_pinned(version))
+        if version.count(".") == 1:
+            self.assertTrue(xcode_swift_is_pinned(version + ".0"))
+        self.assertFalse(xcode_swift_is_pinned("0.0.1"))
+        self.assertFalse(xcode_swift_is_pinned(""))
+
+
+def xcode_swift_is_pinned(pinned):
+    setup = Path(__file__).with_name("setup.sh").resolve()
+    environment = dict(os.environ, PATH="/usr/bin:/bin")
+    environment.pop("NUKE_PATH", None)
+    with tempfile.TemporaryDirectory() as directory:
+        # setup.sh reads the pin next to itself, so run a copy inside a scratch checkout and call
+        # the check from a subdirectory.
+        Path(directory, "script").mkdir()
+        Path(directory, "script", "setup.sh").write_text(setup.read_text())
+        Path(directory, ".swift-version").write_text(pinned + "\n")
+        Path(directory, "Sources").mkdir()
+        result = subprocess.run(
+            ["/bin/bash", "-c", "source script/setup.sh; cd Sources; selected_xcode_swift_is_pinned"],
+            cwd=directory, env=environment, text=True, capture_output=True,
+        )
+    return result.returncode == 0
 
 
 def exported_sdkroot(**overrides):

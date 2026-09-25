@@ -18,7 +18,7 @@ private let winmuxNewIssueURL = "https://github.com/zimengxiong/winmux/issues/ne
             .keyboardShortcut("C", modifiers: .command)
         Divider()
         Button(viewModel.isEnabled ? "Disable" : "Enable") {
-            Task {
+            _ = Task {
                 try await runLightSession(.menuBarButton, .forceRun) { () throws in
                     _ = try await EnableCommand(args: EnableCmdArgs(rawArgs: [], targetState: .toggle))
                         .run(.defaultEnv, .emptyStdin)
@@ -38,7 +38,7 @@ private let winmuxNewIssueURL = "https://github.com/zimengxiong/winmux/issues/ne
             openURLString(winmuxNewIssueURL)
         }
         Button("Quit \(winMuxAppName)") {
-            Task {
+            _ = Task {
                 defer { terminateApp() }
                 try await terminationHandler.beforeTermination()
             }
@@ -78,7 +78,7 @@ func openConfigButton(showShortcutGroup: Bool = false) -> some View {
 func reloadConfigButton(showShortcutGroup: Bool = false) -> some View {
     if let token: RunSessionGuard = .isServerEnabled {
         let button = Button("Reload config") {
-            Task {
+            _ = Task {
                 try await runLightSession(.menuBarButton, token) { _ = try await reloadConfig() }
             }
         }.keyboardShortcut("R", modifiers: .command)

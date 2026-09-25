@@ -29,6 +29,14 @@ FEED_BRANCH = "updates"
 FEED_PATH = "prerelease.xml"
 
 
+def pinned_swift_version_pattern(pinned):
+    """Matches `swift --version` output for the pinned MAJOR.MINOR.PATCH, which prints an X.Y.0 release as X.Y."""
+    if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", pinned):
+        raise ValueError(f".swift-version must be MAJOR.MINOR.PATCH, not {pinned!r}.")
+    versions = {pinned, re.sub(r"^([0-9]+\.[0-9]+)\.0$", r"\1", pinned)}
+    return rf"Swift version (?:{'|'.join(re.escape(version) for version in sorted(versions))})(?:\s|$)"
+
+
 def preview_version(prefix, tags):
     if not re.fullmatch(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)", prefix):
         raise ValueError("The prerelease version prefix must be MAJOR.MINOR.")

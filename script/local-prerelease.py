@@ -74,8 +74,8 @@ def main():
         pinned = Path(".swift-version").read_text().strip()
         for args in (["/bin/bash", "-c", "source script/setup.sh; swift --version"], ["xcrun", "swift", "--version"]):
             output = subprocess.check_output(args, text=True)
-            if not re.search(rf"Swift version {re.escape(pinned)}(?:\s|$)", output):
-                raise ValueError(f"Configure Swift and Xcode's TOOLCHAINS to use pinned Swift {pinned} before building locally.")
+            if not re.search(preview.pinned_swift_version_pattern(pinned), output):
+                raise ValueError(f"Select an Xcode that bundles the pinned Swift {pinned}, or remove or correct TOOLCHAINS, before building locally.")
         run("python3", "-B", "script/sign-sparkle-update.py", "--check-credentials")
         run("python3", "-B", "script/check-signing-keychain.py")
         tag, already_published = preview.prepare(local=True)

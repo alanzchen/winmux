@@ -108,7 +108,7 @@ final class SwitcherPalettePanel: NSPanelHud {
 
     private func select(_ windowId: UInt32) {
         dismiss()
-        Task { @MainActor in
+        _ = Task { @MainActor in
             guard let token: RunSessionGuard = .isServerEnabled else { return }
             try await runLightSession(.menuBarButton, token) {
                 guard let window = Window.get(byId: windowId), let liveFocus = window.toLiveFocusOrNil() else { return }

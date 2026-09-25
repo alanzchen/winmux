@@ -109,7 +109,7 @@ extension HotKey {
 
 @MainActor private func triggerBinding(_ binding: String, _ commands: [any Command]) {
     if hotkeysSuspended { return }
-    Task {
+    _ = Task {
         if let activeMode {
             broadcastEvent(.bindingTriggered(
                 mode: activeMode,

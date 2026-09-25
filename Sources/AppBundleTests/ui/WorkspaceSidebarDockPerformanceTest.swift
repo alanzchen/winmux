@@ -110,7 +110,9 @@ final class WorkspaceSidebarDockPerformanceTest: XCTestCase {
         var events = 0
         var injectionTimes: [Double] = []
         injectionTimes.reserveCapacity(2_400)
-        // A separate input timer creates rapid sweeps, reversals and periodic exits.
+        // A separate input timer creates rapid sweeps, reversals and periodic exits. It fires on the
+        // main run loop and touches the panel only inside assumeIsolated.
+        nonisolated(unsafe) let timerPanel = panel
         let timer = Timer(timeInterval: 1 / 120, repeats: true) { _ in
             MainActor.assumeIsolated {
                 let inputStart = CACurrentMediaTime()
@@ -122,7 +124,7 @@ final class WorkspaceSidebarDockPerformanceTest: XCTestCase {
                 }
                 let phase = elapsed.truncatingRemainder(dividingBy: 1.5) / 1.5
                 let fraction = phase < 0.5 ? phase * 2 : 2 - phase * 2
-                let surface = panel.visibleSurfaceFrameOnScreen
+                let surface = timerPanel.visibleSurfaceFrameOnScreen
                 let exit = Int(elapsed).isMultiple(of: 5) && elapsed > 1
                 let screenPoint = CGPoint(x: surface.minX + (exit ? -12 : 32),
                     y: surface.minY + 45 + fraction * max(surface.height - 90, 1))
@@ -134,8 +136,8 @@ final class WorkspaceSidebarDockPerformanceTest: XCTestCase {
                 } else {
                     CGWarpMouseCursorPosition(quartzPoint)
                     let event = NSEvent.mouseEvent(with: .mouseMoved,
-                        location: panel.convertPoint(fromScreen: screenPoint), modifierFlags: [],
-                        timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: panel.windowNumber,
+                        location: timerPanel.convertPoint(fromScreen: screenPoint), modifierFlags: [],
+                        timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: timerPanel.windowNumber,
                         context: nil, eventNumber: events, clickCount: 0, pressure: 0)
                     if let event { NSApp.postEvent(event, atStart: false) }
                 }

@@ -15,7 +15,7 @@ jobs:
     runs-on: macos-26
     timeout-minutes: 30
     env:
-      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+      DEVELOPER_DIR: /Applications/Xcode_27.0.app/Contents/Developer
       TOOLCHAINS: com.apple.dt.toolchain.XcodeDefault
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -24,12 +24,13 @@ jobs:
       - name: Verify pinned compiler
         run: |
           set -euo pipefail
+          test -d "$DEVELOPER_DIR"
           test "$(uname -m)" = arm64
           xcodebuild -version
           xcrun swift --version
           expected="$(cat .swift-version)"
-          actual="$(xcrun swift --version | sed -nE 's/.*Swift version ([0-9]+\.[0-9]+\.[0-9]+).*/\1/p')"
-          test "$actual" = "$expected"
+          actual="$(xcrun swift --version | sed -nE 's/.*Swift version ([0-9]+\.[0-9]+(\.[0-9]+)?)[ )].*/\1/p')"
+          test "$actual" = "$expected" || test "$actual.0" = "$expected" # swift prints X.Y.0 as X.Y
       - name: Test and build
         run: |
           set -euo pipefail

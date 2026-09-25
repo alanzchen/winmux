@@ -23,6 +23,20 @@ def feed(version):
 
 
 class PreviewTest(unittest.TestCase):
+    def test_pinned_swift_version_matches_how_swift_prints_it(self):
+        import re
+        matches = lambda pinned, output: bool(re.search(preview.pinned_swift_version_pattern(pinned), output))
+        xcode = "swift-driver version: 1.168.6 Apple Swift version 6.4 (swiftlang-6.4.0.34.1 clang-2100.3.34.1)"
+        self.assertTrue(matches("6.4.0", xcode))
+        self.assertTrue(matches("6.4.0", "Apple Swift version 6.4 (swift-6.4-RELEASE)\nTarget: arm64"))
+        self.assertTrue(matches("6.2.4", "Apple Swift version 6.2.4 (swift-6.2.4-RELEASE)"))
+        self.assertFalse(matches("6.4.0", "Apple Swift version 6.4.1 (swift-6.4.1-RELEASE)"))
+        self.assertFalse(matches("6.2.4", "Apple Swift version 6.2 (swift-6.2-RELEASE)"))
+        self.assertFalse(matches("6.4.10", "Apple Swift version 6.4.1 (swift-6.4.1-RELEASE)"))
+        for pinned in ("", "6.4", "6.4.0-RELEASE"):
+            with self.assertRaises(ValueError):
+                preview.pinned_swift_version_pattern(pinned)
+
     def test_local_and_hosted_builds_share_increasing_numeric_versions(self):
         self.assertEqual(preview.preview_version("0.6", []), "0.6.1")
         self.assertEqual(preview.preview_version("0.6", ["v0.6.1", "v0.6.301", "v0.5.9", "unrelated"]), "0.6.302")

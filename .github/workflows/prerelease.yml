@@ -22,7 +22,7 @@ jobs:
     env:
       RELEASE_REPOSITORY: alanzchen/winmux
       UPDATE_FEED_URL: https://raw.githubusercontent.com/alanzchen/winmux/updates/prerelease.xml
-      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+      DEVELOPER_DIR: /Applications/Xcode_27.0.app/Contents/Developer
       TOOLCHAINS: com.apple.dt.toolchain.XcodeDefault
       DEVELOPMENT_TEAM: ${{ vars.APPLE_TEAM_ID }}
       SPARKLE_PUBLIC_KEY: ${{ vars.SPARKLE_PUBLIC_KEY }}
@@ -53,8 +53,8 @@ jobs:
           xcodebuild -version
           xcrun swift --version
           expected="$(cat .swift-version)"
-          actual="$(xcrun swift --version | sed -nE 's/.*Swift version ([0-9]+\.[0-9]+\.[0-9]+).*/\1/p')"
-          test "$actual" = "$expected"
+          actual="$(xcrun swift --version | sed -nE 's/.*Swift version ([0-9]+\.[0-9]+(\.[0-9]+)?)[ )].*/\1/p')"
+          test "$actual" = "$expected" || test "$actual.0" = "$expected" # swift prints X.Y.0 as X.Y
           test -n "$DEVELOPMENT_TEAM" || { echo 'Set release environment variable APPLE_TEAM_ID.' >&2; exit 1; }
           test -n "$SPARKLE_PUBLIC_KEY" || { echo 'Set release environment variable SPARKLE_PUBLIC_KEY.' >&2; exit 1; }
 

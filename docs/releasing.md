@@ -54,12 +54,17 @@ make prerelease-local \
   NOTARYTOOL_KEYCHAIN="$HOME/Library/Keychains/login.keychain-db"
 ```
 
-When the selected Xcode bundles a different Swift than `.swift-version` (Xcode 26.5
-ships Swift 6.3.2), also set `TOOLCHAINS=org.swift.624202602241a` and
+Xcode 27 bundles the pinned Swift 6.4.0, so no toolchain override is needed:
+`script/setup.sh` then builds the tests and CLI with Xcode's compiler too, the same one
+that builds the app. Remove any `TOOLCHAINS` line left in
+`~/Library/Application Support/WinMux/ship.env` from the Xcode 26 setup. When the
+selected Xcode bundles a different Swift than `.swift-version`, set `TOOLCHAINS` to the
+pinned toolchain's identifier: `xcrun` then resolves that toolchain for the app, the tests,
+and the CLI (setup.sh falls back to swiftly only when `xcrun swift` isn't the pin). Also set
 `SWIFT_EXEC_MANIFEST=/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc`.
-The standalone toolchain has no `ld`, so without the manifest compiler `xcodebuild`
-fails package resolution with error 74 after the tests pass, and that version number
-is lost. Application sources still compile with the pinned Swift.
+This override path is untested since the move to Xcode 27. The standalone toolchain has
+no `ld`, so without the manifest compiler `xcodebuild` fails package resolution with
+error 74 after the tests pass, and that version number is lost. Application sources still compile with the pinned Swift.
 
 The command pushes the reviewed commit, runs all tests, builds and notarizes
 locally, uploads the verified release assets, and advances the
@@ -173,8 +178,8 @@ continues while new triggers remain disabled.
   stable tag; it is inactive in this fork.
 
 Hosted build workflows use the [Apple Silicon `macos-26` runner](https://docs.github.com/en/actions/reference/runners/github-hosted-runners),
-pin Xcode 26.3, and check its compiler against
-`.swift-version` (6.2.4). A missing Xcode version or compiler mismatch fails the run;
+pin Xcode 27.0, and check its compiler against
+`.swift-version` (6.4.0; `swift --version` prints it as 6.4). A missing Xcode version or compiler mismatch fails the run;
 the workflow never silently switches toolchains.
 
 ## One-time account setup

@@ -158,7 +158,7 @@ struct ShortcutGeneralView: View {
     }
 
     private func reloadConfigAction() {
-        Task {
+        _ = Task {
             if let token: RunSessionGuard = .isServerEnabled {
                 try await runLightSession(.menuBarButton, token) {
                     let isOk = try await reloadConfig()
