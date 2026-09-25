@@ -1223,7 +1223,8 @@ extension WorkspaceSidebarPanel {
 
     func resetHiddenSidebarState() {
         dockPointerView?.reset(reason: .hidden)
-        endSidebarResize()
+        // A display change or suppression mid-drag abandons the drag rather than saving it.
+        cancelSidebarResize()
         cancelInlineTextEditing()
         // onCancel may have synchronously attempted a close/reveal animation.
         autoHideReason = nil

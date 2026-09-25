@@ -81,17 +81,99 @@ final class WorkspaceSidebarResizeTest: XCTestCase {
         }
     }
 
-    func testTurningOffAlwaysExpandedEndsTheDragAndHidesTheHandle() async throws {
+    func testTurningOffAlwaysExpandedCancelsTheDragAndHidesTheHandle() async throws {
         try await withAlwaysExpandedPanel { panel in
             XCTAssertTrue(panel.beginSidebarResize(atScreenX: 500))
+            panel.updateSidebarResize(toScreenX: 540)
+            XCTAssertEqual(config.workspaceSidebar.width, 280)
             config.workspaceSidebar.alwaysExpanded = false
             panel.updateSidebarResize(toScreenX: 600)
             XCTAssertNil(panel.sidebarResize)
-            XCTAssertEqual(config.workspaceSidebar.width, 240)
+            XCTAssertEqual(config.workspaceSidebar.width, 240, "An invalidated drag puts the old width back")
             panel.refresh(on: mainMonitor)
             XCTAssertTrue(panel.resizeHandleView.isHidden)
             XCTAssertFalse(panel.beginSidebarResize(atScreenX: 500))
         }
+    }
+
+    func testHidingThePanelMidDragDiscardsTheDrag() async throws {
+        try await withAlwaysExpandedPanel { panel in
+            var saves = 0
+            workspaceSidebarWidthPersistenceForTests = fakePersistence(onWrite: { _ in saves += 1 })
+            XCTAssertTrue(panel.beginSidebarResize(atScreenX: 500))
+            panel.updateSidebarResize(toScreenX: 560)
+            panel.hideSidebar(.systemChrome, animated: false)
+            XCTAssertNil(panel.sidebarResize)
+            XCTAssertEqual(config.workspaceSidebar.width, 240)
+            XCTAssertEqual(saves, 0, "Fullscreen suppression mid-drag saves nothing")
+        }
+    }
+
+    func testAReloadDuringTheDragIsNotOverwrittenByCancelling() async throws {
+        try await withAlwaysExpandedPanel { panel in
+            XCTAssertTrue(panel.beginSidebarResize(atScreenX: 500))
+            panel.updateSidebarResize(toScreenX: 560)
+            // Another editor saved a new width, and the reload replaced the drag's.
+            config.workspaceSidebar.width = 333
+            panel.cancelSidebarResize()
+            XCTAssertEqual(config.workspaceSidebar.width, 333)
+        }
+    }
+
+    func testReleasingSavesOnceThroughTheSettingsPath() async throws {
+        try await withAlwaysExpandedPanel { panel in
+            var written: [String] = []
+            workspaceSidebarWidthPersistenceForTests = fakePersistence(onWrite: { written.append($0) })
+            XCTAssertTrue(panel.beginSidebarResize(atScreenX: 500))
+            panel.updateSidebarResize(toScreenX: 530)
+            panel.updateSidebarResize(toScreenX: 560)
+            panel.endSidebarResize()
+            let task = try XCTUnwrap(commitWorkspaceSidebarWidth(300, previousWidth: 240))
+            await task.value
+            XCTAssertEqual(written.count, 2)
+            XCTAssertTrue(written.allSatisfy { $0.contains("width = 300") }, written.joined(separator: "\n---\n"))
+        }
+    }
+
+    func testAFailedSavePutsTheOldWidthBack() async throws {
+        try await withAlwaysExpandedPanel { panel in
+            workspaceSidebarWidthPersistenceForTests = fakePersistence(onWrite: { _ in }, failsRead: true)
+            let oldMessage = MessageModel.shared.message
+            defer { MessageModel.shared.message = oldMessage }
+            XCTAssertTrue(panel.beginSidebarResize(atScreenX: 500))
+            panel.updateSidebarResize(toScreenX: 560)
+            panel.endSidebarResize()
+            let task = try XCTUnwrap(commitWorkspaceSidebarWidth(300, previousWidth: 240))
+            await task.value
+            XCTAssertEqual(config.workspaceSidebar.width, 240)
+            XCTAssertEqual(MessageModel.shared.message?.description, "Workspace Sidebar Error")
+        }
+    }
+
+    func testThrottledRefreshesFinishWithTheLatestWidth() {
+        let throttle = WorkspaceSidebarThrottle(interval: 60)
+        var runs: [Int] = []
+        throttle.run { runs.append(1) }
+        throttle.run { runs.append(2) }
+        throttle.run { runs.append(3) }
+        XCTAssertEqual(runs, [1], "Requests inside the interval wait")
+        throttle.flush()
+        XCTAssertEqual(runs, [1, 3], "Only the latest waiting request runs")
+        throttle.flush()
+        XCTAssertEqual(runs, [1, 3])
+    }
+
+    private func fakePersistence(onWrite: @escaping (String) -> Void, failsRead: Bool = false) -> SettingsPersistence {
+        let url = URL(fileURLWithPath: "/tmp/winmux-sidebar-resize-test.toml")
+        return SettingsPersistence(
+            target: { url },
+            read: { _ in
+                if failsRead { throw SettingsEditError("unreadable") }
+                return "[workspace-sidebar]\n    always-expanded = true\n    width = 240\n"
+            },
+            write: { _, text in onWrite(text) },
+            reload: { _ in true },
+        )
     }
 
     private func withAlwaysExpandedPanel(_ body: @MainActor (WorkspaceSidebarPanel) async throws -> Void) async throws {
@@ -111,7 +193,8 @@ final class WorkspaceSidebarResizeTest: XCTestCase {
         // Native global pointer location must not drive these controlled transitions.
         panel.menuTrackingDepth = 1
         defer {
-            panel.endSidebarResize()
+            panel.cancelSidebarResize()
+            workspaceSidebarWidthPersistenceForTests = nil
             panel.menuTrackingDepth = trackingDepth
             TrayMenuModel.shared.isEnabled = wasEnabled
             config = oldConfig

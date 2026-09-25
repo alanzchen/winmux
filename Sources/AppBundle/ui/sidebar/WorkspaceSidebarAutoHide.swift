@@ -152,6 +152,7 @@ extension WorkspaceSidebarPanel {
         if reason == .systemChrome { expandedDockHoverSource = nil }
         // Input is released at the start, while the outgoing pixels remain visible.
         dockPointerView?.reset(reason: .hidden)
+        cancelSidebarResize()
         cancelInlineTextEditing()
         clearWorkspaceSidebarCommandInputState(self)
         cancelExpansionWork()

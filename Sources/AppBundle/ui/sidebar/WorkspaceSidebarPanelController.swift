@@ -21,6 +21,7 @@ final class WorkspaceSidebarPanel: NSPanelHud, WorkspaceSidebarInputOwner {
     let slidingView = NSView()
     let resizeHandleView = WorkspaceSidebarResizeHandleView()
     var sidebarResize: WorkspaceSidebarResizeSession?
+    var sidebarResizeMouseUpMonitors: [Any] = []
     lazy var slideTransition = WorkspaceSidebarSlideTransition(layer: slidingView.layer!)
     var autoHideReason: WorkspaceSidebarAutoHideReason?
     let monitorScopeId: String

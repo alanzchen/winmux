@@ -1,7 +1,8 @@
 import AppKit
 import Common
+import QuartzCore
 
-let workspaceSidebarResizeHandleWidth: CGFloat = 6
+let workspaceSidebarResizeHandleWidth: CGFloat = 4
 /// Shared with the Expanded width setting, so a dragged width always fits its slider.
 let workspaceSidebarResizableWidthRange: ClosedRange<Int> = 120...480
 
@@ -45,9 +46,10 @@ struct WorkspaceSidebarResizeSession: Equatable {
     let startWidth: Int
     let paneCount: Int
     let position: WorkspaceDockPosition
-    let bounds: ClosedRange<Int>
+    /// The width this drag last put in config. A reload that replaced it wins over the drag.
+    var lastAppliedWidth: Int
 
-    func width(forPointerX pointerX: CGFloat) -> Int {
+    func width(forPointerX pointerX: CGFloat, bounds: ClosedRange<Int>) -> Int {
         workspaceSidebarResizedWidth(startWidth: startWidth, pointerDeltaX: pointerX - startPointerX,
             position: position, paneCount: paneCount, bounds: bounds)
     }
@@ -64,33 +66,82 @@ extension WorkspaceSidebarPanel {
             startWidth: settings.width,
             paneCount: viewModel.workspaceSidebarVisibleWidth > CGFloat(settings.width) + 0.5 ? 2 : 1,
             position: settings.effectiveDockPosition,
-            bounds: workspaceSidebarResizeWidthBounds(settings),
+            lastAppliedWidth: settings.width,
         )
         resizeHandleView.isResizing = true
+        installSidebarResizeMouseUpMonitors()
         updateMousePassthrough()
         return true
     }
 
     func updateSidebarResize(toScreenX pointerX: CGFloat) {
-        guard let session = sidebarResize else { return }
+        guard var session = sidebarResize else { return }
         // A config reload during the drag may have turned the setting off or moved the panel.
         guard workspaceSidebarAllowsResize(config.workspaceSidebar),
               config.workspaceSidebar.effectiveDockPosition == session.position
         else {
-            endSidebarResize()
+            cancelSidebarResize()
             return
         }
-        applyLiveWorkspaceSidebarWidth(session.width(forPointerX: pointerX))
+        // Bounds follow a reloaded collapsed-width, so the saved width stays valid.
+        let width = session.width(forPointerX: pointerX, bounds: workspaceSidebarResizeWidthBounds(config.workspaceSidebar))
+        session.lastAppliedWidth = width
+        sidebarResize = session
+        applyLiveWorkspaceSidebarWidth(width)
     }
 
+    /// Saves the dragged width.
     func endSidebarResize() {
-        guard let session = sidebarResize else { return }
+        guard let session = finishSidebarResizeSession() else { return }
+        let width = config.workspaceSidebar.width
+        guard width == session.lastAppliedWidth, width != session.startWidth else { return }
+        commitWorkspaceSidebarWidth(width, previousWidth: session.startWidth)
+    }
+
+    /// Puts back the width from before the drag, unless a reload has replaced it since.
+    func cancelSidebarResize() {
+        guard let session = finishSidebarResizeSession() else { return }
+        if config.workspaceSidebar.width == session.lastAppliedWidth, session.lastAppliedWidth != session.startWidth {
+            applyLiveWorkspaceSidebarWidth(session.startWidth)
+            workspaceSidebarLiveResizeRefresh.flush()
+        }
+    }
+
+    private func finishSidebarResizeSession() -> WorkspaceSidebarResizeSession? {
+        guard let session = sidebarResize else { return nil }
         sidebarResize = nil
+        removeSidebarResizeMouseUpMonitors()
+        workspaceSidebarLiveResizeRefresh.flush()
         resizeHandleView.isResizing = false
         updateMousePassthrough()
-        let width = config.workspaceSidebar.width
-        guard width != session.startWidth else { return }
-        commitWorkspaceSidebarWidth(width, previousWidth: session.startWidth)
+        return session
+    }
+
+    /// The handle normally receives the mouse-up. If a Space switch or another window takes
+    /// it, the drag still ends instead of holding the panel's pointer capture forever.
+    private func installSidebarResizeMouseUpMonitors() {
+        removeSidebarResizeMouseUpMonitors()
+        let local = NSEvent.addLocalMonitorForEvents(matching: .leftMouseUp) { [weak self] event in
+            self?.finishSidebarResizeFromMouseUp()
+            return event
+        }
+        let global = NSEvent.addGlobalMonitorForEvents(matching: .leftMouseUp) { [weak self] _ in
+            Task { @MainActor in self?.finishSidebarResizeFromMouseUp() }
+        }
+        sidebarResizeMouseUpMonitors = [local, global].compactMap { $0 }
+    }
+
+    private func removeSidebarResizeMouseUpMonitors() {
+        for monitor in sidebarResizeMouseUpMonitors {
+            NSEvent.removeMonitor(monitor)
+        }
+        sidebarResizeMouseUpMonitors = []
+    }
+
+    private func finishSidebarResizeFromMouseUp() {
+        guard sidebarResize != nil else { return }
+        updateSidebarResize(toScreenX: NSEvent.mouseLocation.x)
+        endSidebarResize()
     }
 
     func updateResizeHandle() {
@@ -103,6 +154,48 @@ extension WorkspaceSidebarPanel {
     }
 }
 
+/// Runs work at most once per interval, finishing with the latest request.
+@MainActor
+final class WorkspaceSidebarThrottle {
+    private let interval: CFTimeInterval
+    private var lastRun: CFTimeInterval = -.infinity
+    private var pending: (@MainActor () -> Void)?
+    private var trailing: DispatchWorkItem?
+
+    init(interval: CFTimeInterval) {
+        self.interval = interval
+    }
+
+    func run(_ work: @escaping @MainActor () -> Void) {
+        let now = CACurrentMediaTime()
+        if trailing == nil, now - lastRun >= interval {
+            lastRun = now
+            work()
+            return
+        }
+        pending = work
+        guard trailing == nil else { return }
+        let item = DispatchWorkItem { [weak self] in
+            MainActor.assumeIsolated { self?.flush() }
+        }
+        trailing = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + max(interval - (now - lastRun), 0), execute: item)
+    }
+
+    func flush() {
+        trailing?.cancel()
+        trailing = nil
+        guard let work = pending else { return }
+        pending = nil
+        lastRun = CACurrentMediaTime()
+        work()
+    }
+}
+
+/// Panels follow the pointer at display rate. Tiled windows retile through coalescing
+/// layout-only refresh sessions, which skip windows whose frames did not change.
+@MainActor let workspaceSidebarLiveResizeRefresh = WorkspaceSidebarThrottle(interval: 1.0 / 60)
+
 /// Resizes every sidebar and retiles windows while the pointer moves. The Settings
 /// file is written once, when the drag ends, so config holds the width only briefly
 /// before a reload of the same value replaces it.
@@ -110,27 +203,46 @@ extension WorkspaceSidebarPanel {
 func applyLiveWorkspaceSidebarWidth(_ width: Int) {
     guard config.workspaceSidebar.width != width else { return }
     config.workspaceSidebar.width = width
-    WorkspaceSidebarPanel.refreshAll()
-    // Refresh sessions coalesce, so fast drags retile as often as layout can keep up.
-    if isWinMuxRuntimeReady { scheduleRefreshSession(.configAutoReload) }
+    workspaceSidebarLiveResizeRefresh.run {
+        WorkspaceSidebarPanel.refreshAll()
+        if isWinMuxRuntimeReady { scheduleRefreshSession(.onSidebarResized) }
+    }
 }
 
+/// Tests replace the file writes; unit tests never touch the real config otherwise.
+@MainActor var workspaceSidebarWidthPersistenceForTests: SettingsPersistence?
+@MainActor private var workspaceSidebarWidthCommit: Task<Void, Never>?
+
+/// Saves one drag's width through the Expanded width setting's path: validate, write,
+/// reload, and roll back on failure. Saves run one at a time, in drag order.
 @MainActor
-func commitWorkspaceSidebarWidth(
-    _ width: Int,
-    previousWidth: Int,
-    persistence: SettingsPersistence = SettingsPersistence(),
-) {
-    if isUnitTest { return }
-    Task { @MainActor in
+@discardableResult
+func commitWorkspaceSidebarWidth(_ width: Int, previousWidth: Int) -> Task<Void, Never>? {
+    let persistence: SettingsPersistence
+    if let override = workspaceSidebarWidthPersistenceForTests {
+        persistence = override
+    } else if isUnitTest {
+        return nil
+    } else {
+        persistence = SettingsPersistence()
+    }
+    let previous = workspaceSidebarWidthCommit
+    let task = Task { @MainActor in
+        await previous?.value
         do {
-            // Same path as the Expanded width setting: validate, write, reload, and roll back on failure.
             _ = try await persistence.save([SettingsFileEdit(section: "workspace-sidebar", values: ["width": "\(width)"])])
         } catch {
-            if config.workspaceSidebar.width == width { applyLiveWorkspaceSidebarWidth(previousWidth) }
+            // A failed reload already restored the file and config. A save that never
+            // wrote leaves the dragged width in memory only, so put the old one back.
+            if config.workspaceSidebar.width == width {
+                applyLiveWorkspaceSidebarWidth(previousWidth)
+                workspaceSidebarLiveResizeRefresh.flush()
+            }
             showWorkspaceSidebarError("The sidebar width could not be saved. \(error.localizedDescription)")
         }
     }
+    workspaceSidebarWidthCommit = task
+    return task
 }
 
 final class WorkspaceSidebarResizeHandleView: NSView {
@@ -180,11 +292,11 @@ final class WorkspaceSidebarResizeHandleView: NSView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         indicator.frame = CGRect(x: x, y: 0, width: width, height: bounds.height)
-        indicator.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(0.8).cgColor
         CATransaction.commit()
     }
 
     private func updateIndicator() {
+        indicator.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(0.8).cgColor
         indicator.opacity = isHovered || isResizing ? 1 : 0
     }
 
@@ -211,7 +323,8 @@ final class WorkspaceSidebarResizeHandleView: NSView {
 
     override func mouseExited(with event: NSEvent) {
         isHovered = false
-        if !isResizing { NSCursor.arrow.set() }
+        // Leave any cursor the content beside the edge set, such as a text field's I-beam.
+        if !isResizing, NSCursor.current == NSCursor.resizeLeftRight { NSCursor.arrow.set() }
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -226,10 +339,10 @@ final class WorkspaceSidebarResizeHandleView: NSView {
     }
 
     override func mouseUp(with event: NSEvent) {
-        guard isResizing else { return }
+        // The panel's mouse-up monitor usually ends the drag first; this is then a no-op.
         panel?.endSidebarResize()
         let inside = bounds.contains(convert(event.locationInWindow, from: nil))
         isHovered = inside
-        if !inside { NSCursor.arrow.set() }
+        if !inside, NSCursor.current == NSCursor.resizeLeftRight { NSCursor.arrow.set() }
     }
 }
