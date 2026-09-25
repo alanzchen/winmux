@@ -191,9 +191,14 @@ final class MacWindow: Window {
             }
         }
         let p: CGPoint
+        // Record the corner actually used, so a failed size read is retried on the next layout
+        var appliedCorner = corner
         switch corner {
             case .bottomLeftCorner:
-                guard let s = try await getAxSize() else { fallthrough }
+                guard let s = try await getAxSize() else {
+                    appliedCorner = .bottomRightCorner
+                    fallthrough
+                }
                 // Zoom will jump off if you do one pixel offset https://github.com/nikitabobko/WinMux/issues/527
                 // todo this ad hoc won't be necessary once I implement optimization suggested by Zalim
                 let onePixelOffset = macApp.appId == .zoom ? .zero : CGPoint(x: 1, y: -1)
@@ -205,7 +210,7 @@ final class MacWindow: Window {
                 p = nodeMonitor.visibleRect.bottomRightCorner - onePixelOffset
         }
         setAxFrame(p, nil)
-        hiddenInCorner = (corner, nodeMonitor.visibleRect)
+        hiddenInCorner = (appliedCorner, nodeMonitor.visibleRect)
     }
 
     @MainActor

@@ -14,7 +14,7 @@ extension Workspace {
             rootTilingContainer.lastAppliedLayoutVirtualRect = rect
             tabGroup.lastAppliedLayoutPhysicalRect = rect
             tabGroup.lastAppliedLayoutVirtualRect = rect
-            try await hideAllWindowsExcept(tabGroup)
+            try await hideAllWindowsExcept(tabGroup, context.hideCorner)
             try await tabGroup.layoutRecursive(rect.topLeftCorner, width: rect.width, height: rect.height, virtual: rect, context)
             return
         }
@@ -23,7 +23,7 @@ extension Workspace {
             lastAppliedLayoutVirtualRect = rect
             rootTilingContainer.lastAppliedLayoutPhysicalRect = rect
             rootTilingContainer.lastAppliedLayoutVirtualRect = rect
-            try await hideAllWindowsExcept(fullscreenWindow)
+            try await hideAllWindowsExcept(fullscreenWindow, context.hideCorner)
             fullscreenWindow.lastAppliedLayoutVirtualRect = rect
             fullscreenWindow.lastAppliedLayoutPhysicalRect = nil
             fullscreenWindow.layoutFullscreen(context)
@@ -99,11 +99,14 @@ private func canReuseLastAppliedWindowFrame(previousPhysicalRect: Rect?, nextPhy
 private struct LayoutContext {
     let workspace: Workspace
     let resolvedGaps: ResolvedGaps
+    /// Where inactive tabs and windows covered by fullscreen are parked on this workspace's monitor
+    let hideCorner: OptimalHideCorner
 
     @MainActor
     init(_ workspace: Workspace) {
         self.workspace = workspace
         self.resolvedGaps = ResolvedGaps(gaps: config.gaps, monitor: workspace.workspaceMonitor)
+        self.hideCorner = optimalHideCorner(for: workspace.workspaceMonitor)
     }
 }
 
@@ -217,7 +220,7 @@ extension TilingContainer {
                 context,
             )
             for child in children where child != activeChild {
-                try await child.hideTabbedWindows(context.workspace)
+                try await child.hideTabbedWindows(context.hideCorner)
             }
             return
         }
@@ -257,17 +260,17 @@ extension TilingContainer {
 
 extension TreeNode {
     @MainActor
-    fileprivate func hideTabbedWindows(_ workspace: Workspace) async throws {
+    fileprivate func hideTabbedWindows(_ corner: OptimalHideCorner) async throws {
         switch nodeCases {
             case .window(let window):
                 window.lastAppliedLayoutPhysicalRect = nil
                 window.lastAppliedLayoutVirtualRect = nil
                 if let macWindow = window as? MacWindow {
-                    try await macWindow.hideInCorner(.bottomRightCorner)
+                    try await macWindow.hideInCorner(corner)
                 }
             case .tilingContainer(let container):
                 for child in container.children {
-                    try await child.hideTabbedWindows(workspace)
+                    try await child.hideTabbedWindows(corner)
                 }
             case .workspace, .macosMinimizedWindowsContainer, .macosFullscreenWindowsContainer,
                  .macosPopupWindowsContainer, .macosHiddenAppsWindowsContainer:
@@ -276,22 +279,22 @@ extension TreeNode {
     }
 
     @MainActor
-    fileprivate func hideAllWindowsExcept(_ targetWindow: Window) async throws {
+    fileprivate func hideAllWindowsExcept(_ targetWindow: Window, _ corner: OptimalHideCorner) async throws {
         switch nodeCases {
             case .window(let window):
                 guard window != targetWindow else { return }
                 window.lastAppliedLayoutPhysicalRect = nil
                 window.lastAppliedLayoutVirtualRect = nil
                 if let macWindow = window as? MacWindow {
-                    try await macWindow.hideInCorner(.bottomRightCorner)
+                    try await macWindow.hideInCorner(corner)
                 }
             case .tilingContainer(let container):
                 for child in container.children {
-                    try await child.hideAllWindowsExcept(targetWindow)
+                    try await child.hideAllWindowsExcept(targetWindow, corner)
                 }
             case .workspace(let workspace):
                 for child in workspace.children {
-                    try await child.hideAllWindowsExcept(targetWindow)
+                    try await child.hideAllWindowsExcept(targetWindow, corner)
                 }
             case .macosMinimizedWindowsContainer, .macosFullscreenWindowsContainer,
                  .macosPopupWindowsContainer, .macosHiddenAppsWindowsContainer:
@@ -300,22 +303,22 @@ extension TreeNode {
     }
 
     @MainActor
-    fileprivate func hideAllWindowsExcept(_ targetNode: TreeNode) async throws {
+    fileprivate func hideAllWindowsExcept(_ targetNode: TreeNode, _ corner: OptimalHideCorner) async throws {
         if self === targetNode { return }
         switch nodeCases {
             case .window(let window):
                 window.lastAppliedLayoutPhysicalRect = nil
                 window.lastAppliedLayoutVirtualRect = nil
                 if let macWindow = window as? MacWindow {
-                    try await macWindow.hideInCorner(.bottomRightCorner)
+                    try await macWindow.hideInCorner(corner)
                 }
             case .tilingContainer(let container):
                 for child in container.children {
-                    try await child.hideAllWindowsExcept(targetNode)
+                    try await child.hideAllWindowsExcept(targetNode, corner)
                 }
             case .workspace(let workspace):
                 for child in workspace.children {
-                    try await child.hideAllWindowsExcept(targetNode)
+                    try await child.hideAllWindowsExcept(targetNode, corner)
                 }
             case .macosMinimizedWindowsContainer, .macosFullscreenWindowsContainer,
                  .macosPopupWindowsContainer, .macosHiddenAppsWindowsContainer:

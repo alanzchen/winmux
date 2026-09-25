@@ -178,9 +178,18 @@ private func mouseInteractionVisibleWindowsToHide(activeWindowId: UInt32) -> [Mo
     }
 }
 
+@MainActor
 private func mouseInteractionHiddenTopLeftCorner(for rect: Rect) -> CGPoint {
-    let monitorRect = rect.center.monitorApproximation.visibleRect
-    return monitorRect.bottomRightCorner + CGPoint(x: 8, y: 8)
+    let monitor = rect.center.monitorApproximation
+    return mouseInteractionHiddenTopLeftCorner(for: rect, monitorVisibleRect: monitor.visibleRect, corner: optimalHideCorner(for: monitor))
+}
+
+/// Parks the window fully outside `corner` of the monitor, 8pt clear of both edges.
+func mouseInteractionHiddenTopLeftCorner(for rect: Rect, monitorVisibleRect: Rect, corner: OptimalHideCorner) -> CGPoint {
+    switch corner {
+        case .bottomRightCorner: monitorVisibleRect.bottomRightCorner + CGPoint(x: 8, y: 8)
+        case .bottomLeftCorner: monitorVisibleRect.bottomLeftCorner + CGPoint(x: -rect.width - 8, y: 8)
+    }
 }
 
 @MainActor
