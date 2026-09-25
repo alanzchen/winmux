@@ -197,7 +197,9 @@ final class WorkspaceLauncherTest: XCTestCase {
         let panel = WorkspaceLauncherPanel.shared
         XCTAssertTrue(panel.show(forWorkspaceNamed: focus.workspace.name))
         let notes = LauncherApp(bundleId: "com.example.running-notes", name: "Notes", url: nil)
-        panel.model.running = [notes]
+        // A second result to move to, whether or not the installed-app catalog has loaded yet.
+        let other = LauncherApp(bundleId: "com.example.running-other", name: "Other", url: nil)
+        panel.model.running = [notes, other]
 
         panel.model.onChoose?(notes)
 
