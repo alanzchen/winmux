@@ -74,11 +74,79 @@ final class WorkspaceSidebarProjectPagerSizingTest: XCTestCase {
     func testExpandedAndSidebarProjectButtonsKeepTheirOriginalSize() {
         for showAppIcons in [false, true] {
             let pager = pager(iconSize: 16, showAppIcons: showAppIcons, progress: showAppIcons ? 1 : 0)
-            let host = NSHostingView(rootView: pager.projectDot(pager.projects[0], index: 0)
+            // The expanded switcher widens only the current project to show its name.
+            let index = showAppIcons ? 1 : 0
+            let host = NSHostingView(rootView: pager.projectDot(pager.projects[index], index: index)
                 .fixedSize(horizontal: true, vertical: true))
             XCTAssertEqual(host.fittingSize.width, 36)
             XCTAssertEqual(host.fittingSize.height, workspaceSidebarProjectDotFrameHeight)
         }
+    }
+
+    func testExpandedSwitcherNamesTheCurrentProjectBesideTheNewProjectButton() {
+        for showAppIcons in [false, true] {
+            for projectCount in [1, 3] {
+                let pager = expandedPager(showAppIcons: showAppIcons, projectCount: projectCount)
+                XCTAssertEqual(pager.pagerHeight, workspaceSidebarPagerHeight, "One row, with no project menu above it")
+                XCTAssertEqual(pager.projectTrackWidth + pager.projectControlsSpacing + pager.projectCreateButtonWidth,
+                    pager.sectionWidth, "The New Project button shares the switcher's row")
+                XCTAssertTrue(pager.showsProjectName(isCurrent: true))
+                XCTAssertFalse(pager.showsProjectName(isCurrent: false))
+            }
+        }
+        let collapsed = pager(iconSize: 24, showAppIcons: false, progress: 0)
+        XCTAssertFalse(collapsed.showsProjectName(isCurrent: true), "The collapsed rail has no room for names")
+    }
+
+    func testCurrentProjectPillFitsItsNameUpToALimit() {
+        func width(_ name: String) -> CGFloat {
+            let pager = expandedPager(showAppIcons: false, projectCount: 2, firstName: name)
+            return NSHostingView(rootView: pager.projectDot(pager.projects[0], index: 0).fixedSize()).fittingSize.width
+        }
+        XCTAssertGreaterThan(width("Research"), 36)
+        XCTAssertLessThan(width("Research"), workspaceSidebarCurrentProjectPillMaxWidth)
+        XCTAssertEqual(width(String(repeating: "Platform Paper ", count: 6)), workspaceSidebarCurrentProjectPillMaxWidth,
+            "Long names truncate instead of pushing other projects out of view")
+    }
+
+    func testExpandedSwitcherShowsProjectEmojiInBothModes() {
+        for showAppIcons in [false, true] {
+            let pager = expandedPager(showAppIcons: showAppIcons, projectCount: 3)
+            XCTAssertTrue(pager.showsProjectEmoji(pager.projects[1]))
+            XCTAssertFalse(pager.showsProjectEmoji(pager.projects[2]), "A project without an emoji keeps its color bar")
+        }
+        let sidebarRail = pager(iconSize: 24, showAppIcons: false, progress: 0, emoji: "🔬")
+        XCTAssertFalse(sidebarRail.showsProjectEmoji(sidebarRail.projects[0]), "The collapsed Sidebar rail keeps its bars")
+    }
+
+    func testExpandedSwitcherRendersInsideItsRow() throws {
+        var previews: [NSImage] = []
+        for showAppIcons in [false, true] {
+            let pager = expandedPager(showAppIcons: showAppIcons, projectCount: 5)
+            let host = NSHostingView(rootView: pager.projectControls
+                .padding(8)
+                .background(Color(white: 0.16)))
+            host.frame = CGRect(origin: .zero, size: host.fittingSize)
+            host.layoutSubtreeIfNeeded()
+            XCTAssertEqual(host.bounds.width, pager.sectionWidth + 16)
+            XCTAssertEqual(host.bounds.height, workspaceSidebarPagerHeight + 16)
+            let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+            host.cacheDisplay(in: host.bounds, to: bitmap)
+            previews.append(NSImage(cgImage: try XCTUnwrap(bitmap.cgImage), size: host.bounds.size))
+        }
+        let content = VStack(spacing: 12) {
+            ForEach(Array(previews.enumerated()), id: \.offset) { _, image in Image(nsImage: image) }
+        }
+        .padding(20).background(Color(white: 0.1))
+        let host = NSHostingView(rootView: content)
+        host.frame = CGRect(origin: .zero, size: host.fittingSize)
+        host.layoutSubtreeIfNeeded()
+        let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        host.cacheDisplay(in: host.bounds, to: bitmap)
+        let directory = projectRoot.appendingPathComponent(".build/sidebar-appearance-ui")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
+            .write(to: directory.appendingPathComponent("project-switcher.png"))
     }
 
     func testEmojiIndicatorsFitAdaptiveWidthsAndSidebarKeepsBars() throws {
@@ -156,6 +224,36 @@ final class WorkspaceSidebarProjectPagerSizingTest: XCTestCase {
         XCTAssertEqual(states.count, 4, "Both selected and unselected emoji need visible hover feedback")
     }
 
+    private func expandedPager(showAppIcons: Bool, projectCount: Int, firstName: String = "Research") -> WorkspaceSidebarProjectPager {
+        var layout = WorkspaceSidebarConfiguration.empty
+        layout.showAppIcons = showAppIcons
+        layout.dockIconSize = 48
+        layout.collapsedWidth = 44
+        layout.expandedWidth = 240
+        let projects: [WorkspaceSidebarProjectViewModel] = [
+            .init(id: workspaceProjectDefaultId, displayName: firstName, colorHex: "#7BA3C9", emoji: "🔬"),
+            .init(id: WorkspaceProjectId("itss"), displayName: "ITSS", colorHex: "#7DBF8E", emoji: "🛰️"),
+            .init(id: WorkspaceProjectId("replika"), displayName: "Replika", colorHex: "#BF8AAE"),
+            .init(id: WorkspaceProjectId("paper"), displayName: "Platform Paper", colorHex: "#9B8FC4", emoji: "📄"),
+            .init(id: WorkspaceProjectId("base"), displayName: "Base", colorHex: nil),
+        ]
+        return WorkspaceSidebarProjectPager(
+            projects: Array(projects.prefix(projectCount)),
+            selectedProjectId: workspaceProjectDefaultId,
+            expansionProgress: 1,
+            layout: layout,
+            renamingProjectId: .constant(nil),
+            renamingProjectText: .constant(""),
+            onSelectProject: { _ in },
+            onCreateProject: {},
+            onBeginRenameProject: { _ in },
+            onCommitRenameProject: {},
+            onCancelRenameProject: {},
+            onSetProjectColor: { _, _ in },
+            onDeleteProject: { _ in },
+        )
+    }
+
     private func pager(iconSize: CGFloat, showAppIcons: Bool = true, progress: CGFloat = 0,
                        hoveredProjectId: WorkspaceProjectId? = nil, emoji: String? = nil,
                        selectedProjectId: WorkspaceProjectId = workspaceProjectDefaultId) -> WorkspaceSidebarProjectPager {
@@ -170,7 +268,6 @@ final class WorkspaceSidebarProjectPagerSizingTest: XCTestCase {
             selectedProjectId: selectedProjectId,
             expansionProgress: progress,
             layout: layout,
-            isProjectMenuOpen: .constant(false),
             renamingProjectId: .constant(nil),
             renamingProjectText: .constant(""),
             onSelectProject: { _ in },

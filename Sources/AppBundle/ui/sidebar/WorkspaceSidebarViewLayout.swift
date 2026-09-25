@@ -178,7 +178,8 @@ extension WorkspaceSidebarView {
     }
 }
 
-private let workspaceSidebarCollapseReservedProjectPagerHeight = (workspaceSidebarPagerHeight * 2) + 10
+// The expanded project switcher's single row plus its section padding, held while the rail collapses.
+private let workspaceSidebarCollapseReservedProjectPagerHeight = workspaceSidebarPagerHeight + 8
 
 extension WorkspaceSidebarView {
     var shouldShowTopFilterBar: Bool {

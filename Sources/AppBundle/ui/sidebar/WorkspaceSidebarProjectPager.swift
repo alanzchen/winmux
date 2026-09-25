@@ -7,7 +7,6 @@ struct WorkspaceSidebarProjectPager: View {
     let selectedProjectId: WorkspaceProjectId
     let expansionProgress: CGFloat
     let layout: WorkspaceSidebarConfiguration
-    @Binding var isProjectMenuOpen: Bool
     @Binding var renamingProjectId: WorkspaceProjectId?
     @Binding var renamingProjectText: String
     let onSelectProject: (WorkspaceProjectId) -> Void
@@ -46,45 +45,22 @@ struct WorkspaceSidebarProjectPager: View {
             ?? projects.first
     }
     var showsProjectIndicator: Bool { projects.count > 1 }
-    var expandedProjectControlsHeight: CGFloat {
-        showsProjectIndicator ? (workspaceSidebarPagerHeight * 2) + 4 : workspaceSidebarPagerHeight
-    }
+    /// The expanded switcher and its New Project button share one row.
+    var expandedProjectControlsHeight: CGFloat { workspaceSidebarPagerHeight }
     var pagerHeight: CGFloat {
         if isCompact, !showsProjectIndicator {
             return 0
         }
-        let controlsHeight = isCompact ? compactProjectControlsHeight : expandedProjectControlsHeight
-        guard isProjectMenuOpen && !isCompact else {
-            return controlsHeight
-        }
-        let rowCount = CGFloat(projects.count + 1)
-        let popupPadding = (workspaceSidebarMenuRowSpacing + 1) * 2
-        let rowSpacing = CGFloat(max(projects.count - 1, 0)) * workspaceSidebarMenuRowSpacing
-        let dividerHeight = 0.5 + (workspaceSidebarMenuRowSpacing * 2)
-        let popupHeight = (rowCount * workspaceSidebarDropdownHeight) + rowSpacing + dividerHeight + popupPadding
-        return popupHeight + workspaceSidebarSectionGap + controlsHeight
+        return isCompact ? compactProjectControlsHeight : expandedProjectControlsHeight
     }
     var footerSpacing: CGFloat { isCompact ? 2 : 8 }
     var projectCreateButtonWidth: CGFloat { workspaceSidebarDropdownHeight }
-    var projectPopupWidth: CGFloat {
-        let names = projects.map(\.displayName) + ["Project"]
-        let maxTextWidth = names.map {
-            ($0 as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 12, weight: .medium)]).width
-        }.max() ?? 0
-        return max(ceil(maxTextWidth) + 50, projectMenuWidth)
-    }
-    var projectMenuWidth: CGFloat {
-        let selectedProjectName = selectedProject?.displayName ?? "Project"
-        let textWidth = (selectedProjectName as NSString).size(
-            withAttributes: [.font: NSFont.systemFont(ofSize: 11.5, weight: .medium)],
-        ).width
-        return min(max(ceil(textWidth) + 46, 92), 136)
-    }
+    var projectControlsSpacing: CGFloat { 6 }
     var projectTrackWidth: CGFloat {
         if isCompact {
             return max(sectionWidth - 4, 12)
         }
-        return max(sectionWidth, 24)
+        return max(sectionWidth - projectCreateButtonWidth - projectControlsSpacing, 24)
     }
     var compactProjectControlsHeight: CGFloat {
         if horizontalCompact { return min(workspaceSidebarProjectDotFrameHeight, layout.compactRailWidth) }
@@ -103,7 +79,6 @@ struct WorkspaceSidebarProjectPager: View {
                 }
                 .animation(.interactiveSpring(response: 0.24, dampingFraction: 0.86), value: isHovered)
                 .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .bottom)))
-                .zIndex(isProjectMenuOpen ? 20 : 0)
         }
     }
 
@@ -112,12 +87,8 @@ struct WorkspaceSidebarProjectPager: View {
             if isCompact {
                 compactProjectIndicator
             } else {
-                ZStack(alignment: .bottomTrailing) {
-                    projectControls
-                    projectPopup
-                }
-                .frame(width: sectionWidth, height: pagerHeight, alignment: .bottomTrailing)
-                .transaction { $0.animation = nil }
+                projectControls
+                    .transaction { $0.animation = nil }
             }
         }
         .padding(.horizontal, isCompact && !horizontalCompact ? 2 : 0)

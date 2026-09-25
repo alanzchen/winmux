@@ -19,7 +19,6 @@ struct WorkspaceSidebarView: View {
     @State var projectColumnsToolbarHeight: CGFloat = 44
     @State var activeInUseOverrideWorkspaceName: String? = nil
     @State var pendingInUseOverrideAppId: String? = nil
-    @State var isProjectMenuOpen = false
     @State var isSidebarCollapsing = false
     @State var isSidebarExpanding = false
     @State var renamingProjectId: WorkspaceProjectId? = nil
@@ -208,7 +207,6 @@ struct WorkspaceSidebarView: View {
             if let renamingWorkspaceName, !snapshot.workspaces.contains(where: { $0.name == renamingWorkspaceName }) {
                 finishWorkspaceRename(cancelled: true)
             }
-            isProjectMenuOpen = false
             resetProjectSwipeWithoutAnimation()
         }
         .onReceive(NotificationCenter.default.publisher(for: workspaceSidebarWillCollapseNotification)) { notification in
@@ -220,7 +218,6 @@ struct WorkspaceSidebarView: View {
             activeInUseOverrideWorkspaceName = nil
             finishSidebarSearch(clearText: true)
             withAnimation(.easeOut(duration: 0.08)) {
-                isProjectMenuOpen = false
                 isSidebarCollapsing = true
                 isSidebarExpanding = false
             }
@@ -253,13 +250,6 @@ struct WorkspaceSidebarView: View {
             else { return }
             adoptCommandSidebarSearchIfNeeded(panel: panel)
         }
-        .onReceive(NotificationCenter.default.publisher(for: workspaceSidebarDismissProjectMenusNotification)) { _ in
-            if isProjectMenuOpen {
-                withAnimation(.easeOut(duration: 0.10)) {
-                    isProjectMenuOpen = false
-                }
-            }
-        }
         .onReceive(NotificationCenter.default.publisher(for: workspaceSidebarDragPointerChangedNotification)) { notification in
             guard let pointer = workspaceSidebarDragPointer(from: notification) else { return }
             handleProjectEdgeDrag(pointer: pointer, expansionProgress: expansionProgress)
@@ -277,7 +267,6 @@ struct WorkspaceSidebarView: View {
         }
         renamingProjectId = project.id
         renamingProjectText = project.displayName
-        isProjectMenuOpen = false
         currentPanel()?.prepareForInlineTextEditing()
     }
 
@@ -603,7 +592,6 @@ extension WorkspaceSidebarView {
             selectedProjectId: snapshot.activeProjectId,
             expansionProgress: expansionProgress,
             layout: layout,
-            isProjectMenuOpen: $isProjectMenuOpen,
             renamingProjectId: $renamingProjectId,
             renamingProjectText: $renamingProjectText,
             onSelectProject: { projectId in
@@ -775,7 +763,6 @@ extension WorkspaceSidebarView {
         browseMode = .activeProject
         showsPinnedActiveWorkspaceForBrowsedProject = true
         activeInUseOverrideWorkspaceName = nil
-        isProjectMenuOpen = false
         isSidebarCollapsing = false
         isSidebarExpanding = false
         finishWorkspaceRename(cancelled: true)
@@ -1404,7 +1391,7 @@ extension WorkspaceSidebarView {
             blockers.insert(.expanded)
         }
         if reduceDockMotion { blockers.insert(.reduceMotion) }
-        if dockMenuTracking || isProjectMenuOpen { blockers.insert(.menu) }
+        if dockMenuTracking { blockers.insert(.menu) }
         if isSearchEditing || renamingProjectId != nil || renamingWorkspaceName != nil { blockers.insert(.editing) }
         if snapshot.dropPreview != nil { blockers.insert(.drop) }
         if projectSwipeTranslation != 0 { blockers.insert(.swipe) }
