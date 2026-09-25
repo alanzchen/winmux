@@ -135,10 +135,11 @@ open-new-windows-in-new-workspace = true
 ```
 
 A window you open moves to an empty workspace in the current project, on the same
-display. The app normally focuses its new window, so WinMux switches to that workspace.
-A window that opens into an empty workspace stays there. Dialogs, popups, windows
-already open when WinMux starts, restored windows, windows claimed by saved workspaces,
-and windows that `[[on-window-detected]]` rules move all keep their place. This option
+display. WinMux switches to that workspace when the window comes from the app you are
+using; a window from a background app moves without taking focus. A window that opens
+into an empty workspace stays there. Dialogs, popups, windows already open when WinMux starts,
+restored windows, windows claimed by saved workspaces, and windows that
+`[[on-window-detected]]` rules move to another workspace keep their place. This option
 takes precedence over `auto-add-new-windows-to-tab-group`.
 
 ## Close windows with a middle click

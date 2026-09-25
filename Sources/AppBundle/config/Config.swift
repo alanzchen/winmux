@@ -45,6 +45,7 @@ struct Config: ConvenienceCopyable {
     var autoReloadConfig: Bool = false
     var automaticallyUnhideMacosHiddenApps: Bool = false
     var automaticallyTileNewWindows: Bool = true
+    /// Each window the user opens moves to its own empty workspace in the current project.
     var openNewWindowsInNewWorkspace: Bool = false
     var enableShakeToToggleTiling: Bool = true
     /// Middle-clicking a window tab or an expanded sidebar row closes that window.

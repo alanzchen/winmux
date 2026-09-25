@@ -11,6 +11,13 @@ final class NewWindowWorkspaceTest: XCTestCase {
         // A window id cached as closed by an earlier test would be restored instead of detected.
         replaceClosedWindowsCache(FrozenWorld(workspaces: [], monitors: [], windowIds: []))
         config.openNewWindowsInNewWorkspace = true
+        newWindowAppIsFrontmost = { _ in false }
+    }
+
+    override func tearDown() async throws {
+        newWindowAppIsFrontmost = { window in
+            window.app.pid == NSWorkspace.shared.frontmostApplication?.processIdentifier
+        }
     }
 
     func testOptionIsOffByDefaultAndParses() {
@@ -104,9 +111,28 @@ final class NewWindowWorkspaceTest: XCTestCase {
         let workspace = focus.workspace
         _ = TestWindow.new(id: 1, parent: workspace.rootTilingContainer)
         let window = TestWindow.new(id: 2, parent: workspace.rootTilingContainer)
-        savedWorkspaceRuntime.routingInFlightWindowIds.insert(window.windowId)
-        defer { savedWorkspaceRuntime.routingInFlightWindowIds.remove(window.windowId) }
+        savedWorkspaceRuntime.windowsAwaitingTitle[window.windowId] = SavedTitleWait(since: savedWorkspaceRuntime.now, pid: window.app.pid)
+        defer { savedWorkspaceRuntime.windowsAwaitingTitle[window.windowId] = nil }
 
-        XCTAssertFalse(shouldMoveNewWindowToNewWorkspace(window, detectedIn: workspace, isNewRegularWindow: true))
+        moveNewWindowToNewWorkspaceIfNeeded(window, detectedIn: workspace, isNewRegularWindow: true)
+
+        XCTAssertTrue(window.nodeWorkspace === workspace, "Saved workspaces will place it once its title arrives")
+    }
+
+    func testFocusFollowsOnlyAWindowFromTheAppInUse() async throws {
+        let workspace = focus.workspace
+        _ = TestWindow.new(id: 1, parent: workspace.rootTilingContainer)
+        let background = TestWindow.new(id: 2, parent: workspace.rootTilingContainer)
+        _ = try await restoreOrDetectNewWindow(background, isRegularWindow: true)
+        XCTAssertFalse(background.nodeWorkspace === workspace)
+        XCTAssertTrue(focus.workspace === workspace, "A background app's window does not take focus")
+
+        newWindowAppIsFrontmost = { _ in true }
+        let foreground = TestWindow.new(id: 3, parent: workspace.rootTilingContainer)
+        _ = try await restoreOrDetectNewWindow(foreground, isRegularWindow: true)
+        let target = try XCTUnwrap(foreground.nodeWorkspace)
+        XCTAssertFalse(target === workspace)
+        XCTAssertTrue(focus.workspace === target, "The window you just opened stays in view")
+        XCTAssertTrue(focus.windowOrNil === foreground)
     }
 }

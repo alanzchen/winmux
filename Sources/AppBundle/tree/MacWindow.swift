@@ -4,6 +4,10 @@ import Common
 final class MacWindow: Window {
     let macApp: MacApp
     private var popupPresentationState: PopupWindowPresentationState
+    /// A window already open at startup or put back by a restore, as opposed to one just opened.
+    var wasFirstSeenDuringStartupOrRestored: Bool {
+        popupPresentationState.firstSeenDuringStartup || popupPresentationState.wasRestored
+    }
     private var prevUnhiddenProportionalPositionInsideWorkspaceRect: CGPoint?
     /// The corner the window is parked in, together with the monitor rect it was parked
     /// against: when the monitor's geometry changes (or the workspace moves to another
