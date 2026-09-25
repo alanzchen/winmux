@@ -128,7 +128,7 @@ func closeWindowFromMiddleClick(_ windowId: UInt32, reveal: @escaping @MainActor
         guard let macWindow = closedHiddenWindow else { return }
         // A window that is merely slow to close is never revealed; only one waiting on a sheet.
         for _ in 0..<windowMiddleClickSheetPollCount {
-            try? await Task.sleep(for: windowMiddleClickSheetPollInterval)
+            do { try await Task.sleep(for: windowMiddleClickSheetPollInterval) } catch { return }
             guard Window.get(byId: windowId) === macWindow,
                   (try? await macWindow.macApp.containsAxWindow(windowId)) == true else { return }
             if (try? await macWindow.macApp.windowShowsSheet(windowId)) == true {

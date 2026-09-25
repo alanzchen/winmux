@@ -272,7 +272,10 @@ enum Ax {
     //)
     static let childrenAttr = ReadableAttrImpl<[AXUIElement]>(
         key: kAXChildrenAttribute,
-        getter: { $0 as? [AXUIElement] },
+        // Element by element, so one unexpected child doesn't hide the rest.
+        getter: { ($0 as? NSArray)?.compactMap { child in
+            CFGetTypeID(child as CFTypeRef) == AXUIElementGetTypeID() ? (child as! AXUIElement) : nil
+        } },
     )
     static let closeButtonAttr = ReadableAttrImpl<any AxUiElementMock>(
         key: kAXCloseButtonAttribute,
