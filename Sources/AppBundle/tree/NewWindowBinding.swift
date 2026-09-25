@@ -12,25 +12,26 @@ func classifyAndGetBindingDataForNewWindow(
     _ macApp: MacApp,
     _ workspace: Workspace,
     window: Window?,
-) async throws -> (binding: BindingData, type: AxUiElementWindowType) {
+    observedAt: TimeInterval = ProcessInfo.processInfo.systemUptime,
+) async throws -> (binding: BindingData, type: AxUiElementWindowType, claimed: Bool) {
     let windowLevel = getWindowLevel(for: windowId)
     let type = try await macApp.getAxUiElementWindowType(windowId, windowLevel)
-    let binding = switch type {
-        case .popup: BindingData(parent: macosPopupWindowsContainer, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
-        case .dialog: BindingData(parent: workspace, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
+    switch type {
+        case .popup:
+            return (BindingData(parent: macosPopupWindowsContainer, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST), type, false)
+        case .dialog:
+            return (BindingData(parent: workspace, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST), type, false)
         case .window:
             // A window the launcher asked for goes straight to its workspace, before a stack
             // or the focused workspace can take it.
             if window == nil, !isStartup,
                let target = NewWindowIntentRegistry.shared.claim(windowId: windowId, pid: macApp.pid,
-                   bundleId: macApp.rawAppBundleId, firstSeenUptime: ProcessInfo.processInfo.systemUptime)
+                   bundleId: macApp.rawAppBundleId, firstSeenUptime: observedAt)
             {
-                newWindowIntentBinding(targetWorkspace: target)
-            } else {
-                bindingDataForNewRegularWindow(workspace, window: window)
+                return (newWindowIntentBinding(targetWorkspace: target), type, true)
             }
+            return (bindingDataForNewRegularWindow(workspace, window: window), type, false)
     }
-    return (binding, type)
 }
 
 @MainActor

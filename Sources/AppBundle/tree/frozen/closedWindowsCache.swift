@@ -252,3 +252,9 @@ private func collectFrozenWindowsRecursive(_ frozenContainer: FrozenContainer, r
 @MainActor func resetClosedWindowsCache() {
     closedWindowsCache = FrozenWorld(workspaces: [], monitors: [], windowIds: [])
 }
+
+/// Whether a detected window will be put back from the closed-windows cache.
+@MainActor
+func closedWindowsCacheContains(windowId: UInt32) -> Bool {
+    closedWindowsCache.windowIds.contains(windowId)
+}

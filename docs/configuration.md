@@ -184,22 +184,30 @@ already running with windows elsewhere; it doesn't switch you to those windows.
 Each result says what choosing it does:
 
 - **New window**: WinMux asks the app for one. This works for Safari, Chrome, Brave,
-  Edge, Chromium, Finder, Terminal, iTerm, and TextEdit. The first time, macOS asks you
-  to allow WinMux to control that app; you can change this later in System Settings →
-  Privacy & Security → Automation.
-- **Open**: the app isn't running, so launching it opens its first window here.
-- **Switch to app**: WinMux can't make a new window of this running app, so choosing it
-  switches to the app instead.
+  Edge, Chromium, Finder, Terminal, iTerm, and TextEdit, whether or not they're running;
+  an app that isn't running opens in the background first, restores its windows, and
+  then makes the new one. The first time, macOS asks you to allow WinMux to control that
+  app; you can change this later in System Settings → Privacy & Security → Automation.
+- **Open**: the app isn't running, so WinMux opens it and the launcher closes. Its
+  windows follow the usual rules, including `[[on-window-detected]]` and
+  `open-new-windows-in-new-workspace`; otherwise they open in the focused workspace.
+- **No new window**: WinMux can't make a new window of this running app. Choosing it
+  says so instead of switching to the app's existing windows.
 
 `launcher-menu-fallback = true` lets the launcher try other running apps by pressing
 their own New Window menu item. It skips apps without one, and never presses New Tab,
 New Document, or private-window items.
 
-While a window opens, the launcher says so; if nothing arrives within a few seconds, it
-tells you instead. The new window takes focus unless you have moved on. Saved-workspace
-slots, `[[on-window-detected]]` rules, and `open-new-windows-in-new-workspace` don't move
-a window you opened this way. Press Esc or click elsewhere to close the launcher and keep
-the empty workspace. Dropping a window onto New Workspace never opens the launcher.
+While a window opens, the launcher says so, with a Cancel button; if nothing arrives
+within a few seconds of the app accepting the request, it tells you instead. The first new window that app
+opens after you choose it is the one placed in the workspace, so a window the app opens
+on its own at the same moment can be taken instead. Windows the app already had,
+including ones WinMux is restoring, are never moved. The new window takes focus unless
+you have moved on. Saved-workspace slots, `[[on-window-detected]]` rules, and
+`open-new-windows-in-new-workspace` don't move a window you opened this way. Press Esc
+or click elsewhere to close the launcher and keep the empty workspace; closing it while
+a window is opening lets that window follow the usual rules. Dropping a window onto New
+Workspace never opens the launcher.
 
 `winmux open-launcher` opens the launcher for the focused workspace, and
 `winmux open-launcher --new-workspace` creates an empty workspace first.

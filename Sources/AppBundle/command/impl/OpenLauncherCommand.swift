@@ -13,9 +13,10 @@ struct OpenLauncherCommand: Command {
             workspace = getOrCreateAdjacentBlankWorkspace(projectId: activeWorkspaceProjectId(for: monitor), monitor: monitor)
             guard workspace.focusWorkspace() else { return io.err("Couldn't switch to a new workspace") }
         }
+        guard workspace.isVisible else { return io.err("The launcher opens only for a workspace on screen") }
         let name = workspace.name
-        // Shown once this command's session has laid the workspace out.
-        DispatchQueue.main.async { WorkspaceLauncherPanel.shared.show(forWorkspaceNamed: name) }
+        // Shown once the command yields the main actor; each refresh repositions it.
+        Task { @MainActor in WorkspaceLauncherPanel.shared.show(forWorkspaceNamed: name) }
         return true
     }
 }

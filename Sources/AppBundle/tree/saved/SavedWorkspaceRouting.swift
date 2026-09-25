@@ -2,7 +2,8 @@ import AppKit
 import Common
 
 /// Runs the restore paths for a newly detected window, then the `on-window-detected` callbacks
-/// when nothing restored it. Returns whether the window was restored.
+/// when nothing restored it. Returns whether WinMux placed the window itself: restored it,
+/// routed it to a saved workspace, or put it where a launcher request asked.
 @MainActor
 func restoreOrDetectNewWindow(_ window: Window, isRegularWindow: Bool) async throws -> Bool {
     let didRestorePersisted = try await restorePersistedFrozenWorldIfNeeded(newlyDetectedWindow: window)
@@ -10,10 +11,19 @@ func restoreOrDetectNewWindow(_ window: Window, isRegularWindow: Bool) async thr
     if isRegularWindow {
         savedWorkspaceRuntime.noteWindowSeen(pid: window.app.pid)
     }
-    if didRestorePersisted || didRestoreClosed { return true }
+    if didRestorePersisted || didRestoreClosed {
+        // Claims skip restoration candidates; if one slipped through, report where it went.
+        if let claim = NewWindowIntentRegistry.shared.consumeClaim(windowId: window.windowId), !claim.isWithdrawn {
+            NewWindowIntentRegistry.shared.completeClaim(claim, window: window)
+        }
+        return true
+    }
     if let claim = NewWindowIntentRegistry.shared.consumeClaim(windowId: window.windowId) {
-        finishNewWindowIntentPlacement(window, claim: claim)
-        return false
+        guard claim.isWithdrawn else {
+            finishNewWindowIntentPlacement(window, claim: claim)
+            return true
+        }
+        placeWithdrawnNewWindow(window, claim: claim)
     }
     if try await routeNewWindowToSavedWorkspaceIfNeeded(window, isRegularWindow: isRegularWindow) {
         // Subscribers still learn about the window; callbacks don't move it out again.

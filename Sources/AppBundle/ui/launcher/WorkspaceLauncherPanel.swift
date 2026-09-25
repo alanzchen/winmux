@@ -17,22 +17,45 @@ final class WorkspaceLauncherModel: ObservableObject {
     @Published var query = "" {
         didSet { if query != oldValue { selection = 0 } }
     }
-    @Published var selection = 0
+    @Published var selection = 0 {
+        didSet { if selection != oldValue { notice = nil } }
+    }
+    /// Why the chosen app can't open a new window, shown until the choice changes.
+    @Published var notice: String?
     @Published var state: WorkspaceLauncherState = .choosing
-    @Published var installed: [LauncherApp] = []
+    @Published private(set) var installed: [LauncherApp] = []
     @Published var workspaceTitle = ""
-    var running: [LauncherApp] = []
+    var running: [LauncherApp] = [] {
+        didSet { runningIds = Set(running.map(\.bundleId)) }
+    }
+    private var runningIds: Set<String> = []
     var menuFallbackEnabled = false
     var onChoose: ((LauncherApp) -> Void)?
     var onDismiss: (() -> Void)?
 
     var results: [LauncherApp] {
-        launcherResults(installed: installed, running: running, query: query) { self.action(for: $0) == .switchTo }
+        launcherResults(installed: installed, running: running, query: query) { self.action(for: $0) == .unsupported }
     }
 
     func action(for app: LauncherApp) -> LauncherAppAction {
-        launcherAppAction(bundleId: app.bundleId, isRunning: running.contains { $0.bundleId == app.bundleId },
+        launcherAppAction(bundleId: app.bundleId, isRunning: runningIds.contains(app.bundleId),
             menuFallbackEnabled: menuFallbackEnabled)
+    }
+
+    /// Installed apps arrive after the launcher opens; the app already selected stays selected.
+    func setInstalled(_ apps: [LauncherApp]) {
+        let previous = results
+        let selected = previous.indices.contains(selection) ? previous[selection].id : nil
+        let keptNotice = notice
+        installed = apps
+        let updated = results
+        if let index = selected.flatMap({ id in updated.firstIndex { $0.id == id } }) {
+            selection = index
+            notice = keptNotice // Still about the selected app.
+        } else {
+            selection = min(selection, max(updated.count - 1, 0))
+            notice = nil
+        }
     }
 
     func moveSelection(_ delta: Int) {
@@ -54,10 +77,13 @@ final class WorkspaceLauncherPanel: NSPanelHud {
     static let shared = WorkspaceLauncherPanel()
     private let hostingView = NSHostingView(rootView: AnyView(EmptyView()))
     let model = WorkspaceLauncherModel()
-    private(set) var workspaceName: String?
+    private(set) var workspace: Workspace?
+    /// Each showing is a new session; a request from an earlier one never touches this one.
+    private var sessionId = 0
+    private var request: NewWindowRequestHandle?
     private var spaceObserver: NSObjectProtocol?
 
-    var isShowing: Bool { workspaceName != nil }
+    var isShowing: Bool { workspace != nil }
 
     override private init() {
         super.init()
@@ -79,17 +105,25 @@ final class WorkspaceLauncherPanel: NSPanelHud {
         }
     }
 
-    /// Shows the launcher for `workspaceName`, which must exist and be visible.
-    func show(forWorkspaceNamed name: String) {
-        guard let workspace = Workspace.existing(byName: name), workspace.isVisible, !workspace.isArchived else { return }
-        workspaceName = name
+    /// Shows the launcher for the workspace named `name`, which must exist and be visible.
+    @discardableResult
+    func show(forWorkspaceNamed name: String) -> Bool {
+        guard let workspace = Workspace.existing(byName: name), workspace.isVisible, !workspace.isArchived else { return false }
+        dismiss()
+        request?.cancel()
+        request = nil
+        self.workspace = workspace
+        sessionId += 1
+        let session = sessionId
         model.query = ""
-        model.selection = 0
         model.state = .choosing
         model.workspaceTitle = workspaceDisplayName(name)
-        model.running = runningLauncherApps()
-        model.installed = LauncherAppCatalog.shared.installed
         model.menuFallbackEnabled = config.workspaceSidebar.launcherMenuFallback
+        model.running = runningLauncherApps()
+        model.setInstalled(LauncherAppCatalog.shared.installed)
+        // A new session starts at the top, wherever the last one's selection went.
+        model.selection = 0
+        model.notice = nil
         model.onChoose = { [weak self] app in self?.choose(app) }
         model.onDismiss = { [weak self] in self?.dismiss() }
         setFrame(workspaceLauncherFrame(in: workspace.workspaceMonitor), display: true, animate: false)
@@ -99,67 +133,98 @@ final class WorkspaceLauncherPanel: NSPanelHud {
         makeKey()
         Task { @MainActor in
             let installed = await LauncherAppCatalog.shared.refresh()
-            if self.workspaceName == name { self.model.installed = installed }
+            if self.sessionId == session, self.isShowing { self.model.setInstalled(installed) }
         }
+        return true
     }
 
+    /// Closing the launcher withdraws its request: a window the app opens later is placed
+    /// by the usual rules, not in a workspace the user has left.
     func dismiss() {
-        guard workspaceName != nil else { return }
-        workspaceName = nil
+        guard workspace != nil else { return }
+        workspace = nil
+        request?.cancel()
+        request = nil
         orderOut(nil)
         hostingView.rootView = AnyView(EmptyView())
     }
 
     /// Called after each refresh: the launcher belongs to its workspace and leaves with it.
     func revalidate() {
-        guard let workspaceName else { return }
-        guard let workspace = Workspace.existing(byName: workspaceName), workspace.isVisible, !workspace.isArchived else {
+        guard let workspace else { return }
+        guard winMuxWorkspaceState.workspaceById[workspace.id] === workspace, workspace.isVisible, !workspace.isArchived else {
             dismiss()
             return
         }
+        // Follows the workspace to another monitor or a resized screen.
+        let frame = workspaceLauncherFrame(in: workspace.workspaceMonitor)
+        if frame != self.frame { setFrame(frame, display: true, animate: false) }
     }
 
     private func choose(_ app: LauncherApp) {
-        guard let workspaceName else { return }
+        guard let workspace, model.state == .choosing else { return }
         switch model.action(for: app) {
-            case .switchTo:
-                // Labeled in the list: this app can't make a new window from WinMux.
-                dismiss()
-                NSRunningApplication.runningApplications(withBundleIdentifier: app.bundleId).first?.activate()
+            case .unsupported:
+                // Only while the menu fallback is off. Switching to the app would show its
+                // existing windows, the opposite of what was asked.
+                let notice = "\(app.name) can't open a new window from WinMux. Turn on “Use an app's New Window menu” in Settings to try its menu."
+                model.notice = notice
+                announce(notice)
             case .newWindow, .newWindowFromMenu, .open:
+                let session = sessionId
                 model.state = .opening(appName: app.name)
-                requestNewWindow(
+                announce("Opening a new \(app.name) window")
+                let handle = requestNewWindow(
                     NewWindowRequestTarget(bundleId: app.bundleId, appName: app.name, bundleURL: app.url),
-                    targetWorkspaceName: workspaceName,
+                    targetWorkspace: workspace,
                 ) { [weak self] outcome in
-                    self?.finishRequest(outcome, appName: app.name, workspaceName: workspaceName)
+                    self?.finishRequest(outcome, appName: app.name, session: session)
                 }
+                // A request that ended at once has nothing left to cancel.
+                if sessionId == session, isShowing, case .opening = model.state { request = handle }
         }
     }
 
-    private func finishRequest(_ outcome: NewWindowRequestOutcome, appName: String, workspaceName: String) {
+    private func finishRequest(_ outcome: NewWindowRequestOutcome, appName: String, session: Int) {
+        // A dismissed or replaced launcher already withdrew this request.
+        guard sessionId == session, isShowing else { return }
+        request = nil
         let message: String? = switch outcome {
-            case .placed: nil
+            case .placed, .opened: nil
             case .timedOut: "\(appName) didn't open a new window."
             case .failed(let failure): failure
             case .cancelled: "The workspace closed before \(appName) opened a window."
         }
-        guard self.workspaceName == workspaceName else {
-            // The launcher has gone; still say why nothing appeared.
-            if let message { MessageModel.shared.message = Message(description: "App Launcher", body: message) }
+        guard let message else {
+            dismiss()
             return
         }
-        if let message {
-            model.state = .failed(message)
-            makeKey()
-        } else {
+        guard NSApp.isActive else {
+            // The user moved on to another app: don't take focus back to show the error inline.
             dismiss()
+            MessageModel.shared.message = Message(description: "App Launcher", body: message)
+            return
         }
+        model.state = .failed(message)
+        announce(message)
+        makeKey()
+    }
+
+    private func announce(_ text: String) {
+        NSAccessibility.post(element: self, notification: .announcementRequested, userInfo: [
+            .announcement: text,
+            .priority: NSAccessibilityPriorityLevel.high.rawValue,
+        ])
     }
 
     // Navigation keys are handled before the search field consumes them; typing flows to it.
+    // Composing text, such as with a Japanese input method, keeps them for the input method,
+    // and shortcuts with modifiers, such as Command-A, reach the field unchanged.
     override func sendEvent(_ event: NSEvent) {
-        if event.type == .keyDown, isShowing {
+        if event.type == .keyDown, isShowing,
+           (firstResponder as? NSTextView)?.hasMarkedText() != true,
+           event.modifierFlags.intersection([.command, .option, .control]).isEmpty
+        {
             switch event.keyCode {
                 case 53: dismiss(); return // esc
                 case 125: model.moveSelection(1); return // down arrow
@@ -173,11 +238,12 @@ final class WorkspaceLauncherPanel: NSPanelHud {
         super.sendEvent(event)
     }
 
-    /// Clicking elsewhere dismisses the launcher while choosing; an app opening its window
-    /// takes key status without dismissing it.
+    /// Clicking elsewhere dismisses the launcher, except while an app opens its window: its
+    /// permission prompt or the window itself may take key status first. Cancel covers that.
     override func resignKey() {
         super.resignKey()
-        if model.state == .choosing { dismiss() }
+        if case .opening = model.state { return }
+        dismiss()
     }
 
     override var canBecomeKey: Bool { true }
@@ -188,8 +254,8 @@ final class WorkspaceLauncherPanel: NSPanelHud {
 @MainActor
 func workspaceLauncherFrame(in monitor: Monitor) -> NSRect {
     let area = monitor.visibleRectPaddedByOuterGaps
-    let width = min(workspaceLauncherWidth, area.width - 24)
-    let height = min(workspaceLauncherHeight, area.height - 24)
+    let width = max(min(workspaceLauncherWidth, area.width - 24), 0)
+    let height = max(min(workspaceLauncherHeight, area.height - 24), 0)
     let appKitMaxY = NSScreen.screens.first?.frame.maxY ?? 0
     return NSRect(
         x: area.topLeftX + (area.width - width) / 2,
@@ -207,11 +273,11 @@ struct WorkspaceLauncherView: View {
         VStack(spacing: 0) {
             switch model.state {
                 case .choosing: chooser
-                case .opening(let appName): status(systemImage: nil, text: "Opening a new \(appName) window…")
+                case .opening(let appName): opening(appName)
                 case .failed(let message): failure(message)
             }
         }
-        .frame(width: workspaceLauncherWidth)
+        .frame(maxWidth: workspaceLauncherWidth)
         .fixedSize(horizontal: false, vertical: true)
         .background {
             GlassSurface(
@@ -267,6 +333,17 @@ struct WorkspaceLauncherView: View {
                 }
             }
             .frame(maxHeight: workspaceLauncherHeight - 100)
+            if let notice = model.notice {
+                Text(notice)
+                    .font(.system(size: 12))
+                    .foregroundStyle(Color.white.opacity(GlassToken.textSecondary))
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .accessibilityAddTraits(.updatesFrequently)
+            }
             if results.isEmpty {
                 Text(model.installed.isEmpty ? "Finding apps…" : "No matching apps")
                     .font(.system(size: 13))
@@ -276,16 +353,19 @@ struct WorkspaceLauncherView: View {
         }
     }
 
-    private func status(systemImage: String?, text: String) -> some View {
+    private func opening(_ appName: String) -> some View {
         HStack(spacing: 10) {
             ProgressView().controlSize(.small)
-            Text(text)
+            Text("Opening a new \(appName) window…")
                 .font(.system(size: 14, weight: .medium))
                 .foregroundStyle(Color.white.opacity(GlassToken.textPrimary))
+            Spacer(minLength: 8)
+            // The request can wait on a permission prompt for up to a minute.
+            Button("Cancel") { model.onDismiss?() }
+                .keyboardShortcut(.cancelAction)
         }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 26)
-        .accessibilityElement(children: .combine)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 22)
     }
 
     private func failure(_ message: String) -> some View {
@@ -327,7 +407,7 @@ private struct WorkspaceLauncherRow: View {
             Spacer(minLength: 8)
             Text(action.label)
                 .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(Color.white.opacity(action == .switchTo ? GlassToken.textQuaternary : GlassToken.textTertiary))
+                .foregroundStyle(Color.white.opacity(GlassToken.textTertiary))
         }
         .padding(.horizontal, 10)
         .frame(height: 34)

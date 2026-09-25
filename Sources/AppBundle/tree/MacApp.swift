@@ -132,24 +132,29 @@ final class MacApp: AbstractApp {
 
     /// Presses the app's own New Window menu item: the launcher's opt-in fallback for apps
     /// WinMux has no tested adapter for. Items with submenus are never pressed.
+    ///
+    /// Every read is a round trip to the app on the thread that also moves its windows, so only
+    /// titles are read, the first menus are searched, and an exact match ends the search. Items
+    /// aren't skipped as disabled: a menu that has never opened may not have validated them yet.
     func pressNewWindowMenuItem() async throws -> Bool {
         if serverArgs.isReadOnly { return false }
         return try await thread?.runInLoop { [axApp] _ in
             guard let menuBar = axApp.threadGuarded.get(Ax.menuBarAttr) else { return false }
-            var items: [(title: String, element: AXUIElement)] = []
-            for menuBarItem in menuBar.get(Ax.childrenAttr) ?? [] {
+            func press(_ item: AXUIElement) -> Bool { AXUIElementPerformAction(item, kAXPressAction as CFString) == .success }
+            var named: AXUIElement?
+            // The Apple and app menus, then File, Edit, View, and the next few: where New Window lives.
+            for menuBarItem in (menuBar.get(Ax.childrenAttr) ?? []).prefix(8) {
                 for menu in menuBarItem.get(Ax.childrenAttr) ?? [] {
                     for item in menu.get(Ax.childrenAttr) ?? [] {
-                        guard let title = item.get(Ax.titleAttr), !title.isEmpty,
-                              item.get(Ax.enabledAttr) != false,
+                        guard let title = item.get(Ax.titleAttr), let match = newWindowMenuItemMatch(title),
                               (item.get(Ax.childrenAttr) ?? []).isEmpty
                         else { continue }
-                        items.append((title, item))
+                        if match == .exact { return press(item) }
+                        if named == nil { named = item }
                     }
                 }
             }
-            guard let index = bestNewWindowMenuItemIndex(items.map(\.title)) else { return false }
-            return AXUIElementPerformAction(items[index].element, kAXPressAction as CFString) == .success
+            return named.map(press) ?? false
         } ?? false
     }
 

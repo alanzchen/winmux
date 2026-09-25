@@ -88,3 +88,9 @@ func finalizePersistedFrozenWorldAfterRefresh(aliveWindowIds: Set<UInt32>) {
         try? FileManager.default.removeItem(at: persistedFrozenWorldUrl())
     }
 }
+
+/// Whether a detected window will be put back from the world saved before WinMux restarted.
+@MainActor
+func persistedFrozenWorldContains(windowId: UInt32) -> Bool {
+    pendingPersistedFrozenWorld?.windowIds.contains(windowId) ?? false
+}

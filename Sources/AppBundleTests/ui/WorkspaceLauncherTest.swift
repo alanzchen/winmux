@@ -7,15 +7,20 @@ import XCTest
 @MainActor
 final class WorkspaceLauncherTest: XCTestCase {
     override func tearDown() {
+        WorkspaceLauncherPanel.shared.dismiss()
+        NewWindowIntentRegistry.shared.resetForTests()
+        MessageModel.shared.message = nil
         config = defaultConfig
         super.tearDown()
     }
 
     func testOnlyTestedAppsGetANewWindowAndOthersAreLabeled() {
+        let safariScript = "tell application id \"com.apple.Safari\" to make new document"
         XCTAssertEqual(newWindowMethod(bundleId: "com.apple.Safari", isRunning: true, menuFallbackEnabled: false),
-            .script("tell application id \"com.apple.Safari\" to make new document"))
-        XCTAssertEqual(newWindowMethod(bundleId: "com.apple.Safari", isRunning: false, menuFallbackEnabled: false), .launch,
-            "An app that isn't running opens its first window on launch")
+            .script(safariScript))
+        XCTAssertEqual(newWindowMethod(bundleId: "com.apple.Safari", isRunning: false, menuFallbackEnabled: false),
+            .launchThenScript(safariScript), "A tested app that isn't running restores its session, then makes the window")
+        XCTAssertEqual(newWindowMethod(bundleId: "com.example.Editor", isRunning: false, menuFallbackEnabled: false), .open)
         XCTAssertEqual(newWindowMethod(bundleId: "com.example.Editor", isRunning: true, menuFallbackEnabled: false), .unsupported)
         XCTAssertEqual(newWindowMethod(bundleId: "com.example.Editor", isRunning: true, menuFallbackEnabled: true), .menuItem)
         for (bundleId, command) in newWindowScriptCommands {
@@ -23,18 +28,23 @@ final class WorkspaceLauncherTest: XCTestCase {
         }
 
         XCTAssertEqual(launcherAppAction(bundleId: "com.apple.Terminal", isRunning: true, menuFallbackEnabled: false), .newWindow)
+        XCTAssertEqual(launcherAppAction(bundleId: "com.apple.Terminal", isRunning: false, menuFallbackEnabled: false), .newWindow)
         XCTAssertEqual(launcherAppAction(bundleId: "com.example.Editor", isRunning: false, menuFallbackEnabled: false), .open)
         XCTAssertEqual(launcherAppAction(bundleId: "com.example.Editor", isRunning: true, menuFallbackEnabled: false).label,
-            "Switch to app", "An app without new-window support says so instead of silently switching")
+            "No new window", "An app without new-window support says so instead of switching to it")
     }
 
     func testTheMenuFallbackPressesOnlyANewWindowItem() {
         XCTAssertEqual(bestNewWindowMenuItemIndex(["New Tab", "New Window", "New Private Window"]), 1)
         XCTAssertEqual(bestNewWindowMenuItemIndex(["New Folder", "New Finder Window"]), 1)
+        XCTAssertEqual(bestNewWindowMenuItemIndex(["New Finder Window", "New Window"]), 1, "An exact match wins")
         XCTAssertEqual(bestNewWindowMenuItemIndex(["Neuer Tab", "Neues Fenster"]), 1)
+        XCTAssertEqual(bestNewWindowMenuItemIndex(["New Tab", "New Window…"]), 1)
+        XCTAssertEqual(bestNewWindowMenuItemIndex(["New Window…", "New Window"]), 1, "One that asks nothing first wins")
+        XCTAssertEqual(bestNewWindowMenuItemIndex(["New Tab", "New\u{00A0}Window "]), 1)
         XCTAssertNil(bestNewWindowMenuItemIndex(["New Document", "New Tab", "New Message"]),
             "A document, tab, or message is not a window")
-        XCTAssertNil(bestNewWindowMenuItemIndex(["New Private Window", "New Incognito Window"]))
+        XCTAssertNil(bestNewWindowMenuItemIndex(["New Private Window", "New Incognito Window…"]))
     }
 
     func testScriptFailuresExplainMissingPermission() {
@@ -76,10 +86,14 @@ final class WorkspaceLauncherTest: XCTestCase {
         try makeApp("Editor.app", bundleId: "com.example.editor", name: "Editor")
         try makeApp("Suite/Writer.app", bundleId: "com.example.writer", name: "Writer", extra: ["CFBundleDisplayName": "Writer Pro"])
         try makeApp("Helper.app", bundleId: "com.example.helper", name: "Helper", extra: ["LSUIElement": true])
+        try makeApp("OldHelper.app", bundleId: "com.example.old-helper", name: "Old Helper", extra: ["LSUIElement": "1"])
+        try makeApp("Daemon.app", bundleId: "com.example.daemon", name: "Daemon", extra: ["LSBackgroundOnly": "YES"])
+        try makeApp("Agent.app", bundleId: "com.example.agent", name: "Agent", extra: ["LSUIElement": 1])
+        try makeApp("Visible.app", bundleId: "com.example.visible", name: "Visible", extra: ["LSUIElement": "NO"])
 
         let apps = scanLauncherApps(in: [root]).sorted { $0.name < $1.name }
-        XCTAssertEqual(apps.map(\.name), ["Editor", "Writer Pro"])
-        XCTAssertEqual(apps.map(\.bundleId), ["com.example.editor", "com.example.writer"])
+        XCTAssertEqual(apps.map(\.name), ["Editor", "Visible", "Writer Pro"])
+        XCTAssertEqual(apps.map(\.bundleId), ["com.example.editor", "com.example.visible", "com.example.writer"])
     }
 
     func testOptionsAreOffByDefaultAndParse() {
@@ -117,11 +131,11 @@ final class WorkspaceLauncherTest: XCTestCase {
             LauncherApp(bundleId: "com.apple.Safari", name: "Safari", url: URL(fileURLWithPath: "/Applications/Safari.app")),
             LauncherApp(bundleId: "com.apple.Notes", name: "Notes", url: URL(fileURLWithPath: "/System/Applications/Notes.app")),
         ]
-        model.installed = [
+        model.setInstalled([
             LauncherApp(bundleId: "com.apple.Terminal", name: "Terminal", url: URL(fileURLWithPath: "/System/Applications/Utilities/Terminal.app")),
             LauncherApp(bundleId: "com.apple.TextEdit", name: "TextEdit", url: URL(fileURLWithPath: "/System/Applications/TextEdit.app")),
             LauncherApp(bundleId: "com.apple.Preview", name: "Preview", url: URL(fileURLWithPath: "/System/Applications/Preview.app")),
-        ]
+        ])
         let host = NSHostingView(rootView: WorkspaceLauncherView(model: model).frame(width: workspaceLauncherWidth)
             .padding(20).background(Color(white: 0.12)))
         host.frame = CGRect(origin: .zero, size: host.fittingSize)
@@ -129,10 +143,11 @@ final class WorkspaceLauncherTest: XCTestCase {
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.2))
         host.layoutSubtreeIfNeeded()
         XCTAssertEqual(model.results.map(\.name), ["Safari", "Preview", "Terminal", "TextEdit", "Notes"],
-            "Apps that can open a new window come first; Notes can only be switched to")
+            "Apps that can open a new window come first; running Notes can't")
         XCTAssertEqual(model.action(for: model.results[0]), .newWindow)
         XCTAssertEqual(model.action(for: model.results[1]), .open)
-        XCTAssertEqual(model.action(for: model.results[4]), .switchTo, "Notes has no adapter and the fallback is off")
+        XCTAssertEqual(model.action(for: model.results[2]), .newWindow, "Terminal isn't running but has an adapter")
+        XCTAssertEqual(model.action(for: model.results[4]), .unsupported, "Notes has no adapter and the fallback is off")
         let maybeBitmap: NSBitmapImageRep? = host.bitmapImageRepForCachingDisplay(in: host.bounds)
         let bitmap: NSBitmapImageRep = try XCTUnwrap(maybeBitmap)
         host.cacheDisplay(in: host.bounds, to: bitmap)
@@ -140,6 +155,108 @@ final class WorkspaceLauncherTest: XCTestCase {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let png: Data = try XCTUnwrap(bitmap.representation(using: NSBitmapImageRep.FileType.png, properties: [:]))
         try png.write(to: directory.appendingPathComponent("launcher.png"))
+
+        model.state = .opening(appName: "Safari")
+        host.frame = CGRect(origin: .zero, size: host.fittingSize)
+        host.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.1))
+        let openingBitmap: NSBitmapImageRep = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        host.cacheDisplay(in: host.bounds, to: openingBitmap)
+        let openingPng: Data = try XCTUnwrap(openingBitmap.representation(using: NSBitmapImageRep.FileType.png, properties: [:]))
+        try openingPng.write(to: directory.appendingPathComponent("launcher-opening.png"))
+    }
+
+    func testTheSelectedAppStaysSelectedWhenInstalledAppsArrive() {
+        let safari = LauncherApp(bundleId: "com.apple.Safari", name: "Safari", url: nil)
+        let notes = LauncherApp(bundleId: "com.apple.Notes", name: "Notes", url: nil)
+        let model = WorkspaceLauncherModel()
+        model.running = [safari, notes]
+        model.moveSelection(1)
+        XCTAssertEqual(model.results[model.selection], notes)
+
+        model.setInstalled([
+            LauncherApp(bundleId: "com.apple.Terminal", name: "Terminal", url: nil),
+            LauncherApp(bundleId: "com.apple.TextEdit", name: "TextEdit", url: nil),
+        ])
+
+        XCTAssertEqual(model.results.map(\.name), ["Safari", "Terminal", "TextEdit", "Notes"])
+        XCTAssertEqual(model.results[model.selection], notes, "Return still chooses what the user selected")
+        model.moveSelection(10)
+        XCTAssertEqual(model.selection, 3)
+
+        model.notice = "Notes can't open a new window from WinMux."
+        model.setInstalled([LauncherApp(bundleId: "com.apple.Preview", name: "Preview", url: nil)])
+        XCTAssertEqual(model.results[model.selection], notes)
+        XCTAssertNotNil(model.notice, "The notice is about the app still selected")
+    }
+
+    func testChoosingAnAppWithoutNewWindowSupportExplainsInsteadOfSwitching() throws {
+        _ = NSApplication.shared
+        try XCTSkipIf(NSScreen.screens.isEmpty, "Requires a native macOS window server")
+        setUpWorkspacesForTests()
+        let panel = WorkspaceLauncherPanel.shared
+        XCTAssertTrue(panel.show(forWorkspaceNamed: focus.workspace.name))
+        let notes = LauncherApp(bundleId: "com.example.running-notes", name: "Notes", url: nil)
+        panel.model.running = [notes]
+
+        panel.model.onChoose?(notes)
+
+        XCTAssertTrue(panel.isShowing, "The user stays in the launcher to pick something else")
+        XCTAssertEqual(panel.model.state, .choosing)
+        XCTAssertEqual(panel.model.notice,
+            "Notes can't open a new window from WinMux. Turn on “Use an app's New Window menu” in Settings to try its menu.")
+        panel.model.moveSelection(1)
+        panel.model.moveSelection(-1)
+        XCTAssertNil(panel.model.notice, "Moving on clears it")
+
+        panel.model.moveSelection(3)
+        panel.dismiss()
+        XCTAssertTrue(panel.show(forWorkspaceNamed: focus.workspace.name))
+        XCTAssertEqual(panel.model.selection, 0, "Each time it opens, the top result is selected")
+    }
+
+    func testAnEarlierLauncherSessionsRequestNeverChangesTheCurrentOne() async throws {
+        _ = NSApplication.shared
+        try XCTSkipIf(NSScreen.screens.isEmpty, "Requires a native macOS window server")
+        setUpWorkspacesForTests()
+        let panel = WorkspaceLauncherPanel.shared
+        let name = focus.workspace.name
+        let missing = LauncherApp(bundleId: "com.example.not-installed-\(UUID().uuidString)", name: "Ghost", url: nil)
+
+        XCTAssertTrue(panel.show(forWorkspaceNamed: name))
+        panel.model.onChoose?(missing)
+        XCTAssertEqual(panel.model.state, .opening(appName: "Ghost"))
+        panel.dismiss()
+        XCTAssertTrue(panel.show(forWorkspaceNamed: name))
+        for _ in 0..<20 { await Task.yield() }
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertEqual(panel.model.state, .choosing, "The dismissed session's failure doesn't reach the new one")
+        XCTAssertNil(MessageModel.shared.message)
+
+        panel.model.onChoose?(missing)
+        for _ in 0..<20 { await Task.yield() }
+        try await Task.sleep(for: .milliseconds(100))
+        let failure = "Ghost isn't installed"
+        XCTAssertTrue(panel.model.state == .failed(failure) || MessageModel.shared.message?.body == failure,
+            "The current session reports why nothing opened")
+    }
+
+    func testCancelWhileOpeningClosesTheLauncherAndWithdrawsTheRequest() async throws {
+        _ = NSApplication.shared
+        try XCTSkipIf(NSScreen.screens.isEmpty, "Requires a native macOS window server")
+        setUpWorkspacesForTests()
+        let panel = WorkspaceLauncherPanel.shared
+        let missing = LauncherApp(bundleId: "com.example.not-installed-\(UUID().uuidString)", name: "Ghost", url: nil)
+        XCTAssertTrue(panel.show(forWorkspaceNamed: focus.workspace.name))
+        panel.model.onChoose?(missing)
+        XCTAssertEqual(panel.model.state, .opening(appName: "Ghost"))
+
+        panel.model.onDismiss?() // Cancel
+
+        XCTAssertFalse(panel.isShowing)
+        for _ in 0..<20 { await Task.yield() }
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertNil(MessageModel.shared.message, "A withdrawn request doesn't report a failure afterwards")
     }
 
     func testLauncherOnlyOpensForAVisibleWorkspace() throws {

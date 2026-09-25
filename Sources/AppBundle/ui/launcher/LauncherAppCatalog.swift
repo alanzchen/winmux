@@ -15,35 +15,36 @@ enum LauncherAppAction: Equatable {
     case newWindow
     case open
     case newWindowFromMenu
-    /// No way to make a new window: the launcher can only switch to the app's existing one.
-    case switchTo
+    /// Running, with no way to make a new window. Choosing it explains why instead of
+    /// switching to the app's existing windows, which is what the launcher exists to avoid.
+    case unsupported
 
     var label: String {
         switch self {
             case .newWindow, .newWindowFromMenu: "New window"
             case .open: "Open"
-            case .switchTo: "Switch to app"
+            case .unsupported: "No new window"
         }
     }
 }
 
 func launcherAppAction(bundleId: String, isRunning: Bool, menuFallbackEnabled: Bool) -> LauncherAppAction {
     switch newWindowMethod(bundleId: bundleId, isRunning: isRunning, menuFallbackEnabled: menuFallbackEnabled) {
-        case .launch: .open
-        case .script: .newWindow
+        case .open: .open
+        case .script, .launchThenScript: .newWindow
         case .menuItem: .newWindowFromMenu
-        case .unsupported: .switchTo
+        case .unsupported: .unsupported
     }
 }
 
 /// Apps to offer: running apps first when nothing is typed, then everything by match quality,
-/// running apps winning ties. Apps that can only be switched to come after those that can
-/// open a new window. Each app appears once; WinMux itself never does.
+/// running apps winning ties. Apps that can't open a new window come after those that can.
+/// Each app appears once; WinMux itself never does.
 func launcherResults(
     installed: [LauncherApp],
     running: [LauncherApp],
     query: String,
-    isSwitchOnly: (LauncherApp) -> Bool = { _ in false },
+    isUnsupported: (LauncherApp) -> Bool = { _ in false },
 ) -> [LauncherApp] {
     var seen: Set<String> = [winMuxAppId]
     var merged: [LauncherApp] = []
@@ -54,9 +55,9 @@ func launcherResults(
     let needle = query.trimmingCharacters(in: .whitespaces).lowercased()
     guard !needle.isEmpty else {
         return merged.sorted { lhs, rhs in
-            let lhsSwitchOnly = isSwitchOnly(lhs)
-            let rhsSwitchOnly = isSwitchOnly(rhs)
-            if lhsSwitchOnly != rhsSwitchOnly { return rhsSwitchOnly }
+            let lhsUnsupported = isUnsupported(lhs)
+            let rhsUnsupported = isUnsupported(rhs)
+            if lhsUnsupported != rhsUnsupported { return rhsUnsupported }
             let lhsRunning = runningIds.contains(lhs.bundleId)
             let rhsRunning = runningIds.contains(rhs.bundleId)
             if lhsRunning != rhsRunning { return lhsRunning }
@@ -72,9 +73,9 @@ func launcherResults(
         }
         .sorted { lhs, rhs in
             if lhs.1 != rhs.1 { return lhs.1 > rhs.1 }
-            let lhsSwitchOnly = isSwitchOnly(lhs.0)
-            let rhsSwitchOnly = isSwitchOnly(rhs.0)
-            if lhsSwitchOnly != rhsSwitchOnly { return rhsSwitchOnly }
+            let lhsUnsupported = isUnsupported(lhs.0)
+            let rhsUnsupported = isUnsupported(rhs.0)
+            if lhsUnsupported != rhsUnsupported { return rhsUnsupported }
             let lhsRunning = runningIds.contains(lhs.0.bundleId)
             let rhsRunning = runningIds.contains(rhs.0.bundleId)
             if lhsRunning != rhsRunning { return lhsRunning }
@@ -83,13 +84,21 @@ func launcherResults(
         .map(\.0)
 }
 
+/// Utilities folders are found as subfolders.
 let launcherApplicationDirectories: [URL] = [
     URL(fileURLWithPath: "/Applications"),
-    URL(fileURLWithPath: "/Applications/Utilities"),
     URL(fileURLWithPath: "/System/Applications"),
-    URL(fileURLWithPath: "/System/Applications/Utilities"),
     FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications"),
 ]
+
+/// Info.plist flags are booleans, but older bundles write them as integers or the string "1".
+private func infoFlag(_ bundle: Bundle, _ key: String) -> Bool {
+    switch bundle.object(forInfoDictionaryKey: key) {
+        case let flag as NSNumber: flag.boolValue
+        case let flag as String: flag == "1" || flag.lowercased() == "true" || flag.lowercased() == "yes"
+        default: false
+    }
+}
 
 /// Apps in the given folders and one level of subfolders, such as a suite's folder in
 /// /Applications. Reads bundles from disk, so call it off the main thread.
@@ -114,10 +123,13 @@ func scanLauncherApps(in directories: [URL], extraBundles: [URL] = []) -> [Launc
     return bundleURLs.compactMap { url in
         guard let bundle = Bundle(url: url), let bundleId = bundle.bundleIdentifier, seen.insert(bundleId).inserted,
               // Menu-bar helpers and agents have no windows to open.
-              bundle.object(forInfoDictionaryKey: "LSUIElement") as? Bool != true,
-              bundle.object(forInfoDictionaryKey: "LSBackgroundOnly") as? Bool != true
+              !infoFlag(bundle, "LSUIElement"), !infoFlag(bundle, "LSBackgroundOnly")
         else { return nil }
-        let name = bundle.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
+        // The name in the user's language, as Finder and the Dock show it.
+        let localized = bundle.localizedInfoDictionary
+        let name = localized?["CFBundleDisplayName"] as? String
+            ?? localized?["CFBundleName"] as? String
+            ?? bundle.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
             ?? bundle.object(forInfoDictionaryKey: "CFBundleName") as? String
             ?? url.deletingPathExtension().lastPathComponent
         return LauncherApp(bundleId: bundleId, name: name, url: url)
@@ -138,8 +150,13 @@ final class LauncherAppCatalog {
     static let shared = LauncherAppCatalog()
     private(set) var installed: [LauncherApp] = []
     private var scan: Task<[LauncherApp], Never>?
+    private var scannedUptime: TimeInterval?
 
+    /// Rescans unless a scan just finished, so opening the launcher repeatedly stays cheap and
+    /// a newly installed app still shows up the next time.
     func refresh() async -> [LauncherApp] {
+        let time = ProcessInfo.processInfo.systemUptime
+        if scan == nil, let scannedUptime, time - scannedUptime < 30 { return installed }
         if scan == nil {
             scan = Task.detached(priority: .userInitiated) {
                 scanLauncherApps(in: launcherApplicationDirectories,
@@ -149,6 +166,7 @@ final class LauncherAppCatalog {
         let apps = await scan?.value ?? installed
         installed = apps
         scan = nil
+        scannedUptime = ProcessInfo.processInfo.systemUptime
         return apps
     }
 }

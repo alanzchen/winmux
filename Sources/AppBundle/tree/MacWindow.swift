@@ -33,26 +33,37 @@ final class MacWindow: Window {
             // resized AX events invalidate it and consumers re-fetch on demand.
             return existing
         }
+        // Before any AX round-trip: a launcher request counts only windows first seen after it.
+        let observedAt = ProcessInfo.processInfo.systemUptime
         let firstSeenInActiveApp = macApp.nsApp.isActive
         let rect = try await macApp.getAxRect(windowId)
-        let (data, windowType) = try await classifyAndGetBindingDataForNewWindow(
+        let (data, windowType, claimed) = try await classifyAndGetBindingDataForNewWindow(
             windowId,
             macApp,
             isStartup
                 ? (rect?.center.monitorApproximation ?? mainMonitor).activeWorkspace
                 : focus.workspace,
             window: nil,
+            observedAt: observedAt,
         )
 
         // atomic synchronous section
-        if let existing = allWindowsMap[windowId] { return existing }
+        if let existing = allWindowsMap[windowId] {
+            // Registered meanwhile. Only a claim this call made is settled here.
+            if claimed { settleClaimAfterConcurrentRegistration(existing) }
+            return existing
+        }
         let window = MacWindow(windowId, macApp, lastFloatingSize: rect?.size, parent: data.parent, adaptiveWeight: data.adaptiveWeight, index: data.index, firstSeenInActiveApp: firstSeenInActiveApp)
         window.recordAuthoritativeActualRect(rect)
         allWindowsMap[windowId] = window
+        NewWindowIntentRegistry.shared.windowsBeingDetected.insert(windowId)
+        defer { NewWindowIntentRegistry.shared.windowsBeingDetected.remove(windowId) }
 
         try await debugWindowsIfRecording(window)
         let focusBeforeDetectionCallbacks = focusChangeGeneration
         let wasRestored = try await restoreOrDetectNewWindow(window, isRegularWindow: windowType == .window)
+        // A concurrent registration may have claimed it after detection checked for a claim.
+        settleClaimLeftAfterDetection(window)
         window.popupPresentationState.wasRestored = wasRestored
         newFloatingWindowPresentation?.recordDetection(
             window,
