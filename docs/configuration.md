@@ -60,6 +60,11 @@ always-expanded = true
 width = 240
 ```
 
+To change the width, drag the panel's inner edge, which highlights under the
+pointer. Tiled windows follow as you drag. When you let go, WinMux saves the new
+`width`, from 120 to 480 points and always greater than `collapsed-width`. A bottom
+Dock keeps its fitted height.
+
 In Dock mode, expanding normally keeps the Dock in place and opens a floating view
 with one column per project. With `always-expanded`, the Dock instead becomes a
 reserved one-pane panel: at the bottom it lists every project; on the left or right

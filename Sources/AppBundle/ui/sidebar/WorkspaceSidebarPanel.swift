@@ -152,6 +152,7 @@ extension WorkspaceSidebarPanel {
     func updateSurfaceFrame(_ nextFrame: CGRect) {
         guard nextFrame != visibleSurfaceFrame else { return }
         visibleSurfaceFrame = nextFrame
+        updateResizeHandle()
         // This cache is native state, not an observed SwiftUI model. Updating hit regions
         // from the rendered frame therefore cannot create a layout measurement loop.
         // A moving native lens already receives every pointer packet. Resizing
@@ -1039,7 +1040,8 @@ extension WorkspaceSidebarPanel {
 }
 extension WorkspaceSidebarPanel {
     func updateMousePassthrough() {
-        let inside = isMouseInsideVisibleRegion()
+        // A resize drag keeps the pointer while the edge catches up with it.
+        let inside = sidebarResize != nil || isMouseInsideVisibleRegion()
         let shouldIgnoreMouseEvents = !inside
         if ignoresMouseEvents != shouldIgnoreMouseEvents {
             debugWorkspaceSidebarHoverLog("mousePassthrough panel=\(monitorScopeId) ignores \(ignoresMouseEvents)->\(shouldIgnoreMouseEvents) insideVisible=\(inside) visibleWidth=\(viewModel.workspaceSidebarVisibleWidth) frame=\(frame) mouse=\(NSEvent.mouseLocation)")
@@ -1205,6 +1207,7 @@ extension WorkspaceSidebarPanel {
             revealSidebar(width: viewModel.workspaceSidebarVisibleWidth)
         }
         updateMousePassthrough()
+        updateResizeHandle()
         orderFrontRegardless()
         // Ordering in must not lift a yielding panel back over System Settings or a prompt.
         if !systemFrontWindows.isEmpty { applyWorkspaceSidebarLayer(stayOnTop: config.workspaceSidebar.stayOnTop, yieldsToSystemWindows: isAtRest) }
@@ -1220,6 +1223,7 @@ extension WorkspaceSidebarPanel {
 
     func resetHiddenSidebarState() {
         dockPointerView?.reset(reason: .hidden)
+        endSidebarResize()
         cancelInlineTextEditing()
         // onCancel may have synchronously attempted a close/reveal animation.
         autoHideReason = nil
@@ -1229,6 +1233,7 @@ extension WorkspaceSidebarPanel {
         ignoresMouseEvents = true
         clearHiddenSidebarContent()
         if isVisible { orderOut(nil) }
+        updateResizeHandle()
     }
 
     func clearHiddenSidebarContent(preserveSurface: Bool = false) {

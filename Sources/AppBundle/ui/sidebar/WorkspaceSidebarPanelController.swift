@@ -19,6 +19,8 @@ final class WorkspaceSidebarPanel: NSPanelHud, WorkspaceSidebarInputOwner {
     let hostingView: WorkspaceSidebarHostingView
     let clippingView = NSView()
     let slidingView = NSView()
+    let resizeHandleView = WorkspaceSidebarResizeHandleView()
+    var sidebarResize: WorkspaceSidebarResizeSession?
     lazy var slideTransition = WorkspaceSidebarSlideTransition(layer: slidingView.layer!)
     var autoHideReason: WorkspaceSidebarAutoHideReason?
     let monitorScopeId: String
@@ -104,6 +106,9 @@ final class WorkspaceSidebarPanel: NSPanelHud, WorkspaceSidebarInputOwner {
         slidingView.addSubview(hostingView)
         hostingView.frame = contentView?.bounds ?? .zero
         hostingView.autoresizingMask = [.width, .height]
+        // Above the SwiftUI content, so the panel's inner edge can be dragged.
+        slidingView.addSubview(resizeHandleView)
+        resizeHandleView.panel = self
         standardWindowButton(.closeButton)?.isHidden = true
         standardWindowButton(.miniaturizeButton)?.isHidden = true
         standardWindowButton(.zoomButton)?.isHidden = true
