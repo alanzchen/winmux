@@ -835,9 +835,12 @@ extension WorkspaceSidebarWorkspaceSection {
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
         .overlay {
-            WindowMiddleClickCatcher {
-                guard !isWorkspaceSidebarDragInProgress() else { return }
-                actions.send(.closeWindow(window.windowId))
+            // A row standing for a whole tab group closes nothing on a middle click.
+            if subject == .window {
+                WindowMiddleClickCatcher(windowId: window.windowId) {
+                    guard !isWorkspaceSidebarDragInProgress() else { return }
+                    actions.send(.closeWindow(window.windowId))
+                }
             }
         }
         .modifier(WorkspaceSidebarOptionalDragModifier(

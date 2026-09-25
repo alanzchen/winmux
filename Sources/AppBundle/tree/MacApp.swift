@@ -130,6 +130,13 @@ final class MacApp: AbstractApp {
         } ?? false
     }
 
+    /// Whether the window shows a sheet, such as an app asking to save before it closes.
+    func windowShowsSheet(_ windowId: UInt32) async throws -> Bool {
+        try await withWindow(windowId) { window, _ in
+            window.get(Ax.childrenAttr)?.contains { $0.get(Ax.roleAttr) == kAXSheetRole } ?? false
+        } ?? false
+    }
+
     func containsAxWindow(_ windowId: UInt32) async throws -> Bool {
         try await thread?.runInLoop { [axApp] job in
             axApp.threadGuarded.get(Ax.windowsAttr)?.contains { $0.windowId == windowId } ?? false

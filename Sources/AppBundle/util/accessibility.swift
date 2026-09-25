@@ -270,6 +270,10 @@ enum Ax {
     //    key: kAXMainWindowAttribute,
     //    getter: tryGetWindow
     //)
+    static let childrenAttr = ReadableAttrImpl<[AXUIElement]>(
+        key: kAXChildrenAttribute,
+        getter: { $0 as? [AXUIElement] },
+    )
     static let closeButtonAttr = ReadableAttrImpl<any AxUiElementMock>(
         key: kAXCloseButtonAttribute,
         getter: castToAxUiElementMock,

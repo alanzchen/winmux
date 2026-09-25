@@ -3,16 +3,18 @@ import Common
 import SwiftUI
 
 let windowMiddleMouseButtonNumber = 2
-/// How long a hidden window may take to close before WinMux reveals it, so a save
-/// or confirmation sheet attached to a parked window becomes visible.
-let windowMiddleClickRevealDelay: Duration = .milliseconds(400)
+/// After a hidden window's close button is pressed, WinMux watches this long for a sheet,
+/// such as a prompt to save, that would otherwise stay out of view with the window.
+let windowMiddleClickSheetPollInterval: Duration = .milliseconds(150)
+let windowMiddleClickSheetPollCount = 10
 
-/// Only middle-button events reach the catcher. Left and right clicks, drags, and
-/// scrolling fall through to the SwiftUI control underneath.
-func windowMiddleClickCapturesEvent(_ type: NSEvent.EventType?) -> Bool {
+/// Only middle-button events reach the catcher, and only while the setting is on. Left and
+/// right clicks, other buttons, drags, and scrolling fall through to the SwiftUI control.
+func windowMiddleClickCapturesEvent(_ type: NSEvent.EventType?, buttonNumber: Int?, enabled: Bool) -> Bool {
+    guard enabled, buttonNumber == windowMiddleMouseButtonNumber else { return false }
     switch type {
-        case .otherMouseDown, .otherMouseDragged, .otherMouseUp: true
-        default: false
+        case .otherMouseDown, .otherMouseDragged, .otherMouseUp: return true
+        default: return false
     }
 }
 
@@ -24,25 +26,41 @@ func shouldCloseWindowOnMouseUp(buttonNumber: Int, pressedButtonNumber: Int?, is
 
 /// Overlay for a SwiftUI tab or row that represents one window.
 struct WindowMiddleClickCatcher: NSViewRepresentable {
+    let windowId: UInt32
     let onMiddleClick: @MainActor () -> Void
 
     func makeNSView(context: Context) -> WindowMiddleClickView {
         let view = WindowMiddleClickView()
-        view.onMiddleClick = onMiddleClick
+        view.update(windowId: windowId, onMiddleClick: onMiddleClick)
         return view
     }
 
     func updateNSView(_ view: WindowMiddleClickView, context: Context) {
-        view.onMiddleClick = onMiddleClick
+        view.update(windowId: windowId, onMiddleClick: onMiddleClick)
     }
 }
 
 final class WindowMiddleClickView: NSView {
-    var onMiddleClick: (@MainActor () -> Void)?
+    private(set) var windowId: UInt32?
+    private var onMiddleClick: (@MainActor () -> Void)?
     private var pressedButtonNumber: Int?
+    private var pressedWindowId: UInt32?
+
+    /// SwiftUI can hand this view to another tab or row while the button is down; a
+    /// release then belongs to no window.
+    func update(windowId nextWindowId: UInt32, onMiddleClick nextAction: @escaping @MainActor () -> Void) {
+        if windowId != nextWindowId {
+            pressedButtonNumber = nil
+            pressedWindowId = nil
+        }
+        windowId = nextWindowId
+        onMiddleClick = nextAction
+    }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
-        guard windowMiddleClickCapturesEvent(NSApp.currentEvent?.type) else { return nil }
+        let event = NSApp.currentEvent
+        guard windowMiddleClickCapturesEvent(event?.type, buttonNumber: event?.buttonNumber,
+            enabled: config.middleClickClosesWindows) else { return nil }
         return super.hitTest(point)
     }
 
@@ -58,11 +76,15 @@ final class WindowMiddleClickView: NSView {
 
     func pressButton(_ buttonNumber: Int) {
         pressedButtonNumber = buttonNumber
+        pressedWindowId = windowId
     }
 
     func releaseButton(_ buttonNumber: Int, at point: CGPoint) {
-        defer { pressedButtonNumber = nil }
-        guard shouldCloseWindowOnMouseUp(
+        defer {
+            pressedButtonNumber = nil
+            pressedWindowId = nil
+        }
+        guard pressedWindowId != nil, pressedWindowId == windowId, shouldCloseWindowOnMouseUp(
             buttonNumber: buttonNumber,
             pressedButtonNumber: pressedButtonNumber,
             isInside: bounds.contains(point),
@@ -82,13 +104,13 @@ func windowIsHiddenFromView(_ window: Window) -> Bool {
 }
 
 /// Presses the window's close button, as Command-W would once the window is focused.
-/// A hidden window closes in place. If it is still open shortly afterwards, usually
-/// because the app is asking to save changes, `reveal` brings it into view so the prompt shows.
+/// A hidden window closes in place. If it shows a sheet while closing, usually a prompt to
+/// save changes, `reveal` brings it into view so the prompt can be answered.
 @MainActor
 func closeWindowFromMiddleClick(_ windowId: UInt32, reveal: @escaping @MainActor () -> Void) {
     guard !serverArgs.isReadOnly, let token: RunSessionGuard = .isServerEnabled else { return }
     Task { @MainActor in
-        var closedHiddenWindow = false
+        var closedHiddenWindow: MacWindow?
         do {
             try await runLightSession(.menuBarButton, token) {
                 guard let macWindow = Window.get(byId: windowId) as? MacWindow else { return }
@@ -97,17 +119,23 @@ func closeWindowFromMiddleClick(_ windowId: UInt32, reveal: @escaping @MainActor
                     showWindowCloseError("This window could not be closed.")
                     return
                 }
-                closedHiddenWindow = isHidden
+                if isHidden { closedHiddenWindow = macWindow }
             }
         } catch {
-            showWindowCloseError(error.localizedDescription)
+            showWindowCloseError("This window could not be closed. \(error.localizedDescription)")
             return
         }
-        guard closedHiddenWindow else { return }
-        try? await Task.sleep(for: windowMiddleClickRevealDelay)
-        guard let macWindow = Window.get(byId: windowId) as? MacWindow,
-              (try? await macWindow.macApp.containsAxWindow(windowId)) == true else { return }
-        reveal()
+        guard let macWindow = closedHiddenWindow else { return }
+        // A window that is merely slow to close is never revealed; only one waiting on a sheet.
+        for _ in 0..<windowMiddleClickSheetPollCount {
+            try? await Task.sleep(for: windowMiddleClickSheetPollInterval)
+            guard Window.get(byId: windowId) === macWindow,
+                  (try? await macWindow.macApp.containsAxWindow(windowId)) == true else { return }
+            if (try? await macWindow.macApp.windowShowsSheet(windowId)) == true {
+                reveal()
+                return
+            }
+        }
     }
 }
 

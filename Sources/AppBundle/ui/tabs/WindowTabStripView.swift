@@ -471,7 +471,7 @@ extension WindowTabStripView {
         }
         .buttonStyle(.plain)
         .overlay {
-            WindowMiddleClickCatcher {
+            WindowMiddleClickCatcher(windowId: tab.windowId) {
                 guard !isWindowTabStripDragInProgress() else { return }
                 closeWindowFromMiddleClick(tab.windowId) {
                     focusWindowFromTabStrip(tab.windowId, fallbackWorkspace: tab.workspaceName)

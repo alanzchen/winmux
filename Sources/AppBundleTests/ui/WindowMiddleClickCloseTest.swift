@@ -11,13 +11,17 @@ final class WindowMiddleClickCloseTest: XCTestCase {
 
     func testCatcherTakesOnlyMiddleButtonEventsSoTabsKeepTheirClicks() {
         for type in [NSEvent.EventType.otherMouseDown, .otherMouseDragged, .otherMouseUp] {
-            XCTAssertTrue(windowMiddleClickCapturesEvent(type), "\(type)")
+            XCTAssertTrue(windowMiddleClickCapturesEvent(type, buttonNumber: 2, enabled: true), "\(type)")
+            XCTAssertFalse(windowMiddleClickCapturesEvent(type, buttonNumber: 3, enabled: true),
+                "Back and forward buttons reach the control underneath")
+            XCTAssertFalse(windowMiddleClickCapturesEvent(type, buttonNumber: 2, enabled: false),
+                "With the setting off, middle clicks are left alone")
         }
         for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp, .leftMouseDragged, .rightMouseDown,
                      .rightMouseUp, .mouseMoved, .scrollWheel] {
-            XCTAssertFalse(windowMiddleClickCapturesEvent(type), "\(type) must reach the SwiftUI tab")
+            XCTAssertFalse(windowMiddleClickCapturesEvent(type, buttonNumber: 0, enabled: true), "\(type) must reach the SwiftUI tab")
         }
-        XCTAssertFalse(windowMiddleClickCapturesEvent(nil))
+        XCTAssertFalse(windowMiddleClickCapturesEvent(nil, buttonNumber: nil, enabled: true))
     }
 
     func testOnlyAMiddleClickReleasedOverTheSameTabCloses() {
@@ -34,7 +38,7 @@ final class WindowMiddleClickCloseTest: XCTestCase {
     func testCatcherViewClosesOnMiddleClickAndHonorsTheSetting() {
         let view = WindowMiddleClickView(frame: CGRect(x: 0, y: 0, width: 120, height: 24))
         var closes = 0
-        view.onMiddleClick = { closes += 1 }
+        view.update(windowId: 7) { closes += 1 }
         func click(_ button: Int, releasedAt point: CGPoint = CGPoint(x: 60, y: 12)) {
             view.pressButton(button)
             view.releaseButton(button, at: point)
@@ -52,6 +56,23 @@ final class WindowMiddleClickCloseTest: XCTestCase {
         config.middleClickClosesWindows = false
         click(2)
         XCTAssertEqual(closes, 1)
+    }
+
+    func testReusedCatcherNeverClosesAWindowItWasNotPressedOn() {
+        let view = WindowMiddleClickView(frame: CGRect(x: 0, y: 0, width: 120, height: 24))
+        var closed: [UInt32] = []
+        view.update(windowId: 7) { closed.append(7) }
+        view.pressButton(2)
+        // SwiftUI hands the view to another tab while the button is down.
+        view.update(windowId: 8) { closed.append(8) }
+        view.releaseButton(2, at: CGPoint(x: 60, y: 12))
+        XCTAssertEqual(closed, [])
+
+        view.update(windowId: 8) { closed.append(8) }
+        view.pressButton(2)
+        view.update(windowId: 8) { closed.append(8) }
+        view.releaseButton(2, at: CGPoint(x: 60, y: 12))
+        XCTAssertEqual(closed, [8], "Refreshing the same tab keeps the press")
     }
 
     func testOnlyBackgroundTabsAndHiddenWorkspacesCountAsHidden() {
