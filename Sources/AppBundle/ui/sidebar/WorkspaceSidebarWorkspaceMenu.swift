@@ -28,6 +28,8 @@ struct WorkspaceSidebarWorkspaceMenuContext: Equatable {
     var currentDisplayHasIdentity = true
     /// WinMux doesn't open apps with --read-only.
     var canOpenApps = true
+    /// Tabs mode, where a workspace with several windows can be split back into tabs.
+    var separatesIntoTabs = false
 }
 
 @MainActor
@@ -40,6 +42,7 @@ func workspaceSidebarWorkspaceMenuContext(workspaceName: String) -> WorkspaceSid
         isForceAssignedByConfig: resolvedForceAssignedMonitor(forWorkspaceName: workspaceName) != nil,
         currentDisplayHasIdentity: currentDisplay.map { SavedDisplayAffinity(monitor: $0) != nil } ?? false,
         canOpenApps: !serverArgs.isReadOnly,
+        separatesIntoTabs: config.usesBrowserTabs,
     )
 }
 
@@ -53,6 +56,9 @@ func workspaceSidebarWorkspaceMenuEntries(
         .separator,
         .init(title: "Rename Workspace", command: .rename),
     ]
+    if context.separatesIntoTabs, workspaceSidebarTabWindowCount(workspace) > 1 {
+        entries += [.separator, .init(title: "Separate into Tabs", command: .send(.separateWorkspaceIntoTabs(workspace.name))), .separator]
+    }
     if saved == nil {
         entries.append(.init(title: "Save Workspace", command: .send(.saveWorkspace(workspace.name))))
     }
@@ -70,7 +76,17 @@ func workspaceSidebarWorkspaceMenuEntries(
         entries.append(.init(title: "Forget Saved Workspace", command: .send(.forgetSavedWorkspace(workspace.name))))
     }
     entries.append(.init(title: "Delete Workspace", isDestructive: true, command: .send(.deleteWorkspace(workspace.name))))
-    return entries
+    return workspaceSidebarMenuWithoutStraySeparators(entries)
+}
+
+/// Optional entries can leave separators next to each other or at an end; keep single ones.
+func workspaceSidebarMenuWithoutStraySeparators(_ entries: [WorkspaceSidebarWorkspaceMenuEntry]) -> [WorkspaceSidebarWorkspaceMenuEntry] {
+    var result: [WorkspaceSidebarWorkspaceMenuEntry] = []
+    for entry in entries where !(entry.isSeparator && (result.last?.isSeparator ?? true)) {
+        result.append(entry)
+    }
+    if result.last?.isSeparator == true { result.removeLast() }
+    return result
 }
 
 /// Shown with more than one display, or while pinned so it can be unpinned. A pinned workspace
@@ -116,9 +132,14 @@ func workspaceSidebarWorkspaceMenu(
     _ workspace: WorkspaceSidebarWorkspaceViewModel,
     rename: @escaping () -> Void,
     send: @escaping @MainActor (WorkspaceSidebarAction) -> Void,
+    excludingDelete: Bool = false,
 ) -> [WorkspaceSidebarAppMenuEntry] {
     let context = workspaceSidebarWorkspaceMenuContext(workspaceName: workspace.name)
-    return workspaceSidebarWorkspaceMenuEntries(workspace, context: context).map { entry in
+    var entries = workspaceSidebarWorkspaceMenuEntries(workspace, context: context)
+    if excludingDelete {
+        entries = workspaceSidebarMenuWithoutStraySeparators(entries.filter { $0.command != .send(.deleteWorkspace(workspace.name)) })
+    }
+    return entries.map { entry in
         WorkspaceSidebarAppMenuEntry(
             title: entry.title,
             checked: entry.checked,
@@ -142,9 +163,12 @@ struct WorkspaceSidebarWorkspaceMenuContent: View {
     let workspace: WorkspaceSidebarWorkspaceViewModel
     let rename: () -> Void
     let send: @MainActor (WorkspaceSidebarAction) -> Void
+    /// For a menu that already closes the workspace another way.
+    var excludingDelete = false
 
     var body: some View {
-        WorkspaceSidebarAppContextMenu(entries: workspaceSidebarWorkspaceMenu(workspace, rename: rename, send: send))
+        WorkspaceSidebarAppContextMenu(entries: workspaceSidebarWorkspaceMenu(workspace, rename: rename, send: send,
+            excludingDelete: excludingDelete))
     }
 }
 

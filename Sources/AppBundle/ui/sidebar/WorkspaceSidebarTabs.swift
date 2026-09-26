@@ -112,9 +112,13 @@ struct WorkspaceSidebarTabRowView: View {
     let window: WorkspaceSidebarWindowViewModel
     let indent: CGFloat
     var isInStack = false
+    /// One half of a two-window tab: tighter, so both titles fit.
+    var isSplitHalf = false
     let isSearchSelected: Bool
     let isDragSource: Bool
     let actions: WorkspaceSidebarActions
+    /// A tab that is its workspace also offers the workspace's menu.
+    var workspaceMenu: (workspace: WorkspaceSidebarWorkspaceViewModel, rename: () -> Void)? = nil
     let onSelect: () -> Void
     @State private var isHovered = false
 
@@ -135,7 +139,7 @@ struct WorkspaceSidebarTabRowView: View {
             }
             .padding(.leading, 10 + indent)
             // Room for the close button, so the title doesn't shift when it appears.
-            .padding(.trailing, workspaceSidebarTabCloseSlotWidth)
+            .padding(.trailing, isSplitHalf ? workspaceSidebarTabCloseSlotWidth - 4 : workspaceSidebarTabCloseSlotWidth)
             .frame(maxWidth: .infinity, minHeight: workspaceSidebarTabRowHeight, maxHeight: workspaceSidebarTabRowHeight,
                 alignment: .leading)
             .contentShape(Rectangle())
@@ -163,7 +167,7 @@ struct WorkspaceSidebarTabRowView: View {
             .buttonStyle(.plain)
             .help("Close Window")
             .accessibilityHidden(true)
-            .frame(width: workspaceSidebarTabCloseSlotWidth)
+            .frame(width: isSplitHalf ? workspaceSidebarTabCloseSlotWidth - 4 : workspaceSidebarTabCloseSlotWidth)
             .opacity(isHovered ? 1 : 0)
             .allowsHitTesting(isHovered)
         }
@@ -184,6 +188,11 @@ struct WorkspaceSidebarTabRowView: View {
         .onHover { isHovered = $0 }
         .contextMenu {
             Button("Close Window") { close() }
+            if let workspaceMenu {
+                Divider()
+                WorkspaceSidebarWorkspaceMenuContent(workspace: workspaceMenu.workspace, rename: workspaceMenu.rename,
+                    send: actions.send)
+            }
         }
     }
 
@@ -527,7 +536,8 @@ extension WorkspaceSidebarView {
             let overrideMinHeight = workspaceSidebarInUseOverrideMinHeight(sectionWidth: viewport.size.width - leadingInset - trailingInset)
             ScrollViewReader { proxy in
                 ScrollView(.vertical, showsIndicators: false) {
-                    LazyVStack(alignment: .leading, spacing: 8) {
+                    // Tabs sit close together, as in a browser; folders keep room around them.
+                    LazyVStack(alignment: .leading, spacing: 2) {
                         if showsCreateWorkspace && workspaceSidebarShowsCreateWorkspace(selectedScopeId: snapshot.selectedMonitorScopeId) {
                             WorkspaceSidebarTabNewWorkspaceRow(
                                 projectId: projectId,
@@ -540,7 +550,7 @@ extension WorkspaceSidebarView {
                             )
                         }
                         ForEach(folders) { workspace in
-                            tabFolder(workspace, isPinned: workspace.id == pinnedWorkspace?.id,
+                            tabEntry(workspace, isPinned: workspace.id == pinnedWorkspace?.id,
                                 projectId: projectId, pageAllowsActivation: pageAllowsActivation, isSearching: isSearching,
                                 overrideMinHeight: overrideMinHeight)
                                 .id(workspaceSidebarTabFolderRowId(workspace.name))
@@ -565,6 +575,69 @@ extension WorkspaceSidebarView {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
+    /// A workspace as a single tab, a split tab, an empty new tab, or a folder.
+    @ViewBuilder
+    private func tabEntry(
+        _ workspace: WorkspaceSidebarWorkspaceViewModel,
+        isPinned: Bool,
+        projectId: WorkspaceProjectId,
+        pageAllowsActivation: Bool,
+        isSearching: Bool,
+        overrideMinHeight: CGFloat,
+    ) -> some View {
+        let showsProjectContext = isPinned || (browsedProjectId != nil && projectId != snapshot.activeProjectId)
+        let presentation = workspaceSidebarTabPresentation(workspace, showsProjectContext: showsProjectContext,
+            isRenaming: renamingWorkspaceName == workspace.name, isSearching: isSearching)
+        if presentation == .folder {
+            tabFolder(workspace, isPinned: isPinned, projectId: projectId, pageAllowsActivation: pageAllowsActivation,
+                isSearching: isSearching, overrideMinHeight: overrideMinHeight)
+                .padding(.vertical, 3)
+        } else {
+            let (activation, isShowingOverride) = tabActivation(workspace, isPinned: isPinned,
+                pageAllowsActivation: pageAllowsActivation)
+            WorkspaceSidebarTabCardView(
+                workspace: workspace,
+                presentation: presentation,
+                isActive: workspace.monitorScopeId == snapshot.targetMonitorScopeId && workspace.isVisible,
+                isDropTarget: snapshot.dropPreview?.targetWorkspaceName == workspace.name,
+                dragSourceWindowId: snapshot.dropPreview?.sourceWindowId,
+                selectedSearchTarget: isSearching ? selectedSearchTarget : nil,
+                activation: activation,
+                isShowingOverride: isShowingOverride,
+                overrideMinHeight: overrideMinHeight,
+                actions: actions,
+                onBeginRename: { beginWorkspaceRename(workspace) },
+                onCommitOverride: {
+                    activeInUseOverrideWorkspaceName = nil
+                    actions.send(.overrideWorkspaceInUse(workspace.name))
+                },
+                onCancelOverride: { activeInUseOverrideWorkspaceName = nil },
+            )
+        }
+    }
+
+    /// How clicks on a workspace's rows behave; shared by folders and tabs.
+    private func tabActivation(
+        _ workspace: WorkspaceSidebarWorkspaceViewModel,
+        isPinned: Bool,
+        pageAllowsActivation: Bool,
+    ) -> (WorkspaceSidebarTabActivation, isShowingOverride: Bool) {
+        // The pinned active workspace is already in use: its header does nothing, as in the Sidebar.
+        let allowsActivation = pageAllowsActivation && !isPinned
+        let isInUseOnOtherDisplay = allowsActivation &&
+            workspaceSidebarWorkspaceIsInUseOnOtherDisplay(workspace, selectedScopeId: snapshot.targetMonitorScopeId)
+        let activation = WorkspaceSidebarTabActivation(
+            allowsActivation: allowsActivation,
+            isInUseOnOtherDisplay: isInUseOnOtherDisplay,
+            requestOverride: {
+                pendingInUseOverrideAppId = nil
+                activeInUseOverrideWorkspaceName = workspace.name
+            },
+            dismissOverride: { activeInUseOverrideWorkspaceName = nil },
+        )
+        return (activation, isInUseOnOtherDisplay && activeInUseOverrideWorkspaceName == workspace.name)
+    }
+
     private func tabFolder(
         _ workspace: WorkspaceSidebarWorkspaceViewModel,
         isPinned: Bool,
@@ -574,10 +647,8 @@ extension WorkspaceSidebarView {
         overrideMinHeight: CGFloat,
     ) -> WorkspaceSidebarTabFolderView {
         let isCollapsed = collapsedTabFolderNames.contains(workspace.name)
-        // The pinned active workspace is already in use: its header does nothing, as in the Sidebar.
-        let allowsActivation = pageAllowsActivation && !isPinned
-        let isInUseOnOtherDisplay = allowsActivation &&
-            workspaceSidebarWorkspaceIsInUseOnOtherDisplay(workspace, selectedScopeId: snapshot.targetMonitorScopeId)
+        let (activation, isShowingOverride) = tabActivation(workspace, isPinned: isPinned,
+            pageAllowsActivation: pageAllowsActivation)
         let showsProjectContext = isPinned || (browsedProjectId != nil && projectId != snapshot.activeProjectId)
         let contextProjectId = isPinned ? snapshot.activeProjectId : projectId
         return WorkspaceSidebarTabFolderView(
@@ -590,16 +661,8 @@ extension WorkspaceSidebarView {
             isDropTarget: snapshot.dropPreview?.targetWorkspaceName == workspace.name,
             dragSourceWindowId: snapshot.dropPreview?.sourceWindowId,
             selectedSearchTarget: isSearching ? selectedSearchTarget : nil,
-            activation: WorkspaceSidebarTabActivation(
-                allowsActivation: allowsActivation,
-                isInUseOnOtherDisplay: isInUseOnOtherDisplay,
-                requestOverride: {
-                    pendingInUseOverrideAppId = nil
-                    activeInUseOverrideWorkspaceName = workspace.name
-                },
-                dismissOverride: { activeInUseOverrideWorkspaceName = nil },
-            ),
-            isShowingOverride: isInUseOnOtherDisplay && activeInUseOverrideWorkspaceName == workspace.name,
+            activation: activation,
+            isShowingOverride: isShowingOverride,
             overrideMinHeight: overrideMinHeight,
             projectContext: showsProjectContext
                 ? (projectName(contextProjectId), projectColor(contextProjectId))

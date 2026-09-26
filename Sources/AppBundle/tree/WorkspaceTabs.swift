@@ -84,8 +84,9 @@ func workspaceTabNeighbor(of workspace: Workspace) -> Workspace? {
         tab === workspace || tab.workspaceMonitor.rect == monitor.rect
     }
     guard let index = tabs.firstIndex(where: { $0 === workspace }) else { return nil }
-    let hasWindows = { (tab: Workspace) in workspaceHasLifecycleWindows(tab) }
-    return tabs[(index + 1)...].first(where: hasWindows) ?? tabs[..<index].reversed().first(where: hasWindows)
+    // Windows, or a saved workspace, which is a tab even while empty.
+    let isTab = { (tab: Workspace) in workspaceHasLifecycleWindows(tab) || tab.isKeptWhenEmpty }
+    return tabs[(index + 1)...].first(where: isTab) ?? tabs[..<index].reversed().first(where: isTab)
 }
 
 /// Closing a tab's last window moves to the next tab, as closing a browser tab does. A saved
@@ -118,4 +119,31 @@ func closeUnusedNewTab(_ newTab: WorkspaceLauncherNewTab) {
     } else {
         _ = tab.workspaceMonitor.setActiveWorkspace(destination)
     }
+}
+
+/// Gives every window but the one in use a tab of its own, right after, in layout order.
+@MainActor
+func separateWorkspaceIntoTabs(_ workspace: Workspace) {
+    let windows = workspace.allLeafWindowsRecursive
+    guard windows.count > 1 else { return }
+    let kept = workspace.mostRecentWindowRecursive ?? windows[0]
+    var after = workspace
+    for window in windows where window !== kept {
+        let tab = createWorkspace(after: after, projectId: workspace.projectId, monitor: workspace.workspaceMonitor)
+        window.bind(to: window.isFloating ? tab : tab.rootTilingContainer, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
+        after = tab
+    }
+}
+
+/// Closes an empty workspace's tab: the next tab takes its place and it goes away. The only
+/// tab, or a saved one, stays.
+@MainActor
+func closeEmptyTab(_ workspace: Workspace) {
+    guard !workspace.isArchived, !workspaceHasLifecycleWindows(workspace), !workspace.isKeptWhenEmpty,
+          orderedWorkspaces(in: workspace.projectId).contains(where: { $0 !== workspace })
+    else { return }
+    if workspace.isVisible {
+        closeUnusedNewTab(WorkspaceLauncherNewTab(workspace: workspace, previous: nil))
+    }
+    if !workspace.isVisible { removeWorkspaceFromRegistry(workspace, reason: .pruned) }
 }

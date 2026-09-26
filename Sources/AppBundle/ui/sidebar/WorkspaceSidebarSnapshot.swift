@@ -110,6 +110,10 @@ enum WorkspaceSidebarAction: Equatable {
     case createWorkspace(projectId: WorkspaceProjectId, monitorScopeId: String)
     case renameWorkspace(String, displayName: String)
     case deleteWorkspace(String)
+    /// Tabs mode: every window but the one in use gets a tab of its own.
+    case separateWorkspaceIntoTabs(String)
+    /// Tabs mode: closes an empty workspace's tab, moving to the next tab.
+    case closeEmptyTab(String)
     case saveWorkspace(String)
     case forgetSavedWorkspace(String)
     case setSavedWorkspacePinned(String, Bool)

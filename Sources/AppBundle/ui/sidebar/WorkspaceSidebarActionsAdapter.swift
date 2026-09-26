@@ -126,6 +126,18 @@ func handleWorkspaceSidebarAction(
             if let workspace = workspaceSidebarWorkspaceViewModel(name) {
                 deleteWorkspaceFromSidebar(workspace)
             }
+        case .separateWorkspaceIntoTabs(let name):
+            runWorkspaceSidebarSession {
+                guard let workspace = Workspace.existing(byName: name) else { return }
+                separateWorkspaceIntoTabs(workspace)
+                await updateWorkspaceSidebarModel()
+            }
+        case .closeEmptyTab(let name):
+            runWorkspaceSidebarSession {
+                guard let workspace = Workspace.existing(byName: name) else { return }
+                closeEmptyTab(workspace)
+                await updateWorkspaceSidebarModel()
+            }
         case .saveWorkspace(let name):
             saveWorkspaceFromSidebar(name)
         case .forgetSavedWorkspace(let name):

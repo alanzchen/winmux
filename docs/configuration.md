@@ -63,14 +63,20 @@ always-expanded = true
   does. In Tabs mode that's on unless you set it to `false`.
 - Close a workspace's last window and WinMux switches to the next workspace with windows,
   or the previous one if it was the last. A saved workspace stays, like a pinned tab.
-- Each window is a tab showing its app icon and title. Click a tab to switch to that
-  window, even on another workspace. The focused window is highlighted. As in the
-  Sidebar, tabs of a project you are only browsing don't switch, and a workspace shown
-  on another display asks before it moves to this one.
-- Hover a tab and click **×**, or middle-click it, to close the window.
-- Workspaces are folders. Click the chevron to collapse one; a collapsed folder still
-  shows the window you are using, and a search shows every match. Click a folder's name
-  to switch to that workspace, or right-click it to rename, save, or delete it.
+- A workspace with one window is one tab, showing the app icon and window title. Two
+  windows share a tab, split in halves; click a half to switch to that window. An empty
+  workspace shows as **Empty Tab**; closing it moves to the next tab. Click a tab to switch to that window,
+  even on another workspace. The focused window is highlighted. As in the Sidebar, tabs
+  of a project you are only browsing don't switch, and a workspace shown on another
+  display asks before it moves to this one.
+- Hover a tab and click **×**, or middle-click it, to close the window; on a split tab
+  that closes one half. Right-click a tab for the workspace's menu. On a split tab or a
+  folder it includes **Separate into Tabs**, which gives each window but the one in use,
+  including windows in a stack, a tab of its own.
+- A workspace with a name you gave it, a saved workspace, or one with three or more
+  windows or a stack is a folder. Click the chevron to collapse one; a collapsed folder
+  still shows the window you are using, and a search shows every match. Click a folder's
+  name to switch to that workspace, or right-click it to rename, save, or delete it.
 - A stack of tabbed windows appears as an indented group.
 - Drag a tab onto another folder to move the window there, or onto **New Tab** to
   give it its own workspace right after the one it came from.
