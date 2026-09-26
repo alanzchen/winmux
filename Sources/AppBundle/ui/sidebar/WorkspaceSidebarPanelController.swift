@@ -57,6 +57,8 @@ final class WorkspaceSidebarPanel: NSPanelHud, WorkspaceSidebarInputOwner {
     var splitBrowseCollapseSuppressedUntil: Date = .distantPast
     var persistentExpansionWidth: CGFloat?
     var lastConfiguredExpandedWidth: CGFloat?
+    /// Navigation state, never inferred from a width that hover or live resizing can change.
+    var isBrowsingSecondProject = false
     var visibleSurfaceFrame: CGRect?
     var expandedDockHoverSource: WorkspaceSidebarExpansionHoverSource?
     var fittedDockRestingWidth: CGFloat?

@@ -205,17 +205,11 @@ struct WorkspaceSidebarView: View {
         }
         .onChange(of: browseMode) { mode in
             endProjectPageTransition()
-            guard snapshot.visibleWidth > collapsedWidth + 0.5,
-                  let panel = WorkspaceSidebarPanel.panel(for: snapshot.targetMonitorScopeId)
-            else { return }
-            let targetWidth = mode.isSplit ? expandedWidth * 2 : expandedWidth
-            debugWorkspaceSidebarHoverLog("browseProjectWidthChange panel=\(snapshot.targetMonitorScopeId) project=\(mode.otherProjectId?.rawValue ?? "nil") snapshotWidth=\(snapshot.visibleWidth) target=\(targetWidth) frame=\(panel.frame) mouse=\(NSEvent.mouseLocation)")
-            panel.cancelExpansionWork()
-            panel.viewModel.isWorkspaceSidebarExpanded = true
-            panel.splitBrowseCollapseSuppressedUntil = mode.isSplit ? Date().addingTimeInterval(0.65) : .distantPast
+            guard let panel = WorkspaceSidebarPanel.panel(for: snapshot.targetMonitorScopeId) else { return }
+            guard panel.updateProjectBrowsing(mode.isSplit, expandedWidth: expandedWidth, collapsedWidth: collapsedWidth) else { return }
+            debugWorkspaceSidebarHoverLog("browseProjectWidthChange panel=\(snapshot.targetMonitorScopeId) project=\(mode.otherProjectId?.rawValue ?? "nil") snapshotWidth=\(snapshot.visibleWidth) target=\(panel.viewModel.workspaceSidebarVisibleWidth) frame=\(panel.frame) mouse=\(NSEvent.mouseLocation)")
             isSidebarCollapsing = false
             isSidebarExpanding = false
-            panel.animateVisibleSidebarWidth(targetWidth, animation: .easeInOut(duration: panel.animationDuration))
         }
         .onChange(of: snapshot.projects) { _ in
             if let browsedProjectId, !snapshot.projects.contains(where: { $0.id == browsedProjectId }) {

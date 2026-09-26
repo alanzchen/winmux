@@ -315,6 +315,7 @@ final class WorkspaceSidebarAutoHideTest: XCTestCase {
                     config.workspaceSidebar.dockPosition = position
                     panel.refresh(on: mainMonitor)
                     panel.viewModel.isWorkspaceSidebarExpanded = true
+                    panel.isBrowsingSecondProject = true
                     panel.animateVisibleSidebarWidth(480, animation: .linear)
                     for _ in 0..<3 {
                         panel.refresh(on: mainMonitor)
@@ -334,6 +335,7 @@ final class WorkspaceSidebarAutoHideTest: XCTestCase {
                     config.workspaceSidebar.width = 240
                     panel.refresh(on: mainMonitor)
                     panel.viewModel.isWorkspaceSidebarExpanded = true
+                    panel.isBrowsingSecondProject = columns == 2
                     panel.animateVisibleSidebarWidth(240 * columns, animation: .linear)
                     for width in [280, 200] {
                         config.workspaceSidebar.width = width
@@ -351,6 +353,7 @@ final class WorkspaceSidebarAutoHideTest: XCTestCase {
             config.workspaceSidebar.alwaysExpanded = true
             config.workspaceSidebar.width = 240
             panel.refresh(on: mainMonitor)
+            panel.isBrowsingSecondProject = true
             panel.animateVisibleSidebarWidth(480, animation: .linear)
             panel.handleHoverExit(collapsedWidth: 240)
             XCTAssertEqual(panel.viewModel.workspaceSidebarVisibleWidth, 480)
@@ -364,6 +367,7 @@ final class WorkspaceSidebarAutoHideTest: XCTestCase {
             config.workspaceSidebar.width = 240
             panel.refresh(on: mainMonitor)
             panel.viewModel.isWorkspaceSidebarExpanded = true
+            panel.isBrowsingSecondProject = true
             panel.animateVisibleSidebarWidth(480, animation: .linear)
             config.workspaceSidebar.alwaysExpanded = true
             panel.refresh(on: mainMonitor)
@@ -376,6 +380,7 @@ final class WorkspaceSidebarAutoHideTest: XCTestCase {
             config.workspaceSidebar.width = 240
             panel.refresh(on: mainMonitor)
             panel.viewModel.isWorkspaceSidebarExpanded = true
+            panel.isBrowsingSecondProject = true
             panel.animateVisibleSidebarWidth(480, animation: .linear)
             panel.prepareForInlineTextEditing()
             XCTAssertEqual(panel.viewModel.workspaceSidebarVisibleWidth, 480,
@@ -388,6 +393,7 @@ final class WorkspaceSidebarAutoHideTest: XCTestCase {
             config.workspaceSidebar.alwaysExpanded = false
             panel.refresh(on: mainMonitor)
             panel.viewModel.isWorkspaceSidebarExpanded = true
+            panel.isBrowsingSecondProject = true
             panel.animateVisibleSidebarWidth(480, animation: .linear)
             closeWorkspaceSidebarFromCommand(panel)
             XCTAssertEqual(panel.viewModel.workspaceSidebarVisibleWidth, workspaceSidebarRestingWidth(config.workspaceSidebar))

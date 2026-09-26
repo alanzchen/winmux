@@ -835,25 +835,22 @@ final class WorkspaceSidebarDragTest: XCTestCase {
         XCTAssertFalse(workspaceSidebarAllowsEdgeTrap(sidebarConfig))
         XCTAssertEqual(
             workspaceSidebarPersistentVisibleWidth(
-                currentWidth: 0,
-                previousExpandedWidth: nil,
                 expandedWidth: 260,
+                isBrowsingSecondProject: false,
             ),
             260,
         )
         XCTAssertEqual(
             workspaceSidebarPersistentVisibleWidth(
-                currentWidth: 260,
-                previousExpandedWidth: 260,
                 expandedWidth: 280,
+                isBrowsingSecondProject: false,
             ),
             280,
         )
         XCTAssertEqual(
             workspaceSidebarPersistentVisibleWidth(
-                currentWidth: 520,
-                previousExpandedWidth: 260,
                 expandedWidth: 280,
+                isBrowsingSecondProject: true,
             ),
             560,
         )

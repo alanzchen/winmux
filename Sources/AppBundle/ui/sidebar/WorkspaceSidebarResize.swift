@@ -64,7 +64,7 @@ extension WorkspaceSidebarPanel {
         sidebarResize = WorkspaceSidebarResizeSession(
             startPointerX: pointerX,
             startWidth: settings.width,
-            paneCount: viewModel.workspaceSidebarVisibleWidth > CGFloat(settings.width) + 0.5 ? 2 : 1,
+            paneCount: isBrowsingSecondProject ? 2 : 1,
             position: settings.effectiveDockPosition,
             lastAppliedWidth: settings.width,
         )

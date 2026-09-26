@@ -114,6 +114,32 @@ final class WorkspaceSidebarResizeTest: XCTestCase {
         }
     }
 
+    func testHoverDuringPendingResizeDoesNotDoubleTheSidebarWidth() async throws {
+        for (isHovering, width) in [(true, 300), (false, 300), (true, 180), (false, 180)] {
+            try await withAlwaysExpandedPanel(mode: .tabs) { panel in
+                XCTAssertTrue(panel.beginSidebarResize(atScreenX: 500))
+                workspaceSidebarLiveResizeRefresh.reset()
+                // Occupy the leading refresh so the nested update waits in the throttle.
+                workspaceSidebarLiveResizeRefresh.run {
+                    panel.updateSidebarResize(toScreenX: 500 + CGFloat(width - 240))
+                }
+                XCTAssertEqual(config.workspaceSidebar.width, width)
+                XCTAssertEqual(panel.viewModel.workspaceSidebarVisibleWidth, 240,
+                    "The throttled panel refresh has not run yet")
+                panel.menuTrackingDepth = 0
+                panel.setHovering(isHovering)
+                panel.menuTrackingDepth = 1
+                XCTAssertEqual(panel.viewModel.workspaceSidebarVisibleWidth, max(240, CGFloat(width)),
+                    "Hover can apply the new width before the resize refresh")
+                panel.endSidebarResize()
+                XCTAssertEqual(panel.viewModel.workspaceSidebarVisibleWidth, CGFloat(width),
+                    "A wider single pane is not two-project browsing")
+                XCTAssertEqual(panel.viewModel.workspaceSidebarVisibleWidth, mainMonitor.workspaceSidebarInset,
+                    "The sidebar must not cover the space occupied by the app window")
+            }
+        }
+    }
+
     func testSidebarWidthDragDoesNotBecomeAWindowDrag() async throws {
         setUpWorkspacesForTests()
         let window = TestWindow.new(id: 1, parent: focus.workspace.rootTilingContainer)
@@ -138,6 +164,41 @@ final class WorkspaceSidebarResizeTest: XCTestCase {
                 XCTAssertTrue(canHandleWindowMouseManipulation(window, mouseButtonDown: true),
                     "Cancelling also releases the sidebar's mouse ownership")
             }
+        }
+    }
+
+    func testResizingTwoProjectPanesKeepsTheirCombinedEdgeUnderThePointer() async throws {
+        try await withAlwaysExpandedPanel(mode: .tabs) { panel in
+            defer { panel.isBrowsingSecondProject = false }
+            XCTAssertTrue(panel.updateProjectBrowsing(true, expandedWidth: 240, collapsedWidth: 80))
+            panel.refresh(on: mainMonitor)
+            XCTAssertEqual(panel.viewModel.workspaceSidebarVisibleWidth, 480)
+            XCTAssertTrue(panel.beginSidebarResize(atScreenX: 500))
+            panel.updateSidebarResize(toScreenX: 620)
+            panel.endSidebarResize()
+            XCTAssertEqual(config.workspaceSidebar.width, 300, "The pointer delta is shared by the two panes")
+            XCTAssertEqual(panel.viewModel.workspaceSidebarVisibleWidth, 600)
+            XCTAssertEqual(mainMonitor.workspaceSidebarInset, 300, "The second project temporarily overlays the app")
+            XCTAssertTrue(panel.updateProjectBrowsing(false, expandedWidth: 300, collapsedWidth: 80))
+            panel.refresh(on: mainMonitor)
+            XCTAssertEqual(panel.viewModel.workspaceSidebarVisibleWidth, 300)
+        }
+    }
+
+    func testClosingProjectBrowsingWhileCollapsedDoesNotReopenTheSecondPane() async throws {
+        try await withAlwaysExpandedPanel(mode: .tabs) { panel in
+            XCTAssertTrue(panel.updateProjectBrowsing(true, expandedWidth: 240, collapsedWidth: 80))
+            XCTAssertEqual(panel.viewModel.workspaceSidebarVisibleWidth, 480)
+            panel.viewModel.workspaceSidebarVisibleWidth = 80
+            XCTAssertFalse(panel.updateProjectBrowsing(false, expandedWidth: 240, collapsedWidth: 80))
+            XCTAssertEqual(panel.splitBrowseCollapseSuppressedUntil, .distantPast)
+            XCTAssertEqual(panel.viewModel.workspaceSidebarVisibleWidth, 80, "A navigation reset must not reopen a collapsed sidebar")
+            panel.refresh(on: mainMonitor)
+            XCTAssertEqual(panel.viewModel.workspaceSidebarVisibleWidth, 240)
+            panel.updateProjectBrowsing(true, expandedWidth: 240, collapsedWidth: 80)
+            panel.clearHiddenSidebarContent()
+            panel.refresh(on: mainMonitor)
+            XCTAssertEqual(panel.viewModel.workspaceSidebarVisibleWidth, 240, "Hidden panels drop transient browsing")
         }
     }
 

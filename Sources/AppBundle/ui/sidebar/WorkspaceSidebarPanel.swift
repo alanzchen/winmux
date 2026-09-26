@@ -85,6 +85,21 @@ extension WorkspaceSidebarPanel {
         scheduleHoverRecheckSoon()
     }
 
+    /// Update navigation and geometry together; a collapsed view still clears split state.
+    @discardableResult
+    func updateProjectBrowsing(_ isSplit: Bool, expandedWidth: CGFloat, collapsedWidth: CGFloat) -> Bool {
+        isBrowsingSecondProject = isSplit
+        splitBrowseCollapseSuppressedUntil = isSplit ? Date().addingTimeInterval(0.65) : .distantPast
+        guard viewModel.workspaceSidebarVisibleWidth > collapsedWidth + 0.5 else { return false }
+        cancelExpansionWork()
+        viewModel.isWorkspaceSidebarExpanded = true
+        animateVisibleSidebarWidth(
+            workspaceSidebarPersistentVisibleWidth(expandedWidth: expandedWidth, isBrowsingSecondProject: isSplit),
+            animation: .easeInOut(duration: animationDuration),
+        )
+        return true
+    }
+
     func expandSidebar(to expandedWidth: CGFloat, reason: WorkspaceSidebarExpansionReason = .passive) {
         guard currentSidebarPanelLayout() != nil else { return }
         guard reason != .hover || NSApp.modalWindow == nil else { return }
@@ -1159,9 +1174,8 @@ extension WorkspaceSidebarPanel {
         if config.workspaceSidebar.pinsSidebarOpen {
             cancelExpansionWork()
             let targetWidth = workspaceSidebarPersistentVisibleWidth(
-                currentWidth: viewModel.workspaceSidebarVisibleWidth,
-                previousExpandedWidth: previousExpandedWidth,
                 expandedWidth: layout.expandedWidth,
+                isBrowsingSecondProject: isBrowsingSecondProject,
             )
             persistentExpansionWidth = layout.expandedWidth
             viewModel.isWorkspaceSidebarExpanded = true
@@ -1186,9 +1200,8 @@ extension WorkspaceSidebarPanel {
             // Only a configuration change resizes an open sidebar. Routine refreshes
             // must retain the extra width requested by two-project browsing.
             viewModel.workspaceSidebarVisibleWidth = workspaceSidebarPersistentVisibleWidth(
-                currentWidth: viewModel.workspaceSidebarVisibleWidth,
-                previousExpandedWidth: previousExpandedWidth,
                 expandedWidth: layout.expandedWidth,
+                isBrowsingSecondProject: isBrowsingSecondProject,
             )
         } else if !viewModel.isWorkspaceSidebarExpanded,
                   pendingExpand == nil,
@@ -1242,6 +1255,7 @@ extension WorkspaceSidebarPanel {
     func clearHiddenSidebarContent(preserveSurface: Bool = false) {
         // Runs for every inactive panel on every refreshAll — guard the shared-model writes so
         // they don't invalidate every observer each session.
+        isBrowsingSecondProject = false
         localDropTargetFrames = []
         expandedDropTargetFrames = []
         expandedSurfaceFrame = nil

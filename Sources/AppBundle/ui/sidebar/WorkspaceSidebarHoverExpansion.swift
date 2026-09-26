@@ -87,13 +87,12 @@ func workspaceSidebarCollapsedContentWidth(_ sidebarConfig: WorkspaceSidebarConf
 }
 
 func workspaceSidebarPersistentVisibleWidth(
-    currentWidth: CGFloat,
-    previousExpandedWidth: CGFloat?,
     expandedWidth: CGFloat,
+    isBrowsingSecondProject: Bool,
 ) -> CGFloat {
-    // Two-project browsing is the only expanded layout wider than one configured pane.
-    let wasShowingSplitBrowse = previousExpandedWidth.map { currentWidth > $0 + 0.5 } ?? false
-    return wasShowingSplitBrowse ? expandedWidth * 2 : expandedWidth
+    // Hover may already have applied a newly dragged width before the throttled refresh.
+    // That wider surface is still one pane; only an explicit browse action opens two.
+    isBrowsingSecondProject ? expandedWidth * 2 : expandedWidth
 }
 
 func isWorkspaceSidebarHoverDeepEnoughToExpand(
