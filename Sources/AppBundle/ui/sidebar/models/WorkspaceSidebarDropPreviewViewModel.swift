@@ -18,6 +18,10 @@ struct WorkspaceSidebarDropPreviewViewModel: Hashable {
     let isTabGroup: Bool
     let windowCount: Int
     let tabItems: [WorkspaceSidebarDropPreviewTabItem]
+    /// Tabs mode: the side of the target tab it goes, or a stack.
+    var targetPlacement: WorkspaceSidebarTabDropPlacement? = nil
+    /// Tabs mode: the gap between tabs it goes to.
+    var targetGap: WorkspaceSidebarTabGap? = nil
 
     init(
         sourceWindowId: UInt32,

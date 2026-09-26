@@ -78,8 +78,13 @@ always-expanded = true
   still shows the window you are using, and a search shows every match. Click a folder's
   name to switch to that workspace, or right-click it to rename, save, or delete it.
 - A stack of tabbed windows appears as an indented group.
-- Drag a tab onto another folder to move the window there, or onto **New Tab** to
-  give it its own workspace right after the one it came from.
+- Drag a tab onto another tab to put both windows in one workspace, side by side: the
+  half of the tab you drop on picks the side. Hold ⌥ while dropping to stack them as tabs
+  instead. WinMux then switches to that workspace with the dropped window focused. Drop
+  on a folder to add the window to it.
+- Drag a tab between two tabs to move it there. Dragging one window out of a split or a
+  folder the same way gives it a tab of its own at that spot, as does dropping it on
+  **New Tab**, which puts it right after the one it came from.
 - The emoji project switcher sits at the bottom.
 
 Tabs mode uses the Sidebar's placement, collapsed rail, auto-hide, and edge resizing.

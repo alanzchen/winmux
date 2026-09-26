@@ -47,6 +47,12 @@ struct WorkspaceSidebarTabCardView: View {
     let isShowingOverride: Bool
     let overrideMinHeight: CGFloat
     let actions: WorkspaceSidebarActions
+    /// Where a dragged tab would go on this tab, while one is over it.
+    var dropPlacement: WorkspaceSidebarTabDropPlacement? = nil
+    /// The edge a dragged tab would be inserted at, while one is over it.
+    var insertionEdge: VerticalEdge? = nil
+    /// The page's project and display, which a drop between tabs lands in; nil for none.
+    var gapTarget: (projectId: WorkspaceProjectId, monitorScopeId: String)? = nil
     let onBeginRename: () -> Void
     let onCommitOverride: () -> Void
     let onCancelOverride: () -> Void
@@ -64,6 +70,8 @@ struct WorkspaceSidebarTabCardView: View {
                     .strokeBorder(Color.white.opacity(isDropTarget ? 0.55 : 0), lineWidth: 1)
                     .allowsHitTesting(false)
             }
+            .overlay { WorkspaceSidebarTabDropSideHighlight(placement: isDropTarget ? dropPlacement : nil) }
+            .overlay { WorkspaceSidebarTabInsertionLine(edge: insertionEdge) }
             .overlay {
                 if isShowingOverride {
                     WorkspaceSidebarInUseOverrideOverlay(
@@ -74,14 +82,15 @@ struct WorkspaceSidebarTabCardView: View {
                 }
             }
             .background {
-                // Dropping a dragged tab here moves its window into this workspace.
+                // Dropping a dragged tab here moves its window into this workspace, and
+                // between tabs moves it there.
                 GeometryReader { geometry in
                     Color.clear.preference(
                         key: WorkspaceSidebarDropTargetPreferenceKey.self,
-                        value: [WorkspaceSidebarDropTargetFrame(
-                            kind: .workspace(workspace.name),
-                            frame: geometry.frame(in: .named("workspaceSidebarContent")),
-                        )],
+                        value: workspaceSidebarTabDropTargets(workspaceName: workspace.name,
+                            frame: geometry.frame(in: .named("workspaceSidebarContent")), gapTarget: gapTarget,
+                            // An empty tab has no window to go beside.
+                            acceptsSides: presentation != .empty),
                     )
                 }
             }
@@ -214,5 +223,72 @@ struct WorkspaceSidebarEmptyTabRowView: View {
     private func close() {
         guard !isWorkspaceSidebarDragInProgress() else { return }
         actions.send(.closeEmptyTab(workspace.name))
+    }
+}
+
+/// A tab's drop targets: the tab, then its edges, which win where they overlap it.
+func workspaceSidebarTabDropTargets(
+    workspaceName: String,
+    frame: CGRect,
+    gapTarget: (projectId: WorkspaceProjectId, monitorScopeId: String)?,
+    acceptsSides: Bool = false,
+    gapInside: CGFloat = 7,
+) -> [WorkspaceSidebarDropTargetFrame] {
+    var targets = [WorkspaceSidebarDropTargetFrame(kind: .workspace(workspaceName), frame: frame, acceptsSides: acceptsSides)]
+    if let gapTarget {
+        let bands = workspaceSidebarTabGapBands(for: frame, inside: gapInside)
+        targets += [(bands.before, false), (bands.after, true)].map { band, isAfter in
+            WorkspaceSidebarDropTargetFrame(
+                kind: .tabGap(projectId: gapTarget.projectId, monitorScopeId: gapTarget.monitorScopeId,
+                    gap: WorkspaceSidebarTabGap(workspaceName: workspaceName, isAfter: isAfter)),
+                frame: band,
+            )
+        }
+    }
+    return targets
+}
+
+/// The half of a tab a dragged tab would join, or the whole tab for a stack.
+struct WorkspaceSidebarTabDropSideHighlight: View {
+    let placement: WorkspaceSidebarTabDropPlacement?
+
+    var body: some View {
+        GeometryReader { geometry in
+            if let placement {
+                let width = placement == .stack ? geometry.size.width : geometry.size.width / 2
+                RoundedRectangle(cornerRadius: workspaceSidebarTabCornerRadius, style: .continuous)
+                    .fill(Color.white.opacity(0.18))
+                    .overlay {
+                        if placement == .stack {
+                            Image(systemName: "square.stack")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(Color.white.opacity(0.85))
+                                .frame(maxWidth: .infinity, alignment: .trailing)
+                                .padding(.trailing, 8)
+                        }
+                    }
+                    .frame(width: width)
+                    .offset(x: placement == .right ? geometry.size.width - width : 0)
+            }
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+}
+
+/// Where a dragged tab would be inserted between tabs.
+struct WorkspaceSidebarTabInsertionLine: View {
+    let edge: VerticalEdge?
+
+    var body: some View {
+        if let edge {
+            Capsule(style: .continuous)
+                .fill(Color.white.opacity(0.85))
+                .frame(height: 2)
+                .frame(maxHeight: .infinity, alignment: edge == .top ? .top : .bottom)
+                .offset(y: edge == .top ? -2 : 2)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
     }
 }

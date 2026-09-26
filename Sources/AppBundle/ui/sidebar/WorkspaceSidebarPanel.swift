@@ -209,22 +209,24 @@ extension WorkspaceSidebarPanel {
         convertToScreen(hostingView.convert(visibleSurfaceFrameInHostingView, to: nil))
     }
 
-    func dropTarget(atScreenPoint point: CGPoint, hitSlop: NSEdgeInsets) -> WorkspaceSidebarDropTarget? {
+    func dropTarget(atScreenPoint point: CGPoint, hitSlop: NSEdgeInsets, includesTabGaps: Bool = true) -> WorkspaceSidebarDropTarget? {
         guard sidebarAcceptsPointer else { return nil }
         let localPoint = hostingView.convert(convertPoint(fromScreen: point), from: nil)
         let target: WorkspaceSidebarDropTargetFrame?
         if let expanded = activeExpandedSurfaceFrameInHostingView, expanded.contains(localPoint) {
             target = workspaceSidebarLocalDropTarget(at: localPoint,
-                targets: expandedDropTargetFrames, surface: expanded, hitSlop: hitSlop)
+                targets: expandedDropTargetFrames, surface: expanded, hitSlop: hitSlop, includesTabGaps: includesTabGaps)
         } else {
             target = workspaceSidebarLocalDropTarget(at: localPoint,
-                targets: localDropTargetFrames, surface: visibleSurfaceFrameInHostingView, hitSlop: hitSlop)
+                targets: localDropTargetFrames, surface: visibleSurfaceFrameInHostingView, hitSlop: hitSlop,
+                includesTabGaps: includesTabGaps)
         }
         guard let target else { return nil }
         // Convert only the winning target, on demand. Hover animation never needs
         // to project every workspace on every display into screen coordinates.
         let screenRect = convertToScreen(hostingView.convert(target.frame, to: nil))
-        return WorkspaceSidebarDropTarget(kind: target.kind, rect: screenRect.monitorFrameNormalized())
+        return WorkspaceSidebarDropTarget(kind: target.kind, rect: screenRect.monitorFrameNormalized(),
+            acceptsSides: target.acceptsSides)
     }
 
     /// The Dock or its floating project columns, whichever contains a normalized point.

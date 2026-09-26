@@ -182,6 +182,68 @@ final class WorkspaceTabsTest: XCTestCase {
         XCTAssertEqual(field.isSet?(config), true, "Restoring it then has a key to remove, even if its value matches")
     }
 
+    func testATabDroppedOnAnotherGoesOnTheSideItWasDropped() throws {
+        let (a, b, _) = threeTabs()
+        let target = try XCTUnwrap(a.allLeafWindowsRecursive.first)
+        let dropped = try XCTUnwrap(b.allLeafWindowsRecursive.first)
+
+        applyTabDrop(sourceNode: dropped, sourceWindow: dropped, targetWorkspace: a, placement: .left)
+
+        XCTAssertEqual(a.rootTilingContainer.children.map { ($0 as? Window)?.windowId }, [dropped.windowId, target.windowId])
+        XCTAssertTrue(focus.windowOrNil === dropped, "The combined tab comes forward with the dropped window")
+        XCTAssertTrue(b.allLeafWindowsRecursive.isEmpty)
+
+        applyTabDrop(sourceNode: dropped, sourceWindow: dropped, targetWorkspace: a, placement: .right)
+        XCTAssertEqual(a.rootTilingContainer.children.map { ($0 as? Window)?.windowId }, [target.windowId, dropped.windowId])
+    }
+
+    func testOptionDropStacksTheTabWithTheTarget() throws {
+        let (a, b, _) = threeTabs()
+        let target = try XCTUnwrap(a.allLeafWindowsRecursive.first)
+        let dropped = try XCTUnwrap(b.allLeafWindowsRecursive.first)
+
+        applyTabDrop(sourceNode: dropped, sourceWindow: dropped, targetWorkspace: a, placement: .stack)
+
+        let stack = try XCTUnwrap(dropped.parent as? TilingContainer)
+        XCTAssertEqual(stack.layout, .tabGroup)
+        XCTAssertTrue(target.parent === stack)
+        XCTAssertTrue(focus.windowOrNil === dropped)
+    }
+
+    func testDroppingAWholeTabBetweenTabsMovesIt() throws {
+        let (a, b, c) = threeTabs()
+        let window = try XCTUnwrap(c.allLeafWindowsRecursive.first)
+
+        applyTabGapDrop(sourceNode: window, sourceWindow: window, projectId: c.projectId, monitor: c.workspaceMonitor,
+            gap: WorkspaceSidebarTabGap(workspaceName: a.name, isAfter: false))
+
+        XCTAssertEqual(order(), [c, a, b].map(\.name), "The tab moves; no workspace is created")
+        XCTAssertTrue(window.nodeWorkspace === c)
+    }
+
+    func testDroppingOneWindowOfASplitBetweenTabsGivesItATabThere() throws {
+        let (a, b, c) = threeTabs()
+        let second = TestWindow.new(id: 7, parent: a.rootTilingContainer)
+
+        applyTabGapDrop(sourceNode: second, sourceWindow: second, projectId: a.projectId, monitor: a.workspaceMonitor,
+            gap: WorkspaceSidebarTabGap(workspaceName: b.name, isAfter: true))
+
+        let tab = try XCTUnwrap(second.nodeWorkspace)
+        XCTAssertFalse(tab === a)
+        XCTAssertEqual(order(), [a.name, b.name, tab.name, c.name])
+        XCTAssertTrue(focus.windowOrNil === second)
+        XCTAssertEqual(a.allLeafWindowsRecursive.count, 1)
+    }
+
+    func testAWholeTabDroppedNextToAClosedTabStaysPut() throws {
+        let (a, b, c) = threeTabs()
+        let window = try XCTUnwrap(c.allLeafWindowsRecursive.first)
+        applyTabGapDrop(sourceNode: window, sourceWindow: window, projectId: c.projectId, monitor: c.workspaceMonitor,
+            gap: WorkspaceSidebarTabGap(workspaceName: "closed-meanwhile", isAfter: true))
+        XCTAssertEqual(order(), [a, b, c].map(\.name), "No stray workspace, nothing moved")
+        XCTAssertTrue(window.nodeWorkspace === c)
+    }
+
     func testMovingAWorkspaceAfterAnotherKeepsTheRest() {
         let (a, b, c) = threeTabs()
         winMuxWorkspaceState.moveWorkspace(a.id, after: c.id)

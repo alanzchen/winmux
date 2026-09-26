@@ -271,8 +271,13 @@ final class WorkspaceSidebarTabsModeTest: XCTestCase {
             workspaceSidebarTabFolderHeaderHeight + 3 * workspaceSidebarTabRowHeight, "Every window has a row")
         // A drop lands where the pointer is: inside folder 2's card, or on the New Workspace row.
         let surface = host.bounds
-        XCTAssertEqual(workspaceSidebarLocalDropTarget(at: CGPoint(x: second.frame.midX, y: second.frame.maxY - 4),
-            targets: probe.targets, surface: surface)?.kind, .workspace("2"))
+        XCTAssertEqual(workspaceSidebarLocalDropTarget(at: CGPoint(x: second.frame.midX, y: second.frame.maxY - 2),
+            targets: probe.targets, surface: surface)?.kind, .workspace("2"), "All of a folder takes the drop itself")
+        XCTAssertEqual(workspaceSidebarLocalDropTarget(at: CGPoint(x: second.frame.midX, y: second.frame.maxY + 1),
+            targets: probe.targets, surface: surface)?.kind,
+            .tabGap(projectId: workspaceProjectDefaultId, monitorScopeId: "monitor:0,0",
+                gap: WorkspaceSidebarTabGap(workspaceName: "2", isAfter: true)),
+            "Just below it is the gap after it")
         let newWorkspace = try XCTUnwrap(probe.targets.first { kind in
             if case .newWorkspace = kind.kind { return true }
             return false

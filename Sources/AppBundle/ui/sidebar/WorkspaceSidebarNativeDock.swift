@@ -933,7 +933,7 @@ final class WorkspaceSidebarNativeDockView: NSView {
     func performDrop(_ payload: WorkspaceSidebarDragPayload, on target: WorkspaceSidebarDropTargetKind) -> Bool {
         guard let input else { return false }
         switch target {
-            case .monitor: return false
+            case .monitor, .tabGap: return false
             case .workspace(let name):
                 guard let entry = input.workspaces.first(where: { $0.workspace.name == name }) else { return false }
                 entry.drop(payload)

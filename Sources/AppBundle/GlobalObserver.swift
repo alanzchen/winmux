@@ -77,6 +77,8 @@ enum GlobalObserver {
         let modifierFlags = event.modifierFlags
         runOnMainActor {
             noteTapBindingFlagsChanged(keyCode: keyCode, modifierFlags: modifierFlags)
+            // Option toggles whether a tab dragged in Tabs mode stacks; show it without a move.
+            refreshActiveWorkspaceSidebarDragPreviewIfNeeded()
         }
     }
 

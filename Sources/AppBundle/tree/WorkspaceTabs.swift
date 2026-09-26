@@ -147,3 +147,46 @@ func closeEmptyTab(_ workspace: Workspace) {
     }
     if !workspace.isVisible { removeWorkspaceFromRegistry(workspace, reason: .pruned) }
 }
+
+/// A tab dropped on another tab: its window goes beside that tab's window on the side it was
+/// dropped, or with Option into a stack with it. The combined tab comes forward with the
+/// dropped window focused.
+@MainActor
+func applyTabDrop(sourceNode: TreeNode, sourceWindow: Window, targetWorkspace: Workspace,
+                  placement: WorkspaceSidebarTabDropPlacement) {
+    if placement == .stack, sourceNode === sourceWindow, !sourceWindow.isFloating,
+       let target = targetWorkspace.mostRecentWindowRecursive, target !== sourceWindow, !target.isFloating
+    {
+        createOrAppendWindowTabStack(sourceWindow: sourceWindow, onto: target)
+        _ = sourceWindow.focusWindow()
+        return
+    }
+    applyWorkspaceZoneMove(sourceNode: sourceNode, sourceWindow: sourceWindow, targetWorkspace: targetWorkspace,
+        zone: placement == .left ? .left : .right)
+}
+
+/// A tab dropped between tabs. A whole tab moves there; a window from a tab with others gets
+/// a new tab there, and comes forward.
+@MainActor
+func applyTabGapDrop(sourceNode: TreeNode, sourceWindow: Window, projectId: WorkspaceProjectId, monitor: Monitor,
+                     gap: WorkspaceSidebarTabGap) {
+    let anchor = Workspace.existing(byName: gap.workspaceName).flatMap { $0.projectId == projectId ? $0 : nil }
+    let moving = Set(sourceNode.allLeafWindowsRecursive.map(\.windowId))
+    let sourceWorkspace = sourceNode.nodeWorkspace
+    let isWholeTab = sourceWorkspace?.allLeafWindowsRecursive.allSatisfy { moving.contains($0.windowId) } == true
+    // The tab it was dropped next to has gone meanwhile: leave the tab where it is.
+    if isWholeTab, anchor == nil { return }
+    if isWholeTab, let sourceWorkspace, let anchor, sourceWorkspace.projectId == projectId,
+       sourceWorkspace.workspaceMonitor.rect == monitor.rect
+    {
+        winMuxWorkspaceState.moveWorkspace(sourceWorkspace.id, relativeTo: anchor.id, after: gap.isAfter)
+        return
+    }
+    // Otherwise, including a whole tab from another display, the windows get a new tab here.
+    let tab = createBlankWorkspace(projectId: projectId, monitor: monitor)
+    if let anchor { winMuxWorkspaceState.moveWorkspace(tab.id, relativeTo: anchor.id, after: gap.isAfter) }
+    let isFloatingWindow = sourceNode === sourceWindow && sourceWindow.isFloating
+    sourceNode.bind(to: isFloatingWindow ? tab : tab.rootTilingContainer, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
+    _ = sourceWindow.focusWindow()
+}
+

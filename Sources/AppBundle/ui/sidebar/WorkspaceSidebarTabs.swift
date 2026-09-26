@@ -306,6 +306,9 @@ struct WorkspaceSidebarTabFolderView: View {
     let onBeginRename: () -> Void
     let onCommitRename: @MainActor @Sendable () -> Void
     let onCancelRename: @MainActor @Sendable () -> Void
+    /// Tabs mode: the edge a dragged tab would be inserted at, and where drops between tabs land.
+    var insertionEdge: VerticalEdge? = nil
+    var gapTarget: (projectId: WorkspaceProjectId, monitorScopeId: String)? = nil
     @State private var isHeaderHovered = false
 
     private var color: Color { workspaceSidebarTabFolderColor(workspace.name) }
@@ -364,15 +367,15 @@ struct WorkspaceSidebarTabFolderView: View {
                 )
             }
         }
+        .overlay { WorkspaceSidebarTabInsertionLine(edge: insertionEdge) }
         .background {
-            // Dropping a dragged tab anywhere on the folder moves the window into it.
+            // Dropping a dragged tab anywhere on the folder moves the window into it, and at
+            // its edges, between it and the next tab.
             GeometryReader { geometry in
                 Color.clear.preference(
                     key: WorkspaceSidebarDropTargetPreferenceKey.self,
-                    value: [WorkspaceSidebarDropTargetFrame(
-                        kind: .workspace(workspace.name),
-                        frame: geometry.frame(in: .named("workspaceSidebarContent")),
-                    )],
+                    value: workspaceSidebarTabDropTargets(workspaceName: workspace.name,
+                        frame: geometry.frame(in: .named("workspaceSidebarContent")), gapTarget: gapTarget, gapInside: 0),
                 )
             }
         }
@@ -552,7 +555,7 @@ extension WorkspaceSidebarView {
                         ForEach(folders) { workspace in
                             tabEntry(workspace, isPinned: workspace.id == pinnedWorkspace?.id,
                                 projectId: projectId, pageAllowsActivation: pageAllowsActivation, isSearching: isSearching,
-                                overrideMinHeight: overrideMinHeight)
+                                overrideMinHeight: overrideMinHeight, monitorScopeId: createMonitorScopeId)
                                 .id(workspaceSidebarTabFolderRowId(workspace.name))
                         }
                     }
@@ -584,13 +587,22 @@ extension WorkspaceSidebarView {
         pageAllowsActivation: Bool,
         isSearching: Bool,
         overrideMinHeight: CGFloat,
+        monitorScopeId: String,
     ) -> some View {
         let showsProjectContext = isPinned || (browsedProjectId != nil && projectId != snapshot.activeProjectId)
+        // Only this page's own tabs take drops between them, and only in Tabs mode's tab list.
+        let gapTarget = isPinned || !snapshot.configuration.usesTabsList ? nil
+            : (projectId: projectId, monitorScopeId: monitorScopeId)
+        let insertionEdge: VerticalEdge? = snapshot.dropPreview?.targetGap.flatMap { gap in
+            gap.workspaceName == workspace.name && snapshot.dropPreview?.targetProjectId == projectId
+                ? (gap.isAfter ? .bottom : .top) : nil
+        }
         let presentation = workspaceSidebarTabPresentation(workspace, showsProjectContext: showsProjectContext,
             isRenaming: renamingWorkspaceName == workspace.name, isSearching: isSearching)
         if presentation == .folder {
             tabFolder(workspace, isPinned: isPinned, projectId: projectId, pageAllowsActivation: pageAllowsActivation,
-                isSearching: isSearching, overrideMinHeight: overrideMinHeight)
+                isSearching: isSearching, overrideMinHeight: overrideMinHeight, insertionEdge: insertionEdge,
+                gapTarget: gapTarget)
                 .padding(.vertical, 3)
         } else {
             let (activation, isShowingOverride) = tabActivation(workspace, isPinned: isPinned,
@@ -606,6 +618,9 @@ extension WorkspaceSidebarView {
                 isShowingOverride: isShowingOverride,
                 overrideMinHeight: overrideMinHeight,
                 actions: actions,
+                dropPlacement: snapshot.dropPreview?.targetPlacement,
+                insertionEdge: insertionEdge,
+                gapTarget: gapTarget,
                 onBeginRename: { beginWorkspaceRename(workspace) },
                 onCommitOverride: {
                     activeInUseOverrideWorkspaceName = nil
@@ -645,6 +660,8 @@ extension WorkspaceSidebarView {
         pageAllowsActivation: Bool,
         isSearching: Bool,
         overrideMinHeight: CGFloat,
+        insertionEdge: VerticalEdge? = nil,
+        gapTarget: (projectId: WorkspaceProjectId, monitorScopeId: String)? = nil,
     ) -> WorkspaceSidebarTabFolderView {
         let isCollapsed = collapsedTabFolderNames.contains(workspace.name)
         let (activation, isShowingOverride) = tabActivation(workspace, isPinned: isPinned,
@@ -683,6 +700,8 @@ extension WorkspaceSidebarView {
             onBeginRename: { beginWorkspaceRename(workspace) },
             onCommitRename: { finishWorkspaceRename() },
             onCancelRename: { finishWorkspaceRename(cancelled: true) },
+            insertionEdge: insertionEdge,
+            gapTarget: gapTarget,
         )
     }
 }

@@ -310,6 +310,7 @@ func moveTabGroupToNewWorkspaceFromSidebar(_ windowId: UInt32, projectId: Worksp
 @MainActor
 private func moveSidebarSource(
     _ windowId: UInt32, subject: WindowDragSubject, toWorkspace workspaceName: String,
+    tabPlacement: WorkspaceSidebarTabDropPlacement? = nil,
     settlingId: UUID? = nil, validation: @escaping @MainActor () -> Bool = { true }
 ) {
     let task = runWorkspaceSidebarSession {
@@ -320,7 +321,31 @@ private func moveSidebarSource(
         let sourceNode = dragSubjectNode(for: sourceWindow, subject: subject)
         syncClosedWindowsCacheToCurrentWorld()
         suppressPostDragAxObserverEvents(for: sourceNode.allLeafWindowsRecursive.map(\.windowId))
-        applySidebarWorkspaceMove(sourceNode: sourceNode, sourceWindow: sourceWindow, targetWorkspace: targetWorkspace)
+        if let tabPlacement {
+            applyTabDrop(sourceNode: sourceNode, sourceWindow: sourceWindow, targetWorkspace: targetWorkspace,
+                placement: tabPlacement)
+        } else {
+            applySidebarWorkspaceMove(sourceNode: sourceNode, sourceWindow: sourceWindow, targetWorkspace: targetWorkspace)
+        }
+        await updateWorkspaceSidebarModel()
+    }
+    if task == nil, let settlingId { finishWorkspaceSidebarDockLift(id: settlingId) }
+}
+
+@MainActor
+private func moveSidebarSourceToTabGap(
+    _ windowId: UInt32, subject: WindowDragSubject, projectId: WorkspaceProjectId, monitorScopeId: String,
+    gap: WorkspaceSidebarTabGap, settlingId: UUID? = nil,
+) {
+    let task = runWorkspaceSidebarSession {
+        defer { if let settlingId { finishWorkspaceSidebarDockLift(id: settlingId) } }
+        guard let sourceWindow = Window.get(byId: windowId) else { return }
+        let sourceNode = dragSubjectNode(for: sourceWindow, subject: subject)
+        let monitor = workspaceSidebarTargetMonitor(scopeId: monitorScopeId, fallbackWindow: sourceWindow,
+            fallbackPoint: mouseLocation)
+        syncClosedWindowsCacheToCurrentWorld()
+        suppressPostDragAxObserverEvents(for: sourceNode.allLeafWindowsRecursive.map(\.windowId))
+        applyTabGapDrop(sourceNode: sourceNode, sourceWindow: sourceWindow, projectId: projectId, monitor: monitor, gap: gap)
         await updateWorkspaceSidebarModel()
     }
     if task == nil, let settlingId { finishWorkspaceSidebarDockLift(id: settlingId) }
@@ -356,13 +381,21 @@ private func moveSidebarSourceToNewWorkspace(
 }
 
 @MainActor
-func previewWorkspaceSidebarDrop(_ windowId: UInt32, subject: WindowDragSubject, target: WorkspaceSidebarDropTargetKind) {
+func previewWorkspaceSidebarDrop(_ windowId: UInt32, subject: WindowDragSubject, target: WorkspaceSidebarDropTargetKind,
+                                 placement: WorkspaceSidebarTabDropPlacement? = nil) {
     guard let sourceWindow = Window.get(byId: windowId) else {
         clearWorkspaceSidebarDropPreview()
         return
     }
     guard isActionableSidebarDropTarget(sourceWindow: sourceWindow, subject: subject, target: target) else {
         clearWorkspaceSidebarDropPreview()
+        return
+    }
+    if case .tabGap(let projectId, let monitorScopeId, let gap) = target {
+        var preview = workspaceSidebarDropPreview(sourceWindow: sourceWindow, subject: subject, targetWorkspaceName: nil,
+            targetsNewWorkspace: false, targetProjectId: projectId, targetMonitorScopeId: monitorScopeId)
+        preview.targetGap = gap
+        setWorkspaceSidebarDropPreviewIfChanged(preview)
         return
     }
     guard case .workspace(let workspaceName) = target else {
@@ -380,13 +413,15 @@ func previewWorkspaceSidebarDrop(_ windowId: UInt32, subject: WindowDragSubject,
         }
         return
     }
-    setWorkspaceSidebarDropPreviewIfChanged(workspaceSidebarDropPreview(
+    var preview = workspaceSidebarDropPreview(
         sourceWindow: sourceWindow,
         subject: subject,
         targetWorkspaceName: workspaceName,
         targetsNewWorkspace: false,
         targetProjectId: nil,
-    ))
+    )
+    preview.targetPlacement = placement
+    setWorkspaceSidebarDropPreviewIfChanged(preview)
 }
 
 @MainActor
@@ -768,12 +803,27 @@ private func postWorkspaceSidebarDragPointerNotification(_ name: Notification.Na
 }
 
 @MainActor
-private func workspaceSidebarDragTarget(for sourceWindow: Window, subject: WindowDragSubject) -> WorkspaceSidebarDropTargetKind? {
+private func workspaceSidebarDragTarget(for sourceWindow: Window, subject: WindowDragSubject) -> WorkspaceSidebarDropTarget? {
     let point = MousePointerTracker.shared.currentSample.point
     guard WorkspaceSidebarPanel.panel(containing: point) != nil else { return nil }
-    guard let target = workspaceSidebarDropTarget(at: point)?.kind else { return nil }
-    guard isActionableSidebarDropTarget(sourceWindow: sourceWindow, subject: subject, target: target) else { return nil }
+    guard let target = workspaceSidebarDropTarget(at: point) else { return nil }
+    guard isActionableSidebarDropTarget(sourceWindow: sourceWindow, subject: subject, target: target.kind) else { return nil }
     return target
+}
+
+/// Tabs mode: the side of the tab under the pointer, or a stack while Option is held. Only a
+/// target drawn as a tab takes a side; a folder takes a dropped tab as it always has. A stack
+/// is offered only where one can be made, so the preview never promises what the drop won't do.
+@MainActor
+private func workspaceSidebarTabDropPlacement(for target: WorkspaceSidebarDropTarget, sourceWindow: Window,
+                                              subject: WindowDragSubject) -> WorkspaceSidebarTabDropPlacement? {
+    // A floating window stays floating wherever it goes, so it can't go beside another.
+    guard target.acceptsSides, !sourceWindow.isFloating, case .workspace(let name) = target.kind else { return nil }
+    let targetWindow = Workspace.existing(byName: name)?.mostRecentWindowRecursive
+    let canStack = targetWindow.map { !$0.isFloating } == true
+    return workspaceSidebarTabDropPlacement(pointX: MousePointerTracker.shared.currentSample.point.x,
+        targetMidX: target.rect.center.x, subject: subject,
+        optionHeld: canStack && NSEvent.modifierFlags.contains(.option))
 }
 
 @MainActor
@@ -795,7 +845,8 @@ private func updateActiveWorkspaceSidebarDragPreview(sourceWindow: Window, subje
         clearWorkspaceSidebarDropPreview()
         return
     }
-    previewWorkspaceSidebarDrop(sourceWindow.windowId, subject: subject, target: target)
+    previewWorkspaceSidebarDrop(sourceWindow.windowId, subject: subject, target: target.kind,
+        placement: workspaceSidebarTabDropPlacement(for: target, sourceWindow: sourceWindow, subject: subject))
 }
 
 @MainActor
@@ -808,18 +859,23 @@ private func commitActiveWorkspaceSidebarDragIfPossible() -> Bool {
         WindowDragCursorProxyPanel.shared.hide()
         return false
     }
-    previewWorkspaceSidebarDrop(sourceWindow.windowId, subject: activeDrag.subject, target: target)
+    let placement = workspaceSidebarTabDropPlacement(for: target, sourceWindow: sourceWindow, subject: activeDrag.subject)
+    previewWorkspaceSidebarDrop(sourceWindow.windowId, subject: activeDrag.subject, target: target.kind, placement: placement)
     let settlingId = settleWorkspaceSidebarDockLift()
     clearWorkspaceSidebarDropPreview()
     WindowDragCursorProxyPanel.shared.hide()
-    switch target {
+    switch target.kind {
         case .workspace(let workspaceName):
             moveSidebarSource(sourceWindow.windowId, subject: activeDrag.subject,
-                toWorkspace: workspaceName, settlingId: settlingId)
+                toWorkspace: workspaceName, tabPlacement: placement, settlingId: settlingId)
             return true
         case .newWorkspace(let projectId, let monitorScopeId):
             moveSidebarSourceToNewWorkspace(sourceWindow.windowId, subject: activeDrag.subject,
                 projectId: projectId, monitorScopeId: monitorScopeId, settlingId: settlingId)
+            return true
+        case .tabGap(let projectId, let monitorScopeId, let gap):
+            moveSidebarSourceToTabGap(sourceWindow.windowId, subject: activeDrag.subject, projectId: projectId,
+                monitorScopeId: monitorScopeId, gap: gap, settlingId: settlingId)
             return true
         case .monitor:
             return false
