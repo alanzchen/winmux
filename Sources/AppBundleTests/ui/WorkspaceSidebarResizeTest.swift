@@ -96,6 +96,87 @@ final class WorkspaceSidebarResizeTest: XCTestCase {
         }
     }
 
+    func testTabsSidebarRenderedEdgeFollowsRepeatedWidthDrags() async throws {
+        try await withAlwaysExpandedPanel(mode: .tabs) { panel in
+            for width in [360, 180, 320, 120, 480, 240] {
+                XCTAssertTrue(panel.beginSidebarResize(atScreenX: 500))
+                let startWidth = config.workspaceSidebar.width
+                panel.updateSidebarResize(toScreenX: 500 + CGFloat(width - startWidth))
+                panel.endSidebarResize()
+                try await Task.sleep(for: .milliseconds(50))
+                panel.hostingView.layoutSubtreeIfNeeded()
+                XCTAssertEqual(config.workspaceSidebar.width, width)
+                XCTAssertEqual(panel.viewModel.workspaceSidebarVisibleWidth, CGFloat(width))
+                XCTAssertEqual(panel.visibleSurfaceFrameInHostingView.width, CGFloat(width), accuracy: 0.5)
+                XCTAssertEqual(panel.visibleSurfaceFrameOnScreen.maxX,
+                    panel.frame.minX + mainMonitor.workspaceSidebarInset, accuracy: 0.5)
+            }
+        }
+    }
+
+    func testSidebarWidthDragDoesNotBecomeAWindowDrag() async throws {
+        setUpWorkspacesForTests()
+        let window = TestWindow.new(id: 1, parent: focus.workspace.rootTilingContainer)
+        let previousApp = appForTests
+        defer { appForTests = previousApp }
+        window.nativeFocus()
+        for mode in WorkspaceSidebarMode.allCases {
+            try await withAlwaysExpandedPanel(mode: mode) { panel in
+                XCTAssertTrue(canHandleWindowMouseManipulation(window, mouseButtonDown: true))
+                XCTAssertTrue(panel.beginSidebarResize(atScreenX: 500))
+                panel.updateSidebarResize(toScreenX: 560)
+                XCTAssertFalse(canHandleWindowMouseManipulation(window, mouseButtonDown: true),
+                    "Moving the focused window to make room must not start a competing move or resize gesture")
+                let isWindowGesture = try await isManipulatedWithMouse(window, mouseButtonDown: { true })
+                XCTAssertFalse(isWindowGesture, "Both AX observers must reject the focused window's layout-driven movement")
+                panel.endSidebarResize()
+                XCTAssertTrue(canHandleWindowMouseManipulation(window, mouseButtonDown: true),
+                    "A subsequent real window drag must still work")
+                XCTAssertFalse(canHandleWindowMouseManipulation(window, mouseButtonDown: false))
+                XCTAssertTrue(panel.beginSidebarResize(atScreenX: 500))
+                panel.cancelSidebarResize()
+                XCTAssertTrue(canHandleWindowMouseManipulation(window, mouseButtonDown: true),
+                    "Cancelling also releases the sidebar's mouse ownership")
+            }
+        }
+    }
+
+    func testWindowGestureEligibilityIsRecheckedAfterNativeFocusRead() async throws {
+        setUpWorkspacesForTests()
+        let window = TestWindow.new(id: 1, parent: focus.workspace.rootTilingContainer)
+        let previousApp = appForTests
+        defer { appForTests = previousApp }
+        try await withAlwaysExpandedPanel(mode: .tabs) { panel in
+            var focusReads = 0
+            appForTests = SidebarResizeFocusTestApp {
+                focusReads += 1
+                await Task.yield()
+                XCTAssertTrue(panel.beginSidebarResize(atScreenX: 500))
+                return window
+            }
+            let windowGestureAfterSidebarBegan = try await isManipulatedWithMouse(window, mouseButtonDown: { true })
+            XCTAssertFalse(windowGestureAfterSidebarBegan, "A sidebar drag can start while the native focus query is suspended")
+            XCTAssertEqual(focusReads, 1)
+            let duringSidebarDrag = try await isManipulatedWithMouse(window, mouseButtonDown: { true })
+            XCTAssertFalse(duringSidebarDrag)
+            XCTAssertEqual(focusReads, 1, "Layout-driven notifications must not query focus during the drag")
+            panel.endSidebarResize()
+
+            var mouseDown = true
+            appForTests = SidebarResizeFocusTestApp {
+                await Task.yield()
+                mouseDown = false
+                return window
+            }
+            let windowGestureAfterMouseUp = try await isManipulatedWithMouse(window, mouseButtonDown: { mouseDown })
+            XCTAssertFalse(windowGestureAfterMouseUp, "A mouse-up during the native focus query must not start a stale gesture")
+
+            window.nativeFocus()
+            let nextWindowDrag = try await isManipulatedWithMouse(window, mouseButtonDown: { true })
+            XCTAssertTrue(nextWindowDrag, "The next real window drag remains available")
+        }
+    }
+
     func testHidingThePanelMidDragDiscardsTheDrag() async throws {
         try await withAlwaysExpandedPanel { panel in
             var saves = 0
@@ -199,14 +280,18 @@ final class WorkspaceSidebarResizeTest: XCTestCase {
         )
     }
 
-    private func withAlwaysExpandedPanel(_ body: @MainActor (WorkspaceSidebarPanel) async throws -> Void) async throws {
+    private func withAlwaysExpandedPanel(
+        mode: WorkspaceSidebarMode = .sidebar,
+        _ body: @MainActor (WorkspaceSidebarPanel) async throws -> Void,
+    ) async throws {
         _ = NSApplication.shared
         try XCTSkipIf(NSScreen.screens.isEmpty, "Requires a native macOS window server")
         let oldConfig = config
         let wasEnabled = TrayMenuModel.shared.isEnabled
-        config.workspaceSidebar = WorkspaceSidebarConfig(mode: .sidebar)
+        config.workspaceSidebar = WorkspaceSidebarConfig(mode: mode)
         config.workspaceSidebar.enabled = true
         config.workspaceSidebar.alwaysExpanded = true
+        config.workspaceSidebar.dockPosition = .left
         config.workspaceSidebar.width = 240
         TrayMenuModel.shared.isEnabled = true
         // An earlier drag in this process must not defer the first live update.
@@ -229,4 +314,18 @@ final class WorkspaceSidebarResizeTest: XCTestCase {
         panel.updateResizeHandle()
         try await body(panel)
     }
+}
+
+private final class SidebarResizeFocusTestApp: AbstractApp {
+    let pid: Int32 = 987655
+    let rawAppBundleId: String? = "dev.winmux.sidebar-resize-test"
+    let name: String? = "Sidebar resize test"
+    let execPath: String? = nil
+    let bundlePath: String? = nil
+    private let onFocusRead: @MainActor () async -> Window?
+
+    init(_ onFocusRead: @escaping @MainActor () async -> Window?) { self.onFocusRead = onFocusRead }
+
+    @MainActor
+    func getFocusedWindow() async throws -> Window? { await onFocusRead() }
 }

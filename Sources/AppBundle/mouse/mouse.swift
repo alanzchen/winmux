@@ -307,11 +307,22 @@ func shouldIgnoreAxObserverEventForPostDragSuppression(windowId: UInt32?, notif:
 }
 
 @MainActor
-func isManipulatedWithMouse(_ window: Window) async throws -> Bool {
-    try await (!window.isHiddenInCorner && // Don't allow to resize/move windows of hidden workspaces
-        isLeftMouseButtonDown &&
-        (currentlyManipulatedWithMouseWindowId == nil || window.windowId == currentlyManipulatedWithMouseWindowId))
-        .andAsync { @Sendable @MainActor in try await getNativeFocusedWindow() == window }
+func isManipulatedWithMouse(
+    _ window: Window,
+    mouseButtonDown: @MainActor () -> Bool = { isLeftMouseButtonDown },
+) async throws -> Bool {
+    guard canHandleWindowMouseManipulation(window, mouseButtonDown: mouseButtonDown()) else { return false }
+    let nativeFocusedWindow = try await getNativeFocusedWindow()
+    // Native focus is asynchronous; a sidebar drag or mouse-up may have arrived during the read.
+    return nativeFocusedWindow == window && canHandleWindowMouseManipulation(window, mouseButtonDown: mouseButtonDown())
+}
+
+@MainActor
+func canHandleWindowMouseManipulation(_ window: Window, mouseButtonDown: Bool) -> Bool {
+    // Live sidebar resizing retiles the focused app while the button is held. Its AX
+    // move/resize notifications belong to that layout, not a native window gesture.
+    !WorkspaceSidebarPanel.isResizingSidebar && !window.isHiddenInCorner && mouseButtonDown &&
+        (currentlyManipulatedWithMouseWindowId == nil || window.windowId == currentlyManipulatedWithMouseWindowId)
 }
 
 func shouldIgnoreMovedObsForManagedWindowDragSession(

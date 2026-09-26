@@ -120,6 +120,10 @@ final class WorkspaceSidebarPanel: NSPanelHud, WorkspaceSidebarInputOwner {
         panelsByMonitorScopeId.values.filter(\.isVisible)
     }
 
+    static var isResizingSidebar: Bool {
+        panelsByMonitorScopeId.values.contains { $0.sidebarResize != nil }
+    }
+
     static func panel(containing point: CGPoint) -> WorkspaceSidebarPanel? {
         visiblePanels.first { $0.visibleScreenRectNormalized(containing: point) != nil }
     }
