@@ -1256,6 +1256,7 @@ extension WorkspaceSidebarPanel {
         // Runs for every inactive panel on every refreshAll — guard the shared-model writes so
         // they don't invalidate every observer each session.
         isBrowsingSecondProject = false
+        splitBrowseCollapseSuppressedUntil = .distantPast
         localDropTargetFrames = []
         expandedDropTargetFrames = []
         expandedSurfaceFrame = nil

@@ -197,6 +197,7 @@ final class WorkspaceSidebarResizeTest: XCTestCase {
             XCTAssertEqual(panel.viewModel.workspaceSidebarVisibleWidth, 240)
             panel.updateProjectBrowsing(true, expandedWidth: 240, collapsedWidth: 80)
             panel.clearHiddenSidebarContent()
+            XCTAssertEqual(panel.splitBrowseCollapseSuppressedUntil, .distantPast)
             panel.refresh(on: mainMonitor)
             XCTAssertEqual(panel.viewModel.workspaceSidebarVisibleWidth, 240, "Hidden panels drop transient browsing")
         }

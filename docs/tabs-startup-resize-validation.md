@@ -58,8 +58,10 @@ enum contains only tiles and stacks. Intentional restored splits and the explici
 new-workspace opt-out remain supported.
 
 Claude's final follow-up identified a stale, brief collapse delay when closing
-project browsing while already collapsed. Navigation changes now reset that timer
-before the geometry guard, with a regression assertion. Both reviewers confirmed
-the correction; no remaining blocking findings were reported. The existing hover
+project browsing while already collapsed. Navigation changes reset that timer
+before the geometry guard. Both reviewers confirmed the correction. Claude's
+last minor follow-up applied the same reset when clearing a hidden panel; both
+reset paths have regression assertions. No remaining blocking findings were
+reported. The existing hover
 width clamp remains because its callers may already pass the combined pane width;
 the resize refresh sets the final width from explicit browsing state.
