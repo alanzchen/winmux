@@ -4,7 +4,12 @@ import SwiftUI
 enum WorkspaceSidebarIdentityTarget: Equatable {
     case workspace(String)
     case project(WorkspaceProjectId)
-    case collection(String)
+    case collection(String, isSearching: Bool = false, monitorScopeId: String? = nil, createMonitorScopeId: String? = nil)
+
+    var monitorScopeId: String? {
+        if case .collection(_, _, let scope, _) = self { return scope }
+        return nil
+    }
 }
 
 /// The editable identity section is shared by every mode and item type. Actions below
@@ -48,8 +53,12 @@ final class WorkspaceSidebarIdentityMenuModel: ObservableObject {
 
 @MainActor
 func workspaceSidebarIdentityMenuModel(_ target: WorkspaceSidebarIdentityTarget,
-                                       targetMonitorScopeId: String? = nil) -> WorkspaceSidebarIdentityMenuModel? {
-    let send: @MainActor (WorkspaceSidebarAction) -> Void = { handleWorkspaceSidebarAction($0, targetMonitorScopeId: targetMonitorScopeId) }
+                                       targetMonitorScopeId: String? = nil,
+                                       sendAction: @escaping @MainActor (WorkspaceSidebarAction, String?) -> Void = {
+                                           handleWorkspaceSidebarAction($0, targetMonitorScopeId: $1)
+                                       }) -> WorkspaceSidebarIdentityMenuModel? {
+    let actionScope = target.monitorScopeId ?? targetMonitorScopeId
+    let send: @MainActor (WorkspaceSidebarAction) -> Void = { sendAction($0, actionScope) }
     switch target {
         case .project(let id):
             guard let project = TrayMenuModel.shared.workspaceSidebarProjects.first(where: { $0.id == id }) else { return nil }
@@ -67,21 +76,27 @@ func workspaceSidebarIdentityMenuModel(_ target: WorkspaceSidebarIdentityTarget,
         case .workspace(let name):
             guard let workspace = TrayMenuModel.shared.workspaceSidebarWorkspaces.first(where: { $0.name == name }) else { return nil }
             return workspaceSidebarWorkspaceIdentityMenuModel(workspace, send: send)
-        case .collection(let id):
+        case .collection(let id, let isSearching, _, let createMonitorScopeId):
             guard let group = workspaceSidebarOrganizationStore.state.collections.first(where: { $0.id == id }) else { return nil }
-            let scope = targetMonitorScopeId ?? TrayMenuModel.shared.workspaceSidebarTargetMonitorScopeId
+            let scope = actionScope ?? TrayMenuModel.shared.workspaceSidebarTargetMonitorScopeId
+            let disclosure = WorkspaceSidebarTabCollectionDisclosure(group: group,
+                containsActiveTab: group.containsVisibleWorkspace(on: scope),
+                isSearching: isSearching)
             return .init(name: group.name, color: group.colorHex, emoji: group.emoji,
                 rename: { send(.renameTabCollection(id, $0)) },
                 setColor: { send(.setTabCollectionColor(id, $0)) }, setEmoji: { send(.setTabCollectionEmoji(id, $0)) },
                 entries: [
-                    .init(title: group.isCollapsed ? "Expand Group" : "Collapse Group", perform: { send(.toggleTabCollection(id)) }),
+                    .init(title: disclosure.isCollapsed ? "Expand Group" : "Collapse Group", enabled: disclosure.canToggle,
+                        perform: { send(.toggleTabCollection(id)) }),
                     .init(title: "Move Group to", enabled: TrayMenuModel.shared.workspaceSidebarProjects.count > 1,
                         children: TrayMenuModel.shared.workspaceSidebarProjects.filter { $0.id != group.projectId }.map { project in
                             .init(title: project.displayName, perform: { send(.moveTabCollection(id, project.id)) })
                         }),
                     .init(title: "Ungroup Tabs", perform: { send(.ungroupTabCollection(id)) }),
                     .separator,
-                    .init(title: "New Tab in Group", perform: { send(.createTabInCollection(id, monitorScopeId: scope)) }),
+                    .init(title: "New Tab in Group", perform: {
+                        send(.createTabInCollection(id, monitorScopeId: createMonitorScopeId ?? scope))
+                    }),
                 ])
     }
 }

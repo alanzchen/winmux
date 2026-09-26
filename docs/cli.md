@@ -704,7 +704,7 @@ syntax.
 | `subscribe` | Stream selected events as JSON lines |
 | `trigger-binding` | Invoke a configured binding by mode and key |
 
-### Dock app badges
+### Dock and Tabs app badges
 
 In Settings → Dock & Sidebar → Content, enable **Show app badges** to mirror labels
 exposed by the native macOS Dock. The equivalent TOML setting is:
@@ -715,12 +715,15 @@ mode = 'dock'
 show-app-badges = true
 ```
 
-This defaults to `false` and applies only to Dock mode. Labels refresh about every
+This defaults to `false` and applies to Dock and Tabs modes (`mode = 'tabs'`).
+Tabs show labels at the right of each row or split segment and on pinned icons;
+the compact rail shows badge dots. Labels refresh about every
 two seconds without pointer interaction, using existing Accessibility permission.
 Screen Recording is not required. Labels belong to the whole app, so the same app
 in multiple workspaces shows the same label. Apps absent from the native Dock or
 not exposing a badge have no badge; values may be text or dots, not unread counts.
-Disabling the option clears labels and stops polling immediately.
+Disabling the option clears labels immediately. Polling continues only if Dock
+mode's hidden-workspace app reminders still need it.
 
 ## Socket protocol
 

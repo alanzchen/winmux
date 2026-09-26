@@ -124,6 +124,7 @@ struct WorkspaceSidebarTabRowView: View {
 
     var titleOverride: String? = nil
     var emojiOverride: String? = nil
+    var badgeModel: WorkspaceSidebarDockBadgeModel = .shared
     private var title: String { titleOverride ?? window.title ?? window.appName }
     private var isActive: Bool { window.isFocused }
 
@@ -155,6 +156,12 @@ struct WorkspaceSidebarTabRowView: View {
         .accessibilityAddTraits(isActive ? .isSelected : [])
         .accessibilityAction(named: "Close") { close() }
         .help(window.title.map { "\(window.appName) — \($0)" } ?? window.appName)
+        .overlay(alignment: .trailing) {
+            WorkspaceSidebarTabBadge(appName: window.appName, bundlePath: window.appBundlePath, model: badgeModel)
+                .frame(width: isSplitHalf ? workspaceSidebarTabCloseSlotWidth - 4 : workspaceSidebarTabCloseSlotWidth)
+                .padding(.trailing, 2)
+                .opacity(isHovered ? 0 : 1)
+        }
         // Layered over the row button rather than inside it: closing never also focuses the
         // window, and an unhovered click in this corner still selects the tab.
         .overlay(alignment: .trailing) {
@@ -632,6 +639,7 @@ extension WorkspaceSidebarView {
                 isShowingOverride: isShowingOverride,
                 overrideMinHeight: overrideMinHeight,
                 actions: actions,
+                badgeModel: dockBadgeModel,
                 dropPlacement: snapshot.dropPreview?.targetPlacement,
                 insertionEdge: insertionEdge,
                 gapTarget: gapTarget,

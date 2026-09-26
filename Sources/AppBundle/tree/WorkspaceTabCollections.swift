@@ -11,6 +11,35 @@ struct WorkspaceTabCollection: Codable, Equatable, Identifiable {
     var emoji: String? = nil
     var workspaceNames: [String] = []
     var isCollapsed = false
+
+    @MainActor
+    func containsVisibleWorkspace(on scopeId: String? = nil) -> Bool {
+        workspaceNames.contains {
+            guard let workspace = Workspace.existing(byName: $0), workspace.isVisible else { return false }
+            guard let scopeId, !workspaceSidebarMonitorScopeIsSentinel(scopeId) else { return true }
+            return workspaceSidebarMonitorScopeId(for: workspace.workspaceMonitor) == scopeId
+        }
+    }
+}
+
+/// A saved collapsed preference yields to an active tab or search. Both the rows and
+/// disclosure controls use this effective state, so an open group never points sideways.
+struct WorkspaceSidebarTabCollectionDisclosure {
+    let isCollapsed: Bool
+    let canToggle: Bool
+
+    init(group: WorkspaceTabCollection, containsActiveTab: Bool, isSearching: Bool = false) {
+        canToggle = !containsActiveTab && !isSearching
+        isCollapsed = group.isCollapsed && canToggle
+    }
+}
+
+@MainActor
+func toggleWorkspaceSidebarTabCollection(_ id: String, monitorScopeId: String? = nil) throws {
+    let store = workspaceSidebarOrganizationStore
+    guard let group = store.state.collections.first(where: { $0.id == id }),
+          !group.containsVisibleWorkspace(on: monitorScopeId) else { return }
+    try store.edit(id) { $0.isCollapsed.toggle() }
 }
 
 struct WorkspaceSidebarItemAppearance: Codable, Hashable {

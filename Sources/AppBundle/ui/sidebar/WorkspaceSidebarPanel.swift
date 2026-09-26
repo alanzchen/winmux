@@ -671,11 +671,13 @@ struct WorkspaceSidebarPanelLayout {
     let collapsedWidth: CGFloat
 }
 
-func workspaceSidebarPanelLayout(screenFrame: CGRect, sidebarConfig: WorkspaceSidebarConfig) -> WorkspaceSidebarPanelLayout? {
+func workspaceSidebarPanelLayout(screenFrame: CGRect, sidebarConfig: WorkspaceSidebarConfig, tabsBottomInset: CGFloat = 0) -> WorkspaceSidebarPanelLayout? {
     let expandedWidth = CGFloat(sidebarConfig.width)
     let collapsedWidth = workspaceSidebarRestingWidth(sidebarConfig)
     guard expandedWidth > 0, collapsedWidth >= 0 else { return nil }
     let menuBarReserveHeight = min(CGFloat(sidebarConfig.menuBarReserveHeight), max(screenFrame.height - 1, 0))
+    let bottomInset = sidebarConfig.usesTabsList
+        ? min(max(tabsBottomInset, 0), max(screenFrame.height - menuBarReserveHeight - 1, 0)) : 0
     let position = sidebarConfig.effectiveDockPosition
     // Floating project columns can extend across the display beside a side Dock.
     let panelWidth = position == .bottom || sidebarConfig.floatsExpandedDockView
@@ -683,9 +685,9 @@ func workspaceSidebarPanelLayout(screenFrame: CGRect, sidebarConfig: WorkspaceSi
     return WorkspaceSidebarPanelLayout(
         frame: NSRect(
             x: position == .right ? screenFrame.maxX - panelWidth : screenFrame.minX,
-            y: screenFrame.minY,
+            y: screenFrame.minY + bottomInset,
             width: panelWidth,
-            height: screenFrame.height - menuBarReserveHeight
+            height: screenFrame.height - menuBarReserveHeight - bottomInset
         ),
         expandedWidth: expandedWidth,
         collapsedWidth: collapsedWidth
@@ -705,7 +707,10 @@ extension WorkspaceSidebarPanel {
         else { return nil }
         guard !sidebarIsSuppressed(on: monitor) else { return nil }
 
-        return workspaceSidebarPanelLayout(screenFrame: screen.frame, sidebarConfig: config.workspaceSidebar)
+        // Monitor geometry uses top-left coordinates; the native panel's origin is at
+        // the bottom. Share the final tiled boundary, including Dock reservation and gaps.
+        let bottomInset = config.workspaceSidebar.usesTabsList ? monitor.rect.maxY - monitor.standardTilingRect.maxY : 0
+        return workspaceSidebarPanelLayout(screenFrame: screen.frame, sidebarConfig: config.workspaceSidebar, tabsBottomInset: bottomInset)
     }
 
     func sidebarIsSuppressed(on monitor: Monitor) -> Bool {

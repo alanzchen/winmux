@@ -1,6 +1,12 @@
 import AppKit
 
 extension Monitor {
+    /// Standard tiled windows leave one point clear for macOS cross-display size clamping.
+    @MainActor
+    var standardTilingRect: Rect {
+        workspaceStandardTilingRect(visibleRectPaddedByOuterGaps)
+    }
+
     @MainActor
     var workspaceSidebarInset: CGFloat {
         guard config.workspaceSidebar.enabled else { return 0 }
@@ -31,4 +37,10 @@ extension Monitor {
     var monitorId_oneBased: Int? {
         sortedMonitors.firstIndex { $0.rect.topLeftCorner == rect.topLeftCorner }.map { $0 + 1 }
     }
+}
+
+func workspaceStandardTilingRect(_ paddedRect: Rect) -> Rect {
+    var rect = paddedRect
+    rect.height -= 1
+    return rect
 }

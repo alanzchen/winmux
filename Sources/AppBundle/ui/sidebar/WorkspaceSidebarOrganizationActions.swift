@@ -2,7 +2,7 @@ import AppKit
 import Common
 
 @MainActor
-func handleWorkspaceSidebarOrganizationAction(_ action: WorkspaceSidebarAction) {
+func handleWorkspaceSidebarOrganizationAction(_ action: WorkspaceSidebarAction, targetMonitorScopeId: String? = nil) {
     guard !serverArgs.isReadOnly else { return }
     var launcherTab: WorkspaceLauncherNewTab?
     var editorTarget: WorkspaceSidebarIdentityTarget?
@@ -47,7 +47,8 @@ func handleWorkspaceSidebarOrganizationAction(_ action: WorkspaceSidebarAction) 
             case .setTabCollectionEmoji(let id, let emoji):
                 try store.edit(id) { $0.emoji = emoji.flatMap(normalizedWorkspaceProjectEmoji) }
             case .toggleTabCollection(let id):
-                try store.edit(id) { $0.isCollapsed.toggle() }
+                try toggleWorkspaceSidebarTabCollection(id,
+                    monitorScopeId: targetMonitorScopeId ?? TrayMenuModel.shared.workspaceSidebarTargetMonitorScopeId)
             case .assignTabCollection(let name, let id):
                 guard config.usesBrowserTabs, let workspace = Workspace.existing(byName: name) else { return }
                 try assignWorkspaceToSidebarCollection(workspace, collectionId: id)

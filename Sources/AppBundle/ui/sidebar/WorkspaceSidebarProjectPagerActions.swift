@@ -154,7 +154,7 @@ extension WorkspaceSidebarProjectPager {
         } label: {
             Image(systemName: "plus")
                 .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(Color.white.opacity(isHovered ? 0.86 : 0.72))
+                .foregroundStyle((layout.usesTabsList ? Color.primary : Color.white).opacity(isHovered ? 0.86 : 0.72))
                 .frame(width: workspaceSidebarDropdownHeight - (workspaceSidebarDropdownPadding * 2))
                 .modifier(WorkspaceSidebarDropdownControlStyle(isActive: false))
         }

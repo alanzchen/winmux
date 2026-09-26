@@ -689,20 +689,31 @@ func deleteWorkspaceFromSidebar(_ workspace: WorkspaceSidebarWorkspaceViewModel)
 }
 
 @MainActor
-func focusWindowFromSidebar(_ windowId: UInt32) {
+func focusWindowFromSidebar(_ windowId: UInt32, targetMonitorScopeId: String? = nil) {
     WorkspaceSidebarPanel.suppressEdgeTrapForWorkspaceActivation()
     runWorkspaceSidebarSession {
-        guard let window = Window.get(byId: windowId),
-              let liveFocus = window.toLiveFocusOrNil()
-        else {
-            if let fallbackWorkspace = workspaceSidebarFallbackWorkspaceName(for: windowId) {
-                _ = Workspace.existing(byName: fallbackWorkspace)?.focusWorkspace()
+        guard let window = Window.get(byId: windowId), window.toLiveFocusOrNil() != nil else {
+            if let fallbackName = workspaceSidebarFallbackWorkspaceName(for: windowId),
+               let fallbackWorkspace = Workspace.existing(byName: fallbackName) {
+                _ = focusWorkspaceFromSidebar(fallbackWorkspace, targetMonitorScopeId: targetMonitorScopeId)
             }
             return
         }
-        _ = setFocus(to: liveFocus)
-        window.nativeFocus()
+        _ = focusWindowFromSidebar(window, targetMonitorScopeId: targetMonitorScopeId)
     }
+}
+
+/// Selecting a split member keeps the same display-placement rules as selecting
+/// the whole workspace, then focuses that member within the single layout session.
+@MainActor
+@discardableResult
+func focusWindowFromSidebar(_ window: Window, targetMonitorScopeId: String?) -> Bool {
+    guard let liveFocus = window.toLiveFocusOrNil() else { return false }
+    if let targetMonitorScopeId,
+       !focusWorkspaceFromSidebar(liveFocus.workspace, targetMonitorScopeId: targetMonitorScopeId) { return false }
+    _ = setFocus(to: liveFocus)
+    window.nativeFocus()
+    return true
 }
 
 @MainActor

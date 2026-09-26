@@ -115,7 +115,7 @@ extension WorkspaceSidebarProjectPager {
             WorkspaceSidebarRevealedWidthLayout(isRevealed: isCurrent, maxWidth: currentProjectPillMaxWidth) {
                 Text(project.displayName)
                     .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Color.white.opacity(0.92))
+                    .foregroundStyle((layout.usesTabsList ? Color.primary : Color.white).opacity(0.92))
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .padding(.leading, 5)

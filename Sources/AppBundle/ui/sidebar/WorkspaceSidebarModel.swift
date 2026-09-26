@@ -4,8 +4,7 @@ import AppKit
 func updateWorkspaceSidebarModel() async {
     WorkspaceSidebarDockBadgeModel.shared.setEnabled(
         TrayMenuModel.shared.isEnabled && config.workspaceSidebar.enabled &&
-            config.workspaceSidebar.mode == .dock &&
-            (config.workspaceSidebar.showAppBadges || config.workspaceSidebar.showHiddenWorkspaceAppReminders),
+            workspaceSidebarNeedsDockBadgePolling(config.workspaceSidebar),
         showsAppBadges: config.workspaceSidebar.showAppBadges
     )
     guard TrayMenuModel.shared.isEnabled, config.workspaceSidebar.enabled else {
@@ -17,4 +16,9 @@ func updateWorkspaceSidebarModel() async {
     pruneCachedWindowTitles()
     let state = await buildWorkspaceSidebarModelState()
     applyWorkspaceSidebarModelState(state, previousTopPadding: previousTopPadding)
+}
+
+func workspaceSidebarNeedsDockBadgePolling(_ sidebar: WorkspaceSidebarConfig) -> Bool {
+    sidebar.showAppBadges && (sidebar.mode == .dock || sidebar.mode == .tabs) ||
+        sidebar.mode == .dock && sidebar.showHiddenWorkspaceAppReminders
 }

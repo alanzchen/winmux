@@ -92,7 +92,8 @@ enum SettingsCatalog {
 
     static func visibilityHint(for field: SettingsField, editor: SettingsEditor) -> String {
         let dock = editor.value(Self.field("workspace-sidebar.mode")).text == "dock"
-        if field.group == .dockAppearance && !dock || ["dock-position", "dock-left-gap", "show-app-badges", "show-app-tooltips", "show-hidden-workspace-app-reminders"].contains(field.key) && !dock {
+        if field.key == "show-app-badges" { return "Choose Dock or Tabs mode to use this setting." }
+        if field.group == .dockAppearance && !dock || ["dock-position", "dock-left-gap", "show-app-tooltips", "show-hidden-workspace-app-reminders"].contains(field.key) && !dock {
             return "Choose Dock mode to use this setting."
         }
         if ["collapsed-width", "stay-on-top"].contains(field.key) { return "Choose Sidebar or Tabs mode to use this setting." }
@@ -239,7 +240,8 @@ enum SettingsCatalog {
         switch id {
             case "workspace-sidebar.tabs-always-expanded": return value("workspace-sidebar.mode").text == "tabs"
             case "workspace-sidebar.always-expanded": return value("workspace-sidebar.mode").text != "tabs"
-            case "workspace-sidebar.dock-position", "workspace-sidebar.dock-left-gap", "workspace-sidebar.show-app-badges", "workspace-sidebar.show-app-tooltips", "workspace-sidebar.show-hidden-workspace-app-reminders": return dock
+            case "workspace-sidebar.show-app-badges": return dock || value("workspace-sidebar.mode").text == "tabs"
+            case "workspace-sidebar.dock-position", "workspace-sidebar.dock-left-gap", "workspace-sidebar.show-app-tooltips", "workspace-sidebar.show-hidden-workspace-app-reminders": return dock
             case "workspace-sidebar.collapsed-width", "workspace-sidebar.stay-on-top": return !dock
             case "workspace-sidebar.dock-magnification-amount": return dock && value("workspace-sidebar.dock-magnification").bool
             case "workspace-sidebar.dock-appearance.glass-opacity": return dock && value("workspace-sidebar.dock-appearance.style").text == "liquid-glass"

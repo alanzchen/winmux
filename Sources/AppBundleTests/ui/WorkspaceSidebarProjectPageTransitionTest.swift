@@ -111,25 +111,33 @@ final class WorkspaceSidebarProjectPageTransitionTest: XCTestCase {
     }
 
     func testSwitchingProjectsSlidesThePagesAndSettlesOnTheNewProject() throws {
+        try verifyProjectTransition(tabs: false)
+    }
+
+    func testTabsModeKeepsTheProjectPillAndPageSlideAnimations() throws {
+        try verifyProjectTransition(tabs: true)
+    }
+
+    private func verifyProjectTransition(tabs: Bool) throws {
         let size = CGSize(width: 300, height: 420)
-        let (host, window) = hosted(sidebar(active: workspaceProjectDefaultId), size: size)
+        let (host, window) = hosted(sidebar(active: workspaceProjectDefaultId, tabs: tabs), size: size)
         defer { window.close() }
         settle(host, for: 0.2)
         let before = try capture(host)
 
         // Jump two projects to the right, as a click on the last emoji does.
-        host.rootView = sidebar(active: paper)
+        host.rootView = sidebar(active: paper, tabs: tabs)
         settle(host, for: 0.1)
         let during = try capture(host)
         settle(host, for: workspaceSidebarProjectPageTransitionDuration + 0.3)
         let after = try capture(host)
 
-        let (reference, referenceWindow) = hosted(sidebar(active: paper), size: size)
+        let (reference, referenceWindow) = hosted(sidebar(active: paper, tabs: tabs), size: size)
         defer { referenceWindow.close() }
         settle(reference, for: 0.2)
         let expected = try capture(reference)
 
-        try save([before, during, after], name: "project-switch-transition.png")
+        try save([before, during, after], name: tabs ? "tabs-project-switch-transition.png" : "project-switch-transition.png")
         XCTAssertNotEqual(during.tiffRepresentation, before.tiffRepresentation, "The switch is under way")
         XCTAssertNotEqual(during.tiffRepresentation, after.tiffRepresentation, "It animates rather than jumping")
         XCTAssertEqual(pixelDifference(after, expected), 0, accuracy: 0.002,
@@ -138,8 +146,10 @@ final class WorkspaceSidebarProjectPageTransitionTest: XCTestCase {
 
     // MARK: - Fixtures
 
-    private func sidebar(active: WorkspaceProjectId) -> WorkspaceSidebarView {
-        WorkspaceSidebarView(snapshot: snapshot(active: active), reduceMotionOverride: false, reduceTransparencyOverride: true)
+    private func sidebar(active: WorkspaceProjectId, tabs: Bool = false) -> WorkspaceSidebarView {
+        var snapshot = snapshot(active: active)
+        snapshot.configuration.usesTabsList = tabs
+        return WorkspaceSidebarView(snapshot: snapshot, reduceMotionOverride: false, reduceTransparencyOverride: true)
     }
 
     private func snapshot(active: WorkspaceProjectId) -> WorkspaceSidebarSnapshot {

@@ -57,7 +57,7 @@ on-mode-changed = []
     # 'sidebar' is a compact rail that expands into window details; 'tabs' lists windows as vertical tabs.
     mode = 'dock'
     # Legacy show-app-icons remains supported when mode is omitted.
-    # Mirror app badge labels from the native macOS Dock (Dock mode only).
+    # Mirror app badge labels from the native macOS Dock (Dock and Tabs modes).
     show-app-badges = false
     # Short window/workspace labels for repeated app icons: auto, always, off.
     dock-identity-labels = 'auto'

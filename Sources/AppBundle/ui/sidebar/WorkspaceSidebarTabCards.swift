@@ -45,6 +45,7 @@ struct WorkspaceSidebarTabCardView: View {
     let isShowingOverride: Bool
     let overrideMinHeight: CGFloat
     let actions: WorkspaceSidebarActions
+    var badgeModel: WorkspaceSidebarDockBadgeModel = .shared
     /// Where a dragged tab would go on this tab, while one is over it.
     var dropPlacement: WorkspaceSidebarTabDropPlacement? = nil
     /// The edge a dragged tab would be inserted at, while one is over it.
@@ -156,6 +157,7 @@ struct WorkspaceSidebarTabCardView: View {
             onSelect: { activation.select(.selectWindow(window.windowId), send: actions.send) },
             titleOverride: !isSplitHalf && !workspace.sidebarLabel.isEmpty ? workspace.displayName : nil,
             emojiOverride: !isSplitHalf ? workspace.appearance.emoji : nil,
+            badgeModel: badgeModel,
         )
         .id("window:\(window.windowId)")
     }

@@ -70,6 +70,8 @@ tabs-always-expanded = true
   file. Customizing, pinning or grouping a workspace saves its identity and layout for
   restoration; unpinning or ungrouping leaves that saved workspace intact. **Forget
   Saved Workspace** clears its saved identity, pin, appearance and group membership.
+  A pinned split shows all its windows in one joined tile; click a segment to focus
+  that window.
 - **New Tab** opens an empty workspace after the current one with the
   [launcher](#open-a-new-window-from-new-workspace). A new window normally gets its own
   tab; [`open-new-windows-in-new-workspace`](#open-each-new-window-in-its-own-workspace)
@@ -81,7 +83,10 @@ tabs-always-expanded = true
   out of a split. There are no window stacks or horizontal window-tab strips in this
   mode. Existing stacks become separate sidebar rows, preserving each entry's split.
   Dock and Sidebar modes continue to support window stacks.
-- The project switcher is at the top. Right-click a project, workspace or group in
+- Groups containing an active tab on this sidebar's display stay fully expanded,
+  with the disclosure arrow pointing down. Other groups can be collapsed from
+  the header or context menu.
+- The animated project switcher is at the bottom. Right-click a project, workspace or group in
   any mode for the shared name field, color swatches and searchable emoji picker.
   Appearance edits keep the menu open. Enter commits the name; Escape discards an
   uncommitted name edit. Clicking outside commits and closes the editor.
@@ -89,6 +94,9 @@ tabs-always-expanded = true
 The header's sidebar button toggles `tabs-always-expanded`. Tabs mode retains
 Sidebar placement, edge resizing and display controls. A tab on another display
 asks before moving to this one.
+The sidebar's bottom edge follows the same display reservation and outer gap as
+the tiled windows. Enable `show-app-badges` to mirror native Dock labels at the
+right of tabs and on pinned icons; compact icons show small red dots.
 
 ## Hide the rail or keep it expanded
 

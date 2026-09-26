@@ -75,7 +75,8 @@ func handleWorkspaceSidebarAction(
         case .setWorkspaceColor, .setWorkspaceEmoji, .setWorkspaceFavorite, .createTabCollection,
              .renameTabCollection, .setTabCollectionColor, .setTabCollectionEmoji, .toggleTabCollection,
              .assignTabCollection, .ungroupTabCollection, .moveTabCollection, .createTabInCollection, .toggleTabsSidebar:
-            handleWorkspaceSidebarOrganizationAction(action)
+            handleWorkspaceSidebarOrganizationAction(action,
+                targetMonitorScopeId: targetMonitorScopeId ?? viewModel.workspaceSidebarTargetMonitorScopeId)
         case .selectWorkspace(let name):
             focusWorkspaceFromSidebar(name, targetMonitorScopeId: targetMonitorScopeId)
         case .overrideWorkspaceInUse(let name):
@@ -84,7 +85,7 @@ func handleWorkspaceSidebarAction(
             let scopeId = targetMonitorScopeId ?? viewModel.workspaceSidebarTargetMonitorScopeId
             WorkspaceSidebarPanel.panel(for: scopeId)?.expandSidebar(to: CGFloat(config.workspaceSidebar.width))
         case .selectWindow(let windowId):
-            focusWindowFromSidebar(windowId)
+            focusWindowFromSidebar(windowId, targetMonitorScopeId: targetMonitorScopeId)
         case .closeWindow(let windowId):
             closeWindowFromMiddleClick(windowId) { focusWindowFromSidebar(windowId) }
         case .selectApp(let workspaceName, let appId):
