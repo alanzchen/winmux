@@ -140,6 +140,26 @@ final class WorkspaceSidebarSavedWorkspaceTest: XCTestCase {
         XCTAssertEqual(filtered.first?.savedState, savedState)
     }
 
+    func testPinnedTabsKeepTheirIdentityDuringTheImmediateClickUpdate() throws {
+        var focused = model("focused", isFocused: true)
+        focused.appearance = .init(colorHex: "#009AD0", emoji: "💻", isFavorite: true)
+        focused.apps = [.init(name: "Editor", bundleId: "test.editor", bundlePath: nil)]
+        var pinned = model("pinned")
+        pinned.appearance = .init(colorHex: "#DE85A3", emoji: "🌸", isFavorite: true)
+        let before = [focused, pinned, model("ordinary")]
+
+        let after = try XCTUnwrap(workspaceSidebarWorkspacesMarkingFocused("pinned", in: before))
+        var expected = before
+        expected[0].isFocused = false
+        expected[0].isVisible = false
+        expected[1].isFocused = true
+        expected[1].isVisible = true
+
+        XCTAssertEqual(after.filter { $0.appearance.isFavorite }.map(\.id), ["focused", "pinned"],
+            "A click must not remove the favorites grid and insert its tabs into the list")
+        XCTAssertEqual(after, expected, "Only focus and visibility may change in the immediate click update")
+    }
+
     // MARK: - Menu
 
     private func model(

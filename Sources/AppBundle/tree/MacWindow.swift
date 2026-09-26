@@ -185,7 +185,8 @@ final class MacWindow: Window {
 
     // todo it's part of the window layout and should be moved to layoutRecursive.swift
     @MainActor
-    func hideInCorner(_ corner: OptimalHideCorner, force: Bool = false) async throws {
+    func hideInCorner(_ corner: OptimalHideCorner, force: Bool = false, ifStillValid: () -> Bool = { true }) async throws {
+        guard ifStillValid() else { return }
         guard let nodeMonitor else { return }
         if !force, isHiddenInCorner, hiddenInCorner?.corner == corner,
            hiddenInCorner?.monitorVisibleRect == nodeMonitor.visibleRect
@@ -193,6 +194,7 @@ final class MacWindow: Window {
             return
         }
         // Don't accidentally override prevUnhiddenEmulationPosition in case of subsequent `hideInCorner` calls
+        var unhiddenPosition: CGPoint?
         if !isHiddenInCorner {
             guard let windowRect = try await getAxRect() else { return }
             // Check for isHiddenInCorner for the second time because of the suspension point above
@@ -200,7 +202,7 @@ final class MacWindow: Window {
                 let topLeftCorner = windowRect.topLeftCorner
                 let monitorRect = windowRect.center.monitorApproximation.rect // Similar to layoutFloatingWindow. Non idempotent
                 let absolutePoint = topLeftCorner - monitorRect.topLeftCorner
-                prevUnhiddenProportionalPositionInsideWorkspaceRect =
+                unhiddenPosition =
                     CGPoint(x: absolutePoint.x / monitorRect.width, y: absolutePoint.y / monitorRect.height)
             }
         }
@@ -222,6 +224,13 @@ final class MacWindow: Window {
                 // todo this ad hoc won't be necessary once I implement optimization suggested by Zalim
                 let onePixelOffset = macApp.appId == .zoom ? .zero : CGPoint(x: 1, y: 1)
                 p = nodeMonitor.visibleRect.bottomRightCorner - onePixelOffset
+        }
+        // AX reads above can suspend while another tab is selected. Do not let the old
+        // layout park that tab or mark it hidden after a newer presentation has started.
+        try checkCancellation()
+        guard ifStillValid() else { return }
+        if prevUnhiddenProportionalPositionInsideWorkspaceRect == nil {
+            prevUnhiddenProportionalPositionInsideWorkspaceRect = unhiddenPosition
         }
         setAxFrame(p, nil)
         hiddenInCorner = (appliedCorner, nodeMonitor.visibleRect)

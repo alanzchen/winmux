@@ -30,6 +30,7 @@ final class MacApp: AbstractApp {
     @MainActor private(set) var hasActiveTransientNativeFocus = false
     private var thread: Thread?
     private var setFrameJobs: [UInt32: RunLoopJob] = [:]
+    private let frameWriteBarrier = AppFrameWriteBarrier()
     @MainActor private static var focusJob: RunLoopJob? = nil
 
     /*conforms*/ var name: String? { nsApp.localizedName }
@@ -345,6 +346,7 @@ final class MacApp: AbstractApp {
     }
 
     func setAxFrame(_ windowId: UInt32, _ topLeft: CGPoint?, _ size: CGSize?) {
+        frameWriteBarrier.recordWrite()
         setFrameJobs.removeValue(forKey: windowId)?.cancel()
         setFrameJobs[windowId] = withWindowAsync(windowId) { [axApp] window, job in
             try setFrame(window, app: axApp.threadGuarded, topLeft, size, job)
@@ -352,9 +354,18 @@ final class MacApp: AbstractApp {
     }
 
     func setAxFrameBlocking(_ windowId: UInt32, _ topLeft: CGPoint?, _ size: CGSize?) async throws {
+        frameWriteBarrier.recordWrite()
         setFrameJobs.removeValue(forKey: windowId)?.cancel()
         try await withWindow(windowId) { [axApp] window, job in
             try setFrame(window, app: axApp.threadGuarded, topLeft, size, job)
+        }
+    }
+
+    func waitForPendingFrameWrites() async throws {
+        // Frame writes are queued on this app's AX thread. A marker on the same run loop
+        // completes after those writes, without another AX read or a duplicate frame write.
+        try await frameWriteBarrier.waitForPendingWrites {
+            _ = try await thread?.runInLoop { _ in () }
         }
     }
 

@@ -6,8 +6,8 @@ struct WorkspaceSidebarWorkspaceViewModel: Hashable, Identifiable {
     let isGeneratedName: Bool
     let monitorScopeId: String
     let monitorName: String?
-    let isFocused: Bool
-    let isVisible: Bool
+    var isFocused: Bool
+    var isVisible: Bool
     let items: [WorkspaceSidebarItemViewModel]
     var apps: [WorkspaceSidebarAppViewModel] = []
     /// nil when the workspace isn't saved.

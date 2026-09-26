@@ -35,20 +35,10 @@ func workspaceSidebarWorkspacesMarkingFocused(
         let isFocused = w.name == workspaceName
         let isVisible = w.monitorScopeId == target.monitorScopeId ? isFocused : w.isVisible
         if isFocused == w.isFocused, isVisible == w.isVisible { return w }
-        return WorkspaceSidebarWorkspaceViewModel(
-            name: w.name,
-            projectId: w.projectId,
-            displayName: w.displayName,
-            sidebarLabel: w.sidebarLabel,
-            isGeneratedName: w.isGeneratedName,
-            monitorScopeId: w.monitorScopeId,
-            monitorName: w.monitorName,
-            isFocused: isFocused,
-            isVisible: isVisible,
-            items: w.items,
-            apps: w.apps,
-            savedState: w.savedState,
-        )
+        var copy = w
+        copy.isFocused = isFocused
+        copy.isVisible = isVisible
+        return copy
     }
 }
 

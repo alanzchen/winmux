@@ -6,6 +6,8 @@ protocol AbstractApp: AnyObject, Hashable, WinMuxAny {
     var rawAppBundleId: String? { get }
 
     @MainActor func getFocusedWindow() async throws -> Window?
+    /// Complete frame writes queued for this app before another app's windows are hidden.
+    @MainActor func waitForPendingFrameWrites() async throws
     @MainActor var hasActiveTransientNativeFocus: Bool { get }
     var name: String? { get }
     var execPath: String? { get }
@@ -15,6 +17,7 @@ protocol AbstractApp: AnyObject, Hashable, WinMuxAny {
 }
 
 extension AbstractApp {
+    @MainActor func waitForPendingFrameWrites() async throws {}
     @MainActor var hasActiveTransientNativeFocus: Bool { false }
     var launchDate: Date? { nil }
 

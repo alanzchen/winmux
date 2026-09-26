@@ -283,7 +283,8 @@ func runLightSession<T>(
                     }
                     await updateWindowTabModel()
                     let callbackChoseDifferentNativeFocus = presentation.callbacksChangedFocus && focusAfter != nativeFocused
-                    if !nativeObservation.isTransient && !didPresentFloatingWindow && !presentation.suppressFocusSync && (focusBefore != focusAfter || callbackChoseDifferentNativeFocus) {
+                    let selectionIsStillCurrent = focusAfter == focus.windowOrNil
+                    if selectionIsStillCurrent && !nativeObservation.isTransient && !didPresentFloatingWindow && !presentation.suppressFocusSync && (focusBefore != focusAfter || callbackChoseDifferentNativeFocus) {
                         focusAfter?.nativeFocus() // syncFocusToMacOs
                     }
                     if shouldSchedulePostRefresh {
@@ -479,52 +480,94 @@ func optimalHideCorner(for monitor: Monitor) -> OptimalHideCorner {
 }
 
 @MainActor
-private func layoutWorkspaces() async throws {
+private var workspaceLayoutGeneration: UInt64 = 0
+
+@MainActor
+func layoutWorkspaces() async throws {
+    workspaceLayoutGeneration += 1
+    let generation = workspaceLayoutGeneration
     if !TrayMenuModel.shared.isEnabled {
         for workspace in Workspace.all {
             workspace.allLeafWindowsRecursive.forEach { window in
-                guard let macWindow = window as? MacWindow else { return }
+                guard let visibility = window as? any WorkspaceWindowVisibility else { return }
                 if shouldKeepWindowHiddenForVisibleWorkspaceLayout(window) {
                     return
                 }
-                macWindow.unhideFromCorner()
+                visibility.unhideFromCorner()
             }
             try await workspace.layoutWorkspace() // Unhide tiling windows from corner
         }
         return
     }
-    let monitors = monitors
+    let layoutMonitors = monitors
+    let presentation = layoutMonitors.map { (rect: $0.rect, visibleRect: $0.visibleRect, workspace: $0.activeWorkspace) }
+    func isCurrentPresentation() -> Bool {
+        guard generation == workspaceLayoutGeneration, TrayMenuModel.shared.isEnabled,
+              monitors.count == presentation.count else { return false }
+        return zip(monitors, presentation).allSatisfy { monitor, expected in
+            monitor.rect == expected.rect && monitor.visibleRect == expected.visibleRect &&
+                monitor.activeWorkspace === expected.workspace
+        }
+    }
+    var visibleApps: [(monitor: MonitorViewportId, app: any AbstractApp)] = []
 
-    // to reduce flicker, first unhide visible workspaces, then hide invisible ones
-    for monitor in monitors {
-        let workspace = monitor.activeWorkspace
+    // Queue the incoming frames before hiding anything on the outgoing workspace.
+    for expected in presentation {
+        guard isCurrentPresentation() else { return }
+        let workspace = expected.workspace
         workspace.allLeafWindowsRecursive.forEach { window in
-            guard let macWindow = window as? MacWindow else { return }
+            guard let visibility = window as? any WorkspaceWindowVisibility else { return }
             if shouldKeepWindowHiddenForVisibleWorkspaceLayout(window) {
                 return
             }
-            macWindow.unhideFromCorner()
+            visibleApps.append((MonitorViewportId(topLeftCorner: expected.rect.topLeftCorner), window.app))
+            visibility.unhideFromCorner()
         }
         try await workspace.layoutWorkspace()
     }
+    guard isCurrentPresentation() else { return }
+    let outgoingMonitors = Set(Workspace.all.compactMap { workspace -> MonitorViewportId? in
+        guard !workspace.isVisible, workspace.allLeafWindowsRecursive.contains(where: {
+            $0 is any WorkspaceWindowVisibility && !$0.isHiddenInCorner
+        }) else { return nil }
+        return MonitorViewportId(workspace.workspaceMonitor)
+    })
+    if !outgoingMonitors.isEmpty {
+        // Different apps have independent AX threads. Merely queuing "show, then hide"
+        // can hide the old window first. Wait once per incoming app, concurrently. Include
+        // already-unhidden windows: an overlapping refresh may still be revealing them.
+        // A slow app on an unaffected display must not delay this transition.
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            var waitingPids: Set<Int32> = []
+            for (monitor, app) in visibleApps where outgoingMonitors.contains(monitor) && waitingPids.insert(app.pid).inserted {
+                group.addTask { @Sendable @MainActor in try await app.waitForPendingFrameWrites() }
+            }
+            try await group.waitForAll()
+        }
+    }
+    try checkCancellation()
+    guard isCurrentPresentation() else { return }
     for workspace in Workspace.all where !workspace.isVisible {
-        let corner = optimalHideCorner(for: workspace.workspaceMonitor, among: monitors)
+        let corner = optimalHideCorner(for: workspace.workspaceMonitor, among: layoutMonitors)
         let shouldReassertHiddenWindows = refreshSessionEvent?.requiresHiddenWindowsReassertion == true
         for window in workspace.allLeafWindowsRecursive {
-            guard let macWindow = window as? MacWindow else { continue }
-            macWindow.lastAppliedLayoutPhysicalRect = nil
-            macWindow.lastAppliedLayoutVirtualRect = nil
+            guard isCurrentPresentation() else { return }
+            guard let visibility = window as? any WorkspaceWindowVisibility else { continue }
+            window.lastAppliedLayoutPhysicalRect = nil
+            window.lastAppliedLayoutVirtualRect = nil
             // A nil cached rect means a geometry event arrived since the window was last
             // observed — including our own parking move, but also an app repositioning its
             // parked window (document restore, [NSWindow center], ...). Re-observe and
             // re-park exactly those windows: this keeps the drift self-heal the old
             // reassert-everything-on-every-event behavior provided, while windows with a
             // confirmed parked position cost nothing.
-            let geometryUnconfirmed = macWindow.lastKnownActualRect == nil
+            let geometryUnconfirmed = window.lastKnownActualRect == nil
             if geometryUnconfirmed {
-                _ = try? await macWindow.getAxRect()
+                _ = try? await window.getAxRect()
             }
-            try await macWindow.hideInCorner(corner, force: shouldReassertHiddenWindows || geometryUnconfirmed)
+            try await visibility.hideInCorner(corner, force: shouldReassertHiddenWindows || geometryUnconfirmed) {
+                isCurrentPresentation() && window.nodeWorkspace === workspace && !workspace.isVisible
+            }
         }
     }
 }
