@@ -32,7 +32,7 @@ func destinationFromWindowDropIntent(
             ) {
                 return intentOverlayDestination(destination)
             }
-            guard config.windowTabs.enabled,
+            guard (config.windowTabs.enabled && !config.usesBrowserTabs),
                   isWindowDragIntentKindEnabled(.tabStack(targetWindowId: targetWindow.windowId)),
                   !shouldSuppressSameTabGroupTabDestination(
                       sourceWindow: sourceWindow,
@@ -90,7 +90,7 @@ private func sameTabGroupReturnDestination(
 ) -> WindowDragIntentDestination? {
     guard subject == .window,
           detachOrigin == .tabStrip,
-          config.windowTabs.enabled,
+          (config.windowTabs.enabled && !config.usesBrowserTabs),
           let sourceParent = sourceWindow.parent as? TilingContainer,
           sourceParent.layout == .tabGroup,
           targetWindow.parent === sourceParent

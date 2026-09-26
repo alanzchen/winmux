@@ -31,7 +31,7 @@ struct WorkspaceSidebarAppIconHeader: View {
                 WorkspaceSidebarWorkspaceIcon(
                     identifier: workspaceSidebarAppSummaryIdentifier(workspace),
                     isActive: isActive, size: layout.itemSize, railWidth: railWidth,
-                    restingSize: layout.itemSize, showsIndicator: false
+                    restingSize: layout.itemSize, showsIndicator: false, colorHex: workspace.appearance.colorHex
                 )
                 .modifier(WorkspaceSidebarMorphAnchor(element: .compactTitle, isEnabled: morphsTitle, hidesContent: hidesTitleForMorph))
                 .modifier(WorkspaceSidebarDockIconMotion(index: 0, itemSize: layout.itemSize))
@@ -212,9 +212,10 @@ struct WorkspaceSidebarWorkspaceIcon: View {
     var railWidth: CGFloat = 64
     var restingSize: CGFloat? = nil
     var showsIndicator = true
+    var colorHex: String? = nil
 
     var body: some View {
-        WorkspaceSidebarWorkspaceIconBackground(isActive: isActive)
+        WorkspaceSidebarWorkspaceIconBackground(isActive: isActive, colorHex: colorHex)
             .overlay {
                 Text(identifier)
                     // Keep glyph layout stable while the tile magnifies. Animating font
@@ -253,15 +254,16 @@ struct WorkspaceSidebarActiveWorkspaceIndicator: View {
 /// A standard app-icon silhouette; the numeral has the same footprint as its apps.
 struct WorkspaceSidebarWorkspaceIconBackground: View {
     let isActive: Bool
+    var colorHex: String? = nil
 
     var body: some View {
         GeometryReader { geometry in
             let side = min(geometry.size.width, geometry.size.height)
             RoundedRectangle(cornerRadius: side * 0.22, style: .continuous)
                 .fill(LinearGradient(
-                    colors: isActive
+                    colors: colorHex.flatMap(workspaceSidebarColor).map { [$0, $0.opacity(0.72)] } ?? (isActive
                         ? [Color(red: 0.37, green: 0.64, blue: 0.96), Color(red: 0.16, green: 0.38, blue: 0.78)]
-                        : [Color(red: 0.47, green: 0.51, blue: 0.57), Color(red: 0.26, green: 0.29, blue: 0.35)],
+                        : [Color(red: 0.47, green: 0.51, blue: 0.57), Color(red: 0.26, green: 0.29, blue: 0.35)]),
                     startPoint: .top,
                     endPoint: .bottom
                 ))

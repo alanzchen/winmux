@@ -45,49 +45,50 @@ See [appearance](sidebar-appearance.md) for glass, solid colors, and blur, and
 
 ### Tabs
 
-`mode = 'tabs'` turns the expanded Sidebar into a list of vertical tabs, like a
-browser sidebar. It works well kept open:
+`mode = 'tabs'` opens a full-height browser-style sidebar. It stays open by default,
+independently of the other modes:
 
 ```toml
 [workspace-sidebar]
 mode = 'tabs'
-always-expanded = true
+tabs-always-expanded = true
 ```
 
-- Workspaces work like a browser's tabs. **New Tab**, at the top of the list, opens an
-  empty workspace right after the current one with the [launcher](#open-a-new-window-from-new-workspace),
-  so you pick an app for it. Press Esc or click away without picking one, and the empty
-  workspace closes again and you're back where you were.
-- A window you open gets its own workspace right after the one it opened from, as
-  [`open-new-windows-in-new-workspace`](#open-each-new-window-in-its-own-workspace)
-  does. In Tabs mode that's on unless you set it to `false`.
-- Close a workspace's last window and WinMux switches to the next workspace with windows,
-  or the previous one if it was the last. A saved workspace stays, like a pinned tab.
-- A workspace with one window is one tab, showing the app icon and window title. Two
-  windows share a tab, split in halves; click a half to switch to that window. An empty
-  workspace shows as **Empty Tab**; closing it moves to the next tab. Click a tab to switch to that window,
-  even on another workspace. The focused window is highlighted. As in the Sidebar, tabs
-  of a project you are only browsing don't switch, and a workspace shown on another
-  display asks before it moves to this one.
-- Hover a tab and click **×**, or middle-click it, to close the window; on a split tab
-  that closes one half. Right-click a tab for the workspace's menu. On a split tab or a
-  folder it includes **Separate into Tabs**, which gives each window but the one in use,
-  including windows in a stack, a tab of its own.
-- A workspace with a name you gave it, a saved workspace, or one with three or more
-  windows or a stack is a folder. Click the chevron to collapse one; a collapsed folder
-  still shows the window you are using, and a search shows every match. Click a folder's
-  name to switch to that workspace, or right-click it to rename, save, or delete it.
-- A stack of tabbed windows appears as an indented group.
-- Drag a tab onto another tab to put both windows in one workspace, side by side: the
-  half of the tab you drop on picks the side. Hold ⌥ while dropping to stack them as tabs
-  instead. WinMux then switches to that workspace with the dropped window focused. Drop
-  on a folder to add the window to it.
-- Drag a tab between two tabs to move it there. Dragging one window out of a split or a
-  folder the same way gives it a tab of its own at that spot, as does dropping it on
-  **New Tab**, which puts it right after the one it came from.
-- The emoji project switcher sits at the bottom.
+- Each workspace is a tab row. One window shows its icon and title; tiled windows
+  share the row side by side. Click a segment to focus that window. Renaming or
+  saving a row keeps that same presentation.
+- Tabs start ungrouped. Right-click one and choose **Add to Group → New Group…**
+  to name an optional group. Select a color or emoji in the editor. Group membership
+  only organizes the sidebar; it does not tile the group's windows together.
+- Drag a row onto a group header to add it, or use **Add to Group**. A split moves
+  into the group as one row. Collapse groups with the chevron; the active tab stays
+  visible. Searching expands matching groups and also matches group names.
+- Right-click a group to move it to another project, create a tab in it, or **Ungroup
+  Tabs**, which keeps its tabs and windows. **Remove from Group** removes just one row.
+- **Pin Tab** places a row in the shortcut tiles at the top. Pins, group membership,
+  colors and emoji are saved in `sidebar-organization.json` beside the saved-workspace
+  file. Customizing, pinning or grouping a workspace saves its identity and layout for
+  restoration; unpinning or ungrouping leaves that saved workspace intact. **Forget
+  Saved Workspace** clears its saved identity, pin, appearance and group membership.
+- **New Tab** opens an empty workspace after the current one with the
+  [launcher](#open-a-new-window-from-new-workspace). A new window normally gets its own
+  tab; [`open-new-windows-in-new-workspace`](#open-each-new-window-in-its-own-workspace)
+  can override that default. Saved tabs stay when their last window closes.
+- Hover a tab and click **×**, or middle-click, to close its window. In a split,
+  this closes only that segment. **Separate into Tabs** gives each window its own row.
+- Drag a tab onto another to tile their windows side by side; the drop's left or
+  right half chooses the side. Drag between rows to reorder, or to pull one window
+  out of a split. There are no window stacks or horizontal window-tab strips in this
+  mode. Existing stacks become separate sidebar rows, preserving each entry's split.
+  Dock and Sidebar modes continue to support window stacks.
+- The project switcher is at the top. Right-click a project, workspace or group in
+  any mode for the shared name field, color swatches and searchable emoji picker.
+  Appearance edits keep the menu open. Enter commits the name; Escape discards an
+  uncommitted name edit. Clicking outside commits and closes the editor.
 
-Tabs mode uses the Sidebar's placement, collapsed rail, auto-hide, and edge resizing.
+The header's sidebar button toggles `tabs-always-expanded`. Tabs mode retains
+Sidebar placement, edge resizing and display controls. A tab on another display
+asks before moving to this one.
 
 ## Hide the rail or keep it expanded
 
@@ -126,7 +127,7 @@ are not listed follow in creation order:
 project-order = ["project-2b7e0c4a-1d3f-4e5a-9b8c-7d6e5f4a3b2c", "default"]
 ```
 
-`always-expanded` takes precedence over `auto-hide`. In Sidebar mode,
+`always-expanded` (or `tabs-always-expanded` in Tabs mode) takes precedence over `auto-hide`. In Sidebar mode,
 `stay-on-top = false` allows system UI such as the macOS Dock to appear above it.
 
 ## Clock and calendar

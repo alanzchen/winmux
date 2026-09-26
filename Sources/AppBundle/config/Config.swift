@@ -122,6 +122,9 @@ struct WorkspaceSidebarConfig: ConvenienceCopyable, Equatable, Sendable {
     var stayOnTop: Bool = true
     var autoHide: Bool = false
     var alwaysExpanded: Bool = false
+    /// Tabs has its own persistent/collapsed preference; older Sidebar settings do not change its default.
+    var tabsAlwaysExpanded: Bool = true
+    var pinsSidebarOpen: Bool { mode == .tabs ? tabsAlwaysExpanded : alwaysExpanded }
     var mode: WorkspaceSidebarMode = .dock
     // Compatibility alias for existing TOML and internal callers.
     var showAppIcons: Bool {
@@ -173,12 +176,12 @@ struct WorkspaceSidebarConfig: ConvenienceCopyable, Equatable, Sendable {
     var effectiveCollapsedWidth: CGFloat {
         showAppIcons ? Self.dockWidth(forIconSize: CGFloat(dockIconSize)) : CGFloat(collapsedWidth)
     }
-    var effectiveLeftGap: Int { showAppIcons && !alwaysExpanded ? dockLeftGap : 0 }
+    var effectiveLeftGap: Int { showAppIcons && !pinsSidebarOpen ? dockLeftGap : 0 }
     var effectiveDockPosition: WorkspaceDockPosition { showAppIcons ? dockPosition : .left }
-    var usesDockMagnification: Bool { showAppIcons && dockMagnification && !alwaysExpanded }
+    var usesDockMagnification: Bool { showAppIcons && dockMagnification && !pinsSidebarOpen }
     // A collapsible Dock stays in place and opens project columns in a floating view beside it.
-    var floatsExpandedDockView: Bool { showAppIcons && !alwaysExpanded }
-    /// Tabs mode keeps Sidebar-mode geometry; only the expanded content differs.
+    var floatsExpandedDockView: Bool { showAppIcons && !pinsSidebarOpen }
+    /// A persistent browser-style sidebar with optional organizational groups.
     var usesTabsList: Bool { mode == .tabs }
 }
 

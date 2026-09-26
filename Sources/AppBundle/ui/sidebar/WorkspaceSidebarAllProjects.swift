@@ -98,7 +98,7 @@ extension WorkspaceSidebarView {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("\(collapsedProjectIds.contains(project.id) && searchText.isEmpty ? "Expand" : "Collapse") \(project.displayName)")
-                .contextMenu { projectContextMenu(project) }
+                .sidebarIdentityMenu(.project(project.id))
             }
         }
         .foregroundStyle(Color.white.opacity(project.id == snapshot.activeProjectId ? 0.95 : 0.75))

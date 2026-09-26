@@ -18,18 +18,18 @@ final class WorkspaceSidebarTabCardsTest: XCTestCase {
         XCTAssertEqual(workspaceSidebarTabPresentation(one), .single(window(1, "Inbox")))
         XCTAssertEqual(workspaceSidebarTabPresentation(two), .split(window(2, "Draft"), window(3, "Notes")))
         XCTAssertEqual(workspaceSidebarTabPresentation(workspace("4", windows: [])), .empty, "A new tab waiting for an app")
-        XCTAssertEqual(workspaceSidebarTabPresentation(three), .folder)
+        XCTAssertEqual(workspaceSidebarTabPresentation(three), .multiple([window(4, "a"), window(5, "b"), window(6, "c")]))
 
-        XCTAssertEqual(workspaceSidebarTabPresentation(workspace("Mail", windows: [window(1, "Inbox")], generated: false)), .folder,
-            "A name you gave it stays visible")
+        XCTAssertEqual(workspaceSidebarTabPresentation(workspace("Mail", windows: [window(1, "Inbox")], generated: false)), .single(window(1, "Inbox")),
+            "Naming a tab does not turn it into a group")
         var saved = one
         saved.savedState = WorkspaceSidebarSavedState(isPinnedToDisplay: false, homeDisplayName: nil, isHomeConnected: true,
             isForceAssignedByConfig: false, missingAppNames: [])
-        XCTAssertEqual(workspaceSidebarTabPresentation(saved), .folder)
-        XCTAssertEqual(workspaceSidebarTabPresentation(one, showsProjectContext: true), .folder)
-        XCTAssertEqual(workspaceSidebarTabPresentation(one, isRenaming: true), .folder, "Renaming happens in the folder header")
-        XCTAssertEqual(workspaceSidebarTabPresentation(two, isSearching: true), .folder,
-            "A search's matches stay under the workspace they're in")
+        XCTAssertEqual(workspaceSidebarTabPresentation(saved), .single(window(1, "Inbox")))
+        XCTAssertEqual(workspaceSidebarTabPresentation(one, showsProjectContext: true), .single(window(1, "Inbox")))
+        XCTAssertEqual(workspaceSidebarTabPresentation(one, isRenaming: true), .single(window(1, "Inbox")), "The shared editor preserves the row")
+        XCTAssertEqual(workspaceSidebarTabPresentation(two, isSearching: true), .split(window(2, "Draft"), window(3, "Notes")),
+            "Search preserves split rows")
         let stack = WorkspaceSidebarTabGroupViewModel(representativeWindowId: 7, workspaceName: "5", title: "Stack",
             windowCount: 2, isFocused: false, tabs: [window(7, "x")], allWindows: [window(7, "x"), window(8, "y")])
         let stacked = WorkspaceSidebarWorkspaceViewModel(name: "5", projectId: workspaceProjectDefaultId, displayName: "5",
@@ -47,7 +47,7 @@ final class WorkspaceSidebarTabCardsTest: XCTestCase {
     func testDropsOnATabPickItsSideAndItsEdgesAreGapsBetweenTabs() {
         XCTAssertEqual(workspaceSidebarTabDropPlacement(pointX: 10, targetMidX: 50, subject: .window, optionHeld: false), .left)
         XCTAssertEqual(workspaceSidebarTabDropPlacement(pointX: 80, targetMidX: 50, subject: .window, optionHeld: false), .right)
-        XCTAssertEqual(workspaceSidebarTabDropPlacement(pointX: 80, targetMidX: 50, subject: .window, optionHeld: true), .stack)
+        XCTAssertEqual(workspaceSidebarTabDropPlacement(pointX: 80, targetMidX: 50, subject: .window, optionHeld: true), .right)
         XCTAssertEqual(workspaceSidebarTabDropPlacement(pointX: 80, targetMidX: 50, subject: .group, optionHeld: true), .right,
             "A stack being dragged can't join another stack")
 
@@ -65,7 +65,7 @@ final class WorkspaceSidebarTabCardsTest: XCTestCase {
         XCTAssertEqual(kind(atY: 99), before, "Just above the tab")
         XCTAssertEqual(kind(atY: 103), before)
         XCTAssertEqual(kind(atY: 115), .workspace("2"), "The middle takes the tab itself")
-        XCTAssertEqual(kind(atY: 128), after)
+        XCTAssertEqual(kind(atY: frame.maxY - 2), after)
         XCTAssertEqual(workspaceSidebarTabDropTargets(workspaceName: "2", frame: frame, gapTarget: nil).map(\.kind),
             [.workspace("2")], "Another project's workspace takes no drops between tabs")
 
@@ -190,7 +190,7 @@ final class WorkspaceSidebarTabCardsTest: XCTestCase {
         return fixture
     }
 
-    func testTabsRenderAsSingleRowsSplitsAndFoldersThatAllTakeDrops() throws {
+    func testTabsRenderAsSingleRowsAndSplitsThatAllTakeDrops() throws {
         var fixture = WorkspaceSidebarSnapshot.empty
         fixture.configuration = WorkspaceSidebarConfiguration(collapsedWidth: 44, expandedWidth: 280,
             topPadding: 12, showMonitorSelector: false, showsClock: false, showsSeconds: false,
@@ -228,8 +228,8 @@ final class WorkspaceSidebarTabCardsTest: XCTestCase {
                 XCTAssertLessThanOrEqual(target.frame.height, workspaceSidebarTabRowHeight + 6,
                     "Workspace \(workspace.name) is one row, with no folder header")
             }
-            XCTAssertEqual(target.acceptsSides, ["1", "2", "3"].contains(workspace.name),
-                "Only a tab with a window takes a drop on one of its halves, not an empty tab or a folder: \(workspace.name)")
+            XCTAssertEqual(target.acceptsSides, ["1", "2", "3", "Reading"].contains(workspace.name),
+                "Every nonempty row takes a side drop: \(workspace.name)")
         }
 
         let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))

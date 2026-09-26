@@ -289,14 +289,8 @@ struct WorkspaceSidebarView: View {
     }
 
     func beginProjectRename(_ project: WorkspaceSidebarProjectViewModel) {
-        debugWorkspaceSidebarRenameLog("beginProjectRename project=\(project.id.rawValue) displayName=\(project.displayName) active=\(snapshot.activeProjectId.rawValue) visibleWidth=\(snapshot.visibleWidth)")
         finishSidebarSearch(clearText: false)
-        if !showsAllProjects, project.id != snapshot.activeProjectId {
-            browseMode = .split(otherProjectId: project.id)
-        }
-        renamingProjectId = project.id
-        renamingProjectText = project.displayName
-        currentPanel()?.prepareForInlineTextEditing()
+        WorkspaceSidebarIdentityMenu.show(.project(project.id), selectName: true)
     }
 
     func finishProjectRename(cancelled: Bool = false) {
@@ -311,12 +305,8 @@ struct WorkspaceSidebarView: View {
     }
 
     func beginWorkspaceRename(_ workspace: WorkspaceSidebarWorkspaceViewModel) {
-        debugWorkspaceSidebarRenameLog("beginWorkspaceRename workspace=\(workspace.name) displayName=\(workspace.displayName) targetScope=\(snapshot.targetMonitorScopeId) activeProject=\(snapshot.activeProjectId.rawValue) visibleWidth=\(snapshot.visibleWidth)")
         finishSidebarSearch(clearText: false)
-        finishProjectRename(cancelled: true)
-        renamingWorkspaceName = workspace.name
-        renamingWorkspaceText = workspace.displayName
-        currentPanel()?.prepareForInlineTextEditing()
+        WorkspaceSidebarIdentityMenu.show(.workspace(workspace.name), selectName: true)
     }
 
     func finishWorkspaceRename(cancelled: Bool = false) {
@@ -915,13 +905,13 @@ extension WorkspaceSidebarView {
         HStack(spacing: 7) {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(Color.white.opacity(0.66))
+                .foregroundStyle((layout.usesTabsList ? Color.primary : Color.white).opacity(0.66))
                 .frame(width: 14)
 
             Text(searchText)
                 .font(.system(size: 12, weight: .medium))
                 .lineLimit(1)
-                .foregroundStyle(Color.white.opacity(0.9))
+                .foregroundStyle((layout.usesTabsList ? Color.primary : Color.white).opacity(0.9))
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             Button {
@@ -930,7 +920,7 @@ extension WorkspaceSidebarView {
             } label: {
                 Image(systemName: "xmark")
                     .font(.system(size: 9, weight: .bold))
-                    .foregroundStyle(Color.white.opacity(0.7))
+                    .foregroundStyle((layout.usesTabsList ? Color.primary : Color.white).opacity(0.7))
                     .frame(width: 18, height: 18)
                     .contentShape(Rectangle())
             }
@@ -941,11 +931,11 @@ extension WorkspaceSidebarView {
         .frame(width: workspaceSidebarSectionWidth(expansionProgress, layout: layout), height: workspaceSidebarSearchHeight)
         .background {
             RoundedRectangle(cornerRadius: workspaceSidebarDropdownCornerRadius, style: .continuous)
-                .fill(Color.white.opacity(0.11))
+                .fill((layout.usesTabsList ? Color.primary : Color.white).opacity(0.11))
         }
         .overlay {
             RoundedRectangle(cornerRadius: workspaceSidebarDropdownCornerRadius, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.12), lineWidth: 0.6)
+                .strokeBorder((layout.usesTabsList ? Color.primary : Color.white).opacity(0.12), lineWidth: 0.6)
         }
         .padding(.leading, leadingInset)
         .padding(.trailing, trailingInset)

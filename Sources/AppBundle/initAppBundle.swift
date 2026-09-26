@@ -20,6 +20,7 @@ import Foundation
         // nothing would be captured, and labels would never be cleaned up.
         defer { finishSavedWorkspaceStartup() }
         loadSavedWorkspaceStoreForStartup()
+        loadWorkspaceSidebarOrganization()
         materializeSavedWorkspaceNames()
         do {
             bootstrappedConfigUrl = try ensureBootstrapConfigExistsIfNeeded()

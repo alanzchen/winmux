@@ -2,6 +2,7 @@ import SwiftUI
 
 enum WorkspaceSidebarDropTargetKind: Equatable {
     case workspace(String)
+    case tabCollection(String)
     case newWorkspace(projectId: WorkspaceProjectId, monitorScopeId: String)
     case monitor(String)
     /// Tabs mode: the edge between two tabs, where a dropped tab moves, or a dropped window
@@ -13,6 +14,7 @@ enum WorkspaceSidebarDropTargetKind: Equatable {
 struct WorkspaceSidebarTabGap: Hashable {
     let workspaceName: String
     let isAfter: Bool
+    var collectionId: String? = nil
 }
 
 /// Where a tab dropped on another tab goes: beside its window on one side, or into a stack
@@ -28,7 +30,7 @@ func workspaceSidebarTabDropPlacement(
     subject: WindowDragSubject,
     optionHeld: Bool,
 ) -> WorkspaceSidebarTabDropPlacement {
-    if optionHeld, subject == .window { return .stack }
+    // Tabs mode uses sidebar rows for switching; Option never creates a stack.
     return pointX < targetMidX ? .left : .right
 }
 

@@ -197,7 +197,7 @@ final class WorkspaceTabsTest: XCTestCase {
         XCTAssertEqual(a.rootTilingContainer.children.map { ($0 as? Window)?.windowId }, [target.windowId, dropped.windowId])
     }
 
-    func testOptionDropStacksTheTabWithTheTarget() throws {
+    func testLegacyStackDropBecomesASplitInTabsMode() throws {
         let (a, b, _) = threeTabs()
         let target = try XCTUnwrap(a.allLeafWindowsRecursive.first)
         let dropped = try XCTUnwrap(b.allLeafWindowsRecursive.first)
@@ -205,7 +205,7 @@ final class WorkspaceTabsTest: XCTestCase {
         applyTabDrop(sourceNode: dropped, sourceWindow: dropped, targetWorkspace: a, placement: .stack)
 
         let stack = try XCTUnwrap(dropped.parent as? TilingContainer)
-        XCTAssertEqual(stack.layout, .tabGroup)
+        XCTAssertEqual(stack.layout, .tiles)
         XCTAssertTrue(target.parent === stack)
         XCTAssertTrue(focus.windowOrNil === dropped)
     }

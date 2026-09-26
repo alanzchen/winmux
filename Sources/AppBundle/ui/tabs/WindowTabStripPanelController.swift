@@ -64,7 +64,7 @@ extension WindowTabStripPanelController {
 
 extension WindowTabStripPanelController {
     func refresh() {
-        guard TrayMenuModel.shared.isEnabled, config.windowTabs.enabled else {
+        guard TrayMenuModel.shared.isEnabled, (config.windowTabs.enabled && !config.usesBrowserTabs) else {
             hideAll()
             return
         }
@@ -159,7 +159,7 @@ extension WindowTabStripPanelController {
 
     func resizingTabGroupStrip(window: Window, activeWindowRect: Rect) -> WindowTabStripViewModel? {
         guard TrayMenuModel.shared.isEnabled,
-              config.windowTabs.enabled,
+              (config.windowTabs.enabled && !config.usesBrowserTabs),
               let tabGroup = window.nearestWindowTabGroup,
               tabGroup.usesWindowTabBehavior,
               tabGroup.tabActiveWindow == window
@@ -187,7 +187,7 @@ extension WindowTabStripPanelController {
 
 extension WindowTabStripPanelController {
     func hideChromeDuringMouseInteraction(showFrameOnly: Bool = true) {
-        guard TrayMenuModel.shared.isEnabled, config.windowTabs.enabled else { return }
+        guard TrayMenuModel.shared.isEnabled, (config.windowTabs.enabled && !config.usesBrowserTabs) else { return }
         let nextMode: MouseInteractionChromeMode = showFrameOnly ? .frameOnly : .hidden
         guard mouseInteractionChromeMode != nextMode || transientResizeTabGroupId != nil else { return }
         mouseInteractionChromeMode = nextMode

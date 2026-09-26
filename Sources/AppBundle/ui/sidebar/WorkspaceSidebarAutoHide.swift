@@ -108,7 +108,7 @@ extension WorkspaceSidebarPanel {
 
     var sidebarCommandWouldClose: Bool {
         autoHideReason == nil && (inlineTextEditingActive ||
-            (viewModel.isWorkspaceSidebarExpanded && !config.workspaceSidebar.alwaysExpanded))
+            (viewModel.isWorkspaceSidebarExpanded && !config.workspaceSidebar.pinsSidebarOpen))
     }
 
     var slideOffset: CGPoint {
@@ -183,7 +183,7 @@ extension WorkspaceSidebarPanel {
         // icons; reversing mid-flight uses the current presentation-layer transform.
         viewModel.workspaceSidebarVisibleWidth = width
         if width < CGFloat(config.workspaceSidebar.width) {
-            viewModel.isWorkspaceSidebarExpanded = config.workspaceSidebar.alwaysExpanded
+            viewModel.isWorkspaceSidebarExpanded = config.workspaceSidebar.pinsSidebarOpen
         }
         hostingView.layoutSubtreeIfNeeded()
         if wasFullyHidden { slideTransition.reset(hidden: true, offset: slideOffset) }

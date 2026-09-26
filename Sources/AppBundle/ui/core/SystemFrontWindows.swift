@@ -223,7 +223,7 @@ private func applySystemFrontWindows(_ windows: [SystemFrontWindow]) {
 
 extension WorkspaceSidebarPanel {
     /// Collapsed, or pinned open. A Dock or Sidebar expanded for use keeps its level.
-    var isAtRest: Bool { !viewModel.isWorkspaceSidebarExpanded || config.workspaceSidebar.alwaysExpanded }
+    var isAtRest: Bool { !viewModel.isWorkspaceSidebarExpanded || config.workspaceSidebar.pinsSidebarOpen }
 }
 
 /// System Settings opened from elsewhere joins the workspace you are on, instead of switching

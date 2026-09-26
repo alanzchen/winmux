@@ -283,7 +283,7 @@ extension WorkspaceSidebarView {
                             onActivate: { actions.send(.selectProject(project.id)) },
                             onDoubleClick: { beginProjectRename(project) })
                     }
-                    .contextMenu { projectContextMenu(project) }
+                    .sidebarIdentityMenu(.project(project.id))
             }
         }
         .foregroundStyle(Color.white.opacity(isActive ? 0.95 : 0.72))

@@ -2,7 +2,7 @@ import Common
 
 @MainActor
 func createOrAppendWindowTabStack(sourceWindow: Window, onto targetWindow: Window) {
-    guard sourceWindow != targetWindow else { return }
+    guard !config.usesBrowserTabs, sourceWindow != targetWindow else { return }
     let targetRect = normalizeTabStackSourceWindowFrame(sourceWindow: sourceWindow, targetWindow: targetWindow)
     if let targetParent = targetWindow.parent as? TilingContainer,
        targetParent.layout == .tabGroup

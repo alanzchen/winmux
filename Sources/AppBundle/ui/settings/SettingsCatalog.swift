@@ -144,7 +144,7 @@ enum SettingsCatalog {
             bool(.startup, "start-at-login", "Start at login", "Launch WinMux after you sign in.", path: \.startAtLogin),
             bool(.startup, "auto-reload-config", "Reload TOML automatically", "Apply valid configuration edits saved from another editor.", path: \.autoReloadConfig),
             bool(.dockMode, "enabled", "Show Dock or Sidebar", "Show the workspace rail on the configured displays.", section: sidebar, path: \.workspaceSidebar.enabled),
-            choice(.dockMode, "mode", "Mode", "Dock shows workspace tiles and app icons. Sidebar shows a compact rail that expands into window details. Tabs lists every window as a vertical tab, grouped into workspace folders.", section: sidebar,
+            choice(.dockMode, "mode", "Mode", "Dock shows workspace tiles and app icons. Sidebar shows a compact rail that expands into window details. Tabs opens a full sidebar with optional color groups and split windows sharing a row.", section: sidebar,
                 options: [.init("Dock", "dock"), .init("Sidebar", "sidebar"), .init("Tabs", "tabs")], read: { $0.workspaceSidebar.mode.rawValue }),
             SettingsField(group: .placement, section: sidebar, key: "dock-position", title: "Position", help: "Bottom temporarily enables macOS Dock auto-hide and restores your previous setting afterward. WinMux hides only when the macOS Dock appears on the same edge of the same display.",
                 control: .position, read: { .text($0.workspaceSidebar.dockPosition.rawValue) }),
@@ -152,6 +152,7 @@ enum SettingsCatalog {
             bool(.placement, "enable-focus", "Follow the active display", "Show the rail only on the focused display, within the configured monitor selection.", section: sidebar, path: \.workspaceSidebar.enableFocus),
             bool(.placement, "auto-hide", "Automatically hide the rail", "Reveal the compact rail when the pointer reaches its display edge.", section: sidebar, path: \.workspaceSidebar.autoHide),
             bool(.placement, "always-expanded", "Keep the panel expanded", "Reserve space for window details instead of collapsing to the compact rail.", section: sidebar, path: \.workspaceSidebar.alwaysExpanded),
+            bool(.placement, "tabs-always-expanded", "Keep the tab sidebar expanded", "Keep the browser-style sidebar open in Tabs mode. This setting is independent of Dock and Sidebar modes.", section: sidebar, path: \.workspaceSidebar.tabsAlwaysExpanded),
             bool(.placement, "stay-on-top", "Keep above the macOS Dock", "Applies to Sidebar mode. Dock mode yields when the macOS Dock appears on the same edge of the same display.", section: sidebar, path: \.workspaceSidebar.stayOnTop),
             int(.placement, "menu-bar-reserve-height", "Menu bar space", "Space below the macOS menu bar, in points. Set to 0 when the menu bar auto-hides.", section: sidebar, range: 0...72, path: \.workspaceSidebar.menuBarReserveHeight),
             choice(.dockAppearance, "style", "Background style", "The compact Dock has its own appearance. Expanded panels use the separate Sidebar appearance below.", section: dock,
@@ -216,6 +217,10 @@ enum SettingsCatalog {
             if result[index].group == .windowChrome { result[index].preservingDockAppearance = true }
             result[index].visible = { editor in isVisible(id, editor: editor) }
             result[index].unavailableReason = { editor in
+                if editor.value(field("workspace-sidebar.mode")).text == "tabs",
+                   id.hasPrefix("window-tabs.") || id == "tab-group-padding" {
+                    return "Window stacks are available in Dock and Sidebar modes."
+                }
                 if id == "persistent-workspaces", editor.configuration.configVersion < 2 {
                     return "Requires config-version = 2. Update the configuration in the TOML Editor to use persistent workspaces."
                 }
@@ -232,6 +237,8 @@ enum SettingsCatalog {
         func value(_ key: String) -> SettingsValue { editor.value(field(key)) }
         let dock = value("workspace-sidebar.mode").text == "dock"
         switch id {
+            case "workspace-sidebar.tabs-always-expanded": return value("workspace-sidebar.mode").text == "tabs"
+            case "workspace-sidebar.always-expanded": return value("workspace-sidebar.mode").text != "tabs"
             case "workspace-sidebar.dock-position", "workspace-sidebar.dock-left-gap", "workspace-sidebar.show-app-badges", "workspace-sidebar.show-app-tooltips", "workspace-sidebar.show-hidden-workspace-app-reminders": return dock
             case "workspace-sidebar.collapsed-width", "workspace-sidebar.stay-on-top": return !dock
             case "workspace-sidebar.dock-magnification-amount": return dock && value("workspace-sidebar.dock-magnification").bool

@@ -350,22 +350,19 @@ final class WorkspaceSidebarSavedWorkspaceTest: XCTestCase {
         let event = try XCTUnwrap(NSEvent.mouseEvent(with: .rightMouseDown, location: view.convert(CGPoint(x: tile.midX, y: tile.midY), to: nil),
             modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: 0, context: nil,
             eventNumber: 1, clickCount: 1, pressure: 1))
-        let menu = try XCTUnwrap(view.menu(for: event))
+        var identity: WorkspaceSidebarIdentityMenuModel?
+        view.presentIdentityMenu = { model, _ in identity = model }
+        XCTAssertNil(view.menu(for: event))
+        let model = try XCTUnwrap(identity)
         let expected = workspaceSidebarWorkspaceMenuEntries(workspace, context: workspaceSidebarWorkspaceMenuContext(workspaceName: "code"))
-
-        XCTAssertEqual(menu.items.map { $0.isSeparatorItem ? "" : $0.title }, expected.map(\.title))
-        XCTAssertEqual(menu.items.map(\.isSeparatorItem), expected.map(\.isSeparator))
-        let items = menu.items.filter { !$0.isSeparatorItem }
-        let entries = expected.filter { !$0.isSeparator }
-        XCTAssertEqual(items.map(\.isEnabled), entries.map(\.enabled))
-        XCTAssertEqual(items.map { $0.state == .on }, entries.map(\.checked))
-        XCTAssertEqual(menu.items.first { $0.title.hasPrefix("Keep on") }?.title, "Keep on “DELL U2723QE”")
-        XCTAssertEqual(menu.items.first { $0.title.hasPrefix("Keep on") }?.state, .on)
-
-        let forget = try XCTUnwrap(menu.items.firstIndex { $0.title == "Forget Saved Workspace" })
-        menu.performActionForItem(at: forget)
-        let keepOn = try XCTUnwrap(menu.items.firstIndex { $0.title.hasPrefix("Keep on") })
-        menu.performActionForItem(at: keepOn)
+            .filter { $0.title != "Rename Workspace" }
+        XCTAssertEqual(model.entries.map(\.title), expected.map(\.title))
+        XCTAssertEqual(model.entries.map(\.enabled), expected.map(\.enabled))
+        XCTAssertEqual(model.entries.map(\.checked), expected.map(\.checked))
+        XCTAssertEqual(model.name, "Code")
+        XCTAssertEqual(model.entries.first { $0.title.hasPrefix("Keep on") }?.title, "Keep on “DELL U2723QE”")
+        try XCTUnwrap(model.entries.first { $0.title == "Forget Saved Workspace" }?.perform)()
+        try XCTUnwrap(model.entries.first { $0.title.hasPrefix("Keep on") }?.perform)()
         XCTAssertEqual(sent, [.forgetSavedWorkspace("code"), .setSavedWorkspacePinned("code", false)])
     }
 

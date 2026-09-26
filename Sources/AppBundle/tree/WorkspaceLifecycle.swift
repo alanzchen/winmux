@@ -54,6 +54,10 @@ func getOrCreateAdjacentBlankWorkspace(projectId: WorkspaceProjectId, monitor: M
 
 @MainActor
 func deleteWorkspace(_ workspace: Workspace) throws {
+    if workspaceSidebarOrganizationStore.state.workspaces[workspace.name] != nil ||
+        workspaceSidebarOrganizationStore.collection(containing: workspace.name) != nil {
+        try workspaceSidebarOrganizationStore.removeWorkspace(workspace.name)
+    }
     let fallback = workspaceFallbackForDeletion(
         excluding: workspace,
         projectId: workspace.projectId,
@@ -169,6 +173,7 @@ func removeWorkspaceFromRegistry(_ workspace: Workspace, reason: WorkspaceRemova
                 return
             }
     }
+    try? workspaceSidebarOrganizationStore.removeWorkspace(workspace.name)
     clearWorkspaceSidebarLabelIfNeeded(workspace.name)
     _ = winMuxWorkspaceState.removeWorkspace(workspace)
 }

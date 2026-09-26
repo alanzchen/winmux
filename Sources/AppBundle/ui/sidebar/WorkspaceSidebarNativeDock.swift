@@ -18,6 +18,7 @@ private struct WorkspaceSidebarNativeDockArtworkKey: Equatable {
     struct Section: Equatable {
         let name: String
         let identifier: String
+        let colorHex: String?
         let apps: [WorkspaceSidebarAppViewModel]
     }
     let sections: [Section]
@@ -29,6 +30,7 @@ private struct WorkspaceSidebarNativeDockArtworkKey: Equatable {
     init(_ input: WorkspaceSidebarNativeDock, backingScale: CGFloat) {
         sections = input.workspaces.map {
             Section(name: $0.workspace.name, identifier: workspaceSidebarAppSummaryIdentifier($0.workspace),
+                colorHex: $0.workspace.appearance.colorHex,
                 apps: $0.workspace.apps.map { app in
                     var artwork = app
                     // Full titles update accessibility/tooltips, not cached artwork.
@@ -105,6 +107,9 @@ final class WorkspaceSidebarNativeDockView: NSView {
     private var pressed: (workspace: String, app: WorkspaceSidebarAppViewModel?, point: CGPoint, iconSize: CGFloat)?
     var presentContextMenu: (NSMenu, NSEvent, NSView) -> Void = { menu, event, view in
         NSMenu.popUpContextMenu(menu, with: event, for: view)
+    }
+    var presentIdentityMenu: (WorkspaceSidebarIdentityMenuModel, NSPoint) -> Void = { model, point in
+        WorkspaceSidebarIdentityMenu.shared.open(model, at: point, selectName: false)
     }
     private var pressedCreate = false
     private var dragging = false
@@ -433,7 +438,7 @@ final class WorkspaceSidebarNativeDockView: NSView {
     private func workspaceArtwork(_ entry: WorkspaceSidebarNativeDockWorkspace, size: CGFloat, scale: CGFloat) -> CGImage? {
         let renderer = ImageRenderer(content: WorkspaceSidebarWorkspaceIcon(
             identifier: workspaceSidebarAppSummaryIdentifier(entry.workspace), isActive: entry.isActive,
-            size: size, showsIndicator: false))
+            size: size, showsIndicator: false, colorHex: entry.workspace.appearance.colorHex))
         renderer.scale = scale
         return renderer.cgImage
     }
@@ -839,6 +844,9 @@ final class WorkspaceSidebarNativeDockView: NSView {
     }
 
     func showAppMenu(workspaceName: String, appId: String?) -> Bool {
+        if appId == nil || input?.workspaces.first(where: { $0.workspace.name == workspaceName })?.isEnabled == false {
+            return showWorkspaceIdentityMenu(workspaceName)
+        }
         guard let frame = buttonFrame(workspaceName: workspaceName, appId: appId),
               let menu = contextMenu(workspaceName: workspaceName, appId: appId) else { return false }
         driver.reset()
@@ -862,7 +870,21 @@ final class WorkspaceSidebarNativeDockView: NSView {
         let entry = input.workspaces[index]
         driver.reset()
         pressed = nil
+        if hit?.app == nil || !entry.isEnabled {
+            _ = showWorkspaceIdentityMenu(entry.workspace.name)
+            return nil
+        }
         return contextMenu(workspaceName: entry.workspace.name, appId: hit?.app.map { entry.workspace.apps[$0].id })
+    }
+
+    private func showWorkspaceIdentityMenu(_ workspaceName: String) -> Bool {
+        guard let input, let entry = input.workspaces.first(where: { $0.workspace.name == workspaceName }),
+              let frame = buttonFrame(workspaceName: workspaceName, appId: nil) else { return false }
+        driver.reset()
+        pressed = nil
+        let point = window?.convertPoint(toScreen: convert(CGPoint(x: frame.maxX, y: frame.minY), to: nil)) ?? NSEvent.mouseLocation
+        presentIdentityMenu(workspaceSidebarWorkspaceIdentityMenuModel(entry.workspace, send: input.actions.send), point)
+        return true
     }
 
     private func contextMenu(workspaceName: String, appId: String?) -> NSMenu? {
@@ -933,7 +955,7 @@ final class WorkspaceSidebarNativeDockView: NSView {
     func performDrop(_ payload: WorkspaceSidebarDragPayload, on target: WorkspaceSidebarDropTargetKind) -> Bool {
         guard let input else { return false }
         switch target {
-            case .monitor, .tabGap: return false
+            case .monitor, .tabGap, .tabCollection: return false
             case .workspace(let name):
                 guard let entry = input.workspaces.first(where: { $0.workspace.name == name }) else { return false }
                 entry.drop(payload)

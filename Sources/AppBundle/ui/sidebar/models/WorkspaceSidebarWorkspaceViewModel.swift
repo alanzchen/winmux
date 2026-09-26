@@ -12,6 +12,7 @@ struct WorkspaceSidebarWorkspaceViewModel: Hashable, Identifiable {
     var apps: [WorkspaceSidebarAppViewModel] = []
     /// nil when the workspace isn't saved.
     var savedState: WorkspaceSidebarSavedState? = nil
+    var appearance: WorkspaceSidebarItemAppearance = .init()
 
     var id: String { name }
 }

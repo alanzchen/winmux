@@ -89,7 +89,7 @@ extension WorkspaceSidebarPanel {
         guard currentSidebarPanelLayout() != nil else { return }
         guard reason != .hover || NSApp.modalWindow == nil else { return }
         if expandedDockHoverSource == nil, config.workspaceSidebar.showAppIcons,
-           !config.workspaceSidebar.alwaysExpanded, autoHideReason == nil,
+           !config.workspaceSidebar.pinsSidebarOpen, autoHideReason == nil,
            viewModel.workspaceSidebarVisibleWidth > 0,
            viewModel.workspaceSidebarVisibleWidth <= workspaceSidebarHoverActivationWidth(config.workspaceSidebar),
            !visibleSurfaceFrameOnScreen.isEmpty {
@@ -109,7 +109,7 @@ extension WorkspaceSidebarPanel {
             name: workspaceSidebarWillExpandNotification,
             object: self,
             userInfo: [workspaceSidebarExpansionStartsSearchKey: reason.startsSearch(
-                alwaysExpanded: config.workspaceSidebar.alwaysExpanded,
+                alwaysExpanded: config.workspaceSidebar.pinsSidebarOpen,
                 isDragging: isMouseWindowDragInProgress() || isWorkspaceSidebarItemDragActive(),
                 isTrackingMenu: menuTrackingDepth > 0 || Date() < menuTrackingGraceUntil,
             )],
@@ -845,7 +845,7 @@ extension WorkspaceSidebarPanel {
         debugWorkspaceSidebarHoverLog("handleHoverExit panel=\(monitorScopeId) visible=\(viewModel.workspaceSidebarVisibleWidth) collapsed=\(collapsedWidth) expanded=\(viewModel.isWorkspaceSidebarExpanded) suppressActive=\(Date() < splitBrowseCollapseSuppressedUntil) mouse=\(NSEvent.mouseLocation)")
         pendingExpand?.cancel()
         pendingExpand = nil
-        guard !config.workspaceSidebar.alwaysExpanded else {
+        guard !config.workspaceSidebar.pinsSidebarOpen else {
             cancelExpansionWork()
             expandSidebar(to: CGFloat(config.workspaceSidebar.width))
             return
@@ -870,13 +870,13 @@ extension WorkspaceSidebarPanel {
     }
 
     func scheduleCollapse(collapsedWidth: CGFloat) {
-        guard !config.workspaceSidebar.alwaysExpanded else { return }
+        guard !config.workspaceSidebar.pinsSidebarOpen else { return }
         debugWorkspaceSidebarHoverLog("scheduleCollapse panel=\(monitorScopeId) visible=\(viewModel.workspaceSidebarVisibleWidth) collapsed=\(collapsedWidth) mouse=\(NSEvent.mouseLocation)")
         NotificationCenter.default.post(name: workspaceSidebarWillCollapseNotification, object: self)
         let collapse = DispatchWorkItem { [weak self] in
             guard let self else { return }
             self.pendingCollapse = nil
-            guard !config.workspaceSidebar.alwaysExpanded else { return }
+            guard !config.workspaceSidebar.pinsSidebarOpen else { return }
             debugWorkspaceSidebarHoverLog("collapseFire panel=\(self.monitorScopeId) visible=\(self.viewModel.workspaceSidebarVisibleWidth) mouse=\(NSEvent.mouseLocation) suppressActive=\(Date() < self.splitBrowseCollapseSuppressedUntil)")
             guard Date() >= self.splitBrowseCollapseSuppressedUntil else {
                 debugWorkspaceSidebarHoverLog("collapseFire suppressed panel=\(self.monitorScopeId)")
@@ -901,7 +901,7 @@ extension WorkspaceSidebarPanel {
         let finalize = DispatchWorkItem { [weak self] in
             guard let self else { return }
             self.pendingCollapseFinalize = nil
-            guard !config.workspaceSidebar.alwaysExpanded else { return }
+            guard !config.workspaceSidebar.pinsSidebarOpen else { return }
             debugWorkspaceSidebarHoverLog("collapseFinalize panel=\(self.monitorScopeId) visible=\(self.viewModel.workspaceSidebarVisibleWidth) mouse=\(NSEvent.mouseLocation) suppressActive=\(Date() < self.splitBrowseCollapseSuppressedUntil)")
             guard Date() >= self.splitBrowseCollapseSuppressedUntil else { return }
             let inside = self.isMouseInsideHoverRegion()
@@ -963,7 +963,7 @@ extension WorkspaceSidebarPanel {
     }
 
     func isMenuTrackingOrInGracePeriod(now: Date = .now) -> Bool {
-        menuTrackingDepth > 0 || now < menuTrackingGraceUntil
+        WorkspaceSidebarIdentityMenu.isVisible || menuTrackingDepth > 0 || now < menuTrackingGraceUntil
     }
 }
 extension WorkspaceSidebarPanel {
@@ -1115,7 +1115,7 @@ extension WorkspaceSidebarPanel {
         guard isVisible else { return false }
         return workspaceSidebarHoverDepth(
             point: NSEvent.mouseLocation, displayFrame: frame, sidebarConfig: config.workspaceSidebar,
-            thickness: config.workspaceSidebar.showAppIcons && !config.workspaceSidebar.alwaysExpanded
+            thickness: config.workspaceSidebar.showAppIcons && !config.workspaceSidebar.pinsSidebarOpen
                 ? fittedDockRestingWidth ?? workspaceSidebarHoverActivationWidth(config.workspaceSidebar)
                 : workspaceSidebarHoverActivationWidth(config.workspaceSidebar),
         )
@@ -1156,7 +1156,7 @@ extension WorkspaceSidebarPanel {
         }
         let previousExpandedWidth = lastConfiguredExpandedWidth
         lastConfiguredExpandedWidth = layout.expandedWidth
-        if config.workspaceSidebar.alwaysExpanded {
+        if config.workspaceSidebar.pinsSidebarOpen {
             cancelExpansionWork()
             let targetWidth = workspaceSidebarPersistentVisibleWidth(
                 currentWidth: viewModel.workspaceSidebarVisibleWidth,
@@ -1205,7 +1205,7 @@ extension WorkspaceSidebarPanel {
             autoHideReason = .pointerExit
             slideTransition.reset(hidden: true, offset: slideOffset)
         } else if autoHideReason == .systemChrome ||
-                    (autoHideReason == .pointerExit && (!config.workspaceSidebar.autoHide || config.workspaceSidebar.alwaysExpanded)) {
+                    (autoHideReason == .pointerExit && (!config.workspaceSidebar.autoHide || config.workspaceSidebar.pinsSidebarOpen)) {
             revealSidebar(width: viewModel.workspaceSidebarVisibleWidth)
         }
         updateMousePassthrough()

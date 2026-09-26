@@ -59,6 +59,9 @@ struct LayoutCommand: Command {
         case .tilingContainer(let parent):
             let targetOrientation = targetOrientation ?? parent.orientation
             let targetLayout = targetLayout ?? parent.layout
+            if config.usesBrowserTabs, targetLayout == .tabGroup {
+                return io.err("Stacks are unavailable in Tabs mode. Use separate sidebar tabs or a split.")
+            }
             parent.layout = targetLayout
             parent.changeOrientation(targetOrientation)
             return true

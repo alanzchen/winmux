@@ -123,12 +123,7 @@ struct WorkspaceSidebarWorkspaceSection: View, Animatable {
                 overflow: morphProgress == 0 ? layout.dockMagnificationOverflow : 0))
             .opacity(compactFocusOpacity)
             .contentShape(Rectangle().inset(by: layout.showAppIcons ? -layout.compactHorizontalInset * (1 - morphProgress) : 0))
-            .contextMenu {
-                WorkspaceSidebarWorkspaceMenuContent(workspace: workspace, rename: {
-                    debugWorkspaceSidebarRenameLog("workspaceContextRename workspace=\(workspace.name) displayName=\(workspace.displayName) compact=\(isCompact)")
-                    onBeginRenameWorkspace()
-                }, send: actions.send)
-            }
+            .sidebarIdentityMenu(.workspace(workspace.name))
             .onHover { hover in
                 // Compact Dock has no workspace hover card. Publishing every crossing
                 // invalidates all panel snapshots while the magnification lens is moving.
@@ -521,6 +516,7 @@ extension WorkspaceSidebarWorkspaceSection {
     }
 
     var workspaceBadgeText: String {
+        if let emoji = workspace.appearance.emoji { return emoji }
         if workspace.isGeneratedName, workspace.sidebarLabel.isEmpty {
             return generatedWorkspaceBadgeText
         }
@@ -540,6 +536,7 @@ extension WorkspaceSidebarWorkspaceSection {
     }
 
     var workspaceBadgeForeground: Color {
+        if let color = workspace.appearance.colorHex.flatMap(workspaceSidebarColor) { return color }
         if isActiveOnTargetMonitor {
             return Color.white
         }
@@ -606,9 +603,9 @@ extension WorkspaceSidebarWorkspaceSection {
                     onCancel: onCancelRenameWorkspace,
                 )
             } else {
-                Text(workspace.displayName)
+                Text((workspace.appearance.emoji.map { $0 + " " } ?? "") + workspace.displayName)
                     .font(expandedTitleFont)
-                    .foregroundStyle(isActiveOnTargetMonitor ? Color.white : Color.white.opacity(0.85))
+                    .foregroundStyle(workspace.appearance.colorHex.flatMap(workspaceSidebarColor) ?? (isActiveOnTargetMonitor ? Color.white : Color.white.opacity(0.85)))
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .modifier(WorkspaceSidebarMorphAnchor(element: .expandedTitle, isEnabled: morphsTitle))

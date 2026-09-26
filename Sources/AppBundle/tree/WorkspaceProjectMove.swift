@@ -13,6 +13,10 @@ func moveWorkspaceToProject(workspaceName: String, projectId: WorkspaceProjectId
     let sourceProjectId = workspace.projectId
     let monitor = workspace.workspaceMonitor
     workspace.retainsEmptyAfterProjectMove = !workspaceHasLifecycleWindows(workspace) && !workspace.isVisible
+    if let group = workspaceSidebarOrganizationStore.collection(containing: workspaceName), group.projectId != projectId {
+        do { try workspaceSidebarOrganizationStore.assign(workspaceName, projectId: sourceProjectId, to: nil) }
+        catch { showWorkspaceSidebarError(error.localizedDescription); return false }
+    }
     workspace.assignProject(projectId)
     for (viewportId, var viewport) in winMuxWorkspaceState.monitorViewportsById {
         viewport.lastActiveWorkspaceByProject = viewport.lastActiveWorkspaceByProject.filter { project, id in

@@ -80,9 +80,7 @@ extension WorkspaceSidebarProjectPager {
         .onHover { hovering in
             hoveredProjectDotId = hovering ? project.id : (hoveredProjectDotId == project.id ? nil : hoveredProjectDotId)
         }
-        .contextMenu {
-            projectContextMenuItems(for: project)
-        }
+        .sidebarIdentityMenu(.project(project.id))
         .animation(.easeOut(duration: 0.14), value: isDotHovered)
     }
 

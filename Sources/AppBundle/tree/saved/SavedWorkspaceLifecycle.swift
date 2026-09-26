@@ -133,6 +133,10 @@ func forgetSavedWorkspace(_ workspace: Workspace) throws -> Bool {
     if let reason = savedWorkspaceStore.readOnlyReason {
         throw WorkspaceMutationError.savedWorkspacesReadOnly(reason)
     }
+    if workspaceSidebarOrganizationStore.state.workspaces[workspace.name] != nil ||
+        workspaceSidebarOrganizationStore.collection(containing: workspace.name) != nil {
+        try workspaceSidebarOrganizationStore.removeWorkspace(workspace.name)
+    }
     if let removed = savedWorkspaceStore.remove(named: workspace.name) {
         clearSavedWorkspaceRuntimeState(removed)
     }

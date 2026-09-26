@@ -466,6 +466,15 @@ private func clearWorkspaceSidebarProjectMetadata(_ projectId: WorkspaceProjectI
 
 @MainActor
 private func persistWorkspaceSidebarProjectMetadataRemoval(_ projectId: WorkspaceProjectId) throws {
+    let names = Set(Workspace.all.filter { $0.projectId == projectId }.map(\.name))
+    let organization = workspaceSidebarOrganizationStore.state
+    if organization.collections.contains(where: { $0.projectId == projectId }) ||
+        organization.workspaces.keys.contains(where: { names.contains($0) }) {
+        try workspaceSidebarOrganizationStore.update { state in
+            state.collections.removeAll { $0.projectId == projectId }
+            state.workspaces = state.workspaces.filter { !names.contains($0.key) }
+        }
+    }
     guard !isUnitTest else { return }
     try persistWorkspaceSidebarProjectMetadata(
         projectId: projectId.rawValue,

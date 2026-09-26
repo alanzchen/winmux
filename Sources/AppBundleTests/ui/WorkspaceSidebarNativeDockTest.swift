@@ -483,9 +483,11 @@ final class WorkspaceSidebarNativeDockTest: XCTestCase {
             XCTAssertFalse(appMenu.items.contains { $0.title == "Delete Workspace" })
             XCTAssertTrue(appMenu.items.contains { $0.title.hasPrefix("Window:") })
             let workspaceFrame = try XCTUnwrap(view.buttonFrame(workspaceName: owner.name, appId: nil))
-            let workspaceMenu = try XCTUnwrap(view.menu(for: mouseEvent(.rightMouseDown, in: view,
+            var identity: WorkspaceSidebarIdentityMenuModel?
+            view.presentIdentityMenu = { model, _ in identity = model }
+            XCTAssertNil(view.menu(for: try mouseEvent(.rightMouseDown, in: view,
                 at: CGPoint(x: workspaceFrame.midX, y: workspaceFrame.midY))))
-            XCTAssertTrue(workspaceMenu.items.contains { $0.title == "Delete Workspace" })
+            XCTAssertTrue(try XCTUnwrap(identity).entries.contains { $0.title == "Delete Workspace" })
             view.detach()
         }
     }
@@ -498,7 +500,7 @@ final class WorkspaceSidebarNativeDockTest: XCTestCase {
         view.configure(input)
         view.layoutSubtreeIfNeeded()
         defer { view.detach() }
-        view.presentContextMenu = { _, _, _ in presentations += 1 }
+        view.presentIdentityMenu = { _, _ in presentations += 1 }
         let target = try XCTUnwrap(view.buttonFrame(workspaceName: input.workspaces[0].workspace.name, appId: nil))
         let point = CGPoint(x: target.midX, y: target.midY)
         let event = try XCTUnwrap(NSEvent.mouseEvent(with: .leftMouseDown,
@@ -522,10 +524,13 @@ final class WorkspaceSidebarNativeDockTest: XCTestCase {
         view.layoutSubtreeIfNeeded()
         defer { view.detach() }
         let target = try XCTUnwrap(view.geometry?.icons.first?.first)
-        let menu = try XCTUnwrap(view.menu(for: mouseEvent(.rightMouseDown, in: view,
+        var identity: WorkspaceSidebarIdentityMenuModel?
+        view.presentIdentityMenu = { model, _ in identity = model }
+        XCTAssertNil(view.menu(for: try mouseEvent(.rightMouseDown, in: view,
             at: CGPoint(x: target.midX, y: target.midY))))
-        XCTAssertTrue(menu.items.contains { $0.title == "Customize Dock & Sidebar…" })
-        XCTAssertTrue(menu.items.contains { $0.title == "Rename Workspace" })
+        let model = try XCTUnwrap(identity)
+        XCTAssertTrue(model.entries.contains { $0.title == "Customize Dock & Sidebar…" })
+        XCTAssertEqual(model.name, input.workspaces[0].workspace.displayName)
     }
 
     func testHoverLabelsIdentifyIconsOnEveryEdgeEvenWhenWorkspaceIsDisabled() throws {

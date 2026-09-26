@@ -21,7 +21,7 @@ func isActionableSidebarWorkspaceDropTarget(
             return sourceWorkspaceName != workspaceName
         case .monitor:
             return true
-        case .newWorkspace, .tabGap:
+        case .newWorkspace, .tabGap, .tabCollection:
             return true
         case nil:
             return false
@@ -38,6 +38,7 @@ func currentSidebarWorkspaceDropDestination(sourceWindow: Window, mouseLocation:
        isActionableSidebarWorkspaceDropTarget(sourceWorkspaceName: sourceWorkspaceName, targetKind: target.kind)
     {
         switch target.kind {
+            case .tabCollection: return nil
             case .monitor(let scopeId):
                 guard let monitor = workspaceSidebarMonitor(forScopeId: scopeId) else { return nil }
                 let workspace = monitor.activeWorkspace

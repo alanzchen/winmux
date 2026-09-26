@@ -51,6 +51,8 @@ on-mode-changed = []
     auto-hide = false
     # Keep the full sidebar open and reserve its width for tiled windows.
     always-expanded = false
+    # Tabs mode has its own open-by-default sidebar setting.
+    tabs-always-expanded = true
     # Dock is the default: it shows icons and opens a floating view of every project beside itself.
     # 'sidebar' is a compact rail that expands into window details; 'tabs' lists windows as vertical tabs.
     mode = 'dock'

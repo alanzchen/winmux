@@ -5,6 +5,7 @@ import SwiftUI
 struct WorkspaceSidebarSurface<S: Shape>: View {
     let shape: S
     let configuration: WorkspaceSidebarConfiguration
+    @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     private let reduceTransparencyOverride: Bool?
 
@@ -16,7 +17,11 @@ struct WorkspaceSidebarSurface<S: Shape>: View {
 
     var body: some View {
         ZStack {
-            if configuration.sidebarBlur && !(reduceTransparencyOverride ?? reduceTransparency) {
+            if configuration.usesTabsList {
+                shape.fill(Color(nsColor: .windowBackgroundColor))
+                shape.fill(colorScheme == .dark ? Color(red: 0.12, green: 0.17, blue: 0.19).opacity(0.55)
+                    : Color(red: 0.67, green: 0.83, blue: 0.86).opacity(0.42))
+            } else if configuration.sidebarBlur && !(reduceTransparencyOverride ?? reduceTransparency) {
                 WorkspaceSidebarBlurView()
                 if #available(macOS 26.0, *) {
                     Color.clear

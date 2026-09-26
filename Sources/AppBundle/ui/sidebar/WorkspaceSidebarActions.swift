@@ -391,6 +391,13 @@ func previewWorkspaceSidebarDrop(_ windowId: UInt32, subject: WindowDragSubject,
         clearWorkspaceSidebarDropPreview()
         return
     }
+    if case .tabCollection(let id) = target {
+        var preview = workspaceSidebarDropPreview(sourceWindow: sourceWindow, subject: subject,
+            targetWorkspaceName: nil, targetsNewWorkspace: false, targetProjectId: sourceWindow.nodeWorkspace?.projectId)
+        preview.targetCollectionId = id
+        setWorkspaceSidebarDropPreviewIfChanged(preview)
+        return
+    }
     if case .tabGap(let projectId, let monitorScopeId, let gap) = target {
         var preview = workspaceSidebarDropPreview(sourceWindow: sourceWindow, subject: subject, targetWorkspaceName: nil,
             targetsNewWorkspace: false, targetProjectId: projectId, targetMonitorScopeId: monitorScopeId)
@@ -459,6 +466,12 @@ private func isActionableSidebarDropTarget(
     target: WorkspaceSidebarDropTargetKind,
 ) -> Bool {
     let sourceWorkspaceName = dragSubjectNode(for: sourceWindow, subject: subject).nodeWorkspace?.name
+    if case .tabCollection(let id) = target {
+        guard config.usesBrowserTabs, let workspace = sourceWindow.nodeWorkspace,
+              let group = workspaceSidebarOrganizationStore.state.collections.first(where: { $0.id == id }),
+              group.projectId == workspace.projectId else { return false }
+        return !group.workspaceNames.contains(workspace.name)
+    }
     return isActionableSidebarWorkspaceDropTarget(sourceWorkspaceName: sourceWorkspaceName, targetKind: target)
 }
 
@@ -865,6 +878,10 @@ private func commitActiveWorkspaceSidebarDragIfPossible() -> Bool {
     clearWorkspaceSidebarDropPreview()
     WindowDragCursorProxyPanel.shared.hide()
     switch target.kind {
+        case .tabCollection(let id):
+            if let name = sourceWindow.nodeWorkspace?.name { handleWorkspaceSidebarOrganizationAction(.assignTabCollection(name, id)) }
+            if let settlingId { finishWorkspaceSidebarDockLift(id: settlingId) }
+            return true
         case .workspace(let workspaceName):
             moveSidebarSource(sourceWindow.windowId, subject: activeDrag.subject,
                 toWorkspace: workspaceName, tabPlacement: placement, settlingId: settlingId)

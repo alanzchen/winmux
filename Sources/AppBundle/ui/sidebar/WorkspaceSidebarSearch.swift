@@ -4,16 +4,20 @@ func workspaceSidebarFilteredWorkspacesByProject(
     _ workspacesByProject: [WorkspaceProjectId: [WorkspaceSidebarWorkspaceViewModel]],
     projects: [WorkspaceSidebarProjectViewModel],
     query: String,
+    collections: [WorkspaceTabCollection] = [],
 ) -> [WorkspaceProjectId: [WorkspaceSidebarWorkspaceViewModel]] {
     let terms = workspaceSidebarSearchTerms(query)
     guard !terms.isEmpty else { return workspacesByProject }
     let projectNamesById = Dictionary(uniqueKeysWithValues: projects.map { ($0.id, $0.displayName) })
+    let collectionNames = collections.reduce(into: [String: String]()) { names, group in
+        for member in group.workspaceNames { names[member] = group.name }
+    }
 
     return workspacesByProject.mapValues { workspaces in
         workspaces.compactMap { workspace in
             workspaceSidebarFilteredWorkspace(
                 workspace,
-                projectName: projectNamesById[workspace.projectId],
+                projectName: [projectNamesById[workspace.projectId], collectionNames[workspace.name]].compactMap { $0 }.joined(separator: " "),
                 terms: terms,
             )
         }
@@ -42,6 +46,7 @@ private func workspaceSidebarFilteredWorkspace(
             items: matchingItems,
             apps: workspace.apps,
             savedState: workspace.savedState,
+            appearance: workspace.appearance,
         )
     }
     if workspaceSidebarWorkspaceMatchesSearch(workspace, projectName: projectName, terms: terms) {

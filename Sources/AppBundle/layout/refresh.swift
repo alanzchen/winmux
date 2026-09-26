@@ -353,6 +353,7 @@ struct RunSessionGuard: Sendable {
 
 @MainActor
 func refreshModel() {
+    migrateWindowStacksToSidebarTabs()
     Workspace.reconcileWorkspaceState()
     checkOnFocusChangedCallbacks()
     normalizeContainers()

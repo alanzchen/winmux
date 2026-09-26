@@ -2,13 +2,14 @@ import AppKit
 import SwiftUI
 
 /// How a workspace shows in Tabs mode. Most workspaces hold one window and are just a tab;
-/// two windows share one row, as a split view does in a browser. A workspace
-/// with a name you gave it, a saved one, a stack, or more windows stays a folder.
+/// tiled windows share one row, as a split view does in a browser. Naming or saving
+/// a tab never implicitly turns it into an organizational group.
 enum WorkspaceSidebarTabPresentation: Equatable {
     /// An empty workspace, such as a new tab waiting for an app.
     case empty
     case single(WorkspaceSidebarWindowViewModel)
     case split(WorkspaceSidebarWindowViewModel, WorkspaceSidebarWindowViewModel)
+    case multiple([WorkspaceSidebarWindowViewModel])
     case folder
 }
 
@@ -18,9 +19,6 @@ func workspaceSidebarTabPresentation(
     isRenaming: Bool = false,
     isSearching: Bool = false,
 ) -> WorkspaceSidebarTabPresentation {
-    // A search narrows a workspace to its matches; the folder says which workspace they're in.
-    guard workspace.isGeneratedName, workspace.savedState == nil, !showsProjectContext, !isRenaming, !isSearching
-    else { return .folder }
     let windows = workspace.items.compactMap { item -> WorkspaceSidebarWindowViewModel? in
         if case .window(let window) = item.kind { window } else { nil }
     }
@@ -30,7 +28,7 @@ func workspaceSidebarTabPresentation(
         case 0: return .empty
         case 1: return .single(windows[0])
         case 2: return .split(windows[0], windows[1])
-        default: return .folder
+        default: return .multiple(windows)
     }
 }
 
@@ -53,21 +51,23 @@ struct WorkspaceSidebarTabCardView: View {
     var insertionEdge: VerticalEdge? = nil
     /// The page's project and display, which a drop between tabs lands in; nil for none.
     var gapTarget: (projectId: WorkspaceProjectId, monitorScopeId: String)? = nil
+    var collectionId: String? = nil
     let onBeginRename: () -> Void
     let onCommitOverride: () -> Void
     let onCancelOverride: () -> Void
 
     var body: some View {
         content
+            .sidebarIdentityMenu(.workspace(workspace.name))
             .frame(minHeight: isShowingOverride ? overrideMinHeight : nil, alignment: .top)
             .background {
                 RoundedRectangle(cornerRadius: workspaceSidebarTabCornerRadius, style: .continuous)
-                    .fill(Color.white.opacity(backgroundOpacity))
+                    .fill(workspace.appearance.colorHex.flatMap(workspaceSidebarColor)?.opacity(0.12) ?? Color.primary.opacity(backgroundOpacity))
             }
             // Over the rows, so a focused half's pill doesn't hide it.
             .overlay {
                 RoundedRectangle(cornerRadius: workspaceSidebarTabCornerRadius, style: .continuous)
-                    .strokeBorder(Color.white.opacity(isDropTarget ? 0.55 : 0), lineWidth: 1)
+                    .strokeBorder(Color.primary.opacity(isDropTarget ? 0.55 : 0), lineWidth: 1)
                     .allowsHitTesting(false)
             }
             .overlay { WorkspaceSidebarTabDropSideHighlight(placement: isDropTarget ? dropPlacement : nil) }
@@ -90,7 +90,7 @@ struct WorkspaceSidebarTabCardView: View {
                         value: workspaceSidebarTabDropTargets(workspaceName: workspace.name,
                             frame: geometry.frame(in: .named("workspaceSidebarContent")), gapTarget: gapTarget,
                             // An empty tab has no window to go beside.
-                            acceptsSides: presentation != .empty),
+                            acceptsSides: presentation != .empty, collectionId: collectionId),
                     )
                 }
             }
@@ -101,7 +101,7 @@ struct WorkspaceSidebarTabCardView: View {
         if selectedSearchTarget == .workspace(workspace.name) { return 0.1 }
         switch presentation {
             // Two windows share one tab, shown as one.
-            case .split: return isActive ? 0.1 : 0.04
+            case .split, .multiple: return isActive ? 0.1 : 0.04
             // The tab on screen stays marked even while its window isn't the focused one.
             case .single: return isActive ? 0.1 : 0
             case .empty, .folder: return 0
@@ -117,13 +117,24 @@ struct WorkspaceSidebarTabCardView: View {
                 HStack(spacing: 2) {
                     row(left, isSplitHalf: true)
                     Rectangle()
-                        .fill(Color.white.opacity(0.14))
+                        .fill(Color.primary.opacity(0.14))
                         .frame(width: 1, height: 16)
                         .accessibilityHidden(true)
                     row(right, isSplitHalf: true)
                 }
                 .accessibilityElement(children: .contain)
                 .accessibilityLabel("Split: \(left.title ?? left.appName) and \(right.title ?? right.appName)")
+            case .multiple(let windows):
+                HStack(spacing: 2) {
+                    ForEach(windows) { window in
+                        if window.id != windows.first?.id {
+                            Rectangle().fill(Color.primary.opacity(0.14)).frame(width: 1, height: 16).accessibilityHidden(true)
+                        }
+                        row(window, isSplitHalf: true)
+                    }
+                }
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel("Split: \(windows.map { $0.title ?? $0.appName }.joined(separator: ", "))")
             case .empty:
                 WorkspaceSidebarEmptyTabRowView(isActive: isActive, actions: actions, workspace: workspace,
                     onBeginRename: onBeginRename,
@@ -143,6 +154,8 @@ struct WorkspaceSidebarTabCardView: View {
             actions: actions,
             workspaceMenu: (workspace, onBeginRename),
             onSelect: { activation.select(.selectWindow(window.windowId), send: actions.send) },
+            titleOverride: !isSplitHalf && !workspace.sidebarLabel.isEmpty ? workspace.displayName : nil,
+            emojiOverride: !isSplitHalf ? workspace.appearance.emoji : nil,
         )
         .id("window:\(window.windowId)")
     }
@@ -163,11 +176,11 @@ struct WorkspaceSidebarEmptyTabRowView: View {
             HStack(spacing: 9) {
                 Image(systemName: "square.dashed")
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(isActive ? Color.black.opacity(0.55) : Color.white.opacity(0.55))
+                    .foregroundStyle(Color.primary.opacity(0.55))
                     .frame(width: workspaceSidebarTabIconSize, height: workspaceSidebarTabIconSize)
-                Text("Empty Tab")
+                Text(workspace.sidebarLabel.isEmpty ? "Empty Tab" : workspace.displayName)
                     .font(.system(size: 13, weight: isActive ? .medium : .regular))
-                    .foregroundStyle(isActive ? Color.black.opacity(0.86) : Color.white.opacity(0.6))
+                    .foregroundStyle(Color.primary.opacity(isActive ? 0.9 : 0.65))
                     .lineLimit(1)
                 Spacer(minLength: 0)
             }
@@ -186,11 +199,11 @@ struct WorkspaceSidebarEmptyTabRowView: View {
             Button(action: close) {
                 Image(systemName: "xmark")
                     .font(.system(size: 9, weight: .bold))
-                    .foregroundStyle(isActive ? Color.black.opacity(0.55) : Color.white.opacity(0.7))
+                    .foregroundStyle(Color.primary.opacity(0.6))
                     .frame(width: 18, height: 18)
                     .background {
                         RoundedRectangle(cornerRadius: 5, style: .continuous)
-                            .fill(isActive ? Color.black.opacity(0.07) : Color.white.opacity(0.1))
+                            .fill(Color.primary.opacity(0.08))
                     }
                     .contentShape(Rectangle())
             }
@@ -203,7 +216,7 @@ struct WorkspaceSidebarEmptyTabRowView: View {
         }
         .background {
             RoundedRectangle(cornerRadius: workspaceSidebarTabCornerRadius, style: .continuous)
-                .fill(isActive ? Color.white.opacity(0.92) : Color.white.opacity(isHovered ? 0.08 : 0))
+                .fill(isActive ? Color(nsColor: .controlBackgroundColor) : Color.primary.opacity(isHovered ? 0.06 : 0))
                 .shadow(color: isActive ? Color.black.opacity(0.22) : .clear, radius: 3, y: 1)
         }
         .overlay {
@@ -233,6 +246,7 @@ func workspaceSidebarTabDropTargets(
     gapTarget: (projectId: WorkspaceProjectId, monitorScopeId: String)?,
     acceptsSides: Bool = false,
     gapInside: CGFloat = 7,
+    collectionId: String? = nil,
 ) -> [WorkspaceSidebarDropTargetFrame] {
     var targets = [WorkspaceSidebarDropTargetFrame(kind: .workspace(workspaceName), frame: frame, acceptsSides: acceptsSides)]
     if let gapTarget {
@@ -240,7 +254,7 @@ func workspaceSidebarTabDropTargets(
         targets += [(bands.before, false), (bands.after, true)].map { band, isAfter in
             WorkspaceSidebarDropTargetFrame(
                 kind: .tabGap(projectId: gapTarget.projectId, monitorScopeId: gapTarget.monitorScopeId,
-                    gap: WorkspaceSidebarTabGap(workspaceName: workspaceName, isAfter: isAfter)),
+                    gap: WorkspaceSidebarTabGap(workspaceName: workspaceName, isAfter: isAfter, collectionId: collectionId)),
                 frame: band,
             )
         }
@@ -257,12 +271,12 @@ struct WorkspaceSidebarTabDropSideHighlight: View {
             if let placement {
                 let width = placement == .stack ? geometry.size.width : geometry.size.width / 2
                 RoundedRectangle(cornerRadius: workspaceSidebarTabCornerRadius, style: .continuous)
-                    .fill(Color.white.opacity(0.18))
+                    .fill(Color.primary.opacity(0.18))
                     .overlay {
                         if placement == .stack {
                             Image(systemName: "square.stack")
                                 .font(.system(size: 11, weight: .semibold))
-                                .foregroundStyle(Color.white.opacity(0.85))
+                                .foregroundStyle(Color.primary.opacity(0.85))
                                 .frame(maxWidth: .infinity, alignment: .trailing)
                                 .padding(.trailing, 8)
                         }
@@ -283,7 +297,7 @@ struct WorkspaceSidebarTabInsertionLine: View {
     var body: some View {
         if let edge {
             Capsule(style: .continuous)
-                .fill(Color.white.opacity(0.85))
+                .fill(Color.primary.opacity(0.85))
                 .frame(height: 2)
                 .frame(maxHeight: .infinity, alignment: edge == .top ? .top : .bottom)
                 .offset(y: edge == .top ? -2 : 2)

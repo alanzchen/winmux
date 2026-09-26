@@ -72,6 +72,10 @@ func handleWorkspaceSidebarAction(
     targetMonitorScopeId: String? = nil,
 ) {
     switch action {
+        case .setWorkspaceColor, .setWorkspaceEmoji, .setWorkspaceFavorite, .createTabCollection,
+             .renameTabCollection, .setTabCollectionColor, .setTabCollectionEmoji, .toggleTabCollection,
+             .assignTabCollection, .ungroupTabCollection, .moveTabCollection, .createTabInCollection, .toggleTabsSidebar:
+            handleWorkspaceSidebarOrganizationAction(action)
         case .selectWorkspace(let name):
             focusWorkspaceFromSidebar(name, targetMonitorScopeId: targetMonitorScopeId)
         case .overrideWorkspaceInUse(let name):
@@ -135,7 +139,10 @@ func handleWorkspaceSidebarAction(
         case .closeEmptyTab(let name):
             runWorkspaceSidebarSession {
                 guard let workspace = Workspace.existing(byName: name) else { return }
-                closeEmptyTab(workspace)
+                if config.usesBrowserTabs, workspace.isSaved, !workspace.isConfiguredPersistent,
+                   !workspaceHasLifecycleWindows(workspace) {
+                    try deleteWorkspace(workspace)
+                } else { closeEmptyTab(workspace) }
                 await updateWorkspaceSidebarModel()
             }
         case .saveWorkspace(let name):

@@ -50,6 +50,9 @@ struct WorkspaceLauncherNewTab {
     /// False when New Tab reused the empty tab already on screen: closing the launcher then
     /// leaves it, unless it's the new tab the launcher was already showing.
     var isNew = true
+    /// A group saves a fresh placeholder so its name is reserved. Cancelling its
+    /// launcher should still discard it, without affecting an existing saved tab.
+    var discardsSavedPlaceholderOnCancel = false
 }
 
 /// The tab New Tab opens: a new one after the tab on screen, or that tab itself if it's
@@ -106,13 +109,23 @@ func workspaceTabAfterLastWindowClosed(_ workspace: Workspace) -> Workspace? {
 func closeUnusedNewTab(_ newTab: WorkspaceLauncherNewTab) {
     let tab = newTab.workspace
     // Not on screen: the user already switched tabs there.
-    guard winMuxWorkspaceState.workspaceById[tab.id] === tab, !tab.isArchived, tab.isVisible,
-          !workspaceHasLifecycleWindows(tab), !tab.isKeptWhenEmpty
+    guard winMuxWorkspaceState.workspaceById[tab.id] === tab, !tab.isArchived,
+          !workspaceHasLifecycleWindows(tab)
     else { return }
     let previous = newTab.previous.flatMap { previous in
         winMuxWorkspaceState.workspaceById[previous.id] === previous && !previous.isArchived && !previous.isVisible &&
             previous.workspaceMonitor.rect == tab.workspaceMonitor.rect ? previous : nil
     }
+    if newTab.isNew, newTab.discardsSavedPlaceholderOnCancel, !tab.isConfiguredPersistent {
+        if tab.isVisible, let previous {
+            if tab === focus.workspace { _ = previous.focusWorkspace() }
+            else { _ = tab.workspaceMonitor.setActiveWorkspace(previous) }
+        }
+        do { try deleteWorkspace(tab) }
+        catch { showWorkspaceSidebarError(error.localizedDescription) }
+        return
+    }
+    guard tab.isVisible, !tab.isKeptWhenEmpty else { return }
     guard let destination = previous ?? workspaceTabNeighbor(of: tab).flatMap({ $0.isVisible ? nil : $0 }) else { return }
     if tab === focus.workspace {
         _ = destination.focusWorkspace()
@@ -149,12 +162,12 @@ func closeEmptyTab(_ workspace: Workspace) {
 }
 
 /// A tab dropped on another tab: its window goes beside that tab's window on the side it was
-/// dropped, or with Option into a stack with it. The combined tab comes forward with the
+/// dropped. Other modes may still request a stack. The combined tab comes forward with the
 /// dropped window focused.
 @MainActor
 func applyTabDrop(sourceNode: TreeNode, sourceWindow: Window, targetWorkspace: Workspace,
                   placement: WorkspaceSidebarTabDropPlacement) {
-    if placement == .stack, sourceNode === sourceWindow, !sourceWindow.isFloating,
+    if !config.usesBrowserTabs, placement == .stack, sourceNode === sourceWindow, !sourceWindow.isFloating,
        let target = targetWorkspace.mostRecentWindowRecursive, target !== sourceWindow, !target.isFloating
     {
         createOrAppendWindowTabStack(sourceWindow: sourceWindow, onto: target)
@@ -176,17 +189,31 @@ func applyTabGapDrop(sourceNode: TreeNode, sourceWindow: Window, projectId: Work
     let isWholeTab = sourceWorkspace?.allLeafWindowsRecursive.allSatisfy { moving.contains($0.windowId) } == true
     // The tab it was dropped next to has gone meanwhile: leave the tab where it is.
     if isWholeTab, anchor == nil { return }
-    if isWholeTab, let sourceWorkspace, let anchor, sourceWorkspace.projectId == projectId,
-       sourceWorkspace.workspaceMonitor.rect == monitor.rect
-    {
+    if isWholeTab, let sourceWorkspace, let anchor {
+        guard isValidAssignment(workspace: sourceWorkspace, screen: monitor.rect.topLeftCorner),
+              !savedPinBlocks(sourceWorkspace, on: monitor) else {
+            showWorkspaceSidebarError("This tab is assigned to another display.")
+            return
+        }
+        let changesScope = sourceWorkspace.projectId != projectId || sourceWorkspace.workspaceMonitor.rect != monitor.rect
+        if sourceWorkspace.projectId != projectId,
+           !moveWorkspaceToProject(workspaceName: sourceWorkspace.name, projectId: projectId) { return }
+        do { try assignWorkspaceToSidebarCollection(sourceWorkspace, collectionId: gap.collectionId) }
+        catch { showWorkspaceSidebarError(error.localizedDescription); return }
+        if changesScope {
+            guard activateWorkspaceOnMonitorPreservingSourceViewport(sourceWorkspace, targetMonitor: monitor) else { return }
+            noteSavedWorkspacePlacedByUser(sourceWorkspace, on: monitor)
+            _ = sourceWindow.focusWindow()
+        }
         winMuxWorkspaceState.moveWorkspace(sourceWorkspace.id, relativeTo: anchor.id, after: gap.isAfter)
         return
     }
-    // Otherwise, including a whole tab from another display, the windows get a new tab here.
+    // One window pulled out of a split gets a new tab. A whole tab keeps its identity above.
     let tab = createBlankWorkspace(projectId: projectId, monitor: monitor)
+    do { try assignWorkspaceToSidebarCollection(tab, collectionId: gap.collectionId) }
+    catch { removeWorkspaceFromRegistry(tab, reason: .pruned); showWorkspaceSidebarError(error.localizedDescription); return }
     if let anchor { winMuxWorkspaceState.moveWorkspace(tab.id, relativeTo: anchor.id, after: gap.isAfter) }
     let isFloatingWindow = sourceNode === sourceWindow && sourceWindow.isFloating
     sourceNode.bind(to: isFloatingWindow ? tab : tab.rootTilingContainer, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
     _ = sourceWindow.focusWindow()
 }
-

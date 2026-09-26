@@ -55,7 +55,7 @@ func updateWorkspaceSidebarProjectOrderConfig(in configText: String, order: [Str
         renderedValue: rendered)
 }
 
-private func updateWorkspaceSidebarScalarConfig(
+func updateWorkspaceSidebarScalarConfig(
     in configText: String,
     key: String,
     renderedValue: String,

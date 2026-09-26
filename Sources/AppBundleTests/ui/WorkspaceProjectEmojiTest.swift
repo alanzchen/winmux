@@ -31,29 +31,24 @@ final class WorkspaceProjectEmojiTest: XCTestCase {
         XCTAssertNil(config.workspaceSidebar.projectEmojis["missing-project"])
     }
 
-    func testNativeEmojiEditorOnlyEnablesSaveForOneEmoji() {
-        let editor = WorkspaceSidebarProjectEmojiEditor(project: .init(id: workspaceProjectDefaultId, displayName: "Home", colorHex: nil, emoji: "🏠"))
-        XCTAssertEqual(editor.emoji, "🏠")
-        XCTAssertTrue(editor.alert.buttons[0].isEnabled)
-        for (value, valid) in [("", false), ("work", false), ("💻🏠", false), ("👩🏽‍💻", true), ("❤️", true)] {
-            editor.field.stringValue = value
-            editor.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: editor.field))
-            XCTAssertEqual(editor.alert.buttons[0].isEnabled, valid)
+    func testEmojiPickerSupportsPastedGraphemesAndSearch() {
+        XCTAssertEqual(workspaceSidebarEmojiMatches("pencil").map(\.emoji), ["✏️"])
+        XCTAssertTrue(workspaceSidebarEmojiMatches("work").contains { $0.emoji == "💼" })
+        for value in ["👩🏽‍💻", "❤️", "🦄"] {
+            XCTAssertEqual(workspaceSidebarEmojiMatches(value).map(\.emoji), [value])
         }
-        XCTAssertEqual(editor.alert.buttons[1].title, "Cancel")
-        editor.alert.layout()
-        XCTAssertTrue(editor.alert.window.initialFirstResponder === editor.field, "The emoji field must retain initial focus after native alert layout")
-        XCTAssertFalse(editor.alert.window.isVisible)
+        XCTAssertTrue(workspaceSidebarEmojiMatches("💻🏠").isEmpty)
     }
 
-    func testNativeEmojiModalBlocksSidebarCommandAndEditing() {
-        let editor = WorkspaceSidebarProjectEmojiEditor(project: .init(id: workspaceProjectDefaultId, displayName: "Home", colorHex: nil))
-        let session = NSApp.beginModalSession(for: editor.alert.window)
+    func testNativeModalBlocksSidebarCommandAndEditing() {
+        let alert = NSAlert()
+        alert.messageText = "Test modal"
+        let session = NSApp.beginModalSession(for: alert.window)
         defer {
             NSApp.endModalSession(session)
-            editor.alert.window.orderOut(nil)
+            alert.window.orderOut(nil)
         }
-        XCTAssertTrue(NSApp.modalWindow === editor.alert.window)
+        XCTAssertTrue(NSApp.modalWindow === alert.window)
         let panel = WorkspaceSidebarPanel.shared
         let wasExpanded = panel.viewModel.isWorkspaceSidebarExpanded
         openWorkspaceSidebarFromCommand()
@@ -64,6 +59,6 @@ final class WorkspaceProjectEmojiTest: XCTestCase {
         XCTAssertFalse(panel.inlineTextEditingActive)
         XCTAssertFalse(panel.commandExpansionLocksCollapse)
         XCTAssertEqual(panel.viewModel.isWorkspaceSidebarExpanded, wasExpanded)
-        XCTAssertTrue(NSApp.modalWindow === editor.alert.window)
+        XCTAssertTrue(NSApp.modalWindow === alert.window)
     }
 }

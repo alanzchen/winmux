@@ -17,6 +17,7 @@ func resetWinMuxWorkspaceStateForTests() {
         defaultProjectName: workspaceProjectDisplayName(workspaceProjectDefaultId, fallbackName: "Default"),
     )
     resetWorkspaceTabsForTests()
+    workspaceSidebarOrganizationStore = WorkspaceSidebarOrganizationStore()
 }
 
 @MainActor

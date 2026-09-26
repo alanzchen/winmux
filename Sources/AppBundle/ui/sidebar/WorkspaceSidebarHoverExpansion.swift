@@ -25,7 +25,7 @@ struct WorkspaceSidebarExpansionHoverSource {
         self.panelFrame == panelFrame && position == sidebarConfig.effectiveDockPosition
             && compactWidth == sidebarConfig.effectiveCollapsedWidth && expandedWidth == sidebarConfig.width
             && gap == sidebarConfig.effectiveLeftGap && autoHide == sidebarConfig.autoHide
-            && sidebarConfig.showAppIcons && !sidebarConfig.alwaysExpanded
+            && sidebarConfig.showAppIcons && !sidebarConfig.pinsSidebarOpen
     }
 
     func contains(_ point: CGPoint, panelFrame: CGRect, sidebarConfig: WorkspaceSidebarConfig) -> Bool {
@@ -34,18 +34,18 @@ struct WorkspaceSidebarExpansionHoverSource {
 }
 
 func workspaceSidebarAllowsEdgeTrap(_ sidebarConfig: WorkspaceSidebarConfig) -> Bool {
-    !sidebarConfig.alwaysExpanded
+    !sidebarConfig.pinsSidebarOpen
 }
 
 func workspaceSidebarRestingWidth(_ sidebarConfig: WorkspaceSidebarConfig) -> CGFloat {
-    if sidebarConfig.alwaysExpanded {
+    if sidebarConfig.pinsSidebarOpen {
         return CGFloat(sidebarConfig.width)
     }
     return sidebarConfig.autoHide ? 0 : CGFloat(sidebarConfig.effectiveCollapsedWidth)
 }
 
 func workspaceSidebarReservedWidth(_ sidebarConfig: WorkspaceSidebarConfig, availableHeight: CGFloat = 1000) -> CGFloat {
-    if sidebarConfig.effectiveDockPosition == .bottom && sidebarConfig.alwaysExpanded {
+    if sidebarConfig.effectiveDockPosition == .bottom && sidebarConfig.pinsSidebarOpen {
         return workspaceSidebarBottomExpandedHeight(availableHeight: availableHeight)
     }
     let width = workspaceSidebarRestingWidth(sidebarConfig)
@@ -62,7 +62,7 @@ func workspaceSidebarHoverRegion(
 ) -> CGRect {
     // Auto-hide must still reveal from the physical display edge, across the new gap.
     // This only extends the reveal region; the gap never captures clicks or magnifies icons.
-    let revealGap = sidebarConfig.autoHide && !sidebarConfig.alwaysExpanded
+    let revealGap = sidebarConfig.autoHide && !sidebarConfig.pinsSidebarOpen
         ? max(surface.minX - displayMinX, 0) : 0
     // Reveal uses the final resting fit, not the animated surface width. Otherwise
     // the hover target briefly contracts as an auto-hidden Dock starts to appear.
@@ -79,11 +79,11 @@ func workspaceSidebarHoverRegion(
 }
 
 func workspaceSidebarHoverActivationWidth(_ sidebarConfig: WorkspaceSidebarConfig) -> CGFloat {
-    sidebarConfig.alwaysExpanded ? CGFloat(sidebarConfig.width) : CGFloat(sidebarConfig.effectiveCollapsedWidth)
+    sidebarConfig.pinsSidebarOpen ? CGFloat(sidebarConfig.width) : CGFloat(sidebarConfig.effectiveCollapsedWidth)
 }
 
 func workspaceSidebarCollapsedContentWidth(_ sidebarConfig: WorkspaceSidebarConfig) -> CGFloat {
-    sidebarConfig.autoHide && !sidebarConfig.alwaysExpanded ? 0 : CGFloat(sidebarConfig.effectiveCollapsedWidth)
+    sidebarConfig.autoHide && !sidebarConfig.pinsSidebarOpen ? 0 : CGFloat(sidebarConfig.effectiveCollapsedWidth)
 }
 
 func workspaceSidebarPersistentVisibleWidth(
@@ -129,7 +129,7 @@ func workspaceSidebarHoverRegion(surface: CGRect, displayFrame: CGRect,
             sidebarConfig: sidebarConfig, exitTolerance: exitTolerance, fittedDockWidth: fittedDockWidth)
     }
     let thickness = fittedDockWidth ?? workspaceSidebarHoverActivationWidth(sidebarConfig)
-    let autoHide = sidebarConfig.autoHide && !sidebarConfig.alwaysExpanded
+    let autoHide = sidebarConfig.autoHide && !sidebarConfig.pinsSidebarOpen
     if position == .right {
         let edge = autoHide ? displayFrame.maxX : surface.maxX
         let width = max(surface.width, thickness) + exitTolerance + max(edge - surface.maxX, 0)

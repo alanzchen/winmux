@@ -3,7 +3,7 @@ import AppKit
 extension TilingContainer {
     @MainActor
     var usesWindowTabBehavior: Bool {
-        isWindowTabGroup && config.windowTabs.enabled
+        isWindowTabGroup && (config.windowTabs.enabled && !config.usesBrowserTabs)
     }
 
     @MainActor

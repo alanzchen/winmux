@@ -3,11 +3,11 @@ import SwiftUI
 
 // Proportions follow Dia's sidebar: airy rows, a bright pill for the active tab, and
 // tinted, rounded cards for groups.
-let workspaceSidebarTabRowHeight: CGFloat = 30
+let workspaceSidebarTabRowHeight: CGFloat = 36
 let workspaceSidebarTabFolderHeaderHeight: CGFloat = 30
 let workspaceSidebarTabIconSize: CGFloat = 16
 let workspaceSidebarTabGroupIndent: CGFloat = 14
-let workspaceSidebarTabCornerRadius: CGFloat = 8
+let workspaceSidebarTabCornerRadius: CGFloat = 10
 let workspaceSidebarTabFolderCornerRadius: CGFloat = 12
 let workspaceSidebarTabCloseSlotWidth: CGFloat = 24
 
@@ -122,17 +122,22 @@ struct WorkspaceSidebarTabRowView: View {
     let onSelect: () -> Void
     @State private var isHovered = false
 
-    private var title: String { window.title ?? window.appName }
+    var titleOverride: String? = nil
+    var emojiOverride: String? = nil
+    private var title: String { titleOverride ?? window.title ?? window.appName }
     private var isActive: Bool { window.isFocused }
 
     var body: some View {
         Button(action: onSelect) {
             HStack(spacing: 9) {
-                WorkspaceSidebarTabIcon(bundleId: window.appBundleId, bundlePath: window.appBundlePath,
-                    isOnLightBackground: isActive)
+                if let emojiOverride { Text(emojiOverride).frame(width: workspaceSidebarTabIconSize) }
+                else {
+                    WorkspaceSidebarTabIcon(bundleId: window.appBundleId, bundlePath: window.appBundlePath,
+                        isOnLightBackground: isActive)
+                }
                 Text(title)
                     .font(.system(size: 13, weight: isActive ? .medium : .regular))
-                    .foregroundStyle(isActive ? Color.black.opacity(0.86) : Color.white.opacity(0.82))
+                    .foregroundStyle(Color.primary.opacity(isActive ? 0.95 : 0.82))
                     .lineLimit(1)
                     .truncationMode(.tail)
                 Spacer(minLength: 0)
@@ -156,11 +161,11 @@ struct WorkspaceSidebarTabRowView: View {
             Button(action: close) {
                 Image(systemName: "xmark")
                     .font(.system(size: 9, weight: .bold))
-                    .foregroundStyle(isActive ? Color.black.opacity(0.55) : Color.white.opacity(0.7))
+                    .foregroundStyle(Color.primary.opacity(0.6))
                     .frame(width: 18, height: 18)
                     .background {
                         RoundedRectangle(cornerRadius: 5, style: .continuous)
-                            .fill(isActive ? Color.black.opacity(0.07) : Color.white.opacity(0.1))
+                            .fill(Color.primary.opacity(0.08))
                     }
                     .contentShape(Rectangle())
             }
@@ -203,8 +208,8 @@ struct WorkspaceSidebarTabRowView: View {
     }
 
     private var backgroundFill: Color {
-        if isActive { return Color.white.opacity(0.92) }
-        if isHovered || isSearchSelected { return Color.white.opacity(0.08) }
+        if isActive { return Color(nsColor: .controlBackgroundColor) }
+        if isHovered || isSearchSelected { return Color.primary.opacity(0.07) }
         return .clear
     }
 }
@@ -222,7 +227,7 @@ struct WorkspaceSidebarTabIcon: View {
                 Image(nsImage: icon).resizable().aspectRatio(contentMode: .fit)
             } else {
                 Image(systemName: "macwindow").resizable().aspectRatio(contentMode: .fit)
-                    .foregroundStyle(isOnLightBackground ? Color.black.opacity(0.55) : Color.white.opacity(0.6))
+                    .foregroundStyle(Color.secondary)
             }
         }
         .frame(width: size, height: size)
@@ -252,13 +257,13 @@ struct WorkspaceSidebarTabGroupRowView: View {
                 .frame(width: workspaceSidebarTabIconSize, height: workspaceSidebarTabIconSize)
                 Text(group.title.isEmpty ? "Stack" : group.title)
                     .font(.system(size: 12.5, weight: .medium))
-                    .foregroundStyle(Color.white.opacity(0.6))
+                    .foregroundStyle(Color.secondary)
                     .lineLimit(1)
                     .truncationMode(.tail)
                 Spacer(minLength: 0)
                 Text("\(count)")
                     .font(.system(size: 11, weight: .medium).monospacedDigit())
-                    .foregroundStyle(Color.white.opacity(0.4))
+                    .foregroundStyle(Color.primary.opacity(0.4))
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
                     .frame(width: workspaceSidebarTabCloseSlotWidth)
@@ -270,7 +275,7 @@ struct WorkspaceSidebarTabGroupRowView: View {
         .buttonStyle(.plain)
         .background {
             RoundedRectangle(cornerRadius: workspaceSidebarTabCornerRadius, style: .continuous)
-                .fill(isHovered ? Color.white.opacity(0.06) : .clear)
+                .fill(isHovered ? Color.primary.opacity(0.06) : .clear)
         }
         .opacity(isDragSource ? 0.45 : 1)
         .modifier(WorkspaceSidebarOptionalDragModifier(
@@ -437,7 +442,7 @@ struct WorkspaceSidebarTabFolderView: View {
                         Spacer(minLength: 0)
                         Text("\(windowCount)")
                             .font(.system(size: 11, weight: .medium).monospacedDigit())
-                            .foregroundStyle(Color.white.opacity(0.38))
+                            .foregroundStyle(Color.primary.opacity(0.38))
                             .lineLimit(1)
                             .minimumScaleFactor(0.7)
                             .frame(width: workspaceSidebarTabCloseSlotWidth)
@@ -447,7 +452,7 @@ struct WorkspaceSidebarTabFolderView: View {
                     .background {
                         // The arrow keys can select a folder itself; show where Enter goes.
                         RoundedRectangle(cornerRadius: workspaceSidebarTabCornerRadius, style: .continuous)
-                            .fill(Color.white.opacity(selectedSearchTarget == .workspace(workspace.name) ? 0.1 : 0))
+                            .fill(Color.primary.opacity(selectedSearchTarget == .workspace(workspace.name) ? 0.1 : 0))
                     }
                 }
                 .buttonStyle(.plain)
@@ -483,7 +488,7 @@ struct WorkspaceSidebarTabNewWorkspaceRow: View {
                     .font(.system(size: 13))
                 Spacer(minLength: 0)
             }
-            .foregroundStyle(Color.white.opacity(isHovered || isDropTarget ? 0.8 : 0.45))
+            .foregroundStyle(Color.primary.opacity(isHovered || isDropTarget ? 0.8 : 0.45))
             .padding(.leading, 15)
             .frame(maxWidth: .infinity, minHeight: workspaceSidebarTabRowHeight, alignment: .leading)
             .contentShape(Rectangle())
@@ -491,7 +496,7 @@ struct WorkspaceSidebarTabNewWorkspaceRow: View {
         .buttonStyle(.plain)
         .background {
             RoundedRectangle(cornerRadius: workspaceSidebarTabCornerRadius, style: .continuous)
-                .fill(Color.white.opacity(isDropTarget ? 0.12 : (isHovered ? 0.06 : 0)))
+                .fill(Color.primary.opacity(isDropTarget ? 0.12 : (isHovered ? 0.06 : 0)))
         }
         .onHover { isHovered = $0 }
         .background {
@@ -552,11 +557,19 @@ extension WorkspaceSidebarView {
                                 },
                             )
                         }
-                        ForEach(folders) { workspace in
-                            tabEntry(workspace, isPinned: workspace.id == pinnedWorkspace?.id,
-                                projectId: projectId, pageAllowsActivation: pageAllowsActivation, isSearching: isSearching,
-                                overrideMinHeight: overrideMinHeight, monitorScopeId: createMonitorScopeId)
-                                .id(workspaceSidebarTabFolderRowId(workspace.name))
+                        ForEach(workspaceSidebarTabSections(workspaces: folders.filter { isSearching || !$0.appearance.isFavorite },
+                            collections: snapshot.configuration.tabCollections, projectId: projectId)) { section in
+                            switch section {
+                                case .tab(let workspace):
+                                    tabEntry(workspace, isPinned: workspace.id == pinnedWorkspace?.id,
+                                        projectId: projectId, pageAllowsActivation: pageAllowsActivation, isSearching: isSearching,
+                                        overrideMinHeight: overrideMinHeight, monitorScopeId: createMonitorScopeId)
+                                        .id(workspaceSidebarTabFolderRowId(workspace.name))
+                                case .collection(let group, let workspaces):
+                                    tabCollection(group, workspaces: workspaces, projectId: projectId,
+                                        pageAllowsActivation: pageAllowsActivation, isSearching: isSearching,
+                                        overrideMinHeight: overrideMinHeight, monitorScopeId: createMonitorScopeId)
+                            }
                         }
                     }
                     .padding(.leading, leadingInset)
@@ -580,7 +593,7 @@ extension WorkspaceSidebarView {
 
     /// A workspace as a single tab, a split tab, an empty new tab, or a folder.
     @ViewBuilder
-    private func tabEntry(
+    func tabEntry(
         _ workspace: WorkspaceSidebarWorkspaceViewModel,
         isPinned: Bool,
         projectId: WorkspaceProjectId,
@@ -588,6 +601,7 @@ extension WorkspaceSidebarView {
         isSearching: Bool,
         overrideMinHeight: CGFloat,
         monitorScopeId: String,
+        collectionId: String? = nil,
     ) -> some View {
         let showsProjectContext = isPinned || (browsedProjectId != nil && projectId != snapshot.activeProjectId)
         // Only this page's own tabs take drops between them, and only in Tabs mode's tab list.
@@ -621,6 +635,7 @@ extension WorkspaceSidebarView {
                 dropPlacement: snapshot.dropPreview?.targetPlacement,
                 insertionEdge: insertionEdge,
                 gapTarget: gapTarget,
+                collectionId: collectionId,
                 onBeginRename: { beginWorkspaceRename(workspace) },
                 onCommitOverride: {
                     activeInUseOverrideWorkspaceName = nil
@@ -632,7 +647,7 @@ extension WorkspaceSidebarView {
     }
 
     /// How clicks on a workspace's rows behave; shared by folders and tabs.
-    private func tabActivation(
+    func tabActivation(
         _ workspace: WorkspaceSidebarWorkspaceViewModel,
         isPinned: Bool,
         pageAllowsActivation: Bool,

@@ -44,6 +44,7 @@ private func makeWorkspaceSidebarWorkspaceViewModel(
         items: await buildWorkspaceSidebarItems(for: workspace, currentFocus: currentFocus),
         apps: buildWorkspaceSidebarAppSummaries(for: workspace),
         savedState: runningApps.flatMap { workspaceSidebarSavedState(for: workspace, runningApps: $0) },
+        appearance: workspaceSidebarOrganizationStore.state.workspaces[workspace.name] ?? .init(),
     )
 }
 

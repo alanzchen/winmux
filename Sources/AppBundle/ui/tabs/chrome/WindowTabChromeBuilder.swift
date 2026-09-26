@@ -2,7 +2,7 @@ import CoreGraphics
 
 @MainActor
 func buildWindowTabChromeItemsFromSource10Tree() async -> [WindowTabChromeItem] {
-    guard TrayMenuModel.shared.isEnabled, config.windowTabs.enabled else { return [] }
+    guard TrayMenuModel.shared.isEnabled, (config.windowTabs.enabled && !config.usesBrowserTabs) else { return [] }
     pruneCachedWindowTitles()
 
     var items: [WindowTabChromeItem] = []

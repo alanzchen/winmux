@@ -60,6 +60,7 @@ struct WorkspaceSidebarConfiguration: Equatable {
     // Auto-hide makes collapsedWidth zero; the compact layout retains its resolved rail width.
     var configuredCollapsedWidth: CGFloat? = nil
     var alwaysExpanded: Bool = false
+    var tabCollections: [WorkspaceTabCollection] = []
 
     var compactRailWidth: CGFloat {
         showAppIcons ? WorkspaceSidebarConfig.dockWidth(forIconSize: dockIconSize) : configuredCollapsedWidth ?? collapsedWidth
@@ -90,6 +91,19 @@ struct WorkspaceSidebarConfiguration: Equatable {
 }
 
 enum WorkspaceSidebarAction: Equatable {
+    case setWorkspaceColor(String, String?)
+    case setWorkspaceEmoji(String, String?)
+    case setWorkspaceFavorite(String, Bool)
+    case createTabCollection(String)
+    case renameTabCollection(String, String)
+    case setTabCollectionColor(String, String?)
+    case setTabCollectionEmoji(String, String?)
+    case toggleTabCollection(String)
+    case assignTabCollection(String, String?)
+    case ungroupTabCollection(String)
+    case moveTabCollection(String, WorkspaceProjectId)
+    case createTabInCollection(String, monitorScopeId: String)
+    case toggleTabsSidebar
     case selectWorkspace(String)
     case overrideWorkspaceInUse(String)
     case expandForWorkspaceOverride

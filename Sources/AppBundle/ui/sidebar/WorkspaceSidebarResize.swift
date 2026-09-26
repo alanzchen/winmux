@@ -9,7 +9,7 @@ let workspaceSidebarResizableWidthRange: ClosedRange<Int> = 120...480
 /// Only an always-expanded panel beside the tiled windows has an inner edge to drag.
 /// A bottom panel's height follows the display, and a collapsible rail opens over windows.
 func workspaceSidebarAllowsResize(_ sidebarConfig: WorkspaceSidebarConfig) -> Bool {
-    sidebarConfig.alwaysExpanded && sidebarConfig.effectiveDockPosition != .bottom
+    sidebarConfig.pinsSidebarOpen && sidebarConfig.effectiveDockPosition != .bottom
 }
 
 func workspaceSidebarResizeWidthBounds(_ sidebarConfig: WorkspaceSidebarConfig) -> ClosedRange<Int> {

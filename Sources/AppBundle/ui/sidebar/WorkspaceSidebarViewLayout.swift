@@ -4,6 +4,7 @@ import SwiftUI
 
 extension WorkspaceSidebarView {
     func sidebarContent(expansionProgress: CGFloat, layout: WorkspaceSidebarConfiguration, drawsSurface: Bool = true) -> some View {
+        if layout.usesTabsList { return AnyView(tabsSidebarContent(expansionProgress: expansionProgress, layout: layout)) }
         let isCompact = expansionProgress < workspaceSidebarRowsRevealProgress
         let progress = min(max(expansionProgress, 0), 1)
         let leadingInset = layout.showAppIcons
@@ -48,7 +49,7 @@ extension WorkspaceSidebarView {
             query: searchText,
         )
 
-        return VStack(alignment: .leading, spacing: 0) {
+        return AnyView(VStack(alignment: .leading, spacing: 0) {
             if showsCompactMonitorSelector {
                 compactMonitorSelectorSection(
                     layout: layout,
@@ -174,7 +175,7 @@ extension WorkspaceSidebarView {
                     height: layout.dockPosition == .bottom ? 0.5 : nil)
                 .opacity(Double(dockSurfaceProgress))
         }
-        .modifier(WorkspaceSidebarTrailingOverflowModifier(base: sidebarShape(layout: layout), overflow: dockMagnificationOverflow(layout: layout)))
+        .modifier(WorkspaceSidebarTrailingOverflowModifier(base: sidebarShape(layout: layout), overflow: dockMagnificationOverflow(layout: layout))))
     }
 }
 

@@ -267,8 +267,7 @@ final class WorkspaceSidebarTabsModeTest: XCTestCase {
         let first = try XCTUnwrap(probe.targets.first { $0.kind == .workspace("1") })
         let second = try XCTUnwrap(probe.targets.first { $0.kind == .workspace("2") })
         XCTAssertLessThan(first.frame.maxY, second.frame.minY)
-        XCTAssertGreaterThanOrEqual(first.frame.height,
-            workspaceSidebarTabFolderHeaderHeight + 3 * workspaceSidebarTabRowHeight, "Every window has a row")
+        XCTAssertEqual(first.frame.height, workspaceSidebarTabRowHeight, "Tiled windows share one sidebar row")
         // A drop lands where the pointer is: inside folder 2's card, or on the New Workspace row.
         let surface = host.bounds
         XCTAssertEqual(workspaceSidebarLocalDropTarget(at: CGPoint(x: second.frame.midX, y: second.frame.maxY - 2),

@@ -28,6 +28,7 @@ func workspaceSidebarAppSummaryLabel(_ workspace: WorkspaceSidebarWorkspaceViewM
 }
 
 func workspaceSidebarAppSummaryIdentifier(_ workspace: WorkspaceSidebarWorkspaceViewModel) -> String {
+    if let emoji = workspace.appearance.emoji { return emoji }
     let label = workspace.displayName
     if !label.isEmpty, label.allSatisfy(\.isNumber) { return label }
     if workspace.isGeneratedName, workspace.sidebarLabel.isEmpty, label.hasPrefix("Workspace ") {
