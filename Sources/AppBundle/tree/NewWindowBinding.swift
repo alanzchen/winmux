@@ -62,7 +62,7 @@ func bindingDataForNewTilingWindow(_ workspace: Workspace, window: Window?) -> B
 
 @MainActor
 private func autoAddNewWindowToFocusedTabGroupBinding(_ workspace: Workspace) -> BindingData? {
-    guard config.autoAddNewWindowsToTabGroup,
+    guard !config.usesBrowserTabs, config.autoAddNewWindowsToTabGroup,
           let focusedWindow = focus.windowOrNil,
           focusedWindow.nodeWorkspace == workspace,
           let tabGroup = focusedWindow.parent as? TilingContainer,

@@ -9,10 +9,10 @@ import Common
 /// With `open-new-windows-in-new-workspace`, a window the user opens gets its own empty
 /// workspace in the same project and display; in Tabs mode, a new tab right after the one it
 /// opened from. Runs after `on-window-detected`, so a rule that already moved the window to
-/// another workspace wins.
+/// another workspace wins. Tabs also separate existing, unrestored windows on startup.
 @MainActor
 func shouldMoveNewWindowToNewWorkspace(_ window: Window, detectedIn initialWorkspace: Workspace?, isNewRegularWindow: Bool) -> Bool {
-    guard config.opensNewWindowsInNewWorkspace, isNewRegularWindow, !isStartup,
+    guard config.opensNewWindowsInNewWorkspace, isNewRegularWindow, !isStartup || config.usesBrowserTabs,
           let initialWorkspace, window.nodeWorkspace === initialWorkspace,
           // An app being restored into saved workspaces waits for its window's title, then
           // places it in a saved slot. Moving it meanwhile would only make it jump twice.
@@ -32,7 +32,8 @@ func moveNewWindowToNewWorkspaceIfNeeded(_ window: Window, detectedIn initialWor
         : getOrCreateAdjacentBlankWorkspace(projectId: initialWorkspace.projectId, monitor: monitor)
     guard target !== initialWorkspace else { return }
     // Follow a window from the app in use, so it never lands out of sight. A window that
-    // a background app opens waits in its new workspace without taking focus.
+    // a background app opens waits in its new workspace without taking focus. Startup
+    // enumeration must not activate every existing window from the frontmost app.
     _ = moveWindowToWorkspace(window, target, CmdIo(stdin: .emptyStdin),
-        focusFollowsWindow: newWindowAppIsFrontmost(window), failIfNoop: true)
+        focusFollowsWindow: !isStartup && newWindowAppIsFrontmost(window), failIfNoop: true)
 }

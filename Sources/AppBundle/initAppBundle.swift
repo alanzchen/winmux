@@ -89,10 +89,10 @@ private func finishSavedWorkspaceStartup() {
     scheduleSavedWorkspaceCheckpoint()
 }
 
-/// A saved workspace already has its own layout.
+/// Restored workspaces and browser tabs already have their own layouts.
 @MainActor
 func shouldApplySmartLayoutAtStartup(didLoadPersistedFrozenWorld: Bool) -> Bool {
-    !didLoadPersistedFrozenWorld && !focus.workspace.isSaved
+    !config.usesBrowserTabs && !didLoadPersistedFrozenWorld && !focus.workspace.isSaved
 }
 
 @MainActor

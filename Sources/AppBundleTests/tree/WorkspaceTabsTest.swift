@@ -70,6 +70,151 @@ final class WorkspaceTabsTest: XCTestCase {
         XCTAssertTrue(focus.windowOrNil === window, "The app in use opened it, so it's the tab you see")
     }
 
+    func testExistingWindowsBecomeSeparateTabsAtStartupWithoutStealingFocus() async throws {
+        let workspace = focus.workspace
+        let first = TestWindow.new(id: 1, parent: workspace.rootTilingContainer)
+        XCTAssertTrue(first.focusWindow())
+        try await $_isStartup.withValue(true) {
+            _ = try await restoreOrDetectNewWindow(first, isRegularWindow: true)
+            XCTAssertTrue(first.nodeWorkspace === workspace, "The first window already has its own tab")
+            for id: UInt32 in 2...5 {
+                let window = TestWindow.new(id: id, parent: workspace.rootTilingContainer)
+                _ = try await restoreOrDetectNewWindow(window, isRegularWindow: true)
+                XCTAssertEqual(window.nodeWorkspace?.allLeafWindowsRecursive.map(\.windowId), [id])
+                XCTAssertTrue(focus.windowOrNil === first, "Enumerating existing windows must not activate each one")
+            }
+            XCTAssertFalse(shouldApplySmartLayoutAtStartup(didLoadPersistedFrozenWorld: false),
+                "Tabs mode must never apply the legacy startup stack heuristic")
+        }
+        XCTAssertEqual(orderedWorkspaces(in: workspace.projectId).filter { !$0.isEffectivelyEmpty }.count, 5)
+    }
+
+    func testStartupTabsStayOnTheDisplayWhereTheirWindowsWereDetected() async throws {
+        let main = SavedWorkspaceTestMonitor(id: 1, name: "Main", x: 0, isMain: true, uuid: nil)
+        let secondary = SavedWorkspaceTestMonitor(id: 2, name: "Secondary", x: 1920, uuid: nil)
+        setMonitorsForTests([main, secondary])
+        defer { setMonitorsForTests(nil) }
+        Workspace.reconcileWorkspaceState()
+        let focused = TestWindow.new(id: 1, parent: main.activeWorkspace.rootTilingContainer)
+        XCTAssertTrue(focused.focusWindow())
+        let origin = secondary.activeWorkspace
+        try await $_isStartup.withValue(true) {
+            for id: UInt32 in 2...4 {
+                let window = TestWindow.new(id: id, parent: origin.rootTilingContainer)
+                _ = try await restoreOrDetectNewWindow(window, isRegularWindow: true)
+                XCTAssertEqual(window.nodeWorkspace?.allLeafWindowsRecursive.map(\.windowId), [id])
+                XCTAssertEqual(window.nodeMonitor?.rect, secondary.rect)
+                XCTAssertTrue(focus.windowOrNil === focused)
+            }
+        }
+        XCTAssertTrue(secondary.activeWorkspace === origin)
+    }
+
+    func testStartupSessionActivatesTheNativeFocusedTabEvenWhenRegisteredLater() async throws {
+        let previousApp = appForTests
+        let wasEnabled = TrayMenuModel.shared.isEnabled
+        defer {
+            appForTests = previousApp
+            TrayMenuModel.shared.isEnabled = wasEnabled
+            setBlockingRefreshOverridesForTests()
+        }
+        appForTests = TestApp.shared
+        TrayMenuModel.shared.isEnabled = true
+        let origin = focus.workspace
+        let first = TestWindow.new(id: 1, parent: origin.rootTilingContainer)
+        XCTAssertTrue(first.focusWindow())
+        let nativeFocused = TestWindow.new(id: 3, parent: origin.rootTilingContainer)
+        try await $_isStartup.withValue(true) {
+            _ = try await restoreOrDetectNewWindow(nativeFocused, isRegularWindow: true)
+        }
+        XCTAssertFalse(nativeFocused.nodeWorkspace === origin)
+        TestApp.shared.focusedWindow = nativeFocused
+        setBlockingRefreshOverridesForTests(refresh: {
+            let another = TestWindow.new(id: 4, parent: origin.rootTilingContainer)
+            _ = try await restoreOrDetectNewWindow(another, isRegularWindow: true)
+        }, normalizeLayoutReason: {})
+
+        try await runRefreshSessionBlocking(.startup, layoutWorkspaces: false)
+
+        XCTAssertTrue(focus.windowOrNil === nativeFocused)
+        XCTAssertTrue(mainMonitor.activeWorkspace === nativeFocused.nodeWorkspace,
+            "Startup resolves native focus before hiding any inactive tabs")
+    }
+
+    func testStartupSessionMigratesRestoredLegacyStacksToTabs() async throws {
+        let previousApp = appForTests
+        let wasEnabled = TrayMenuModel.shared.isEnabled
+        defer {
+            appForTests = previousApp
+            TrayMenuModel.shared.isEnabled = wasEnabled
+            setBlockingRefreshOverridesForTests()
+            replaceClosedWindowsCache(FrozenWorld(workspaces: [], monitors: [], windowIds: []))
+        }
+        appForTests = TestApp.shared
+        TrayMenuModel.shared.isEnabled = true
+        let legacy = focus.workspace
+        let stack = legacy.rootTilingContainer
+        stack.layout = .tabGroup
+        let windows = (1...4).map { TestWindow.new(id: UInt32($0), parent: stack) }
+        let saved = snapshotCurrentFrozenWorld()
+        XCTAssertEqual(saved.workspaces.first?.rootTilingNode.layout, .tabGroup)
+        replaceClosedWindowsCache(saved)
+        let staging = Workspace.get(byName: "staging")
+        for window in windows { window.bind(to: staging.rootTilingContainer, adaptiveWeight: 1, index: INDEX_BIND_LAST) }
+        // getNativeFocusObservation restores the native focused window before updating
+        // logical focus. All fixture windows are already registered and restored together.
+        try await $_isStartup.withValue(true) {
+            _ = try await restoreOrDetectNewWindow(windows[2], isRegularWindow: true)
+        }
+        XCTAssertEqual(legacy.rootTilingContainer.layout, .tabGroup, "The frozen stack must be restored before migration")
+        TestApp.shared.focusedWindow = windows[2]
+        setBlockingRefreshOverridesForTests(refresh: {}, normalizeLayoutReason: {})
+
+        try await runRefreshSessionBlocking(.startup, layoutWorkspaces: false)
+
+        for window in windows {
+            XCTAssertEqual(window.nodeWorkspace?.allLeafWindowsRecursive.map(\.windowId), [window.windowId])
+            XCTAssertEqual(window.nodeWorkspace?.rootTilingContainer.layout, .tiles)
+        }
+        XCTAssertTrue(focus.windowOrNil === windows[2])
+        XCTAssertTrue(mainMonitor.activeWorkspace === windows[2].nodeWorkspace)
+    }
+
+    func testTabsModeIgnoresLegacyDefaultStackLayoutForNewWorkspaces() {
+        config.defaultRootContainerLayout = .tabGroup
+        let tab = createWorkspace(after: focus.workspace, projectId: focus.workspace.projectId, monitor: mainMonitor)
+        XCTAssertEqual(tab.rootTilingContainer.layout, .tiles)
+    }
+
+    func testTabsModeDoesNotAutomaticallyAddWindowsToALegacyStack() {
+        config.autoAddNewWindowsToTabGroup = true
+        let workspace = focus.workspace
+        let stack = TilingContainer(parent: workspace.rootTilingContainer, adaptiveWeight: 1, .h, .tabGroup, index: 0)
+        XCTAssertTrue(TestWindow.new(id: 1, parent: stack).focusWindow())
+        XCTAssertFalse(bindingDataForNewRegularWindow(workspace, window: nil).parent === stack)
+    }
+
+    func testStartupPreservesRestoredSplitTabs() async throws {
+        let split = focus.workspace
+        let first = TestWindow.new(id: 1, parent: split.rootTilingContainer)
+        let second = TestWindow.new(id: 2, parent: split.rootTilingContainer)
+        replaceClosedWindowsCache(snapshotCurrentFrozenWorld())
+        defer { replaceClosedWindowsCache(FrozenWorld(workspaces: [], monitors: [], windowIds: [])) }
+        let staging = Workspace.get(byName: "staging")
+        for window in [first, second] {
+            window.bind(to: staging.rootTilingContainer, adaptiveWeight: 1, index: INDEX_BIND_LAST)
+        }
+        try await $_isStartup.withValue(true) {
+            for window in [first, second] {
+                let restored = try await restoreOrDetectNewWindow(window, isRegularWindow: true)
+                XCTAssertTrue(restored)
+                XCTAssertTrue(window.nodeWorkspace === split)
+            }
+        }
+        XCTAssertEqual(split.rootTilingContainer.layout, .tiles)
+        XCTAssertEqual(split.allLeafWindowsRecursive.map(\.windowId), [1, 2])
+    }
+
     func testNewTabOpensAfterTheCurrentTabAndReusesAnEmptyOne() {
         let (a, b, _) = threeTabs()
         let newTab = newTabWorkspace(projectId: b.projectId, monitor: b.workspaceMonitor)
