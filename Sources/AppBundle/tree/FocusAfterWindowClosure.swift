@@ -22,6 +22,12 @@ func focusAfterWindowClosure(
         return nil
     }
 
+    // In Tabs mode the tab closes with its last window and the next tab takes over.
+    if deadWindowWorkspace == currentFocus.workspace, let nextTab = workspaceTabAfterLastWindowClosed(deadWindowWorkspace) {
+        debugFocusLog("focusAfterWindowClosure closing=\(closingWindow.windowId) lastWindowOfTab next=\(nextTab.name)")
+        return nextTab.toLiveFocus()
+    }
+
     let replacement = FocusAfterWindowClosureReplacement(closingWindow: closingWindow, deadWindowWorkspace: deadWindowWorkspace)
     if let snapshotTabFocus = replacement.snapshotTabGroupFocus(
         closeFallback: refreshSnapshotCloseFallback,

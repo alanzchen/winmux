@@ -1,0 +1,121 @@
+import AppKit
+import Common
+
+// In Tabs mode the sidebar works like a browser's tab list: each workspace is a tab, new
+// windows and New Tab open one right after the current tab, and a tab that ends up empty
+// closes.
+
+/// A blank workspace placed right after `anchor` in its project, like a browser's new tab.
+@MainActor
+func createWorkspace(after anchor: Workspace?, projectId: WorkspaceProjectId, monitor: Monitor) -> Workspace {
+    let workspace = createBlankWorkspace(projectId: projectId, monitor: monitor)
+    if let anchor, anchor !== workspace, anchor.projectId == projectId {
+        winMuxWorkspaceState.moveWorkspace(workspace.id, after: anchor.id)
+    }
+    return workspace
+}
+
+/// Windows an app opens in a burst from one tab line up after it in the order they opened,
+/// as links opened from a browser tab do.
+private let workspaceTabOpeningBurst: TimeInterval = 2
+@MainActor private var lastTabOpenedFrom: [WorkspaceId: (tab: WorkspaceId, uptime: TimeInterval)] = [:]
+
+/// The tab a new window opens in: right after the tab it opened from, or after the tabs that
+/// tab has just opened.
+@MainActor
+func createWorkspaceForNewWindow(openedFrom anchor: Workspace, monitor: Monitor,
+                                 now: TimeInterval = ProcessInfo.processInfo.systemUptime) -> Workspace {
+    let order = orderedWorkspaces(in: anchor.projectId)
+    var after = anchor
+    if let last = lastTabOpenedFrom[anchor.id], now - last.uptime < workspaceTabOpeningBurst,
+       let lastTab = winMuxWorkspaceState.workspaceById[last.tab],
+       let anchorIndex = order.firstIndex(where: { $0 === anchor }),
+       let lastIndex = order.firstIndex(where: { $0 === lastTab }), lastIndex > anchorIndex
+    {
+        after = lastTab
+    }
+    let workspace = createWorkspace(after: after, projectId: anchor.projectId, monitor: monitor)
+    lastTabOpenedFrom = lastTabOpenedFrom.filter { now - $0.value.uptime < workspaceTabOpeningBurst }
+    lastTabOpenedFrom[anchor.id] = (workspace.id, now)
+    return workspace
+}
+
+@MainActor func resetWorkspaceTabsForTests() { lastTabOpenedFrom = [:] }
+
+/// A tab the launcher opened in, closed again if nothing opens in it.
+struct WorkspaceLauncherNewTab {
+    let workspace: Workspace
+    /// The tab to go back to; nil means the nearest tab with windows.
+    let previous: Workspace?
+    /// False when New Tab reused the empty tab already on screen: closing the launcher then
+    /// leaves it, unless it's the new tab the launcher was already showing.
+    var isNew = true
+}
+
+/// The tab New Tab opens: a new one after the tab on screen, or that tab itself if it's
+/// already empty, so pressing New Tab again doesn't pile up empty tabs.
+@MainActor
+func newTabWorkspace(projectId: WorkspaceProjectId, monitor: Monitor) -> WorkspaceLauncherNewTab {
+    let current = monitor.activeWorkspace
+    let isCurrentProject = current.projectId == projectId && !current.isArchived
+    if isCurrentProject, !workspaceHasLifecycleWindows(current), !current.isKeptWhenEmpty {
+        return WorkspaceLauncherNewTab(workspace: current, previous: nil, isNew: false)
+    }
+    let workspace = createWorkspace(after: isCurrentProject ? current : nil, projectId: projectId, monitor: monitor)
+    return WorkspaceLauncherNewTab(workspace: workspace, previous: isCurrentProject ? current : nil)
+}
+
+/// Where a window dropped on New Tab goes: a tab right after the one it came from, or after
+/// the tab on screen when it came from another display.
+@MainActor
+func workspaceForDropOnNewTab(projectId: WorkspaceProjectId, monitor: Monitor, sourceWindow: Window) -> Workspace {
+    guard config.usesBrowserTabs else { return getOrCreateAdjacentBlankWorkspace(projectId: projectId, monitor: monitor) }
+    let anchor = [sourceWindow.nodeWorkspace, monitor.activeWorkspace].compactMap { $0 }
+        .first { $0.projectId == projectId && $0.workspaceMonitor.rect == monitor.rect }
+    return createWorkspace(after: anchor, projectId: projectId, monitor: monitor)
+}
+
+/// The nearest tab with windows on the same display: the next one, else the previous one.
+/// A tab showing on another display stays there.
+@MainActor
+func workspaceTabNeighbor(of workspace: Workspace) -> Workspace? {
+    let monitor = workspace.workspaceMonitor
+    let tabs = orderedWorkspaces(in: workspace.projectId).filter { tab in
+        tab === workspace || tab.workspaceMonitor.rect == monitor.rect
+    }
+    guard let index = tabs.firstIndex(where: { $0 === workspace }) else { return nil }
+    let hasWindows = { (tab: Workspace) in workspaceHasLifecycleWindows(tab) }
+    return tabs[(index + 1)...].first(where: hasWindows) ?? tabs[..<index].reversed().first(where: hasWindows)
+}
+
+/// Closing a tab's last window moves to the next tab, as closing a browser tab does. A saved
+/// workspace stays: like a pinned tab, it's kept even when empty.
+@MainActor
+func workspaceTabAfterLastWindowClosed(_ workspace: Workspace) -> Workspace? {
+    guard config.usesBrowserTabs, !workspace.isArchived, !workspace.isKeptWhenEmpty,
+          !workspaceHasLifecycleWindows(workspace)
+    else { return nil }
+    return workspaceTabNeighbor(of: workspace)
+}
+
+/// Closes a tab the launcher opened when nothing was opened in it, going back to the tab
+/// the user came from. If the user has gone to another display meanwhile, the tab's display
+/// switches back without taking focus. The empty tab is then pruned like any other.
+@MainActor
+func closeUnusedNewTab(_ newTab: WorkspaceLauncherNewTab) {
+    let tab = newTab.workspace
+    // Not on screen: the user already switched tabs there.
+    guard winMuxWorkspaceState.workspaceById[tab.id] === tab, !tab.isArchived, tab.isVisible,
+          !workspaceHasLifecycleWindows(tab), !tab.isKeptWhenEmpty
+    else { return }
+    let previous = newTab.previous.flatMap { previous in
+        winMuxWorkspaceState.workspaceById[previous.id] === previous && !previous.isArchived && !previous.isVisible &&
+            previous.workspaceMonitor.rect == tab.workspaceMonitor.rect ? previous : nil
+    }
+    guard let destination = previous ?? workspaceTabNeighbor(of: tab).flatMap({ $0.isVisible ? nil : $0 }) else { return }
+    if tab === focus.workspace {
+        _ = destination.focusWorkspace()
+    } else {
+        _ = tab.workspaceMonitor.setActiveWorkspace(destination)
+    }
+}

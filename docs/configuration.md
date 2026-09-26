@@ -54,6 +54,15 @@ mode = 'tabs'
 always-expanded = true
 ```
 
+- Workspaces work like a browser's tabs. **New Tab**, at the top of the list, opens an
+  empty workspace right after the current one with the [launcher](#open-a-new-window-from-new-workspace),
+  so you pick an app for it. Press Esc or click away without picking one, and the empty
+  workspace closes again and you're back where you were.
+- A window you open gets its own workspace right after the one it opened from, as
+  [`open-new-windows-in-new-workspace`](#open-each-new-window-in-its-own-workspace)
+  does. In Tabs mode that's on unless you set it to `false`.
+- Close a workspace's last window and WinMux switches to the next workspace with windows,
+  or the previous one if it was the last. A saved workspace stays, like a pinned tab.
 - Each window is a tab showing its app icon and title. Click a tab to switch to that
   window, even on another workspace. The focused window is highlighted. As in the
   Sidebar, tabs of a project you are only browsing don't switch, and a workspace shown
@@ -63,8 +72,8 @@ always-expanded = true
   shows the window you are using, and a search shows every match. Click a folder's name
   to switch to that workspace, or right-click it to rename, save, or delete it.
 - A stack of tabbed windows appears as an indented group.
-- Drag a tab onto another folder to move the window there, or onto **New Workspace** to
-  give it its own workspace.
+- Drag a tab onto another folder to move the window there, or onto **New Tab** to
+  give it its own workspace right after the one it came from.
 - The emoji project switcher sits at the bottom.
 
 Tabs mode uses the Sidebar's placement, collapsed rail, auto-hide, and edge resizing.
@@ -161,8 +170,10 @@ open-new-windows-in-new-workspace = true
 ```
 
 A window you open moves to an empty workspace in the current project, on the same
-display. WinMux switches to that workspace when the window comes from the app you are
-using; a window from a background app moves without taking focus. A window that opens
+display; in Tabs mode, right after the workspace it opened from, in the order an app
+opens several at once. Unset, this is on in Tabs mode and off otherwise. WinMux switches
+to that workspace when the window comes from the app you are using; a window from a
+background app moves without taking focus. A window that opens
 into an empty workspace stays there. Dialogs, popups, windows already open when WinMux starts,
 restored windows, windows claimed by saved workspaces, and windows that
 `[[on-window-detected]]` rules move to another workspace keep their place. This option
@@ -177,7 +188,8 @@ launcher-menu-fallback = false
 ```
 
 With `new-workspace-launcher`, clicking **New Workspace** in the sidebar opens a launcher
-in the empty workspace, like a browser's new-tab page. Type to find an app and press
+in the empty workspace, like a browser's new-tab page. Tabs mode's **New Tab** always
+opens it. Type to find an app and press
 Return. WinMux opens a **new window** of that app in the workspace, even if the app is
 already running with windows elsewhere; it doesn't switch you to those windows.
 
@@ -205,12 +217,14 @@ on its own at the same moment can be taken instead. Windows the app already had,
 including ones WinMux is restoring, are never moved. The new window takes focus unless
 you have moved on. Saved-workspace slots, `[[on-window-detected]]` rules, and
 `open-new-windows-in-new-workspace` don't move a window you opened this way. Press Esc
-or click elsewhere to close the launcher and keep the empty workspace; closing it while
+or click elsewhere to close the launcher and keep the empty workspace; in Tabs mode the
+empty workspace closes too and you go back to where you were. Closing the launcher while
 a window is opening lets that window follow the usual rules. Dropping a window onto New
-Workspace never opens the launcher.
+Workspace or New Tab never opens the launcher.
 
 `winmux open-launcher` opens the launcher for the focused workspace, and
-`winmux open-launcher --new-workspace` creates an empty workspace first.
+`winmux open-launcher --new-workspace` creates an empty workspace first; in Tabs mode,
+a new tab right after the current one, as New Tab does.
 
 ## Close windows with a middle click
 

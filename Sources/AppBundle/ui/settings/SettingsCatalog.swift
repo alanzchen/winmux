@@ -61,9 +61,24 @@ struct SettingsField: Identifiable {
     var preservingDockAppearance = false
     var writePreference: ((SettingsValue) -> Void)?
     var preferenceDefault: SettingsValue?
+    /// For a key whose default depends on other settings: its value while unset. Restoring
+    /// the default removes the key instead of writing today's value into the file.
+    var unsetValue: ((Config) -> SettingsValue)?
+    /// Whether the file sets such a key, so restoring it has something to remove.
+    var isSet: ((Config) -> Bool)?
     nonisolated var id: String { [section, key].compactMap { $0 }.joined(separator: ".") }
     var defaultValue: SettingsValue { preferenceDefault ?? read(defaultConfig) }
+    func defaultValue(for configuration: Config) -> SettingsValue { unsetValue?(configuration) ?? defaultValue }
     var searchText: String { "\(title) \(help) \(id) \(group.title) \(group.page.label)" }
+}
+
+extension SettingsField {
+    func withUnsetValue(_ value: @escaping (Config) -> SettingsValue, isSet: @escaping (Config) -> Bool) -> SettingsField {
+        var field = self
+        field.unsetValue = value
+        field.isSet = isSet
+        return field
+    }
 }
 
 @MainActor
@@ -165,7 +180,8 @@ enum SettingsCatalog {
             bool(.dockContent, "show-weekday", "Show weekday", "Include the day of the week.", section: sidebar, path: \.workspaceSidebar.showWeekday),
             bool(.newWindows, "automatically-tile-new-windows", "Tile new windows automatically", "Place new windows into the tiled layout.", path: \.automaticallyTileNewWindows),
             bool(.newWindows, "auto-add-new-windows-to-tab-group", "Add new windows to the current tab group", "Keep new windows in the selected stack instead of creating a new tile.", path: \.autoAddNewWindowsToTabGroup),
-            bool(.newWindows, "open-new-windows-in-new-workspace", "Open new windows in a new workspace", "Give each window you open its own empty workspace in the current project. Dialogs, restored windows, and windows that on-window-detected rules move to another workspace stay where they are. Takes precedence over adding to the current tab group.", path: \.openNewWindowsInNewWorkspace),
+            bool(.newWindows, "open-new-windows-in-new-workspace", "Open new windows in a new workspace", "Give each window you open its own empty workspace in the current project, right after the current one in Tabs mode, where this is on unless you turn it off. Dialogs, restored windows, and windows that on-window-detected rules move to another workspace stay where they are. Takes precedence over adding to the current tab group.", path: \.opensNewWindowsInNewWorkspace)
+                .withUnsetValue({ .bool($0.usesBrowserTabs) }, isSet: { $0.openNewWindowsInNewWorkspace != nil }),
             bool(.newWindows, "automatically-unhide-macos-hidden-apps", "Unhide macOS-hidden apps", "Restore apps macOS has hidden when they receive focus.", path: \.automaticallyUnhideMacosHiddenApps),
             bool(.interaction, "enable-shake-to-toggle-tiling", "Shake to toggle tiling", "Shake a window by its title bar to switch between floating and tiled.", path: \.enableShakeToToggleTiling),
             bool(.interaction, "middle-click-closes-windows", "Middle-click closes windows", "Middle-click a window tab, or a window in the expanded sidebar, to close it. Apps can still ask to save changes first.", path: \.middleClickClosesWindows),

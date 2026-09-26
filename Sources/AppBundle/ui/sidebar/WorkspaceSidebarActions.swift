@@ -217,6 +217,10 @@ func createWorkspaceFromSidebarButton() {
 
 @MainActor
 func createWorkspaceFromSidebarButton(projectId: WorkspaceProjectId, monitorScopeId: String) {
+    if config.usesBrowserTabs {
+        openNewTabFromSidebar(projectId: projectId, monitorScopeId: monitorScopeId)
+        return
+    }
     var launcherWorkspaceName: String?
     runWorkspaceSidebarSession(afterLayout: {
         // Like a browser's new tab: offer to open a new window in the empty workspace.
@@ -228,6 +232,24 @@ func createWorkspaceFromSidebarButton(projectId: WorkspaceProjectId, monitorScop
         if workspace.focusWorkspace(), config.workspaceSidebar.newWorkspaceLauncher, workspace.isEffectivelyEmpty {
             launcherWorkspaceName = workspace.name
         }
+    }
+}
+
+/// Tabs mode's New Tab: a new tab after the current one, with the launcher, whatever the
+/// launcher setting. Closing the launcher without opening anything closes the tab again.
+@MainActor
+func openNewTabFromSidebar(projectId: WorkspaceProjectId, monitorScopeId: String) {
+    var launcherTab: WorkspaceLauncherNewTab?
+    runWorkspaceSidebarSession(afterLayout: {
+        guard let launcherTab else { return }
+        if !WorkspaceLauncherPanel.shared.show(forWorkspaceNamed: launcherTab.workspace.name, newTab: launcherTab),
+           launcherTab.isNew
+        {
+            runWorkspaceSidebarSession { closeUnusedNewTab(launcherTab) }
+        }
+    }) {
+        let newTab = newTabWorkspace(projectId: projectId, monitor: workspaceSidebarTargetMonitor(scopeId: monitorScopeId))
+        if newTab.workspace.focusWorkspace() { launcherTab = newTab }
     }
 }
 
@@ -251,7 +273,7 @@ func createWorkspaceFromSidebarDrag(
         )
     } ?? sidebarWorkspaceTargetMonitor(fallbackWindow: sourceWindow, fallbackPoint: mouseLocation)
     let projectId = projectId ?? activeWorkspaceProjectId(for: targetMonitor)
-    let workspace = getOrCreateAdjacentBlankWorkspace(projectId: projectId, monitor: targetMonitor)
+    let workspace = workspaceForDropOnNewTab(projectId: projectId, monitor: targetMonitor, sourceWindow: sourceWindow)
     let targetContainer: NonLeafTreeNodeObject
     if sourceNode is Window, sourceWindow.isFloating {
         targetContainer = workspace
@@ -321,7 +343,7 @@ private func moveSidebarSourceToNewWorkspace(
             fallbackWindow: sourceWindow,
             fallbackPoint: mouseLocation,
         )
-        let workspace = getOrCreateAdjacentBlankWorkspace(projectId: projectId, monitor: targetMonitor)
+        let workspace = workspaceForDropOnNewTab(projectId: projectId, monitor: targetMonitor, sourceWindow: sourceWindow)
         let targetContainer: NonLeafTreeNodeObject = sourceNode is Window && sourceWindow.isFloating
             ? workspace
             : workspace.rootTilingContainer

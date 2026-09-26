@@ -32,6 +32,12 @@ var defaultConfigUrl: URL {
 @MainActor var config: Config = defaultConfig // todo move to Ctx?
 @MainActor var configUrl: URL = defaultConfigUrl
 
+extension Config {
+    /// Tabs mode with the sidebar on: workspaces behave like a browser's tabs.
+    var usesBrowserTabs: Bool { workspaceSidebar.enabled && workspaceSidebar.usesTabsList }
+    var opensNewWindowsInNewWorkspace: Bool { openNewWindowsInNewWorkspace ?? usesBrowserTabs }
+}
+
 struct Config: ConvenienceCopyable {
     var configVersion: Int = 1
     var afterLoginCommand: [any Command] = []
@@ -46,7 +52,8 @@ struct Config: ConvenienceCopyable {
     var automaticallyUnhideMacosHiddenApps: Bool = false
     var automaticallyTileNewWindows: Bool = true
     /// Each window the user opens moves to its own empty workspace in the current project.
-    var openNewWindowsInNewWorkspace: Bool = false
+    /// Unset, it follows the sidebar: on in Tabs mode, where a window is a tab, off otherwise.
+    var openNewWindowsInNewWorkspace: Bool? = nil
     var enableShakeToToggleTiling: Bool = true
     /// Middle-clicking a window tab or an expanded sidebar row closes that window.
     var middleClickClosesWindows: Bool = true

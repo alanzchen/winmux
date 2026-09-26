@@ -16,6 +16,7 @@ func resetWinMuxWorkspaceStateForTests() {
     winMuxWorkspaceState.resetWorkspaceRegistryForTests(
         defaultProjectName: workspaceProjectDisplayName(workspaceProjectDefaultId, fallbackName: "Default"),
     )
+    resetWorkspaceTabsForTests()
 }
 
 @MainActor

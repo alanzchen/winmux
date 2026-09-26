@@ -138,6 +138,8 @@ final class SettingsEditor: ObservableObject {
         var edits: [SettingsFileEdit] = []
         var document: (text: String, expected: String, expectedURL: URL?)?
         var onSuccess: (() -> Void)?
+        /// Fields restored by removing their key.
+        var unsetting: Set<String> = []
     }
     private struct History {
         var title: String
@@ -163,9 +165,10 @@ final class SettingsEditor: ObservableObject {
         let fields = SettingsCatalog.fields.filter {
             $0.group == group && ($0.key != "persistent-workspaces" || configuration.configVersion >= 2)
         }
-        let values = Dictionary(uniqueKeysWithValues: fields.map { ($0.id, $0.defaultValue) })
+        let values = Dictionary(uniqueKeysWithValues: fields.map { ($0.id, $0.defaultValue(for: configuration)) })
         drafts.merge(values) { _, next in next }
-        enqueue(Request(title: "Restore \(group.title)", fields: fields, values: values))
+        enqueue(Request(title: "Restore \(group.title)", fields: fields, values: values,
+            unsetting: Set(fields.filter { $0.unsetValue != nil }.map(\.id))))
     }
 
     func saveRaw(_ edits: [SettingsFileEdit], title: String) {
@@ -225,8 +228,12 @@ final class SettingsEditor: ObservableObject {
     func waitUntilIdle() async { while let worker { await worker.value } }
 
     private func enqueue(_ request: Request) {
-        // Do not write for draft synchronization or an unchanged control.
-        guard worker != nil || failedRequest != nil || !queue.isEmpty || request.fields.isEmpty || request.fields.contains(where: { request.values[$0.id] != $0.read(configuration) }) else {
+        // Do not write for draft synchronization or an unchanged control. A key restored by
+        // removing it still has work to do while the file sets it.
+        guard worker != nil || failedRequest != nil || !queue.isEmpty || request.fields.isEmpty
+            || request.fields.contains(where: { request.values[$0.id] != $0.read(configuration) })
+            || request.fields.contains(where: { request.unsetting.contains($0.id) && $0.isSet?(configuration) == true })
+        else {
             for field in request.fields { drafts.removeValue(forKey: field.id) }
             return
         }
@@ -251,7 +258,8 @@ final class SettingsEditor: ObservableObject {
                         if field.writePreference != nil {
                             preferences.append((field, field.read(configuration), value))
                         } else {
-                            edits.append(SettingsFileEdit(section: field.section, values: [field.key: field.render(value)],
+                            let rendered = request.unsetting.contains(field.id) ? settingsUnsetRenderedValue : field.render(value)
+                            edits.append(SettingsFileEdit(section: field.section, values: [field.key: rendered],
                                 preservingDockAppearance: field.preservingDockAppearance))
                         }
                     }

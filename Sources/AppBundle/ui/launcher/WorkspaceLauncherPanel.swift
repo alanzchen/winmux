@@ -12,6 +12,16 @@ enum WorkspaceLauncherState: Equatable {
     case failed(String)
 }
 
+/// Why the launcher closed, which decides what happens to a new tab it opened in.
+enum WorkspaceLauncherDismissal {
+    /// Esc, Cancel, or OK: the tab closes now.
+    case closed
+    /// The user clicked elsewhere or left the tab: the tab closes shortly, if still on screen.
+    case focusMoved
+    /// Another Space came to the front: the tab stays, so nothing pulls the user back.
+    case spaceChanged
+}
+
 @MainActor
 final class WorkspaceLauncherModel: ObservableObject {
     @Published var query = "" {
@@ -25,6 +35,7 @@ final class WorkspaceLauncherModel: ObservableObject {
     @Published var state: WorkspaceLauncherState = .choosing
     @Published private(set) var installed: [LauncherApp] = []
     @Published var workspaceTitle = ""
+    @Published var isNewTab = false
     var running: [LauncherApp] = [] {
         didSet { runningIds = Set(running.map(\.bundleId)) }
     }
@@ -81,6 +92,10 @@ final class WorkspaceLauncherPanel: NSPanelHud {
     /// Each showing is a new session; a request from an earlier one never touches this one.
     private var sessionId = 0
     private var request: NewWindowRequestHandle?
+    /// Set when the launcher opened in a new tab: closing it without opening anything closes the tab.
+    private var newTab: WorkspaceLauncherNewTab?
+    /// A new tab waiting to close after the launcher left because focus moved.
+    private var closingNewTab: WorkspaceLauncherNewTab?
     private var spaceObserver: NSObjectProtocol?
 
     var isShowing: Bool { workspace != nil }
@@ -101,23 +116,35 @@ final class WorkspaceLauncherPanel: NSPanelHud {
         spaceObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main,
         ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.dismiss() }
+            // Another Space is in front: closing the tab now could bring the user back.
+            MainActor.assumeIsolated { self?.dismiss(.spaceChanged) }
         }
     }
 
     /// Shows the launcher for the workspace named `name`, which must exist and be visible.
+    /// `newTab` says it opened in a new tab, which closes again if nothing opens in it.
     @discardableResult
-    func show(forWorkspaceNamed name: String) -> Bool {
+    func show(forWorkspaceNamed name: String, newTab: WorkspaceLauncherNewTab? = nil) -> Bool {
         guard let workspace = Workspace.existing(byName: name), workspace.isVisible, !workspace.isArchived else { return false }
+        // Showing again in the new tab it was showing, or about to close, keeps that tab and
+        // the tab to go back to.
+        let pending = [self.newTab, closingNewTab].compactMap { $0 }.first { $0.workspace === workspace }
+        if let other = closingNewTab, other.workspace !== workspace {
+            runWorkspaceSidebarSession { closeUnusedNewTab(other) }
+        }
+        closingNewTab = nil
+        if pending != nil { self.newTab = nil }
         dismiss()
         request?.cancel()
         request = nil
         self.workspace = workspace
+        self.newTab = newTab.flatMap { $0.isNew ? $0 : pending }
         sessionId += 1
         let session = sessionId
         model.query = ""
         model.state = .choosing
         model.workspaceTitle = workspaceDisplayName(name)
+        model.isNewTab = self.newTab != nil
         model.menuFallbackEnabled = config.workspaceSidebar.launcherMenuFallback
         model.running = runningLauncherApps()
         model.setInstalled(LauncherAppCatalog.shared.installed)
@@ -140,20 +167,43 @@ final class WorkspaceLauncherPanel: NSPanelHud {
 
     /// Closing the launcher withdraws its request: a window the app opens later is placed
     /// by the usual rules, not in a workspace the user has left.
-    func dismiss() {
+    ///
+    /// A new tab it opened in closes too if nothing opened in it. When the launcher closes
+    /// because the user went elsewhere, that waits a moment: a click on another tab takes key
+    /// status before it switches, and the tab it switches to is where the user is going.
+    func dismiss(_ reason: WorkspaceLauncherDismissal = .closed) {
+        // Losing key status as the Space changes already scheduled a close; the tab stays.
+        if reason == .spaceChanged { closingNewTab = nil }
         guard workspace != nil else { return }
         workspace = nil
         request?.cancel()
         request = nil
         orderOut(nil)
         hostingView.rootView = AnyView(EmptyView())
+        guard let newTab else { return }
+        self.newTab = nil
+        switch reason {
+            case .closed:
+                runWorkspaceSidebarSession { closeUnusedNewTab(newTab) }
+            case .focusMoved:
+                closingNewTab = newTab
+                let session = sessionId
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+                    // Showing the launcher again since then keeps or closes the tab itself.
+                    guard let self, self.sessionId == session, let closing = self.closingNewTab else { return }
+                    self.closingNewTab = nil
+                    runWorkspaceSidebarSession { closeUnusedNewTab(closing) }
+                }
+            case .spaceChanged:
+                break
+        }
     }
 
     /// Called after each refresh: the launcher belongs to its workspace and leaves with it.
     func revalidate() {
         guard let workspace else { return }
         guard winMuxWorkspaceState.workspaceById[workspace.id] === workspace, workspace.isVisible, !workspace.isArchived else {
-            dismiss()
+            dismiss(.focusMoved)
             return
         }
         // Follows the workspace to another monitor or a resized screen.
@@ -196,6 +246,8 @@ final class WorkspaceLauncherPanel: NSPanelHud {
             case .cancelled: "The workspace closed before \(appName) opened a window."
         }
         guard let message else {
+            // Something opened: the new tab is in use.
+            newTab = nil
             dismiss()
             return
         }
@@ -243,7 +295,7 @@ final class WorkspaceLauncherPanel: NSPanelHud {
     override func resignKey() {
         super.resignKey()
         if case .opening = model.state { return }
-        dismiss()
+        dismiss(.focusMoved)
     }
 
     override var canBecomeKey: Bool { true }
@@ -295,7 +347,7 @@ struct WorkspaceLauncherView: View {
     private var chooser: some View {
         let results = model.results
         return VStack(spacing: 0) {
-            Text("New window in \(model.workspaceTitle)")
+            Text(model.isNewTab ? "New Tab" : "New window in \(model.workspaceTitle)")
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(Color.white.opacity(GlassToken.textTertiary))
                 .frame(maxWidth: .infinity, alignment: .leading)

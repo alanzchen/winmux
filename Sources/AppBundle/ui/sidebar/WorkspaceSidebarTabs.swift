@@ -452,8 +452,8 @@ struct WorkspaceSidebarTabFolderView: View {
     }
 }
 
-/// Dia's quiet "+ New Tab" row, here making a workspace. A dragged tab dropped on it gets a
-/// workspace of its own.
+/// Dia's quiet "+ New Tab" row, at the top of the list: a new workspace right after the
+/// current one, with the launcher. A dragged tab dropped on it gets a workspace of its own.
 struct WorkspaceSidebarTabNewWorkspaceRow: View {
     let projectId: WorkspaceProjectId
     let monitorScopeId: String
@@ -467,7 +467,7 @@ struct WorkspaceSidebarTabNewWorkspaceRow: View {
                 Image(systemName: "plus")
                     .font(.system(size: 11, weight: .semibold))
                     .frame(width: workspaceSidebarTabIconSize, height: workspaceSidebarTabIconSize)
-                Text("New Workspace")
+                Text("New Tab")
                     .font(.system(size: 13))
                 Spacer(minLength: 0)
             }
@@ -493,7 +493,7 @@ struct WorkspaceSidebarTabNewWorkspaceRow: View {
                 )
             }
         }
-        .accessibilityLabel("New Workspace")
+        .accessibilityLabel("New Tab")
     }
 }
 
@@ -528,12 +528,6 @@ extension WorkspaceSidebarView {
             ScrollViewReader { proxy in
                 ScrollView(.vertical, showsIndicators: false) {
                     LazyVStack(alignment: .leading, spacing: 8) {
-                        ForEach(folders) { workspace in
-                            tabFolder(workspace, isPinned: workspace.id == pinnedWorkspace?.id,
-                                projectId: projectId, pageAllowsActivation: pageAllowsActivation, isSearching: isSearching,
-                                overrideMinHeight: overrideMinHeight)
-                                .id(workspaceSidebarTabFolderRowId(workspace.name))
-                        }
                         if showsCreateWorkspace && workspaceSidebarShowsCreateWorkspace(selectedScopeId: snapshot.selectedMonitorScopeId) {
                             WorkspaceSidebarTabNewWorkspaceRow(
                                 projectId: projectId,
@@ -544,6 +538,12 @@ extension WorkspaceSidebarView {
                                     actions.send(.createWorkspace(projectId: projectId, monitorScopeId: createMonitorScopeId))
                                 },
                             )
+                        }
+                        ForEach(folders) { workspace in
+                            tabFolder(workspace, isPinned: workspace.id == pinnedWorkspace?.id,
+                                projectId: projectId, pageAllowsActivation: pageAllowsActivation, isSearching: isSearching,
+                                overrideMinHeight: overrideMinHeight)
+                                .id(workspaceSidebarTabFolderRowId(workspace.name))
                         }
                     }
                     .padding(.leading, leadingInset)

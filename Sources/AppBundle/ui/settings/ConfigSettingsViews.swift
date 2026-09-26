@@ -104,7 +104,11 @@ func updateSettingsAppearanceConfig(in text: String, section: String?, values: [
     }
 }
 
+/// Written as a value, removes the key: the setting goes back to depending on others.
+let settingsUnsetRenderedValue = ""
+
 func updateSettingsScalarConfig(in text: String, section: String?, key: String, renderedValue: String) -> String {
+    let removes = renderedValue == settingsUnsetRenderedValue
     let newline = text.contains("\r\n") ? "\r\n" : "\n"
     var lines = text.components(separatedBy: "\n").map { $0.hasSuffix("\r") ? String($0.dropLast()) : $0 }
     // Scan complete TOML statements so text inside a multiline string/array can
@@ -148,11 +152,12 @@ func updateSettingsScalarConfig(in text: String, section: String?, key: String, 
         if let existingKey = settingsKey(in: lines[index]),
            [currentSection, existingKey].compactMap({ $0 }).joined(separator: ".") == [section, key].compactMap({ $0 }).joined(separator: ".") {
             let indent = String(lines[index].prefix(while: { $0.isWhitespace }))
-            lines.replaceSubrange(index..<end, with: ["\(indent)\(existingKey) = \(renderedValue)"])
+            lines.replaceSubrange(index..<end, with: removes ? [] : ["\(indent)\(existingKey) = \(renderedValue)"])
             return lines.joined(separator: newline)
         }
         index = end
     }
+    if removes { return text }
     if let insertion {
         lines.insert("\(section == nil ? "" : "    ")\(insertionKey) = \(renderedValue)", at: insertion)
     } else if let section {

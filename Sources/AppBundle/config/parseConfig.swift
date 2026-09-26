@@ -75,7 +75,7 @@ private let configParser: [String: any ParserProtocol<Config>] = [
     modeConfigRootKey: Parser(\.modes, skipParsing(Config().modes)), // Parsed manually
 
     "auto-add-new-windows-to-tab-group": Parser(\.autoAddNewWindowsToTabGroup, parseBool),
-    "open-new-windows-in-new-workspace": Parser(\.openNewWindowsInNewWorkspace, parseBool),
+    "open-new-windows-in-new-workspace": Parser(\.openNewWindowsInNewWorkspace) { parseBool($0, $1).map { Optional($0) } },
     "gaps": Parser(\.gaps, parseGaps),
     "workspace-sidebar": Parser(\.workspaceSidebar, parseWorkspaceSidebar),
     "window-tabs": Parser(\.windowTabs, parseWindowTabs),

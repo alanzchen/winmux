@@ -239,6 +239,17 @@ struct WinMuxWorkspaceState {
         }
     }
 
+    /// Moves a workspace to just after another in their project's order.
+    mutating func moveWorkspace(_ workspaceId: WorkspaceId, after anchorId: WorkspaceId) {
+        guard let projectId = workspaceById[workspaceId]?.projectId, workspaceById[anchorId]?.projectId == projectId,
+              workspaceId != anchorId, var project = projectsById[projectId]
+        else { return }
+        project.workspaceOrder.removeAll { $0 == workspaceId }
+        let index = project.workspaceOrder.firstIndex(of: anchorId).map { $0 + 1 } ?? project.workspaceOrder.count
+        project.workspaceOrder.insert(workspaceId, at: index)
+        projectsById[projectId] = project
+    }
+
     private mutating func insertWorkspace(_ workspaceId: WorkspaceId, intoProject projectId: WorkspaceProjectId) {
         var project = projectsById[projectId].orDie()
         if !project.workspaceOrder.contains(workspaceId) {

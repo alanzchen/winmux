@@ -23,10 +23,11 @@ final class NewWindowWorkspaceTest: XCTestCase {
     }
 
     func testOptionIsOffByDefaultAndParses() {
-        XCTAssertFalse(defaultConfig.openNewWindowsInNewWorkspace)
+        XCTAssertNil(defaultConfig.openNewWindowsInNewWorkspace, "Unset, so Tabs mode can turn it on")
+        XCTAssertFalse(defaultConfig.opensNewWindowsInNewWorkspace)
         let (parsed, errors) = parseConfig("open-new-windows-in-new-workspace = true")
         XCTAssertEqual(errors.descriptions, [])
-        XCTAssertTrue(parsed.openNewWindowsInNewWorkspace)
+        XCTAssertTrue(parsed.opensNewWindowsInNewWorkspace)
     }
 
     func testNewWindowGetsItsOwnWorkspaceInTheSameProject() async throws {
