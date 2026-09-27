@@ -128,7 +128,8 @@ func workspaceSidebarClippedDropTargets(
     targets.compactMap { target in
         let clipped = target.frame.intersection(viewport)
         guard !clipped.isNull, !clipped.isEmpty else { return nil }
-        return WorkspaceSidebarDropTargetFrame(kind: target.kind, frame: clipped, acceptsSides: target.acceptsSides)
+        return WorkspaceSidebarDropTargetFrame(kind: target.kind, frame: clipped, acceptsSides: target.acceptsSides,
+            tabReorderDestination: target.tabReorderDestination)
     }
 }
 

@@ -26,6 +26,8 @@ let projectRoot: URL = {
 
 @MainActor
 func setUpWorkspacesForTests() {
+    WorkspaceSidebarTabUndo.shared.clear()
+    WorkspaceSidebarTabSplitHoverController.shared.reset()
     config = defaultConfig
     setMonitorsForTests(nil)
     configUrl = defaultConfigUrl

@@ -241,7 +241,7 @@ extension WorkspaceSidebarPanel {
         // to project every workspace on every display into screen coordinates.
         let screenRect = convertToScreen(hostingView.convert(target.frame, to: nil))
         return WorkspaceSidebarDropTarget(kind: target.kind, rect: screenRect.monitorFrameNormalized(),
-            acceptsSides: target.acceptsSides)
+            acceptsSides: target.acceptsSides, tabReorderDestination: target.tabReorderDestination)
     }
 
     /// The Dock or its floating project columns, whichever contains a normalized point.
@@ -370,8 +370,24 @@ enum WorkspaceSidebarInlineTextKey {
     case ignored
 }
 
+func workspaceSidebarIsUndoShortcut(_ event: CGEvent) -> Bool {
+    event.flags.intersection([.maskCommand, .maskAlternate, .maskControl, .maskShift]) == .maskCommand &&
+        NSEvent(cgEvent: event)?.charactersIgnoringModifiers?.lowercased() == "z"
+}
+
 private let workspaceSidebarInlineTextEventTapCallback: CGEventTapCallBack = { _, type, event, _ in
     guard type == .keyDown else { return Unmanaged.passUnretained(event) }
+    if workspaceSidebarIsUndoShortcut(event) {
+        let handled = MainActor.assumeIsolated {
+            guard config.usesBrowserTabs,
+                  let panel = WorkspaceSidebarPanel.inputSession.owner as? WorkspaceSidebarPanel,
+                  panel.canCaptureSidebarInput, !panel.inlineTextEditingCancelsOnPointerExit,
+                  WorkspaceSidebarTabUndo.shared.title != nil else { return false }
+            runWorkspaceSidebarSession { try WorkspaceSidebarTabUndo.shared.undo() }
+            return true
+        }
+        if handled { return nil }
+    }
     let key = workspaceSidebarInlineTextKey(from: event)
     if case .ignored = key {
         return Unmanaged.passUnretained(event)

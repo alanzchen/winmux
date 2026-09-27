@@ -11,7 +11,7 @@ extension WorkspaceSidebarView {
         let project = snapshot.projects.first { $0.id == snapshot.activeProjectId }
         let visible = workspaceSidebarVisibleWorkspacesByProject(workspaces: snapshot.workspaces,
             selectedScopeId: snapshot.selectedMonitorScopeId, focusedMonitorScopeId: snapshot.focusedMonitorScopeId,
-            browsedProjectId: nil)
+            browsedProjectId: nil).mapValues { workspaceSidebarOrderedTabs($0, collections: snapshot.configuration.tabCollections) }
         let filtered = workspaceSidebarFilteredWorkspacesByProject(visible, projects: snapshot.projects, query: searchText,
             collections: snapshot.configuration.tabCollections)
         return VStack(alignment: .leading, spacing: 0) {
@@ -56,24 +56,40 @@ extension WorkspaceSidebarView {
                 } else {
                     sidebarSearchSection(layout: layout, expansionProgress: 1, leadingInset: 12, trailingInset: 12)
                 }
-                projectPagerContent(layout: layout, expansionProgress: 1, leadingInset: 10, trailingInset: 10,
-                    topPadding: 0, visibleWorkspacesByProject: filtered,
-                    swipeDirection: workspaceSidebarProjectSwipeDirection(horizontalTranslation: projectSwipeTranslation,
-                        verticalTranslation: 0, minimumDistance: 1))
-                    .frame(maxHeight: .infinity, alignment: .topLeading)
+                if isSearchEditing || !searchText.isEmpty {
+                    tabsSearchResults.frame(maxHeight: .infinity, alignment: .topLeading)
+                } else {
+                    projectPagerContent(layout: layout, expansionProgress: 1, leadingInset: 10, trailingInset: 10,
+                        topPadding: 0, visibleWorkspacesByProject: filtered,
+                        swipeDirection: workspaceSidebarProjectSwipeDirection(horizontalTranslation: projectSwipeTranslation,
+                            verticalTranslation: 0, minimumDistance: 1))
+                        .frame(maxHeight: .infinity, alignment: .topLeading)
+                }
             } else {
                 ScrollView {
                     VStack(spacing: 5) {
-                        ForEach(visible[snapshot.activeProjectId] ?? []) { workspace in
-                            WorkspaceSidebarPinnedTab(workspace: workspace, badgeModel: dockBadgeModel, compact: true) { windowId in
+                        ForEach(Array((visible[snapshot.activeProjectId] ?? []).enumerated()), id: \.element.id) { index, workspace in
+                            let tabs = visible[snapshot.activeProjectId] ?? []
+                            if index > 0, tabs[index - 1].appearance.isFavorite, !workspace.appearance.isFavorite {
+                                Divider().padding(.horizontal, 8).padding(.vertical, 3)
+                            }
+                            WorkspaceSidebarPinnedTab(workspace: workspace, badgeModel: dockBadgeModel, compact: true,
+                                targetMonitorScopeId: snapshot.targetMonitorScopeId) { windowId in
                                 selectTabWorkspace(workspace, windowId: windowId)
                             }
                             .frame(width: 34, height: 34)
+                            .overlay(alignment: .leading) {
+                                if let group = snapshot.configuration.tabCollections.first(where: { $0.workspaceNames.contains(workspace.name) }) {
+                                    Capsule().fill(group.colorHex.flatMap(workspaceSidebarColor) ?? .secondary)
+                                        .frame(width: 3, height: 23).offset(x: -4).allowsHitTesting(false)
+                                }
+                            }
                             .help(workspace.displayName)
                         }
                     }.frame(maxWidth: .infinity)
                 }
             }
+            if expanded { WorkspaceSidebarTabUndoButton(actions: actions) }
             projectPagerSection(layout: layout, expansionProgress: expansionProgress,
                 leadingInset: pagerInset, trailingInset: pagerInset,
                 swipeDirection: workspaceSidebarProjectSwipeDirection(horizontalTranslation: projectSwipeTranslation,
@@ -92,6 +108,11 @@ extension WorkspaceSidebarView {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background { sidebarSurface(in: sidebarShape(layout: layout)) }
         .clipShape(sidebarShape(layout: layout))
+        .environment(\.workspaceSidebarBadgeOwners, workspaceSidebarBadgeOwners(
+            isSearchEditing || !searchText.isEmpty
+                ? tabsSearchProjectOrder.filter { !searchText.isEmpty || $0.id == snapshot.activeProjectId }
+                    .flatMap { filtered[$0.id] ?? [] }
+                : visible[snapshot.activeProjectId] ?? []))
     }
 
     private func tabsFavorites(_ workspaces: [WorkspaceSidebarWorkspaceViewModel]) -> some View {
@@ -100,7 +121,8 @@ extension WorkspaceSidebarView {
         return ScrollView {
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: grid.columns), spacing: 8) {
                 ForEach(favorites) { workspace in
-                    WorkspaceSidebarPinnedTab(workspace: workspace, badgeModel: dockBadgeModel) { windowId in
+                    WorkspaceSidebarPinnedTab(workspace: workspace, badgeModel: dockBadgeModel,
+                        targetMonitorScopeId: snapshot.targetMonitorScopeId) { windowId in
                         selectTabWorkspace(workspace, windowId: windowId)
                     }
                 }
@@ -145,8 +167,15 @@ extension WorkspaceSidebarView {
                     Image(systemName: disclosure.isCollapsed ? "chevron.right" : "chevron.down")
                         .font(.system(size: 10, weight: .semibold)).frame(width: 12)
                     if let emoji = group.emoji { Text(emoji) }
+                    if disclosure.isCollapsed {
+                        ForEach(Array(workspaces.flatMap(workspaceSidebarPinnedTabWindows).prefix(3))) { window in
+                            WorkspaceSidebarTabIcon(bundleId: window.appBundleId, bundlePath: window.appBundlePath, size: 13)
+                                .accessibilityHidden(true)
+                        }
+                    }
                     Text(group.name).font(.system(size: 13, weight: .semibold)).lineLimit(1)
                     Spacer(minLength: 0)
+                    if disclosure.isCollapsed { WorkspaceSidebarGroupActivity(workspaces: workspaces, model: dockBadgeModel) }
                     Text("\(workspaces.count)").font(.system(size: 11)).foregroundStyle(.secondary)
                 }.foregroundStyle(color).padding(.horizontal, 9).frame(height: 35).contentShape(Rectangle())
             }.buttonStyle(.plain)

@@ -46,17 +46,25 @@ func workspaceSidebarTabGapBands(for frame: CGRect, inside maxInside: CGFloat = 
     )
 }
 
+struct WorkspaceSidebarTabReorderDestination: Equatable {
+    let projectId: WorkspaceProjectId
+    let monitorScopeId: String
+    let collectionId: String?
+}
+
 struct WorkspaceSidebarDropTarget {
     let kind: WorkspaceSidebarDropTargetKind
     let rect: Rect
     /// A Tabs-mode tab, drawn as one: a dropped tab joins it on the half it was dropped on.
     var acceptsSides = false
+    var tabReorderDestination: WorkspaceSidebarTabReorderDestination? = nil
 }
 
 struct WorkspaceSidebarDropTargetFrame: Equatable {
     let kind: WorkspaceSidebarDropTargetKind
     let frame: CGRect
     var acceptsSides = false
+    var tabReorderDestination: WorkspaceSidebarTabReorderDestination? = nil
 }
 
 struct WorkspaceSidebarDropTargetPreferenceKey: PreferenceKey {
@@ -97,7 +105,8 @@ func workspaceSidebarLocalDropTarget(
             width: clipped.width + hitSlop.left + hitSlop.right,
             height: clipped.height + hitSlop.top + hitSlop.bottom)
         if hitRect.contains(point) {
-            return .init(kind: target.kind, frame: clipped, acceptsSides: target.acceptsSides)
+            return .init(kind: target.kind, frame: clipped, acceptsSides: target.acceptsSides,
+                tabReorderDestination: target.tabReorderDestination)
         }
     }
     return nil

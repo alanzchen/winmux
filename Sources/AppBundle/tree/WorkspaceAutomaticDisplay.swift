@@ -1,6 +1,9 @@
 @MainActor
 func automaticWorkspaceDisplayIndex(_ workspace: Workspace, focusedWorkspace: Workspace?) -> Int? {
-    orderedWorkspacesForPresentation()
+    if config.usesBrowserTabs {
+        return workspaceNavigationTabs(current: workspace).firstIndex(of: workspace).map { $0 + 1 }
+    }
+    return orderedWorkspacesForPresentation()
         .filter { $0.projectId == workspace.projectId }
         .filter { userFacingWorkspaces([$0], focusedWorkspace: focusedWorkspace).contains($0) }
         .filter(\.usesAutomaticDisplayName)
@@ -25,7 +28,7 @@ func createAdjacentTransientBlankWorkspaceIfAllowed(named workspaceName: String,
     guard let targetIndex = parsePositiveWorkspaceDisplayIndex(workspaceName) else {
         return nil
     }
-    let automaticDisplayWorkspaces = scopedAutomaticDisplayWorkspaces(current: current)
+    let automaticDisplayWorkspaces = numberedWorkspaceNavigationTabs(current: current)
     guard targetIndex == automaticDisplayWorkspaces.count + 1 else { return nil }
     if let lastWorkspace = automaticDisplayWorkspaces.last,
        automaticDisplayWorkspaces.count > 1,

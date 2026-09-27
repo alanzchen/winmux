@@ -53,13 +53,13 @@ struct WorkspaceSidebarTabCardView: View {
     /// The page's project and display, which a drop between tabs lands in; nil for none.
     var gapTarget: (projectId: WorkspaceProjectId, monitorScopeId: String)? = nil
     var collectionId: String? = nil
+    var allowsDragAndDrop = true
     let onBeginRename: () -> Void
     let onCommitOverride: () -> Void
     let onCancelOverride: () -> Void
 
     var body: some View {
         content
-            .sidebarIdentityMenu(.workspace(workspace.name))
             .frame(minHeight: isShowingOverride ? overrideMinHeight : nil, alignment: .top)
             .background {
                 RoundedRectangle(cornerRadius: workspaceSidebarTabCornerRadius, style: .continuous)
@@ -88,10 +88,10 @@ struct WorkspaceSidebarTabCardView: View {
                 GeometryReader { geometry in
                     Color.clear.preference(
                         key: WorkspaceSidebarDropTargetPreferenceKey.self,
-                        value: workspaceSidebarTabDropTargets(workspaceName: workspace.name,
+                        value: allowsDragAndDrop ? workspaceSidebarTabDropTargets(workspaceName: workspace.name,
                             frame: geometry.frame(in: .named("workspaceSidebarContent")), gapTarget: gapTarget,
                             // An empty tab has no window to go beside.
-                            acceptsSides: presentation != .empty, collectionId: collectionId),
+                            acceptsSides: presentation != .empty, collectionId: collectionId) : [],
                     )
                 }
             }
@@ -115,25 +115,11 @@ struct WorkspaceSidebarTabCardView: View {
             case .single(let window):
                 row(window, isSplitHalf: false)
             case .split(let left, let right):
-                HStack(spacing: 2) {
-                    row(left, isSplitHalf: true)
-                    Rectangle()
-                        .fill(Color.primary.opacity(0.14))
-                        .frame(width: 1, height: 16)
-                        .accessibilityHidden(true)
-                    row(right, isSplitHalf: true)
-                }
+                splitRows([left, right])
                 .accessibilityElement(children: .contain)
                 .accessibilityLabel("Split: \(left.title ?? left.appName) and \(right.title ?? right.appName)")
             case .multiple(let windows):
-                HStack(spacing: 2) {
-                    ForEach(windows) { window in
-                        if window.id != windows.first?.id {
-                            Rectangle().fill(Color.primary.opacity(0.14)).frame(width: 1, height: 16).accessibilityHidden(true)
-                        }
-                        row(window, isSplitHalf: true)
-                    }
-                }
+                splitRows(windows)
                 .accessibilityElement(children: .contain)
                 .accessibilityLabel("Split: \(windows.map { $0.title ?? $0.appName }.joined(separator: ", "))")
             case .empty:
@@ -145,11 +131,28 @@ struct WorkspaceSidebarTabCardView: View {
         }
     }
 
-    private func row(_ window: WorkspaceSidebarWindowViewModel, isSplitHalf: Bool) -> some View {
+    private func splitRows(_ windows: [WorkspaceSidebarWindowViewModel]) -> some View {
+        GeometryReader { geometry in
+            let iconOnly = workspaceSidebarSplitUsesIcons(width: geometry.size.width, windowCount: windows.count)
+            HStack(spacing: 2) {
+                ForEach(windows) { window in
+                    if window.id != windows.first?.id {
+                        Rectangle().fill(Color.primary.opacity(0.14)).frame(width: 1, height: 16).accessibilityHidden(true)
+                    }
+                    row(window, isSplitHalf: true, iconOnly: iconOnly)
+                }
+            }
+        }.frame(height: workspaceSidebarTabRowHeight)
+    }
+
+    private func row(_ window: WorkspaceSidebarWindowViewModel, isSplitHalf: Bool, iconOnly: Bool = false) -> some View {
         WorkspaceSidebarTabRowView(
             window: window,
             indent: 0,
             isSplitHalf: isSplitHalf,
+            iconOnly: iconOnly,
+            allowsDrag: allowsDragAndDrop,
+            activeOverride: isActive && window.isFocused,
             isSearchSelected: selectedSearchTarget == .window(window.windowId),
             isDragSource: dragSourceWindowId == window.windowId,
             actions: actions,
@@ -233,12 +236,17 @@ struct WorkspaceSidebarEmptyTabRowView: View {
             WorkspaceSidebarWorkspaceMenuContent(workspace: workspace, rename: onBeginRename, send: actions.send,
                 excludingDelete: true)
         }
+        .sidebarIdentityMenu(.workspace(workspace.name))
     }
 
     private func close() {
         guard !isWorkspaceSidebarDragInProgress() else { return }
         actions.send(.closeEmptyTab(workspace.name))
     }
+}
+
+func workspaceSidebarSplitUsesIcons(width: CGFloat, windowCount: Int) -> Bool {
+    windowCount > 1 && (width - CGFloat(windowCount - 1) * 5) / CGFloat(windowCount) < 112
 }
 
 /// A tab's drop targets: the tab, then its edges, which win where they overlap it.
@@ -250,7 +258,10 @@ func workspaceSidebarTabDropTargets(
     gapInside: CGFloat = 7,
     collectionId: String? = nil,
 ) -> [WorkspaceSidebarDropTargetFrame] {
-    var targets = [WorkspaceSidebarDropTargetFrame(kind: .workspace(workspaceName), frame: frame, acceptsSides: acceptsSides)]
+    var targets = [WorkspaceSidebarDropTargetFrame(kind: .workspace(workspaceName), frame: frame, acceptsSides: acceptsSides,
+        tabReorderDestination: gapTarget.map {
+            .init(projectId: $0.projectId, monitorScopeId: $0.monitorScopeId, collectionId: collectionId)
+        })]
     if let gapTarget {
         let bands = workspaceSidebarTabGapBands(for: frame, inside: gapInside)
         targets += [(bands.before, false), (bands.after, true)].map { band, isAfter in
@@ -281,6 +292,12 @@ struct WorkspaceSidebarTabDropSideHighlight: View {
                                 .foregroundStyle(Color.primary.opacity(0.85))
                                 .frame(maxWidth: .infinity, alignment: .trailing)
                                 .padding(.trailing, 8)
+                        } else {
+                            Text(placement == .left ? "Split left" : "Split right")
+                                .font(.system(size: 10, weight: .semibold)).lineLimit(1)
+                                .padding(.horizontal, 5).padding(.vertical, 3)
+                                .background(.regularMaterial, in: Capsule())
+                                .frame(maxHeight: .infinity, alignment: .center)
                         }
                     }
                     .frame(width: width)

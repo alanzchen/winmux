@@ -114,6 +114,9 @@ struct WorkspaceSidebarTabRowView: View {
     var isInStack = false
     /// One half of a two-window tab: tighter, so both titles fit.
     var isSplitHalf = false
+    var iconOnly = false
+    var allowsDrag = true
+    var activeOverride: Bool? = nil
     let isSearchSelected: Bool
     let isDragSource: Bool
     let actions: WorkspaceSidebarActions
@@ -126,26 +129,38 @@ struct WorkspaceSidebarTabRowView: View {
     var emojiOverride: String? = nil
     var badgeModel: WorkspaceSidebarDockBadgeModel = .shared
     private var title: String { titleOverride ?? window.title ?? window.appName }
-    private var isActive: Bool { window.isFocused }
+    private var isActive: Bool { activeOverride ?? window.isFocused }
 
     var body: some View {
         Button(action: onSelect) {
             HStack(spacing: 9) {
-                if let emojiOverride { Text(emojiOverride).frame(width: workspaceSidebarTabIconSize) }
-                else {
-                    WorkspaceSidebarTabIcon(bundleId: window.appBundleId, bundlePath: window.appBundlePath,
-                        isOnLightBackground: isActive)
+                if iconOnly { Spacer(minLength: 0) }
+                Group {
+                    if let emojiOverride { Text(emojiOverride).frame(width: workspaceSidebarTabIconSize) }
+                    else {
+                        WorkspaceSidebarTabIcon(bundleId: window.appBundleId, bundlePath: window.appBundlePath,
+                            isOnLightBackground: isActive)
+                    }
+                }.overlay(alignment: .topTrailing) {
+                    if iconOnly {
+                        WorkspaceSidebarTabBadge(appName: window.appName, bundlePath: window.appBundlePath, model: badgeModel,
+                            compact: true, windowId: window.windowId).offset(x: 5, y: -3)
+                    }
                 }
-                Text(title)
+                if !iconOnly { Text(title)
                     .font(.system(size: 13, weight: isActive ? .medium : .regular))
                     .foregroundStyle(Color.primary.opacity(isActive ? 0.95 : 0.82))
                     .lineLimit(1)
-                    .truncationMode(.tail)
+                    .truncationMode(.tail) }
                 Spacer(minLength: 0)
+                if !iconOnly {
+                    WorkspaceSidebarTabBadge(appName: window.appName, bundlePath: window.appBundlePath, model: badgeModel,
+                        windowId: window.windowId)
+                }
             }
-            .padding(.leading, 10 + indent)
+            .padding(.leading, iconOnly ? 0 : 10 + indent)
             // Room for the close button, so the title doesn't shift when it appears.
-            .padding(.trailing, isSplitHalf ? workspaceSidebarTabCloseSlotWidth - 4 : workspaceSidebarTabCloseSlotWidth)
+            .padding(.trailing, iconOnly ? 0 : workspaceSidebarTabCloseSlotWidth)
             .frame(maxWidth: .infinity, minHeight: workspaceSidebarTabRowHeight, maxHeight: workspaceSidebarTabRowHeight,
                 alignment: .leading)
             .contentShape(Rectangle())
@@ -156,12 +171,6 @@ struct WorkspaceSidebarTabRowView: View {
         .accessibilityAddTraits(isActive ? .isSelected : [])
         .accessibilityAction(named: "Close") { close() }
         .help(window.title.map { "\(window.appName) — \($0)" } ?? window.appName)
-        .overlay(alignment: .trailing) {
-            WorkspaceSidebarTabBadge(appName: window.appName, bundlePath: window.appBundlePath, model: badgeModel)
-                .frame(width: isSplitHalf ? workspaceSidebarTabCloseSlotWidth - 4 : workspaceSidebarTabCloseSlotWidth)
-                .padding(.trailing, 2)
-                .opacity(isHovered ? 0 : 1)
-        }
         // Layered over the row button rather than inside it: closing never also focuses the
         // window, and an unhovered click in this corner still selects the tab.
         .overlay(alignment: .trailing) {
@@ -180,8 +189,8 @@ struct WorkspaceSidebarTabRowView: View {
             .help("Close Window")
             .accessibilityHidden(true)
             .frame(width: isSplitHalf ? workspaceSidebarTabCloseSlotWidth - 4 : workspaceSidebarTabCloseSlotWidth)
-            .opacity(isHovered ? 1 : 0)
-            .allowsHitTesting(isHovered)
+            .opacity(isHovered && !iconOnly ? 1 : 0)
+            .allowsHitTesting(isHovered && !iconOnly)
         }
         .background {
             RoundedRectangle(cornerRadius: workspaceSidebarTabCornerRadius, style: .continuous)
@@ -193,7 +202,7 @@ struct WorkspaceSidebarTabRowView: View {
         }
         .opacity(isDragSource ? 0.45 : 1)
         .modifier(WorkspaceSidebarOptionalDragModifier(
-            isEnabled: true,
+            isEnabled: allowsDrag,
             onChanged: { actions.windowDragChanged(window.windowId, $0) },
             onEnded: { actions.windowDragEnded(window.windowId, $0) },
         ))
@@ -205,6 +214,14 @@ struct WorkspaceSidebarTabRowView: View {
                 WorkspaceSidebarWorkspaceMenuContent(workspace: workspaceMenu.workspace, rename: workspaceMenu.rename,
                     send: actions.send)
             }
+        }
+        .overlay {
+            if let workspaceMenu {
+                WorkspaceSidebarIdentityMenuTrigger(target: .tab(workspaceMenu.workspace.name, windowId: window.windowId))
+            }
+        }
+        .accessibilityAction(named: "Tab Actions") {
+            if let workspaceMenu { WorkspaceSidebarIdentityMenu.show(.tab(workspaceMenu.workspace.name, windowId: window.windowId)) }
         }
     }
 
@@ -612,7 +629,7 @@ extension WorkspaceSidebarView {
     ) -> some View {
         let showsProjectContext = isPinned || (browsedProjectId != nil && projectId != snapshot.activeProjectId)
         // Only this page's own tabs take drops between them, and only in Tabs mode's tab list.
-        let gapTarget = isPinned || !snapshot.configuration.usesTabsList ? nil
+        let gapTarget = isPinned || isSearching || !snapshot.configuration.usesTabsList ? nil
             : (projectId: projectId, monitorScopeId: monitorScopeId)
         let insertionEdge: VerticalEdge? = snapshot.dropPreview?.targetGap.flatMap { gap in
             gap.workspaceName == workspace.name && snapshot.dropPreview?.targetProjectId == projectId
@@ -631,7 +648,7 @@ extension WorkspaceSidebarView {
             WorkspaceSidebarTabCardView(
                 workspace: workspace,
                 presentation: presentation,
-                isActive: workspace.monitorScopeId == snapshot.targetMonitorScopeId && workspace.isVisible,
+                isActive: workspaceSidebarTabIsActive(workspace, on: snapshot.targetMonitorScopeId),
                 isDropTarget: snapshot.dropPreview?.targetWorkspaceName == workspace.name,
                 dragSourceWindowId: snapshot.dropPreview?.sourceWindowId,
                 selectedSearchTarget: isSearching ? selectedSearchTarget : nil,
@@ -644,6 +661,7 @@ extension WorkspaceSidebarView {
                 insertionEdge: insertionEdge,
                 gapTarget: gapTarget,
                 collectionId: collectionId,
+                allowsDragAndDrop: !isSearching,
                 onBeginRename: { beginWorkspaceRename(workspace) },
                 onCommitOverride: {
                     activeInUseOverrideWorkspaceName = nil

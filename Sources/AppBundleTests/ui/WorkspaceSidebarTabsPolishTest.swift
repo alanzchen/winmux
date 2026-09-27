@@ -226,8 +226,9 @@ final class WorkspaceSidebarTabsPolishTest: XCTestCase {
         try await Task.sleep(for: .milliseconds(30))
         let red = try redPixels(host)
         XCTAssertGreaterThan(red.count, 20)
-        XCTAssertTrue(red.allSatisfy { $0.x >= host.bounds.width - workspaceSidebarTabCloseSlotWidth - 2 && $0.x < host.bounds.width },
-            "Badge stays in the right accessory slot")
+        XCTAssertTrue(red.allSatisfy { $0.x >= host.bounds.width - workspaceSidebarTabCloseSlotWidth - 34 &&
+            $0.x < host.bounds.width - workspaceSidebarTabCloseSlotWidth },
+            "Badge stays beside the separate close slot")
         let before = try render(host).representation(using: .png, properties: [:])
         for _ in 0..<600 where model.snapshot.label(forPath: "/Applications/Test.app") != "7" {
             try await Task.sleep(for: .milliseconds(10))

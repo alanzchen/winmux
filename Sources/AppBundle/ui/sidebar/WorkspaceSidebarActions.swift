@@ -83,13 +83,25 @@ func overrideWorkspaceInUseFromSidebar(_ workspaceName: String, targetMonitorSco
 @discardableResult
 func runWorkspaceSidebarSession(
     afterLayout: @escaping @MainActor () -> Void = {},
+    undoTitle: String? = nil,
     _ body: @escaping @MainActor () async throws -> Void
 ) -> Task<Void, Never>? {
     guard let token: RunSessionGuard = .isServerEnabled else { return nil }
     return Task { @MainActor in
         do {
+            var undoBefore: WorkspaceSidebarTabUndoSnapshot?
+            var undoGeneration: UInt64?
             try await runLightSession(.menuBarButton, token) {
+                if undoTitle != nil, config.usesBrowserTabs {
+                    undoBefore = .init()
+                    undoGeneration = workspaceInteractionSessionGeneration
+                }
                 try await body()
+            }
+            if let undoTitle, let undoBefore {
+                if undoGeneration == workspaceInteractionSessionGeneration {
+                    WorkspaceSidebarTabUndo.shared.record(undoTitle, before: undoBefore)
+                } else { WorkspaceSidebarTabUndo.shared.clear() }
             }
             afterLayout()
         } catch {
@@ -303,7 +315,7 @@ private func moveSidebarSource(
     tabPlacement: WorkspaceSidebarTabDropPlacement? = nil,
     settlingId: UUID? = nil, validation: @escaping @MainActor () -> Bool = { true }
 ) {
-    let task = runWorkspaceSidebarSession {
+    let task = runWorkspaceSidebarSession(undoTitle: tabPlacement == nil ? "Move Tab" : "Split Tabs") {
         defer { if let settlingId { finishWorkspaceSidebarDockLift(id: settlingId) } }
         guard validation(), let sourceWindow = Window.get(byId: windowId),
               let targetWorkspace = Workspace.existing(byName: workspaceName)
@@ -327,7 +339,7 @@ private func moveSidebarSourceToTabGap(
     _ windowId: UInt32, subject: WindowDragSubject, projectId: WorkspaceProjectId, monitorScopeId: String,
     gap: WorkspaceSidebarTabGap, settlingId: UUID? = nil,
 ) {
-    let task = runWorkspaceSidebarSession {
+    let task = runWorkspaceSidebarSession(undoTitle: "Move Tab") {
         defer { if let settlingId { finishWorkspaceSidebarDockLift(id: settlingId) } }
         guard let sourceWindow = Window.get(byId: windowId) else { return }
         let sourceNode = dragSubjectNode(for: sourceWindow, subject: subject)
@@ -349,7 +361,7 @@ private func moveSidebarSourceToNewWorkspace(
     monitorScopeId: String,
     settlingId: UUID? = nil,
 ) {
-    let task = runWorkspaceSidebarSession {
+    let task = runWorkspaceSidebarSession(undoTitle: "Move to New Tab") {
         defer { if let settlingId { finishWorkspaceSidebarDockLift(id: settlingId) } }
         guard let sourceWindow = Window.get(byId: windowId) else { return }
         let sourceNode = dragSubjectNode(for: sourceWindow, subject: subject)
@@ -817,12 +829,20 @@ private func postWorkspaceSidebarDragPointerNotification(_ name: Notification.Na
 }
 
 @MainActor
-private func workspaceSidebarDragTarget(for sourceWindow: Window, subject: WindowDragSubject) -> WorkspaceSidebarDropTarget? {
+private func workspaceSidebarDragTarget(for sourceWindow: Window, subject: WindowDragSubject,
+                                       committing: Bool = false) -> WorkspaceSidebarDropTarget? {
     let point = MousePointerTracker.shared.currentSample.point
-    guard WorkspaceSidebarPanel.panel(containing: point) != nil else { return nil }
-    guard let target = workspaceSidebarDropTarget(at: point) else { return nil }
-    guard isActionableSidebarDropTarget(sourceWindow: sourceWindow, subject: subject, target: target.kind) else { return nil }
-    return target
+    guard WorkspaceSidebarPanel.panel(containing: point) != nil,
+          let target = workspaceSidebarDropTarget(at: point) else {
+        WorkspaceSidebarTabSplitHoverController.shared.reset()
+        return nil
+    }
+    let resolved = committing && config.usesBrowserTabs
+        ? WorkspaceSidebarTabSplitHoverController.shared.commitTarget(source: sourceWindow.windowId, hitTarget: target, point: point)
+        : workspaceSidebarDeliberateTabDropTarget(target, sourceWindow: sourceWindow, point: point)
+    guard let resolved, isActionableSidebarDropTarget(sourceWindow: sourceWindow, subject: subject, target: resolved.kind)
+    else { return nil }
+    return resolved
 }
 
 /// Tabs mode: the side of the tab under the pointer, or a stack while Option is held. Only a
@@ -856,18 +876,24 @@ private func updateActiveWorkspaceSidebarDragPreview(sourceWindow: Window, subje
         point: MousePointerTracker.shared.currentSample.point
     )
     guard let target = workspaceSidebarDragTarget(for: sourceWindow, subject: subject) else {
+        WorkspaceSidebarTabSplitHoverController.shared.clearDisplayed()
         clearWorkspaceSidebarDropPreview()
         return
     }
-    previewWorkspaceSidebarDrop(sourceWindow.windowId, subject: subject, target: target.kind,
-        placement: workspaceSidebarTabDropPlacement(for: target, sourceWindow: sourceWindow, subject: subject))
+    let placement = workspaceSidebarTabDropPlacement(for: target, sourceWindow: sourceWindow, subject: subject)
+    previewWorkspaceSidebarDrop(sourceWindow.windowId, subject: subject, target: target.kind, placement: placement)
+    if config.usesBrowserTabs, TrayMenuModel.shared.workspaceSidebarDropPreview != nil,
+       let hit = workspaceSidebarDropTarget(at: MousePointerTracker.shared.currentSample.point) {
+        WorkspaceSidebarTabSplitHoverController.shared.noteDisplayed(source: sourceWindow.windowId, hitKind: hit.kind,
+            target: target, placement: placement)
+    } else { WorkspaceSidebarTabSplitHoverController.shared.clearDisplayed() }
 }
 
 @MainActor
 private func commitActiveWorkspaceSidebarDragIfPossible() -> Bool {
     guard let activeDrag = currentActiveWorkspaceSidebarDrag(),
           let sourceWindow = Window.get(byId: activeDrag.windowId),
-          let target = workspaceSidebarDragTarget(for: sourceWindow, subject: activeDrag.subject)
+          let target = workspaceSidebarDragTarget(for: sourceWindow, subject: activeDrag.subject, committing: true)
     else {
         clearWorkspaceSidebarDropPreview()
         WindowDragCursorProxyPanel.shared.hide()

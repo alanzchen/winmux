@@ -3,6 +3,7 @@ import SwiftUI
 
 enum WorkspaceSidebarIdentityTarget: Equatable {
     case workspace(String)
+    case tab(String, windowId: UInt32?)
     case project(WorkspaceProjectId)
     case collection(String, isSearching: Bool = false, monitorScopeId: String? = nil, createMonitorScopeId: String? = nil)
 
@@ -76,6 +77,9 @@ func workspaceSidebarIdentityMenuModel(_ target: WorkspaceSidebarIdentityTarget,
         case .workspace(let name):
             guard let workspace = TrayMenuModel.shared.workspaceSidebarWorkspaces.first(where: { $0.name == name }) else { return nil }
             return workspaceSidebarWorkspaceIdentityMenuModel(workspace, send: send)
+        case .tab(let name, let windowId):
+            guard let workspace = TrayMenuModel.shared.workspaceSidebarWorkspaces.first(where: { $0.name == name }) else { return nil }
+            return workspaceSidebarWorkspaceIdentityMenuModel(workspace, windowId: windowId, send: send)
         case .collection(let id, let isSearching, _, let createMonitorScopeId):
             guard let group = workspaceSidebarOrganizationStore.state.collections.first(where: { $0.id == id }) else { return nil }
             let scope = actionScope ?? TrayMenuModel.shared.workspaceSidebarTargetMonitorScopeId
@@ -103,10 +107,11 @@ func workspaceSidebarIdentityMenuModel(_ target: WorkspaceSidebarIdentityTarget,
 
 @MainActor
 func workspaceSidebarWorkspaceIdentityMenuModel(_ workspace: WorkspaceSidebarWorkspaceViewModel,
+    windowId: UInt32? = nil,
     send: @escaping @MainActor (WorkspaceSidebarAction) -> Void) -> WorkspaceSidebarIdentityMenuModel {
     let name = workspace.name
     var entries = workspaceSidebarWorkspaceMenu(workspace, rename: {}, send: send)
-        .filter { $0.title != "Rename Workspace" }
+        .filter { $0.title != "Rename Workspace" && $0.title != "Rename Tab" }
     if config.usesBrowserTabs {
         let groups = workspaceSidebarOrganizationStore.state.collections.filter { $0.projectId == workspace.projectId }
         var destinations: [WorkspaceSidebarAppMenuEntry] = [
@@ -121,11 +126,28 @@ func workspaceSidebarWorkspaceIdentityMenuModel(_ workspace: WorkspaceSidebarWor
             destinations += [.separator, .init(title: "Remove from Group", perform: { send(.assignTabCollection(name, nil)) })]
         }
         entries.insert(contentsOf: [
-            .init(title: "Add to Group", children: destinations),
             .init(title: workspace.appearance.isFavorite ? "Unpin Tab" : "Pin Tab",
                 perform: { send(.setWorkspaceFavorite(name, !workspace.appearance.isFavorite)) }),
+            .init(title: "Add to Group", children: destinations),
+            .init(title: "Move to Project", enabled: TrayMenuModel.shared.workspaceSidebarProjects.count > 1,
+                children: TrayMenuModel.shared.workspaceSidebarProjects.filter { $0.id != workspace.projectId }.map { project in
+                    .init(title: project.displayName, perform: { send(.moveWorkspace(name, toProject: project.id)) })
+                }),
             .separator,
         ], at: 0)
+        let windows = workspaceSidebarPinnedTabWindows(workspace)
+        if let window = windows.first(where: { $0.windowId == windowId }), windows.count > 1 {
+            entries += [.init(title: "Move \(window.appName) to New Tab", perform: { send(.detachTabWindow(window.windowId)) })]
+        }
+        entries.append(.separator)
+        if let window = windows.first(where: { $0.windowId == windowId }) ?? (windows.count == 1 ? windows.first : nil) {
+            entries.append(.init(title: "Close Window", isDestructive: true, perform: { send(.closeWindow(window.windowId)) }))
+        }
+        if windows.count > 1 {
+            entries.append(.init(title: "Close All Windows in Split…", isDestructive: true, perform: { send(.closeTabWindows(name)) }))
+        } else if windows.isEmpty {
+            entries.append(.init(title: "Close Empty Tab", isDestructive: true, perform: { send(.closeEmptyTab(name)) }))
+        }
     }
     return .init(name: workspace.displayName, color: workspace.appearance.colorHex, emoji: workspace.appearance.emoji,
         rename: { send(.renameWorkspace(name, displayName: $0)) },

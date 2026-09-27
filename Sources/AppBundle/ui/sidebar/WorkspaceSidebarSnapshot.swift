@@ -110,6 +110,9 @@ enum WorkspaceSidebarAction: Equatable {
     case expandSidebar
     case selectWindow(UInt32)
     case closeWindow(UInt32)
+    case closeTabWindows(String)
+    case detachTabWindow(UInt32)
+    case undoTabAction
     case selectApp(workspaceName: String, appId: String)
     case overrideWorkspaceInUseAndSelectApp(workspaceName: String, appId: String)
     case selectProject(WorkspaceProjectId)

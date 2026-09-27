@@ -90,6 +90,7 @@ func beginActiveWorkspaceSidebarDrag(windowId: UInt32, subject: WindowDragSubjec
     if let activeWorkspaceSidebarDrag,
        activeWorkspaceSidebarDrag.windowId == windowId,
        activeWorkspaceSidebarDrag.subject == subject { return }
+    WorkspaceSidebarTabSplitHoverController.shared.reset()
     if let previous = TrayMenuModel.shared.workspaceSidebarDockDrag {
         finishWorkspaceSidebarDockLift(id: previous.id)
     }
@@ -103,6 +104,7 @@ func currentActiveWorkspaceSidebarDrag() -> ActiveWorkspaceSidebarDrag? {
 
 @MainActor
 func clearActiveWorkspaceSidebarDrag() {
+    WorkspaceSidebarTabSplitHoverController.shared.reset()
     activeWorkspaceSidebarDrag = nil
     // Live hover feedback ends with the gesture. A committed visual handoff has
     // its own destination in workspaceSidebarDockDrag and remains until arrival.

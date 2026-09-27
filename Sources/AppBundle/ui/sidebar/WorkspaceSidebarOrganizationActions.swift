@@ -13,7 +13,7 @@ func handleWorkspaceSidebarOrganizationAction(_ action: WorkspaceSidebarAction, 
                 runWorkspaceSidebarSession { closeUnusedNewTab(launcherTab) }
             }
         }
-    }) {
+    }, undoTitle: workspaceSidebarOrganizationUndoTitle(action)) {
         let store = workspaceSidebarOrganizationStore
         switch action {
             case .setWorkspaceColor(let name, let color):
@@ -75,5 +75,18 @@ func handleWorkspaceSidebarOrganizationAction(_ action: WorkspaceSidebarAction, 
             default: return
         }
         await updateWorkspaceSidebarModel()
+    }
+}
+
+func workspaceSidebarOrganizationUndoTitle(_ action: WorkspaceSidebarAction) -> String? {
+    switch action {
+        case .setWorkspaceFavorite(_, let pinned): pinned ? "Pin Tab" : "Unpin Tab"
+        case .createTabCollection: "Create Group"
+        case .assignTabCollection: "Move to Group"
+        case .ungroupTabCollection: "Ungroup Tabs"
+        case .moveTabCollection: "Move Group"
+        case .renameTabCollection: "Rename Group"
+        case .setWorkspaceColor, .setWorkspaceEmoji, .setTabCollectionColor, .setTabCollectionEmoji: "Change Appearance"
+        default: nil
     }
 }

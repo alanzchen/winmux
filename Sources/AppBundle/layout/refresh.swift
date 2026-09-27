@@ -127,6 +127,7 @@ func runRefreshSessionBlocking(
     optimisticallyPreLayoutWorkspaces: Bool = false,
     activatedAppPid activationPid: Int32? = nil,
 ) async throws {
+    workspaceInteractionSessionGeneration &+= 1
     let state = signposter.beginInterval(#function, "event: \(event) axTaskLocalAppThreadToken: \(axTaskLocalAppThreadToken?.idForDebug)")
     defer { signposter.endInterval(#function, state) }
     let performanceRefresh = DockPerformanceRecorder.shared.beginRefresh()
@@ -226,6 +227,9 @@ func runRefreshSessionBlocking(
     }
 }
 
+/// A sidebar edit must not absorb another command/refresh that ran while it awaited AX.
+@MainActor private(set) var workspaceInteractionSessionGeneration: UInt64 = 0
+
 @MainActor
 func runLightSession<T>(
     _ event: RefreshSessionEvent,
@@ -233,6 +237,7 @@ func runLightSession<T>(
     shouldSchedulePostRefresh: Bool = true,
     body: @MainActor () async throws -> T,
 ) async throws -> T {
+    workspaceInteractionSessionGeneration &+= 1
     let state = signposter.beginInterval(#function, "event: \(event) axTaskLocalAppThreadToken: \(axTaskLocalAppThreadToken?.idForDebug)")
     defer { signposter.endInterval(#function, state) }
     activeRefreshTask?.cancel() // Give priority to runSession

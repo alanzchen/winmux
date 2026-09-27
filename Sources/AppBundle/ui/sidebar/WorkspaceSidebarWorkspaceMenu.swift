@@ -54,13 +54,13 @@ func workspaceSidebarWorkspaceMenuEntries(
     var entries: [WorkspaceSidebarWorkspaceMenuEntry] = [
         .init(title: "Customize Dock & Sidebar…", command: .customizeDock),
         .separator,
-        .init(title: "Rename Workspace", command: .rename),
+        .init(title: context.separatesIntoTabs ? "Rename Tab" : "Rename Workspace", command: .rename),
     ]
     if context.separatesIntoTabs, workspaceSidebarTabWindowCount(workspace) > 1 {
         entries += [.separator, .init(title: "Separate into Tabs", command: .send(.separateWorkspaceIntoTabs(workspace.name))), .separator]
     }
     if saved == nil {
-        entries.append(.init(title: "Save Workspace", command: .send(.saveWorkspace(workspace.name))))
+        entries.append(.init(title: context.separatesIntoTabs ? "Keep Tab When Empty" : "Save Workspace", command: .send(.saveWorkspace(workspace.name))))
     }
     if let keepOn = workspaceSidebarKeepOnDisplayEntry(workspace, context: context) {
         entries.append(keepOn)
@@ -73,9 +73,11 @@ func workspaceSidebarWorkspaceMenuEntries(
     }
     entries.append(.separator)
     if saved != nil {
-        entries.append(.init(title: "Forget Saved Workspace", command: .send(.forgetSavedWorkspace(workspace.name))))
+        entries.append(.init(title: context.separatesIntoTabs ? "Stop Keeping Empty Tab" : "Forget Saved Workspace", command: .send(.forgetSavedWorkspace(workspace.name))))
     }
-    entries.append(.init(title: "Delete Workspace", isDestructive: true, command: .send(.deleteWorkspace(workspace.name))))
+    if !context.separatesIntoTabs {
+        entries.append(.init(title: "Delete Workspace", isDestructive: true, command: .send(.deleteWorkspace(workspace.name))))
+    }
     return workspaceSidebarMenuWithoutStraySeparators(entries)
 }
 

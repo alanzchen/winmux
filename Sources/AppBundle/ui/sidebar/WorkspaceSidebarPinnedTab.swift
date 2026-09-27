@@ -36,6 +36,7 @@ struct WorkspaceSidebarPinnedTab: View {
     let workspace: WorkspaceSidebarWorkspaceViewModel
     let badgeModel: WorkspaceSidebarDockBadgeModel
     var compact = false
+    var targetMonitorScopeId: String? = nil
     let onSelect: (UInt32?) -> Void
 
     var body: some View {
@@ -47,6 +48,7 @@ struct WorkspaceSidebarPinnedTab: View {
                 Button { onSelect(nil) } label: {
                     icon(nil, windowCount: 0).frame(maxWidth: .infinity, minHeight: compact ? 34 : 54)
                 }.buttonStyle(.plain).accessibilityLabel(workspace.displayName)
+                    .sidebarIdentityMenu(.workspace(workspace.name))
             } else {
                 ForEach(displayedWindows) { window in
                     if window.id != windows.first?.id {
@@ -58,23 +60,33 @@ struct WorkspaceSidebarPinnedTab: View {
                             .contentShape(Rectangle())
                             .overlay(alignment: .topTrailing) {
                                 WorkspaceSidebarTabBadge(appName: window.appName, bundlePath: window.appBundlePath,
-                                    model: badgeModel, compact: compact)
+                                    model: badgeModel, compact: compact, windowId: window.windowId)
                                     .fixedSize().padding(compact ? 2 : 3)
                             }
                     }
                     .buttonStyle(.plain)
+                    .background {
+                        if window.isFocused && isActiveHere {
+                            RoundedRectangle(cornerRadius: compact ? 6 : 10)
+                                .fill(Color(nsColor: .controlBackgroundColor)).padding(compact ? 1 : 3)
+                        }
+                    }
                     .help(summarizesWorkspace ? workspace.displayName : (window.title.map { "\(window.appName) — \($0)" } ?? window.appName))
                     .accessibilityLabel(summarizesWorkspace ? workspace.displayName : (window.title ?? window.appName))
-                    .accessibilityAddTraits((summarizesWorkspace ? workspace.isFocused : window.isFocused) ? .isSelected : [])
+                    .accessibilityAddTraits(isActiveHere && (summarizesWorkspace ? workspace.isFocused : window.isFocused) ? .isSelected : [])
+                    .sidebarIdentityMenu(.tab(workspace.name, windowId: summarizesWorkspace ? nil : window.windowId))
                 }
             }
         }
         .background((workspace.appearance.colorHex.flatMap(workspaceSidebarColor) ?? Color.primary)
-            .opacity(workspace.isVisible ? 0.18 : (compact ? 0 : 0.08)), in: RoundedRectangle(cornerRadius: compact ? 8 : 13))
+            .opacity(isActiveHere ? 0.18 : (compact ? 0 : 0.08)), in: RoundedRectangle(cornerRadius: compact ? 8 : 13))
         .overlay(RoundedRectangle(cornerRadius: 13).strokeBorder(.primary.opacity(compact ? 0 : 0.10), lineWidth: 0.5))
         .accessibilityElement(children: .contain)
         .accessibilityLabel(workspace.displayName)
-        .sidebarIdentityMenu(.workspace(workspace.name))
+    }
+
+    private var isActiveHere: Bool {
+        workspaceSidebarTabIsActive(workspace, on: targetMonitorScopeId)
     }
 
     @ViewBuilder
@@ -86,4 +98,10 @@ struct WorkspaceSidebarPinnedTab: View {
                 size: compact ? min(20, 26 / CGFloat(max(windowCount, 1))) : 22)
         } else { Image(systemName: "macwindow").font(.system(size: compact ? 19 : 22)) }
     }
+}
+
+func workspaceSidebarTabIsActive(_ workspace: WorkspaceSidebarWorkspaceViewModel, on scope: String?) -> Bool {
+    guard workspace.isVisible else { return false }
+    guard let scope else { return true }
+    return workspaceSidebarMonitorScopeIsSentinel(scope) || workspace.monitorScopeId == scope
 }

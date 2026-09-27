@@ -7,12 +7,13 @@ let workspaceSidebarCurrentProjectPillMinWidthForName: CGFloat = 72
 extension WorkspaceSidebarProjectPager {
     /// Every expanded project shows its emoji. The collapsed Sidebar rail keeps its bars.
     func showsProjectEmoji(_ project: WorkspaceSidebarProjectViewModel) -> Bool {
-        project.emoji != nil && (layout.showAppIcons || !isCompact)
+        project.emoji != nil && (layout.showAppIcons || layout.usesTabsList || !isCompact)
     }
 
     /// The pill never outgrows the track, so a narrow sidebar keeps the switcher usable.
     var currentProjectPillMaxWidth: CGFloat {
-        min(workspaceSidebarCurrentProjectPillMaxWidth, projectTrackWidth - 8)
+        let neighbors = layout.usesTabsList ? CGFloat(min(max(projects.count - 1, 0), 2)) * 40 : 0
+        return max(0, min(workspaceSidebarCurrentProjectPillMaxWidth, projectTrackWidth - 8 - neighbors))
     }
 
     /// The expanded switcher names the current project in place of a separate menu.

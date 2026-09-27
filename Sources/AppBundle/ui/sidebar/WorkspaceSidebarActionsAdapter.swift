@@ -87,7 +87,17 @@ func handleWorkspaceSidebarAction(
         case .selectWindow(let windowId):
             focusWindowFromSidebar(windowId, targetMonitorScopeId: targetMonitorScopeId)
         case .closeWindow(let windowId):
+            if config.usesBrowserTabs { WorkspaceSidebarTabUndo.shared.clear() }
             closeWindowFromMiddleClick(windowId) { focusWindowFromSidebar(windowId) }
+        case .closeTabWindows(let name):
+            closeWorkspaceSidebarTabWindows(name)
+        case .detachTabWindow(let windowId):
+            runWorkspaceSidebarSession(undoTitle: "Move to New Tab") {
+                guard let window = Window.get(byId: windowId) else { return }
+                try detachWorkspaceTabWindow(window)
+            }
+        case .undoTabAction:
+            runWorkspaceSidebarSession { try WorkspaceSidebarTabUndo.shared.undo() }
         case .selectApp(let workspaceName, let appId):
             focusAppFromSidebar(workspaceName: workspaceName, appId: appId, targetMonitorScopeId: targetMonitorScopeId)
         case .overrideWorkspaceInUseAndSelectApp(let workspaceName, let appId):
@@ -132,7 +142,7 @@ func handleWorkspaceSidebarAction(
                 deleteWorkspaceFromSidebar(workspace)
             }
         case .separateWorkspaceIntoTabs(let name):
-            runWorkspaceSidebarSession {
+            runWorkspaceSidebarSession(undoTitle: "Separate Tabs") {
                 guard let workspace = Workspace.existing(byName: name) else { return }
                 separateWorkspaceIntoTabs(workspace)
                 await updateWorkspaceSidebarModel()
@@ -157,7 +167,7 @@ func handleWorkspaceSidebarAction(
         case .moveProject(let projectId, let targetId, let after):
             moveWorkspaceSidebarProject(projectId, relativeTo: targetId, after: after)
         case .moveWorkspace(let workspaceName, let projectId):
-            runWorkspaceSidebarSession {
+            runWorkspaceSidebarSession(undoTitle: "Move to Project") {
                 _ = moveWorkspaceToProject(workspaceName: workspaceName, projectId: projectId)
             }
         case .moveWindow(let windowId, let workspaceName):

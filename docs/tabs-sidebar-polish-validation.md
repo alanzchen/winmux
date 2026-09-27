@@ -16,8 +16,9 @@ area stop at that boundary too. Other modes keep their existing panel bounds.
 
 The existing opt-in **Show app badges** setting is available in Tabs as well as
 Dock mode. Both modes share the existing macOS Dock badge reader. Ordinary tabs
-and split segments show red labels on the right; hovering reveals the close
-button in the same slot. Pinned tiles show each app's badge beside its icon,
+and split segments show red labels on the right. The subsequent
+[Tabs UX pass](tabs-ux-validation.md) gives badges and close buttons separate
+slots and represents repeated app-wide counts with dots. Pinned tiles show each app's badge beside its icon,
 and compact icons show small red dots. Badge count updates observe the shared
 model directly, without rebuilding the sidebar snapshot. An app must expose
 its label through the macOS Dock for mirroring to work.

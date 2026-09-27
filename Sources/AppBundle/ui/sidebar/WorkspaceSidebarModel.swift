@@ -2,6 +2,7 @@ import AppKit
 
 @MainActor
 func updateWorkspaceSidebarModel() async {
+    WorkspaceSidebarTabUndo.shared.invalidateIfChanged()
     WorkspaceSidebarDockBadgeModel.shared.setEnabled(
         TrayMenuModel.shared.isEnabled && config.workspaceSidebar.enabled &&
             workspaceSidebarNeedsDockBadgePolling(config.workspaceSidebar),

@@ -54,11 +54,12 @@ struct WorkspaceSidebarView: View {
 
     init(snapshot: WorkspaceSidebarSnapshot, actions: WorkspaceSidebarActions = WorkspaceSidebarActions(),
          reduceMotionOverride: Bool? = nil, reduceTransparencyOverride: Bool? = nil,
-         dockBadgeModel: WorkspaceSidebarDockBadgeModel = .shared) {
+         dockBadgeModel: WorkspaceSidebarDockBadgeModel = .shared, searchText: String = "") {
         self.snapshot = snapshot
         self.dockBadgeModel = dockBadgeModel
         self.dockBadgePresence = dockBadgeModel.presence
         self.actions = actions
+        self._searchText = State(initialValue: searchText)
         self.reduceMotionOverride = reduceMotionOverride
         self.reduceTransparencyOverride = reduceTransparencyOverride
     }
@@ -435,6 +436,13 @@ struct WorkspaceSidebarView: View {
     }
 
     func currentFilteredProjectWorkspaces(allProjects: Bool = false) -> [WorkspaceSidebarWorkspaceViewModel] {
+        if snapshot.configuration.usesTabsList {
+            let results = tabsSearchWorkspacesByProject()
+            if !searchText.isEmpty {
+                return tabsSearchProjectOrder.flatMap { results[$0.id] ?? [] }
+            }
+            return results[snapshot.activeProjectId] ?? []
+        }
         let visibleWorkspacesByProject = workspaceSidebarVisibleWorkspacesByProject(
             workspaces: snapshot.workspaces,
             selectedScopeId: snapshot.selectedMonitorScopeId,
