@@ -178,15 +178,48 @@ func applyTabDrop(sourceNode: TreeNode, sourceWindow: Window, targetWorkspace: W
         zone: placement == .left ? .left : .right)
 }
 
+/// The window a tab dropped on this tab goes beside: the one used last there, or, in a tab
+/// not used since WinMux started, any of its windows.
+@MainActor
+func workspaceTabDropTargetWindow(_ workspace: Workspace) -> Window? {
+    workspace.mostRecentWindowRecursive ?? workspace.anyLeafWindowRecursive
+}
+
+/// Whether dragging this node out of its tab leaves other windows there. A drop between tabs
+/// then gives it a tab of its own instead of moving the whole tab.
+@MainActor
+func workspaceTabDragLeavesWindowsBehind(_ sourceNode: TreeNode) -> Bool {
+    let moving = Set(sourceNode.allLeafWindowsRecursive.map(\.windowId))
+    return sourceNode.nodeWorkspace?.allLeafWindowsRecursive.allSatisfy { moving.contains($0.windowId) } != true
+}
+
+/// Whether moving a whole tab to this gap leaves it where it is: beside itself, or next to
+/// the neighbor it already has, in the same group and on the same display.
+@MainActor
+func workspaceTabGapKeepsTabInPlace(_ tab: Workspace, projectId: WorkspaceProjectId, monitorScopeId: String,
+                                    gap: WorkspaceSidebarTabGap) -> Bool {
+    guard tab.projectId == projectId,
+          workspaceSidebarMonitorScopeIsSentinel(monitorScopeId)
+              || workspaceSidebarMonitorScopeId(for: tab.workspaceMonitor) == monitorScopeId,
+          workspaceSidebarOrganizationStore.collection(containing: tab.name)?.id == gap.collectionId
+    else { return false }
+    if gap.workspaceName == tab.name { return true }
+    guard let anchor = Workspace.existing(byName: gap.workspaceName), anchor.projectId == projectId else { return false }
+    let order = orderedWorkspaces(in: projectId).map(\.id)
+    var moved = order.filter { $0 != tab.id }
+    guard let index = moved.firstIndex(of: anchor.id) else { return false }
+    moved.insert(tab.id, at: gap.isAfter ? index + 1 : index)
+    return moved == order
+}
+
 /// A tab dropped between tabs. A whole tab moves there; a window from a tab with others gets
 /// a new tab there, and comes forward.
 @MainActor
 func applyTabGapDrop(sourceNode: TreeNode, sourceWindow: Window, projectId: WorkspaceProjectId, monitor: Monitor,
                      gap: WorkspaceSidebarTabGap) {
     let anchor = Workspace.existing(byName: gap.workspaceName).flatMap { $0.projectId == projectId ? $0 : nil }
-    let moving = Set(sourceNode.allLeafWindowsRecursive.map(\.windowId))
     let sourceWorkspace = sourceNode.nodeWorkspace
-    let isWholeTab = sourceWorkspace?.allLeafWindowsRecursive.allSatisfy { moving.contains($0.windowId) } == true
+    let isWholeTab = !workspaceTabDragLeavesWindowsBehind(sourceNode)
     // The tab it was dropped next to has gone meanwhile: leave the tab where it is.
     if isWholeTab, anchor == nil { return }
     if isWholeTab, let sourceWorkspace, let anchor {

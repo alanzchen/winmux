@@ -223,6 +223,16 @@ final class MacApp: AbstractApp {
         } ?? false
     }
 
+    func closeBrowserTab(_ target: BrowserTabTarget) async throws -> Bool {
+        guard !serverArgs.isReadOnly, target.pid == pid else { return false }
+        return try await thread?.runInLoop { [windows] job in
+            guard let window = windows.threadGuarded[target.windowId] else { return false }
+            defer { AXUIElementSetMessagingTimeout(window.ax, 1.0) }
+            try job.checkCancellation()
+            return window.browserTabScanner?.close(target, cancelled: { job.isCancelled }) ?? false
+        } ?? false
+    }
+
     func clearBrowserTabs() async {
         _ = try? await thread?.runInLoop { [windows] _ in
             for window in windows.threadGuarded.values {

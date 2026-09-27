@@ -64,6 +64,8 @@ struct WorkspaceSidebarPinnedTab: View {
     var compact = false
     var targetMonitorScopeId: String? = nil
     let onSelect: (UInt32?) -> Void
+    @State private var isHovered = false
+    @Environment(\.workspaceSidebarReducesMotion) private var reducesMotion
 
     var body: some View {
         let windows = workspaceSidebarPinnedTabWindows(workspace)
@@ -120,8 +122,12 @@ struct WorkspaceSidebarPinnedTab: View {
             }
         }
         .background((workspace.appearance.colorHex.flatMap(workspaceSidebarColor) ?? Color.primary)
-            .opacity(isActiveHere ? 0.18 : (compact ? 0 : 0.08)), in: RoundedRectangle(cornerRadius: compact ? 8 : 13))
+            .opacity(isActiveHere ? 0.18 : (compact ? (isHovered ? 0.07 : 0) : (isHovered ? 0.12 : 0.08))),
+            in: RoundedRectangle(cornerRadius: compact ? 8 : 13))
         .overlay(RoundedRectangle(cornerRadius: 13).strokeBorder(.primary.opacity(compact ? 0 : 0.10), lineWidth: 0.5))
+        .animation(WorkspaceSidebarTabMotion.selection(reducesMotion: reducesMotion), value: isActiveHere)
+        .animation(WorkspaceSidebarTabMotion.selection(reducesMotion: reducesMotion), value: windows.first(where: \.isFocused)?.windowId)
+        .onHover { hovering in withAnimation(WorkspaceSidebarTabMotion.hover) { isHovered = hovering } }
         .overlay(alignment: .topLeading) {
             if compact, windows.count == 2, let emoji = identity?.emoji {
                 Text(emoji).font(.system(size: 9)).padding(1).allowsHitTesting(false).accessibilityHidden(true)

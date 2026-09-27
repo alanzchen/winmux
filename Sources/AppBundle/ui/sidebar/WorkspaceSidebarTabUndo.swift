@@ -256,15 +256,26 @@ struct WorkspaceSidebarUndoWindow: Equatable {
 struct WorkspaceSidebarTabUndoButton: View {
     @ObservedObject var undo: WorkspaceSidebarTabUndo = .shared
     let actions: WorkspaceSidebarActions
+    var reducesMotion = false
 
     var body: some View {
-        if let title = undo.title {
-            Button { actions.send(.undoTabAction) } label: {
-                Label(title, systemImage: "arrow.uturn.backward").font(.system(size: 12))
-                    .lineLimit(1).padding(.horizontal, 10).padding(.vertical, 6)
+        ZStack(alignment: .leading) {
+            if let title = undo.title {
+                Button { actions.send(.undoTabAction) } label: {
+                    // The arrow sits on the tabs' icon column, the title on theirs.
+                    HStack(spacing: 9) {
+                        Image(systemName: "arrow.uturn.backward").frame(width: workspaceSidebarTabIconSize)
+                        Text(title).lineLimit(1).contentTransition(.opacity)
+                    }
+                    .font(.system(size: 12))
+                    .padding(.leading, workspaceSidebarTabLeadingPadding).padding(.trailing, 12).padding(.vertical, 6)
+                }
+                .buttonStyle(.plain).help(title + " (⌘Z while Search Tabs has keyboard focus)")
+                .background(.primary.opacity(0.07), in: Capsule())
+                .padding(.horizontal, workspaceSidebarTabsListInset).padding(.vertical, 5)
+                .transition(reducesMotion ? .opacity : .opacity.combined(with: .move(edge: .bottom)))
             }
-            .buttonStyle(.plain).help(title + " (⌘Z while Search Tabs has keyboard focus)")
-            .background(.primary.opacity(0.07), in: Capsule()).padding(.horizontal, 12).padding(.vertical, 5)
         }
+        .animation(reducesMotion ? WorkspaceSidebarTabMotion.feedback : WorkspaceSidebarTabMotion.disclosure, value: undo.title)
     }
 }

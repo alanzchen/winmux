@@ -75,6 +75,23 @@ final class WindowMiddleClickCloseTest: XCTestCase {
         XCTAssertEqual(closed, [8], "Refreshing the same tab keeps the press")
     }
 
+    func testABrowserTabsCatcherClosesOnlyTheTabItWasPressedOn() {
+        let view = WindowMiddleClickView(frame: CGRect(x: 0, y: 0, width: 120, height: 24))
+        let session = UUID()
+        let first = BrowserTabTarget(windowId: 7, pid: 1, windowSession: session, tabId: UUID())
+        let second = BrowserTabTarget(windowId: 7, pid: 1, windowSession: session, tabId: UUID())
+        var closed: [BrowserTabTarget] = []
+        view.update(identity: AnyHashable(first)) { closed.append(first) }
+        view.pressButton(2)
+        // Both tabs belong to window 7, so the window id alone can't tell them apart.
+        view.update(identity: AnyHashable(second)) { closed.append(second) }
+        view.releaseButton(2, at: CGPoint(x: 60, y: 12))
+        XCTAssertEqual(closed, [])
+        view.pressButton(2)
+        view.releaseButton(2, at: CGPoint(x: 60, y: 12))
+        XCTAssertEqual(closed, [second])
+    }
+
     func testOnlyBackgroundTabsAndHiddenWorkspacesCountAsHidden() {
         setUpWorkspacesForTests()
         let workspace = Workspace.get(byName: "middle-click")

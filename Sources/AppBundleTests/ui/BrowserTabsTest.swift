@@ -379,6 +379,63 @@ final class BrowserTabsTest: XCTestCase {
             "Filtering a legacy folder cannot reveal previously unsearchable browser children")
     }
 
+    func testClosingATabPressesOnlyThatTabsOwnCloseButtonAndNeverSelectsIt() throws {
+        let tree = fixture(.chromium)
+        let closeAlpha = BrowserTestNode("AXButton", subrole: "AXCloseButton")
+        tree.tabs[0].append(BrowserTestNode("AXButton"))
+        tree.tabs[0].append(closeAlpha)
+        let closeBeta = BrowserTestNode("AXButton")
+        tree.tabs[1].append(BrowserTestNode("AXStaticText"))
+        tree.tabs[1].append(closeBeta)
+        let snapshot = try XCTUnwrap(tree.scanner.scan())
+        XCTAssertEqual(snapshot.tabs.count, 2, "A tab's own controls aren't tabs")
+        XCTAssertTrue(tree.scanner.close(snapshot.tabs[1].target), "A tab's only button is its close button")
+        XCTAssertEqual(closeBeta.presses, 1)
+        XCTAssertTrue(tree.scanner.close(snapshot.tabs[0].target), "Among several buttons, the close button")
+        XCTAssertEqual(closeAlpha.presses, 1)
+        XCTAssertEqual(tree.tabs.map(\.presses), [0, 0], "Closing never selects the tab")
+    }
+
+    func testSafarisHiddenCloseButtonIsReachedThroughItsUnlocalizedCloseAction() throws {
+        let tree = fixture(.safari)
+        let close = "Name:关闭标签页\nTarget:0x7801b6d500\nSelector:_closeButtonClicked:"
+        tree.tabs[1].actions = ["AXScrollToVisible", "AXShowMenu", "AXPress", close]
+        let snapshot = try XCTUnwrap(tree.scanner.scan())
+        XCTAssertTrue(tree.scanner.close(snapshot.tabs[1].target), "Found by selector, whatever the language")
+        XCTAssertEqual(tree.tabs[1].performed, [close])
+        XCTAssertEqual(tree.tabs.map(\.presses), [0, 0], "Not the tab's press, which would select it")
+        tree.tabs[0].actions = ["AXPress", "Name:Other\nTarget:0x1\nSelector:_otherAction:"]
+        XCTAssertFalse(tree.scanner.close(snapshot.tabs[0].target), "Another named action isn't a close")
+        XCTAssertEqual(tree.tabs[0].performed, [])
+    }
+
+    func testATabWithoutAnUnambiguousCloseControlOrThatMovedIsLeftOpen() throws {
+        let tree = fixture(.safari)
+        let first = BrowserTestNode("AXButton"), second = BrowserTestNode("AXButton")
+        tree.tabs[1].append(first)
+        tree.tabs[1].append(second)
+        let snapshot = try XCTUnwrap(tree.scanner.scan())
+        XCTAssertFalse(tree.scanner.close(snapshot.tabs[0].target), "No close button")
+        XCTAssertFalse(tree.scanner.close(snapshot.tabs[1].target), "Two unnamed buttons: guessing could do something else")
+        XCTAssertEqual(first.presses + second.presses, 0)
+        tree.container.nodes.removeFirst()
+        XCTAssertFalse(tree.scanner.close(snapshot.tabs[0].target), "A tab that's gone")
+    }
+
+    func testAClosedTabLeavesTheListBeforeTheNextRead() {
+        var cache = BrowserTabSnapshotCache()
+        let session = UUID()
+        let tabs = (0..<3).map { index in
+            BrowserTab(target: .init(windowId: 1, pid: 2, windowSession: session, tabId: UUID()), title: "\(index)",
+                isSelected: index == 0)
+        }
+        cache.receive(.init(windowId: 1, pid: 2, windowSession: session, tabs: tabs), now: 0)
+        cache.removeTab(tabs[1].target)
+        XCTAssertEqual(cache.snapshots[1]?.tabs.map(\.title), ["0", "2"])
+        cache.removeTab(.init(windowId: 1, pid: 2, windowSession: UUID(), tabId: tabs[0].target.tabId))
+        XCTAssertEqual(cache.snapshots[1]?.tabs.count, 2, "A target from an earlier scan of the window is ignored")
+    }
+
     private func fixture(_ adapter: BrowserTabAdapter) -> (root: BrowserTestNode, container: BrowserTestNode,
         tabs: [BrowserTestNode], scanner: BrowserTabScanner<BrowserTestNode>) {
         let root = BrowserTestNode("AXWindow")
@@ -430,4 +487,8 @@ private final class BrowserTestNode: BrowserTabAXNode {
     func window() -> BrowserTestNode? { owner }
     func tabInfo() -> BrowserTabAXInfo? { infoReads += 1; onInfoRead(); return unreadable ? nil : .init(title: title, selected: selected) }
     func press() -> Bool { if supportsPress { presses += 1 }; return supportsPress }
+    var actions: [String] = []
+    var performed: [String] = []
+    func actionNames() -> [String] { actions }
+    func perform(_ action: String) -> Bool { performed.append(action); return actions.contains(action) }
 }

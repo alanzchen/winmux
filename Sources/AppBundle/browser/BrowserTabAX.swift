@@ -75,6 +75,20 @@ struct NativeBrowserTabNode: BrowserTabAXNode {
         return AXUIElementPerformAction(element, kAXPressAction as CFString) == .success
     }
 
+    func actionNames() -> [String] {
+        AXUIElementSetMessagingTimeout(element, 0.05)
+        var actions: CFArray?
+        guard AXUIElementCopyActionNames(element, &actions) == .success else { return [] }
+        return actions as? [String] ?? []
+    }
+
+    /// `action` comes from `actionNames()` just before, on this AX thread.
+    func perform(_ action: String) -> Bool {
+        AXUIElementSetMessagingTimeout(element, 0.2)
+        defer { AXUIElementSetMessagingTimeout(element, 0.05) }
+        return AXUIElementPerformAction(element, action as CFString) == .success
+    }
+
     func iconCandidate(for snapshot: BrowserWindowTabs) -> BrowserTabIconCandidate? {
         guard snapshot.tabs.filter(\.isSelected).count == 1, let selected = snapshot.tabs.first(where: \.isSelected),
               let values = values([kAXDocumentAttribute, kAXTitleAttribute]), values.count == 2,

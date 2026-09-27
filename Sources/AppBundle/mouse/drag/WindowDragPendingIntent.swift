@@ -17,6 +17,22 @@ func updatePendingWindowDragIntent(
         WindowDragCursorProxyPanel.shared.hide()
     }
 
+    if workspaceSidebarOwnsTabDrag(usesBrowserTabs: config.usesBrowserTabs,
+        startedInSidebar: getCurrentMouseDragStartedInSidebar(),
+        hasActiveSidebarDrag: currentActiveWorkspaceSidebarDrag() != nil,
+        isPointerInSidebar: WorkspaceSidebarPanel.panel(containing: mouseLocation) != nil)
+    {
+        // The sidebar already previewed this drag and will drop it where the preview shows;
+        // a window-drag destination here would replace its gap line with a whole-row highlight.
+        let hadPinnedWindow = hasPinnedDraggedWindow()
+        clearPendingWindowDragIntent()
+        showWorkspaceSidebarDragCursorPreview(sourceWindow: sourceWindow, subject: subject, point: mouseLocation)
+        if hadPinnedWindow {
+            scheduleRefreshSession(.globalObserver("sidebarGhostExit"), optimisticallyPreLayoutWorkspaces: true)
+        }
+        return false
+    }
+
     guard let destination = currentWindowDragIntentDestination(
         sourceWindow: sourceWindow,
         mouseLocation: mouseLocation,
@@ -44,6 +60,14 @@ func updatePendingWindowDragIntent(
         detachOrigin: detachOrigin,
         destination: destination,
     )
+}
+
+/// Tabs mode: while a drag that started in the sidebar is over a sidebar, the sidebar alone
+/// previews and drops it, with the gaps between tabs and the halves of a tab. Elsewhere,
+/// and in the other modes, the window drag's own destinations apply.
+func workspaceSidebarOwnsTabDrag(usesBrowserTabs: Bool, startedInSidebar: Bool, hasActiveSidebarDrag: Bool,
+                                 isPointerInSidebar: Bool) -> Bool {
+    usesBrowserTabs && startedInSidebar && hasActiveSidebarDrag && isPointerInSidebar
 }
 
 @MainActor

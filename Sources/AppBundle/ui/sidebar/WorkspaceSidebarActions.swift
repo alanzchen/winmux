@@ -404,6 +404,7 @@ func previewWorkspaceSidebarDrop(_ windowId: UInt32, subject: WindowDragSubject,
         var preview = workspaceSidebarDropPreview(sourceWindow: sourceWindow, subject: subject, targetWorkspaceName: nil,
             targetsNewWorkspace: false, targetProjectId: projectId, targetMonitorScopeId: monitorScopeId)
         preview.targetGap = gap
+        preview.separatesFromTab = workspaceTabDragLeavesWindowsBehind(dragSubjectNode(for: sourceWindow, subject: subject))
         setWorkspaceSidebarDropPreviewIfChanged(preview)
         return
     }
@@ -467,7 +468,13 @@ private func isActionableSidebarDropTarget(
     subject: WindowDragSubject,
     target: WorkspaceSidebarDropTargetKind,
 ) -> Bool {
-    let sourceWorkspaceName = dragSubjectNode(for: sourceWindow, subject: subject).nodeWorkspace?.name
+    let sourceNode = dragSubjectNode(for: sourceWindow, subject: subject)
+    let sourceWorkspaceName = sourceNode.nodeWorkspace?.name
+    // A whole tab dropped where it already is stays put; don't promise a move. A window
+    // pulled out of its tab does get a new tab there.
+    if case .tabGap(let projectId, let monitorScopeId, let gap) = target, !workspaceTabDragLeavesWindowsBehind(sourceNode),
+       let tab = sourceNode.nodeWorkspace,
+       workspaceTabGapKeepsTabInPlace(tab, projectId: projectId, monitorScopeId: monitorScopeId, gap: gap) { return false }
     if case .tabCollection(let id) = target {
         guard config.usesBrowserTabs, let workspace = sourceWindow.nodeWorkspace,
               let group = workspaceSidebarOrganizationStore.state.collections.first(where: { $0.id == id }),
@@ -795,11 +802,22 @@ func finishSidebarWindowDrag(pointer: CGPoint? = nil) {
         postWorkspaceSidebarDragPointerNotification(workspaceSidebarDragPointerEndedNotification, pointer: pointer)
     }
     let didCommitSidebarDrop = commitActiveWorkspaceSidebarDragIfPossible()
+    // Released over the Tabs sidebar where it showed no drop: nothing moves. The window
+    // drag's last frame must not find a target of its own there.
+    let releasedWithoutSidebarDrop = !didCommitSidebarDrop && workspaceSidebarOwnsTabDrag(
+        usesBrowserTabs: config.usesBrowserTabs,
+        startedInSidebar: getCurrentMouseDragStartedInSidebar(),
+        hasActiveSidebarDrag: currentActiveWorkspaceSidebarDrag() != nil,
+        isPointerInSidebar: WorkspaceSidebarPanel.panel(containing: MousePointerTracker.shared.currentSample.point) != nil)
     clearActiveWorkspaceSidebarDrag()
-    if didCommitSidebarDrop {
+    if didCommitSidebarDrop || releasedWithoutSidebarDrop {
         clearPendingWindowDragIntent()
         cancelManipulatedWithMouseState()
         scheduleRefreshSession(.resetManipulatedWithMouse, optimisticallyPreLayoutWorkspaces: true)
+        if releasedWithoutSidebarDrop {
+            clearWorkspaceSidebarDropPreview()
+            WindowDragCursorProxyPanel.shared.hide()
+        }
         return
     }
     Task { @MainActor in
@@ -853,7 +871,7 @@ private func workspaceSidebarTabDropPlacement(for target: WorkspaceSidebarDropTa
                                               subject: WindowDragSubject) -> WorkspaceSidebarTabDropPlacement? {
     // A floating window stays floating wherever it goes, so it can't go beside another.
     guard target.acceptsSides, !sourceWindow.isFloating, case .workspace(let name) = target.kind else { return nil }
-    let targetWindow = Workspace.existing(byName: name)?.mostRecentWindowRecursive
+    let targetWindow = Workspace.existing(byName: name).flatMap(workspaceTabDropTargetWindow)
     let canStack = targetWindow.map { !$0.isFloating } == true
     return workspaceSidebarTabDropPlacement(pointX: MousePointerTracker.shared.currentSample.point.x,
         targetMidX: target.rect.center.x, subject: subject,

@@ -119,6 +119,41 @@ final class BrowserTabsModel: ObservableObject {
         if snapshots != next { snapshots = next }
     }
 
+    /// Closes one browser tab, as middle-clicking it in a browser's tab bar does. The window
+    /// stays where it is; the list drops the tab at once and rereads it right after.
+    func close(_ target: BrowserTabTarget) {
+        guard config.workspaceSidebar.usesTabsList, config.workspaceSidebar.browserTabs,
+              TrayMenuModel.shared.isEnabled, !serverArgs.isReadOnly,
+              let window = Window.get(byId: target.windowId), window.app.pid == target.pid,
+              let app = window.app as? MacApp
+        else { return }
+        let token = generation
+        Task { [weak self] in
+            let closed = (try? await app.closeBrowserTab(target)) == true
+            guard let self, self.generation == token else { return }
+            self.schedule.reset(target.windowId)
+            guard closed else {
+                MessageModel.shared.message = Message(description: "Close Tab Error",
+                    body: "\(window.app.name ?? "The browser") didn't offer a way to close this tab.")
+                return
+            }
+            self.cache.removeTab(target)
+            self.publish()
+            // A tab can ask before it closes, such as for unsent form data. In a window that
+            // isn't on screen the prompt would stay out of view, so bring it forward, as closing
+            // a hidden window does. A read that still lists the tab restores its row.
+            guard Window.get(byId: target.windowId) === window, windowIsHiddenFromView(window) else { return }
+            for _ in 0..<windowMiddleClickSheetPollCount {
+                do { try await Task.sleep(for: windowMiddleClickSheetPollInterval) } catch { return }
+                guard Window.get(byId: target.windowId) === window else { return }
+                if (try? await app.windowShowsSheet(target.windowId)) == true {
+                    focusWindowFromSidebar(target.windowId)
+                    return
+                }
+            }
+        }
+    }
+
     func select(_ target: BrowserTabTarget, monitorScopeId: String?) {
         guard config.workspaceSidebar.usesTabsList, config.workspaceSidebar.browserTabs,
               TrayMenuModel.shared.isEnabled, !serverArgs.isReadOnly

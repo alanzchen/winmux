@@ -2,9 +2,12 @@
 
 The expanded Tabs sidebar can list the tabs inside a Safari or compatible Chrome,
 Chromium, Brave, or Edge window. A window with two or more readable tabs becomes a
-browser group. Selecting a child switches the browser tab and focuses its owning
-window. A real split keeps its side-by-side window row, with browser children below.
-Search matches browser tab titles; arrow keys and Enter select the matching child.
+browser group, drawn like the sidebar's other groups: the window's row heads it, and
+its tabs are listed beneath. Selecting a child switches the browser tab and focuses
+its owning window. Middle-click a child, hover it and click **×**, or choose **Close
+Tab** from its menu to close that browser tab. A real split keeps its side-by-side
+window row, with browser children below. Search matches browser tab titles; arrow
+keys and Enter select the matching child.
 
 ![A browser window with individual tab rows](images/browser-tabs-single.png)
 
@@ -42,8 +45,12 @@ after the address is confirmed.
 
 ## Current boundaries
 
-- The sidebar selects browser tabs. Close, drag, reorder, detach, and browser-native
-  tab-group editing remain in the browser. Header actions still apply to the window.
+- The sidebar selects and closes browser tabs. Closing uses that exact tab's own close
+  control, found without relying on localized names: Safari's close action for the tab,
+  which works while its close button is hidden, or a Chrome-family tab's close button.
+  A tab without either stays open and WinMux says so. Drag, reorder, detach, and
+  browser-native tab-group editing remain in the browser. Header actions still apply
+  to the window.
 - WinMux's next/previous and numbered workspace commands continue navigating real
   windows and splits. Search can navigate browser children.
 - Arc, Dia, Opera, Vivaldi, Safari Technology Preview, and custom tab-strip layouts

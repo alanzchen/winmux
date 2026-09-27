@@ -31,95 +31,136 @@ private func workspaceSidebarBrowserHeaderSearchText(_ window: WorkspaceSidebarW
      workspace.sidebarLabel, workspace.displayName, workspace.name, context].joined(separator: " ").localizedLowercase
 }
 
-/// Browser children intentionally have only selection. Window close, drag, split,
-/// rename and workspace actions belong exclusively to the owning window's header.
+/// A browser tab selects and closes, like a tab in the browser's own tab bar. Window close,
+/// drag, split, rename and workspace actions belong exclusively to the owning window's header.
 struct WorkspaceSidebarBrowserTabRowView: View {
     let tab: BrowserTab
     let window: WorkspaceSidebarWindowViewModel
     let isActive: Bool
     let isSearchSelected: Bool
     let onSelect: () -> Void
+    let onClose: () -> Void
     @State private var isHovered = false
     @ObservedObject private var icons = BrowserTabIconModel.shared
+    @Environment(\.workspaceSidebarTabIndent) private var indent
+    @Environment(\.workspaceSidebarReducesMotion) private var reducesMotion
+
+    private var isShown: Bool { isActive && tab.isSelected }
 
     var body: some View {
         Button(action: onSelect) {
-            HStack(spacing: 8) {
+            // The same columns as a tab's row: icon, title, then the trailing slot.
+            HStack(spacing: 9) {
                 Group {
                     if let origin = tab.iconOrigin, let image = icons.images[origin] {
-                        Image(nsImage: image).resizable().aspectRatio(contentMode: .fit).frame(width: 16, height: 16)
+                        Image(nsImage: image).resizable().aspectRatio(contentMode: .fit)
                     } else {
-                        WorkspaceSidebarTabIcon(bundleId: window.appBundleId, bundlePath: window.appBundlePath, size: 16)
+                        WorkspaceSidebarTabIcon(bundleId: window.appBundleId, bundlePath: window.appBundlePath)
                     }
-                }.frame(width: 16, height: 16)
-                Text(tab.title).font(.system(size: 12)).lineLimit(1).truncationMode(.tail)
-                Spacer(minLength: 0)
-                if tab.isSelected {
-                    Image(systemName: "checkmark").font(.system(size: 9, weight: .semibold)).foregroundStyle(.secondary)
-                }
+                }.frame(width: workspaceSidebarTabIconSize, height: workspaceSidebarTabIconSize)
+                Text(tab.title)
+                    .font(.system(size: 13, weight: isShown ? .medium : .regular))
+                    .foregroundStyle(Color.primary.opacity(isShown ? 0.95 : 0.82))
+                    .lineLimit(1).truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Group {
+                    if tab.isSelected {
+                        Image(systemName: "checkmark").font(.system(size: 9, weight: .semibold)).foregroundStyle(.secondary)
+                            .opacity(isHovered ? 0 : 1)
+                    }
+                }.frame(width: workspaceSidebarTabTrailingSlotWidth)
             }
-            .padding(.horizontal, 9)
-            .frame(maxWidth: .infinity, minHeight: workspaceSidebarTabRowHeight, alignment: .leading)
+            .padding(.leading, indent.leadingPadding)
+            .frame(maxWidth: .infinity, minHeight: workspaceSidebarTabRowHeight, maxHeight: workspaceSidebarTabRowHeight,
+                alignment: .leading)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .background {
-            RoundedRectangle(cornerRadius: 8).fill(isActive && tab.isSelected
-                ? Color(nsColor: .controlBackgroundColor) : Color.primary.opacity(isSearchSelected ? 0.13 : isHovered ? 0.06 : 0))
+        // Over the row, as on a tab's row, so closing never also selects the tab.
+        .overlay(alignment: .trailing) {
+            Button(action: close) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(Color.primary.opacity(0.6))
+                    .frame(width: 18, height: 18)
+                    .background {
+                        RoundedRectangle(cornerRadius: 5, style: .continuous).fill(Color.primary.opacity(0.08))
+                    }
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Close Tab")
+            .accessibilityHidden(true)
+            .frame(width: workspaceSidebarTabTrailingSlotWidth)
+            .opacity(isHovered ? 1 : 0)
+            .allowsHitTesting(isHovered)
         }
-        .onHover { isHovered = $0 }
+        .background {
+            RoundedRectangle(cornerRadius: indent.rowCornerRadius, style: .continuous)
+                .fill(isShown ? Color(nsColor: .controlBackgroundColor)
+                    : Color.primary.opacity(isSearchSelected ? 0.13 : isHovered ? 0.06 : 0))
+                .shadow(color: isShown ? Color.black.opacity(0.22) : .clear, radius: 3, y: 1)
+        }
+        .animation(WorkspaceSidebarTabMotion.selection(reducesMotion: reducesMotion), value: isShown)
+        .overlay {
+            WindowMiddleClickCatcher(browserTab: tab.target) { close() }
+        }
+        .onHover { hovering in withAnimation(WorkspaceSidebarTabMotion.hover) { isHovered = hovering } }
+        .contextMenu {
+            Button("Close Tab") { close() }
+        }
+        .accessibilityAction(named: "Close") { close() }
         .onAppear { icons.request(tab.iconOrigin) }
         .onChange(of: tab.iconOrigin) { icons.request($0) }
         .help(tab.title)
         .accessibilityLabel("\(tab.title), browser tab in \(window.appName)")
-        .accessibilityAddTraits(isActive && tab.isSelected ? .isSelected : [])
+        .accessibilityAddTraits(isShown ? .isSelected : [])
         .id(tab.target.rowId)
+    }
+
+    private func close() {
+        guard !isWorkspaceSidebarDragInProgress() else { return }
+        onClose()
     }
 }
 
+/// A browser window's tabs, in the same card as every other group. The header is the
+/// window's own row, which selects, drags, and closes the window.
 struct WorkspaceSidebarBrowserTabGroupView<Header: View>: View {
     let snapshot: BrowserWindowTabs
     let window: WorkspaceSidebarWindowViewModel
     let tabs: [BrowserTab]
     let isActive: Bool
     let isSearching: Bool
+    var tint: Color? = nil
+    var cardCornerRadius: CGFloat? = nil
     let selectedSearchTarget: WorkspaceSidebarSearchSelection?
     let activation: WorkspaceSidebarTabActivation
     let actions: WorkspaceSidebarActions
     @ViewBuilder let header: () -> Header
     @State private var collapsed = false
 
-    private var isCollapsed: Bool { collapsed && !isActive && !isSearching }
+    /// The tab in use, and a search, always show the window's tabs.
+    private var canToggle: Bool { !isActive && !isSearching }
+    private var isCollapsed: Bool { collapsed && canToggle }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 1) {
-                Button {
-                    guard !isActive, !isSearching else { return }
-                    collapsed.toggle()
-                } label: {
-                    Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
-                        .font(.system(size: 10, weight: .semibold)).foregroundStyle(.secondary)
-                        .frame(width: 20, height: workspaceSidebarTabRowHeight).contentShape(Rectangle())
+        WorkspaceSidebarTabGroupCard(tint: tint, isExpanded: !isCollapsed, isActive: isActive, cornerRadius: cardCornerRadius) {
+            header()
+                .overlay(alignment: .leading) {
+                    WorkspaceSidebarTabDisclosureButton(isExpanded: !isCollapsed, tint: tint, canToggle: canToggle,
+                        label: isCollapsed ? "Expand browser tabs" : "Collapse browser tabs") { collapsed.toggle() }
                 }
-                .buttonStyle(.plain).disabled(isActive || isSearching)
-                .accessibilityLabel(isCollapsed ? "Expand browser tabs" : "Collapse browser tabs")
-                header()
-                Text("\(tabs.count)").font(.system(size: 10).monospacedDigit())
-                    .foregroundStyle(.secondary).padding(.trailing, 8)
-            }
-            if !isCollapsed {
-                ForEach(tabs) { tab in
-                    WorkspaceSidebarBrowserTabRowView(tab: tab, window: window,
-                        isActive: isActive && window.isFocused,
-                        isSearchSelected: selectedSearchTarget == .browserTab(tab.target)) {
-                        activation.select(.selectBrowserTab(tab.target), send: actions.send)
-                    }
-                }.padding(.leading, 14).padding(.trailing, 4)
+        } content: {
+            ForEach(tabs) { tab in
+                WorkspaceSidebarBrowserTabRowView(tab: tab, window: window,
+                    isActive: isActive && window.isFocused,
+                    isSearchSelected: selectedSearchTarget == .browserTab(tab.target),
+                    onSelect: { activation.select(.selectBrowserTab(tab.target), send: actions.send) },
+                    onClose: { actions.send(.closeBrowserTab(tab.target)) })
+                .transition(.workspaceSidebarTabReveal)
             }
         }
-        .padding(.bottom, isCollapsed ? 0 : 4)
-        .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 10))
         .accessibilityElement(children: .contain)
         .accessibilityLabel("\(window.appName), \(snapshot.tabs.count) browser tabs")
     }

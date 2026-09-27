@@ -66,6 +66,13 @@ struct BrowserTabSnapshotCache {
         failedSince = failedSince.filter { snapshots[$0.key] != nil }
     }
 
+    /// A tab the user just closed leaves the list before the next read confirms it.
+    mutating func removeTab(_ target: BrowserTabTarget) {
+        guard var snapshot = snapshots[target.windowId], snapshot.windowSession == target.windowSession else { return }
+        snapshot.tabs.removeAll { $0.target == target }
+        snapshots[target.windowId] = snapshot
+    }
+
     mutating func clearIconMetadata() {
         for id in snapshots.keys {
             snapshots[id]?.iconCandidate = nil

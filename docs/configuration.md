@@ -78,14 +78,24 @@ tabs-always-expanded = true
   can override that default. Saved tabs stay when their last window closes.
 - Hover a tab and click **×**, or middle-click, to close its window. In a split,
   this closes only that segment. **Separate into Tabs** gives each window its own row.
-- Drag a tab onto another to tile their windows side by side; the drop's left or
-  right half chooses the side. Drag between rows to reorder, or to pull one window
-  out of a split. There are no window stacks or horizontal window-tab strips in this
-  mode. Existing stacks become separate sidebar rows, preserving each entry's split.
-  Dock and Sidebar modes continue to support window stacks.
+  In a [browser window's tab list](browser-tabs.md), the same closes one browser tab.
+- Drag a tab onto another and hold it still over one half to tile their windows
+  side by side on that side; the half is highlighted. Drag between rows to reorder,
+  or to pull one window out of a split. A line marks where the tab will go, labeled
+  **New Tab** when the drop gives a window a tab of its own. Dropping in the empty
+  space below the tabs puts the tab last, outside any group. Releasing where nothing
+  is marked leaves the tab where it was. There are no window stacks or horizontal
+  window-tab strips in this mode. Existing stacks become separate sidebar rows,
+  preserving each entry's split. Dock and Sidebar modes continue to support window
+  stacks.
 - Groups containing an active tab on this sidebar's display stay fully expanded,
   with the disclosure arrow pointing down. Other groups can be collapsed from
   the header or context menu.
+- Your groups, a browser window's tabs, and workspace folders share one look: a
+  tinted card whose header has the arrow on the tabs' icon column, the group's icon
+  and name, and a count; its rows start under the group's icon. Groups open and
+  close, and tabs move, with short animations. With Reduce Motion, they change in
+  place and only hover and drop highlights fade.
 - The animated project switcher is at the bottom. Right-click a project, workspace or group in
   any mode for the shared name field, color swatches and searchable emoji picker.
   Appearance edits keep the menu open. Enter commits the name; Escape discards an

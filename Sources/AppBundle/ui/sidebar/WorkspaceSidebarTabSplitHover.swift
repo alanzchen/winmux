@@ -80,7 +80,7 @@ func workspaceSidebarDeliberateTabDropTarget(_ target: WorkspaceSidebarDropTarge
     let side: WorkspaceSidebarTabDropPlacement = point.x < target.rect.center.x ? .left : .right
     if hover.isReady(target: name, side: side, point: point) {
         var armed = target
-        armed.acceptsSides = !sourceWindow.isFloating && workspace.mostRecentWindowRecursive?.isFloating == false
+        armed.acceptsSides = !sourceWindow.isFloating && workspaceTabDropTargetWindow(workspace)?.isFloating == false
         return armed
     }
     guard let destination = target.tabReorderDestination else { return nil }

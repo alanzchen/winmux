@@ -25,12 +25,13 @@ extension WorkspaceSidebarView {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 3) {
                         if projects.isEmpty {
-                            Text("No matching tabs").font(.system(size: 13)).foregroundStyle(.secondary).padding(12)
+                            Text("No matching tabs").font(.system(size: 13)).foregroundStyle(.secondary)
+                                .padding(.horizontal, workspaceSidebarTabLeadingPadding).padding(.vertical, 12)
                         }
                         ForEach(projects) { project in
                             Text(project.id == snapshot.activeProjectId ? project.displayName : "In \(project.displayName)")
                                 .font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
-                                .padding(.horizontal, 8).padding(.top, 8)
+                                .padding(.horizontal, workspaceSidebarTabLeadingPadding).padding(.top, 8)
                             ForEach(matches[project.id] ?? []) { workspace in
                                 tabEntry(workspace, isPinned: false, projectId: project.id,
                                     pageAllowsActivation: true, isSearching: true,
@@ -39,7 +40,7 @@ extension WorkspaceSidebarView {
                                     .id(workspaceSidebarTabFolderRowId(workspace.name))
                             }
                         }
-                    }.padding(.horizontal, 10).padding(.bottom, 10)
+                    }.padding(.horizontal, workspaceSidebarTabsListInset).padding(.bottom, 10)
                 }
                 .onChange(of: selectedSearchTarget) { target in
                     let tabs = projects.flatMap { matches[$0.id] ?? [] }

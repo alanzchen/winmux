@@ -24,36 +24,51 @@ func shouldCloseWindowOnMouseUp(buttonNumber: Int, pressedButtonNumber: Int?, is
     enabled && buttonNumber == windowMiddleMouseButtonNumber && pressedButtonNumber == buttonNumber && isInside
 }
 
-/// Overlay for a SwiftUI tab or row that represents one window.
+/// Overlay for a SwiftUI tab or row that represents one window, or one browser tab.
 struct WindowMiddleClickCatcher: NSViewRepresentable {
-    let windowId: UInt32
+    let identity: AnyHashable
     let onMiddleClick: @MainActor () -> Void
+
+    init(windowId: UInt32, onMiddleClick: @escaping @MainActor () -> Void) {
+        identity = AnyHashable(windowId)
+        self.onMiddleClick = onMiddleClick
+    }
+
+    /// A browser tab: its own identity, so a press on one tab never closes its neighbor.
+    init(browserTab target: BrowserTabTarget, onMiddleClick: @escaping @MainActor () -> Void) {
+        identity = AnyHashable(target)
+        self.onMiddleClick = onMiddleClick
+    }
 
     func makeNSView(context: Context) -> WindowMiddleClickView {
         let view = WindowMiddleClickView()
-        view.update(windowId: windowId, onMiddleClick: onMiddleClick)
+        view.update(identity: identity, onMiddleClick: onMiddleClick)
         return view
     }
 
     func updateNSView(_ view: WindowMiddleClickView, context: Context) {
-        view.update(windowId: windowId, onMiddleClick: onMiddleClick)
+        view.update(identity: identity, onMiddleClick: onMiddleClick)
     }
 }
 
 final class WindowMiddleClickView: NSView {
-    private(set) var windowId: UInt32?
+    private var identity: AnyHashable?
     private var onMiddleClick: (@MainActor () -> Void)?
     private var pressedButtonNumber: Int?
-    private var pressedWindowId: UInt32?
+    private var pressedIdentity: AnyHashable?
+
+    func update(windowId nextWindowId: UInt32, onMiddleClick nextAction: @escaping @MainActor () -> Void) {
+        update(identity: AnyHashable(nextWindowId), onMiddleClick: nextAction)
+    }
 
     /// SwiftUI can hand this view to another tab or row while the button is down; a
     /// release then belongs to no window.
-    func update(windowId nextWindowId: UInt32, onMiddleClick nextAction: @escaping @MainActor () -> Void) {
-        if windowId != nextWindowId {
+    func update(identity nextIdentity: AnyHashable, onMiddleClick nextAction: @escaping @MainActor () -> Void) {
+        if identity != nextIdentity {
             pressedButtonNumber = nil
-            pressedWindowId = nil
+            pressedIdentity = nil
         }
-        windowId = nextWindowId
+        identity = nextIdentity
         onMiddleClick = nextAction
     }
 
@@ -76,15 +91,15 @@ final class WindowMiddleClickView: NSView {
 
     func pressButton(_ buttonNumber: Int) {
         pressedButtonNumber = buttonNumber
-        pressedWindowId = windowId
+        pressedIdentity = identity
     }
 
     func releaseButton(_ buttonNumber: Int, at point: CGPoint) {
         defer {
             pressedButtonNumber = nil
-            pressedWindowId = nil
+            pressedIdentity = nil
         }
-        guard pressedWindowId != nil, pressedWindowId == windowId, shouldCloseWindowOnMouseUp(
+        guard pressedIdentity != nil, pressedIdentity == identity, shouldCloseWindowOnMouseUp(
             buttonNumber: buttonNumber,
             pressedButtonNumber: pressedButtonNumber,
             isInside: bounds.contains(point),

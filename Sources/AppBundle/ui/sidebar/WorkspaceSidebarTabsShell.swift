@@ -17,13 +17,22 @@ extension WorkspaceSidebarView {
         let collapsedGroups = Set(snapshot.configuration.tabCollections.filter {
             expanded && !isSearchEditing && searchText.isEmpty && tabCollectionDisclosure($0).isCollapsed
         }.map(\.id))
+        let isSearchActive = isSearchEditing || !searchText.isEmpty
+        // While the sidebar opens or closes, the list fades in once there's room for it and
+        // the rail fades out before it goes, instead of either popping at the threshold.
+        let reveal = min(max((expansionProgress - workspaceSidebarRowsRevealProgress) / 0.3, 0), 1)
+        let railOpacity = min(max(1 - expansionProgress / workspaceSidebarRowsRevealProgress, 0), 1)
         return VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 8) {
                 if expanded {
-                    HStack(spacing: 7) {
-                        if let emoji = project?.emoji { Text(emoji) }
+                    // The project's emoji and name sit on the tabs' icon and title columns.
+                    HStack(spacing: 9) {
+                        if let emoji = project?.emoji {
+                            Text(emoji).font(.system(size: 15)).frame(width: workspaceSidebarTabIconSize)
+                        }
                         Text(project?.displayName ?? "Work").font(.system(size: 15, weight: .semibold)).lineLimit(1)
                     }
+                    .opacity(reveal)
                     .sidebarIdentityMenu(.project(snapshot.activeProjectId))
                     Spacer(minLength: 0)
                 }
@@ -34,7 +43,9 @@ extension WorkspaceSidebarView {
                 .help(expanded ? "Collapse sidebar" : "Keep sidebar open")
                 .accessibilityLabel(expanded ? "Collapse sidebar" : "Keep sidebar open")
             }
-            .padding(.horizontal, expanded ? 14 : 8)
+            // Expanded, the toggle centers on the column of the rows' counts and close buttons.
+            .padding(.leading, expanded ? workspaceSidebarTabsListInset + workspaceSidebarTabLeadingPadding : 8)
+            .padding(.trailing, expanded ? workspaceSidebarTabsListInset + workspaceSidebarTabTrailingSlotWidth / 2 - 14 : 8)
             .padding(.top, 14).padding(.bottom, 12)
 
             if expanded {
@@ -47,27 +58,38 @@ extension WorkspaceSidebarView {
                         Label(snapshot.monitorScopes.first { $0.id == snapshot.selectedMonitorScopeId }?.displayName ?? "This Display",
                             systemImage: "display")
                     }
-                    .menuStyle(.borderlessButton).padding(.horizontal, 16).padding(.bottom, 10)
+                    .menuStyle(.borderlessButton)
+                    .padding(.leading, workspaceSidebarTabsListInset + workspaceSidebarTabLeadingPadding)
+                    .padding(.trailing, 16).padding(.bottom, 10)
+                    .opacity(reveal)
                 }
-                if searchText.isEmpty, !isSearchEditing {
+                if !isSearchActive {
                     tabsFavorites(visible[snapshot.activeProjectId] ?? [])
-                    Button { beginSidebarSearchIfNeeded() } label: {
-                        Label("Search tabs", systemImage: "magnifyingglass")
-                            .font(.system(size: 12)).foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity, alignment: .leading).padding(9).contentShape(Rectangle())
-                    }.buttonStyle(.plain).padding(.horizontal, 8).padding(.bottom, 4)
-                } else {
-                    sidebarSearchSection(layout: layout, expansionProgress: 1, leadingInset: 12, trailingInset: 12)
+                        .opacity(reveal)
+                        .transition(.opacity.combined(with: .move(edge: .top)))
                 }
-                if isSearchEditing || !searchText.isEmpty {
-                    tabsSearchResults.frame(maxHeight: .infinity, alignment: .topLeading)
-                } else {
-                    projectPagerContent(layout: layout, expansionProgress: 1, leadingInset: 10, trailingInset: 10,
-                        topPadding: 0, visibleWorkspacesByProject: filtered,
-                        swipeDirection: workspaceSidebarProjectSwipeDirection(horizontalTranslation: projectSwipeTranslation,
-                            verticalTranslation: 0, minimumDistance: 1))
-                        .frame(maxHeight: .infinity, alignment: .topLeading)
+                WorkspaceSidebarTabsSearchRow(text: searchText, isEditing: isSearchEditing,
+                    onBegin: { beginSidebarSearchIfNeeded() },
+                    onClear: {
+                        finishSidebarSearch(clearText: true)
+                        beginSidebarSearchIfNeeded()
+                    })
+                    .padding(.horizontal, workspaceSidebarTabsListInset).padding(.bottom, 4)
+                    .opacity(reveal)
+                ZStack(alignment: .topLeading) {
+                    if isSearchActive {
+                        tabsSearchResults.transition(.opacity)
+                    } else {
+                        projectPagerContent(layout: layout, expansionProgress: 1, leadingInset: workspaceSidebarTabsListInset,
+                            trailingInset: workspaceSidebarTabsListInset,
+                            topPadding: 0, visibleWorkspacesByProject: filtered,
+                            swipeDirection: workspaceSidebarProjectSwipeDirection(horizontalTranslation: projectSwipeTranslation,
+                                verticalTranslation: 0, minimumDistance: 1))
+                            .transition(.opacity)
+                    }
                 }
+                .frame(maxHeight: .infinity, alignment: .topLeading)
+                .opacity(reveal)
             } else {
                 ScrollView {
                     VStack(spacing: 5) {
@@ -91,23 +113,33 @@ extension WorkspaceSidebarView {
                         }
                     }.frame(maxWidth: .infinity)
                 }
+                .opacity(railOpacity)
             }
-            if expanded { WorkspaceSidebarTabUndoButton(actions: actions) }
+            if expanded { WorkspaceSidebarTabUndoButton(actions: actions, reducesMotion: reduceDockMotion).opacity(reveal) }
             projectPagerSection(layout: layout, expansionProgress: expansionProgress,
                 leadingInset: pagerInset, trailingInset: pagerInset,
                 swipeDirection: workspaceSidebarProjectSwipeDirection(horizontalTranslation: projectSwipeTranslation,
                     verticalTranslation: 0, minimumDistance: 1), switchProgress: 0, edgeProgress: 0)
             if expanded {
                 HStack {
-                    Button { ShortcutSettingsModel.shared.requestDockSettings() } label: { Image(systemName: "gearshape") }
-                        .help("Sidebar Settings").accessibilityLabel("Sidebar Settings")
+                    Button { ShortcutSettingsModel.shared.requestDockSettings() } label: {
+                        Image(systemName: "gearshape").frame(width: workspaceSidebarTabIconSize)
+                    }
+                    .help("Sidebar Settings").accessibilityLabel("Sidebar Settings")
                     Spacer()
                     Text("\((visible[snapshot.activeProjectId] ?? []).count) tabs").font(.system(size: 11)).foregroundStyle(.secondary)
-                }.buttonStyle(.plain).padding(14)
+                        .contentTransition(.numericText())
+                }
+                .buttonStyle(.plain)
+                .padding(.leading, workspaceSidebarTabsListInset + workspaceSidebarTabLeadingPadding)
+                .padding(.trailing, 14).padding(.vertical, 14)
+                .opacity(reveal)
             } else {
                 Color.clear.frame(height: 6)
             }
         }
+        .animation(reduceDockMotion ? nil : WorkspaceSidebarTabMotion.disclosure, value: isSearchActive)
+        .environment(\.workspaceSidebarReducesMotion, reduceDockMotion)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background { sidebarSurface(in: sidebarShape(layout: layout)) }
         .clipShape(sidebarShape(layout: layout))
@@ -164,54 +196,160 @@ extension WorkspaceSidebarView {
     func tabCollection(_ group: WorkspaceTabCollection, workspaces: [WorkspaceSidebarWorkspaceViewModel],
                        projectId: WorkspaceProjectId, pageAllowsActivation: Bool, isSearching: Bool,
                        overrideMinHeight: CGFloat, monitorScopeId: String) -> some View {
-        let color = group.colorHex.flatMap(workspaceSidebarColor) ?? Color.secondary
+        let color = group.colorHex.flatMap(workspaceSidebarColor)
         let disclosure = tabCollectionDisclosure(group, isSearching: isSearching)
-        let rows = disclosure.isCollapsed ? [] : workspaces
         let isDropTarget = snapshot.dropPreview?.targetCollectionId == group.id
-        return VStack(alignment: .leading, spacing: 3) {
-            Button { if disclosure.canToggle { actions.send(.toggleTabCollection(group.id)) } } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: disclosure.isCollapsed ? "chevron.right" : "chevron.down")
-                        .font(.system(size: 10, weight: .semibold)).frame(width: 12)
-                    if let emoji = group.emoji { Text(emoji) }
-                    if disclosure.isCollapsed {
+        return WorkspaceSidebarTabGroupCard(tint: color, isExpanded: !disclosure.isCollapsed, isDropTarget: isDropTarget) {
+            WorkspaceSidebarTabCollectionHeader(group: group, workspaces: workspaces, tint: color, disclosure: disclosure,
+                badgeModel: dockBadgeModel) {
+                if disclosure.canToggle { actions.send(.toggleTabCollection(group.id)) }
+            }
+            .accessibilityLabel(disclosure.canToggle
+                ? "\(disclosure.isCollapsed ? "Expand" : "Collapse") group \(group.name)" : "Group \(group.name)")
+            .accessibilityValue(disclosure.isCollapsed ? "Collapsed" : "Expanded")
+            .accessibilityHint(disclosure.canToggle ? "" : (isSearching ? "Expanded for search" : "Contains the active tab"))
+            .sidebarIdentityMenu(.collection(group.id, isSearching: isSearching,
+                monitorScopeId: snapshot.targetMonitorScopeId, createMonitorScopeId: monitorScopeId))
+            .background {
+                GeometryReader { geometry in
+                    Color.clear.preference(key: WorkspaceSidebarDropTargetPreferenceKey.self,
+                        value: [.init(kind: .tabCollection(group.id), frame: geometry.frame(in: .named("workspaceSidebarContent")))])
+                }
+            }
+        } content: {
+            ForEach(workspaces) { workspace in
+                tabEntry(workspace, isPinned: false, projectId: projectId, pageAllowsActivation: pageAllowsActivation,
+                    isSearching: isSearching, overrideMinHeight: overrideMinHeight, monitorScopeId: monitorScopeId,
+                    collectionId: group.id)
+                    .id(workspaceSidebarTabFolderRowId(workspace.name))
+                    .transition(.workspaceSidebarTabReveal)
+            }
+            if workspaces.isEmpty {
+                WorkspaceSidebarTabsGroupPlaceholder(isDropTarget: isDropTarget)
+            }
+        }
+        .padding(.vertical, 3)
+    }
+}
+
+/// A group's header, which opens and closes it.
+struct WorkspaceSidebarTabCollectionHeader: View {
+    let group: WorkspaceTabCollection
+    let workspaces: [WorkspaceSidebarWorkspaceViewModel]
+    let tint: Color?
+    let disclosure: WorkspaceSidebarTabCollectionDisclosure
+    @ObservedObject var badgeModel: WorkspaceSidebarDockBadgeModel
+    let toggle: () -> Void
+    @State private var isHovered = false
+    @Environment(\.workspaceSidebarTabIndent) private var indent
+
+    var body: some View {
+        Button(action: toggle) {
+            WorkspaceSidebarTabGroupHeaderLabel(isExpanded: !disclosure.isCollapsed, tint: tint, count: workspaces.count,
+                canToggle: disclosure.canToggle, isHighlighted: isHovered && disclosure.canToggle) {
+                if let emoji = group.emoji {
+                    Text(emoji).font(.system(size: 13))
+                } else {
+                    // The group's color, where its tabs show their app icons.
+                    Circle().fill(tint ?? Color.secondary).frame(width: 8, height: 8)
+                }
+            } title: {
+                WorkspaceSidebarTabGroupTitle(text: group.name, tint: tint)
+            } accessory: {
+                // A closed group previews what it holds after its name, keeping names aligned.
+                if disclosure.isCollapsed {
+                    HStack(spacing: 3) {
                         ForEach(Array(workspaces.flatMap(workspaceSidebarPinnedTabWindows).prefix(3))) { window in
                             WorkspaceSidebarTabIcon(bundleId: window.appBundleId, bundlePath: window.appBundlePath, size: 13)
                                 .accessibilityHidden(true)
                         }
                     }
-                    Text(group.name).font(.system(size: 13, weight: .semibold)).lineLimit(1)
-                    Spacer(minLength: 0)
-                    if disclosure.isCollapsed { WorkspaceSidebarGroupActivity(workspaces: workspaces, model: dockBadgeModel) }
-                    Text("\(workspaces.count)").font(.system(size: 11)).foregroundStyle(.secondary)
-                }.foregroundStyle(color).padding(.horizontal, 9).frame(height: 35).contentShape(Rectangle())
-            }.buttonStyle(.plain)
-                .accessibilityLabel(disclosure.canToggle
-                    ? "\(disclosure.isCollapsed ? "Expand" : "Collapse") group \(group.name)" : "Group \(group.name)")
-                .accessibilityValue(disclosure.isCollapsed ? "Collapsed" : "Expanded")
-                .accessibilityHint(disclosure.canToggle ? "" : (isSearching ? "Expanded for search" : "Contains the active tab"))
-                .sidebarIdentityMenu(.collection(group.id, isSearching: isSearching,
-                    monitorScopeId: snapshot.targetMonitorScopeId, createMonitorScopeId: monitorScopeId))
-                .background {
-                    GeometryReader { geometry in
-                        Color.clear.preference(key: WorkspaceSidebarDropTargetPreferenceKey.self,
-                            value: [.init(kind: .tabCollection(group.id), frame: geometry.frame(in: .named("workspaceSidebarContent")))])
-                    }
+                    .transition(.opacity)
+                    WorkspaceSidebarGroupActivity(workspaces: workspaces, model: badgeModel)
                 }
-            ForEach(rows) { workspace in
-                tabEntry(workspace, isPinned: false, projectId: projectId, pageAllowsActivation: pageAllowsActivation,
-                    isSearching: isSearching, overrideMinHeight: overrideMinHeight, monitorScopeId: monitorScopeId,
-                    collectionId: group.id)
-                    .id(workspaceSidebarTabFolderRowId(workspace.name))
-            }
-            if rows.isEmpty, !disclosure.isCollapsed {
-                Text(isDropTarget ? "Add tab to group" : "Drag tabs here")
-                    .font(.system(size: 12)).foregroundStyle(.secondary).padding(10)
             }
         }
-        .padding(5)
-        .background(color.opacity(isDropTarget ? 0.23 : 0.11), in: RoundedRectangle(cornerRadius: 14))
-        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(color.opacity(isDropTarget ? 0.7 : 0.16), lineWidth: 1))
-        .padding(.vertical, 4)
+        .buttonStyle(.plain)
+        .background {
+            RoundedRectangle(cornerRadius: indent.rowCornerRadius, style: .continuous)
+                .fill((tint ?? Color.primary).opacity(isHovered && disclosure.canToggle ? 0.1 : 0))
+        }
+        .onHover { hovering in withAnimation(WorkspaceSidebarTabMotion.hover) { isHovered = hovering } }
+    }
+}
+
+/// An empty group's hint, on its rows' title column.
+struct WorkspaceSidebarTabsGroupPlaceholder: View {
+    let isDropTarget: Bool
+    @Environment(\.workspaceSidebarTabIndent) private var indent
+
+    var body: some View {
+        Text(isDropTarget ? "Add tab to group" : "Drag tabs here")
+            .font(.system(size: 12)).foregroundStyle(.secondary)
+            .padding(.leading, indent.leadingPadding)
+            .frame(maxWidth: .infinity, minHeight: workspaceSidebarTabRowHeight, alignment: .leading)
+            .animation(WorkspaceSidebarTabMotion.feedback, value: isDropTarget)
+    }
+}
+
+/// The distance from the sidebar's edge to the tabs list, shared by everything aligned with it.
+let workspaceSidebarTabsListInset: CGFloat = 10
+
+/// Search tabs, resting or typing: one row on the tabs' columns, so starting a search changes
+/// its look but moves nothing.
+struct WorkspaceSidebarTabsSearchRow: View {
+    let text: String
+    let isEditing: Bool
+    let onBegin: () -> Void
+    let onClear: () -> Void
+    @State private var isHovered = false
+
+    private var isActive: Bool { isEditing || !text.isEmpty }
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: workspaceSidebarTabCornerRadius, style: .continuous)
+        Button(action: onBegin) {
+            HStack(spacing: 9) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(Color.primary.opacity(isActive ? 0.7 : 0.45))
+                    .frame(width: workspaceSidebarTabIconSize, height: workspaceSidebarTabIconSize)
+                Text(text.isEmpty ? "Search tabs" : text)
+                    .font(.system(size: 13, weight: text.isEmpty ? .regular : .medium))
+                    .foregroundStyle(Color.primary.opacity(text.isEmpty ? (isEditing ? 0.35 : 0.45) : 0.9))
+                    .lineLimit(1).truncationMode(.head)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Color.clear.frame(width: workspaceSidebarTabTrailingSlotWidth, height: 1)
+            }
+            .padding(.leading, workspaceSidebarTabLeadingPadding)
+            .frame(maxWidth: .infinity, minHeight: 32, maxHeight: 32, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .overlay(alignment: .trailing) {
+            if isActive {
+                Button(action: onClear) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(Color.primary.opacity(0.6))
+                        .frame(width: 18, height: 18)
+                        .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .frame(width: workspaceSidebarTabTrailingSlotWidth)
+                .help("Clear search")
+                .accessibilityLabel("Clear search")
+                .transition(.opacity)
+            }
+        }
+        .background {
+            shape.fill(Color.primary.opacity(isActive ? 0.08 : (isHovered ? 0.05 : 0)))
+                .overlay { shape.strokeBorder(Color.accentColor.opacity(isEditing ? 0.55 : 0), lineWidth: 1) }
+        }
+        .animation(WorkspaceSidebarTabMotion.feedback, value: isActive)
+        .animation(WorkspaceSidebarTabMotion.feedback, value: isEditing)
+        .onHover { hovering in withAnimation(WorkspaceSidebarTabMotion.hover) { isHovered = hovering } }
+        .accessibilityLabel(text.isEmpty ? "Search tabs" : "Search tabs: \(text)")
     }
 }

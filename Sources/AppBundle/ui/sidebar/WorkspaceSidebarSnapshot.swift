@@ -92,6 +92,8 @@ struct WorkspaceSidebarConfiguration: Equatable {
 
 enum WorkspaceSidebarAction: Equatable {
     case selectBrowserTab(BrowserTabTarget)
+    /// Tabs mode: closes one of a browser window's tabs, leaving the window.
+    case closeBrowserTab(BrowserTabTarget)
     case setWorkspaceColor(String, String?)
     case setWorkspaceEmoji(String, String?)
     case setWorkspaceFavorite(String, Bool)

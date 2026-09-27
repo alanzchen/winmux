@@ -48,13 +48,13 @@ func makeWorkspaceSidebarActionsAdapter(
             return workspaceSidebarAppWindow(in: workspace, appId: appId)?.windowId
         },
         windowDragChanged: { windowId, pointer in
-            updateSidebarWindowDrag(windowId, subject: .window, pointer: pointer)
+            updateSidebarWindowDrag(windowId, subject: .window, pointer: pointer, previewStyle: workspaceSidebarRowDragPreviewStyle())
         },
         windowDragEnded: { _, pointer in
             finishSidebarWindowDrag(pointer: pointer)
         },
         tabGroupDragChanged: { windowId, pointer in
-            updateSidebarWindowDrag(windowId, subject: .group, pointer: pointer)
+            updateSidebarWindowDrag(windowId, subject: .group, pointer: pointer, previewStyle: workspaceSidebarRowDragPreviewStyle())
         },
         tabGroupDragEnded: { _, pointer in
             finishSidebarWindowDrag(pointer: pointer)
@@ -63,6 +63,13 @@ func makeWorkspaceSidebarActionsAdapter(
             updateSidebarWindowDrag(windowId, pointer: pointer, previewStyle: .appIcon(size: size))
         },
     )
+}
+
+/// Tabs mode leaves the dragged row dimmed in place, so the pointer carries only the app's
+/// icon: a row-sized preview would hide the line and labels that show where the drop goes.
+@MainActor
+func workspaceSidebarRowDragPreviewStyle() -> WorkspaceSidebarDragPreviewStyle {
+    config.usesBrowserTabs ? .appIcon(size: 22) : .row
 }
 
 @MainActor
@@ -75,6 +82,8 @@ func handleWorkspaceSidebarAction(
         case .selectBrowserTab(let target):
             BrowserTabsModel.shared.select(target,
                 monitorScopeId: targetMonitorScopeId ?? viewModel.workspaceSidebarTargetMonitorScopeId)
+        case .closeBrowserTab(let target):
+            BrowserTabsModel.shared.close(target)
         case .setWorkspaceColor, .setWorkspaceEmoji, .setWorkspaceFavorite, .createTabCollection,
              .renameTabCollection, .setTabCollectionColor, .setTabCollectionEmoji, .toggleTabCollection,
              .assignTabCollection, .ungroupTabCollection, .moveTabCollection, .createTabInCollection, .toggleTabsSidebar:

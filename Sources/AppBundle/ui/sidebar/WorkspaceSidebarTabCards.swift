@@ -73,6 +73,7 @@ struct WorkspaceSidebarTabCardView: View {
     var dropPlacement: WorkspaceSidebarTabDropPlacement? = nil
     /// The edge a dragged tab would be inserted at, while one is over it.
     var insertionEdge: VerticalEdge? = nil
+    var insertionLabel: String? = nil
     /// The page's project and display, which a drop between tabs lands in; nil for none.
     var gapTarget: (projectId: WorkspaceProjectId, monitorScopeId: String)? = nil
     var collectionId: String? = nil
@@ -84,26 +85,42 @@ struct WorkspaceSidebarTabCardView: View {
     let onBeginRename: () -> Void
     let onCommitOverride: () -> Void
     let onCancelOverride: () -> Void
+    @Environment(\.workspaceSidebarTabIndent) private var indent
+    @Environment(\.workspaceSidebarReducesMotion) private var reducesMotion
+
+    /// A browser window's tabs draw their own card, which marks the tab in use and takes its color.
+    private var drawsBrowserCard: Bool {
+        guard case .single(let window) = presentation else { return false }
+        return !workspaceSidebarMatchingBrowserTabs(browserTabs[window.windowId], window: window, workspace: workspace,
+            query: browserQuery, context: browserSearchContext).isEmpty
+    }
 
     var body: some View {
         content
             .frame(minHeight: isShowingOverride ? overrideMinHeight : nil, alignment: .top)
             .background {
-                RoundedRectangle(cornerRadius: workspaceSidebarTabCornerRadius, style: .continuous)
-                    .fill(workspace.appearance.colorHex.flatMap(workspaceSidebarColor)?.opacity(0.12) ?? Color.primary.opacity(backgroundOpacity))
+                if !drawsBrowserCard {
+                    RoundedRectangle(cornerRadius: indent.rowCornerRadius, style: .continuous)
+                        .fill(workspace.appearance.colorHex.flatMap(workspaceSidebarColor)?.opacity(0.12) ?? Color.primary.opacity(backgroundOpacity))
+                        .animation(WorkspaceSidebarTabMotion.selection(reducesMotion: reducesMotion), value: isActive)
+                }
             }
             // Over the rows, so a focused half's pill doesn't hide it.
             .overlay(alignment: .top) {
-                RoundedRectangle(cornerRadius: workspaceSidebarTabCornerRadius, style: .continuous)
-                    .strokeBorder(Color.primary.opacity(isDropTarget ? 0.55 : 0), lineWidth: 1)
+                RoundedRectangle(cornerRadius: hasBrowserGroups ? indent.header.rowCornerRadius : indent.rowCornerRadius,
+                    style: .continuous)
+                    .strokeBorder(Color.accentColor.opacity(isDropTarget ? 0.65 : 0), lineWidth: 1)
                     .frame(height: hasBrowserGroups ? workspaceSidebarTabRowHeight : nil)
+                    .padding(hasBrowserGroups && drawsBrowserCard ? workspaceSidebarTabGroupInset : 0)
                     .allowsHitTesting(false)
+                    .animation(WorkspaceSidebarTabMotion.feedback, value: isDropTarget)
             }
             .overlay(alignment: .top) {
                 WorkspaceSidebarTabDropSideHighlight(placement: isDropTarget ? dropPlacement : nil)
                     .frame(height: hasBrowserGroups ? workspaceSidebarTabRowHeight : nil)
+                    .padding(hasBrowserGroups && drawsBrowserCard ? workspaceSidebarTabGroupInset : 0)
             }
-            .overlay { WorkspaceSidebarTabInsertionLine(edge: insertionEdge) }
+            .overlay { WorkspaceSidebarTabInsertionLine(edge: insertionEdge, label: insertionLabel) }
             .overlay {
                 if isShowingOverride {
                     WorkspaceSidebarInUseOverrideOverlay(
@@ -124,9 +141,11 @@ struct WorkspaceSidebarTabCardView: View {
                             // An empty tab has no window to go beside.
                             acceptsSides: presentation != .empty, collectionId: collectionId).map { target in
                                 guard case .workspace = target.kind, hasBrowserGroups else { return target }
+                                // The header row of the window's tabs, inside their card's padding.
+                                let inset = drawsBrowserCard ? workspaceSidebarTabGroupInset : 0
                                 return WorkspaceSidebarDropTargetFrame(kind: target.kind,
                                     frame: CGRect(x: target.frame.minX, y: target.frame.minY, width: target.frame.width,
-                                        height: min(workspaceSidebarTabRowHeight, target.frame.height)),
+                                        height: min(workspaceSidebarTabRowHeight + inset, target.frame.height)),
                                     acceptsSides: target.acceptsSides, tabReorderDestination: target.tabReorderDestination)
                             } : [],
                     )
@@ -151,26 +170,37 @@ struct WorkspaceSidebarTabCardView: View {
     }
 
     @ViewBuilder
-    private func browserGroup<Header: View>(_ window: WorkspaceSidebarWindowViewModel, @ViewBuilder header: @escaping () -> Header) -> some View {
+    private func browserGroup<Header: View>(_ window: WorkspaceSidebarWindowViewModel, tint: Color? = nil,
+                                            cornerRadius: CGFloat? = nil,
+                                            @ViewBuilder header: @escaping (_ count: Int) -> Header) -> some View {
         if let snapshot = browserTabs[window.windowId], snapshot.isGroup {
             let tabs = workspaceSidebarMatchingBrowserTabs(snapshot, window: window, workspace: workspace,
                 query: browserQuery, context: browserSearchContext)
             if !tabs.isEmpty {
                 WorkspaceSidebarBrowserTabGroupView(snapshot: snapshot, window: window, tabs: tabs,
-                    isActive: isActive, isSearching: isSearching,
-                    selectedSearchTarget: selectedSearchTarget, activation: activation, actions: actions, header: header)
+                    isActive: isActive, isSearching: isSearching, tint: tint, cardCornerRadius: cornerRadius,
+                    selectedSearchTarget: selectedSearchTarget, activation: activation, actions: actions,
+                    header: { header(tabs.count) })
                     .id(snapshot.windowSession)
             }
         }
     }
 
+    /// A browser window in a split lists its tabs under the split, headed like any group.
     private func browserMembers(_ windows: [WorkspaceSidebarWindowViewModel]) -> some View {
         ForEach(windows.filter { browserTabs[$0.windowId]?.isGroup == true }) { window in
-            browserGroup(window) {
+            // Flush with the split's row, so it takes the row's corners.
+            browserGroup(window, cornerRadius: indent.rowCornerRadius) { count in
                 Button { activation.select(.selectWindow(window.windowId), send: actions.send) } label: {
-                    Text(window.appName).font(.system(size: 11, weight: .medium))
-                        .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
-                }.buttonStyle(.plain)
+                    WorkspaceSidebarTabGroupHeaderLabel(isExpanded: true, count: count, drawsChevron: false) {
+                        WorkspaceSidebarTabIcon(bundleId: window.appBundleId, bundlePath: window.appBundlePath)
+                    } title: {
+                        WorkspaceSidebarTabGroupTitle(text: window.appName)
+                    }
+                }
+                .buttonStyle(.plain)
+                .help(window.title.map { "\(window.appName) — \($0)" } ?? window.appName)
+                .accessibilityLabel("\(window.appName), \(count) browser tabs")
             }
         }
     }
@@ -179,9 +209,13 @@ struct WorkspaceSidebarTabCardView: View {
     private var content: some View {
         switch presentation {
             case .single(let window):
-                if !workspaceSidebarMatchingBrowserTabs(browserTabs[window.windowId], window: window, workspace: workspace,
-                    query: browserQuery, context: browserSearchContext).isEmpty {
-                    browserGroup(window) { row(window, isSplitHalf: false) }
+                if drawsBrowserCard {
+                    browserGroup(window, tint: workspace.appearance.colorHex.flatMap(workspaceSidebarColor)) { count in
+                        // The window's own row heads its tabs: its icon and title sit where the
+                        // group's rows start, after the chevron.
+                        row(window, isSplitHalf: false, indent: workspaceSidebarTabIndentStep, trailingCount: count,
+                            groupTint: workspace.appearance.colorHex.flatMap(workspaceSidebarColor))
+                    }
                 } else { row(window, isSplitHalf: false) }
             case .split(let left, let right):
                 VStack(spacing: 2) {
@@ -227,7 +261,7 @@ struct WorkspaceSidebarTabCardView: View {
                     Button { activation.select(.selectWorkspace(workspace.name), send: actions.send) } label: {
                         WorkspaceSidebarSplitIdentityLabel(identity: identity)
                             .font(.system(size: 12, weight: .medium))
-                            .padding(.leading, 10)
+                            .padding(.leading, indent.leadingPadding)
                             .frame(maxWidth: .infinity, minHeight: workspaceSidebarTabRowHeight, alignment: .leading)
                             .contentShape(Rectangle())
                     }
@@ -241,7 +275,9 @@ struct WorkspaceSidebarTabCardView: View {
                     }
                     row(window, isSplitHalf: true, iconOnly: iconOnly,
                         showsCountOnIcon: identity != nil && memberWidth >= 36,
-                        iconSize: iconOnly ? min(workspaceSidebarTabIconSize, max(1, memberWidth - 6)) : workspaceSidebarTabIconSize)
+                        iconSize: iconOnly ? min(workspaceSidebarTabIconSize, max(1, memberWidth - 6)) : workspaceSidebarTabIconSize,
+                        // Only the split's first title starts on the tabs' icon column.
+                        followsIndent: !showsIdentity && window.id == windows.first?.id)
                         .frame(width: showsIdentity ? memberWidth : nil)
                 }
             }
@@ -249,10 +285,12 @@ struct WorkspaceSidebarTabCardView: View {
     }
 
     private func row(_ window: WorkspaceSidebarWindowViewModel, isSplitHalf: Bool, iconOnly: Bool = false,
-                     showsCountOnIcon: Bool = false, iconSize: CGFloat = workspaceSidebarTabIconSize) -> some View {
+                     showsCountOnIcon: Bool = false, iconSize: CGFloat = workspaceSidebarTabIconSize,
+                     followsIndent: Bool = true, indent: CGFloat = 0, trailingCount: Int? = nil,
+                     groupTint: Color? = nil) -> some View {
         WorkspaceSidebarTabRowView(
             window: window,
-            indent: 0,
+            indent: indent,
             isSplitHalf: isSplitHalf,
             iconOnly: iconOnly,
             showsCountOnIcon: showsCountOnIcon,
@@ -265,6 +303,9 @@ struct WorkspaceSidebarTabCardView: View {
             isDragSource: dragSourceWindowId == window.windowId,
             actions: actions,
             workspaceMenu: (workspace, onBeginRename),
+            followsIndent: followsIndent,
+            trailingCount: trailingCount,
+            groupTint: groupTint,
             onSelect: { activation.select(.selectWindow(window.windowId), send: actions.send) },
             titleOverride: !isSplitHalf ? (!workspace.sidebarLabel.isEmpty ? workspace.displayName
                 : browserTabs[window.windowId]?.isGroup == true ? window.appName : nil) : nil,
@@ -284,6 +325,8 @@ struct WorkspaceSidebarEmptyTabRowView: View {
     let onBeginRename: () -> Void
     let onSelect: () -> Void
     @State private var isHovered = false
+    @Environment(\.workspaceSidebarTabIndent) private var indent
+    @Environment(\.workspaceSidebarReducesMotion) private var reducesMotion
 
     var body: some View {
         Button(action: onSelect) {
@@ -298,7 +341,7 @@ struct WorkspaceSidebarEmptyTabRowView: View {
                     .lineLimit(1)
                 Spacer(minLength: 0)
             }
-            .padding(.leading, 10)
+            .padding(.leading, indent.leadingPadding)
             .padding(.trailing, workspaceSidebarTabCloseSlotWidth)
             .frame(maxWidth: .infinity, minHeight: workspaceSidebarTabRowHeight, maxHeight: workspaceSidebarTabRowHeight,
                 alignment: .leading)
@@ -329,15 +372,16 @@ struct WorkspaceSidebarEmptyTabRowView: View {
             .allowsHitTesting(isHovered)
         }
         .background {
-            RoundedRectangle(cornerRadius: workspaceSidebarTabCornerRadius, style: .continuous)
+            RoundedRectangle(cornerRadius: indent.rowCornerRadius, style: .continuous)
                 .fill(isActive ? Color(nsColor: .controlBackgroundColor) : Color.primary.opacity(isHovered ? 0.06 : 0))
                 .shadow(color: isActive ? Color.black.opacity(0.22) : .clear, radius: 3, y: 1)
         }
+        .animation(WorkspaceSidebarTabMotion.selection(reducesMotion: reducesMotion), value: isActive)
         .overlay {
             // Any id pairs the press with its release; there is no window to close.
             WindowMiddleClickCatcher(windowId: 0) { close() }
         }
-        .onHover { isHovered = $0 }
+        .onHover { hovering in withAnimation(WorkspaceSidebarTabMotion.hover) { isHovered = hovering } }
         .contextMenu {
             Button("Close Tab") { close() }
             Divider()
@@ -388,53 +432,105 @@ func workspaceSidebarTabDropTargets(
     return targets
 }
 
-/// The half of a tab a dragged tab would join, or the whole tab for a stack.
+/// The half of a tab a dragged tab would join, or the whole tab for a stack. It uses the
+/// insertion line's accent, so every drop target in the list reads the same way.
 struct WorkspaceSidebarTabDropSideHighlight: View {
     let placement: WorkspaceSidebarTabDropPlacement?
+    @Environment(\.workspaceSidebarTabIndent) private var indent
+    @Environment(\.workspaceSidebarReducesMotion) private var reducesMotion
 
     var body: some View {
         GeometryReader { geometry in
             if let placement {
                 let width = placement == .stack ? geometry.size.width : geometry.size.width / 2
-                RoundedRectangle(cornerRadius: workspaceSidebarTabCornerRadius, style: .continuous)
-                    .fill(Color.primary.opacity(0.18))
+                let shape = RoundedRectangle(cornerRadius: indent.rowCornerRadius, style: .continuous)
+                shape
+                    .fill(Color.accentColor.opacity(0.16))
+                    .overlay { shape.strokeBorder(Color.accentColor.opacity(0.65), lineWidth: 1) }
                     .overlay {
                         if placement == .stack {
                             Image(systemName: "square.stack")
                                 .font(.system(size: 11, weight: .semibold))
-                                .foregroundStyle(Color.primary.opacity(0.85))
+                                .foregroundStyle(Color.accentColor)
                                 .frame(maxWidth: .infinity, alignment: .trailing)
                                 .padding(.trailing, 8)
                         } else {
-                            Text(placement == .left ? "Split left" : "Split right")
-                                .font(.system(size: 10, weight: .semibold)).lineLimit(1)
-                                .padding(.horizontal, 5).padding(.vertical, 3)
-                                .background(.regularMaterial, in: Capsule())
-                                .frame(maxHeight: .infinity, alignment: .center)
+                            // At the half's outer edge, away from the pointer holding over it.
+                            WorkspaceSidebarTabDropLabel(text: placement == .left ? "Split left" : "Split right")
+                                .padding(.horizontal, 6)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity,
+                                    alignment: placement == .left ? .leading : .trailing)
                         }
                     }
                     .frame(width: width)
                     .offset(x: placement == .right ? geometry.size.width - width : 0)
+                    .transition(.opacity)
             }
         }
+        // Moving to the other half slides the highlight across; with Reduce Motion it just moves.
+        .animation(reducesMotion ? nil : WorkspaceSidebarTabMotion.feedback, value: placement)
         .allowsHitTesting(false)
         .accessibilityHidden(true)
     }
 }
 
-/// Where a dragged tab would be inserted between tabs.
-struct WorkspaceSidebarTabInsertionLine: View {
-    let edge: VerticalEdge?
+/// What a drop will do, in the accent that marks drop targets.
+struct WorkspaceSidebarTabDropLabel: View {
+    let text: String
 
     var body: some View {
-        if let edge {
-            Capsule(style: .continuous)
-                .fill(Color.primary.opacity(0.85))
-                .frame(height: 2)
+        Text(text)
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundStyle(Color.white)
+            .lineLimit(1)
+            .padding(.horizontal, 6)
+            .frame(height: 16)
+            .background(Color.accentColor, in: Capsule(style: .continuous))
+    }
+}
+
+/// Where a dragged tab would be inserted between tabs: an accent line from the tabs' icon
+/// column, and a label when the drop pulls a window out of its tab into a new one.
+struct WorkspaceSidebarTabInsertionLine: View {
+    let edge: VerticalEdge?
+    var label: String? = nil
+    @Environment(\.workspaceSidebarTabIndent) private var indent
+    @Environment(\.workspaceSidebarReducesMotion) private var reducesMotion
+
+    var body: some View {
+        ZStack {
+            if let edge {
+                HStack(spacing: 0) {
+                    Circle()
+                        .strokeBorder(Color.accentColor, lineWidth: 2)
+                        .frame(width: 6, height: 6)
+                    Capsule(style: .continuous)
+                        .fill(Color.accentColor)
+                        .frame(height: 2)
+                        .padding(.leading, -1)
+                }
+                .overlay(alignment: .trailing) {
+                    // On this tab's side of the line, so a group's card never cuts it off.
+                    if let label {
+                        WorkspaceSidebarTabDropLabel(text: label)
+                            .offset(y: edge == .top ? 10 : -10)
+                            .padding(.trailing, 6)
+                            .transition(.opacity)
+                    }
+                }
+                .padding(.leading, max(0, indent.leadingPadding - 3))
+                .padding(.trailing, 4)
+                .frame(height: 16)
+                // Centered on the gap: just outside the tab, halfway to its neighbor.
                 .frame(maxHeight: .infinity, alignment: edge == .top ? .top : .bottom)
-                .offset(y: edge == .top ? -2 : 2)
-                .allowsHitTesting(false)
-                .accessibilityHidden(true)
+                .offset(y: edge == .top ? -9 : 9)
+                .transition(reducesMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.9, anchor: .leading)))
+            }
         }
+        // Moving to the tab's other edge slides the line; with Reduce Motion it just moves.
+        .animation(reducesMotion ? nil : WorkspaceSidebarTabMotion.feedback, value: edge)
+        .animation(WorkspaceSidebarTabMotion.feedback, value: label)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 }

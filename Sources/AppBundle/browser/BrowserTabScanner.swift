@@ -17,6 +17,10 @@ struct BrowserTabAXRecord<Node> {
     let parent: Node
 }
 
+/// The selector in Safari's "Name:…\nTarget:…\nSelector:…" close action. Names are localized;
+/// the selector isn't.
+let browserTabCloseSelector = "Selector:_closeButtonClicked:"
+
 /// Small native boundary allows behavioral tests without reading live browsing data.
 protocol BrowserTabAXNode: Equatable {
     func structure() -> BrowserTabAXStructure?
@@ -26,12 +30,28 @@ protocol BrowserTabAXNode: Equatable {
     func tabInfo() -> BrowserTabAXInfo?
     func tabRecord() -> BrowserTabAXRecord<Self>?
     func press() -> Bool
+    /// The element's actions, including an app's own named ("Name:…") actions.
+    func actionNames() -> [String]
+    func perform(_ action: String) -> Bool
 }
 
 extension BrowserTabAXNode {
     func tabRecord() -> BrowserTabAXRecord<Self>? {
         guard let structure = structure(), let info = tabInfo(), let parent = parent() else { return nil }
         return .init(structure: structure, info: info, parent: parent)
+    }
+
+    func actionNames() -> [String] { [] }
+    func perform(_ action: String) -> Bool { false }
+
+    /// Closes this tab with its own control, found without localized text. Safari's tabs offer
+    /// a named action for the method their close button calls, even while the button is hidden
+    /// (it appears only under the pointer). Otherwise the tab's close button, or its only button.
+    func pressCloseControl() -> Bool {
+        if let action = actionNames().first(where: { $0.contains(browserTabCloseSelector) }) { return perform(action) }
+        guard let buttons = children()?.filter({ $0.structure()?.role == "AXButton" }) else { return false }
+        let close = buttons.first { $0.structure()?.subrole == "AXCloseButton" } ?? (buttons.count == 1 ? buttons[0] : nil)
+        return close?.press() ?? false
     }
 }
 
@@ -114,6 +134,13 @@ final class BrowserTabScanner<Node: BrowserTabAXNode> {
     func select(_ target: BrowserTabTarget, cancelled: () -> Bool = { false }) -> Bool {
         guard let (node, _) = validatedTab(target, until: now() + 0.2, cancelled: cancelled) else { return false }
         return node.press()
+    }
+
+    /// Closes exactly the tab the sidebar listed; a tab that has since moved or changed
+    /// identity is left alone.
+    func close(_ target: BrowserTabTarget, cancelled: () -> Bool = { false }) -> Bool {
+        guard let (node, _) = validatedTab(target, until: now() + 0.2, cancelled: cancelled) else { return false }
+        return node.pressCloseControl()
     }
 
     /// The full scan already established exactly one selection. Bookend the URL
