@@ -1,0 +1,199 @@
+import AppKit
+import SwiftUI
+
+/// A speaker on a tab whose app is playing sound. Core Audio reports sound per app, so every
+/// tab of that app shows it.
+struct WorkspaceSidebarTabAudioIndicator: View {
+    let bundleId: String?
+    var size: CGFloat = 10
+    @ObservedObject var model: AudioActivityModel = .shared
+
+    var body: some View {
+        if model.isPlaying(bundleId: bundleId) {
+            Image(systemName: "speaker.wave.2.fill")
+                .font(.system(size: size, weight: .semibold))
+                .foregroundStyle(Color.primary.opacity(0.55))
+                .help("Playing sound")
+                .accessibilityLabel("Playing sound")
+                .allowsHitTesting(false)
+                .transition(.opacity)
+        }
+    }
+}
+
+/// Whether a tab shows Music's now playing under its row.
+func workspaceSidebarShowsNowPlaying(_ window: WorkspaceSidebarWindowViewModel) -> Bool {
+    window.appBundleId == appleMusicBundleId
+}
+
+func workspaceSidebarNowPlayingTime(_ seconds: TimeInterval) -> String {
+    let total = max(0, Int(seconds.rounded(.down)))
+    return total >= 3600
+        ? String(format: "%d:%02d:%02d", total / 3600, total / 60 % 60, total % 60)
+        : String(format: "%d:%02d", total / 60, total % 60)
+}
+
+/// Music's tab: the track playing, its artwork and progress, and playback controls.
+struct WorkspaceSidebarMusicNowPlayingView: View {
+    let onSelect: () -> Void
+    @ObservedObject var model: AppleMusicNowPlayingModel = .shared
+    @ObservedObject var audio: AudioActivityModel = .shared
+    @Environment(\.workspaceSidebarTabIndent) private var indent
+
+    private var track: AppleMusicNowPlaying? {
+        model.nowPlaying.flatMap { $0.state != .stopped && !$0.title.isEmpty ? $0 : nil }
+    }
+
+    /// Until Music has said what it's playing, whether it's making sound.
+    private var isPlaying: Bool {
+        model.nowPlaying.map { $0.state == .playing } ?? audio.isPlaying(bundleId: appleMusicBundleId)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 9) {
+                Button(action: onSelect) {
+                    HStack(spacing: 9) {
+                        artwork
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(track?.title ?? (isPlaying ? "Playing" : "Not Playing"))
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(Color.primary.opacity(track == nil ? 0.6 : 0.92))
+                            if let subtitle {
+                                Text(subtitle)
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(Color.primary.opacity(0.6))
+                            }
+                        }
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(track.map { [$0.title, subtitle].compactMap(\.self).joined(separator: " — ") } ?? "Music")
+                .accessibilityLabel(track.map { "Now playing: \($0.title)" + (subtitle.map { ", \($0)" } ?? "") }
+                    ?? (isPlaying ? "Music: playing" : "Music: not playing"))
+                controls
+            }
+            if let track, let duration = track.duration, track.position != nil {
+                // Counts on only while playing, so a paused track doesn't redraw every second.
+                if track.state == .playing {
+                    TimelineView(.periodic(from: .now, by: 1)) { context in
+                        WorkspaceSidebarNowPlayingProgress(elapsed: track.elapsed(at: context.date) ?? 0, duration: duration)
+                    }
+                } else {
+                    WorkspaceSidebarNowPlayingProgress(elapsed: track.elapsed(at: track.positionDate) ?? 0, duration: duration)
+                }
+            }
+            if model.needsAutomationPermission {
+                Button("Allow WinMux to control Music in System Settings…") { model.openAutomationSettings() }
+                    .buttonStyle(.link)
+                    .font(.system(size: 10))
+                    .lineLimit(2)
+            }
+        }
+        .padding(.leading, indent.leadingPadding)
+        .padding(.trailing, 8)
+        .padding(.top, 2)
+        .padding(.bottom, 8)
+        .animation(WorkspaceSidebarTabMotion.feedback, value: track?.trackKey)
+        .accessibilityElement(children: .contain)
+    }
+
+    private var subtitle: String? {
+        guard let track else { return nil }
+        let parts = [track.artist, track.album].filter { !$0.isEmpty }
+        return parts.isEmpty ? nil : parts.joined(separator: " — ")
+    }
+
+    private var artwork: some View {
+        let shape = RoundedRectangle(cornerRadius: 6, style: .continuous)
+        return Group {
+            if let image = model.artwork, track != nil {
+                Image(nsImage: image).resizable().interpolation(.high).aspectRatio(contentMode: .fill)
+            } else {
+                LinearGradient(colors: [Color(red: 0.98, green: 0.36, blue: 0.45), Color(red: 0.98, green: 0.23, blue: 0.32)],
+                    startPoint: .top, endPoint: .bottom)
+                    .overlay {
+                        Image(systemName: "music.note")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(.white)
+                    }
+            }
+        }
+        .frame(width: 40, height: 40)
+        .clipShape(shape)
+        .overlay { shape.strokeBorder(Color.primary.opacity(0.1), lineWidth: 0.5) }
+        .accessibilityHidden(true)
+    }
+
+    private var controls: some View {
+        HStack(spacing: 2) {
+            control("backward.fill", label: "Previous", size: 12) { model.send(.previous) }
+            control(isPlaying ? "pause.fill" : "play.fill", label: isPlaying ? "Pause" : "Play", size: 16) {
+                model.send(.playPause)
+            }
+            control("forward.fill", label: "Next", size: 12) { model.send(.next) }
+        }
+    }
+
+    private func control(_ symbol: String, label: String, size: CGFloat, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: size, weight: .semibold))
+                .foregroundStyle(Color.primary.opacity(0.8))
+                .frame(width: 26, height: 26)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(WorkspaceSidebarNowPlayingControlStyle())
+        .help(label)
+        .accessibilityLabel(label)
+    }
+}
+
+private struct WorkspaceSidebarNowPlayingControlStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        WorkspaceSidebarNowPlayingControl(configuration: configuration)
+    }
+}
+
+private struct WorkspaceSidebarNowPlayingControl: View {
+    let configuration: ButtonStyleConfiguration
+    @State private var isHovered = false
+
+    var body: some View {
+        configuration.label
+            .background {
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(Color.primary.opacity(configuration.isPressed ? 0.14 : isHovered ? 0.07 : 0))
+            }
+            .scaleEffect(configuration.isPressed ? 0.92 : 1)
+            .onHover { isHovered = $0 }
+    }
+}
+
+struct WorkspaceSidebarNowPlayingProgress: View {
+    let elapsed: TimeInterval
+    let duration: TimeInterval
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text(workspaceSidebarNowPlayingTime(elapsed))
+            GeometryReader { geometry in
+                ZStack(alignment: .leading) {
+                    Capsule(style: .continuous).fill(Color.primary.opacity(0.12))
+                    Capsule(style: .continuous).fill(Color.primary.opacity(0.5))
+                        .frame(width: geometry.size.width * CGFloat(duration > 0 ? min(1, elapsed / duration) : 0))
+                }
+            }
+            .frame(height: 3)
+            Text("-" + workspaceSidebarNowPlayingTime(max(0, duration - elapsed)))
+        }
+        .font(.system(size: 9, weight: .medium).monospacedDigit())
+        .foregroundStyle(Color.primary.opacity(0.5))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(workspaceSidebarNowPlayingTime(elapsed)) of \(workspaceSidebarNowPlayingTime(duration))")
+    }
+}

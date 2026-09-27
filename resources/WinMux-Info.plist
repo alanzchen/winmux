@@ -21,7 +21,7 @@
 	<key>LSUIElement</key>
 	<true/>
 	<key>NSAppleEventsUsageDescription</key>
-	<string>WinMux asks apps you choose in its launcher to open a new window in the workspace you picked.</string>
+	<string>WinMux asks apps you choose in its launcher to open a new window in the workspace you picked, and controls Music from its Tabs sidebar.</string>
 	<key>UTExportedTypeDeclarations</key>
 	<array>
 		<dict>

@@ -170,6 +170,10 @@ struct WorkspaceSidebarTabRowView: View {
                         WorkspaceSidebarTabBadge(appName: window.appName, bundlePath: window.appBundlePath, model: badgeModel,
                             compact: !showsCountOnIcon, windowId: window.windowId).offset(x: showsCountOnIcon ? 5 : 2, y: -3)
                     }
+                }.overlay(alignment: .bottomTrailing) {
+                    if iconOnly {
+                        WorkspaceSidebarTabAudioIndicator(bundleId: window.appBundleId, size: 7).offset(x: 4, y: 3)
+                    }
                 }
                 if !iconOnly, trailingCount != nil {
                     WorkspaceSidebarTabGroupTitle(text: title, tint: groupTint)
@@ -182,6 +186,7 @@ struct WorkspaceSidebarTabRowView: View {
                     .frame(maxWidth: .infinity, alignment: .leading) }
                 if iconOnly { Spacer(minLength: 0) }
                 if !iconOnly {
+                    WorkspaceSidebarTabAudioIndicator(bundleId: window.appBundleId)
                     WorkspaceSidebarTabBadge(appName: window.appName, bundlePath: window.appBundlePath, model: badgeModel,
                         windowId: window.windowId)
                 }

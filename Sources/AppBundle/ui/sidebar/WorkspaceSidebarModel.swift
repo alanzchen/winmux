@@ -5,6 +5,9 @@ func updateWorkspaceSidebarModel() async {
     BrowserTabsModel.shared.setEnabled(TrayMenuModel.shared.isEnabled && config.workspaceSidebar.enabled &&
         config.workspaceSidebar.usesTabsList && config.workspaceSidebar.browserTabs)
     WorkspaceSidebarTabUndo.shared.invalidateIfChanged()
+    let showsTabs = TrayMenuModel.shared.isEnabled && config.workspaceSidebar.enabled && config.workspaceSidebar.usesTabsList
+    AudioActivityModel.shared.setEnabled(showsTabs)
+    AppleMusicNowPlayingModel.shared.setEnabled(showsTabs)
     WorkspaceSidebarDockBadgeModel.shared.setEnabled(
         TrayMenuModel.shared.isEnabled && config.workspaceSidebar.enabled &&
             workspaceSidebarNeedsDockBadgePolling(config.workspaceSidebar),

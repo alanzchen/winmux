@@ -97,6 +97,15 @@ struct WorkspaceSidebarTabCardView: View {
             query: browserQuery, context: browserSearchContext).isEmpty
     }
 
+    /// Music's tab shows what it's playing under its row.
+    private var drawsNowPlaying: Bool {
+        guard case .single(let window) = presentation else { return false }
+        return !drawsBrowserCard && workspaceSidebarShowsNowPlaying(window)
+    }
+
+    /// Only the row heading a card takes drops and shows where they go.
+    private var headsCard: Bool { hasBrowserGroups || drawsNowPlaying }
+
     var body: some View {
         content
             .frame(minHeight: isShowingOverride ? overrideMinHeight : nil, alignment: .top)
@@ -113,7 +122,7 @@ struct WorkspaceSidebarTabCardView: View {
                 RoundedRectangle(cornerRadius: hasBrowserGroups ? indent.header.rowCornerRadius : indent.rowCornerRadius,
                     style: .continuous)
                     .strokeBorder(Color.accentColor.opacity(isDropTarget ? 0.65 : 0), lineWidth: 1)
-                    .frame(height: hasBrowserGroups ? workspaceSidebarTabRowHeight : nil)
+                    .frame(height: headsCard ? workspaceSidebarTabRowHeight : nil)
                     .padding(hasBrowserGroups && drawsBrowserCard ? workspaceSidebarTabGroupInset : 0)
                     .allowsHitTesting(false)
                     .animation(WorkspaceSidebarTabMotion.feedback, value: isDropTarget)
@@ -121,7 +130,7 @@ struct WorkspaceSidebarTabCardView: View {
             .overlay(alignment: .top) {
                 WorkspaceSidebarTabDropSideHighlight(placement: isDropTarget ? dropPlacement : nil,
                     labelEdge: dropLabelEdge)
-                    .frame(height: hasBrowserGroups ? workspaceSidebarTabRowHeight : nil)
+                    .frame(height: headsCard ? workspaceSidebarTabRowHeight : nil)
                     .padding(hasBrowserGroups && drawsBrowserCard ? workspaceSidebarTabGroupInset : 0)
             }
             .overlay { WorkspaceSidebarTabInsertionLine(edge: insertionEdge, label: insertionLabel) }
@@ -149,7 +158,7 @@ struct WorkspaceSidebarTabCardView: View {
                             frame: geometry.frame(in: .named("workspaceSidebarContent")), gapTarget: gapTarget,
                             // An empty tab has no window to go beside.
                             acceptsSides: presentation != .empty, collectionId: collectionId).map { target in
-                                guard case .workspace = target.kind, hasBrowserGroups else { return target }
+                                guard case .workspace = target.kind, headsCard else { return target }
                                 // The header row of the window's tabs, inside their card's padding.
                                 let inset = drawsBrowserCard ? workspaceSidebarTabGroupInset : 0
                                 return WorkspaceSidebarDropTargetFrame(kind: target.kind,
@@ -169,7 +178,7 @@ struct WorkspaceSidebarTabCardView: View {
             // Two windows share one tab, shown as one.
             case .split, .multiple: return isActive ? 0.1 : 0.04
             // The tab on screen stays marked even while its window isn't the focused one.
-            case .single: return isActive ? 0.1 : 0
+            case .single: return isActive ? 0.1 : (drawsNowPlaying ? 0.05 : 0)
             case .empty, .folder: return 0
         }
     }
@@ -224,6 +233,12 @@ struct WorkspaceSidebarTabCardView: View {
                         // group's rows start, after the chevron.
                         row(window, isSplitHalf: false, indent: workspaceSidebarTabIndentStep, trailingCount: count,
                             groupTint: workspace.appearance.colorHex.flatMap(workspaceSidebarColor))
+                    }
+                } else if drawsNowPlaying {
+                    VStack(spacing: 0) {
+                        row(window, isSplitHalf: false)
+                        WorkspaceSidebarMusicNowPlayingView(
+                            onSelect: { activation.select(.selectWindow(window.windowId), send: actions.send) })
                     }
                 } else { row(window, isSplitHalf: false) }
             case .split(let left, let right):

@@ -23,7 +23,7 @@ targets:
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         LSUIElement: true
         # Shown when the app launcher first asks an app, such as Safari, for a new window.
-        NSAppleEventsUsageDescription: WinMux asks apps you choose in its launcher to open a new window in the workspace you picked.
+        NSAppleEventsUsageDescription: WinMux asks apps you choose in its launcher to open a new window in the workspace you picked, and controls Music from its Tabs sidebar.
         SUEnableAutomaticChecks: true
         SUAutomaticallyUpdate: true
         SUFeedURL: ${XCODEGEN_WINMUX_UPDATE_FEED_URL}

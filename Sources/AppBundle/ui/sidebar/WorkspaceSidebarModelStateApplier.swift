@@ -3,6 +3,8 @@ import AppKit
 @MainActor
 func clearWorkspaceSidebarModelState() {
     WorkspaceSidebarDockBadgeModel.shared.setEnabled(false)
+    AudioActivityModel.shared.setEnabled(false)
+    AppleMusicNowPlayingModel.shared.setEnabled(false)
     TrayMenuModel.shared.setIfChanged(\.workspaceSidebarDockDrag, nil)
     TrayMenuModel.shared.setIfChanged(\.workspaceSidebarWorkspaces, [])
     TrayMenuModel.shared.setIfChanged(\.workspaceSidebarMonitorScopes, [])

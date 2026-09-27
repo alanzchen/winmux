@@ -106,6 +106,10 @@ struct WorkspaceSidebarPinnedTab: View {
                                         model: badgeModel, compact: compact, windowId: window.windowId)
                                         .fixedSize().padding(compact ? 2 : 3)
                                 }
+                                .overlay(alignment: .bottomTrailing) {
+                                    WorkspaceSidebarTabAudioIndicator(bundleId: window.appBundleId, size: compact ? 7 : 9)
+                                        .padding(compact ? 3 : 6)
+                                }
                         }
                         .buttonStyle(.plain)
                         .background {
