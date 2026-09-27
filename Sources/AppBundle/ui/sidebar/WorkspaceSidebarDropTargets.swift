@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 enum WorkspaceSidebarDropTargetKind: Equatable {
@@ -36,21 +37,59 @@ func workspaceSidebarTabDropPlacement(
     return pointX < targetMidX ? .left : .right
 }
 
-/// The end of the joined half that a split's label sits at: the one farther from the pointer,
-/// so the dragged tab's image, centered on the pointer, doesn't cover it. Near the half's middle
-/// the label keeps its end, so small movements don't bounce it from end to end.
-func workspaceSidebarTabDropLabelEdge(
+/// Where a split's label sits on the tab: at one end of either half.
+struct WorkspaceSidebarTabDropLabelSlot: Hashable {
+    /// `.leading` for the tab's left half.
+    let half: HorizontalEdge
+    let edge: HorizontalEdge
+}
+
+/// Where a split's label goes so the dragged tab's image, centered on the pointer, doesn't
+/// cover it. It prefers the joined half's far end, then its near end, then the other half, and
+/// takes the first that clears the image by `clearance`; if none does, the one farthest from it.
+/// It keeps its slot while that still clears, so small movements don't bounce it around.
+func workspaceSidebarTabDropLabelSlot(
     pointX: CGFloat,
     targetMinX: CGFloat,
     targetMaxX: CGFloat,
     placement: WorkspaceSidebarTabDropPlacement?,
-    previous: HorizontalEdge? = nil,
-) -> HorizontalEdge? {
+    labelWidth: CGFloat,
+    clearance: CGFloat,
+    previous: WorkspaceSidebarTabDropLabelSlot? = nil,
+) -> WorkspaceSidebarTabDropLabelSlot? {
     guard let placement, placement != .stack else { return nil }
-    let targetMidX = (targetMinX + targetMaxX) / 2
-    let halfMidX = placement == .left ? (targetMinX + targetMidX) / 2 : (targetMidX + targetMaxX) / 2
-    if let previous, abs(pointX - halfMidX) < 10 { return previous }
-    return pointX < halfMidX ? .trailing : .leading
+    let midX = (targetMinX + targetMaxX) / 2
+    let inset = workspaceSidebarTabDropLabelInset
+    func distance(_ slot: WorkspaceSidebarTabDropLabelSlot) -> CGFloat {
+        let (start, end) = slot.half == .leading ? (targetMinX, midX) : (midX, targetMaxX)
+        let minX = slot.edge == .leading ? start + inset : end - inset - labelWidth
+        return max(0, minX - pointX, pointX - (minX + labelWidth))
+    }
+    if let previous, distance(previous) >= clearance { return previous }
+    let own: HorizontalEdge = placement == .left ? .leading : .trailing
+    let other: HorizontalEdge = own == .leading ? .trailing : .leading
+    let ownMidX = placement == .left ? (targetMinX + midX) / 2 : (midX + targetMaxX) / 2
+    let far: HorizontalEdge = pointX < ownMidX ? .trailing : .leading
+    let near: HorizontalEdge = far == .leading ? .trailing : .leading
+    // Beside the joined half first, so the label still reads as the half's.
+    let candidates = [
+        WorkspaceSidebarTabDropLabelSlot(half: own, edge: far),
+        WorkspaceSidebarTabDropLabelSlot(half: own, edge: near),
+        WorkspaceSidebarTabDropLabelSlot(half: other, edge: own == .leading ? .leading : .trailing),
+        WorkspaceSidebarTabDropLabelSlot(half: other, edge: own == .leading ? .trailing : .leading),
+    ]
+    return candidates.first { distance($0) >= clearance } ?? candidates.max { distance($0) < distance($1) }
+}
+
+let workspaceSidebarTabDropLabelInset: CGFloat = 6
+
+/// The label's width, to keep it clear of the dragged tab.
+func workspaceSidebarTabDropLabelWidth(_ text: String) -> CGFloat {
+    ceil((text as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 10, weight: .semibold)]).width) + 12
+}
+
+func workspaceSidebarTabDropLabelText(_ placement: WorkspaceSidebarTabDropPlacement) -> String {
+    placement == .left ? "Split left" : "Split right"
 }
 
 /// Each tab's top and bottom edges are gaps; the middle takes the tab itself. The bands reach

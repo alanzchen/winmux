@@ -416,7 +416,8 @@ private func moveSidebarSourceToNewWorkspace(
 
 @MainActor
 func previewWorkspaceSidebarDrop(_ windowId: UInt32, subject: WindowDragSubject, target: WorkspaceSidebarDropTargetKind,
-                                 placement: WorkspaceSidebarTabDropPlacement? = nil, labelEdge: HorizontalEdge? = nil) {
+                                 placement: WorkspaceSidebarTabDropPlacement? = nil,
+                                 labelSlot: WorkspaceSidebarTabDropLabelSlot? = nil) {
     guard let sourceWindow = Window.get(byId: windowId) else {
         clearWorkspaceSidebarDropPreview()
         return
@@ -470,7 +471,7 @@ func previewWorkspaceSidebarDrop(_ windowId: UInt32, subject: WindowDragSubject,
         targetProjectId: nil,
     )
     preview.targetPlacement = placement
-    preview.targetLabelEdge = placement == nil ? nil : labelEdge
+    preview.targetLabelSlot = placement == nil ? nil : labelSlot
     setWorkspaceSidebarDropPreviewIfChanged(preview)
 }
 
@@ -950,11 +951,16 @@ private func updateActiveWorkspaceSidebarDragPreview(sourceWindow: Window, subje
     }
     let placement = workspaceSidebarTabDropPlacement(for: target, sourceWindow: sourceWindow, subject: subject)
     let current = TrayMenuModel.shared.workspaceSidebarDropPreview
-    let labelEdge = workspaceSidebarTabDropLabelEdge(pointX: MousePointerTracker.shared.currentSample.point.x,
-        targetMinX: target.rect.minX, targetMaxX: target.rect.maxX, placement: placement,
-        previous: current?.targetPlacement == placement && current?.targetWorkspaceName != nil ? current?.targetLabelEdge : nil)
+    let labelSlot = placement.map { placement in
+        workspaceSidebarTabDropLabelSlot(pointX: MousePointerTracker.shared.currentSample.point.x,
+            targetMinX: target.rect.minX, targetMaxX: target.rect.maxX, placement: placement,
+            labelWidth: workspaceSidebarTabDropLabelWidth(workspaceSidebarTabDropLabelText(placement)),
+            clearance: workspaceSidebarDragImageHalfWidth(currentActiveWorkspaceSidebarDrag()?.previewStyle ?? .row) + 4,
+            previous: current?.targetPlacement == placement && current?.targetWorkspaceName != nil
+                ? current?.targetLabelSlot : nil)
+    } ?? nil
     previewWorkspaceSidebarDrop(sourceWindow.windowId, subject: subject, target: target.kind, placement: placement,
-        labelEdge: labelEdge)
+        labelSlot: labelSlot)
     if config.usesBrowserTabs, TrayMenuModel.shared.workspaceSidebarDropPreview != nil,
        let hit = workspaceSidebarDropTarget(at: MousePointerTracker.shared.currentSample.point) {
         WorkspaceSidebarTabSplitHoverController.shared.noteDisplayed(source: sourceWindow.windowId, hitKind: hit.kind,

@@ -71,7 +71,7 @@ struct WorkspaceSidebarTabCardView: View {
     @Environment(\.workspaceSidebarBadgeOwners) private var badgeOwners
     /// Where a dragged tab would go on this tab, while one is over it.
     var dropPlacement: WorkspaceSidebarTabDropPlacement? = nil
-    var dropLabelEdge: HorizontalEdge? = nil
+    var dropLabelSlot: WorkspaceSidebarTabDropLabelSlot? = nil
     /// The edge a dragged tab would be inserted at, while one is over it.
     var insertionEdge: VerticalEdge? = nil
     var insertionLabel: String? = nil
@@ -103,7 +103,8 @@ struct WorkspaceSidebarTabCardView: View {
         return !drawsBrowserCard && workspaceSidebarShowsNowPlaying(window)
     }
 
-    /// Only the row heading a card takes drops and shows where they go.
+    /// The row heading a card shows where a drop goes. Only a browser card's row takes drops
+    /// itself: its tabs below are targets of their own, while all of Music's card takes them.
     private var headsCard: Bool { hasBrowserGroups || drawsNowPlaying }
 
     var body: some View {
@@ -129,7 +130,7 @@ struct WorkspaceSidebarTabCardView: View {
             }
             .overlay(alignment: .top) {
                 WorkspaceSidebarTabDropSideHighlight(placement: isDropTarget ? dropPlacement : nil,
-                    labelEdge: dropLabelEdge)
+                    labelSlot: dropLabelSlot)
                     .frame(height: headsCard ? workspaceSidebarTabRowHeight : nil)
                     .padding(hasBrowserGroups && drawsBrowserCard ? workspaceSidebarTabGroupInset : 0)
             }
@@ -158,7 +159,7 @@ struct WorkspaceSidebarTabCardView: View {
                             frame: geometry.frame(in: .named("workspaceSidebarContent")), gapTarget: gapTarget,
                             // An empty tab has no window to go beside.
                             acceptsSides: presentation != .empty, collectionId: collectionId).map { target in
-                                guard case .workspace = target.kind, headsCard else { return target }
+                                guard case .workspace = target.kind, hasBrowserGroups else { return target }
                                 // The header row of the window's tabs, inside their card's padding.
                                 let inset = drawsBrowserCard ? workspaceSidebarTabGroupInset : 0
                                 return WorkspaceSidebarDropTargetFrame(kind: target.kind,
@@ -460,8 +461,8 @@ func workspaceSidebarTabDropTargets(
 /// insertion line's accent, so every drop target in the list reads the same way.
 struct WorkspaceSidebarTabDropSideHighlight: View {
     let placement: WorkspaceSidebarTabDropPlacement?
-    /// The half's end its label sits at; without a pointer to avoid, its outer edge.
-    var labelEdge: HorizontalEdge? = nil
+    /// Where its label sits; without a pointer to avoid, the half's outer end.
+    var labelSlot: WorkspaceSidebarTabDropLabelSlot? = nil
     @Environment(\.workspaceSidebarTabIndent) private var indent
     @Environment(\.workspaceSidebarReducesMotion) private var reducesMotion
 
@@ -480,24 +481,27 @@ struct WorkspaceSidebarTabDropSideHighlight: View {
                                 .foregroundStyle(Color.accentColor)
                                 .frame(maxWidth: .infinity, alignment: .trailing)
                                 .padding(.trailing, 8)
-                        } else {
-                            // At the end of the half away from the pointer, so the dragged tab
-                            // doesn't cover it.
-                            let edge = labelEdge ?? (placement == .left ? .leading : .trailing)
-                            WorkspaceSidebarTabDropLabel(text: placement == .left ? "Split left" : "Split right")
-                                .padding(.horizontal, 6)
-                                .frame(maxWidth: .infinity, maxHeight: .infinity,
-                                    alignment: edge == .leading ? .leading : .trailing)
                         }
                     }
                     .frame(width: width)
                     .offset(x: placement == .right ? geometry.size.width - width : 0)
                     .transition(.opacity)
+                if placement != .stack {
+                    // Clear of the dragged tab, which is centered on the pointer.
+                    let slot = labelSlot ?? WorkspaceSidebarTabDropLabelSlot(half: placement == .left ? .leading : .trailing,
+                        edge: placement == .left ? .leading : .trailing)
+                    WorkspaceSidebarTabDropLabel(text: workspaceSidebarTabDropLabelText(placement))
+                        .padding(.horizontal, workspaceSidebarTabDropLabelInset)
+                        .frame(width: geometry.size.width / 2, height: geometry.size.height,
+                            alignment: slot.edge == .leading ? .leading : .trailing)
+                        .offset(x: slot.half == .trailing ? geometry.size.width / 2 : 0)
+                        .transition(.opacity)
+                }
             }
         }
         // Moving to the other half slides the highlight across; with Reduce Motion it just moves.
         .animation(reducesMotion ? nil : WorkspaceSidebarTabMotion.feedback, value: placement)
-        .animation(reducesMotion ? nil : WorkspaceSidebarTabMotion.feedback, value: labelEdge)
+        .animation(reducesMotion ? nil : WorkspaceSidebarTabMotion.feedback, value: labelSlot)
         .allowsHitTesting(false)
         .accessibilityHidden(true)
     }

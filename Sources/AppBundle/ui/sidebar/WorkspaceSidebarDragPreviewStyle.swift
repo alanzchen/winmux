@@ -39,3 +39,9 @@ struct WorkspaceSidebarDragIcon: View {
         .allowsHitTesting(false)
     }
 }
+
+/// Half the cursor proxy's width: how far it reaches either side of the pointer. A row proxy
+/// is at least this wide.
+func workspaceSidebarDragImageHalfWidth(_ style: WorkspaceSidebarDragPreviewStyle) -> CGFloat {
+    windowDragCursorProxySize(label: "", style: style).width / 2
+}

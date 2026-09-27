@@ -85,7 +85,8 @@ func appleMusicNowPlaying(statusOutput output: String, date: Date = Date()) -> A
     if text == "stopped" {
         return AppleMusicNowPlaying(state: .stopped, title: "", artist: "", album: "", positionDate: date)
     }
-    let fields = text.components(separatedBy: appleMusicFieldSeparator)
+    // A stream or an untagged track has no duration, artist, or album; AppleScript spells that out.
+    let fields = text.components(separatedBy: appleMusicFieldSeparator).map { $0 == "missing value" ? "" : $0 }
     guard fields.count == 6 else { return nil }
     let state: AppleMusicNowPlaying.State
     switch fields[0] {
@@ -159,12 +160,18 @@ func runAppleMusicScript(_ source: String, timeout: TimeInterval = 10) async -> 
             state.resume(.failed)
             return
         }
-        // Read while it runs: artwork can be larger than a pipe's buffer.
+        // Read both while it runs: artwork can be larger than a pipe's buffer, and a full
+        // pipe would stall the script.
+        let errorOutput = AppleMusicScriptError()
+        let errorRead = DispatchGroup()
+        DispatchQueue.global(qos: .utility).async(group: errorRead) {
+            errorOutput.data = errorPipe.fileHandleForReading.readDataToEndOfFile()
+        }
         DispatchQueue.global(qos: .utility).async {
             let output = outputPipe.fileHandleForReading.readDataToEndOfFile()
-            let error = errorPipe.fileHandleForReading.readDataToEndOfFile()
+            errorRead.wait()
             process.waitUntilExit()
-            let stderr = String(data: error, encoding: .utf8) ?? ""
+            let stderr = String(data: errorOutput.data, encoding: .utf8) ?? ""
             switch newWindowScriptResult(exitStatus: process.terminationStatus, stderr: stderr) {
                 case .success: state.resume(.success(String(data: output, encoding: .utf8) ?? ""))
                 case .notAuthorized: state.resume(.notAuthorized)
@@ -176,6 +183,11 @@ func runAppleMusicScript(_ source: String, timeout: TimeInterval = 10) async -> 
             state.resume(.failed)
         }
     }
+}
+
+/// Written once by the stderr reader before the group it runs in finishes.
+private final class AppleMusicScriptError: @unchecked Sendable {
+    var data = Data()
 }
 
 private final class AppleMusicScriptState: @unchecked Sendable {
@@ -211,8 +223,37 @@ final class AppleMusicNowPlayingModel: ObservableObject {
     /// The user declined to let WinMux control Music.
     @Published private(set) var needsAutomationPermission = false
     private var observers: [(NotificationCenter, NSObjectProtocol)] = []
-    private var artworkTrackKey: String?
     private var generation = 0
+    /// Bumped by every newer piece of state, so a slower reply from Music never overwrites it.
+    private(set) var stateSequence = 0
+    private let isMusicRunning: @MainActor () -> Bool
+    /// Music's status, or nil when WinMux may not ask it without prompting.
+    private let requestStatus: @Sendable (_ askingMusic: Bool) async -> AppleMusicScriptOutput?
+    private let requestArtwork: @Sendable () async -> AppleMusicScriptOutput
+
+    init(
+        isMusicRunning: @escaping @MainActor () -> Bool = {
+            !NSRunningApplication.runningApplications(withBundleIdentifier: appleMusicBundleId).isEmpty
+        },
+        requestStatus: @escaping @Sendable (_ askingMusic: Bool) async -> AppleMusicScriptOutput? = { askingMusic in
+            let allowed = await Task.detached(priority: .utility) { appleMusicAutomationIsAllowed() }.value
+            guard allowed || askingMusic else { return nil }
+            return await runAppleMusicScript(appleMusicStatusScript)
+        },
+        requestArtwork: @escaping @Sendable () async -> AppleMusicScriptOutput = {
+            await runAppleMusicScript(appleMusicArtworkScript)
+        },
+    ) {
+        self.isMusicRunning = isMusicRunning
+        self.requestStatus = requestStatus
+        self.requestArtwork = requestArtwork
+    }
+    /// The track the artwork belongs to, whether loaded, loading, or failing to load.
+    private var artworkTrackKey: String?
+    private var artworkLoaded = false
+    private var artworkFailures = 0
+    private var artworkRequest: Int?
+    private var nextArtworkRequest = 0
 
     var isEnabled: Bool { !observers.isEmpty }
 
@@ -262,60 +303,88 @@ final class AppleMusicNowPlayingModel: ObservableObject {
         }
     }
 
-    private func receive(_ next: AppleMusicNowPlaying) {
+    func receive(_ next: AppleMusicNowPlaying) {
         var next = next
         // The notification has no position; keep counting from the last one Music gave.
         if let current = nowPlaying, current.trackKey == next.trackKey, next.state != .stopped {
             next.position = current.elapsed(at: next.positionDate)
         }
+        stateSequence += 1
         apply(next)
         refresh()
     }
 
-    /// Asks Music for the position and artwork, only once it may be automated.
+    /// Asks Music for the position and artwork, only once it may be automated. Only the latest
+    /// request's reply is used: one sent before a pause may arrive after it.
     private func refresh(askingMusic: Bool = false) {
-        guard isRunning else { return clear() }
-        let generation = generation
+        guard isMusicRunning() else { return clear() }
+        stateSequence += 1
+        let sequence = stateSequence
+        let requestStatus = requestStatus
         _ = Task { [weak self] in
-            let allowed = await Task.detached(priority: .utility) { appleMusicAutomationIsAllowed() }.value
-            guard allowed || askingMusic else { return }
-            guard case .success(let output) = await runAppleMusicScript(appleMusicStatusScript) else { return }
-            guard let self, self.generation == generation else { return }
-            self.needsAutomationPermission = false
-            if output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return self.clear() }
-            if let next = appleMusicNowPlaying(statusOutput: output) { self.apply(next) }
-            self.loadArtworkIfNeeded()
+            guard let result = await requestStatus(askingMusic) else { return }
+            self?.receive(statusResult: result, sequence: sequence)
         }
     }
 
-    private var isRunning: Bool {
-        !NSRunningApplication.runningApplications(withBundleIdentifier: appleMusicBundleId).isEmpty
+    func receive(statusResult result: AppleMusicScriptOutput, sequence: Int) {
+        guard sequence == stateSequence, case .success(let output) = result else { return }
+        needsAutomationPermission = false
+        if output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return clear() }
+        if let next = appleMusicNowPlaying(statusOutput: output) { apply(next) }
+        loadArtworkIfNeeded()
     }
 
     func apply(_ next: AppleMusicNowPlaying) {
-        if next.state == .stopped || next.trackKey != artworkTrackKey {
-            artworkTrackKey = nil
-            if artwork != nil { artwork = nil }
-        }
+        if next.state == .stopped || next.trackKey != artworkTrackKey { resetArtwork() }
         if nowPlaying != next { nowPlaying = next }
     }
 
+    /// A failed fetch is retried on Music's next update, a few times per track.
     private func loadArtworkIfNeeded() {
-        guard let nowPlaying, nowPlaying.state != .stopped, artworkTrackKey != nowPlaying.trackKey else { return }
+        guard let nowPlaying, nowPlaying.state != .stopped else { return }
         let key = nowPlaying.trackKey
-        artworkTrackKey = key
-        let generation = generation
+        if artworkTrackKey != key {
+            resetArtwork()
+            artworkTrackKey = key
+        }
+        guard !artworkLoaded, artworkRequest == nil, artworkFailures < 3 else { return }
+        nextArtworkRequest += 1
+        let request = nextArtworkRequest
+        artworkRequest = request
+        let requestArtwork = requestArtwork
         _ = Task { [weak self] in
-            guard case .success(let output) = await runAppleMusicScript(appleMusicArtworkScript) else { return }
-            let data = await Task.detached(priority: .utility) { appleScriptRawData(output) }.value
-            guard let self, self.generation == generation, self.artworkTrackKey == key else { return }
-            self.artwork = data.flatMap(NSImage.init(data:))
+            let result = await requestArtwork()
+            let data: Data? = if case .success(let output) = result {
+                await Task.detached(priority: .utility) { appleScriptRawData(output) }.value
+            } else { nil }
+            self?.receive(artworkResult: result, data: data, request: request)
         }
     }
 
-    private func clear() {
+    func receive(artworkResult result: AppleMusicScriptOutput, data: Data?, request: Int) {
+        guard artworkRequest == request else { return }
+        artworkRequest = nil
+        guard case .success = result else {
+            artworkFailures += 1
+            return
+        }
+        // A track without artwork is loaded too: it keeps the placeholder.
+        artworkLoaded = true
+        artwork = data.flatMap(NSImage.init(data:))
+    }
+
+    private func resetArtwork() {
         artworkTrackKey = nil
-        if nowPlaying != nil { nowPlaying = nil }
+        artworkLoaded = false
+        artworkFailures = 0
+        artworkRequest = nil
         if artwork != nil { artwork = nil }
+    }
+
+    private func clear() {
+        stateSequence += 1
+        resetArtwork()
+        if nowPlaying != nil { nowPlaying = nil }
     }
 }
