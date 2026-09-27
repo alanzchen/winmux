@@ -103,6 +103,11 @@ enum WorkspaceSidebarAction: Equatable {
     case setTabCollectionEmoji(String, String?)
     case toggleTabCollection(String)
     case assignTabCollection(String, String?)
+    /// Tabs mode, several chosen tabs at once.
+    case createTabCollectionFromTabs([String])
+    case assignTabsToCollection([String], String?)
+    case setTabsFavorite([String], Bool)
+    case closeTabs([String])
     case ungroupTabCollection(String)
     case moveTabCollection(String, WorkspaceProjectId)
     case createTabInCollection(String, monitorScopeId: String)

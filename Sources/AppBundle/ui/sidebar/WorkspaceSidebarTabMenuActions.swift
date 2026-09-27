@@ -36,11 +36,12 @@ func splitWorkspaceSidebarTabWindow(_ windowId: UInt32, fromWorkspace sourceId: 
 }
 
 @MainActor
-func detachWorkspaceTabWindow(_ window: Window) throws {
+/// `keepsGroup` is false when the new tab is pinned right after, which takes it out of any group.
+func detachWorkspaceTabWindow(_ window: Window, keepsGroup: Bool = true) throws {
     guard config.usesBrowserTabs, let source = window.nodeWorkspace, source.allLeafWindowsRecursive.count > 1 else { return }
     let tab = createWorkspace(after: source, projectId: source.projectId, monitor: source.workspaceMonitor)
     do {
-        if let group = workspaceSidebarOrganizationStore.collection(containing: source.name) {
+        if keepsGroup, let group = workspaceSidebarOrganizationStore.collection(containing: source.name) {
             try assignWorkspaceToSidebarCollection(tab, collectionId: group.id, keepWhenEmpty: false)
         }
     } catch {
@@ -79,16 +80,19 @@ func closeWorkspaceSidebarTabWindows(_ name: String) {
     }
 }
 
+/// Whether every window closed; false when one stopped at a save sheet or refused.
 @MainActor
+@discardableResult
 func closeWorkspaceSidebarSplitWindows(_ windows: [Window], in workspace: Workspace,
-                                      requestClose: @MainActor (Window) async -> Bool) async {
+                                      requestClose: @MainActor (Window) async -> Bool) async -> Bool {
     WorkspaceSidebarTabUndo.shared.clear()
     for window in windows {
         guard Window.get(byId: window.windowId) === window, window.nodeWorkspace === workspace else { continue }
         if !(await requestClose(window)) {
             // Stop at a save sheet or a refused close, and bring it forward.
             if Window.get(byId: window.windowId) === window { _ = window.focusWindow() }
-            return
+            return false
         }
     }
+    return true
 }

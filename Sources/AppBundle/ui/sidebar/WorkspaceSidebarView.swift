@@ -212,7 +212,11 @@ struct WorkspaceSidebarView: View {
         .onChange(of: watchedBrowserWindowIds) { _ in updateBrowserWatch() }
         .onChange(of: snapshot.targetMonitorScopeId) { _ in updateBrowserWatch() }
         .onDisappear { if let scope = browserWatchScope { browserTabsModel.watch([], sidebar: scope) } }
+        .onChange(of: isSearchEditing || !searchText.isEmpty) { searching in
+            if searching { WorkspaceSidebarTabSelection.shared.clear() }
+        }
         .onChange(of: snapshot.activeProjectId) { projectId in
+            WorkspaceSidebarTabSelection.shared.clear()
             debugWorkspaceSidebarProjectLog(
                 "snapshotActiveProjectChanged active=\(projectId.rawValue) visibleWidth=\(snapshot.visibleWidth) projects=\(snapshot.projects.map(\.id.rawValue))"
             )

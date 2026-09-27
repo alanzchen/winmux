@@ -21,7 +21,7 @@ func isActionableSidebarWorkspaceDropTarget(
             return sourceWorkspaceName != workspaceName
         case .monitor:
             return true
-        case .newWorkspace, .tabGap, .tabCollection:
+        case .newWorkspace, .tabGap, .tabCollection, .pinnedTabs:
             return true
         case nil:
             return false
@@ -38,7 +38,8 @@ func currentSidebarWorkspaceDropDestination(sourceWindow: Window, mouseLocation:
        isActionableSidebarWorkspaceDropTarget(sourceWorkspaceName: sourceWorkspaceName, targetKind: target.kind)
     {
         switch target.kind {
-            case .tabCollection: return nil
+            // Windows dragged in from the screen join tabs; only sidebar drags pin or group.
+            case .tabCollection, .pinnedTabs: return nil
             case .monitor(let scopeId):
                 guard let monitor = workspaceSidebarMonitor(forScopeId: scopeId) else { return nil }
                 let workspace = monitor.activeWorkspace

@@ -2,11 +2,13 @@ import AppKit
 import Common
 
 @MainActor
-func handleWorkspaceSidebarOrganizationAction(_ action: WorkspaceSidebarAction, targetMonitorScopeId: String? = nil) {
-    guard !serverArgs.isReadOnly else { return }
+@discardableResult
+func handleWorkspaceSidebarOrganizationAction(_ action: WorkspaceSidebarAction, targetMonitorScopeId: String? = nil)
+    -> Task<Void, Never>? {
+    guard !serverArgs.isReadOnly else { return nil }
     var launcherTab: WorkspaceLauncherNewTab?
     var editorTarget: WorkspaceSidebarIdentityTarget?
-    runWorkspaceSidebarSession(afterLayout: {
+    return runWorkspaceSidebarSession(afterLayout: {
         if let editorTarget { WorkspaceSidebarIdentityMenu.show(editorTarget, selectName: true) }
         if let launcherTab {
             if !WorkspaceLauncherPanel.shared.show(forWorkspaceNamed: launcherTab.workspace.name, newTab: launcherTab), launcherTab.isNew {
@@ -26,13 +28,25 @@ func handleWorkspaceSidebarOrganizationAction(_ action: WorkspaceSidebarAction, 
                 try store.update { $0.workspaces[name, default: .init()].emoji = emoji.flatMap(normalizedWorkspaceProjectEmoji) }
             case .setWorkspaceFavorite(let name, let favorite):
                 guard let workspace = Workspace.existing(byName: name) else { return }
-                if favorite { try saveWorkspaceSidebarIdentity(workspace) }
-                try store.update { state in
-                    state.workspaces[name, default: .init()].isFavorite = favorite
-                    if favorite {
-                        for index in state.collections.indices { state.collections[index].workspaceNames.removeAll { $0 == name } }
-                    }
-                }
+                try setWorkspaceSidebarTabFavorite(workspace, favorite)
+            case .setTabsFavorite(let names, let favorite):
+                try setWorkspaceSidebarTabsFavorite(names.compactMap(Workspace.existing(byName:)), favorite)
+            case .createTabCollectionFromTabs(let names):
+                let tabs = names.compactMap(Workspace.existing(byName:))
+                // A group belongs to one project; the selection comes from one page, so one project.
+                guard config.usesBrowserTabs, let projectId = tabs.first?.projectId,
+                      tabs.allSatisfy({ $0.projectId == projectId }) else { return }
+                try saveWorkspaceSidebarIdentities(tabs)
+                let group = try store.create(projectId: projectId, workspaceNames: tabs.map(\.name))
+                editorTarget = .collection(group.id)
+            case .assignTabsToCollection(let names, let id):
+                let tabs = names.compactMap(Workspace.existing(byName:))
+                guard config.usesBrowserTabs, let projectId = tabs.first?.projectId,
+                      tabs.allSatisfy({ $0.projectId == projectId }),
+                      id.map({ id in store.state.collections.contains { $0.id == id && $0.projectId == projectId } }) ?? true
+                else { return }
+                if id != nil { try saveWorkspaceSidebarIdentities(tabs) }
+                try store.assign(tabs.map(\.name), projectId: projectId, to: id)
             case .createTabCollection(let name):
                 guard config.usesBrowserTabs, let workspace = Workspace.existing(byName: name) else { return }
                 try saveWorkspaceSidebarIdentity(workspace)
@@ -82,7 +96,9 @@ func workspaceSidebarOrganizationUndoTitle(_ action: WorkspaceSidebarAction) -> 
     switch action {
         case .setWorkspaceFavorite(_, let pinned): pinned ? "Pin Tab" : "Unpin Tab"
         case .createTabCollection: "Create Group"
-        case .assignTabCollection: "Move to Group"
+        case .assignTabCollection, .assignTabsToCollection: "Move to Group"
+        case .createTabCollectionFromTabs: "Group Tabs"
+        case .setTabsFavorite(_, let pinned): pinned ? "Pin Tabs" : "Unpin Tabs"
         case .ungroupTabCollection: "Ungroup Tabs"
         case .moveTabCollection: "Move Group"
         case .renameTabCollection: "Rename Group"

@@ -353,6 +353,38 @@ private func moveSidebarSourceToTabGap(
     if task == nil, let settlingId { finishWorkspaceSidebarDockLift(id: settlingId) }
 }
 
+/// A tab dropped on the pinned tiles is pinned. A window from a split first gets a tab of its own.
+@MainActor
+private func pinSidebarSource(_ windowId: UInt32, subject: WindowDragSubject, settlingId: UUID? = nil) {
+    let task = runWorkspaceSidebarSession(undoTitle: "Pin Tab") {
+        defer { if let settlingId { finishWorkspaceSidebarDockLift(id: settlingId) } }
+        guard let sourceWindow = Window.get(byId: windowId) else { return }
+        let sourceNode = dragSubjectNode(for: sourceWindow, subject: subject)
+        // Pinning saves the tab; don't split a window out first when that can't be saved.
+        if let reason = workspaceSidebarOrganizationStore.readOnlyReason ?? savedWorkspaceStore.readOnlyReason {
+            showWorkspaceSidebarError(reason)
+            return
+        }
+        suppressPostDragAxObserverEvents(for: sourceNode.allLeafWindowsRecursive.map(\.windowId))
+        // If pinning can't be saved, everything goes back as it was, split and all.
+        let before = WorkspaceSidebarTabUndoSnapshot()
+        do {
+            if sourceNode === sourceWindow, workspaceTabDragLeavesWindowsBehind(sourceNode) {
+                // Pinned tabs leave their group, so the new tab never joins one: pinning is the
+                // only organization write, and a failure leaves no stray membership behind.
+                try detachWorkspaceTabWindow(sourceWindow, keepsGroup: false)
+            }
+            guard let workspace = sourceNode.nodeWorkspace else { return }
+            try setWorkspaceSidebarTabFavorite(workspace, true)
+        } catch {
+            before.restore(replacing: WorkspaceSidebarTabUndoSnapshot())
+            throw error
+        }
+        await updateWorkspaceSidebarModel()
+    }
+    if task == nil, let settlingId { finishWorkspaceSidebarDockLift(id: settlingId) }
+}
+
 @MainActor
 private func moveSidebarSourceToNewWorkspace(
     _ windowId: UInt32,
@@ -391,6 +423,13 @@ func previewWorkspaceSidebarDrop(_ windowId: UInt32, subject: WindowDragSubject,
     }
     guard isActionableSidebarDropTarget(sourceWindow: sourceWindow, subject: subject, target: target) else {
         clearWorkspaceSidebarDropPreview()
+        return
+    }
+    if case .pinnedTabs(let projectId) = target {
+        var preview = workspaceSidebarDropPreview(sourceWindow: sourceWindow, subject: subject,
+            targetWorkspaceName: nil, targetsNewWorkspace: false, targetProjectId: projectId)
+        preview.targetsPinned = true
+        setWorkspaceSidebarDropPreviewIfChanged(preview)
         return
     }
     if case .tabCollection(let id) = target {
@@ -475,6 +514,13 @@ private func isActionableSidebarDropTarget(
     if case .tabGap(let projectId, let monitorScopeId, let gap) = target, !workspaceTabDragLeavesWindowsBehind(sourceNode),
        let tab = sourceNode.nodeWorkspace,
        workspaceTabGapKeepsTabInPlace(tab, projectId: projectId, monitorScopeId: monitorScopeId, gap: gap) { return false }
+    if case .pinnedTabs(let projectId) = target {
+        // A window pulled out of a split gets a pinned tab of its own; a whole tab is pinned
+        // unless it already is.
+        guard config.usesBrowserTabs, let workspace = sourceNode.nodeWorkspace, workspace.projectId == projectId else { return false }
+        return workspaceTabDragLeavesWindowsBehind(sourceNode)
+            || workspaceSidebarOrganizationStore.state.workspaces[workspace.name]?.isFavorite != true
+    }
     if case .tabCollection(let id) = target {
         guard config.usesBrowserTabs, let workspace = sourceWindow.nodeWorkspace,
               let group = workspaceSidebarOrganizationStore.state.collections.first(where: { $0.id == id }),
@@ -849,6 +895,9 @@ private func postWorkspaceSidebarDragPointerNotification(_ name: Notification.Na
 @MainActor
 private func workspaceSidebarDragTarget(for sourceWindow: Window, subject: WindowDragSubject,
                                        committing: Bool = false) -> WorkspaceSidebarDropTarget? {
+    // Drag events can be sparse; a preview between them, such as the split's pause check, uses
+    // where the pointer really is, for the target, the pause, and the side alike.
+    if !committing { MousePointerTracker.shared.note(point: mouseLocation) }
     let point = MousePointerTracker.shared.currentSample.point
     guard WorkspaceSidebarPanel.panel(containing: point) != nil,
           let target = workspaceSidebarDropTarget(at: point) else {
@@ -926,6 +975,9 @@ private func commitActiveWorkspaceSidebarDragIfPossible() -> Bool {
         case .tabCollection(let id):
             if let name = sourceWindow.nodeWorkspace?.name { handleWorkspaceSidebarOrganizationAction(.assignTabCollection(name, id)) }
             if let settlingId { finishWorkspaceSidebarDockLift(id: settlingId) }
+            return true
+        case .pinnedTabs:
+            pinSidebarSource(sourceWindow.windowId, subject: activeDrag.subject, settlingId: settlingId)
             return true
         case .workspace(let workspaceName):
             moveSidebarSource(sourceWindow.windowId, subject: activeDrag.subject,

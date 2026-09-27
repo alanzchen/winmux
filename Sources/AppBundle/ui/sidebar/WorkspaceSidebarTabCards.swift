@@ -87,6 +87,7 @@ struct WorkspaceSidebarTabCardView: View {
     let onCancelOverride: () -> Void
     @Environment(\.workspaceSidebarTabIndent) private var indent
     @Environment(\.workspaceSidebarReducesMotion) private var reducesMotion
+    @ObservedObject private var selection = WorkspaceSidebarTabSelection.shared
 
     /// A browser window's tabs draw their own card, which marks the tab in use and takes its color.
     private var drawsBrowserCard: Bool {
@@ -101,7 +102,8 @@ struct WorkspaceSidebarTabCardView: View {
             .background {
                 if !drawsBrowserCard {
                     RoundedRectangle(cornerRadius: indent.rowCornerRadius, style: .continuous)
-                        .fill(workspace.appearance.colorHex.flatMap(workspaceSidebarColor)?.opacity(0.12) ?? Color.primary.opacity(backgroundOpacity))
+                        .fill(isDropTarget ? Color.accentColor.opacity(0.14)
+                            : workspace.appearance.colorHex.flatMap(workspaceSidebarColor)?.opacity(0.12) ?? Color.primary.opacity(backgroundOpacity))
                         .animation(WorkspaceSidebarTabMotion.selection(reducesMotion: reducesMotion), value: isActive)
                 }
             }
@@ -121,6 +123,11 @@ struct WorkspaceSidebarTabCardView: View {
                     .padding(hasBrowserGroups && drawsBrowserCard ? workspaceSidebarTabGroupInset : 0)
             }
             .overlay { WorkspaceSidebarTabInsertionLine(edge: insertionEdge, label: insertionLabel) }
+            // Chosen with Shift or Command, for acting on several tabs at once.
+            .overlay {
+                WorkspaceSidebarTabSelectionHighlight(isSelected: selection.contains(workspace.name),
+                    cornerRadius: indent.rowCornerRadius)
+            }
             .overlay {
                 if isShowingOverride {
                     WorkspaceSidebarInUseOverrideOverlay(
@@ -532,5 +539,20 @@ struct WorkspaceSidebarTabInsertionLine: View {
         .animation(WorkspaceSidebarTabMotion.feedback, value: label)
         .allowsHitTesting(false)
         .accessibilityHidden(true)
+    }
+}
+
+/// A chosen tab's accent wash and outline, over its rows so an active pill doesn't hide it.
+struct WorkspaceSidebarTabSelectionHighlight: View {
+    let isSelected: Bool
+    let cornerRadius: CGFloat
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        shape.fill(Color.accentColor.opacity(isSelected ? 0.12 : 0))
+            .overlay { shape.strokeBorder(Color.accentColor.opacity(isSelected ? 0.7 : 0), lineWidth: 1.5) }
+            .animation(WorkspaceSidebarTabMotion.feedback, value: isSelected)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
     }
 }

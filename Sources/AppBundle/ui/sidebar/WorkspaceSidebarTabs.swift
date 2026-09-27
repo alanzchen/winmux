@@ -90,9 +90,19 @@ struct WorkspaceSidebarTabActivation {
     let isInUseOnOtherDisplay: Bool
     let requestOverride: () -> Void
     var dismissOverride: () -> Void = {}
+    /// The tab these rows belong to, which Shift and Command clicks choose instead of opening,
+    /// and its page's tabs as shown, with the one on screen. Nil while searching.
+    var tabName: String? = nil
+    var selectionContext: (() -> (order: [String], active: String?))? = nil
 
     func select(_ action: WorkspaceSidebarAction, send: @MainActor (WorkspaceSidebarAction) -> Void) {
-        guard allowsActivation, !isWorkspaceSidebarDragInProgress() else { return }
+        guard !isWorkspaceSidebarDragInProgress() else { return }
+        if let tabName, let selectionContext, config.usesBrowserTabs {
+            let context = selectionContext()
+            if WorkspaceSidebarTabSelection.shared.handleClick(on: tabName, modifiers: NSEvent.modifierFlags,
+                order: context.order, active: context.active) { return }
+        }
+        guard allowsActivation else { return }
         if isInUseOnOtherDisplay {
             requestOverride()
             // Keep the panel open at full width so the prompt can be read, as in the Sidebar.
@@ -718,6 +728,23 @@ extension WorkspaceSidebarView {
         }
     }
 
+    /// A project's tabs as this sidebar shows them, for Shift-click ranges: the pinned tiles, then
+    /// the list, groups included. The tab on screen on this sidebar's display anchors a first range.
+    func workspaceSidebarTabSelectionContext(projectId: WorkspaceProjectId) -> (order: [String], active: String?) {
+        let tabs = workspaceSidebarOrderedTabs(workspaceSidebarVisibleWorkspacesByProject(workspaces: snapshot.workspaces,
+            selectedScopeId: snapshot.selectedMonitorScopeId, focusedMonitorScopeId: snapshot.focusedMonitorScopeId,
+            browsedProjectId: nil)[projectId] ?? [], collections: snapshot.configuration.tabCollections)
+        let listed = workspaceSidebarTabSections(workspaces: tabs.filter { !$0.appearance.isFavorite },
+            collections: snapshot.configuration.tabCollections, projectId: projectId).flatMap { section -> [String] in
+                switch section {
+                    case .tab(let workspace): [workspace.name]
+                    case .collection(_, let workspaces): workspaces.map(\.name)
+                }
+            }
+        return (tabs.filter(\.appearance.isFavorite).map(\.name) + listed,
+            snapshot.workspaces.first { workspaceSidebarTabIsActive($0, on: snapshot.targetMonitorScopeId) }?.name)
+    }
+
     /// How clicks on a workspace's rows behave; shared by folders and tabs.
     func tabActivation(
         _ workspace: WorkspaceSidebarWorkspaceViewModel,
@@ -736,6 +763,9 @@ extension WorkspaceSidebarView {
                 activeInUseOverrideWorkspaceName = workspace.name
             },
             dismissOverride: { activeInUseOverrideWorkspaceName = nil },
+            tabName: workspace.name,
+            selectionContext: searchText.isEmpty && !isSearchEditing
+                ? { workspaceSidebarTabSelectionContext(projectId: workspace.projectId) } : nil,
         )
         return (activation, isInUseOnOtherDisplay && activeInUseOverrideWorkspaceName == workspace.name)
     }

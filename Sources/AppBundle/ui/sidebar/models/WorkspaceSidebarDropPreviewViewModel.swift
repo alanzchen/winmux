@@ -25,6 +25,8 @@ struct WorkspaceSidebarDropPreviewViewModel: Hashable {
     var targetGap: WorkspaceSidebarTabGap? = nil
     /// Tabs mode: the dragged window leaves others behind in its tab, so the gap gets a new tab.
     var separatesFromTab = false
+    /// Tabs mode: the drop pins the tab.
+    var targetsPinned = false
 
     init(
         sourceWindowId: UInt32,

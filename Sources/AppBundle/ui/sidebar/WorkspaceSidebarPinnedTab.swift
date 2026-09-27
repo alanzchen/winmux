@@ -66,6 +66,7 @@ struct WorkspaceSidebarPinnedTab: View {
     let onSelect: (UInt32?) -> Void
     @State private var isHovered = false
     @Environment(\.workspaceSidebarReducesMotion) private var reducesMotion
+    @ObservedObject private var selection = WorkspaceSidebarTabSelection.shared
 
     var body: some View {
         let windows = workspaceSidebarPinnedTabWindows(workspace)
@@ -125,6 +126,9 @@ struct WorkspaceSidebarPinnedTab: View {
             .opacity(isActiveHere ? 0.18 : (compact ? (isHovered ? 0.07 : 0) : (isHovered ? 0.12 : 0.08))),
             in: RoundedRectangle(cornerRadius: compact ? 8 : 13))
         .overlay(RoundedRectangle(cornerRadius: 13).strokeBorder(.primary.opacity(compact ? 0 : 0.10), lineWidth: 0.5))
+        .overlay {
+            WorkspaceSidebarTabSelectionHighlight(isSelected: selection.contains(workspace.name), cornerRadius: compact ? 8 : 13)
+        }
         .animation(WorkspaceSidebarTabMotion.selection(reducesMotion: reducesMotion), value: isActiveHere)
         .animation(WorkspaceSidebarTabMotion.selection(reducesMotion: reducesMotion), value: windows.first(where: \.isFocused)?.windowId)
         .onHover { hovering in withAnimation(WorkspaceSidebarTabMotion.hover) { isHovered = hovering } }

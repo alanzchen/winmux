@@ -141,6 +141,21 @@ final class WorkspaceSidebarOrganizationStore {
         }
     }
 
+    /// Several tabs of one project at once, in one write.
+    func assign(_ workspaceNames: [String], projectId: WorkspaceProjectId, to collectionId: String?) throws {
+        if let collectionId, !state.collections.contains(where: { $0.id == collectionId && $0.projectId == projectId }) {
+            throw error("Choose a group in the same project as these tabs.")
+        }
+        let names = Set(workspaceNames)
+        try update { state in
+            if collectionId != nil { for name in workspaceNames { state.workspaces[name, default: .init()].isFavorite = false } }
+            for index in state.collections.indices {
+                state.collections[index].workspaceNames.removeAll(where: names.contains)
+                if state.collections[index].id == collectionId { state.collections[index].workspaceNames += workspaceNames }
+            }
+        }
+    }
+
     func removeWorkspace(_ name: String) throws {
         try update { state in
             state.workspaces.removeValue(forKey: name)
@@ -158,11 +173,18 @@ final class WorkspaceSidebarOrganizationStore {
 /// Customizing a tab gives it a persistent identity. Reuse saved-workspace restoration
 /// so a generated name cannot be recycled for an unrelated window after relaunch.
 @MainActor
-func saveWorkspaceSidebarIdentity(_ workspace: Workspace, keepWhenEmpty: Bool = true) throws {
+func saveWorkspaceSidebarIdentity(_ workspace: Workspace, keepWhenEmpty: Bool = true, flush: Bool = true) throws {
     if let reason = workspaceSidebarOrganizationStore.readOnlyReason {
         throw NSError(domain: "WinMux.SidebarOrganization", code: 1, userInfo: [NSLocalizedDescriptionKey: reason])
     }
-    try ensureSavedWorkspaceRecord(workspace, keepWhenEmpty: keepWhenEmpty)
+    try ensureSavedWorkspaceRecord(workspace, flush: flush, keepWhenEmpty: keepWhenEmpty)
+}
+
+/// Saves several tabs' identities with one write of the saved-workspace file.
+@MainActor
+func saveWorkspaceSidebarIdentities(_ workspaces: [Workspace]) throws {
+    defer { savedWorkspaceStore.flushNow() }
+    for workspace in workspaces { try saveWorkspaceSidebarIdentity(workspace, flush: false) }
 }
 
 @MainActor

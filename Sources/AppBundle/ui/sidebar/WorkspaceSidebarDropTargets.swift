@@ -8,6 +8,8 @@ enum WorkspaceSidebarDropTargetKind: Equatable {
     /// Tabs mode: the edge between two tabs, where a dropped tab moves, or a dropped window
     /// opens in a tab of its own.
     case tabGap(projectId: WorkspaceProjectId, monitorScopeId: String, gap: WorkspaceSidebarTabGap)
+    /// Tabs mode: the pinned tiles at the top, where a dropped tab is pinned.
+    case pinnedTabs(projectId: WorkspaceProjectId)
 }
 
 /// A place between tabs: just before or just after a workspace.

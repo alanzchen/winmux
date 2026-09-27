@@ -86,7 +86,8 @@ func handleWorkspaceSidebarAction(
             BrowserTabsModel.shared.close(target)
         case .setWorkspaceColor, .setWorkspaceEmoji, .setWorkspaceFavorite, .createTabCollection,
              .renameTabCollection, .setTabCollectionColor, .setTabCollectionEmoji, .toggleTabCollection,
-             .assignTabCollection, .ungroupTabCollection, .moveTabCollection, .createTabInCollection, .toggleTabsSidebar:
+             .assignTabCollection, .ungroupTabCollection, .moveTabCollection, .createTabInCollection, .toggleTabsSidebar,
+             .createTabCollectionFromTabs, .assignTabsToCollection, .setTabsFavorite:
             handleWorkspaceSidebarOrganizationAction(action,
                 targetMonitorScopeId: targetMonitorScopeId ?? viewModel.workspaceSidebarTargetMonitorScopeId)
         case .selectWorkspace(let name):
@@ -103,6 +104,8 @@ func handleWorkspaceSidebarAction(
             closeWindowFromMiddleClick(windowId) { focusWindowFromSidebar(windowId) }
         case .closeTabWindows(let name):
             closeWorkspaceSidebarTabWindows(name)
+        case .closeTabs(let names):
+            closeWorkspaceSidebarTabs(names)
         case .detachTabWindow(let windowId):
             runWorkspaceSidebarSession(undoTitle: "Move to New Tab") {
                 guard let window = Window.get(byId: windowId) else { return }
@@ -166,10 +169,7 @@ func handleWorkspaceSidebarAction(
         case .closeEmptyTab(let name):
             runWorkspaceSidebarSession {
                 guard let workspace = Workspace.existing(byName: name) else { return }
-                if config.usesBrowserTabs, workspace.isSaved, !workspace.isConfiguredPersistent,
-                   !workspaceHasLifecycleWindows(workspace) {
-                    try deleteWorkspace(workspace)
-                } else { closeEmptyTab(workspace) }
+                try closeWorkspaceSidebarEmptyTab(workspace)
                 await updateWorkspaceSidebarModel()
             }
         case .saveWorkspace(let name):

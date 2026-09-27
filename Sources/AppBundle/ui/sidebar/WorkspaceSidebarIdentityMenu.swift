@@ -11,6 +11,14 @@ enum WorkspaceSidebarIdentityTarget: Equatable {
         if case .collection(_, _, let scope, _) = self { return scope }
         return nil
     }
+
+    /// The tab a tab's or workspace's menu is for.
+    var tabName: String? {
+        switch self {
+            case .tab(let name, _), .workspace(let name): name
+            case .project, .collection: nil
+        }
+    }
 }
 
 /// The editable identity section is shared by every mode and item type. Actions below
@@ -482,8 +490,13 @@ struct WorkspaceSidebarIdentityMenuTrigger: NSViewRepresentable {
             else { return nil }
             return self
         }
-        override func rightMouseDown(with event: NSEvent) { WorkspaceSidebarIdentityMenu.show(target) }
-        override func mouseDown(with event: NSEvent) { WorkspaceSidebarIdentityMenu.show(target) }
+        override func rightMouseDown(with event: NSEvent) { show(event) }
+        override func mouseDown(with event: NSEvent) { show(event) }
+
+        private func show(_ event: NSEvent) {
+            if let name = target.tabName, showWorkspaceSidebarTabSelectionMenu(containing: name, with: event, in: self) { return }
+            WorkspaceSidebarIdentityMenu.show(target)
+        }
     }
 }
 
