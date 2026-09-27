@@ -271,6 +271,34 @@ final class WorkspaceTabsTest: XCTestCase {
         emptyB.bind(to: b.rootTilingContainer, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
     }
 
+    func testClosingATabsLastWindowMovesOnEvenWhenMacOSFocusedTheAppsOtherWindowFirst() throws {
+        let (a, b, c) = threeTabs()
+        let closing = try XCTUnwrap(b.allLeafWindowsRecursive.first)
+        let sameApp = try XCTUnwrap(a.allLeafWindowsRecursive.first)
+        let otherApp = TestWindow.new(id: 9, parent: a.rootTilingContainer, app: TestApp(pid: 900, bundleId: "com.test.other"))
+        XCTAssertTrue(closing.focusWindow())
+        let replacement = { (nativeFocused: Window) -> LiveFocus? in
+            let sessionStart = focus
+            XCTAssertTrue(sessionStart.workspace === b)
+            closing.unbindFromParent()
+            defer {
+                closing.bind(to: b.rootTilingContainer, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
+                XCTAssertTrue(closing.focusWindow())
+            }
+            // The refresh that notices the close syncs focus from macOS first, which brings
+            // the newly focused window's tab forward, as a refresh session does.
+            updateFocusCache(nativeFocused)
+            XCTAssertTrue(focus.workspace === a && a.isVisible)
+            return focusAfterWindowClosure(closingWindow: closing, deadWindowWorkspace: b, currentFocus: focus,
+                previousFocus: prevFocus, previousPreviousFocus: prevPrevFocus,
+                refreshSnapshotCloseFallback: b.toLiveFocus(), refreshSnapshotPreviousFocus: nil,
+                refreshSnapshotPreviousPreviousFocus: nil, previousFocusedWorkspace: b, previousFocusedWorkspaceDate: .now)
+        }
+        XCTAssertEqual(replacement(sameApp)?.workspace, c,
+            "macOS focused the app's other window: the next tab, not the emptied one or the app's other tab")
+        XCTAssertEqual(replacement(otherApp)?.workspace, c, "The app quit and macOS focused another app's window")
+    }
+
     func testAPinnedTabAndOtherModesKeepTheEmptyWorkspace() throws {
         let (_, b, _) = threeTabs()
         config.persistentWorkspaces = [b.name]
