@@ -38,10 +38,13 @@ Use concise imperative subjects, following history: `Fix compact sidebar multi-m
 
 ## Code Review Workflow
 
-Before pushing substantive code changes, run independent, read-only reviews with
-**Claude Opus 5 via Claude CLI** and **agy CLI (`gemini-3.8-flash-high`)**. Provide
-the diff, relevant surrounding code, requirements, and validation results. Ask for
-concrete correctness, regression, performance, and test-coverage findings.
+Before pushing substantive code changes, run independent, read-only reviews with a
+model from the other provider family, launched through the **paseo-advisor** skill,
+and with **agy CLI (`gemini-3.8-flash-high`)**. Claude Code uses the **Astra xhigh**
+Paseo profile (`codex/gpt-6-astra`); ChatGPT Codex uses the **Opus 5.5** profile
+(`claude/claude-opus-5-5`). Provide the diff, relevant surrounding code,
+requirements, and validation results. Ask for concrete correctness, regression,
+performance, and test-coverage findings.
 If headless file reads are denied, pass a scoped source bundle directly to the
 reviewer instead of enabling unrestricted tool permissions.
 
