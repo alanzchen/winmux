@@ -79,8 +79,8 @@ tabs-always-expanded = true
 - Hover a tab and click **×**, or middle-click, to close its window. In a split,
   this closes only that segment. **Separate into Tabs** gives each window its own row.
   In a [browser window's tab list](browser-tabs.md), the same closes one browser tab.
-- Drag a tab onto another and hold it still over one half to tile their windows
-  side by side on that side; the half is highlighted. Drag between rows to reorder,
+- Drag a tab onto another and pause over it for a moment to tile their windows
+  side by side; the half under the pointer is highlighted and chooses the side. Drag between rows to reorder,
   or to pull one window out of a split. A line marks where the tab will go, labeled
   **New Tab** when the drop gives a window a tab of its own. Dropping in the empty
   space below the tabs puts the tab last, outside any group. Releasing where nothing

@@ -66,17 +66,64 @@ final class WorkspaceSidebarTabUXTest: XCTestCase {
             ["pin", "first", "last", "between"], "Empty search cannot select invisible projects")
     }
 
-    func testSplitNeedsAStationaryHoldAndRearmsForAnotherSideOrRow() {
+    func testSplitArmsAfterABriefPauseAndStaysArmedOverTheSameTab() {
         var hover = WorkspaceSidebarTabSplitHover()
         let p = CGPoint(x: 30, y: 20)
         XCTAssertFalse(hover.update(target: "A", side: .left, point: p, now: 1))
-        XCTAssertFalse(hover.update(target: "A", side: .left, point: p, now: 1.399))
-        XCTAssertTrue(hover.update(target: "A", side: .left, point: p, now: 1.41))
-        XCTAssertFalse(hover.update(target: "A", side: .right, point: p, now: 1.42))
-        XCTAssertFalse(hover.update(target: "B", side: .right, point: p, now: 2))
-        XCTAssertFalse(hover.update(target: "B", side: .right, point: CGPoint(x: 30, y: 30), now: 2.3))
-        XCTAssertFalse(hover.update(target: "B", side: .right, point: CGPoint(x: 30, y: 30), now: 2.5))
-        XCTAssertTrue(hover.update(target: "B", side: .right, point: CGPoint(x: 30, y: 30), now: 2.71))
+        XCTAssertFalse(hover.update(target: "A", side: .left, point: CGPoint(x: 40, y: 24), now: 1.2),
+            "Small drift keeps the pause going")
+        XCTAssertFalse(hover.update(target: "A", side: .left, point: CGPoint(x: 40, y: 24), now: 1.26),
+            "The drift itself ended only just now")
+        XCTAssertTrue(hover.update(target: "A", side: .left, point: CGPoint(x: 40, y: 24), now: 1.34))
+        XCTAssertTrue(hover.update(target: "A", side: .right, point: CGPoint(x: 150, y: 20), now: 1.36),
+            "Once armed, moving to the other half keeps the split")
+        XCTAssertFalse(hover.update(target: "B", side: .right, point: p, now: 2), "Another tab starts over")
+        XCTAssertFalse(hover.update(target: "B", side: .right, point: CGPoint(x: 60, y: 20), now: 2.2),
+            "Moving on before arming is a reorder")
+        XCTAssertFalse(hover.update(target: "B", side: .right, point: CGPoint(x: 60, y: 20), now: 2.4))
+        XCTAssertTrue(hover.update(target: "B", side: .right, point: CGPoint(x: 60, y: 20), now: 2.46))
+    }
+
+    func testASlowSteadyDragKeepsReorderingButStoppingArmsTheSplit() {
+        // Down a row at 40, 30, 20 and 16 pt/s, sampled every 16 ms: never at rest, so never a split.
+        for speed in [40.0, 30, 20, 16] as [CGFloat] {
+            var hover = WorkspaceSidebarTabSplitHover()
+            var now = 1.0, y: CGFloat = 8
+            while y < 28 {
+                XCTAssertFalse(hover.update(target: "A", side: .left, point: CGPoint(x: 40, y: y), now: now),
+                    "Still moving at \(speed) pt/s, y=\(y)")
+                now += 0.016
+                y += speed * 0.016
+            }
+        }
+        var hover = WorkspaceSidebarTabSplitHover()
+        let stop = CGPoint(x: 40, y: 18)
+        XCTAssertFalse(hover.update(target: "A", side: .left, point: stop, now: 1))
+        XCTAssertFalse(hover.update(target: "A", side: .left, point: CGPoint(x: 41, y: 19), now: 1.2))
+        XCTAssertTrue(hover.update(target: "A", side: .left, point: CGPoint(x: 41, y: 19), now: 1.26),
+            "A pause with hand jitter arms it")
+    }
+
+    func testLeavingForTheGapBetweenTabsNeedsAFreshPause() async throws {
+        let source = TestWindow.new(id: 120, parent: focus.workspace.rootTilingContainer)
+        let target = Workspace.get(byName: "gap-target")
+        _ = TestWindow.new(id: 121, parent: target.rootTilingContainer)
+        let rect = Rect(topLeftX: 0, topLeftY: 0, width: 200, height: 36)
+        let destination = WorkspaceSidebarTabReorderDestination(projectId: target.projectId, monitorScopeId: "display",
+            collectionId: nil)
+        let tab = WorkspaceSidebarDropTarget(kind: .workspace(target.name), rect: rect, acceptsSides: true,
+            tabReorderDestination: destination)
+        let gap = WorkspaceSidebarDropTarget(kind: .tabGap(projectId: target.projectId, monitorScopeId: "display",
+            gap: .init(workspaceName: target.name, isAfter: true)), rect: rect)
+        let point = CGPoint(x: 40, y: 18)
+        defer { WorkspaceSidebarTabSplitHoverController.shared.reset() }
+        _ = workspaceSidebarDeliberateTabDropTarget(tab, sourceWindow: source, point: point)
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertEqual(workspaceSidebarDeliberateTabDropTarget(tab, sourceWindow: source, point: point)?.kind, tab.kind)
+        _ = workspaceSidebarDeliberateTabDropTarget(gap, sourceWindow: source, point: CGPoint(x: 40, y: 34))
+        guard case .tabGap = workspaceSidebarDeliberateTabDropTarget(tab, sourceWindow: source, point: point)?.kind else {
+            return XCTFail("Back over the tab, a drag reorders until it pauses again")
+        }
     }
 
     func testLiveDropResolutionReordersFirstThenArmsTheSameSplitThatWillBeCommitted() async throws {

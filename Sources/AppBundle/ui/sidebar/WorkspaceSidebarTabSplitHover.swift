@@ -1,23 +1,50 @@
 import AppKit
 
-let workspaceSidebarSplitHoverDelay: TimeInterval = 0.4
+let workspaceSidebarSplitHoverDelay: TimeInterval = 0.25
+/// How far the pointer may drift while pausing over a tab and still arm its split.
+let workspaceSidebarSplitHoverTolerance: CGFloat = 12
+/// A pause ends with the pointer at rest: within this distance for `workspaceSidebarSplitRestDuration`.
+/// A steady drag faster than about 15 pt/s never rests, so it keeps reordering however little it
+/// has moved overall; that's as slow as the original 6 pt / 0.4 s hold allowed.
+let workspaceSidebarSplitRestDistance: CGFloat = 2
+let workspaceSidebarSplitRestDuration: TimeInterval = 0.13
 
-/// A moving pointer reorders. A brief, stationary hold over a row deliberately arms
-/// its split target. Moving to the other half starts a fresh hold.
+/// A moving pointer reorders. A brief pause over a tab arms its split; once armed, the split
+/// stays armed anywhere over that tab, and the highlighted half follows the pointer.
 struct WorkspaceSidebarTabSplitHover {
     private var target: String?
-    private var side: WorkspaceSidebarTabDropPlacement?
     private var anchor: CGPoint = .zero
+    private var restPoint: CGPoint = .zero
+    private var restingSince: TimeInterval = 0
+    private var isArmed = false
     private(set) var startedAt: TimeInterval?
 
-    mutating func update(target: String, side: WorkspaceSidebarTabDropPlacement, point: CGPoint, now: TimeInterval) -> Bool {
-        if self.target != target || self.side != side || hypot(point.x - anchor.x, point.y - anchor.y) > 6 {
+    /// When the split arms if the pointer stays where it is; nil once armed.
+    var armsAt: TimeInterval? {
+        guard !isArmed, let startedAt else { return nil }
+        return max(startedAt + workspaceSidebarSplitHoverDelay, restingSince + workspaceSidebarSplitRestDuration)
+    }
+
+    mutating func update(target: String, side _: WorkspaceSidebarTabDropPlacement, point: CGPoint, now: TimeInterval) -> Bool {
+        if self.target != target {
             self.target = target
-            self.side = side
+            isArmed = false
             anchor = point
             startedAt = now
+            restPoint = point
+            restingSince = now
+        } else if !isArmed {
+            if hypot(point.x - anchor.x, point.y - anchor.y) > workspaceSidebarSplitHoverTolerance {
+                anchor = point
+                startedAt = now
+            }
+            if hypot(point.x - restPoint.x, point.y - restPoint.y) > workspaceSidebarSplitRestDistance {
+                restPoint = point
+                restingSince = now
+            }
         }
-        return now - (startedAt ?? now) >= workspaceSidebarSplitHoverDelay
+        if let armsAt, now >= armsAt { isArmed = true }
+        return isArmed
     }
 }
 
@@ -54,12 +81,14 @@ final class WorkspaceSidebarTabSplitHoverController {
     }
 
     func isReady(target: String, side: WorkspaceSidebarTabDropPlacement, point: CGPoint) -> Bool {
-        let previous = state.startedAt
-        let ready = state.update(target: target, side: side, point: point, now: ProcessInfo.processInfo.systemUptime)
-        if previous != state.startedAt {
+        let previous = state.armsAt
+        let now = ProcessInfo.processInfo.systemUptime
+        let ready = state.update(target: target, side: side, point: point, now: now)
+        // A pointer at rest sends no events, so check again when the pause would arm.
+        if let armsAt = state.armsAt, armsAt != previous {
             wake?.cancel()
             wake = Task { @MainActor in
-                try? await Task.sleep(for: .seconds(workspaceSidebarSplitHoverDelay + 0.01))
+                try? await Task.sleep(for: .seconds(max(0, armsAt - now) + 0.01))
                 guard !Task.isCancelled else { return }
                 refreshActiveWorkspaceSidebarDragPreviewIfNeeded()
             }
