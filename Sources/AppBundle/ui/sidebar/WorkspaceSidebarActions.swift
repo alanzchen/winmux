@@ -416,7 +416,7 @@ private func moveSidebarSourceToNewWorkspace(
 
 @MainActor
 func previewWorkspaceSidebarDrop(_ windowId: UInt32, subject: WindowDragSubject, target: WorkspaceSidebarDropTargetKind,
-                                 placement: WorkspaceSidebarTabDropPlacement? = nil) {
+                                 placement: WorkspaceSidebarTabDropPlacement? = nil, labelEdge: HorizontalEdge? = nil) {
     guard let sourceWindow = Window.get(byId: windowId) else {
         clearWorkspaceSidebarDropPreview()
         return
@@ -470,6 +470,7 @@ func previewWorkspaceSidebarDrop(_ windowId: UInt32, subject: WindowDragSubject,
         targetProjectId: nil,
     )
     preview.targetPlacement = placement
+    preview.targetLabelEdge = placement == nil ? nil : labelEdge
     setWorkspaceSidebarDropPreviewIfChanged(preview)
 }
 
@@ -948,7 +949,12 @@ private func updateActiveWorkspaceSidebarDragPreview(sourceWindow: Window, subje
         return
     }
     let placement = workspaceSidebarTabDropPlacement(for: target, sourceWindow: sourceWindow, subject: subject)
-    previewWorkspaceSidebarDrop(sourceWindow.windowId, subject: subject, target: target.kind, placement: placement)
+    let current = TrayMenuModel.shared.workspaceSidebarDropPreview
+    let labelEdge = workspaceSidebarTabDropLabelEdge(pointX: MousePointerTracker.shared.currentSample.point.x,
+        targetMinX: target.rect.minX, targetMaxX: target.rect.maxX, placement: placement,
+        previous: current?.targetPlacement == placement && current?.targetWorkspaceName != nil ? current?.targetLabelEdge : nil)
+    previewWorkspaceSidebarDrop(sourceWindow.windowId, subject: subject, target: target.kind, placement: placement,
+        labelEdge: labelEdge)
     if config.usesBrowserTabs, TrayMenuModel.shared.workspaceSidebarDropPreview != nil,
        let hit = workspaceSidebarDropTarget(at: MousePointerTracker.shared.currentSample.point) {
         WorkspaceSidebarTabSplitHoverController.shared.noteDisplayed(source: sourceWindow.windowId, hitKind: hit.kind,

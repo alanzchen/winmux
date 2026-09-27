@@ -71,6 +71,7 @@ struct WorkspaceSidebarTabCardView: View {
     @Environment(\.workspaceSidebarBadgeOwners) private var badgeOwners
     /// Where a dragged tab would go on this tab, while one is over it.
     var dropPlacement: WorkspaceSidebarTabDropPlacement? = nil
+    var dropLabelEdge: HorizontalEdge? = nil
     /// The edge a dragged tab would be inserted at, while one is over it.
     var insertionEdge: VerticalEdge? = nil
     var insertionLabel: String? = nil
@@ -118,7 +119,8 @@ struct WorkspaceSidebarTabCardView: View {
                     .animation(WorkspaceSidebarTabMotion.feedback, value: isDropTarget)
             }
             .overlay(alignment: .top) {
-                WorkspaceSidebarTabDropSideHighlight(placement: isDropTarget ? dropPlacement : nil)
+                WorkspaceSidebarTabDropSideHighlight(placement: isDropTarget ? dropPlacement : nil,
+                    labelEdge: dropLabelEdge)
                     .frame(height: hasBrowserGroups ? workspaceSidebarTabRowHeight : nil)
                     .padding(hasBrowserGroups && drawsBrowserCard ? workspaceSidebarTabGroupInset : 0)
             }
@@ -443,6 +445,8 @@ func workspaceSidebarTabDropTargets(
 /// insertion line's accent, so every drop target in the list reads the same way.
 struct WorkspaceSidebarTabDropSideHighlight: View {
     let placement: WorkspaceSidebarTabDropPlacement?
+    /// The half's end its label sits at; without a pointer to avoid, its outer edge.
+    var labelEdge: HorizontalEdge? = nil
     @Environment(\.workspaceSidebarTabIndent) private var indent
     @Environment(\.workspaceSidebarReducesMotion) private var reducesMotion
 
@@ -462,11 +466,13 @@ struct WorkspaceSidebarTabDropSideHighlight: View {
                                 .frame(maxWidth: .infinity, alignment: .trailing)
                                 .padding(.trailing, 8)
                         } else {
-                            // At the half's outer edge, away from the pointer holding over it.
+                            // At the end of the half away from the pointer, so the dragged tab
+                            // doesn't cover it.
+                            let edge = labelEdge ?? (placement == .left ? .leading : .trailing)
                             WorkspaceSidebarTabDropLabel(text: placement == .left ? "Split left" : "Split right")
                                 .padding(.horizontal, 6)
                                 .frame(maxWidth: .infinity, maxHeight: .infinity,
-                                    alignment: placement == .left ? .leading : .trailing)
+                                    alignment: edge == .leading ? .leading : .trailing)
                         }
                     }
                     .frame(width: width)
@@ -476,6 +482,7 @@ struct WorkspaceSidebarTabDropSideHighlight: View {
         }
         // Moving to the other half slides the highlight across; with Reduce Motion it just moves.
         .animation(reducesMotion ? nil : WorkspaceSidebarTabMotion.feedback, value: placement)
+        .animation(reducesMotion ? nil : WorkspaceSidebarTabMotion.feedback, value: labelEdge)
         .allowsHitTesting(false)
         .accessibilityHidden(true)
     }

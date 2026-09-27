@@ -36,6 +36,23 @@ func workspaceSidebarTabDropPlacement(
     return pointX < targetMidX ? .left : .right
 }
 
+/// The end of the joined half that a split's label sits at: the one farther from the pointer,
+/// so the dragged tab's image, centered on the pointer, doesn't cover it. Near the half's middle
+/// the label keeps its end, so small movements don't bounce it from end to end.
+func workspaceSidebarTabDropLabelEdge(
+    pointX: CGFloat,
+    targetMinX: CGFloat,
+    targetMaxX: CGFloat,
+    placement: WorkspaceSidebarTabDropPlacement?,
+    previous: HorizontalEdge? = nil,
+) -> HorizontalEdge? {
+    guard let placement, placement != .stack else { return nil }
+    let targetMidX = (targetMinX + targetMaxX) / 2
+    let halfMidX = placement == .left ? (targetMinX + targetMidX) / 2 : (targetMidX + targetMaxX) / 2
+    if let previous, abs(pointX - halfMidX) < 10 { return previous }
+    return pointX < halfMidX ? .trailing : .leading
+}
+
 /// Each tab's top and bottom edges are gaps; the middle takes the tab itself. The bands reach
 /// a little past the tab, so the gap between two tabs is one target. A folder's bands stay
 /// outside it, in the space around it, so every part of the folder takes the drop itself.

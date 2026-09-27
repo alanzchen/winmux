@@ -708,6 +708,7 @@ extension WorkspaceSidebarView {
                 actions: actions,
                 badgeModel: dockBadgeModel,
                 dropPlacement: snapshot.dropPreview?.targetPlacement,
+                dropLabelEdge: snapshot.dropPreview?.targetLabelEdge,
                 insertionEdge: insertionEdge,
                 insertionLabel: insertionLabel,
                 gapTarget: gapTarget,

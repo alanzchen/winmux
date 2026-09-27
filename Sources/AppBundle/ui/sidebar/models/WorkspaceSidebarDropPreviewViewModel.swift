@@ -1,3 +1,5 @@
+import SwiftUI
+
 struct WorkspaceSidebarDropPreviewTabItem: Hashable {
     let title: String
     let appName: String
@@ -21,6 +23,8 @@ struct WorkspaceSidebarDropPreviewViewModel: Hashable {
     /// Tabs mode: the side of the target tab it goes, or a stack.
     var targetCollectionId: String? = nil
     var targetPlacement: WorkspaceSidebarTabDropPlacement? = nil
+    /// Tabs mode: the end of the joined half its label sits at, away from the pointer.
+    var targetLabelEdge: HorizontalEdge? = nil
     /// Tabs mode: the gap between tabs it goes to.
     var targetGap: WorkspaceSidebarTabGap? = nil
     /// Tabs mode: the dragged window leaves others behind in its tab, so the gap gets a new tab.
