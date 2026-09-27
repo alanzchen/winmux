@@ -92,6 +92,8 @@ final class SavedWorkspaceRuntime {
     var frozenForShutdownUntil: Date?
     /// Slot id → when its window vanished while its app kept running.
     var vanishedSlots: [String: SavedVanishedSlot] = [:]
+    /// A failed organization write must keep a name reserved without retrying every refresh.
+    var organizationPruneRetryAfter: [String: Date] = [:]
     var manualArmUntilByBundleId: [String: Date] = [:]
     var visibleOnHomeAtLastCheckpoint: Set<String> = []
     var didRunLabelAdoption = false

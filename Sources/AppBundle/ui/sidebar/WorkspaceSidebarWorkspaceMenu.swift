@@ -51,16 +51,18 @@ func workspaceSidebarWorkspaceMenuEntries(
     context: WorkspaceSidebarWorkspaceMenuContext,
 ) -> [WorkspaceSidebarWorkspaceMenuEntry] {
     let saved = workspace.savedState
-    var entries: [WorkspaceSidebarWorkspaceMenuEntry] = [
+    var entries: [WorkspaceSidebarWorkspaceMenuEntry] = context.separatesIntoTabs ? [] : [
         .init(title: "Customize Dock & Sidebar…", command: .customizeDock),
         .separator,
-        .init(title: context.separatesIntoTabs ? "Rename Tab" : "Rename Workspace", command: .rename),
     ]
+    entries.append(.init(title: context.separatesIntoTabs ? "Rename Tab" : "Rename Workspace", command: .rename))
     if context.separatesIntoTabs, workspaceSidebarTabWindowCount(workspace) > 1 {
         entries += [.separator, .init(title: "Separate into Tabs", command: .send(.separateWorkspaceIntoTabs(workspace.name))), .separator]
     }
-    if saved == nil {
-        entries.append(.init(title: context.separatesIntoTabs ? "Keep Tab When Empty" : "Save Workspace", command: .send(.saveWorkspace(workspace.name))))
+    if saved == nil || saved?.keepWhenEmpty == false {
+        let title = context.separatesIntoTabs ? "Keep Tab When Empty"
+            : saved == nil ? "Save Workspace" : "Keep Workspace When Empty"
+        entries.append(.init(title: title, command: .send(.saveWorkspace(workspace.name))))
     }
     if let keepOn = workspaceSidebarKeepOnDisplayEntry(workspace, context: context) {
         entries.append(keepOn)
@@ -72,7 +74,7 @@ func workspaceSidebarWorkspaceMenuEntries(
         ))
     }
     entries.append(.separator)
-    if saved != nil {
+    if saved != nil && (!context.separatesIntoTabs || saved?.keepWhenEmpty == true) {
         entries.append(.init(title: context.separatesIntoTabs ? "Stop Keeping Empty Tab" : "Forget Saved Workspace", command: .send(.forgetSavedWorkspace(workspace.name))))
     }
     if !context.separatesIntoTabs {
@@ -175,7 +177,7 @@ struct WorkspaceSidebarWorkspaceMenuContent: View {
 }
 
 func workspaceSidebarSavedWorkspaceDescription(_ saved: WorkspaceSidebarSavedState) -> String {
-    var parts = ["Saved workspace"]
+    var parts = [saved.keepWhenEmpty ? "Saved workspace" : "Closes when empty"]
     // Config force-assignment, not the saved home, decides where it goes.
     if let home = saved.homeDisplayName, !saved.isForceAssignedByConfig {
         parts.append(saved.isPinnedToDisplay ? "Kept on “\(home)”" : "Returns to “\(home)”")

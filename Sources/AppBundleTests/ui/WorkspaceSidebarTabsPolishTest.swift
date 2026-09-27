@@ -358,11 +358,11 @@ final class WorkspaceSidebarTabsPolishTest: XCTestCase {
     }
 
     private func workspace(_ name: String, windows: [WorkspaceSidebarWindowViewModel], pinned: Bool = false,
-                           scope: String = "monitor:0,0") -> WorkspaceSidebarWorkspaceViewModel {
-        .init(name: name, projectId: workspaceProjectDefaultId, displayName: name, sidebarLabel: "",
+                           scope: String = "monitor:0,0", label: String = "", emoji: String? = nil) -> WorkspaceSidebarWorkspaceViewModel {
+        .init(name: name, projectId: workspaceProjectDefaultId, displayName: label.isEmpty ? name : label, sidebarLabel: label,
             isGeneratedName: false, monitorScopeId: scope, monitorName: nil,
             isFocused: windows.contains(where: \.isFocused), isVisible: windows.contains(where: \.isFocused),
-            items: windows.map { .init(kind: .window($0)) }, appearance: .init(isFavorite: pinned))
+            items: windows.map { .init(kind: .window($0)) }, appearance: .init(emoji: emoji, isFavorite: pinned))
     }
 
     private func fixture(width: CGFloat) -> WorkspaceSidebarSnapshot {
@@ -376,9 +376,11 @@ final class WorkspaceSidebarTabsPolishTest: XCTestCase {
         snapshot.projects = [.init(id: workspaceProjectDefaultId, displayName: "Research", colorHex: "#7BA3C9", emoji: "🔬"),
             .init(id: "personal", displayName: "Personal", colorHex: "#7DBF8E", emoji: "🏡"),
             .init(id: "design", displayName: "Design", colorHex: "#BF8AAE", emoji: "🎨")]
-        snapshot.workspaces = [workspace("Pinned split", windows: [window(1), window(2, other: true)], pinned: true),
+        snapshot.workspaces = [workspace("Pinned split", windows: [window(1), window(2, other: true)], pinned: true,
+                label: "Design review", emoji: "🎨"),
             workspace("Pinned single", windows: [window(3)], pinned: true),
-            workspace("Single", windows: [window(4)]), workspace("Split", windows: [window(5), window(6, other: true)])]
+            workspace("Single", windows: [window(4)]), workspace("Split", windows: [window(5), window(6, other: true)],
+                label: "Checkout bug", emoji: "🐛")]
         snapshot.configuration.tabCollections = [.init(projectId: workspaceProjectDefaultId, name: "Website Eng",
             colorHex: "#E8B000", workspaceNames: ["Single", "Split"])]
         return snapshot

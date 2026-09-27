@@ -2,13 +2,57 @@ import AppKit
 import Common
 
 extension Workspace {
-    /// Saved workspaces survive when empty, keep their name, and come back after WinMux, an
-    /// app, or the Mac restarts.
+    /// Saved identities reserve their name and can restore windows after a restart.
     @MainActor
     var isSaved: Bool { savedWorkspaceStore.contains(workspaceName: name) }
 
     @MainActor
-    var isKeptWhenEmpty: Bool { isConfiguredPersistent || isSaved }
+    var isKeptWhenEmpty: Bool {
+        isConfiguredPersistent || savedWorkspaceStore.record(named: name).map { $0.keepWhenEmpty != false } == true
+    }
+
+    /// Let startup/title routing finish before deciding that an automatically grouped tab
+    /// is empty. In read-only mode its persisted identity must remain reserved.
+    @MainActor
+    var isAwaitingSavedWorkspaceRestoration: Bool {
+        guard let record = savedWorkspaceStore.record(named: name) else { return false }
+        return isStartup || savedWorkspaceRuntime.isStartupRestoreActive ||
+            !savedWorkspaceRuntime.windowsAwaitingTitle.isEmpty || savedWorkspaceStore.isReadOnly ||
+            workspaceSidebarOrganizationStore.readOnlyReason != nil || savedWorkspaceRuntime.isCaptureSuspended ||
+            savedWorkspaceRuntime.workspacesAwaitingProject?.contains(name) == true ||
+            (record.keepWhenEmpty == false && !record.layout.allSlots.isEmpty)
+    }
+}
+
+/// Use the existing Cmd-W/Cmd-Q restoration policy before pruning automatic identities.
+/// Capture drops windows moved to another tab immediately, waits briefly for a closed
+/// window, and preserves slots for an app that quit or is still restoring. Empty automatic
+/// tabs waiting for restoration are not user-facing unless currently on screen.
+@MainActor
+func captureAutomaticWorkspaceIdentitiesBeforePruning() {
+    let runtime = savedWorkspaceRuntime
+    guard !isStartup, !runtime.isStartupRestoreActive, !runtime.isCaptureSuspended,
+          !savedWorkspaceStore.isReadOnly, !MonitorConfigurationObserver.shared.isSettling,
+          runtime.environment.frontmostAppBundleId() != lockScreenAppBundleId else { return }
+    let empty = Workspace.all.filter {
+        !workspaceHasLifecycleWindows($0) && savedWorkspaceStore.record(named: $0.name)?.keepWhenEmpty == false &&
+            runtime.workspacesAwaitingProject?.contains($0.name) != true
+    }
+    guard !empty.isEmpty else { return }
+    let facts = currentSavedWorkspaceCaptureFacts(titleByWindowId: [:])
+    for workspace in empty { captureSavedWorkspace(named: workspace.name, facts: facts) }
+}
+
+/// A split member can be assigned a group before it is bound into its new tab. Record the
+/// window immediately after binding so an immediate quit/relaunch can restore that tab.
+@MainActor
+func captureNewAutomaticWorkspaceIdentity(_ workspace: Workspace) {
+    guard savedWorkspaceStore.record(named: workspace.name)?.keepWhenEmpty == false,
+          !savedWorkspaceStore.isReadOnly else { return }
+    let layout = snapshotSavedWorkspaceLayoutNow(workspace)
+    if savedWorkspaceStore.update(named: workspace.name, { $0.layout = layout }) {
+        savedWorkspaceStore.flushNow()
+    }
 }
 
 /// Registers every saved workspace name before anything can hand it out as an automatic name.
@@ -80,6 +124,7 @@ func clearSavedWorkspaceRuntimeState(_ record: SavedWorkspaceRecord) {
     }
     runtime.visibleOnHomeAtLastCheckpoint.remove(record.workspaceName)
     runtime.workspacesAwaitingProject?.remove(record.workspaceName)
+    runtime.organizationPruneRetryAfter.removeValue(forKey: record.workspaceName)
 }
 
 @MainActor
@@ -92,8 +137,18 @@ func savedWorkspaceDisplayName(_ workspaceName: String) -> String? {
 /// - Parameter flush: false when the caller changes the record further and flushes itself.
 @MainActor
 @discardableResult
-func ensureSavedWorkspaceRecord(_ workspace: Workspace, flush: Bool = true) throws -> (record: SavedWorkspaceRecord, created: Bool) {
-    if let existing = savedWorkspaceStore.record(named: workspace.name) {
+func ensureSavedWorkspaceRecord(_ workspace: Workspace, flush: Bool = true, keepWhenEmpty: Bool = true) throws -> (record: SavedWorkspaceRecord, created: Bool) {
+    if var existing = savedWorkspaceStore.record(named: workspace.name) {
+        // A later explicit Save/Pin/Customize opts an inherited tab into being kept.
+        if keepWhenEmpty, existing.keepWhenEmpty == false {
+            if let reason = savedWorkspaceStore.readOnlyReason {
+                throw WorkspaceMutationError.savedWorkspacesReadOnly(reason)
+            }
+            existing.keepWhenEmpty = nil
+            savedWorkspaceStore.update(named: workspace.name) { $0.keepWhenEmpty = nil }
+            if flush { savedWorkspaceStore.flushNow() }
+            else { savedWorkspaceStore.scheduleWrite() }
+        }
         return (existing, false)
     }
     if let reason = savedWorkspaceStore.readOnlyReason {
@@ -110,6 +165,7 @@ func ensureSavedWorkspaceRecord(_ workspace: Workspace, flush: Bool = true) thro
         projectId: workspace.projectId,
         namingStyle: workspace.namingStyle,
         display: SavedDisplayAffinity(monitor: monitor),
+        keepWhenEmpty: keepWhenEmpty ? nil : false,
         lastVisibleSequence: workspace.isVisible ? savedWorkspaceStore.takeVisibilitySequence() : nil,
         layout: snapshotSavedWorkspaceLayoutNow(workspace),
     )

@@ -113,6 +113,8 @@ func workspaceSidebarWorkspaceIdentityMenuModel(_ workspace: WorkspaceSidebarWor
     var entries = workspaceSidebarWorkspaceMenu(workspace, rename: {}, send: send)
         .filter { $0.title != "Rename Workspace" && $0.title != "Rename Tab" }
     if config.usesBrowserTabs {
+        let separate = entries.first { $0.title == "Separate into Tabs" }
+        let keepEntries = entries.filter { $0.title != "Separate into Tabs" }
         let groups = workspaceSidebarOrganizationStore.state.collections.filter { $0.projectId == workspace.projectId }
         var destinations: [WorkspaceSidebarAppMenuEntry] = [
             .init(title: "New Group…", perform: { send(.createTabCollection(name)) }),
@@ -125,7 +127,7 @@ func workspaceSidebarWorkspaceIdentityMenuModel(_ workspace: WorkspaceSidebarWor
         if workspaceSidebarOrganizationStore.collection(containing: name) != nil {
             destinations += [.separator, .init(title: "Remove from Group", perform: { send(.assignTabCollection(name, nil)) })]
         }
-        entries.insert(contentsOf: [
+        entries = [
             .init(title: workspace.appearance.isFavorite ? "Unpin Tab" : "Pin Tab",
                 perform: { send(.setWorkspaceFavorite(name, !workspace.appearance.isFavorite)) }),
             .init(title: "Add to Group", children: destinations),
@@ -133,14 +135,30 @@ func workspaceSidebarWorkspaceIdentityMenuModel(_ workspace: WorkspaceSidebarWor
                 children: TrayMenuModel.shared.workspaceSidebarProjects.filter { $0.id != workspace.projectId }.map { project in
                     .init(title: project.displayName, perform: { send(.moveWorkspace(name, toProject: project.id)) })
                 }),
-            .separator,
-        ], at: 0)
+        ]
         let windows = workspaceSidebarPinnedTabWindows(workspace)
-        if let window = windows.first(where: { $0.windowId == windowId }), windows.count > 1 {
-            entries += [.init(title: "Move \(window.appName) to New Tab", perform: { send(.detachTabWindow(window.windowId)) })]
+        let clickedWindow = windows.first(where: { $0.windowId == windowId }) ?? (windows.count == 1 ? windows.first : nil)
+        if let window = clickedWindow, let sourceId = Workspace.existing(byName: name)?.id {
+            let splitTargets = workspaceSidebarSplitDestinations(windowId: window.windowId)
+            entries.append(.init(title: "Split with", enabled: !splitTargets.isEmpty, children: splitTargets.map { target in
+                let snapshot = TrayMenuModel.shared.workspaceSidebarWorkspaces.first { $0.name == target.name }
+                let label = snapshot.map { tab in
+                    tab.sidebarLabel.isEmpty
+                        ? workspaceSidebarPinnedTabWindows(tab).map { $0.title ?? $0.appName }.joined(separator: " · ")
+                        : tab.displayName
+                }?.takeIf { !$0.isEmpty } ?? workspaceDisplayName(target.name)
+                let emoji = snapshot?.appearance.emoji.map { $0 + " " } ?? ""
+                return .init(title: emoji + label,
+                    perform: { send(.splitTabWindow(window.windowId, fromWorkspace: sourceId, withWorkspace: target.id)) })
+            }))
         }
         entries.append(.separator)
-        if let window = windows.first(where: { $0.windowId == windowId }) ?? (windows.count == 1 ? windows.first : nil) {
+        if let window = clickedWindow, windows.count > 1 {
+            entries.append(.init(title: "Move \(window.appName) to New Tab", perform: { send(.detachTabWindow(window.windowId)) }))
+        }
+        if let separate { entries.append(separate) }
+        entries += [.separator] + keepEntries + [.separator]
+        if let window = clickedWindow {
             entries.append(.init(title: "Close Window", isDestructive: true, perform: { send(.closeWindow(window.windowId)) }))
         }
         if windows.count > 1 {
@@ -149,9 +167,12 @@ func workspaceSidebarWorkspaceIdentityMenuModel(_ workspace: WorkspaceSidebarWor
             entries.append(.init(title: "Close Empty Tab", isDestructive: true, perform: { send(.closeEmptyTab(name)) }))
         }
     }
+    var clean: [WorkspaceSidebarAppMenuEntry] = []
+    for entry in entries where !entry.title.isEmpty || clean.last?.title.isEmpty == false { clean.append(entry) }
+    if clean.last?.title.isEmpty == true { clean.removeLast() }
     return .init(name: workspace.displayName, color: workspace.appearance.colorHex, emoji: workspace.appearance.emoji,
         rename: { send(.renameWorkspace(name, displayName: $0)) },
-        setColor: { send(.setWorkspaceColor(name, $0)) }, setEmoji: { send(.setWorkspaceEmoji(name, $0)) }, entries: entries)
+        setColor: { send(.setWorkspaceColor(name, $0)) }, setEmoji: { send(.setWorkspaceEmoji(name, $0)) }, entries: clean)
 }
 
 @MainActor

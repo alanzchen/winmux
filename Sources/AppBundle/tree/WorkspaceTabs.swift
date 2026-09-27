@@ -61,7 +61,7 @@ struct WorkspaceLauncherNewTab {
 func newTabWorkspace(projectId: WorkspaceProjectId, monitor: Monitor) -> WorkspaceLauncherNewTab {
     let current = monitor.activeWorkspace
     let isCurrentProject = current.projectId == projectId && !current.isArchived
-    if isCurrentProject, !workspaceHasLifecycleWindows(current), !current.isKeptWhenEmpty {
+    if isCurrentProject, !workspaceHasLifecycleWindows(current), !current.isKeptWhenEmpty, !current.isSaved {
         return WorkspaceLauncherNewTab(workspace: current, previous: nil, isNew: false)
     }
     let workspace = createWorkspace(after: isCurrentProject ? current : nil, projectId: projectId, monitor: monitor)
@@ -198,7 +198,11 @@ func applyTabGapDrop(sourceNode: TreeNode, sourceWindow: Window, projectId: Work
         let changesScope = sourceWorkspace.projectId != projectId || sourceWorkspace.workspaceMonitor.rect != monitor.rect
         if sourceWorkspace.projectId != projectId,
            !moveWorkspaceToProject(workspaceName: sourceWorkspace.name, projectId: projectId) { return }
-        do { try assignWorkspaceToSidebarCollection(sourceWorkspace, collectionId: gap.collectionId) }
+        do {
+            if workspaceSidebarOrganizationStore.collection(containing: sourceWorkspace.name)?.id != gap.collectionId {
+                try assignWorkspaceToSidebarCollection(sourceWorkspace, collectionId: gap.collectionId)
+            }
+        }
         catch { showWorkspaceSidebarError(error.localizedDescription); return }
         if changesScope {
             guard activateWorkspaceOnMonitorPreservingSourceViewport(sourceWorkspace, targetMonitor: monitor) else { return }
@@ -210,10 +214,11 @@ func applyTabGapDrop(sourceNode: TreeNode, sourceWindow: Window, projectId: Work
     }
     // One window pulled out of a split gets a new tab. A whole tab keeps its identity above.
     let tab = createBlankWorkspace(projectId: projectId, monitor: monitor)
-    do { try assignWorkspaceToSidebarCollection(tab, collectionId: gap.collectionId) }
+    do { try assignWorkspaceToSidebarCollection(tab, collectionId: gap.collectionId, keepWhenEmpty: false) }
     catch { removeWorkspaceFromRegistry(tab, reason: .pruned); showWorkspaceSidebarError(error.localizedDescription); return }
     if let anchor { winMuxWorkspaceState.moveWorkspace(tab.id, relativeTo: anchor.id, after: gap.isAfter) }
     let isFloatingWindow = sourceNode === sourceWindow && sourceWindow.isFloating
     sourceNode.bind(to: isFloatingWindow ? tab : tab.rootTilingContainer, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
+    captureNewAutomaticWorkspaceIdentity(tab)
     _ = sourceWindow.focusWindow()
 }

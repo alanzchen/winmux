@@ -158,20 +158,20 @@ final class WorkspaceSidebarOrganizationStore {
 /// Customizing a tab gives it a persistent identity. Reuse saved-workspace restoration
 /// so a generated name cannot be recycled for an unrelated window after relaunch.
 @MainActor
-func saveWorkspaceSidebarIdentity(_ workspace: Workspace) throws {
+func saveWorkspaceSidebarIdentity(_ workspace: Workspace, keepWhenEmpty: Bool = true) throws {
     if let reason = workspaceSidebarOrganizationStore.readOnlyReason {
         throw NSError(domain: "WinMux.SidebarOrganization", code: 1, userInfo: [NSLocalizedDescriptionKey: reason])
     }
-    try ensureSavedWorkspaceRecord(workspace)
+    try ensureSavedWorkspaceRecord(workspace, keepWhenEmpty: keepWhenEmpty)
 }
 
 @MainActor
-func assignWorkspaceToSidebarCollection(_ workspace: Workspace, collectionId: String?) throws {
+func assignWorkspaceToSidebarCollection(_ workspace: Workspace, collectionId: String?, keepWhenEmpty: Bool = true) throws {
     if let collectionId {
         guard workspaceSidebarOrganizationStore.state.collections.contains(where: {
             $0.id == collectionId && $0.projectId == workspace.projectId
         }) else { throw WorkspaceMutationError.projectNotFound(workspace.projectId.rawValue) }
-        try saveWorkspaceSidebarIdentity(workspace)
+        try saveWorkspaceSidebarIdentity(workspace, keepWhenEmpty: keepWhenEmpty)
     }
     try workspaceSidebarOrganizationStore.assign(workspace.name, projectId: workspace.projectId, to: collectionId)
 }

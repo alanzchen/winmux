@@ -14,6 +14,9 @@ extension WorkspaceSidebarView {
             browsedProjectId: nil).mapValues { workspaceSidebarOrderedTabs($0, collections: snapshot.configuration.tabCollections) }
         let filtered = workspaceSidebarFilteredWorkspacesByProject(visible, projects: snapshot.projects, query: searchText,
             collections: snapshot.configuration.tabCollections)
+        let collapsedGroups = Set(snapshot.configuration.tabCollections.filter {
+            expanded && !isSearchEditing && searchText.isEmpty && tabCollectionDisclosure($0).isCollapsed
+        }.map(\.id))
         return VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 8) {
                 if expanded {
@@ -112,7 +115,8 @@ extension WorkspaceSidebarView {
             isSearchEditing || !searchText.isEmpty
                 ? tabsSearchProjectOrder.filter { !searchText.isEmpty || $0.id == snapshot.activeProjectId }
                     .flatMap { filtered[$0.id] ?? [] }
-                : visible[snapshot.activeProjectId] ?? []))
+                : visible[snapshot.activeProjectId] ?? [],
+            collections: snapshot.configuration.tabCollections, collapsedCollectionIds: collapsedGroups))
     }
 
     private func tabsFavorites(_ workspaces: [WorkspaceSidebarWorkspaceViewModel]) -> some View {
@@ -149,16 +153,19 @@ extension WorkspaceSidebarView {
         activation.select(windowId.map(WorkspaceSidebarAction.selectWindow) ?? .selectWorkspace(workspace.name), send: actions.send)
     }
 
+    func tabCollectionDisclosure(_ group: WorkspaceTabCollection, isSearching: Bool = false) -> WorkspaceSidebarTabCollectionDisclosure {
+        WorkspaceSidebarTabCollectionDisclosure(group: group,
+            containsActiveTab: snapshot.workspaces.contains {
+                group.workspaceNames.contains($0.name) && $0.isVisible &&
+                    (workspaceSidebarMonitorScopeIsSentinel(snapshot.targetMonitorScopeId) || $0.monitorScopeId == snapshot.targetMonitorScopeId)
+            }, isSearching: isSearching)
+    }
+
     func tabCollection(_ group: WorkspaceTabCollection, workspaces: [WorkspaceSidebarWorkspaceViewModel],
                        projectId: WorkspaceProjectId, pageAllowsActivation: Bool, isSearching: Bool,
                        overrideMinHeight: CGFloat, monitorScopeId: String) -> some View {
         let color = group.colorHex.flatMap(workspaceSidebarColor) ?? Color.secondary
-        let disclosure = WorkspaceSidebarTabCollectionDisclosure(group: group,
-            containsActiveTab: snapshot.workspaces.contains {
-                group.workspaceNames.contains($0.name) && $0.isVisible &&
-                    (workspaceSidebarMonitorScopeIsSentinel(snapshot.targetMonitorScopeId) || $0.monitorScopeId == snapshot.targetMonitorScopeId)
-            },
-            isSearching: isSearching)
+        let disclosure = tabCollectionDisclosure(group, isSearching: isSearching)
         let rows = disclosure.isCollapsed ? [] : workspaces
         let isDropTarget = snapshot.dropPreview?.targetCollectionId == group.id
         return VStack(alignment: .leading, spacing: 3) {

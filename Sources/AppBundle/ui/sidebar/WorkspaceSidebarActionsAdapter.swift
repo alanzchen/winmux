@@ -96,6 +96,10 @@ func handleWorkspaceSidebarAction(
                 guard let window = Window.get(byId: windowId) else { return }
                 try detachWorkspaceTabWindow(window)
             }
+        case .splitTabWindow(let windowId, let sourceId, let targetId):
+            runWorkspaceSidebarSession(undoTitle: "Split Tabs") {
+                try splitWorkspaceSidebarTabWindow(windowId, fromWorkspace: sourceId, withWorkspace: targetId)
+            }
         case .undoTabAction:
             runWorkspaceSidebarSession { try WorkspaceSidebarTabUndo.shared.undo() }
         case .selectApp(let workspaceName, let appId):

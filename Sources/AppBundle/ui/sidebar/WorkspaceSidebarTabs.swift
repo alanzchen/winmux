@@ -115,6 +115,8 @@ struct WorkspaceSidebarTabRowView: View {
     /// One half of a two-window tab: tighter, so both titles fit.
     var isSplitHalf = false
     var iconOnly = false
+    var showsCountOnIcon = false
+    var iconSize = workspaceSidebarTabIconSize
     var allowsDrag = true
     var activeOverride: Bool? = nil
     let isSearchSelected: Bool
@@ -127,40 +129,48 @@ struct WorkspaceSidebarTabRowView: View {
 
     var titleOverride: String? = nil
     var emojiOverride: String? = nil
-    var badgeModel: WorkspaceSidebarDockBadgeModel = .shared
+    @ObservedObject var badgeModel: WorkspaceSidebarDockBadgeModel = .shared
+    @Environment(\.workspaceSidebarBadgeOwners) private var badgeOwners
     private var title: String { titleOverride ?? window.title ?? window.appName }
     private var isActive: Bool { activeOverride ?? window.isFocused }
+    private var badgeWidth: CGFloat {
+        let label = badgeModel.snapshot.showsAppBadges ? badgeModel.snapshot.label(forPath: window.appBundlePath) : nil
+        let showsDot = window.appBundlePath.flatMap { badgeOwners[$0] }.map { $0 != window.windowId } == true
+        return workspaceSidebarBadgeWidth(label: label, showsDot: showsDot)
+    }
 
     var body: some View {
         Button(action: onSelect) {
-            HStack(spacing: 9) {
+            HStack(spacing: iconOnly ? 0 : 9) {
                 if iconOnly { Spacer(minLength: 0) }
                 Group {
-                    if let emojiOverride { Text(emojiOverride).frame(width: workspaceSidebarTabIconSize) }
+                    if let emojiOverride { Text(emojiOverride).frame(width: iconSize) }
                     else {
                         WorkspaceSidebarTabIcon(bundleId: window.appBundleId, bundlePath: window.appBundlePath,
+                            size: iconSize,
                             isOnLightBackground: isActive)
                     }
                 }.overlay(alignment: .topTrailing) {
                     if iconOnly {
                         WorkspaceSidebarTabBadge(appName: window.appName, bundlePath: window.appBundlePath, model: badgeModel,
-                            compact: true, windowId: window.windowId).offset(x: 5, y: -3)
+                            compact: !showsCountOnIcon, windowId: window.windowId).offset(x: showsCountOnIcon ? 5 : 2, y: -3)
                     }
                 }
                 if !iconOnly { Text(title)
                     .font(.system(size: 13, weight: isActive ? .medium : .regular))
                     .foregroundStyle(Color.primary.opacity(isActive ? 0.95 : 0.82))
                     .lineLimit(1)
-                    .truncationMode(.tail) }
-                Spacer(minLength: 0)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading) }
+                if iconOnly { Spacer(minLength: 0) }
                 if !iconOnly {
                     WorkspaceSidebarTabBadge(appName: window.appName, bundlePath: window.appBundlePath, model: badgeModel,
                         windowId: window.windowId)
                 }
             }
             .padding(.leading, iconOnly ? 0 : 10 + indent)
-            // Room for the close button, so the title doesn't shift when it appears.
-            .padding(.trailing, iconOnly ? 0 : workspaceSidebarTabCloseSlotWidth)
+            // Split titles use the hover-close space at rest; the badge keeps its own slot.
+            .padding(.trailing, iconOnly ? 0 : (isSplitHalf ? 8 : workspaceSidebarTabCloseSlotWidth))
             .frame(maxWidth: .infinity, minHeight: workspaceSidebarTabRowHeight, maxHeight: workspaceSidebarTabRowHeight,
                 alignment: .leading)
             .contentShape(Rectangle())
@@ -181,7 +191,7 @@ struct WorkspaceSidebarTabRowView: View {
                     .frame(width: 18, height: 18)
                     .background {
                         RoundedRectangle(cornerRadius: 5, style: .continuous)
-                            .fill(Color.primary.opacity(0.08))
+                            .fill(isSplitHalf ? Color(nsColor: .controlBackgroundColor) : Color.primary.opacity(0.08))
                     }
                     .contentShape(Rectangle())
             }
@@ -189,6 +199,7 @@ struct WorkspaceSidebarTabRowView: View {
             .help("Close Window")
             .accessibilityHidden(true)
             .frame(width: isSplitHalf ? workspaceSidebarTabCloseSlotWidth - 4 : workspaceSidebarTabCloseSlotWidth)
+            .padding(.trailing, isSplitHalf ? 8 + badgeWidth + (badgeWidth > 0 ? 9 : 0) : 0)
             .opacity(isHovered && !iconOnly ? 1 : 0)
             .allowsHitTesting(isHovered && !iconOnly)
         }

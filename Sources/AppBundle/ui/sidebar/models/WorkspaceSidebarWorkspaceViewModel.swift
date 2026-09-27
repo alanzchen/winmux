@@ -24,6 +24,7 @@ struct WorkspaceSidebarSavedState: Hashable {
     var isHomeConnected: Bool
     var isForceAssignedByConfig: Bool
     var missingAppNames: [String]
+    var keepWhenEmpty = true
 }
 
 struct WorkspaceSidebarMonitorScopeViewModel: Hashable, Identifiable {

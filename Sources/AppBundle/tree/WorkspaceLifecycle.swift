@@ -12,7 +12,7 @@ func switchWorkspaceProject(_ projectId: WorkspaceProjectId, on monitor: Monitor
     let rememberedWorkspace = winMuxWorkspaceState.monitorViewportsById[viewportId]?
         .lastActiveWorkspaceByProject[projectId]
         .flatMap { winMuxWorkspaceState.workspaceById[$0] }
-        .flatMap { workspaceIsAvailableForMonitor($0, monitor: monitor) ? $0 : nil }
+        .flatMap { workspaceIsProjectFallbackCandidate($0) && workspaceIsAvailableForMonitor($0, monitor: monitor) ? $0 : nil }
     let workspace = rememberedWorkspace
         ?? availablePreferredWorkspace(projectId: projectId, monitor: monitor)
         ?? createBlankWorkspace(projectId: projectId, monitor: monitor)
@@ -27,6 +27,7 @@ func switchWorkspaceProject(_ projectId: WorkspaceProjectId, on monitor: Monitor
 func preferredWorkspace(projectId: WorkspaceProjectId, monitor: Monitor) -> Workspace? {
     projectWorkspaces(projectId: projectId)
         .filter { !$0.isArchived }
+        .filter(workspaceIsProjectFallbackCandidate)
         .filter { isValidAssignment(workspace: $0, screen: monitor.rect.topLeftCorner) }
         .first
 }
@@ -166,11 +167,25 @@ func removeWorkspaceFromRegistry(_ workspace: Workspace, reason: WorkspaceRemova
                 savedWorkspaceStore.flushNow()
             }
         case .pruned:
-            // Saved workspaces are never pruned; if one ever is, the next reconcile brings it
-            // back, so keep its name.
-            if workspace.isSaved {
+            // Explicitly kept or still-restoring identities retain their reserved names.
+            if workspace.isSaved && (workspace.isKeptWhenEmpty || workspace.isAwaitingSavedWorkspaceRestoration) {
                 _ = winMuxWorkspaceState.removeWorkspace(workspace)
                 return
+            }
+            // Don't release an automatically saved name while its group still references
+            // it on disk: a later window could otherwise inherit stale organization.
+            if workspace.isSaved {
+                let runtime = savedWorkspaceRuntime
+                if let retryAfter = runtime.organizationPruneRetryAfter[workspace.name], runtime.now < retryAfter { return }
+                do { try workspaceSidebarOrganizationStore.removeWorkspace(workspace.name) }
+                catch {
+                    runtime.organizationPruneRetryAfter[workspace.name] = runtime.now.addingTimeInterval(30)
+                    return
+                }
+            }
+            if let removed = savedWorkspaceStore.remove(named: workspace.name) {
+                clearSavedWorkspaceRuntimeState(removed)
+                savedWorkspaceStore.flushNow()
             }
     }
     try? workspaceSidebarOrganizationStore.removeWorkspace(workspace.name)
@@ -180,6 +195,7 @@ func removeWorkspaceFromRegistry(_ workspace: Workspace, reason: WorkspaceRemova
 
 @MainActor
 func pruneEmptyWorkspaces() {
+    captureAutomaticWorkspaceIdentitiesBeforePruning()
     let retainedEmptyWorkspaceIds = retainedEmptyWorkspaceIdsByScope()
     let focusedWorkspaceBeforePrune = focus.workspace
     let workspacesToRemove = Workspace.all.filter {
@@ -228,6 +244,7 @@ func workspaceShouldSurviveReconciliation(
         workspace.retainsEmptyAfterProjectMove ||
         workspaceHasLifecycleWindows(workspace) ||
         workspace.isKeptWhenEmpty ||
+        workspace.isAwaitingSavedWorkspaceRestoration ||
         projectWorkspaces(projectId: workspace.projectId).filter { !$0.isArchived }.count == 1 ||
         retainedEmptyWorkspaceIds[WorkspaceScope(projectId: workspace.projectId)] == workspace.id
 }
@@ -293,8 +310,16 @@ func availablePreferredWorkspace(projectId: WorkspaceProjectId, monitor: Monitor
     orderedWorkspacesForPresentation()
         .filter { $0.projectId == projectId }
         .filter { !$0.isArchived }
+        .filter(workspaceIsProjectFallbackCandidate)
         .filter { isValidAssignment(workspace: $0, screen: monitor.rect.topLeftCorner) }
         .first { workspaceIsAvailableForMonitor($0, monitor: monitor) }
+}
+
+/// A reserved automatic identity is waiting for its app, not an empty project landing page.
+@MainActor
+private func workspaceIsProjectFallbackCandidate(_ workspace: Workspace) -> Bool {
+    !workspace.isSaved || workspace.isKeptWhenEmpty || workspaceHasLifecycleWindows(workspace) ||
+        workspace.retainsEmptyAfterProjectMove
 }
 
 @MainActor

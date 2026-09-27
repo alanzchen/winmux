@@ -46,6 +46,9 @@ struct SavedWorkspaceRecord: Codable, Equatable, Sendable {
     /// The soft home display. nil until the workspace is seen on a display with an identity.
     var display: SavedDisplayAffinity?
     var isPinnedToDisplay: Bool = false
+    /// Automatic group inheritance reserves/restores an identity without keeping an empty
+    /// tab. nil preserves the behavior of records saved before this option existed.
+    var keepWhenEmpty: Bool? = nil
     /// Bumped each time the workspace becomes visible on its home display.
     var lastVisibleSequence: Int?
     var layout: SavedWorkspaceLayout = .init()
@@ -58,6 +61,7 @@ struct SavedWorkspaceRecord: Codable, Equatable, Sendable {
         namingStyle: WorkspaceNamingStyle = .explicit,
         display: SavedDisplayAffinity? = nil,
         isPinnedToDisplay: Bool = false,
+        keepWhenEmpty: Bool? = nil,
         lastVisibleSequence: Int? = nil,
         layout: SavedWorkspaceLayout = .init(),
     ) {
@@ -68,6 +72,7 @@ struct SavedWorkspaceRecord: Codable, Equatable, Sendable {
         self.namingStyle = namingStyle
         self.display = display
         self.isPinnedToDisplay = isPinnedToDisplay
+        self.keepWhenEmpty = keepWhenEmpty
         self.lastVisibleSequence = lastVisibleSequence
         self.layout = layout
     }
@@ -80,6 +85,7 @@ struct SavedWorkspaceRecord: Codable, Equatable, Sendable {
         case namingStyle
         case display
         case isPinnedToDisplay
+        case keepWhenEmpty
         case lastVisibleSequence
         case layout
     }
@@ -93,6 +99,7 @@ struct SavedWorkspaceRecord: Codable, Equatable, Sendable {
         namingStyle = try container.decodeIfPresent(WorkspaceNamingStyle.self, forKey: .namingStyle) ?? .explicit
         display = try container.decodeIfPresent(SavedDisplayAffinity.self, forKey: .display)
         isPinnedToDisplay = try container.decodeIfPresent(Bool.self, forKey: .isPinnedToDisplay) ?? false
+        keepWhenEmpty = try container.decodeIfPresent(Bool.self, forKey: .keepWhenEmpty)
         lastVisibleSequence = try container.decodeIfPresent(Int.self, forKey: .lastVisibleSequence)
         layout = try container.decodeIfPresent(SavedWorkspaceLayout.self, forKey: .layout) ?? .init()
     }

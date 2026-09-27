@@ -111,7 +111,7 @@ final class WorkspaceSidebarTabUXTest: XCTestCase {
     func testNarrowSplitButtonsSelectTheirOwnWindows() throws {
         _ = NSApplication.shared
         try XCTSkipIf(NSScreen.screens.isEmpty, "Requires a native macOS window server")
-        let workspace = tab("pair", 90, additionalWindowIds: [91, 92])
+        let workspace = tab("pair", 90, additionalWindowIds: [91, 92], label: "")
         var selected: [WorkspaceSidebarAction] = []
         let card = WorkspaceSidebarTabCardView(workspace: workspace,
             presentation: workspaceSidebarTabPresentation(workspace), isActive: false, isDropTarget: false,
@@ -527,8 +527,8 @@ final class WorkspaceSidebarTabUXTest: XCTestCase {
 
     private func tab(_ name: String, _ id: UInt32, pinned: Bool = false,
                      project: WorkspaceProjectId = workspaceProjectDefaultId,
-                     additionalWindowIds: [UInt32] = []) -> WorkspaceSidebarWorkspaceViewModel {
-        .init(name: name, projectId: project, displayName: name, sidebarLabel: name, isGeneratedName: false,
+                     additionalWindowIds: [UInt32] = [], label: String? = nil) -> WorkspaceSidebarWorkspaceViewModel {
+        .init(name: name, projectId: project, displayName: name, sidebarLabel: label ?? name, isGeneratedName: false,
             monitorScopeId: "monitor:0,0", monitorName: "Main", isFocused: false, isVisible: false,
             items: ([id] + additionalWindowIds).map { .init(kind: .window(window(name, $0))) },
             appearance: .init(isFavorite: pinned))

@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 private struct WorkspaceSidebarBadgeOwnersKey: EnvironmentKey {
@@ -13,14 +14,32 @@ extension EnvironmentValues {
 
 /// The first window in sidebar order owns the app-wide count. Other windows show
 /// activity dots, so a shared Dock count does not look like several separate inboxes.
-func workspaceSidebarBadgeOwners(_ workspaces: [WorkspaceSidebarWorkspaceViewModel]) -> [String: UInt32] {
+func workspaceSidebarBadgeOwners(_ workspaces: [WorkspaceSidebarWorkspaceViewModel],
+                                 collections: [WorkspaceTabCollection] = [],
+                                 collapsedCollectionIds: Set<String> = []) -> [String: UInt32] {
+    let hidden = Set(collections.filter { collapsedCollectionIds.contains($0.id) }.flatMap(\.workspaceNames))
     var result: [String: UInt32] = [:]
-    for workspace in workspaces {
+    for workspace in workspaces where workspace.appearance.isFavorite || !hidden.contains(workspace.name) {
         for window in workspaceSidebarPinnedTabWindows(workspace) {
             if let path = window.appBundlePath, result[path] == nil { result[path] = window.windowId }
         }
     }
     return result
+}
+
+func workspaceSidebarBadgeText(_ label: String) -> String {
+    label.count > 4 ? String(label.prefix(3)) + "…" : label
+}
+
+/// Shared with split layout and hover-close placement, so live counts cannot cover titles
+/// or the close control when a count grows.
+func workspaceSidebarBadgeWidth(label: String?, showsDot: Bool) -> CGFloat {
+    guard let label else { return 0 }
+    if showsDot { return 6 }
+    let textWidth = (workspaceSidebarBadgeText(label) as NSString).size(withAttributes: [
+        .font: NSFont.systemFont(ofSize: 10, weight: .semibold),
+    ]).width
+    return min(32, max(16, ceil(textWidth) + 8))
 }
 
 /// The same app-level label mirrored by Dock mode, fitted to a tab's trailing accessory.
@@ -38,15 +57,13 @@ struct WorkspaceSidebarTabBadge: View {
 
     var body: some View {
         if model.snapshot.showsAppBadges, let label = model.snapshot.label(forPath: bundlePath) {
-            Text(showsDot ? "" : (label.count > 4 ? String(label.prefix(3)) + "…" : label))
+            Text(showsDot ? "" : workspaceSidebarBadgeText(label))
                 .font(.system(size: 10, weight: .semibold))
                 .foregroundStyle(.white)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
                 .padding(.horizontal, showsDot ? 0 : 4)
-                .frame(minWidth: showsDot ? 6 : 16, maxWidth: showsDot ? 6 : 32,
-                    minHeight: showsDot ? 6 : 16, maxHeight: showsDot ? 6 : 16)
-                .fixedSize(horizontal: showsDot, vertical: false)
+                .frame(width: workspaceSidebarBadgeWidth(label: label, showsDot: showsDot), height: showsDot ? 6 : 16)
                 .background(Color(red: 0.96, green: 0.20, blue: 0.23), in: Capsule())
                 .accessibilityLabel("\(appName) app badge: \(label), shared by all its windows")
                 .allowsHitTesting(false)

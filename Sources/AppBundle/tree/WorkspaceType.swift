@@ -142,7 +142,7 @@ extension Workspace {
 
     @MainActor
     var isOrdinaryEmptySlot: Bool {
-        !workspaceHasLifecycleWindows(self) && !isKeptWhenEmpty
+        !workspaceHasLifecycleWindows(self) && !isKeptWhenEmpty && !isSaved
     }
 
     var usesAutomaticDisplayName: Bool {

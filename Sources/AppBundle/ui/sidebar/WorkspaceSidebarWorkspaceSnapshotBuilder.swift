@@ -11,6 +11,10 @@ func buildWorkspaceSidebarWorkspaceViewModels(
     // Read running apps once per build, and only when something is saved.
     let runningApps = savedWorkspaceStore.isEmpty ? nil : savedWorkspaceRuntime.environment.runningApps()
     for workspace in orderedWorkspacesForPresentation() {
+        // Keep automatic identities reserved for app restoration without showing empty
+        // tabs after their windows close. Explicitly kept tabs and the active empty tab stay.
+        if savedWorkspaceStore.record(named: workspace.name)?.keepWhenEmpty == false,
+           !isUserFacingWorkspace(workspace, focusedWorkspace: currentFocus.workspace) { continue }
         workspaces.append(await makeWorkspaceSidebarWorkspaceViewModel(
             workspace,
             currentFocus: currentFocus,
@@ -59,6 +63,7 @@ func workspaceSidebarSavedState(for workspace: Workspace, runningApps: [String: 
         missingAppNames: missingSavedWorkspaceApps(workspaceNames: [workspace.name], runningApps: runningApps).map { app in
             savedWorkspaceAppDisplayName(bundleId: app.bundleId, appName: app.appName, bundlePath: app.bundlePath)
         },
+        keepWhenEmpty: record.keepWhenEmpty != false,
     )
 }
 

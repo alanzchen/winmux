@@ -1,18 +1,54 @@
 import AppKit
 
 @MainActor
+func canSplitWorkspaceSidebarTabWindow(_ window: Window, with target: Workspace) -> Bool {
+    guard config.usesBrowserTabs, !serverArgs.isReadOnly, window.parent is TilingContainer, !window.isFullscreen,
+          let source = window.nodeWorkspace, source !== target, !source.isArchived, !target.isArchived,
+          source.projectId == target.projectId, !target.rootTilingContainer.isEffectivelyEmpty,
+          source.workspaceMonitor.rect == target.workspaceMonitor.rect,
+          workspaceSidebarMenuCanMove(window, workspaceName: source.name, destination: target),
+          target.rootTilingContainer.allLeafWindowsRecursive.allSatisfy({
+              !$0.isFullscreen && $0.lastKnownNativeFullscreen != true && $0.lastKnownNativeMinimized != true
+          }) else { return false }
+    return !savedPinBlocks(target, on: source.workspaceMonitor) &&
+        isValidAssignment(workspace: target, screen: source.workspaceMonitor.rect.topLeftCorner)
+}
+
+@MainActor
+func workspaceSidebarSplitDestinations(windowId: UInt32) -> [Workspace] {
+    guard let window = Window.get(byId: windowId), let source = window.nodeWorkspace else { return [] }
+    return workspaceNavigationTabs(current: source).filter { canSplitWorkspaceSidebarTabWindow(window, with: $0) }
+}
+
+@MainActor
+func splitWorkspaceSidebarTabWindow(_ windowId: UInt32, fromWorkspace sourceId: WorkspaceId, withWorkspace targetId: WorkspaceId) throws {
+    guard let window = Window.get(byId: windowId), let target = winMuxWorkspaceState.workspaceById[targetId],
+          window.nodeWorkspace?.id == sourceId,
+          canSplitWorkspaceSidebarTabWindow(window, with: target) else {
+        throw NSError(domain: "WinMux.SidebarSplit", code: 1,
+            userInfo: [NSLocalizedDescriptionKey: "These windows can no longer be split on this display."])
+    }
+    syncClosedWindowsCacheToCurrentWorld()
+    suppressPostDragAxObserverEvents(for: [windowId])
+    // Match a drop on the right half. Only the clicked member moves; the destination
+    // keeps its group, pin, name and other split members.
+    applyTabDrop(sourceNode: window, sourceWindow: window, targetWorkspace: target, placement: .right)
+}
+
+@MainActor
 func detachWorkspaceTabWindow(_ window: Window) throws {
     guard config.usesBrowserTabs, let source = window.nodeWorkspace, source.allLeafWindowsRecursive.count > 1 else { return }
     let tab = createWorkspace(after: source, projectId: source.projectId, monitor: source.workspaceMonitor)
     do {
         if let group = workspaceSidebarOrganizationStore.collection(containing: source.name) {
-            try assignWorkspaceToSidebarCollection(tab, collectionId: group.id)
+            try assignWorkspaceToSidebarCollection(tab, collectionId: group.id, keepWhenEmpty: false)
         }
     } catch {
         removeWorkspaceFromRegistry(tab, reason: .deleted)
         throw error
     }
     window.bind(to: window.isFloating ? tab : tab.rootTilingContainer, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
+    captureNewAutomaticWorkspaceIdentity(tab)
     _ = window.focusWindow()
 }
 

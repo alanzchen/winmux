@@ -13,6 +13,28 @@ enum WorkspaceSidebarTabPresentation: Equatable {
     case folder
 }
 
+struct WorkspaceSidebarSplitIdentity: Equatable {
+    let name: String?
+    let emoji: String?
+
+    init?(_ workspace: WorkspaceSidebarWorkspaceViewModel) {
+        guard !workspace.sidebarLabel.isEmpty || workspace.appearance.emoji != nil else { return nil }
+        name = workspace.sidebarLabel.isEmpty ? nil : workspace.displayName
+        emoji = workspace.appearance.emoji
+    }
+}
+
+struct WorkspaceSidebarSplitIdentityLabel: View {
+    let identity: WorkspaceSidebarSplitIdentity
+
+    var body: some View {
+        HStack(spacing: 5) {
+            if let emoji = identity.emoji { Text(emoji) }
+            if let name = identity.name { Text(name).lineLimit(1).truncationMode(.tail) }
+        }
+    }
+}
+
 func workspaceSidebarTabPresentation(
     _ workspace: WorkspaceSidebarWorkspaceViewModel,
     showsProjectContext: Bool = false,
@@ -45,7 +67,8 @@ struct WorkspaceSidebarTabCardView: View {
     let isShowingOverride: Bool
     let overrideMinHeight: CGFloat
     let actions: WorkspaceSidebarActions
-    var badgeModel: WorkspaceSidebarDockBadgeModel = .shared
+    @ObservedObject var badgeModel: WorkspaceSidebarDockBadgeModel = .shared
+    @Environment(\.workspaceSidebarBadgeOwners) private var badgeOwners
     /// Where a dragged tab would go on this tab, while one is over it.
     var dropPlacement: WorkspaceSidebarTabDropPlacement? = nil
     /// The edge a dragged tab would be inserted at, while one is over it.
@@ -133,24 +156,55 @@ struct WorkspaceSidebarTabCardView: View {
 
     private func splitRows(_ windows: [WorkspaceSidebarWindowViewModel]) -> some View {
         GeometryReader { geometry in
-            let iconOnly = workspaceSidebarSplitUsesIcons(width: geometry.size.width, windowCount: windows.count)
+            let identity = WorkspaceSidebarSplitIdentity(workspace)
+            let badgeWidths = windows.map { window in
+                workspaceSidebarBadgeWidth(label: badgeModel.snapshot.showsAppBadges
+                    ? badgeModel.snapshot.label(forPath: window.appBundlePath) : nil,
+                    showsDot: window.appBundlePath.flatMap { badgeOwners[$0] }.map { $0 != window.windowId } == true)
+            }
+            let iconOnly = identity != nil || workspaceSidebarSplitUsesIcons(width: geometry.size.width,
+                windowCount: windows.count, badgeWidths: badgeWidths)
+            let memberSpace = max(0, geometry.size.width - CGFloat(windows.count - 1) * 5)
+            // Prioritize separate targets over the label when a many-window split is narrow.
+            let showsIdentity = identity != nil && memberSpace >= CGFloat(windows.count) * 28 + 50
+            let memberWidth = showsIdentity
+                ? min(40, (memberSpace - 50) / CGFloat(windows.count))
+                : memberSpace / CGFloat(windows.count)
             HStack(spacing: 2) {
+                if showsIdentity, let identity {
+                    Button { activation.select(.selectWorkspace(workspace.name), send: actions.send) } label: {
+                        WorkspaceSidebarSplitIdentityLabel(identity: identity)
+                            .font(.system(size: 12, weight: .medium))
+                            .padding(.leading, 10)
+                            .frame(maxWidth: .infinity, minHeight: workspaceSidebarTabRowHeight, alignment: .leading)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain).help(workspace.displayName)
+                    .accessibilityLabel(workspace.displayName)
+                    .sidebarIdentityMenu(.tab(workspace.name, windowId: nil))
+                }
                 ForEach(windows) { window in
                     if window.id != windows.first?.id {
                         Rectangle().fill(Color.primary.opacity(0.14)).frame(width: 1, height: 16).accessibilityHidden(true)
                     }
-                    row(window, isSplitHalf: true, iconOnly: iconOnly)
+                    row(window, isSplitHalf: true, iconOnly: iconOnly,
+                        showsCountOnIcon: identity != nil && memberWidth >= 36,
+                        iconSize: iconOnly ? min(workspaceSidebarTabIconSize, max(1, memberWidth - 6)) : workspaceSidebarTabIconSize)
+                        .frame(width: showsIdentity ? memberWidth : nil)
                 }
             }
         }.frame(height: workspaceSidebarTabRowHeight)
     }
 
-    private func row(_ window: WorkspaceSidebarWindowViewModel, isSplitHalf: Bool, iconOnly: Bool = false) -> some View {
+    private func row(_ window: WorkspaceSidebarWindowViewModel, isSplitHalf: Bool, iconOnly: Bool = false,
+                     showsCountOnIcon: Bool = false, iconSize: CGFloat = workspaceSidebarTabIconSize) -> some View {
         WorkspaceSidebarTabRowView(
             window: window,
             indent: 0,
             isSplitHalf: isSplitHalf,
             iconOnly: iconOnly,
+            showsCountOnIcon: showsCountOnIcon,
+            iconSize: iconSize,
             allowsDrag: allowsDragAndDrop,
             activeOverride: isActive && window.isFocused,
             isSearchSelected: selectedSearchTarget == .window(window.windowId),
@@ -245,8 +299,12 @@ struct WorkspaceSidebarEmptyTabRowView: View {
     }
 }
 
-func workspaceSidebarSplitUsesIcons(width: CGFloat, windowCount: Int) -> Bool {
-    windowCount > 1 && (width - CGFloat(windowCount - 1) * 5) / CGFloat(windowCount) < 112
+func workspaceSidebarSplitUsesIcons(width: CGFloat, windowCount: Int, badgeWidths: [CGFloat] = []) -> Bool {
+    guard windowCount > 1 else { return false }
+    let memberWidth = (width - CGFloat(windowCount - 1) * 5) / CGFloat(windowCount)
+    let badge = badgeWidths.max() ?? 0
+    let titleWidth = memberWidth - 10 - workspaceSidebarTabIconSize - 9 - 8 - (badge > 0 ? badge + 9 : 0)
+    return titleWidth < 56
 }
 
 /// A tab's drop targets: the tab, then its edges, which win where they overlap it.
