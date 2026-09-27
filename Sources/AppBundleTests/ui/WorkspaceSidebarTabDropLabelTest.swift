@@ -48,6 +48,9 @@ final class WorkspaceSidebarTabDropLabelTest: XCTestCase {
             "It keeps its place while that stays clear")
         XCTAssertEqual(workspaceSidebarTabDropLabelSlot(pointX: 50, targetMinX: 0, targetMaxX: 100, placement: .left,
             labelWidth: 60, clearance: 18)?.isHidden, true, "A tab too narrow to keep it clear shows only the highlight")
+        XCTAssertEqual(workspaceSidebarTabDropLabelSlot(pointX: 10, targetMinX: 0, targetMaxX: 100, placement: .left,
+            labelWidth: 60, clearance: 18, previous: Slot(half: .trailing, edge: .trailing))?.isHidden, true,
+            "A place kept from a wider tab is dropped once the label no longer fits")
         XCTAssertNil(slot(40, .stack))
         XCTAssertNil(slot(40, nil))
     }

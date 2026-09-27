@@ -68,7 +68,9 @@ func workspaceSidebarTabDropLabelSlot(
         let minX = slot.edge == .leading ? start + inset : end - inset - labelWidth
         return max(0, minX - pointX, pointX - (minX + labelWidth))
     }
-    if let previous, !previous.isHidden, distance(previous) >= clearance { return previous }
+    // A browser card's highlight is inset inside the target, so its halves are a little narrower.
+    let fits = labelWidth + 2 * inset + 2 * workspaceSidebarTabGroupInset <= midX - targetMinX
+    if fits, let previous, !previous.isHidden, distance(previous) >= clearance { return previous }
     let own: HorizontalEdge = placement == .left ? .leading : .trailing
     let other: HorizontalEdge = own == .leading ? .trailing : .leading
     let ownMidX = placement == .left ? (targetMinX + midX) / 2 : (midX + targetMaxX) / 2
@@ -81,7 +83,6 @@ func workspaceSidebarTabDropLabelSlot(
         WorkspaceSidebarTabDropLabelSlot(half: other, edge: own == .leading ? .leading : .trailing),
         WorkspaceSidebarTabDropLabelSlot(half: other, edge: own == .leading ? .trailing : .leading),
     ]
-    let fits = labelWidth + 2 * inset <= midX - targetMinX
     return candidates.first { fits && distance($0) >= clearance }
         ?? WorkspaceSidebarTabDropLabelSlot(half: own, edge: far, isHidden: true)
 }
