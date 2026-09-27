@@ -568,7 +568,7 @@ extension WorkspaceSidebarView {
         let isSearching = !searchText.isEmpty
         let pageAllowsActivation = allowsActivation ?? allowsWorkspaceActivation(projectId: projectId)
         let scrollTarget = workspaceSidebarTabScrollTarget(folders: folders,
-            searchSelection: isSearching ? selectedSearchTarget : nil)
+            searchSelection: isSearching ? selectedSearchTarget : nil, browserTabs: browserTabs)
         let createMonitorScopeId = workspaceSidebarWorkspaceCreateScope(
             selectedScopeId: snapshot.selectedMonitorScopeId,
             targetMonitorScopeId: snapshot.targetMonitorScopeId,
@@ -673,6 +673,11 @@ extension WorkspaceSidebarView {
                 gapTarget: gapTarget,
                 collectionId: collectionId,
                 allowsDragAndDrop: !isSearching,
+                browserTabs: browserTabs,
+                browserQuery: isSearching ? searchText : "",
+                browserSearchContext: workspaceSidebarBrowserSearchContext(workspace, projects: snapshot.projects,
+                    collections: snapshot.configuration.tabCollections),
+                isSearching: isSearching,
                 onBeginRename: { beginWorkspaceRename(workspace) },
                 onCommitOverride: {
                     activeInUseOverrideWorkspaceName = nil
@@ -789,8 +794,15 @@ struct WorkspaceSidebarTabScrollTarget: Equatable {
 func workspaceSidebarTabScrollTarget(
     folders: [WorkspaceSidebarWorkspaceViewModel],
     searchSelection: WorkspaceSidebarSearchSelection?,
+    browserTabs: [UInt32: BrowserWindowTabs] = [:],
 ) -> WorkspaceSidebarTabScrollTarget? {
     switch searchSelection {
+        case .browserTab(let target):
+            guard let folder = folders.first(where: { workspaceSidebarTabWindowIds(in: $0).contains(target.windowId) }),
+                  workspaceSidebarTabPresentation(folder) != .folder else {
+                return workspaceSidebarTabScrollTarget(folders: folders, searchSelection: nil, browserTabs: browserTabs)
+            }
+            return .init(folderId: workspaceSidebarTabFolderRowId(folder.name), rowId: target.rowId)
         case .workspace(let name):
             return WorkspaceSidebarTabScrollTarget(folderId: workspaceSidebarTabFolderRowId(name), rowId: nil)
         case .window(let windowId):
@@ -798,9 +810,15 @@ func workspaceSidebarTabScrollTarget(
                 return WorkspaceSidebarTabScrollTarget(folderId: workspaceSidebarTabFolderRowId(folder.name), rowId: "window:\(windowId)")
             }
             // The selected result is on another project's page; this page keeps its own window in view.
-            return workspaceSidebarTabScrollTarget(folders: folders, searchSelection: nil)
+            return workspaceSidebarTabScrollTarget(folders: folders, searchSelection: nil, browserTabs: browserTabs)
         case nil:
             for folder in folders {
+                if workspaceSidebarTabPresentation(folder) != .folder,
+                   let window = workspaceSidebarPinnedTabWindows(folder).first(where: \.isFocused),
+                   let browser = browserTabs[window.windowId], browser.isGroup,
+                   let selected = browser.tabs.first(where: \.isSelected) {
+                    return .init(folderId: workspaceSidebarTabFolderRowId(folder.name), rowId: selected.target.rowId)
+                }
                 if let rowId = workspaceSidebarFocusedTabRowId(in: folder) {
                     return WorkspaceSidebarTabScrollTarget(folderId: workspaceSidebarTabFolderRowId(folder.name), rowId: rowId)
                 }

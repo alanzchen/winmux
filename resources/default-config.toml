@@ -53,6 +53,11 @@ on-mode-changed = []
     always-expanded = false
     # Tabs mode has its own open-by-default sidebar setting.
     tabs-always-expanded = true
+    # Show Safari and compatible Chromium browser tabs inside their window in Tabs mode.
+    browser-tabs = true
+    # Optional Chrome website icons: downloaded directly as tabs are visited, including Incognito.
+    # Requests do not use browser proxy/VPN extensions or secure DNS. Safari uses its app icon.
+    browser-tab-icons = false
     # Dock is the default: it shows icons and opens a floating view of every project beside itself.
     # 'sidebar' is a compact rail that expands into window details; 'tabs' lists windows as vertical tabs.
     mode = 'dock'

@@ -4,6 +4,9 @@ final class AxWindow {
     let windowId: UInt32
     let ax: AXUIElement
     private let axSubscriptions: [AxSubscription]
+    // Created, used and released on this window's owning AX thread.
+    var browserTabScanner: BrowserTabScanner<NativeBrowserTabNode>?
+    var browserTabObservation: BrowserTabAXObservation?
 
     private init(windowId: UInt32, _ ax: AXUIElement, _ axSubscriptions: [AxSubscription]) {
         self.windowId = windowId

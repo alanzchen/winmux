@@ -7,6 +7,29 @@ struct WorkspaceSidebarView: View {
     let actions: WorkspaceSidebarActions
     let dockBadgeModel: WorkspaceSidebarDockBadgeModel
     @ObservedObject var dockBadgePresence: WorkspaceSidebarDockBadgePresence
+    @ObservedObject var browserTabsModel: BrowserTabsModel
+    @State private var browserWatchScope: String?
+    var browserTabs: [UInt32: BrowserWindowTabs] { snapshot.configuration.usesTabsList ? browserTabsModel.snapshots : [:] }
+    private var watchedBrowserWindowIds: Set<UInt32> {
+        guard snapshot.configuration.usesTabsList,
+              snapshot.visibleWidth > snapshot.configuration.expansionStartWidth else { return [] }
+        return Set(snapshot.workspaces.filter {
+            workspaceSidebarTabPresentation($0) != .folder &&
+                (!searchText.isEmpty || $0.projectId == snapshot.activeProjectId || $0.projectId == browsedProjectId) &&
+                (!$0.isVisible || workspaceSidebarMonitorScopeIsSentinel(snapshot.targetMonitorScopeId) ||
+                    $0.monitorScopeId == snapshot.targetMonitorScopeId) &&
+                (isSearchEditing || !searchText.isEmpty || !$0.appearance.isFavorite)
+        }
+            .flatMap(workspaceSidebarPinnedTabWindows).map(\.windowId))
+    }
+
+    private func updateBrowserWatch() {
+        if let previous = browserWatchScope, previous != snapshot.targetMonitorScopeId {
+            browserTabsModel.watch([], sidebar: previous)
+        }
+        browserWatchScope = snapshot.targetMonitorScopeId
+        browserTabsModel.watch(watchedBrowserWindowIds, sidebar: snapshot.targetMonitorScopeId)
+    }
     @State var projectSwipeTranslation: CGFloat = 0
     @State var projectSwipeStartProjectId: WorkspaceProjectId? = nil
     @State var projectSwipeDidCrossBreakPoint = false
@@ -54,10 +77,12 @@ struct WorkspaceSidebarView: View {
 
     init(snapshot: WorkspaceSidebarSnapshot, actions: WorkspaceSidebarActions = WorkspaceSidebarActions(),
          reduceMotionOverride: Bool? = nil, reduceTransparencyOverride: Bool? = nil,
-         dockBadgeModel: WorkspaceSidebarDockBadgeModel = .shared, searchText: String = "") {
+         dockBadgeModel: WorkspaceSidebarDockBadgeModel = .shared, searchText: String = "",
+         browserTabsModel: BrowserTabsModel = .shared) {
         self.snapshot = snapshot
         self.dockBadgeModel = dockBadgeModel
         self.dockBadgePresence = dockBadgeModel.presence
+        self.browserTabsModel = browserTabsModel
         self.actions = actions
         self._searchText = State(initialValue: searchText)
         self.reduceMotionOverride = reduceMotionOverride
@@ -180,7 +205,13 @@ struct WorkspaceSidebarView: View {
                 isSidebarExpanding = false
             }
         }
-        .onAppear { lastActiveProjectId = snapshot.activeProjectId }
+        .onAppear {
+            lastActiveProjectId = snapshot.activeProjectId
+            updateBrowserWatch()
+        }
+        .onChange(of: watchedBrowserWindowIds) { _ in updateBrowserWatch() }
+        .onChange(of: snapshot.targetMonitorScopeId) { _ in updateBrowserWatch() }
+        .onDisappear { if let scope = browserWatchScope { browserTabsModel.watch([], sidebar: scope) } }
         .onChange(of: snapshot.activeProjectId) { projectId in
             debugWorkspaceSidebarProjectLog(
                 "snapshotActiveProjectChanged active=\(projectId.rawValue) visibleWidth=\(snapshot.visibleWidth) projects=\(snapshot.projects.map(\.id.rawValue))"
@@ -425,6 +456,8 @@ struct WorkspaceSidebarView: View {
                 actions.send(.selectWorkspace(workspaceName))
             case .window(let windowId):
                 actions.send(.selectWindow(windowId))
+            case .browserTab(let target):
+                actions.send(.selectBrowserTab(target))
         }
         finishSidebarSearch(clearText: true)
         closeWorkspaceSidebarFromCommand(panel)
@@ -432,7 +465,8 @@ struct WorkspaceSidebarView: View {
 
     func currentSearchSelections() -> [WorkspaceSidebarSearchSelection] {
         let workspaces = currentFilteredProjectWorkspaces(allProjects: showsAllProjects)
-        return workspaceSidebarSearchSelections(workspaces: workspaces)
+        return workspaceSidebarSearchSelections(workspaces: workspaces, browserTabs: browserTabs, query: searchText,
+            projects: snapshot.projects, collections: snapshot.configuration.tabCollections)
     }
 
     func currentFilteredProjectWorkspaces(allProjects: Bool = false) -> [WorkspaceSidebarWorkspaceViewModel] {

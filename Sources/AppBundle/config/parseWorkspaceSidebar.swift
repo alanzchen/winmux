@@ -8,6 +8,8 @@ private let workspaceSidebarParser: [String: any ParserProtocol<WorkspaceSidebar
     "auto-hide": Parser(\.autoHide, parseBool),
     "always-expanded": Parser(\.alwaysExpanded, parseBool),
     "tabs-always-expanded": Parser(\.tabsAlwaysExpanded, parseBool),
+    "browser-tabs": Parser(\.browserTabs, parseBool),
+    "browser-tab-icons": Parser(\.browserTabIcons, parseBool),
     "mode": Parser(\.mode, parseWorkspaceSidebarMode),
     "show-app-icons": Parser(\.showAppIcons, parseBool),
     "show-workspace-tooltips": Parser(\.showWorkspaceTooltips, parseBool),

@@ -2,6 +2,8 @@ import AppKit
 
 @MainActor
 func updateWorkspaceSidebarModel() async {
+    BrowserTabsModel.shared.setEnabled(TrayMenuModel.shared.isEnabled && config.workspaceSidebar.enabled &&
+        config.workspaceSidebar.usesTabsList && config.workspaceSidebar.browserTabs)
     WorkspaceSidebarTabUndo.shared.invalidateIfChanged()
     WorkspaceSidebarDockBadgeModel.shared.setEnabled(
         TrayMenuModel.shared.isEnabled && config.workspaceSidebar.enabled &&

@@ -33,6 +33,44 @@ final class WorkspaceSidebarTabsPolishTest: XCTestCase {
             WorkspaceSidebarPinnedTabIdentity(workspace("pair", windows: [window(1)])))
     }
 
+    func testAutoHiddenSidebarRendersPinsOnEveryRevealWithoutSelectionChanges() async throws {
+        let badges = WorkspaceSidebarDockBadgeModel(read: {
+            .init(labelsByPath: ["/Applications/Test.app": "12", "/Applications/Other.app": "•"])
+        })
+        badges.setEnabled(true)
+        defer { badges.setEnabled(false) }
+        for _ in 0..<100 where badges.snapshot.labelsByPath.isEmpty { try await Task.sleep(for: .milliseconds(2)) }
+        var snapshot = fixture(width: 280)
+        snapshot.configuration.collapsedWidth = 0
+        snapshot.configuration.configuredCollapsedWidth = 44
+        snapshot.configuration.alwaysExpanded = false
+        snapshot.visibleWidth = 0
+        let host = NSHostingView(rootView: WorkspaceSidebarView(snapshot: snapshot,
+            reduceMotionOverride: false, reduceTransparencyOverride: true, dockBadgeModel: badges))
+        host.frame = CGRect(x: 0, y: 0, width: 280, height: 620)
+        host.wantsLayer = true
+        for _ in 0..<3 {
+            host.layer?.isHidden = true
+            snapshot.visibleWidth = 0
+            host.rootView = WorkspaceSidebarView(snapshot: snapshot, reduceMotionOverride: false,
+                reduceTransparencyOverride: true, dockBadgeModel: badges)
+            host.layoutSubtreeIfNeeded()
+            snapshot.visibleWidth = 44
+            host.rootView = WorkspaceSidebarView(snapshot: snapshot, reduceMotionOverride: false,
+                reduceTransparencyOverride: true, dockBadgeModel: badges)
+            host.layoutSubtreeIfNeeded()
+            host.layer?.isHidden = false
+            snapshot.visibleWidth = 280
+            withAnimation(.easeInOut(duration: 0.14)) {
+                host.rootView = WorkspaceSidebarView(snapshot: snapshot, reduceMotionOverride: false,
+                    reduceTransparencyOverride: true, dockBadgeModel: badges)
+            }
+            try await Task.sleep(for: .milliseconds(220))
+            let pins = try redPixels(host).filter { $0.y > 50 && $0.y < 150 }
+            XCTAssertGreaterThan(pins.count, 20, "Pinned tiles render after hover reveal with identical tab data")
+        }
+    }
+
     func testActiveGroupOnAnotherDisplayDoesNotLockThisSidebar() throws {
         setUpWorkspacesForTests()
         let left = SavedWorkspaceTestMonitor(id: 1, name: "Left", x: 0, isMain: true, uuid: "LEFT")

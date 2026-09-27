@@ -45,7 +45,7 @@ func workspaceSidebarTabPresentation(
         if case .window(let window) = item.kind { window } else { nil }
     }
     // A stack keeps the folder that shows it as a group.
-    guard windows.count == workspace.items.count else { return .folder }
+    guard !workspace.preservesFolderPresentation, windows.count == workspace.items.count else { return .folder }
     switch windows.count {
         case 0: return .empty
         case 1: return .single(windows[0])
@@ -77,6 +77,10 @@ struct WorkspaceSidebarTabCardView: View {
     var gapTarget: (projectId: WorkspaceProjectId, monitorScopeId: String)? = nil
     var collectionId: String? = nil
     var allowsDragAndDrop = true
+    var browserTabs: [UInt32: BrowserWindowTabs] = [:]
+    var browserQuery: String = ""
+    var browserSearchContext: String = ""
+    var isSearching = false
     let onBeginRename: () -> Void
     let onCommitOverride: () -> Void
     let onCancelOverride: () -> Void
@@ -89,12 +93,16 @@ struct WorkspaceSidebarTabCardView: View {
                     .fill(workspace.appearance.colorHex.flatMap(workspaceSidebarColor)?.opacity(0.12) ?? Color.primary.opacity(backgroundOpacity))
             }
             // Over the rows, so a focused half's pill doesn't hide it.
-            .overlay {
+            .overlay(alignment: .top) {
                 RoundedRectangle(cornerRadius: workspaceSidebarTabCornerRadius, style: .continuous)
                     .strokeBorder(Color.primary.opacity(isDropTarget ? 0.55 : 0), lineWidth: 1)
+                    .frame(height: hasBrowserGroups ? workspaceSidebarTabRowHeight : nil)
                     .allowsHitTesting(false)
             }
-            .overlay { WorkspaceSidebarTabDropSideHighlight(placement: isDropTarget ? dropPlacement : nil) }
+            .overlay(alignment: .top) {
+                WorkspaceSidebarTabDropSideHighlight(placement: isDropTarget ? dropPlacement : nil)
+                    .frame(height: hasBrowserGroups ? workspaceSidebarTabRowHeight : nil)
+            }
             .overlay { WorkspaceSidebarTabInsertionLine(edge: insertionEdge) }
             .overlay {
                 if isShowingOverride {
@@ -114,7 +122,13 @@ struct WorkspaceSidebarTabCardView: View {
                         value: allowsDragAndDrop ? workspaceSidebarTabDropTargets(workspaceName: workspace.name,
                             frame: geometry.frame(in: .named("workspaceSidebarContent")), gapTarget: gapTarget,
                             // An empty tab has no window to go beside.
-                            acceptsSides: presentation != .empty, collectionId: collectionId) : [],
+                            acceptsSides: presentation != .empty, collectionId: collectionId).map { target in
+                                guard case .workspace = target.kind, hasBrowserGroups else { return target }
+                                return WorkspaceSidebarDropTargetFrame(kind: target.kind,
+                                    frame: CGRect(x: target.frame.minX, y: target.frame.minY, width: target.frame.width,
+                                        height: min(workspaceSidebarTabRowHeight, target.frame.height)),
+                                    acceptsSides: target.acceptsSides, tabReorderDestination: target.tabReorderDestination)
+                            } : [],
                     )
                 }
             }
@@ -132,17 +146,55 @@ struct WorkspaceSidebarTabCardView: View {
         }
     }
 
+    private var hasBrowserGroups: Bool {
+        workspaceSidebarPinnedTabWindows(workspace).contains { browserTabs[$0.windowId]?.isGroup == true }
+    }
+
+    @ViewBuilder
+    private func browserGroup<Header: View>(_ window: WorkspaceSidebarWindowViewModel, @ViewBuilder header: @escaping () -> Header) -> some View {
+        if let snapshot = browserTabs[window.windowId], snapshot.isGroup {
+            let tabs = workspaceSidebarMatchingBrowserTabs(snapshot, window: window, workspace: workspace,
+                query: browserQuery, context: browserSearchContext)
+            if !tabs.isEmpty {
+                WorkspaceSidebarBrowserTabGroupView(snapshot: snapshot, window: window, tabs: tabs,
+                    isActive: isActive, isSearching: isSearching,
+                    selectedSearchTarget: selectedSearchTarget, activation: activation, actions: actions, header: header)
+                    .id(snapshot.windowSession)
+            }
+        }
+    }
+
+    private func browserMembers(_ windows: [WorkspaceSidebarWindowViewModel]) -> some View {
+        ForEach(windows.filter { browserTabs[$0.windowId]?.isGroup == true }) { window in
+            browserGroup(window) {
+                Button { activation.select(.selectWindow(window.windowId), send: actions.send) } label: {
+                    Text(window.appName).font(.system(size: 11, weight: .medium))
+                        .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+                }.buttonStyle(.plain)
+            }
+        }
+    }
+
     @ViewBuilder
     private var content: some View {
         switch presentation {
             case .single(let window):
-                row(window, isSplitHalf: false)
+                if !workspaceSidebarMatchingBrowserTabs(browserTabs[window.windowId], window: window, workspace: workspace,
+                    query: browserQuery, context: browserSearchContext).isEmpty {
+                    browserGroup(window) { row(window, isSplitHalf: false) }
+                } else { row(window, isSplitHalf: false) }
             case .split(let left, let right):
-                splitRows([left, right])
+                VStack(spacing: 2) {
+                    splitRows([left, right])
+                    browserMembers([left, right])
+                }
                 .accessibilityElement(children: .contain)
                 .accessibilityLabel("Split: \(left.title ?? left.appName) and \(right.title ?? right.appName)")
             case .multiple(let windows):
-                splitRows(windows)
+                VStack(spacing: 2) {
+                    splitRows(windows)
+                    browserMembers(windows)
+                }
                 .accessibilityElement(children: .contain)
                 .accessibilityLabel("Split: \(windows.map { $0.title ?? $0.appName }.joined(separator: ", "))")
             case .empty:
@@ -206,13 +258,16 @@ struct WorkspaceSidebarTabCardView: View {
             showsCountOnIcon: showsCountOnIcon,
             iconSize: iconSize,
             allowsDrag: allowsDragAndDrop,
-            activeOverride: isActive && window.isFocused,
+            activeOverride: isActive && window.isFocused &&
+                workspaceSidebarMatchingBrowserTabs(browserTabs[window.windowId], window: window, workspace: workspace,
+                    query: browserQuery, context: browserSearchContext).isEmpty,
             isSearchSelected: selectedSearchTarget == .window(window.windowId),
             isDragSource: dragSourceWindowId == window.windowId,
             actions: actions,
             workspaceMenu: (workspace, onBeginRename),
             onSelect: { activation.select(.selectWindow(window.windowId), send: actions.send) },
-            titleOverride: !isSplitHalf && !workspace.sidebarLabel.isEmpty ? workspace.displayName : nil,
+            titleOverride: !isSplitHalf ? (!workspace.sidebarLabel.isEmpty ? workspace.displayName
+                : browserTabs[window.windowId]?.isGroup == true ? window.appName : nil) : nil,
             emojiOverride: !isSplitHalf ? workspace.appearance.emoji : nil,
             badgeModel: badgeModel,
         )

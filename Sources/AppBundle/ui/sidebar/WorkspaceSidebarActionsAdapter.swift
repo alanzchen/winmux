@@ -72,6 +72,9 @@ func handleWorkspaceSidebarAction(
     targetMonitorScopeId: String? = nil,
 ) {
     switch action {
+        case .selectBrowserTab(let target):
+            BrowserTabsModel.shared.select(target,
+                monitorScopeId: targetMonitorScopeId ?? viewModel.workspaceSidebarTargetMonitorScopeId)
         case .setWorkspaceColor, .setWorkspaceEmoji, .setWorkspaceFavorite, .createTabCollection,
              .renameTabCollection, .setTabCollectionColor, .setTabCollectionEmoji, .toggleTabCollection,
              .assignTabCollection, .ungroupTabCollection, .moveTabCollection, .createTabInCollection, .toggleTabsSidebar:

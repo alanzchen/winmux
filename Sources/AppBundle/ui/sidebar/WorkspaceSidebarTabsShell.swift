@@ -13,7 +13,7 @@ extension WorkspaceSidebarView {
             selectedScopeId: snapshot.selectedMonitorScopeId, focusedMonitorScopeId: snapshot.focusedMonitorScopeId,
             browsedProjectId: nil).mapValues { workspaceSidebarOrderedTabs($0, collections: snapshot.configuration.tabCollections) }
         let filtered = workspaceSidebarFilteredWorkspacesByProject(visible, projects: snapshot.projects, query: searchText,
-            collections: snapshot.configuration.tabCollections)
+            collections: snapshot.configuration.tabCollections, browserTabs: browserTabs)
         let collapsedGroups = Set(snapshot.configuration.tabCollections.filter {
             expanded && !isSearchEditing && searchText.isEmpty && tabCollectionDisclosure($0).isCollapsed
         }.map(\.id))
@@ -123,7 +123,7 @@ extension WorkspaceSidebarView {
         let favorites = workspaces.filter { $0.appearance.isFavorite }
         let grid = WorkspaceSidebarPinnedGridLayout(workspaces: favorites, width: snapshot.visibleWidth - 20)
         return ScrollView {
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: grid.columns), spacing: 8) {
+            WorkspaceSidebarPinnedGrid(columns: grid.columns) {
                 ForEach(favorites) { workspace in
                     WorkspaceSidebarPinnedTab(workspace: workspace, badgeModel: dockBadgeModel,
                         targetMonitorScopeId: snapshot.targetMonitorScopeId) { windowId in

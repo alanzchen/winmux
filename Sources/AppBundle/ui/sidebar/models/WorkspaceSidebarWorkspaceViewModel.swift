@@ -13,6 +13,9 @@ struct WorkspaceSidebarWorkspaceViewModel: Hashable, Identifiable {
     /// nil when the workspace isn't saved.
     var savedState: WorkspaceSidebarSavedState? = nil
     var appearance: WorkspaceSidebarItemAppearance = .init()
+    /// Filtering a legacy stack must not turn its remaining window into a new
+    /// browser group that wasn't searchable in the source presentation.
+    var preservesFolderPresentation = false
 
     var id: String { name }
 }

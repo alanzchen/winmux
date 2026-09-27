@@ -12,7 +12,7 @@ extension WorkspaceSidebarView {
             selectedScopeId: snapshot.selectedMonitorScopeId, focusedMonitorScopeId: snapshot.focusedMonitorScopeId)
         let ordered = visible.mapValues { workspaceSidebarOrderedTabs($0, collections: snapshot.configuration.tabCollections) }
         return workspaceSidebarFilteredWorkspacesByProject(ordered, projects: snapshot.projects, query: searchText,
-            collections: snapshot.configuration.tabCollections)
+            collections: snapshot.configuration.tabCollections, browserTabs: browserTabs)
     }
 
     var tabsSearchResults: some View {

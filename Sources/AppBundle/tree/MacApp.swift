@@ -31,6 +31,8 @@ final class MacApp: AbstractApp {
     private var thread: Thread?
     private var setFrameJobs: [UInt32: RunLoopJob] = [:]
     private let frameWriteBarrier = AppFrameWriteBarrier()
+    private var lastFrameSubmission: TimeInterval = 0
+    var browserTabsMayRead: Bool { ProcessInfo.processInfo.systemUptime - lastFrameSubmission > 0.12 }
     @MainActor private static var focusJob: RunLoopJob? = nil
 
     /*conforms*/ var name: String? { nsApp.localizedName }
@@ -179,6 +181,54 @@ final class MacApp: AbstractApp {
     func getAxSize(_ windowId: UInt32) async throws -> CGSize? {
         try await withWindow(windowId) { window, job in
             window.get(Ax.sizeAttr)
+        }
+    }
+
+    func readBrowserTabs(_ windowId: UInt32, readIcons: Bool = false) async throws -> BrowserWindowTabs? {
+        guard let adapter = BrowserTabAdapter(bundleId: rawAppBundleId) else { return nil }
+        return try await thread?.runInLoop { [windows, pid] job in
+            guard let window = windows.threadGuarded[windowId] else { return nil }
+            defer { AXUIElementSetMessagingTimeout(window.ax, 1.0) }
+            if window.browserTabScanner == nil {
+                window.browserTabScanner = BrowserTabScanner(root: NativeBrowserTabNode(element: window.ax),
+                    adapter: adapter, windowId: windowId, pid: pid)
+                window.browserTabObservation = BrowserTabAXObservation(pid: pid) {
+                    Task { @MainActor in BrowserTabsModel.shared.markDirty(windowId, pid: pid) }
+                }
+            }
+            try job.checkCancellation()
+            let budgetEnd = ProcessInfo.processInfo.systemUptime + 0.15
+            var snapshot = window.browserTabScanner?.scan(until: budgetEnd, cancelled: { job.isCancelled })
+            try job.checkCancellation()
+            if readIcons, adapter == .chromium, let value = snapshot, value.isGroup,
+               ProcessInfo.processInfo.systemUptime < budgetEnd,
+               let candidate = NativeBrowserTabNode(element: window.ax).iconCandidate(for: value) {
+                if window.browserTabScanner?.confirmsSelection(in: value, until: budgetEnd, cancelled: { job.isCancelled }) == true {
+                    snapshot?.iconCandidate = candidate
+                }
+            }
+            try job.checkCancellation()
+            if let nodes = window.browserTabScanner?.observedNodes { window.browserTabObservation?.update(nodes) }
+            return snapshot
+        } ?? nil
+    }
+
+    func selectBrowserTab(_ target: BrowserTabTarget) async throws -> Bool {
+        guard !serverArgs.isReadOnly, target.pid == pid else { return false }
+        return try await thread?.runInLoop { [windows] job in
+            guard let window = windows.threadGuarded[target.windowId] else { return false }
+            defer { AXUIElementSetMessagingTimeout(window.ax, 1.0) }
+            try job.checkCancellation()
+            return window.browserTabScanner?.select(target, cancelled: { job.isCancelled }) ?? false
+        } ?? false
+    }
+
+    func clearBrowserTabs() async {
+        _ = try? await thread?.runInLoop { [windows] _ in
+            for window in windows.threadGuarded.values {
+                window.browserTabObservation = nil
+                window.browserTabScanner = nil
+            }
         }
     }
 
@@ -346,6 +396,7 @@ final class MacApp: AbstractApp {
     }
 
     func setAxFrame(_ windowId: UInt32, _ topLeft: CGPoint?, _ size: CGSize?) {
+        lastFrameSubmission = ProcessInfo.processInfo.systemUptime
         frameWriteBarrier.recordWrite()
         setFrameJobs.removeValue(forKey: windowId)?.cancel()
         setFrameJobs[windowId] = withWindowAsync(windowId) { [axApp] window, job in
@@ -354,6 +405,7 @@ final class MacApp: AbstractApp {
     }
 
     func setAxFrameBlocking(_ windowId: UInt32, _ topLeft: CGPoint?, _ size: CGSize?) async throws {
+        lastFrameSubmission = ProcessInfo.processInfo.systemUptime
         frameWriteBarrier.recordWrite()
         setFrameJobs.removeValue(forKey: windowId)?.cancel()
         try await withWindow(windowId) { [axApp] window, job in

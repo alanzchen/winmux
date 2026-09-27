@@ -154,6 +154,8 @@ enum SettingsCatalog {
             bool(.placement, "auto-hide", "Automatically hide the rail", "Reveal the compact rail when the pointer reaches its display edge.", section: sidebar, path: \.workspaceSidebar.autoHide),
             bool(.placement, "always-expanded", "Keep the panel expanded", "Reserve space for window details instead of collapsing to the compact rail.", section: sidebar, path: \.workspaceSidebar.alwaysExpanded),
             bool(.placement, "tabs-always-expanded", "Keep the tab sidebar expanded", "Keep the browser-style sidebar open in Tabs mode. This setting is independent of Dock and Sidebar modes.", section: sidebar, path: \.workspaceSidebar.tabsAlwaysExpanded),
+            bool(.dockContent, "browser-tabs", "Show browser tabs", "List and select tabs inside Safari and compatible Chrome, Brave, and Edge windows. Applies to the expanded Tabs sidebar.", section: sidebar, path: \.workspaceSidebar.browserTabs),
+            bool(.dockContent, "browser-tab-icons", "Website icons for Chrome-family tabs", "Read the selected tab's address in each listed Chrome, Chromium, Brave or Edge window and download its icon directly, without cookies. Includes Incognito and does not use browser proxy or VPN extensions or secure DNS. Icons appear as tabs are selected. Safari uses its app icon.", section: sidebar, path: \.workspaceSidebar.browserTabIcons),
             bool(.placement, "stay-on-top", "Keep above the macOS Dock", "Applies to Sidebar mode. Dock mode yields when the macOS Dock appears on the same edge of the same display.", section: sidebar, path: \.workspaceSidebar.stayOnTop),
             int(.placement, "menu-bar-reserve-height", "Menu bar space", "Space below the macOS menu bar, in points. Set to 0 when the menu bar auto-hides.", section: sidebar, range: 0...72, path: \.workspaceSidebar.menuBarReserveHeight),
             choice(.dockAppearance, "style", "Background style", "The compact Dock has its own appearance. Expanded panels use the separate Sidebar appearance below.", section: dock,
@@ -238,7 +240,8 @@ enum SettingsCatalog {
         func value(_ key: String) -> SettingsValue { editor.value(field(key)) }
         let dock = value("workspace-sidebar.mode").text == "dock"
         switch id {
-            case "workspace-sidebar.tabs-always-expanded": return value("workspace-sidebar.mode").text == "tabs"
+            case "workspace-sidebar.tabs-always-expanded", "workspace-sidebar.browser-tabs": return value("workspace-sidebar.mode").text == "tabs"
+            case "workspace-sidebar.browser-tab-icons": return value("workspace-sidebar.mode").text == "tabs" && value("workspace-sidebar.browser-tabs").bool
             case "workspace-sidebar.always-expanded": return value("workspace-sidebar.mode").text != "tabs"
             case "workspace-sidebar.show-app-badges": return dock || value("workspace-sidebar.mode").text == "tabs"
             case "workspace-sidebar.dock-position", "workspace-sidebar.dock-left-gap", "workspace-sidebar.show-app-tooltips", "workspace-sidebar.show-hidden-workspace-app-reminders": return dock

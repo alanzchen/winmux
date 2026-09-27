@@ -91,6 +91,7 @@ struct WorkspaceSidebarConfiguration: Equatable {
 }
 
 enum WorkspaceSidebarAction: Equatable {
+    case selectBrowserTab(BrowserTabTarget)
     case setWorkspaceColor(String, String?)
     case setWorkspaceEmoji(String, String?)
     case setWorkspaceFavorite(String, Bool)

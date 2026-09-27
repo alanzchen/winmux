@@ -124,6 +124,8 @@ struct WorkspaceSidebarConfig: ConvenienceCopyable, Equatable, Sendable {
     var alwaysExpanded: Bool = false
     /// Tabs has its own persistent/collapsed preference; older Sidebar settings do not change its default.
     var tabsAlwaysExpanded: Bool = true
+    var browserTabs: Bool = true
+    var browserTabIcons: Bool = false
     var pinsSidebarOpen: Bool { mode == .tabs ? tabsAlwaysExpanded : alwaysExpanded }
     var mode: WorkspaceSidebarMode = .dock
     // Compatibility alias for existing TOML and internal callers.

@@ -5,6 +5,7 @@ func workspaceSidebarFilteredWorkspacesByProject(
     projects: [WorkspaceSidebarProjectViewModel],
     query: String,
     collections: [WorkspaceTabCollection] = [],
+    browserTabs: [UInt32: BrowserWindowTabs] = [:],
 ) -> [WorkspaceProjectId: [WorkspaceSidebarWorkspaceViewModel]] {
     let terms = workspaceSidebarSearchTerms(query)
     guard !terms.isEmpty else { return workspacesByProject }
@@ -19,6 +20,7 @@ func workspaceSidebarFilteredWorkspacesByProject(
                 workspace,
                 projectName: [projectNamesById[workspace.projectId], collectionNames[workspace.name]].compactMap { $0 }.joined(separator: " "),
                 terms: terms,
+                browserTabs: browserTabs,
             )
         }
     }
@@ -28,9 +30,10 @@ private func workspaceSidebarFilteredWorkspace(
     _ workspace: WorkspaceSidebarWorkspaceViewModel,
     projectName: String?,
     terms: [String],
+    browserTabs: [UInt32: BrowserWindowTabs],
 ) -> WorkspaceSidebarWorkspaceViewModel? {
     let matchingItems = workspace.items.compactMap { item in
-        workspaceSidebarSearchResultItem(item, workspace: workspace, projectName: projectName, terms: terms)
+        workspaceSidebarSearchResultItem(item, workspace: workspace, projectName: projectName, terms: terms, browserTabs: browserTabs)
     }
     if !matchingItems.isEmpty {
         return WorkspaceSidebarWorkspaceViewModel(
@@ -47,6 +50,7 @@ private func workspaceSidebarFilteredWorkspace(
             apps: workspace.apps,
             savedState: workspace.savedState,
             appearance: workspace.appearance,
+            preservesFolderPresentation: workspaceSidebarTabPresentation(workspace) == .folder,
         )
     }
     if workspaceSidebarWorkspaceMatchesSearch(workspace, projectName: projectName, terms: terms) {
@@ -67,9 +71,12 @@ private func workspaceSidebarSearchResultItem(
     workspace: WorkspaceSidebarWorkspaceViewModel,
     projectName: String?,
     terms: [String],
+    browserTabs: [UInt32: BrowserWindowTabs],
 ) -> WorkspaceSidebarItemViewModel? {
     switch item.kind {
         case .window(let window):
+            if !workspaceSidebarMatchingBrowserTabs(browserTabs[window.windowId], window: window, workspace: workspace,
+                query: terms.joined(separator: " "), context: projectName ?? "").isEmpty { return item }
             if workspaceSidebarSearchTextMatches(
                 [
                     window.title,

@@ -21,6 +21,32 @@ struct WorkspaceSidebarPinnedGridLayout {
     }
 }
 
+/// Pins are a small, bounded-height surface. Measure them eagerly so revealing a
+/// zero-width, auto-hidden sidebar never depends on a lazy scroll viewport refresh.
+/// Keeping one flat set of subviews also preserves tile identity across columns.
+struct WorkspaceSidebarPinnedGrid: SwiftUI.Layout {
+    let columns: Int
+    private let spacing: CGFloat = 8
+    private let rowHeight: CGFloat = 54
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let count = max(columns, 1)
+        let rows = (subviews.count + count - 1) / count
+        return CGSize(width: max(proposal.width ?? CGFloat(count) * 72, 0),
+            height: rows == 0 ? 0 : CGFloat(rows) * (rowHeight + spacing) - spacing)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let count = max(columns, 1)
+        let width = max((bounds.width - CGFloat(count - 1) * spacing) / CGFloat(count), 0)
+        for (index, subview) in subviews.enumerated() {
+            subview.place(at: CGPoint(x: bounds.minX + CGFloat(index % count) * (width + spacing),
+                y: bounds.minY + CGFloat(index / count) * (rowHeight + spacing)), anchor: .topLeading,
+                proposal: ProposedViewSize(width: width, height: rowHeight))
+        }
+    }
+}
+
 /// Layout animation follows membership and order, independent of title/focus updates.
 struct WorkspaceSidebarPinnedTabIdentity: Equatable {
     let name: String
