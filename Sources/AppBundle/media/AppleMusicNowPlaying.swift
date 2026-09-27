@@ -365,13 +365,17 @@ final class AppleMusicNowPlayingModel: ObservableObject {
     func receive(artworkResult result: AppleMusicScriptOutput, data: Data?, request: Int) {
         guard artworkRequest == request else { return }
         artworkRequest = nil
-        guard case .success = result else {
+        // Music printing nothing means the track has no artwork: it keeps the placeholder.
+        if case .success(let output) = result, output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            artworkLoaded = true
+            return
+        }
+        guard case .success = result, let image = data.flatMap(NSImage.init(data:)) else {
             artworkFailures += 1
             return
         }
-        // A track without artwork is loaded too: it keeps the placeholder.
         artworkLoaded = true
-        artwork = data.flatMap(NSImage.init(data:))
+        artwork = image
     }
 
     private func resetArtwork() {

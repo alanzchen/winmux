@@ -15,15 +15,17 @@ final class WorkspaceSidebarTabDropLabelTest: XCTestCase {
     }
 
     func testTheSplitLabelNeverSitsUnderTheDraggedTab() throws {
-        let clearance = workspaceSidebarDragImageHalfWidth(.appIcon(size: 16)) + 4
+        let clearance = workspaceSidebarDragImageHalfWidth(.appIcon(size: 22)) + 4
         let width = workspaceSidebarTabDropLabelWidth(workspaceSidebarTabDropLabelText(.right))
         // Tabs from the narrowest sidebar to a wide one, held anywhere along them.
-        for rowWidth in [200, 260, 300, 400] as [CGFloat] {
+        for rowWidth in [100, 140, 200, 260, 300, 400] as [CGFloat] {
             for placement in [WorkspaceSidebarTabDropPlacement.left, .right] {
                 let half = placement == .left ? 0...(rowWidth / 2) : (rowWidth / 2)...rowWidth
                 for x in stride(from: half.lowerBound, through: half.upperBound, by: 2) {
                     let slot = try XCTUnwrap(workspaceSidebarTabDropLabelSlot(pointX: x, targetMinX: 0, targetMaxX: rowWidth,
                         placement: placement, labelWidth: width, clearance: clearance))
+                    if slot.isHidden { continue }
+                    XCTAssertLessThanOrEqual(width + 2 * workspaceSidebarTabDropLabelInset, rowWidth / 2, "It fits untruncated")
                     let label = span(slot, minX: 0, maxX: rowWidth, width: width)
                     let gap = max(0, label.lowerBound - x, x - label.upperBound)
                     XCTAssertGreaterThanOrEqual(gap, clearance, "\(placement) on a \(rowWidth)-point tab at \(x)")
@@ -44,6 +46,8 @@ final class WorkspaceSidebarTabDropLabelTest: XCTestCase {
         XCTAssertEqual(slot(280, .right), Slot(half: .trailing, edge: .leading))
         XCTAssertEqual(slot(100, .left, previous: Slot(half: .leading, edge: .leading)), Slot(half: .leading, edge: .leading),
             "It keeps its place while that stays clear")
+        XCTAssertEqual(workspaceSidebarTabDropLabelSlot(pointX: 50, targetMinX: 0, targetMaxX: 100, placement: .left,
+            labelWidth: 60, clearance: 18)?.isHidden, true, "A tab too narrow to keep it clear shows only the highlight")
         XCTAssertNil(slot(40, .stack))
         XCTAssertNil(slot(40, nil))
     }

@@ -122,6 +122,23 @@ final class WorkspaceSidebarNowPlayingTest: XCTestCase {
         XCTAssertEqual(finalAttempts, 2, "Loaded artwork isn't fetched again for the same track")
     }
 
+    func testArtworkMusicReturnsButThatDoesntDecodeIsRetriedWhileNoneIsKept() async throws {
+        let attempts = AttemptCounter()
+        let model = AppleMusicNowPlayingModel(isMusicRunning: { true }, requestStatus: { _ in nil },
+            requestArtwork: { await attempts.next() == 1 ? .success("«data tdta0102»") : .success("") })
+        model.receive(statusResult: status("playing"), sequence: model.stateSequence)
+        try await waitUntil { await attempts.count == 1 }
+        try await Task.sleep(for: .milliseconds(50))
+        model.receive(statusResult: status("paused"), sequence: model.stateSequence)
+        try await waitUntil { await attempts.count == 2 }
+        try await Task.sleep(for: .milliseconds(50))
+        model.receive(statusResult: status("playing"), sequence: model.stateSequence)
+        try await Task.sleep(for: .milliseconds(50))
+        let finalAttempts = await attempts.count
+        XCTAssertEqual(finalAttempts, 2, "A track Music says has no artwork isn't asked again")
+        XCTAssertNil(model.artwork)
+    }
+
     private func waitUntil(_ condition: @escaping () async -> Bool) async throws {
         for _ in 0..<200 {
             if await condition() { return }

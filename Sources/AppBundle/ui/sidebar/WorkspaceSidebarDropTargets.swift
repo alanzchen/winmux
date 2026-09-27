@@ -42,12 +42,15 @@ struct WorkspaceSidebarTabDropLabelSlot: Hashable {
     /// `.leading` for the tab's left half.
     let half: HorizontalEdge
     let edge: HorizontalEdge
+    /// No slot clears the dragged tab on a tab this narrow, so the half's highlight goes unlabeled.
+    var isHidden = false
 }
 
 /// Where a split's label goes so the dragged tab's image, centered on the pointer, doesn't
 /// cover it. It prefers the joined half's far end, then its near end, then the other half, and
-/// takes the first that clears the image by `clearance`; if none does, the one farthest from it.
-/// It keeps its slot while that still clears, so small movements don't bounce it around.
+/// takes the first that clears the image by `clearance`. Where none does, or the label doesn't
+/// fit in a half, it's hidden. It keeps its slot while that still clears, so small movements
+/// don't bounce it around.
 func workspaceSidebarTabDropLabelSlot(
     pointX: CGFloat,
     targetMinX: CGFloat,
@@ -65,7 +68,7 @@ func workspaceSidebarTabDropLabelSlot(
         let minX = slot.edge == .leading ? start + inset : end - inset - labelWidth
         return max(0, minX - pointX, pointX - (minX + labelWidth))
     }
-    if let previous, distance(previous) >= clearance { return previous }
+    if let previous, !previous.isHidden, distance(previous) >= clearance { return previous }
     let own: HorizontalEdge = placement == .left ? .leading : .trailing
     let other: HorizontalEdge = own == .leading ? .trailing : .leading
     let ownMidX = placement == .left ? (targetMinX + midX) / 2 : (midX + targetMaxX) / 2
@@ -78,7 +81,9 @@ func workspaceSidebarTabDropLabelSlot(
         WorkspaceSidebarTabDropLabelSlot(half: other, edge: own == .leading ? .leading : .trailing),
         WorkspaceSidebarTabDropLabelSlot(half: other, edge: own == .leading ? .trailing : .leading),
     ]
-    return candidates.first { distance($0) >= clearance } ?? candidates.max { distance($0) < distance($1) }
+    let fits = labelWidth + 2 * inset <= midX - targetMinX
+    return candidates.first { fits && distance($0) >= clearance }
+        ?? WorkspaceSidebarTabDropLabelSlot(half: own, edge: far, isHidden: true)
 }
 
 let workspaceSidebarTabDropLabelInset: CGFloat = 6

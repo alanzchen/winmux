@@ -486,10 +486,10 @@ struct WorkspaceSidebarTabDropSideHighlight: View {
                     .frame(width: width)
                     .offset(x: placement == .right ? geometry.size.width - width : 0)
                     .transition(.opacity)
-                if placement != .stack {
-                    // Clear of the dragged tab, which is centered on the pointer.
-                    let slot = labelSlot ?? WorkspaceSidebarTabDropLabelSlot(half: placement == .left ? .leading : .trailing,
-                        edge: placement == .left ? .leading : .trailing)
+                // Clear of the dragged tab, which is centered on the pointer.
+                let slot = labelSlot ?? WorkspaceSidebarTabDropLabelSlot(half: placement == .left ? .leading : .trailing,
+                    edge: placement == .left ? .leading : .trailing)
+                if placement != .stack, !slot.isHidden {
                     WorkspaceSidebarTabDropLabel(text: workspaceSidebarTabDropLabelText(placement))
                         .padding(.horizontal, workspaceSidebarTabDropLabelInset)
                         .frame(width: geometry.size.width / 2, height: geometry.size.height,
