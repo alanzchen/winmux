@@ -25,7 +25,11 @@ struct WorkspaceSidebarTabSplitHover {
         return max(startedAt + workspaceSidebarSplitHoverDelay, restingSince + workspaceSidebarSplitRestDuration)
     }
 
-    mutating func update(target: String, side _: WorkspaceSidebarTabDropPlacement, point: CGPoint, now: TimeInterval) -> Bool {
+    /// `restPoint` is where the pointer really is now. Drag events can be sparse, so a check made
+    /// between them must not mistake the last reported point for a pointer at rest.
+    mutating func update(target: String, side _: WorkspaceSidebarTabDropPlacement, point: CGPoint, now: TimeInterval,
+                         restPoint livePoint: CGPoint? = nil) -> Bool {
+        let point = livePoint ?? point
         if self.target != target {
             self.target = target
             isArmed = false
@@ -80,10 +84,10 @@ final class WorkspaceSidebarTabSplitHoverController {
         return displayed.target
     }
 
-    func isReady(target: String, side: WorkspaceSidebarTabDropPlacement, point: CGPoint) -> Bool {
+    func isReady(target: String, side: WorkspaceSidebarTabDropPlacement, point: CGPoint, livePoint: CGPoint? = nil) -> Bool {
         let previous = state.armsAt
         let now = ProcessInfo.processInfo.systemUptime
-        let ready = state.update(target: target, side: side, point: point, now: now)
+        let ready = state.update(target: target, side: side, point: point, now: now, restPoint: livePoint)
         // A pointer at rest sends no events, so check again when the pause would arm.
         if let armsAt = state.armsAt, armsAt != previous {
             wake?.cancel()
@@ -99,7 +103,7 @@ final class WorkspaceSidebarTabSplitHoverController {
 
 @MainActor
 func workspaceSidebarDeliberateTabDropTarget(_ target: WorkspaceSidebarDropTarget, sourceWindow: Window,
-                                            point: CGPoint) -> WorkspaceSidebarDropTarget? {
+                                            point: CGPoint, livePoint: CGPoint? = nil) -> WorkspaceSidebarDropTarget? {
     let hover = WorkspaceSidebarTabSplitHoverController.shared
     guard config.usesBrowserTabs, target.acceptsSides, case .workspace(let name) = target.kind,
           let workspace = Workspace.existing(byName: name) else {
@@ -107,7 +111,7 @@ func workspaceSidebarDeliberateTabDropTarget(_ target: WorkspaceSidebarDropTarge
         return target
     }
     let side: WorkspaceSidebarTabDropPlacement = point.x < target.rect.center.x ? .left : .right
-    if hover.isReady(target: name, side: side, point: point) {
+    if hover.isReady(target: name, side: side, point: point, livePoint: livePoint) {
         var armed = target
         armed.acceptsSides = !sourceWindow.isFloating && workspaceTabDropTargetWindow(workspace)?.isFloating == false
         return armed

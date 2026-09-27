@@ -96,6 +96,16 @@ final class WorkspaceSidebarTabUXTest: XCTestCase {
                 y += speed * 0.016
             }
         }
+        // Drag events every 200 ms, and checks in between, while the pointer keeps moving at 20 pt/s.
+        var sparse = WorkspaceSidebarTabSplitHover()
+        var reported = CGPoint(x: 40, y: 8)
+        for step in 0..<40 {
+            let now = 1 + Double(step) * 0.05
+            let live = CGPoint(x: 40, y: 8 + 20 * CGFloat(step) * 0.05)
+            if step % 4 == 0 { reported = live }
+            XCTAssertFalse(sparse.update(target: "A", side: .left, point: reported, now: now, restPoint: live),
+                "Between events at t=\(now), the live pointer is still moving")
+        }
         var hover = WorkspaceSidebarTabSplitHover()
         let stop = CGPoint(x: 40, y: 18)
         XCTAssertFalse(hover.update(target: "A", side: .left, point: stop, now: 1))
