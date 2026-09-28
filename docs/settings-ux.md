@@ -143,6 +143,15 @@ require an unlocked macOS desktop.
   - the display summary following runtime resolution;
   - Sidebar's rail preview, and VoiceOver hearing "Not applied".
 - Offscreen renders of each mode's page, narrow and wide, were checked for layout.
-  Liquid Glass surfaces don't render offscreen. Native checks weren't run because
-  the Mac was locked: switching modes from the cards, the Tabs question with real
-  window stacks, VoiceOver on the cards, and multi-display `monitor`.
+  Liquid Glass surfaces don't render offscreen.
+- Native check in the `winmux-tests` VM (macOS 27, unsigned build of f0826e4a;
+  the later Undo-question change is covered by unit tests only):
+  - **Customize Dock…** opened the Workspace Panel page.
+  - With a two-window stack, the Tabs card asked first. **Cancel** left Dock mode
+    and the stack unchanged. **Use Tabs** switched the running panel and split the
+    stack into two tabs.
+  - **Undo Mode** returned to Dock without asking, and the stack stayed split as
+    the note says.
+  - The Sidebar card applied without asking and showed the rail preview.
+- Not checked natively: VoiceOver on the cards, multiple displays and `monitor`,
+  Reduce Transparency and Reduce Motion notices, and real hardware.
