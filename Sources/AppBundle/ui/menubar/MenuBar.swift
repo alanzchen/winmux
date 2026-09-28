@@ -2,7 +2,7 @@
     import Foundation
     import SwiftUI
     
-private let winmuxRepositoryURL = "https://github.com/zimengxiong/winmux"
+private let winmuxRepositoryURL = "https://github.com/alanzchen/winmux"
 private let winmuxNewIssueURL = "https://github.com/zimengxiong/winmux/issues/new/choose"
 
     @MainActor
