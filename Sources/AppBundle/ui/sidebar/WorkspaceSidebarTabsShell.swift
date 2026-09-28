@@ -136,10 +136,10 @@ extension WorkspaceSidebarView {
                     verticalTranslation: 0, minimumDistance: 1), switchProgress: 0, edgeProgress: 0)
             if expanded {
                 HStack {
-                    Button { ShortcutSettingsModel.shared.requestDockSettings() } label: {
+                    Button { ShortcutSettingsModel.shared.requestPanelSettings() } label: {
                         Image(systemName: "gearshape").frame(width: workspaceSidebarTabIconSize)
                     }
-                    .help("Sidebar Settings").accessibilityLabel("Sidebar Settings")
+                    .help("Tabs Settings").accessibilityLabel("Tabs Settings")
                     Spacer()
                     Text("\((visible[snapshot.activeProjectId] ?? []).count) tabs").font(.system(size: 11)).foregroundStyle(.secondary)
                         .contentTransition(.numericText())

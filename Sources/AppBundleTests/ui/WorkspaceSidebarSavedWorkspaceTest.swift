@@ -212,7 +212,7 @@ final class WorkspaceSidebarSavedWorkspaceTest: XCTestCase {
         let menu = entries(nil)
 
         XCTAssertEqual(menu.map(\.title), [
-            "Customize Dock & Sidebar…",
+            "Customize Dock…",
             "",
             "Rename Workspace",
             "Save Workspace",
@@ -240,7 +240,7 @@ final class WorkspaceSidebarSavedWorkspaceTest: XCTestCase {
         let menu = entries(saved(missing: ["Editor", "Chat"]))
 
         XCTAssertEqual(menu.map(\.title), [
-            "Customize Dock & Sidebar…",
+            "Customize Dock…",
             "",
             "Rename Workspace",
             "Keep on “DELL U2723QE”",

@@ -1,0 +1,239 @@
+import AppKit
+@testable import AppBundle
+import SwiftUI
+import XCTest
+
+@MainActor
+final class SettingsPanelPageTest: XCTestCase {
+    func testEachModeListsExactlyTheSettingsItUses() {
+        let pageFields = SettingsCatalog.fields.filter { $0.group.page == .appearance }
+        for mode in WorkspaceSidebarMode.settingsOrder {
+            let listed = SettingsPanelLayout.allSections(mode).flatMap(\.fields)
+            XCTAssertEqual(listed.count, Set(listed).count, "\(mode): a setting is listed twice")
+            let used = pageFields.filter { $0.modes?.contains(mode) == true }.map(\.id)
+            XCTAssertEqual(Set(listed), Set(used), "\(mode)")
+        }
+        let header = [SettingsPanelLayout.enabledField, SettingsPanelLayout.modeField]
+        XCTAssertEqual(Set(pageFields.filter { $0.modes == nil }.map(\.id)), Set(header), "Only the header is outside the modes")
+        for id in SettingsPanelLayout.shared.fields {
+            XCTAssertEqual(SettingsCatalog.field(id).modes, .allModes, "\(id) is shared, so every mode uses it")
+        }
+    }
+
+    func testSharedSettingsSayWhichOtherModesTheyChange() {
+        let width = SettingsCatalog.field("workspace-sidebar.width")
+        XCTAssertEqual(SettingsPanelLayout.sharedNote(for: width, in: .dock), "Also changes Sidebar and Tabs modes.")
+        XCTAssertEqual(SettingsPanelLayout.sharedNote(for: SettingsCatalog.field("workspace-sidebar.show-app-badges"), in: .tabs),
+            "Also changes Dock mode.")
+        XCTAssertNil(SettingsPanelLayout.sharedNote(for: SettingsCatalog.field("workspace-sidebar.dock-position"), in: .dock))
+        XCTAssertNil(SettingsPanelLayout.sharedNote(for: SettingsCatalog.field("workspace-sidebar.stay-on-top"), in: .dock),
+            "The shared section says it once for all of its rows")
+
+        var configuration = defaultConfig
+        configuration.workspaceSidebar.mode = .dock
+        XCTAssertEqual(width.title(in: configuration), "Project column width")
+        configuration.workspaceSidebar.alwaysExpanded = true
+        XCTAssertEqual(width.title(in: configuration), "Panel width")
+        configuration.workspaceSidebar.mode = .tabs
+        XCTAssertEqual(width.title(in: configuration), "Sidebar width")
+        for title in ["Project column width", "Panel width", "Expanded width", "Sidebar width"] {
+            XCTAssertTrue(SettingsCatalog.results(title).contains { $0.id == width.id }, title)
+        }
+        XCTAssertEqual(SettingsCatalog.field("workspace-sidebar.collapsed-width").availability(in: configuration),
+            .disabled("Turn off Keep the tab sidebar expanded to use this setting."), "The reason names this mode's own switch")
+    }
+
+    func testSearchNamesTheModeAndOffersToSwitchWithoutSwitching() {
+        let browserTabs = SettingsCatalog.field("workspace-sidebar.browser-tabs")
+        XCTAssertEqual(SettingsPanelLayout.breadcrumb(for: browserTabs, activeMode: .dock), "Workspace Panel › Tabs › Content")
+        XCTAssertEqual(SettingsPanelLayout.breadcrumb(for: SettingsCatalog.field("workspace-sidebar.width"), activeMode: .sidebar),
+            "Workspace Panel › Sidebar › Behavior")
+        XCTAssertEqual(SettingsPanelLayout.breadcrumb(for: SettingsCatalog.field("workspace-sidebar.stay-on-top"), activeMode: .tabs),
+            "Workspace Panel › Shared across modes")
+        XCTAssertEqual(SettingsPanelLayout.breadcrumb(for: SettingsCatalog.field("window-tabs.height"), activeMode: .tabs),
+            "Windows & Layout › Window tabs")
+        XCTAssertTrue(SettingsCatalog.results("tabs browser").contains { $0.id == browserTabs.id })
+
+        var configuration = defaultConfig
+        configuration.workspaceSidebar.mode = .dock
+        configuration.workspaceSidebar.enabled = true
+        XCTAssertEqual(SettingsPanelLayout.callout(target: browserTabs.id, in: configuration),
+            SettingsPanelCallout(field: browserTabs.id, actions: [.useMode(.tabs)]))
+        XCTAssertNil(SettingsPanelLayout.callout(target: "workspace-sidebar.dock-position", in: configuration), "Shown in place")
+        XCTAssertNil(SettingsPanelLayout.callout(target: "window-tabs.height", in: configuration))
+        configuration.workspaceSidebar.enabled = false
+        XCTAssertEqual(SettingsPanelLayout.callout(target: browserTabs.id, in: configuration)?.actions, [.useMode(.tabs), .turnOnPanel])
+        XCTAssertEqual(SettingsPanelLayout.callout(target: "workspace-sidebar.dock-position", in: configuration)?.actions, [.turnOnPanel])
+        XCTAssertNil(SettingsPanelLayout.callout(target: SettingsPanelLayout.modeField, in: configuration), "The header is always shown")
+    }
+
+    func testSwitchingToTabsAsksFirstWhileWindowStacksExist() async {
+        let saved = config
+        defer { config = saved }
+        let disk = SettingsTestDisk()
+        disk.text += "[workspace-sidebar]\n    enabled = true\n    mode = 'dock'\n"
+        config = parseConfig(disk.text).config
+        let editor = SettingsEditor(persistence: disk.persistence)
+        editor.hasWindowStacks = { true }
+        let mode = SettingsCatalog.field(SettingsPanelLayout.modeField)
+
+        editor.setDraft(.text("tabs"), for: mode)
+        editor.commit(mode)
+        await editor.waitUntilIdle()
+        XCTAssertNotNil(editor.pendingTabsSwitch)
+        XCTAssertEqual(config.workspaceSidebar.mode, .dock, "Nothing is saved before confirmation")
+        editor.cancelTabsSwitch()
+        XCTAssertNil(editor.pendingTabsSwitch)
+        XCTAssertEqual(editor.value(mode), .text("dock"), "Cancel puts the cards back")
+
+        editor.setDraft(.text("sidebar"), for: mode)
+        editor.commit(mode)
+        await editor.waitUntilIdle()
+        XCTAssertNil(editor.pendingTabsSwitch, "Other modes keep window stacks")
+        XCTAssertEqual(config.workspaceSidebar.mode, .sidebar)
+
+        editor.setDraft(.text("tabs"), for: mode)
+        editor.commit(mode)
+        editor.confirmTabsSwitch()
+        await editor.waitUntilIdle()
+        XCTAssertEqual(config.workspaceSidebar.mode, .tabs)
+
+        // Undo back out of Tabs needs no question; redoing the switch through Undo would.
+        editor.undo()
+        await editor.waitUntilIdle()
+        XCTAssertEqual(config.workspaceSidebar.mode, .sidebar)
+        XCTAssertNil(editor.pendingTabsSwitch)
+    }
+
+    func testTurningOnAPanelSetToTabsAsksButChoosingTabsWhileOffDoesNot() async {
+        let saved = config
+        defer { config = saved }
+        let disk = SettingsTestDisk()
+        disk.text += "[workspace-sidebar]\n    enabled = false\n    mode = 'dock'\n"
+        config = parseConfig(disk.text).config
+        let editor = SettingsEditor(persistence: disk.persistence)
+        editor.hasWindowStacks = { true }
+        let mode = SettingsCatalog.field(SettingsPanelLayout.modeField)
+        let enabled = SettingsCatalog.field(SettingsPanelLayout.enabledField)
+
+        editor.setDraft(.text("tabs"), for: mode)
+        editor.commit(mode)
+        await editor.waitUntilIdle()
+        XCTAssertNil(editor.pendingTabsSwitch, "With the panel off, stacks stay")
+        XCTAssertEqual(config.workspaceSidebar.mode, .tabs)
+
+        editor.setDraft(.bool(true), for: enabled)
+        editor.commit(enabled)
+        await editor.waitUntilIdle()
+        XCTAssertNotNil(editor.pendingTabsSwitch)
+        XCTAssertFalse(config.workspaceSidebar.enabled)
+        editor.confirmTabsSwitch()
+        await editor.waitUntilIdle()
+        XCTAssertTrue(config.usesBrowserTabs)
+
+        editor.setDraft(.bool(false), for: enabled)
+        editor.commit(enabled)
+        await editor.waitUntilIdle()
+        editor.undo()
+        await editor.waitUntilIdle()
+        XCTAssertNotNil(editor.pendingTabsSwitch, "Undo that turns Tabs back on asks too")
+        XCTAssertFalse(config.workspaceSidebar.enabled)
+        editor.cancelTabsSwitch()
+        XCTAssertFalse(config.workspaceSidebar.enabled)
+        XCTAssertNotNil(editor.undoTitle, "Cancelling keeps the Undo entry")
+
+        editor.hasWindowStacks = { false }
+        editor.undo()
+        await editor.waitUntilIdle()
+        XCTAssertNil(editor.pendingTabsSwitch, "Without stacks there is nothing to lose")
+        XCTAssertTrue(config.usesBrowserTabs)
+    }
+
+    func testRestoringASectionLeavesOtherModesSettingsAlone() async {
+        let saved = config
+        defer { config = saved }
+        let disk = SettingsTestDisk()
+        disk.text += """
+            [workspace-sidebar]
+                enabled = true
+                mode = 'dock'
+                dock-left-gap = 9
+                always-expanded = true
+                tabs-always-expanded = false
+                collapsed-width = 60
+                width = 300
+
+            """
+        config = parseConfig(disk.text).config
+        let editor = SettingsEditor(persistence: disk.persistence)
+        let section = SettingsPanelLayout.sections(.dock).first { $0.id == "dock.behavior" }!
+        editor.reset(section.fields.map(SettingsCatalog.field), title: section.title)
+        await editor.waitUntilIdle()
+        XCTAssertNil(editor.error)
+        XCTAssertEqual(config.workspaceSidebar.dockLeftGap, defaultConfig.workspaceSidebar.dockLeftGap)
+        XCTAssertEqual(config.workspaceSidebar.alwaysExpanded, defaultConfig.workspaceSidebar.alwaysExpanded)
+        XCTAssertFalse(config.workspaceSidebar.tabsAlwaysExpanded, "Tabs' own setting is untouched")
+        XCTAssertEqual(config.workspaceSidebar.collapsedWidth, 60)
+        XCTAssertEqual(config.workspaceSidebar.width, 300, "Width belongs to another section")
+        XCTAssertEqual(editor.undoTitle, "Undo Restore \(section.title)")
+    }
+
+    func testEntryPointsNameTheActiveMode() {
+        XCTAssertEqual(workspaceSidebarWorkspaceMenuEntries(testWorkspace, context: .init(monitorCount: 1, panelMode: .dock)).first?.title,
+            "Customize Dock…")
+        XCTAssertEqual(workspaceSidebarWorkspaceMenuEntries(testWorkspace, context: .init(monitorCount: 1, panelMode: .sidebar)).first?.title,
+            "Customize Sidebar…")
+        let saved = ShortcutSettingsModel.shared.requestedSettingsPage
+        defer { ShortcutSettingsModel.shared.requestedSettingsPage = saved }
+        ShortcutSettingsModel.shared.requestPanelSettings()
+        XCTAssertEqual(ShortcutSettingsModel.shared.requestedSettingsPage, .appearance)
+        XCTAssertEqual(SettingsSidebarItem.appearance.label, "Workspace Panel")
+    }
+
+    /// Each mode remembers its own scroll position; the editor survives the remount.
+    func testEachModeKeepsItsOwnScrollPosition() throws {
+        let savedPositions = SettingsScrollMemory.shared.positions
+        defer { SettingsScrollMemory.shared.positions = savedPositions }
+        SettingsScrollMemory.shared.positions = [:]
+        var configuration = defaultConfig
+        configuration.workspaceSidebar.enabled = true
+        configuration.workspaceSidebar.mode = .dock
+        let editor = SettingsEditor(configuration: configuration)
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 520, height: 480), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        window.contentView = NSHostingView(rootView: SettingsForm(page: .appearance, editor: editor, model: .shared))
+        settle(window)
+        func scroll() throws -> NSScrollView {
+            try XCTUnwrap(descendants(try XCTUnwrap(window.contentView)).compactMap { $0 as? NSScrollView }.max {
+                ($0.documentView?.frame.height ?? 0) < ($1.documentView?.frame.height ?? 0)
+            })
+        }
+        try scroll().contentView.scroll(to: CGPoint(x: 0, y: 400))
+        try scroll().reflectScrolledClipView(try scroll().contentView)
+        settle(window)
+        configuration.workspaceSidebar.mode = .sidebar
+        editor.synchronize(configuration)
+        settle(window)
+        XCTAssertLessThan(try scroll().contentView.bounds.minY, 50, "Sidebar starts at its own position")
+        configuration.workspaceSidebar.mode = .dock
+        editor.synchronize(configuration)
+        settle(window)
+        settle(window)
+        XCTAssertGreaterThan(try scroll().contentView.bounds.minY, 300, "Dock returns to where it was")
+    }
+
+    private var testWorkspace: WorkspaceSidebarWorkspaceViewModel {
+        WorkspaceSidebarWorkspaceViewModel(name: "1", projectId: workspaceProjectDefaultId, displayName: "1", sidebarLabel: "1",
+            isGeneratedName: false, monitorScopeId: "monitor:0,0", monitorName: nil, isFocused: false, isVisible: true, items: [],
+            savedState: nil)
+    }
+
+    private func settle(_ window: NSWindow) {
+        window.contentView?.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        window.contentView?.layoutSubtreeIfNeeded()
+    }
+
+    private func descendants(_ view: NSView) -> [NSView] { view.subviews.flatMap { [$0] + descendants($0) } }
+}

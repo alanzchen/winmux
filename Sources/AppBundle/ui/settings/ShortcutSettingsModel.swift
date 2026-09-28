@@ -27,7 +27,8 @@ public final class ShortcutSettingsModel: ObservableObject {
         reload()
     }
 
-    func requestDockSettings() {
+    /// Opens the Workspace Panel page, which shows the active mode's settings.
+    func requestPanelSettings() {
         requestedSettingsPage = .appearance
         requestWindowOpen()
     }

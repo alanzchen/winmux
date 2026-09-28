@@ -42,7 +42,7 @@ enum SettingsSidebarItem: String, Hashable, Identifiable, CaseIterable {
     var label: String {
         switch self {
             case .general: "General"
-            case .appearance: "Dock & Sidebar"
+            case .appearance: "Workspace Panel"
             case .behavior: "Windows & Layout"
             case .workspaces: "Projects & Workspaces"
             case .shortcuts: "Shortcuts"
@@ -122,13 +122,22 @@ struct ShortcutSettingsView: View {
             editor.synchronize(config)
             model.reload()
         }
+        .alert("Use Tabs and separate window stacks?", isPresented: Binding(
+            get: { editor.pendingTabsSwitch != nil }, set: { if !$0 { editor.cancelTabsSwitch() } })
+        ) {
+            Button("Cancel", role: .cancel) { editor.cancelTabsSwitch() }
+            Button("Use Tabs") { editor.confirmTabsSwitch() }
+        } message: {
+            Text("Stack entries will become separate workspace tabs. Settings Undo will restore the previous mode but will not rebuild the stacks.")
+        }
     }
 
     @ViewBuilder
     private var pane: some View {
         switch selectedItem {
             case .general, .appearance, .behavior, .workspaces:
-                SettingsForm(page: selectedItem ?? .general, editor: editor, model: model, targetField: targetField)
+                SettingsForm(page: selectedItem ?? .general, editor: editor, model: model, targetField: targetField,
+                    openTOMLEditor: { advancedTab = "editor"; selectedItem = .configuration })
                     .id(selectedItem)
             case .shortcuts: ShortcutSettingsShortcutsView(model: model)
             case .configuration: SettingsAdvancedPane(model: model, editor: editor, tab: $advancedTab, targetField: targetField)
@@ -151,9 +160,10 @@ struct ShortcutSettingsView: View {
                             tab: field.group == .automation ? "automation" : nil)
                     } label: {
                         VStack(alignment: .leading, spacing: 4) {
-                            Text(field.title).font(.headline)
-                            Text("\(field.group.page.label) › \(field.group.title)").font(.caption).foregroundStyle(.secondary)
-                            Text(field.help).font(.caption).foregroundStyle(.secondary)
+                            Text(field.title(in: editor.projection)).font(.headline)
+                            Text(SettingsPanelLayout.breadcrumb(for: field, activeMode: editor.projection.workspaceSidebar.mode))
+                                .font(.caption).foregroundStyle(.secondary)
+                            Text(field.help(in: editor.projection)).font(.caption).foregroundStyle(.secondary)
                         }
                         .frame(maxWidth: .infinity, alignment: .leading).padding(10)
                     }

@@ -399,7 +399,7 @@ final class WorkspaceSidebarTabIdentityTest: XCTestCase {
         let menu = workspaceSidebarWorkspaceIdentityMenuModel(tab(source.name, ids: [201, 202]), windowId: 202,
             send: { sent.append($0) })
         let titles = menu.entries.map(\.title)
-        XCTAssertFalse(titles.contains("Customize Dock & Sidebar…"))
+        XCTAssertFalse(titles.contains { $0.hasPrefix("Customize") })
         XCTAssertFalse(titles.contains("Rename Tab"))
         XCTAssertNotEqual(titles.first, "")
         XCTAssertNotEqual(titles.last, "")
@@ -413,7 +413,7 @@ final class WorkspaceSidebarTabIdentityTest: XCTestCase {
 
         config.workspaceSidebar.mode = .sidebar
         let oldMenu = workspaceSidebarWorkspaceIdentityMenuModel(tab(source.name, ids: [201, 202]), send: { _ in })
-        XCTAssertTrue(oldMenu.entries.contains { $0.title == "Customize Dock & Sidebar…" })
+        XCTAssertTrue(oldMenu.entries.contains { $0.title == "Customize Sidebar…" })
         XCTAssertFalse(oldMenu.entries.contains { $0.title == "Split with" })
     }
 

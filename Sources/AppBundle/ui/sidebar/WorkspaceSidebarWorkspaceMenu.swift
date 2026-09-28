@@ -30,6 +30,8 @@ struct WorkspaceSidebarWorkspaceMenuContext: Equatable {
     var canOpenApps = true
     /// Tabs mode, where a workspace with several windows can be split back into tabs.
     var separatesIntoTabs = false
+    /// Names the Customize item after the panel it opens settings for.
+    var panelMode: WorkspaceSidebarMode = .dock
 }
 
 @MainActor
@@ -43,6 +45,7 @@ func workspaceSidebarWorkspaceMenuContext(workspaceName: String) -> WorkspaceSid
         currentDisplayHasIdentity: currentDisplay.map { SavedDisplayAffinity(monitor: $0) != nil } ?? false,
         canOpenApps: !serverArgs.isReadOnly,
         separatesIntoTabs: config.usesBrowserTabs,
+        panelMode: config.workspaceSidebar.mode,
     )
 }
 
@@ -52,7 +55,7 @@ func workspaceSidebarWorkspaceMenuEntries(
 ) -> [WorkspaceSidebarWorkspaceMenuEntry] {
     let saved = workspace.savedState
     var entries: [WorkspaceSidebarWorkspaceMenuEntry] = context.separatesIntoTabs ? [] : [
-        .init(title: "Customize Dock & Sidebar…", command: .customizeDock),
+        .init(title: "Customize \(context.panelMode.settingsTitle)…", command: .customizeDock),
         .separator,
     ]
     entries.append(.init(title: context.separatesIntoTabs ? "Rename Tab" : "Rename Workspace", command: .rename))
@@ -152,7 +155,7 @@ func workspaceSidebarWorkspaceMenu(
             perform: entry.command.map { command in
                 {
                     switch command {
-                        case .customizeDock: ShortcutSettingsModel.shared.requestDockSettings()
+                        case .customizeDock: ShortcutSettingsModel.shared.requestPanelSettings()
                         case .rename: rename()
                         case .send(let action): send(action)
                     }

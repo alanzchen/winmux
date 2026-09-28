@@ -6,38 +6,44 @@ struct SettingsForm: View {
     @ObservedObject var editor: SettingsEditor
     @ObservedObject var model: ShortcutSettingsModel
     var targetField: String?
+    var openTOMLEditor: () -> Void = {}
 
     var body: some View {
         GeometryReader { geometry in
             ScrollViewReader { proxy in
                 ScrollView {
-                    let layout = page == .appearance && geometry.size.width >= 880
-                        ? AnyLayout(HStackLayout(alignment: .top, spacing: 20))
-                        : AnyLayout(VStackLayout(alignment: .leading, spacing: 18))
-                    layout {
+                    Group {
                         if page == .appearance {
-                            SettingsDockPreview(editor: editor)
-                                .frame(width: geometry.size.width >= 880 ? 280 : nil)
-                        }
-                        VStack(alignment: .leading, spacing: 20) {
-                            ForEach(SettingsGroup.allCases.filter { $0.page == page }) { group in
-                                groupView(group)
-                                    .id(group.rawValue)
-
+                            SettingsPanelPage(editor: editor, targetField: targetField, wide: geometry.size.width >= 880,
+                                openTOMLEditor: openTOMLEditor)
+                        } else {
+                            VStack(alignment: .leading, spacing: 20) {
+                                ForEach(SettingsGroup.allCases.filter { $0.page == page }) { group in
+                                    groupView(group)
+                                        .id(group.rawValue)
+                                }
+                                if page == .general { SettingsPermissionsView().id("permissions") }
+                                if page == .workspaces { ShortcutSettingsWorkspacePane(model: model) }
                             }
-                            if page == .general { SettingsPermissionsView().id("permissions") }
-                            if page == .workspaces { ShortcutSettingsWorkspacePane(model: model) }
+                            .frame(maxWidth: .infinity, alignment: .leading)
                         }
-                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     .padding(20)
-                    .background(SettingsScrollRetention(page: page.rawValue, revealingTarget: targetField != nil))
+                    .background(SettingsScrollRetention(page: scrollPage, revealingTarget: targetField != nil))
                 }
                 .coordinateSpace(name: "settingsScroll")
                 .onChange(of: targetField) { target in reveal(target, proxy: proxy) }
+                // Each mode's rows keep their own scroll position; a search target stays in view.
+                .onChange(of: scrollPage) { _ in reveal(targetField, proxy: proxy) }
                 .onAppear { reveal(targetField, proxy: proxy) }
             }
         }
+    }
+
+    private var scrollPage: String {
+        guard page == .appearance else { return page.rawValue }
+        let sidebar = editor.projection.workspaceSidebar
+        return "\(page.rawValue).\(sidebar.enabled ? sidebar.mode.rawValue : "off")"
     }
 
     @ViewBuilder
@@ -84,6 +90,8 @@ struct SettingsFieldRow: View {
     let field: SettingsField
     @ObservedObject var editor: SettingsEditor
     var highlighted = false
+    /// Says which other modes a shared setting also changes.
+    var note: String? = nil
     @State private var isDragging = false
     @State private var colorSave: Task<Void, Never>?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -91,19 +99,23 @@ struct SettingsFieldRow: View {
 
     private var current: SettingsValue { editor.value(field) }
     private var availability: SettingsAvailability { field.availability(editor) }
+    private var title: String { field.title(in: editor.projection) }
 
     var body: some View {
         let availability = availability
         VStack(alignment: .leading, spacing: 6) {
             if case .forced = availability {
                 // The mode fixes this behavior; a switch showing the stored value would contradict it.
-                Text(field.title).fixedSize(horizontal: false, vertical: true)
+                Text(title).fixedSize(horizontal: false, vertical: true)
             } else {
                 control
             }
-            Text(availability.reason ?? field.help)
+            Text(availability.reason ?? field.help(in: editor.projection))
                 .font(.caption).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+            if let note, availability.isAvailable {
+                Text(note).font(.caption).foregroundStyle(.tertiary)
+            }
             if reduceMotion, field.key.hasPrefix("dock-magnification") {
                 Text("macOS Reduce Motion is on, so magnification is currently paused.")
                     .font(.caption).foregroundStyle(.secondary)
@@ -135,21 +147,21 @@ struct SettingsFieldRow: View {
             switch field.control {
                 case .toggle:
                     HStack {
-                        Text(field.title).fixedSize(horizontal: false, vertical: true)
+                        Text(title).fixedSize(horizontal: false, vertical: true)
                             .contentShape(Rectangle())
                             .onTapGesture { change(.bool(!current.bool), commit: true) }
                             .accessibilityHidden(true)
                         Spacer(minLength: 8)
-                        Toggle(field.title, isOn: Binding(get: { current.bool }, set: { change(.bool($0), commit: true) }))
+                        Toggle(title, isOn: Binding(get: { current.bool }, set: { change(.bool($0), commit: true) }))
                             .labelsHidden().toggleStyle(.switch).controlSize(.small)
-                            .fixedSize().accessibilityLabel(field.title)
+                            .fixedSize().accessibilityLabel(title)
                     }
                 case .position: positionPicker
                 case .choice(let options):
                     HStack {
-                        Text(field.title).fixedSize(horizontal: false, vertical: true)
+                        Text(title).fixedSize(horizontal: false, vertical: true)
                         Spacer(minLength: 8)
-                        Picker(field.title, selection: Binding(get: { current.text }, set: { change(.text($0), commit: true) })) {
+                        Picker(title, selection: Binding(get: { current.text }, set: { change(.text($0), commit: true) })) {
                             ForEach(options) { option in
                                 HStack {
                                     if field.key.contains("color"), let color = ChromeSolidColor(rawValue: option.value) {
@@ -159,19 +171,19 @@ struct SettingsFieldRow: View {
                                 }.tag(option.value)
                             }
                         }
-                        .labelsHidden().frame(maxWidth: 185, alignment: .trailing).accessibilityLabel(field.title)
+                        .labelsHidden().frame(maxWidth: 185, alignment: .trailing).accessibilityLabel(title)
                     }
                 case .integer(let range): numberControl(range: Double(range.lowerBound)...Double(range.upperBound), integer: true)
                 case .percentage, .magnification: numberControl(range: 0...1, integer: false)
                 case .text:
-                    Text(field.title)
+                    Text(title)
                     HStack {
-                        TextField(field.title, text: Binding(get: { current.text }, set: { change(.text($0), commit: false) }))
+                        TextField(title, text: Binding(get: { current.text }, set: { change(.text($0), commit: false) }))
                             .textFieldStyle(.roundedBorder).onSubmit { editor.commit(field) }
                         Button("Apply") { editor.commit(field) }.disabled(editor.drafts[field.id] == nil)
                     }
                 case .color:
-                    ColorPicker(field.title, selection: Binding(get: { Color(chromeHex: current.text) },
+                    ColorPicker(title, selection: Binding(get: { Color(chromeHex: current.text) },
                         set: { color in
                             change(.text(color.chromeHex), commit: false)
                             colorSave?.cancel()
@@ -185,7 +197,7 @@ struct SettingsFieldRow: View {
 
     private var positionPicker: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(field.title)
+            Text(title)
             HStack(spacing: 8) {
                 ForEach(WorkspaceDockPosition.allCases) { position in
                     Button { change(.text(position.rawValue), commit: true) } label: {
@@ -208,7 +220,7 @@ struct SettingsFieldRow: View {
     private func numberControl(range: ClosedRange<Double>, integer: Bool) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Text(field.title)
+                Text(title)
                 Spacer()
                 if case .magnification = field.control {
                     Text(magnificationLabel).monospacedDigit()
@@ -225,12 +237,12 @@ struct SettingsFieldRow: View {
                     isDragging = editing
                     if !editing { editor.commit(field) }
                 }
-                .accessibilityLabel(field.title)
+                .accessibilityLabel(title)
                 .accessibilityValue(accessibleNumber(integer: integer))
-                Stepper(field.title, onIncrement: { step(integer ? 1 : 0.01, range: range, integer: integer) },
+                Stepper(title, onIncrement: { step(integer ? 1 : 0.01, range: range, integer: integer) },
                     onDecrement: { step(integer ? -1 : -0.01, range: range, integer: integer) })
                     .labelsHidden().controlSize(.small)
-                    .accessibilityLabel(field.title)
+                    .accessibilityLabel(title)
                     .accessibilityValue(accessibleNumber(integer: integer))
             }
         }

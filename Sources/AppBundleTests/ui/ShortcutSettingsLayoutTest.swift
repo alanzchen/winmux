@@ -145,7 +145,7 @@ final class ShortcutSettingsLayoutTest: XCTestCase {
         editorScroll.contentView.scroll(to: CGPoint(x: 0, y: 240))
         editorScroll.reflectScrolledClipView(editorScroll.contentView)
         settle(window)
-        ShortcutSettingsModel.shared.requestDockSettings()
+        ShortcutSettingsModel.shared.requestPanelSettings()
         settle(window)
         XCTAssertGreaterThan(try contentScroll().contentView.bounds.minY, 100)
         ShortcutSettingsModel.shared.requestedSettingsPage = .configuration
@@ -159,7 +159,7 @@ final class ShortcutSettingsLayoutTest: XCTestCase {
     func testSearchRevealTakesPrecedenceOverRememberedScrollPosition() throws {
         let savedPositions = SettingsScrollMemory.shared.positions
         defer { SettingsScrollMemory.shared.positions = savedPositions }
-        SettingsScrollMemory.shared.positions["appearance"] = CGPoint(x: 0, y: 120)
+        SettingsScrollMemory.shared.positions["appearance.dock"] = CGPoint(x: 0, y: 120)
         var configuration = defaultConfig
         configuration.workspaceSidebar.mode = .dock
         let editor = SettingsEditor(configuration: configuration)

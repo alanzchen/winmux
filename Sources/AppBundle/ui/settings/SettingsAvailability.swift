@@ -27,13 +27,16 @@ struct SettingsRequirement {
     let effect: Effect
     let text: String
     let isMet: (Config) -> Bool
+    /// Wording that names the current mode's own control.
+    var contextualText: ((Config) -> String)? = nil
 
     static func hides(_ text: String, unless isMet: @escaping (Config) -> Bool) -> Self { .init(effect: .hide, text: text, isMet: isMet) }
     static func disables(_ text: String, unless isMet: @escaping (Config) -> Bool) -> Self { .init(effect: .disable, text: text, isMet: isMet) }
     static func forces(_ text: String, unless isMet: @escaping (Config) -> Bool) -> Self { .init(effect: .force, text: text, isMet: isMet) }
 
-    var result: SettingsAvailability {
-        switch effect {
+    func result(in configuration: Config) -> SettingsAvailability {
+        let text = contextualText?(configuration) ?? text
+        return switch effect {
             case .hide: .hidden(text)
             case .disable: .disabled(text)
             case .force: .forced(text)
@@ -43,8 +46,19 @@ struct SettingsRequirement {
     // Tabs mode has no window stacks (`Config.usesBrowserTabs`, which also needs the panel on).
     static let hasWindowStacks = hides("Tabs mode has no window stacks. Choose Dock or Sidebar to use this setting.") { !$0.usesBrowserTabs }
     static let showsWindowTabs = disables("Turn on Show window tabs to use this setting.") { $0.windowTabs.enabled }
-    static let panelCanCollapse = disables("Available when the panel isn't kept expanded.") { !$0.workspaceSidebar.pinsSidebarOpen }
-    static let dockCanCollapse = disables("Applies while the Dock can collapse. Turn off Keep the panel expanded to use it.") { !$0.workspaceSidebar.pinsSidebarOpen }
+    static let panelCanCollapse = {
+        var requirement = disables("Available when the panel isn't kept expanded.") { !$0.workspaceSidebar.pinsSidebarOpen }
+        requirement.contextualText = { configuration in
+            let toggle = switch configuration.workspaceSidebar.mode {
+                case .dock: "Keep the Dock expanded"
+                case .sidebar: "Keep the Sidebar expanded"
+                case .tabs: "Keep the tab sidebar expanded"
+            }
+            return "Turn off \(toggle) to use this setting."
+        }
+        return requirement
+    }()
+    static let dockCanCollapse = disables("Applies while the Dock can collapse. Turn off Keep the Dock expanded to use it.") { !$0.workspaceSidebar.pinsSidebarOpen }
     static let showsClock = disables("Turn on Show clock to use this setting.") { $0.workspaceSidebar.showClock }
     // A collapsible side Dock keeps its compact clock even while its project columns are open.
     static let showsClockDate = disables("A side Dock that can collapse shows only the time. Keep the panel expanded or move the Dock to the bottom to show it.") {
@@ -100,9 +114,9 @@ extension SettingsField {
     func availability(in configuration: Config) -> SettingsAvailability {
         let sidebar = configuration.workspaceSidebar
         if let modes, !modes.contains(sidebar.mode) { return .hidden("Used in \(settingsModesText(modes)).") }
-        if let alternative = requirements.first(where: { $0.effect == .hide && !$0.isMet(configuration) }) { return alternative.result }
+        if let alternative = requirements.first(where: { $0.effect == .hide && !$0.isMet(configuration) }) { return alternative.result(in: configuration) }
         if modes != nil, !sidebar.enabled { return .disabled("Turn on Show Dock, Sidebar, or Tabs to use this setting.") }
-        return requirements.first { !$0.isMet(configuration) }?.result ?? .available
+        return requirements.first { !$0.isMet(configuration) }?.result(in: configuration) ?? .available
     }
 
     func availability(_ editor: SettingsEditor) -> SettingsAvailability { availability(in: editor.projection) }

@@ -529,7 +529,7 @@ final class WorkspaceSidebarNativeDockTest: XCTestCase {
         XCTAssertNil(view.menu(for: try mouseEvent(.rightMouseDown, in: view,
             at: CGPoint(x: target.midX, y: target.midY))))
         let model = try XCTUnwrap(identity)
-        XCTAssertTrue(model.entries.contains { $0.title == "Customize Dock & Sidebar…" })
+        XCTAssertTrue(model.entries.contains { $0.title == "Customize Dock…" })
         XCTAssertEqual(model.name, input.workspaces[0].workspace.displayName)
     }
 

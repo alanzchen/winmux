@@ -21,7 +21,10 @@ struct SettingsDockPreview: View {
             }
             ZStack {
                 Color(nsColor: .underPageBackgroundColor)
-                if expanded || !previewConfiguration.showAppIcons || sidebar.alwaysExpanded {
+                if previewConfiguration.usesTabsList {
+                    tabsPreview
+                        .frame(width: min(previewConfiguration.expandedWidth, 245), height: 164)
+                } else if expanded || !previewConfiguration.showAppIcons || sidebar.alwaysExpanded {
                     expandedPreview
                         .frame(width: min(previewConfiguration.expandedWidth, 245), height: 164)
                 } else {
@@ -32,10 +35,56 @@ struct SettingsDockPreview: View {
             .frame(height: 194)
             .clipShape(RoundedRectangle(cornerRadius: 12))
             .overlay { RoundedRectangle(cornerRadius: 12).stroke(Color(nsColor: .separatorColor), lineWidth: 0.5) }
-            Text("Sample workspace. Hover over the icons to try magnification. Preview updates while you adjust a slider; changes save when you release it.")
-                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            Text(caption).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
         }
         .accessibilityIdentifier("settings.dock-preview")
+    }
+
+    private var caption: String {
+        switch sidebar.mode {
+            case .dock: "Sample workspace. Hover over the icons to try magnification. Preview updates while you adjust a slider; changes save when you release it."
+            case .sidebar: "Sample expanded Sidebar. Preview updates while you adjust a slider; changes save when you release it."
+            case .tabs: "Sample tabs. The sidebar takes on the current project's color."
+        }
+    }
+
+    private var tabsPreview: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Label("Search tabs", systemImage: "magnifyingglass").foregroundStyle(.secondary).padding(.bottom, 6)
+            tabRow("envelope", "Mail — Inbox", selected: true, badge: sidebar.showAppBadges ? "3" : nil)
+            tabRow("safari", "Safari — WinMux")
+            if sidebar.browserTabs {
+                tabRow("doc.text", "Release notes", indented: true)
+                tabRow("doc.text", "Issues", indented: true)
+            }
+            tabRow("folder", "Finder — Documents")
+            Spacer(minLength: 0)
+        }
+        .font(.system(size: 12))
+        .padding(12).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background {
+            ZStack {
+                WorkspaceSidebarSurface(shape: RoundedRectangle(cornerRadius: 12), configuration: previewConfiguration)
+                RoundedRectangle(cornerRadius: 12).fill(Color.accentColor.opacity(0.14))
+            }
+        }
+        .allowsHitTesting(false)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Sample tabs: Mail, Safari\(sidebar.browserTabs ? " with two browser tabs" : ""), and Finder")
+    }
+
+    private func tabRow(_ symbol: String, _ title: String, selected: Bool = false, badge: String? = nil, indented: Bool = false) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: symbol).frame(width: 16)
+            Text(title).lineLimit(1)
+            Spacer(minLength: 4)
+            if let badge {
+                Text(badge).font(.system(size: 10, weight: .semibold)).foregroundStyle(.white)
+                    .frame(width: 17, height: 17).background(.red, in: Circle())
+            }
+        }
+        .padding(.leading, indented ? 22 : 6).padding(.trailing, 6).padding(.vertical, 5)
+        .background(selected ? Color.primary.opacity(0.1) : Color.clear, in: RoundedRectangle(cornerRadius: 6))
     }
 
     private var expandedPreview: some View {

@@ -22,13 +22,16 @@ struct SettingsScrollRetention: NSViewRepresentable {
     func makeNSView(context: Context) -> SettingsScrollAnchor {
         SettingsScrollAnchor(page: page, revealingTarget: revealingTarget, textEditor: textEditor)
     }
-    func updateNSView(_ view: SettingsScrollAnchor, context: Context) { view.revealingTarget = revealingTarget }
+    func updateNSView(_ view: SettingsScrollAnchor, context: Context) {
+        view.revealingTarget = revealingTarget
+        view.show(page)
+    }
     static func dismantleNSView(_ view: SettingsScrollAnchor, coordinator: ()) { view.detach() }
 }
 
 @MainActor
 final class SettingsScrollAnchor: NSView {
-    private let page: String
+    private(set) var page: String
     private weak var scroll: NSScrollView?
     private var observation: SettingsScrollObservation?
     private var restored = false
@@ -52,18 +55,7 @@ final class SettingsScrollAnchor: NSView {
         guard !dismantled, scroll == nil, let scroll = textEditor ? editorScrollView() : enclosingScrollView else { return }
         self.scroll = scroll
         scroll.contentView.postsBoundsChangedNotifications = true
-        if !revealingTarget, let point = SettingsScrollMemory.shared.positions[page] {
-            DispatchQueue.main.async { [weak self, weak scroll] in
-                guard let self, !self.dismantled, let scroll else { return }
-                if !self.revealingTarget {
-                    let y = min(point.y, max((scroll.documentView?.bounds.height ?? 0) - scroll.contentView.bounds.height, 0))
-                    let x = min(point.x, max((scroll.documentView?.bounds.width ?? 0) - scroll.contentView.bounds.width, 0))
-                    scroll.contentView.scroll(to: CGPoint(x: max(x, 0), y: max(y, 0)))
-                    scroll.reflectScrolledClipView(scroll.contentView)
-                }
-                self.restored = true
-            }
-        } else { restored = true }
+        restore(SettingsScrollMemory.shared.positions[page])
         observation = SettingsScrollObservation(NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification,
             object: scroll.contentView, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated {
@@ -72,6 +64,30 @@ final class SettingsScrollAnchor: NSView {
                 }
             })
     }
+    /// The same scroll view now shows another page, such as another panel mode. Switch keys
+    /// before its new content lays out, so that layout isn't recorded as the old page's offset.
+    func show(_ next: String) {
+        guard next != page else { return }
+        page = next
+        guard scroll != nil else { return }
+        restored = false
+        restore(SettingsScrollMemory.shared.positions[next] ?? .zero)
+    }
+
+    private func restore(_ point: CGPoint?) {
+        guard !revealingTarget, let point, let scroll else { restored = true; return }
+        DispatchQueue.main.async { [weak self, weak scroll] in
+            guard let self, !self.dismantled, let scroll else { return }
+            if !self.revealingTarget {
+                let y = min(point.y, max((scroll.documentView?.bounds.height ?? 0) - scroll.contentView.bounds.height, 0))
+                let x = min(point.x, max((scroll.documentView?.bounds.width ?? 0) - scroll.contentView.bounds.width, 0))
+                scroll.contentView.scroll(to: CGPoint(x: max(x, 0), y: max(y, 0)))
+                scroll.reflectScrolledClipView(scroll.contentView)
+            }
+            self.restored = true
+        }
+    }
+
     private func editorScrollView() -> NSScrollView? {
         func find(in view: NSView) -> NSScrollView? {
             if let scroll = view as? NSScrollView, let text = scroll.documentView as? NSTextView, text.isEditable { return scroll }

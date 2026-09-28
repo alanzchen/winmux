@@ -1,5 +1,16 @@
 import Common
 
+/// Whether turning Tabs mode on would move stack entries into new workspaces, which
+/// Settings Undo can't rebuild. Reads the tree without creating root containers.
+@MainActor
+func workspacesHaveWindowStacks() -> Bool {
+    func hasStack(_ node: TreeNode) -> Bool {
+        if let container = node as? TilingContainer, container.layout == .tabGroup, container.children.count > 1 { return true }
+        return node.children.contains(where: hasStack)
+    }
+    return Workspace.all.contains { $0.children.contains(where: hasStack) }
+}
+
 /// Tabs mode has one navigation surface. Keep the selected entry in place and move
 /// each other stack entry to its own workspace, retaining the entry's split subtree.
 /// This also handles stacks restored from saved layouts while Tabs mode is running.

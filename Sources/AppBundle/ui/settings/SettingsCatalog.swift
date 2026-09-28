@@ -9,7 +9,7 @@ enum SettingsGroup: String, CaseIterable, Identifiable {
         switch self {
             case .startup: "Startup"
             case .menuBar: "Menu bar"
-            case .dockMode: "Dock & Sidebar"
+            case .dockMode: "Workspace panel"
             case .placement: "Position & visibility"
             case .dockAppearance: "Compact Dock appearance"
             case .sidebarAppearance: "Sidebar / expanded panel appearance"
@@ -72,10 +72,20 @@ struct SettingsField: Identifiable {
     var isSet: ((Config) -> Bool)?
     /// Removes such a key from a draft projection.
     var clear: ((inout Config) -> Void)?
+    /// A label and help that name what a key shared by several modes does in the current one.
+    var contextualTitle: ((Config) -> String)?
+    var contextualHelp: ((Config) -> String)?
+    /// Other labels search finds this setting by.
+    var searchAliases: [String] = []
     nonisolated var id: String { [section, key].compactMap { $0 }.joined(separator: ".") }
     var defaultValue: SettingsValue { preferenceDefault ?? read(defaultConfig) }
     func defaultValue(for configuration: Config) -> SettingsValue { unsetValue?(configuration) ?? defaultValue }
-    var searchText: String { "\(title) \(help) \(id) \(group.title) \(group.page.label)" }
+    var searchText: String {
+        let modeNames = modes.map { WorkspaceSidebarMode.settingsOrder.filter($0.contains).map(\.settingsTitle).joined(separator: " ") } ?? ""
+        return "\(title) \(searchAliases.joined(separator: " ")) \(help) \(id) \(group.title) \(group.page.label) \(modeNames)"
+    }
+    func title(in configuration: Config) -> String { contextualTitle?(configuration) ?? title }
+    func help(in configuration: Config) -> String { contextualHelp?(configuration) ?? help }
 }
 
 extension SettingsField {
@@ -91,6 +101,27 @@ extension SettingsField {
     func projecting(_ project: @escaping (inout Config, SettingsValue) -> Void) -> SettingsField {
         var field = self
         field.project = project
+        return field
+    }
+
+    /// A Dock that can collapse sizes each floating project column; kept expanded, its panel.
+    func dockWidthTitle() -> SettingsField {
+        var field = self
+        let title = field.contextualTitle, help = field.contextualHelp
+        let column = ("Project column width", "Width of each project column in the Dock's floating view, in points.")
+        let panel = ("Panel width", "Width of the kept-expanded Dock, in points. On the left or right, you can also drag its inner edge.")
+        field.contextualTitle = { $0.workspaceSidebar.mode == .dock ? ($0.workspaceSidebar.pinsSidebarOpen ? panel.0 : column.0) : title?($0) ?? field.title }
+        field.contextualHelp = { $0.workspaceSidebar.mode == .dock ? ($0.workspaceSidebar.pinsSidebarOpen ? panel.1 : column.1) : help?($0) ?? field.help }
+        field.searchAliases += [column.0, panel.0]
+        return field
+    }
+
+    /// Per-mode label and help for a key several modes share. Search finds every label.
+    func titled(by mode: [WorkspaceSidebarMode: (title: String, help: String)]) -> SettingsField {
+        var field = self
+        field.contextualTitle = { mode[$0.workspaceSidebar.mode]?.title ?? field.title }
+        field.contextualHelp = { mode[$0.workspaceSidebar.mode]?.help ?? field.help }
+        field.searchAliases += mode.values.map(\.title)
         return field
     }
 }
@@ -156,7 +187,7 @@ enum SettingsCatalog {
         var result: [SettingsField] = [
             bool(.startup, "start-at-login", "Start at login", "Launch WinMux after you sign in.", path: \.startAtLogin),
             bool(.startup, "auto-reload-config", "Reload TOML automatically", "Apply valid configuration edits saved from another editor.", path: \.autoReloadConfig),
-            bool(.dockMode, "enabled", "Show Dock or Sidebar", "Show the workspace rail on the configured displays.", section: sidebar, path: \.workspaceSidebar.enabled),
+            bool(.dockMode, "enabled", "Show the workspace panel", "Show the Dock, Sidebar, or Tabs panel on the configured displays.", section: sidebar, path: \.workspaceSidebar.enabled),
             choice(.dockMode, "mode", "Mode", "Dock shows workspace tiles and app icons. Sidebar shows a compact rail that expands into window details. Tabs opens a full sidebar with optional color groups and split windows sharing a row.", section: sidebar,
                 options: [.init("Dock", "dock"), .init("Sidebar", "sidebar"), .init("Tabs", "tabs")], read: { $0.workspaceSidebar.mode.rawValue },
                 project: SettingsProjection.raw(\.workspaceSidebar.mode)),
@@ -172,9 +203,13 @@ enum SettingsCatalog {
                 project: SettingsProjection.raw(\.workspaceSidebar.displayFilter))
                 .used(in: .allModes),
             bool(.placement, "auto-hide", "Automatically hide the rail", "Reveal the compact rail when the pointer reaches its display edge.", section: sidebar, path: \.workspaceSidebar.autoHide)
-                .used(in: .allModes).requiring(.panelCanCollapse),
+                .used(in: .allModes).requiring(.panelCanCollapse)
+                .titled(by: [.dock: ("Automatically hide the Dock", "Reveal the Dock when the pointer reaches its display edge."),
+                             .tabs: ("Automatically hide the collapsed rail", "Reveal the collapsed tab rail when the pointer reaches the left edge of its display.")]),
             bool(.placement, "always-expanded", "Keep the panel expanded", "Reserve space for window details instead of collapsing to the compact rail.", section: sidebar, path: \.workspaceSidebar.alwaysExpanded)
-                .used(in: collapsibleRails),
+                .used(in: collapsibleRails)
+                .titled(by: [.dock: ("Keep the Dock expanded", "Replace the compact Dock with a reserved panel of window details."),
+                             .sidebar: ("Keep the Sidebar expanded", "Reserve space for window details instead of collapsing to the compact rail.")]),
             bool(.placement, "tabs-always-expanded", "Keep the tab sidebar expanded", "Keep the browser-style sidebar open in Tabs mode. This setting is independent of Dock and Sidebar modes.", section: sidebar, path: \.workspaceSidebar.tabsAlwaysExpanded)
                 .used(in: [.tabs]),
             bool(.dockContent, "browser-tabs", "Show browser tabs", "List and select tabs inside Safari and compatible Chrome, Brave, and Edge windows. Applies to the expanded Tabs sidebar.", section: sidebar, path: \.workspaceSidebar.browserTabs)
@@ -185,7 +220,7 @@ enum SettingsCatalog {
                 .used(in: .allModes),
             int(.placement, "menu-bar-reserve-height", "Menu bar space", "Space below the macOS menu bar, in points. Set to 0 when the menu bar auto-hides.", section: sidebar, range: 0...72, path: \.workspaceSidebar.menuBarReserveHeight)
                 .used(in: .allModes),
-            choice(.dockAppearance, "style", "Background style", "Background of the compact Dock. When the Dock expands, it uses the Sidebar / expanded panel appearance.", section: dock,
+            choice(.dockAppearance, "style", "Background style", "Background of the compact Dock. When the Dock expands, it uses the Expanded view settings.", section: dock,
                 options: [.init("Liquid Glass", "liquid-glass"), .init("Solid color", "solid")], read: { $0.workspaceSidebar.dockChromeStyle.rawValue },
                 project: SettingsProjection.raw(\.workspaceSidebar.dockAppearance.style))
                 .used(in: dockOnly).requiring(.dockCanCollapse),
@@ -226,9 +261,14 @@ enum SettingsCatalog {
                 read: { .number($0.workspaceSidebar.sidebarAppearance.backgroundOpacity) }, project: SettingsProjection.number(\.workspaceSidebar.sidebarAppearance.backgroundOpacity))
                 .used(in: collapsibleRails).requiring(.disables("Turn on Blur background to adjust darkness.") { $0.workspaceSidebar.sidebarAppearance.blur }),
             int(.sidebarAppearance, "width", "Expanded width", "Width in points of the expanded panel, or of each project column in the Dock's floating view. When the panel is kept expanded, you can also drag its inner edge.", section: sidebar, range: workspaceSidebarResizableWidthRange, path: \.workspaceSidebar.width)
-                .used(in: .allModes),
+                .used(in: .allModes)
+                .titled(by: [.sidebar: ("Expanded width", "Width of the expanded Sidebar, in points. While it's kept expanded, you can also drag its inner edge."),
+                             .tabs: ("Sidebar width", "Width of the open tab sidebar, in points. While it's kept open, you can also drag its inner edge.")])
+                .dockWidthTitle(),
             int(.sidebarAppearance, "collapsed-width", "Collapsed width", "Compact rail width in Sidebar and Tabs modes. Dock thickness follows icon size.", section: sidebar, range: 28...120, path: \.workspaceSidebar.collapsedWidth)
-                .used(in: [.sidebar, .tabs]).requiring(.panelCanCollapse),
+                .used(in: [.sidebar, .tabs]).requiring(.panelCanCollapse)
+                .titled(by: [.sidebar: ("Collapsed width", "Width of the compact rail, in points."),
+                             .tabs: ("Collapsed rail width", "Width of the collapsed tab rail, in points.")]),
             bool(.dockContent, "show-clock", "Show clock", "Display time and optional date details in the rail.", section: sidebar, path: \.workspaceSidebar.showClock)
                 .used(in: collapsibleRails),
             bool(.dockContent, "show-seconds", "Show seconds", "Include seconds in the clock.", section: sidebar, path: \.workspaceSidebar.showSeconds)

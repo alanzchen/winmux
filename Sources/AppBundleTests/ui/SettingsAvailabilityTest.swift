@@ -275,6 +275,52 @@ final class SettingsAvailabilityTest: XCTestCase {
         XCTAssertTrue(editor.unsetDrafts.isEmpty)
     }
 
+    func testRevertAndUndoClearARestoresUnsetIntent() async {
+        let saved = config
+        defer { config = saved }
+        let disk = SettingsTestDisk()
+        disk.text += "open-new-windows-in-new-workspace = false\n[workspace-sidebar]\n    enabled = true\n    mode = 'tabs'\n"
+        config = parseConfig(disk.text).config
+        let editor = SettingsEditor(persistence: disk.persistence)
+        let newWorkspace = SettingsCatalog.field("open-new-windows-in-new-workspace")
+        disk.failWrites = true
+        editor.reset(.newWindows)
+        await editor.waitUntilIdle()
+        XCTAssertTrue(editor.unsetDrafts.contains(newWorkspace.id))
+        editor.revertDrafts()
+        XCTAssertTrue(editor.unsetDrafts.isEmpty)
+        XCTAssertEqual(editor.projection.openNewWindowsInNewWorkspace, false)
+        XCTAssertEqual(editor.value(newWorkspace), .bool(false))
+
+        disk.failWrites = false
+        editor.reset(.newWindows)
+        await editor.waitUntilIdle()
+        XCTAssertNil(config.openNewWindowsInNewWorkspace)
+        XCTAssertEqual(editor.value(newWorkspace), .bool(true), "Unset follows Tabs")
+        editor.undo()
+        await editor.waitUntilIdle()
+        XCTAssertEqual(config.openNewWindowsInNewWorkspace, false)
+        XCTAssertTrue(editor.unsetDrafts.isEmpty)
+        XCTAssertEqual(editor.value(newWorkspace), .bool(false))
+    }
+
+    func testRestoringAlreadyDefaultNewWindowSettingsWritesNothing() async {
+        let saved = config
+        defer { config = saved }
+        let disk = SettingsTestDisk()
+        for field in SettingsCatalog.fields where field.group == .newWindows && field.unsetValue == nil {
+            disk.text += "\(field.key) = \(field.render(field.defaultValue))\n"
+        }
+        config = parseConfig(disk.text).config
+        XCTAssertNil(config.openNewWindowsInNewWorkspace)
+        let editor = SettingsEditor(persistence: disk.persistence)
+        editor.reset(.newWindows)
+        await editor.waitUntilIdle()
+        XCTAssertTrue(disk.writes.isEmpty)
+        XCTAssertTrue(editor.drafts.isEmpty)
+        XCTAssertTrue(editor.unsetDrafts.isEmpty)
+    }
+
     /// An older save of the same value must not clear a newer edit with a different intent.
     func testOlderSaveKeepsANewerEditWithTheSameValueButDifferentIntent() async {
         let saved = config

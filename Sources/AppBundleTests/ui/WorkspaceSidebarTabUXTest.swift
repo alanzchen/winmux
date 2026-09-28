@@ -527,7 +527,7 @@ final class WorkspaceSidebarTabUXTest: XCTestCase {
         TrayMenuModel.shared.workspaceSidebarProjects = fixture().projects
         var sent: [WorkspaceSidebarAction] = []
         let menu = workspaceSidebarWorkspaceIdentityMenuModel(workspace, windowId: 62, send: { sent.append($0) })
-        XCTAssertFalse(menu.entries.contains { $0.title.contains("Workspace") && $0.title != "Customize Dock & Sidebar…" })
+        XCTAssertFalse(menu.entries.contains { $0.title.contains("Workspace") && !$0.title.hasPrefix("Customize") })
         try XCTUnwrap(menu.entries.first { $0.title == "Close Window" }?.perform)()
         try XCTUnwrap(menu.entries.first { $0.title == "Move Notes to New Tab" }?.perform)()
         try XCTUnwrap(menu.entries.first { $0.title == "Move to Project" }?.children.first?.perform)()

@@ -2,22 +2,53 @@
 
 Settings has six pages. The last page, Advanced tab, window size, and per-page
 scroll positions are retained. Right-click a workspace tile and choose
-**Customize Dock & Sidebar…** to open the appearance controls directly.
+**Customize Dock…** or **Customize Sidebar…**, or click the gear at the bottom of
+the Tabs sidebar, to open the Workspace Panel page directly.
 
 | Page | Controls |
 | --- | --- |
 | General | Startup, automatic TOML reload, menu bar, permissions |
-| Dock & Sidebar | Mode, position, visibility, separate compact/expanded appearance, content |
+| Workspace Panel | Panel switch and mode cards; the active mode's settings; settings every mode shares |
 | Windows & Layout | New-window behavior, default layout, window chrome, tabs, tiling gaps |
 | Projects & Workspaces | Project deletion, saved workspaces, persistent workspaces, shortcut preset, workspace shortcuts |
 | Shortcuts | Window-management shortcuts and directional controls |
 | Advanced | TOML Editor, automation actions, performance diagnostics, configuration reference |
 
+## Workspace Panel
+
+The panel switch and three mode cards, Dock, Sidebar, and Tabs, stay at the top.
+Choosing a card switches the running panel. Below them are the live preview, the
+active mode's sections, and **Shared across modes** (which displays' workspaces to
+list, the Focused filter, menu bar space, keeping above the macOS Dock, and which
+displays have a panel). There's no editing of another mode's settings: the modes
+share one configuration, so other modes' rows are hidden. A row that also changes
+other modes says so, and a shared key can have a different label in each mode.
+For example, `width` is Project column width on a Dock that can collapse, Panel
+width on one kept expanded, Expanded width in Sidebar, and Sidebar width in Tabs.
+
+Turning on Tabs mode's panel moves window stack entries into separate tabs, which
+Undo can't rebuild. When stacks with more than one window exist, the mode card,
+turning on a panel set to Tabs, or an Undo that would do either asks first. Picking
+Tabs while the panel is off doesn't ask. If a mode can't be saved, its card says
+**Not applied** while the running panel keeps the previous mode.
+
+A section's **Restore Defaults** resets only that section's rows; its menu names
+the other modes any of them also change. Each mode, and the page with the panel
+off, keeps its own scroll position. With the panel off, only the switch and cards
+remain.
+
+Search names the mode and section of each result. Opening a result from another
+mode, or any panel setting while the panel is off, shows it at the top of the page,
+disabled, with **Use Dock** (or the mode it belongs to) and **Turn On the Panel**.
+Opening a result never switches the mode by itself.
+
 ## Preview and dependent controls
 
-Choose Dock or Sidebar first. Left/Bottom/Right buttons explain native Dock
-auto-hide behavior. The interactive sample uses WinMux's existing shelf material,
-workspace tile, and magnification geometry; it does not control sample windows.
+The Dock's Left/Bottom/Right buttons explain native Dock auto-hide behavior. The
+Dock's interactive sample uses WinMux's existing shelf material, workspace tile,
+and magnification geometry; it does not control sample windows. Sidebar shows its
+expanded surface. The Tabs preview shows sample rows on the Tabs background, with
+badges and browser tabs when those settings are on.
 It responds immediately to slider drafts, which save when dragging finishes.
 Color changes save after a short pause. Toggles and menus save immediately.
 Text fields use **Apply** or Return; automation actions use **Apply**.
@@ -29,7 +60,7 @@ stays in view, disabled, and says what to change. Examples are seconds under the
 clock, the magnification amount, and compact-Dock settings while the Dock is kept
 expanded. When a mode fixes a behavior, the row says so instead of showing a switch;
 in Tabs mode, New Tab always opens the launcher. Tabs mode has no window stacks, so
-their settings are hidden while its panel is on. Compact Dock and
+their settings are hidden while its panel is on, and Window tabs says why. Compact Dock and
 Sidebar/expanded-panel appearance remain separate.
 **Maximum icon size** explains adaptive sizing and reports the current fitted
 size when a running panel is smaller. Magnification is displayed as a multiplier.

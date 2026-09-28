@@ -123,6 +123,11 @@ final class SettingsEditor: ObservableObject {
     @Published private(set) var unsetDrafts: Set<String> = [] { didSet { updateProjection() } }
     /// The configuration with unsaved drafts applied, for availability and the preview.
     private(set) var projection: Config
+    /// Turning on Tabs mode's panel moves window stack entries into separate workspaces,
+    /// which Undo can't rebuild. Such a change waits here until the user confirms it.
+    @Published private(set) var pendingTabsSwitch: PendingTabsSwitch?
+    enum PendingTabsSwitch: Equatable { case commit(String), undo }
+    var hasWindowStacks: () -> Bool = { workspacesHaveWindowStacks() }
     @Published private(set) var isSaving = false
     @Published private(set) var error: String?
     @Published private(set) var undoTitle: String?
@@ -173,18 +178,50 @@ final class SettingsEditor: ObservableObject {
 
     func commit(_ field: SettingsField) {
         guard let value = drafts[field.id] else { return }
+        if turnsOnTabs(field.id) {
+            pendingTabsSwitch = .commit(field.id)
+            return
+        }
         enqueue(Request(title: field.title, fields: [field], values: [field.id: value]))
     }
 
-    func reset(_ group: SettingsGroup) {
-        let fields = SettingsCatalog.fields.filter {
-            $0.group == group && ($0.key != "persistent-workspaces" || configuration.configVersion >= 2)
+    private func turnsOnTabs(_ id: String) -> Bool {
+        var others = drafts
+        others.removeValue(forKey: id)
+        let before = SettingsProjection.apply(others, unsetting: unsetDrafts, to: configuration)
+        return !before.usesBrowserTabs && projection.usesBrowserTabs && hasWindowStacks()
+    }
+
+    func confirmTabsSwitch() {
+        guard let pending = pendingTabsSwitch else { return }
+        pendingTabsSwitch = nil
+        switch pending {
+            case .commit(let id):
+                let field = SettingsCatalog.field(id)
+                if let value = drafts[id] { enqueue(Request(title: field.title, fields: [field], values: [id: value])) }
+            case .undo: performUndo()
         }
+    }
+
+    func cancelTabsSwitch() {
+        guard let pending = pendingTabsSwitch else { return }
+        pendingTabsSwitch = nil
+        if case .commit(let id) = pending { drafts.removeValue(forKey: id) }
+    }
+
+    func reset(_ group: SettingsGroup) {
+        reset(SettingsCatalog.fields.filter { $0.group == group }, title: group.title)
+    }
+
+    /// Restores `fields`, one Undo entry. A Workspace Panel section passes only its own rows,
+    /// so settings other modes use elsewhere keep their values.
+    func reset(_ fields: [SettingsField], title: String) {
+        let fields = fields.filter { $0.key != "persistent-workspaces" || configuration.configVersion >= 2 }
         let values = Dictionary(uniqueKeysWithValues: fields.map { ($0.id, $0.defaultValue(for: projection)) })
         let unsetting = Set(fields.filter { $0.unsetValue != nil }.map(\.id))
         drafts.merge(values) { _, next in next }
         unsetDrafts.formUnion(unsetting)
-        enqueue(Request(title: "Restore \(group.title)", fields: fields, values: values, unsetting: unsetting))
+        enqueue(Request(title: "Restore \(title)", fields: fields, values: values, unsetting: unsetting))
     }
 
     func saveRaw(_ edits: [SettingsFileEdit], title: String) {
@@ -216,6 +253,15 @@ final class SettingsEditor: ObservableObject {
     }
 
     func undo() {
+        guard !isSaving, failedRequest == nil, queue.isEmpty, let entry = history.last else { return }
+        if let file = entry.file, !configuration.usesBrowserTabs, parseConfig(file.before).config.usesBrowserTabs, hasWindowStacks() {
+            pendingTabsSwitch = .undo
+            return
+        }
+        performUndo()
+    }
+
+    private func performUndo() {
         guard !isSaving, failedRequest == nil, queue.isEmpty, let entry = history.last else { return }
         isSaving = true
         error = nil
