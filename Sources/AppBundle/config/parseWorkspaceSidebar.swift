@@ -39,6 +39,12 @@ private let workspaceSidebarParser: [String: any ParserProtocol<WorkspaceSidebar
     "monitor": Parser(\.monitor) { value, backtrace, errors in
         parseMonitorDescriptions(value, backtrace, &errors)
     },
+    "display-filter": Parser(\.displayFilter) { raw, backtrace in
+        parseString(raw, backtrace).flatMap { value in
+            WorkspaceSidebarDisplayFilter(rawValue: value)
+                .orFailure(.semantic(backtrace, "Possible values: this-display, all-displays"))
+        }
+    },
     "show-status-pills": Parser(\.showStatusPills, parseBool),
     "show-clock": Parser(\.showClock, parseBool),
     "show-seconds": Parser(\.showSeconds, parseBool),

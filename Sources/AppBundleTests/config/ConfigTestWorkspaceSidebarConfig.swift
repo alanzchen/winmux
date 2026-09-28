@@ -33,6 +33,17 @@ extension ConfigTest {
         XCTAssertFalse(errors.isEmpty)
     }
 
+    func testDisplayFilterDefaultsToThisDisplayAndParsesBothValues() {
+        XCTAssertEqual(parseConfig("[workspace-sidebar]").0.workspaceSidebar.displayFilter, .thisDisplay)
+        for filter in WorkspaceSidebarDisplayFilter.allCases {
+            let (parsed, errors) = parseConfig("[workspace-sidebar]\ndisplay-filter = '\(filter.rawValue)'")
+            XCTAssertTrue(errors.isEmpty)
+            XCTAssertEqual(parsed.workspaceSidebar.displayFilter, filter)
+        }
+        let (_, errors) = parseConfig("[workspace-sidebar]\ndisplay-filter = 'main'")
+        XCTAssertFalse(errors.isEmpty)
+    }
+
     func testParseWorkspaceSidebar() {
         let (parsed, errors) = parseConfig(
             """

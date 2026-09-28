@@ -4,6 +4,25 @@ enum WorkspaceSidebarSearchSelection: Hashable {
     case browserTab(BrowserTabTarget)
 }
 
+/// The panel keeps the key handler a search session began with, and a handler captured then
+/// would read that moment's snapshot. The panel's handler forwards here instead, and each view
+/// update replaces `handler` with one that reads the current snapshot.
+@MainActor
+final class WorkspaceSidebarSearchKeyRelay {
+    var handler: (@MainActor (WorkspaceSidebarInlineTextKey) -> Void)?
+
+    func send(_ key: WorkspaceSidebarInlineTextKey) { handler?(key) }
+}
+
+/// The search selection while it's still among the listed matches. A display filter or
+/// workspace change can hide it, and Enter must not open a result that isn't listed.
+func workspaceSidebarListedSearchTarget(
+    _ target: WorkspaceSidebarSearchSelection?,
+    in selections: [WorkspaceSidebarSearchSelection],
+) -> WorkspaceSidebarSearchSelection? {
+    target.flatMap { selections.contains($0) ? $0 : nil }
+}
+
 func workspaceSidebarSearchSelections(
     workspaces: [WorkspaceSidebarWorkspaceViewModel],
     browserTabs: [UInt32: BrowserWindowTabs] = [:],

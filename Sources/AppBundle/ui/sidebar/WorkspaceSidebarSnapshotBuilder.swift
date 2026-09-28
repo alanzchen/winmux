@@ -39,5 +39,7 @@ func workspaceSidebarConfiguration() -> WorkspaceSidebarConfiguration {
         configuredCollapsedWidth: CGFloat(config.workspaceSidebar.effectiveCollapsedWidth),
         alwaysExpanded: config.workspaceSidebar.pinsSidebarOpen,
         tabCollections: workspaceSidebarOrganizationStore.state.collections,
+        displayFilter: config.workspaceSidebar.displayFilter,
+        panelsCoverEveryDisplay: workspaceSidebarPanelsCoverEveryDisplay(),
     )
 }

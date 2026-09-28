@@ -1,5 +1,8 @@
 # Dock monitor-filter defaults — September 18, 2026
 
+> Since September 27, 2026, Sidebar and Tabs also default to their own display,
+> controlled by `display-filter`. See [display-filter-validation.md](display-filter-validation.md).
+
 Each Dock initially selects its own display's existing Monitor filter. Sidebar
 mode retains its original Default filter. A menu choice is panel-local and survives
 refreshes, expansion, focus changes, and mode changes. Temporarily clearing the

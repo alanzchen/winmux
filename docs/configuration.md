@@ -111,6 +111,23 @@ The sidebar's bottom edge follows the same display reservation and outer gap as
 the tiled windows. Enable `show-app-badges` to mirror native Dock labels at the
 right of tabs and on pinned icons; compact icons show small red dots.
 
+## Show workspaces from this display or all displays
+
+Each Dock, Sidebar, or Tabs panel lists only the workspaces on the display it's on.
+To list every display's workspaces in every panel instead:
+
+```toml
+[workspace-sidebar]
+display-filter = 'all-displays' # Default: 'this-display'
+```
+
+A panel's display menu lists This Display, All Displays, Focused (with
+`enable-focus`), and the other displays by name. A choice there applies to that
+panel only and lasts until WinMux quits, the chosen display disconnects, or
+`display-filter` changes. With This Display or All Displays, workspaces open
+from their rows in every mode. When `monitor` leaves a display without a panel,
+panels list every display so that display's workspaces stay reachable.
+
 ## Hide the rail or keep it expanded
 
 To reveal the rail only when the pointer reaches its display edge:

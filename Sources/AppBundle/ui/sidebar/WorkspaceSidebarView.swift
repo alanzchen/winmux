@@ -3,7 +3,7 @@ import Common
 import SwiftUI
 
 struct WorkspaceSidebarView: View {
-    let snapshot: WorkspaceSidebarSnapshot
+    var snapshot: WorkspaceSidebarSnapshot
     let actions: WorkspaceSidebarActions
     let dockBadgeModel: WorkspaceSidebarDockBadgeModel
     @ObservedObject var dockBadgePresence: WorkspaceSidebarDockBadgePresence
@@ -58,6 +58,8 @@ struct WorkspaceSidebarView: View {
     @State var isSearchEditing = false
     @State var searchEditingPanel: WorkspaceSidebarPanel? = nil
     @State var selectedSearchTarget: WorkspaceSidebarSearchSelection? = nil
+    /// Forwards search keys from the panel to the latest view. See WorkspaceSidebarSearchKeyRelay.
+    @State var searchKeyRelay: WorkspaceSidebarSearchKeyRelay
     /// Tabs mode folders the user collapsed, by workspace name. Kept for the panel's lifetime.
     @State var collapsedTabFolderNames: Set<String> = []
     @State var lastProjectEdgeDragDirection: Int? = nil
@@ -78,13 +80,14 @@ struct WorkspaceSidebarView: View {
     init(snapshot: WorkspaceSidebarSnapshot, actions: WorkspaceSidebarActions = WorkspaceSidebarActions(),
          reduceMotionOverride: Bool? = nil, reduceTransparencyOverride: Bool? = nil,
          dockBadgeModel: WorkspaceSidebarDockBadgeModel = .shared, searchText: String = "",
-         browserTabsModel: BrowserTabsModel = .shared) {
+         browserTabsModel: BrowserTabsModel = .shared, searchKeyRelay: WorkspaceSidebarSearchKeyRelay? = nil) {
         self.snapshot = snapshot
         self.dockBadgeModel = dockBadgeModel
         self.dockBadgePresence = dockBadgeModel.presence
         self.browserTabsModel = browserTabsModel
         self.actions = actions
         self._searchText = State(initialValue: searchText)
+        self._searchKeyRelay = State(initialValue: searchKeyRelay ?? WorkspaceSidebarSearchKeyRelay())
         self.reduceMotionOverride = reduceMotionOverride
         self.reduceTransparencyOverride = reduceTransparencyOverride
     }
@@ -208,10 +211,16 @@ struct WorkspaceSidebarView: View {
         .onAppear {
             lastActiveProjectId = snapshot.activeProjectId
             updateBrowserWatch()
+            refreshSidebarSearchKeyHandler()
         }
+        .onChange(of: snapshot) { refreshSidebarSearch(for: $0) }
         .onChange(of: watchedBrowserWindowIds) { _ in updateBrowserWatch() }
         .onChange(of: snapshot.targetMonitorScopeId) { _ in updateBrowserWatch() }
-        .onDisappear { if let scope = browserWatchScope { browserTabsModel.watch([], sidebar: scope) } }
+        .onDisappear {
+            if let scope = browserWatchScope { browserTabsModel.watch([], sidebar: scope) }
+            // The handler holds a copy of this view, which holds the relay.
+            searchKeyRelay.handler = nil
+        }
         .onChange(of: isSearchEditing || !searchText.isEmpty) { searching in
             if searching { WorkspaceSidebarTabSelection.shared.clear() }
         }
@@ -376,8 +385,8 @@ struct WorkspaceSidebarView: View {
             onCancel: {
                 finishSidebarSearch(clearText: true)
             },
-            onKeyDown: { key in
-                handleSidebarSearchKey(key)
+            onKeyDown: { [searchKeyRelay] key in
+                searchKeyRelay.send(key)
             },
         )
         let bufferedKeys = editingPanel.bufferedCommandSidebarSearchKeys
@@ -436,6 +445,27 @@ struct WorkspaceSidebarView: View {
         selectedSearchTarget = searchText.isEmpty ? nil : currentSearchSelections().first
     }
 
+    /// Points the panel's search keys at this view, whose snapshot is the current one.
+    func refreshSidebarSearchKeyHandler() {
+        searchKeyRelay.handler = { key in handleSidebarSearchKey(key) }
+    }
+
+    /// `onChange` runs with the previous view, so search keys and the selection check work
+    /// from a copy that has the new snapshot. A filter or workspace change can hide the
+    /// selected result; the first listed one is selected instead.
+    func refreshSidebarSearch(for newSnapshot: WorkspaceSidebarSnapshot) {
+        var current = self
+        current.snapshot = newSnapshot
+        current.refreshSidebarSearchKeyHandler()
+        let listingChanged = newSnapshot.selectedMonitorScopeId != snapshot.selectedMonitorScopeId ||
+            newSnapshot.focusedMonitorScopeId != snapshot.focusedMonitorScopeId ||
+            newSnapshot.activeProjectId != snapshot.activeProjectId || newSnapshot.workspaces != snapshot.workspaces
+        guard current.selectedSearchTarget != nil, listingChanged,
+              workspaceSidebarListedSearchTarget(current.selectedSearchTarget, in: current.currentSearchSelections()) == nil
+        else { return }
+        current.selectFirstSearchTarget()
+    }
+
     func moveSearchSelection(delta: Int) {
         let selections = currentSearchSelections()
         guard !selections.isEmpty else {
@@ -453,7 +483,10 @@ struct WorkspaceSidebarView: View {
     }
 
     func activateSelectedSearchTarget() {
-        guard let selectedSearchTarget else { return }
+        guard let selectedSearchTarget = workspaceSidebarListedSearchTarget(selectedSearchTarget, in: currentSearchSelections()) else {
+            selectFirstSearchTarget()
+            return
+        }
         let panel = searchEditingPanel ?? WorkspaceSidebarPanel.shared
         switch selectedSearchTarget {
             case .workspace(let workspaceName):
@@ -870,8 +903,11 @@ extension WorkspaceSidebarView {
             browsedProjectId: browsedProjectId,
             expansionProgress: expansionProgress,
             sectionWidth: workspaceSidebarTopSectionWidth(expansionProgress: expansionProgress, layout: layout),
+            targetScopeId: snapshot.targetMonitorScopeId,
+            automaticScopeId: workspaceSidebarAutomaticScopeId(snapshot.configuration,
+                targetScopeId: snapshot.targetMonitorScopeId),
             onSelectScope: { scopeId in
-                if scopeId == workspaceSidebarDefaultScopeId {
+                if scopeId == workspaceSidebarDefaultScopeId || scopeId == snapshot.targetMonitorScopeId {
                     browseMode = .activeProject
                 }
                 actions.send(.selectMonitorScope(scopeId))
@@ -1447,10 +1483,14 @@ extension WorkspaceSidebarView {
         )
     }
 
-    func allowsWorkspaceActivation(projectId: WorkspaceProjectId) -> Bool {
-        let showsLocalDock = snapshot.configuration.showAppIcons &&
+    /// Rows open workspaces with All Displays or the panel's own display chosen, in every mode.
+    var selectedScopeAllowsActivation: Bool {
+        snapshot.selectedMonitorScopeId == workspaceSidebarDefaultScopeId ||
             snapshot.selectedMonitorScopeId == snapshot.targetMonitorScopeId
-        return (snapshot.selectedMonitorScopeId == workspaceSidebarDefaultScopeId || showsLocalDock) &&
+    }
+
+    func allowsWorkspaceActivation(projectId: WorkspaceProjectId) -> Bool {
+        selectedScopeAllowsActivation &&
             browsedProjectId == nil &&
             projectId == snapshot.activeProjectId
     }

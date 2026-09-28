@@ -4,11 +4,17 @@ struct WorkspaceSidebarCompactMonitorSelector: View {
     let scopes: [WorkspaceSidebarMonitorScopeViewModel]
     let selectedScopeId: String
     let sectionWidth: CGFloat
+    /// The panel's own display, listed first as This Display.
+    var targetScopeId: String = ""
     let onSelectScope: (String) -> Void
 
+    private var menuScopes: [WorkspaceSidebarMonitorScopeViewModel] {
+        workspaceSidebarMonitorScopeMenu(scopes, targetScopeId: targetScopeId)
+    }
+
     var selectedScope: WorkspaceSidebarMonitorScopeViewModel? {
-        scopes.first { $0.id == selectedScopeId }
-            ?? scopes.first { $0.id == workspaceSidebarDefaultScopeId }
+        menuScopes.first { $0.id == selectedScopeId }
+            ?? menuScopes.first { $0.id == workspaceSidebarDefaultScopeId }
     }
 
     private var selectedDisplayNumber: Int? {
@@ -18,6 +24,7 @@ struct WorkspaceSidebarCompactMonitorSelector: View {
     }
 
     private var selectedScopeImageName: String {
+        if selectedScope?.id == targetScopeId { return "display" }
         if let number = selectedDisplayNumber { return "\(number).square" }
         return selectedScope?.id == workspaceSidebarDefaultScopeId
             ? "display.2"
@@ -26,11 +33,11 @@ struct WorkspaceSidebarCompactMonitorSelector: View {
 
     var body: some View {
         Menu {
-            Picker("Monitor filter", selection: Binding(
+            Picker("Show workspaces from", selection: Binding(
                 get: { selectedScope?.id ?? workspaceSidebarDefaultScopeId },
                 set: { scopeId in onSelectScope(scopeId) },
             )) {
-                ForEach(scopes) { scope in
+                ForEach(menuScopes) { scope in
                     Label(scope.id == workspaceSidebarFocusedScopeId ? "Focus" : scope.displayName, systemImage: scope.systemImageName)
                         .tag(scope.id)
                 }
@@ -47,14 +54,19 @@ struct WorkspaceSidebarCompactMonitorSelector: View {
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .frame(width: sectionWidth, height: workspaceSidebarDropdownHeight)
-        .accessibilityLabel("Monitor filter: \(selectedScope?.displayName ?? "Default")")
-        .help("Monitor filter: \(selectedScope?.displayName ?? "Default")")
+        .accessibilityLabel("Show workspaces from: \(selectedScope?.displayName ?? "All Displays")")
+        .help("Show workspaces from: \(selectedScope?.displayName ?? "All Displays")")
     }
 }
 
 extension WorkspaceSidebarView {
     var shouldShowCompactMonitorSelector: Bool {
         snapshot.monitorScopes.count { workspaceSidebarMonitorScopePoint($0.id) != nil } > 1
+    }
+
+    /// Tabs shows its display menu once there's a choice to make: another display, or Focused.
+    var showsTabsDisplayMenu: Bool {
+        shouldShowCompactMonitorSelector || snapshot.monitorScopes.contains { $0.id == workspaceSidebarFocusedScopeId }
     }
 
     func compactMonitorSelectorSection(
@@ -67,6 +79,7 @@ extension WorkspaceSidebarView {
             scopes: snapshot.monitorScopes,
             selectedScopeId: snapshot.selectedMonitorScopeId,
             sectionWidth: max(fittedVisibleWidth(layout: layout) - leadingInset - trailingInset, 0),
+            targetScopeId: snapshot.targetMonitorScopeId,
             onSelectScope: { scopeId in
                 browseMode = .activeProject
                 activeInUseOverrideWorkspaceName = nil

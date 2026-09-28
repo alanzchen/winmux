@@ -90,6 +90,10 @@ on-mode-changed = []
     # Omit monitor to show an independent sidebar on every display.
     # Legacy monitor = 'main' is also treated as all displays for this sidebar.
     # Use monitor = 1, 'secondary', 2, or a list to restrict it.
+    # Each Dock, Sidebar, or Tabs panel lists only the workspaces on its own display.
+    # 'all-displays' lists every display's. Panels list every display while monitor
+    # leaves a display without a panel. A panel's display menu overrides this until WinMux quits.
+    display-filter = 'this-display'
     menu-bar-reserve-height = 28
     project-deletion-action = 'close-windows'
     # Naming a workspace also saves it: its name, layout, apps and display come back after

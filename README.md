@@ -86,8 +86,9 @@ auto-hide setting and restores your previous setting afterward. See
 - **Keep named workspaces:** a workspace you name keeps its layout, apps, and
   display after WinMux or your Mac restarts.
 - **Use multiple displays:** each display can show a different workspace. Each
-  Dock initially filters to its own display. Moving a workspace already shown
-  elsewhere requires confirming **Override**.
+  Dock, Sidebar, or Tabs panel lists the workspaces on its own display; choose
+  **All Displays** in its display menu, or in Settings, to list every display.
+  Moving a workspace already shown elsewhere requires confirming **Override**.
 - **Grant permissions without hunting:** System Settings opens in front on your
   current workspace, and an Accessibility or Screen Recording request returns to
   the front until you answer it. The Dock and Sidebar stay beneath both.

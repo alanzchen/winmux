@@ -54,6 +54,7 @@ extension WorkspaceSidebarView {
             if layout.dockPosition == .bottom {
                 WorkspaceSidebarCompactMonitorSelector(scopes: snapshot.monitorScopes,
                     selectedScopeId: snapshot.selectedMonitorScopeId, sectionWidth: 32,
+                    targetScopeId: snapshot.targetMonitorScopeId,
                     onSelectScope: { scope in
                         browseMode = .activeProject
                         activeInUseOverrideWorkspaceName = nil

@@ -202,8 +202,7 @@ extension WorkspaceSidebarView {
                                workspaces: [WorkspaceSidebarWorkspaceViewModel],
                                layout: WorkspaceSidebarConfiguration,
                                width: CGFloat, listHeight: CGFloat) -> some View {
-        let allowsActivation = snapshot.selectedMonitorScopeId == workspaceSidebarDefaultScopeId ||
-            snapshot.selectedMonitorScopeId == snapshot.targetMonitorScopeId
+        let allowsActivation = selectedScopeAllowsActivation
         return VStack(alignment: .leading, spacing: workspaceSidebarProjectColumnHeaderSpacing) {
             projectColumnHeader(project)
             GeometryReader { viewport in

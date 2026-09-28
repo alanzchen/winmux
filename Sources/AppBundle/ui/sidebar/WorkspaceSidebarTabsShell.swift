@@ -49,14 +49,20 @@ extension WorkspaceSidebarView {
             .padding(.top, 14).padding(.bottom, 12)
 
             if expanded {
-                if snapshot.monitorScopes.count > 1 {
+                if showsTabsDisplayMenu {
+                    let menuScopes = workspaceSidebarMonitorScopeMenu(snapshot.monitorScopes,
+                        targetScopeId: snapshot.targetMonitorScopeId)
+                    let selectedScope = menuScopes.first { $0.id == snapshot.selectedMonitorScopeId }
+                    let firstOtherDisplayId = menuScopes.first {
+                        workspaceSidebarMonitorScopePoint($0.id) != nil && $0.id != snapshot.targetMonitorScopeId
+                    }?.id
                     Menu {
-                        ForEach(snapshot.monitorScopes) { scope in
+                        ForEach(menuScopes) { scope in
+                            if scope.id == firstOtherDisplayId { Divider() }
                             Button(scope.displayName) { actions.send(.selectMonitorScope(scope.id)) }
                         }
                     } label: {
-                        Label(snapshot.monitorScopes.first { $0.id == snapshot.selectedMonitorScopeId }?.displayName ?? "This Display",
-                            systemImage: "display")
+                        Label(selectedScope?.displayName ?? "This Display", systemImage: selectedScope?.systemImageName ?? "display")
                     }
                     .menuStyle(.borderlessButton)
                     .padding(.leading, workspaceSidebarTabsListInset + workspaceSidebarTabLeadingPadding)

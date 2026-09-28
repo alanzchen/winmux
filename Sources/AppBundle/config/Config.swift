@@ -101,6 +101,14 @@ enum DockIdentityLabels: String, Sendable {
     case auto, always, off
 }
 
+/// Which displays' workspaces a Dock, Sidebar, or Tabs panel lists before its menu is used.
+enum WorkspaceSidebarDisplayFilter: String, CaseIterable, Identifiable, Sendable {
+    case thisDisplay = "this-display"
+    case allDisplays = "all-displays"
+
+    var id: String { rawValue }
+}
+
 enum WorkspaceDockPosition: String, CaseIterable, Identifiable, Sendable {
     case left, bottom, right
     var id: String { rawValue }
@@ -146,6 +154,7 @@ struct WorkspaceSidebarConfig: ConvenienceCopyable, Equatable, Sendable {
     var collapsedWidth: Int = 44
     var width: Int = 240
     var monitor: [MonitorDescription] = []
+    var displayFilter: WorkspaceSidebarDisplayFilter = .thisDisplay
     var showStatusPills: Bool = true
     var showClock: Bool = true
     var showSeconds: Bool = true

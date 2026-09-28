@@ -32,8 +32,7 @@ extension WorkspaceSidebarView {
                                     ForEach(workspacesByProject[project.id] ?? []) { workspace in
                                         workspaceSection(layout: layout, workspace: workspace, expansionProgress: 1,
                                             emitsDropTarget: true,
-                                            allowsWorkspaceActivation: snapshot.selectedMonitorScopeId == workspaceSidebarDefaultScopeId ||
-                                                snapshot.selectedMonitorScopeId == snapshot.targetMonitorScopeId,
+                                            allowsWorkspaceActivation: selectedScopeAllowsActivation,
                                             isPinnedActiveWorkspace: false, allowsProjectMove: true)
                                             .id(workspace.name)
                                     }

@@ -5,17 +5,41 @@ let workspaceSidebarFocusedScopeId = "focused"
 private let workspaceSidebarMonitorScopePrefix = "monitor:"
 
 extension TrayMenuModel {
+    var workspaceSidebarAutomaticMonitorScopeId: String {
+        workspaceSidebarAutomaticScopeId(workspaceSidebarAppearance, targetScopeId: workspaceSidebarTargetMonitorScopeId)
+    }
+
     @MainActor func refreshWorkspaceSidebarMonitorScope() {
         // A cleared model is not an authoritative disconnect. Keep manual choices
         // while disabled or waiting for discovery; a populated catalog includes Default.
         guard !workspaceSidebarMonitorScopes.isEmpty else { return }
-        let preferredScopeId = workspaceSidebarHasExplicitMonitorScopeSelection
+        if let choiceFilter = workspaceSidebarMonitorScopeChoiceFilter,
+           choiceFilter != workspaceSidebarAppearance.displayFilter ||
+           !workspaceSidebarMonitorScopes.contains(where: { $0.id == workspaceSidebarSelectedMonitorScopeId })
+        {
+            // Changing the setting, or disconnecting the chosen display, returns to the default.
+            workspaceSidebarMonitorScopeChoiceFilter = nil
+        }
+        let preferredScopeId = workspaceSidebarMonitorScopeChoiceFilter != nil
             ? workspaceSidebarSelectedMonitorScopeId
-            : (workspaceSidebarAppearance.showAppIcons ? workspaceSidebarTargetMonitorScopeId : workspaceSidebarDefaultScopeId)
+            : workspaceSidebarAutomaticMonitorScopeId
         let resolvedScopeId = workspaceSidebarMonitorScopes.contains { $0.id == preferredScopeId }
             ? preferredScopeId : workspaceSidebarDefaultScopeId
         setIfChanged(\.workspaceSidebarSelectedMonitorScopeId, resolvedScopeId)
     }
+}
+
+/// What a panel lists until its display menu is used: its own display, or every display.
+func workspaceSidebarAutomaticScopeId(_ configuration: WorkspaceSidebarConfiguration, targetScopeId: String) -> String {
+    configuration.defaultsToOwnDisplay ? targetScopeId : workspaceSidebarDefaultScopeId
+}
+
+/// Whether every connected display has a panel of its own. When one doesn't, each panel
+/// lists every display by default so that display's workspaces stay reachable.
+@MainActor
+func workspaceSidebarPanelsCoverEveryDisplay() -> Bool {
+    let panelCorners = Set(workspaceSidebarResolvedPanelMonitors().map(\.rect.topLeftCorner))
+    return sortedMonitors.allSatisfy { panelCorners.contains($0.rect.topLeftCorner) }
 }
 
 func workspaceSidebarMonitorScopeIsSentinel(_ scopeId: String) -> Bool {

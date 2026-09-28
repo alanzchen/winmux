@@ -195,7 +195,7 @@ func workspaceSidebarWorkspaceCreateScope(
 @MainActor
 func selectWorkspaceSidebarMonitorScope(_ scopeId: String, viewModel: TrayMenuModel = TrayMenuModel.shared) {
     guard viewModel.workspaceSidebarMonitorScopes.contains(where: { $0.id == scopeId }) else { return }
-    viewModel.workspaceSidebarHasExplicitMonitorScopeSelection = true
+    viewModel.workspaceSidebarMonitorScopeChoiceFilter = viewModel.workspaceSidebarAppearance.displayFilter
     guard viewModel.workspaceSidebarSelectedMonitorScopeId != scopeId else { return }
     viewModel.workspaceSidebarSelectedMonitorScopeId = scopeId
     let visibleWorkspaceNames = Set(viewModel.visibleWorkspaceSidebarWorkspaces.map(\.name))

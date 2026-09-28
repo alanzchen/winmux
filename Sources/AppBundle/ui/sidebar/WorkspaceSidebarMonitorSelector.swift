@@ -12,6 +12,9 @@ struct WorkspaceSidebarMonitorSelector: View {
     let browsedProjectId: WorkspaceProjectId?
     let expansionProgress: CGFloat
     let sectionWidth: CGFloat
+    /// The panel's own display and the filter it shows until the menu is used.
+    var targetScopeId: String = ""
+    var automaticScopeId: String = workspaceSidebarDefaultScopeId
     var onSelectScope: (String) -> Void = { selectWorkspaceSidebarMonitorScope($0) }
     var onSelectProject: (WorkspaceProjectId?) -> Void = { _ in }
     var onRenameProject: (WorkspaceSidebarProjectViewModel) -> Void = { _ in }
@@ -35,14 +38,17 @@ struct WorkspaceSidebarMonitorSelector: View {
         scopes.count { workspaceSidebarMonitorScopePoint($0.id) != nil } > 1
     }
 
+    /// The first pill returns to the panel's default filter: This Display or All Displays.
     private var quickScopes: [WorkspaceSidebarMonitorScopeViewModel] {
+        let menuScopes = workspaceSidebarMonitorScopeMenu(scopes, targetScopeId: targetScopeId)
         var result = [
-            scopes.first { $0.id == workspaceSidebarDefaultScopeId }
+            menuScopes.first { $0.id == automaticScopeId }
+                ?? menuScopes.first { $0.id == workspaceSidebarDefaultScopeId }
                 ?? WorkspaceSidebarMonitorScopeViewModel(
                     id: workspaceSidebarDefaultScopeId,
-                    displayName: "Default",
+                    displayName: "All Displays",
                     subtitle: nil,
-                    systemImageName: "display",
+                    systemImageName: "display.2",
                     isFocusedMonitor: false
                 ),
         ]
@@ -64,11 +70,12 @@ struct WorkspaceSidebarMonitorSelector: View {
     var body: some View {
         HStack(spacing: 3) {
             ForEach(Array(quickScopes.enumerated()), id: \.element.id) { index, scope in
-                if hasMultipleMonitors && scope.id == workspaceSidebarDefaultScopeId {
+                if hasMultipleMonitors && index == 0 {
                     WorkspaceSidebarCompactMonitorSelector(
                         scopes: scopes,
                         selectedScopeId: selectedScopeId,
                         sectionWidth: workspaceSidebarDropdownHeight,
+                        targetScopeId: targetScopeId,
                         onSelectScope: onSelectScope,
                     )
                 } else {

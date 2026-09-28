@@ -61,7 +61,10 @@ struct WorkspaceSidebarConfiguration: Equatable {
     var configuredCollapsedWidth: CGFloat? = nil
     var alwaysExpanded: Bool = false
     var tabCollections: [WorkspaceTabCollection] = []
+    var displayFilter: WorkspaceSidebarDisplayFilter = .thisDisplay
+    var panelsCoverEveryDisplay: Bool = true
 
+    var defaultsToOwnDisplay: Bool { displayFilter == .thisDisplay && panelsCoverEveryDisplay }
     var compactRailWidth: CGFloat {
         showAppIcons ? WorkspaceSidebarConfig.dockWidth(forIconSize: dockIconSize) : configuredCollapsedWidth ?? collapsedWidth
     }
