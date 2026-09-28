@@ -295,7 +295,9 @@ final class SettingsEditor: ObservableObject {
                         if history.count > 30 { history.removeFirst() }
                     }
                     configuration = config
-                    for (id, value) in request.values where drafts[id] == value {
+                    // A newer edit may have the same value but not the same intent: explicit
+                    // false and "unset, currently false" save differently.
+                    for (id, value) in request.values where drafts[id] == value && request.unsetting.contains(id) == unsetDrafts.contains(id) {
                         drafts.removeValue(forKey: id)
                         unsetDrafts.remove(id)
                     }

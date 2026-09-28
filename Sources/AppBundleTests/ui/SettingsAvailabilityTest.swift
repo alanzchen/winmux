@@ -273,8 +273,35 @@ final class SettingsAvailabilityTest: XCTestCase {
         XCTAssertEqual(editor.projection.openNewWindowsInNewWorkspace, config.openNewWindowsInNewWorkspace)
         XCTAssertFalse(config.opensNewWindowsInNewWorkspace)
         XCTAssertTrue(editor.unsetDrafts.isEmpty)
+    }
 
-        editor.setDraft(.bool(true), for: newWorkspace)
-        XCTAssertEqual(editor.projection.openNewWindowsInNewWorkspace, true, "An explicit edit replaces the unset intent")
+    /// An older save of the same value must not clear a newer edit with a different intent.
+    func testOlderSaveKeepsANewerEditWithTheSameValueButDifferentIntent() async {
+        let saved = config
+        defer { config = saved }
+        let newWorkspace = SettingsCatalog.field("open-new-windows-in-new-workspace")
+        for resetFirst in [false, true] {
+            let disk = SettingsTestDisk()
+            disk.text += "open-new-windows-in-new-workspace = true\n[workspace-sidebar]\n    enabled = true\n    mode = 'dock'\n"
+            config = parseConfig(disk.text).config
+            let editor = SettingsEditor(persistence: disk.persistence)
+            disk.failWrites = true
+            // In Dock, both edits write false: one explicitly, one by removing the key.
+            let explicit = { editor.setDraft(.bool(false), for: newWorkspace); editor.commit(newWorkspace) }
+            if resetFirst { editor.reset(.newWindows) } else { explicit() }
+            await editor.waitUntilIdle()
+            XCTAssertNotNil(editor.error)
+            if resetFirst { explicit() } else { editor.reset(.newWindows) }
+            XCTAssertEqual(editor.unsetDrafts.contains(newWorkspace.id), !resetFirst)
+            disk.failWrites = false
+            disk.failAfterWrites = 1
+            editor.retry()
+            await editor.waitUntilIdle()
+            XCTAssertNotNil(editor.error, "The second save fails")
+            XCTAssertEqual(editor.unsetDrafts.contains(newWorkspace.id), !resetFirst, "resetFirst: \(resetFirst)")
+            XCTAssertEqual(editor.projection.openNewWindowsInNewWorkspace, resetFirst ? false : nil, "resetFirst: \(resetFirst)")
+            editor.setDraft(.text("tabs"), for: SettingsCatalog.field("workspace-sidebar.mode"))
+            XCTAssertEqual(editor.value(newWorkspace), .bool(!resetFirst), "Only the unset intent follows Tabs")
+        }
     }
 }

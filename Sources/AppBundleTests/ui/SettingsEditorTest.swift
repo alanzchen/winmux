@@ -451,11 +451,13 @@ final class SettingsTestDisk {
     var text = "config-version = 2\nstart-at-login = false\nauto-reload-config = false\n"
     var writes: [String] = []
     var failWrites = false
+    /// Fails every write once this many have succeeded.
+    var failAfterWrites: Int?
     var failNextReload = false
     var persistence: SettingsPersistence {
         SettingsPersistence(target: { URL(fileURLWithPath: "/test-only/settings.toml") }, read: { _ in self.text },
             write: { _, text in
-                if self.failWrites { throw SettingsEditError("Test write denied") }
+                if self.failWrites || self.failAfterWrites.map({ self.writes.count >= $0 }) == true { throw SettingsEditError("Test write denied") }
                 self.text = text; self.writes.append(text)
             }, reload: { _ in
                 await Task.yield()
