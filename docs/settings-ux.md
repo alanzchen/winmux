@@ -19,8 +19,9 @@ the Tabs sidebar, to open the Workspace Panel page directly.
 The panel switch and three mode cards, Dock, Sidebar, and Tabs, stay at the top.
 Choosing a card switches the running panel. Below them are the live preview, the
 active mode's sections, and **Shared across modes** (which displays' workspaces to
-list, the Focused filter, menu bar space, keeping above the macOS Dock, and which
-displays have a panel). There's no editing of another mode's settings: the modes
+list, the Focused filter, menu bar space, keeping above the macOS Dock, and a
+read-only summary of which displays have a panel, with a link to edit `monitor` in the
+TOML Editor). There's no editing of another mode's settings: the modes
 share one configuration, so other modes' rows are hidden. A row that also changes
 other modes says so, and a shared key can have a different label in each mode.
 For example, `width` is Project column width on a Dock that can collapse, Panel
@@ -29,8 +30,10 @@ width on one kept expanded, Expanded width in Sidebar, and Sidebar width in Tabs
 Turning on Tabs mode's panel moves window stack entries into separate tabs, which
 Undo can't rebuild. When stacks with more than one window exist, any Settings save
 that would do that asks first: a mode card, turning on a panel set to Tabs, a TOML
-Editor save, a save retried after a failure, or an Undo. The question comes as the
-save is about to run, and the page keeps showing the running mode meanwhile.
+Editor save, a save retried after a failure, an Undo, or any save that would load a
+switch to Tabs made in another editor. The question comes as the save is about to
+run, and the page keeps showing the running mode meanwhile. Later saves wait behind
+it; a new edit drops an open Undo question instead.
 Picking Tabs while the panel is off doesn't ask. If a mode can't be saved, its card says
 **Not applied** while the running panel keeps the previous mode.
 
@@ -116,8 +119,8 @@ They also check:
 - that each mode's sections list exactly the settings it uses;
 - that a revealed search result is inside the visible area, including other modes'
   results, the panel-off page, and after switching mode;
-- the Tabs question across queued, retried, TOML Editor, external-edit and Undo
-  saves;
+- the Tabs question across queued, retried, TOML Editor and Undo saves, and saves
+  that would load an external switch to Tabs;
 - that a section's Restore Defaults leaves other modes' settings alone;
 - that each mode keeps its own scroll position.
 

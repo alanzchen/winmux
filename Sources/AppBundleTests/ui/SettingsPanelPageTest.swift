@@ -269,8 +269,9 @@ final class SettingsPanelPageTest: XCTestCase {
         XCTAssertEqual(editor.projection.workspaceSidebar.mode, .sidebar, "The failed newer choice still shows, not applied")
     }
 
-    /// While a question is open, Undo waits and new saves queue behind it.
-    func testUndoAndSavesWaitWhileTheTabsQuestionIsOpen() async {
+    /// While a question is open, Undo waits. A new edit drops an open Undo question instead of
+    /// queuing behind it, so nothing Undo would clear or hide is waiting.
+    func testUndoWaitsAndANewEditDropsAnOpenUndoQuestion() async {
         let saved = config
         defer { config = saved }
         let disk = SettingsTestDisk()
@@ -288,32 +289,25 @@ final class SettingsPanelPageTest: XCTestCase {
         XCTAssertEqual(config.workspaceSidebar.mode, .dock)
         editor.undo()
         XCTAssertEqual(editor.pendingTabsSwitch, .undo)
-        editor.undo()
         editor.setDraft(.bool(!secondsBefore), for: seconds)
         editor.commit(seconds)
+        XCTAssertNil(editor.pendingTabsSwitch, "The new edit drops the Undo question")
         await editor.waitUntilIdle()
-        XCTAssertEqual(config.workspaceSidebar.showSeconds, secondsBefore, "A save waits behind the open question")
-        editor.confirmTabsSwitch()
-        await editor.waitUntilIdle()
-        XCTAssertEqual(config.workspaceSidebar.mode, .tabs, "The confirmed Undo is the one that ran")
-        XCTAssertEqual(config.workspaceSidebar.showSeconds, !secondsBefore, "Then the queued save")
+        XCTAssertEqual(config.workspaceSidebar.showSeconds, !secondsBefore)
+        XCTAssertEqual(config.workspaceSidebar.mode, .dock, "The dropped Undo didn't run")
         XCTAssertEqual(editor.undoTitle, "Undo \(seconds.title)")
 
-        editor.setDraft(.text("dock"), for: mode)
-        editor.commit(mode)
-        await editor.waitUntilIdle()
         editor.setDraft(.text("tabs"), for: mode)
         editor.commit(mode)
         XCTAssertEqual(editor.pendingTabsSwitch, .save)
         editor.undo()
         await editor.waitUntilIdle()
         XCTAssertEqual(editor.pendingTabsSwitch, .save, "Undo waits while a save is held")
-        XCTAssertEqual(config.workspaceSidebar.mode, .dock)
+        XCTAssertEqual(config.workspaceSidebar.showSeconds, !secondsBefore, "…and didn't run")
         editor.cancelTabsSwitch()
         editor.undo()
-        XCTAssertEqual(editor.pendingTabsSwitch, .undo, "Undoing the switch to Dock would turn Tabs back on")
-        editor.cancelTabsSwitch()
-        XCTAssertEqual(config.workspaceSidebar.mode, .dock)
+        await editor.waitUntilIdle()
+        XCTAssertEqual(config.workspaceSidebar.showSeconds, secondsBefore, "With no question open, Undo runs")
     }
 
     func testRevertingAndRestoringDefaultsRespectTheTabsQuestion() async {

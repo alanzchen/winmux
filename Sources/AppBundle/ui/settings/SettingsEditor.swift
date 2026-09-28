@@ -317,9 +317,8 @@ final class SettingsEditor: ObservableObject {
         performUndo()
     }
 
-    /// Saves made while an Undo waited for its answer queue behind it and run afterwards.
     private func performUndo() {
-        guard !isSaving, failedRequest == nil, let entry = history.last else { return }
+        guard !isSaving, failedRequest == nil, queue.isEmpty, let entry = history.last else { return }
         isSaving = true
         error = nil
         worker = Task {
@@ -349,6 +348,8 @@ final class SettingsEditor: ObservableObject {
     func waitUntilIdle() async { while let worker { await worker.value } }
 
     private func enqueue(_ request: Request) {
+        // A new edit supersedes an Undo still waiting for its answer, so no save queues behind it.
+        if pendingTabsSwitch == .undo { cancelTabsSwitch() }
         // Do not write for draft synchronization or an unchanged control. A key restored by
         // removing it still has work to do while the file sets it.
         guard worker != nil || failedRequest != nil || pendingTabsSwitch != nil || !queue.isEmpty || request.fields.isEmpty
