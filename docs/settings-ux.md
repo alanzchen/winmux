@@ -94,29 +94,52 @@ Persistent workspaces require `config-version = 2`.
 
 ## Validation
 
-Use the pinned Swift 6.2.4 toolchain and ARM64:
+Use the Swift pinned in `.swift-version` and ARM64:
 
 ```sh
-swift test --arch arm64 --filter 'SettingsEditorTest|ShortcutSettings'
+swift test --arch arm64 --filter 'SettingsAvailabilityTest|SettingsPanelPageTest|SettingsEditorTest|ShortcutSettings'
 swift test --arch arm64
 swift build --arch arm64
 ```
 
-Regression checks cover queued failures/retries, rapid changes, preference and
-section Undo, external conflicts, multiline/CRLF TOML, conditional preview state,
-minimum/wide windows, native editor focus, page-switch retention, and search
-reveal priority. Interactive light/dark appearance, VoiceOver, and pointer-driven
-preview checks require an unlocked macOS desktop.
+Regression checks cover:
 
-### Local results (2026-09-19)
+- queued failures and retries, rapid changes, and preference and section Undo;
+- external conflicts, and multiline and CRLF TOML;
+- minimum and wide windows, native editor focus, and page-switch retention.
 
-- Swift 6.2.4: **951 tests, 7 opt-in skips, 0 failures**. ARM64 debug app and CLI
-  build passed; both executables report ARM64 only.
-- Independent Claude Fable 5 and agy Gemini 3.8 Flash High reviews led to fixes
-  for failure/retry completion, automation drafts, malformed TOML protection,
-  quoted/multiline and CRLF handling, child-before-parent table insertion,
-  search/scroll ordering, and accessibility labels. Targeted follow-ups reported
-  no remaining supported findings.
-- Interactive appearance and VoiceOver checks remain pending: the Mac was locked.
-  Offscreen scroll-layer captures were incomplete and were not accepted as visual
-  verification. Automated AppKit geometry, resize, focus, and scroll checks passed.
+They also check:
+
+- which modes each setting is shown in, which follows what the running panel reads;
+- the draft projection, which matches what saving writes, including the Dock's
+  inherited look and defaults that follow the mode;
+- that each mode's sections list exactly the settings it uses;
+- that a revealed search result is inside the visible area, including other modes'
+  results, the panel-off page, and after switching mode;
+- the Tabs question across queued, retried, TOML Editor, external-edit and Undo
+  saves;
+- that a section's Restore Defaults leaves other modes' settings alone;
+- that each mode keeps its own scroll position.
+
+Interactive light and dark appearance, VoiceOver, and pointer-driven preview checks
+require an unlocked macOS desktop.
+
+### Local results (2026-09-28, mode-aware Settings)
+
+- Swift 6.4, ARM64: **1625 tests, 7 opt-in skips, 0 failures**; the debug build
+  passed.
+- Independent reviews used ChatGPT Astra (xhigh, through Paseo) after each phase
+  and agy Gemini 3.8 Flash High. Their findings led to these fixes:
+  - unset defaults kept as unset in drafts, and draft cleanup matching intent as
+    well as value;
+  - alternatives hiding before the panel-off check;
+  - the empty Window tabs group explaining itself;
+  - the Tabs question judged against the file each save will write, and covering
+    queued, retried, TOML Editor and Undo saves without replacing newer drafts;
+  - per-mode scroll rebinding;
+  - the display summary following runtime resolution;
+  - Sidebar's rail preview, and VoiceOver hearing "Not applied".
+- Offscreen renders of each mode's page, narrow and wide, were checked for layout.
+  Liquid Glass surfaces don't render offscreen. Native checks weren't run because
+  the Mac was locked: switching modes from the cards, the Tabs question with real
+  window stacks, VoiceOver on the cards, and multi-display `monitor`.

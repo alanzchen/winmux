@@ -94,21 +94,6 @@ func updateWorkspaceSidebarScalarConfig(
 }
 
 @MainActor
-func persistWorkspaceSidebarMenuBarReserveHeight(_ height: Int, targetUrl explicitTargetUrl: URL? = nil) throws -> URL {
-    let targetUrl = explicitTargetUrl ?? preferredWorkspaceSidebarConfigUrl()
-    let currentText = try readWorkspaceSidebarConfig(
-        at: targetUrl,
-        contentsWhenMissing: starterConfigText(),
-    )
-    let updatedText = updateWorkspaceSidebarMenuBarReserveConfig(in: currentText, height: height)
-    if let parent = targetUrl.deletingLastPathComponent().takeIf({ $0.path != targetUrl.path }) {
-        try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
-    }
-    try updatedText.write(to: targetUrl, atomically: true, encoding: .utf8)
-    return targetUrl
-}
-
-@MainActor
 func persistWorkspaceSidebarProjectOrder(_ order: [String], targetUrl explicitTargetUrl: URL? = nil) throws {
     let targetUrl = explicitTargetUrl ?? preferredWorkspaceSidebarConfigUrl()
     let currentText = try readWorkspaceSidebarConfig(at: targetUrl, contentsWhenMissing: "")
@@ -119,24 +104,6 @@ func persistWorkspaceSidebarProjectOrder(_ order: [String], targetUrl explicitTa
         try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
     }
     try updatedText.write(to: targetUrl, atomically: true, encoding: .utf8)
-}
-
-@MainActor
-func persistWorkspaceSidebarProjectDeletionAction(
-    _ action: WorkspaceProjectDeletionAction,
-    targetUrl explicitTargetUrl: URL? = nil,
-) throws -> URL {
-    let targetUrl = explicitTargetUrl ?? preferredWorkspaceSidebarConfigUrl()
-    let currentText = try readWorkspaceSidebarConfig(
-        at: targetUrl,
-        contentsWhenMissing: starterConfigText(),
-    )
-    let updatedText = updateWorkspaceSidebarProjectDeletionActionConfig(in: currentText, action: action)
-    if let parent = targetUrl.deletingLastPathComponent().takeIf({ $0.path != targetUrl.path }) {
-        try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
-    }
-    try updatedText.write(to: targetUrl, atomically: true, encoding: .utf8)
-    return targetUrl
 }
 
 func updateWorkspaceSidebarLabelConfig(
