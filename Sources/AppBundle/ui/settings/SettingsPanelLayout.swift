@@ -53,7 +53,7 @@ enum SettingsPanelLayout {
                     .init(id: "tabs.behavior", title: "Behavior", fields: ids(["tabs-always-expanded", "auto-hide", "collapsed-width", "width"])),
                     .init(id: "tabs.content", title: "Content",
                         note: "The tab sidebar takes on the current project's color. Right-click a project to change it.",
-                        fields: ids(["browser-tabs", "browser-tab-icons", "show-app-badges"])),
+                        fields: ids(["browser-tabs", "browser-tab-icons", "music-player-at-bottom", "show-app-badges"])),
                 ]
         }
     }

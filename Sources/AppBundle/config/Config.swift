@@ -134,6 +134,9 @@ struct WorkspaceSidebarConfig: ConvenienceCopyable, Equatable, Sendable {
     var tabsAlwaysExpanded: Bool = true
     var browserTabs: Bool = true
     var browserTabIcons: Bool = false
+    /// Tabs mode: Music's player sits at the bottom of the expanded sidebar while Music is open,
+    /// instead of under Music's tab.
+    var musicPlayerAtBottom: Bool = false
     var pinsSidebarOpen: Bool { mode == .tabs ? tabsAlwaysExpanded : alwaysExpanded }
     var mode: WorkspaceSidebarMode = .dock
     // Compatibility alias for existing TOML and internal callers.

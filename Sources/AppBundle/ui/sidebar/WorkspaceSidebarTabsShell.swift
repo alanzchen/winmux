@@ -130,6 +130,10 @@ extension WorkspaceSidebarView {
                 .opacity(railOpacity)
             }
             if expanded { WorkspaceSidebarTabUndoButton(actions: actions, reducesMotion: reduceDockMotion).opacity(reveal) }
+            if expanded, snapshot.configuration.musicPlayerAtBottom {
+                WorkspaceSidebarBottomMusicPlayer(onSelect: { selectMusicFromBottomPlayer() }, model: musicPlayerModel)
+                    .opacity(reveal)
+            }
             projectPagerSection(layout: layout, expansionProgress: expansionProgress,
                 leadingInset: pagerInset, trailingInset: pagerInset,
                 swipeDirection: workspaceSidebarProjectSwipeDirection(horizontalTranslation: projectSwipeTranslation,
@@ -210,6 +214,17 @@ extension WorkspaceSidebarView {
                         actions.send(.overrideWorkspaceInUse(workspace.name))
                     }, onCancel: { activeInUseOverrideWorkspaceName = nil })
             }
+        }
+    }
+
+    private func selectMusicFromBottomPlayer() {
+        guard !isWorkspaceSidebarDragInProgress() else { return }
+        if let action = workspaceSidebarBottomMusicPlayerAction(snapshot.workspaces,
+            targetMonitorScopeId: snapshot.targetMonitorScopeId)
+        {
+            actions.send(action)
+        } else {
+            musicPlayerModel.openMusic()
         }
     }
 

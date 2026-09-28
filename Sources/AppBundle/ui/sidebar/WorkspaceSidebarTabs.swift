@@ -724,6 +724,7 @@ extension WorkspaceSidebarView {
                 browserSearchContext: workspaceSidebarBrowserSearchContext(workspace, projects: snapshot.projects,
                     collections: snapshot.configuration.tabCollections),
                 isSearching: isSearching,
+                showsNowPlaying: !snapshot.configuration.musicPlayerAtBottom,
                 onBeginRename: { beginWorkspaceRename(workspace) },
                 onCommitOverride: {
                     activeInUseOverrideWorkspaceName = nil

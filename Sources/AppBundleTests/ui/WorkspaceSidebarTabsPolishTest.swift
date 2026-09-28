@@ -115,6 +115,23 @@ final class WorkspaceSidebarTabsPolishTest: XCTestCase {
         XCTAssertTrue(TestApp.shared.focusedWindow === second)
     }
 
+    /// `.focusWindowInPlace`, which the Music player at the bottom sends for a window on screen
+    /// on another display, focuses it there instead of asking to move its workspace.
+    func testFocusingAWindowInPlaceLeavesItsWorkspaceOnItsDisplay() {
+        setUpWorkspacesForTests()
+        let left = SavedWorkspaceTestMonitor(id: 1, name: "Left", x: 0, isMain: true, uuid: "LEFT")
+        let right = SavedWorkspaceTestMonitor(id: 2, name: "Right", x: 1920, uuid: "RIGHT")
+        setMonitorsForTests([left, right])
+        Workspace.reconcileWorkspaceState()
+        let music = Workspace.get(byName: "music")
+        let window = TestWindow.new(id: 3, parent: music.rootTilingContainer)
+        XCTAssertTrue(right.setActiveWorkspace(music))
+        XCTAssertTrue(focusWindowFromSidebar(window, targetMonitorScopeId: nil))
+        XCTAssertEqual(music.workspaceMonitor.rect, right.rect)
+        XCTAssertTrue(music.isVisible)
+        XCTAssertTrue(focus.windowOrNil === window)
+    }
+
     func testGroupMenuUsesTheSelectedCreateDestinationAndKeepsItsOwnDisplayForDisclosure() throws {
         setUpWorkspacesForTests()
         let group = try workspaceSidebarOrganizationStore.create(projectId: workspaceProjectDefaultId, workspaceNames: [])

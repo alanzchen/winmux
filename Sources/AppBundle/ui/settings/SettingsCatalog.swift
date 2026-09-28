@@ -216,6 +216,8 @@ enum SettingsCatalog {
                 .used(in: [.tabs]),
             bool(.dockContent, "browser-tab-icons", "Website icons for Chrome-family tabs", "Read the selected tab's address in each listed Chrome, Chromium, Brave or Edge window and download its icon directly, without cookies. Includes Incognito and does not use browser proxy or VPN extensions or secure DNS. Icons appear as tabs are selected. Safari uses its app icon.", section: sidebar, path: \.workspaceSidebar.browserTabIcons)
                 .used(in: [.tabs]).requiring(.disables("Turn on Show browser tabs to use website icons.") { $0.workspaceSidebar.browserTabs }),
+            bool(.dockContent, "music-player-at-bottom", "Keep the Music player at the bottom", "Show Apple Music's player at the bottom of the expanded Tabs sidebar while Music is open, whichever tab or project is showing, instead of under Music's tab.", section: sidebar, path: \.workspaceSidebar.musicPlayerAtBottom)
+                .used(in: [.tabs]),
             bool(.placement, "stay-on-top", "Keep above the macOS Dock", "Keep the panel above the macOS Dock and other floating windows. When off, system UI such as the macOS Dock can appear above it. A Dock-mode panel still yields when the macOS Dock appears on the same edge of the same display.", section: sidebar, path: \.workspaceSidebar.stayOnTop)
                 .used(in: .allModes),
             int(.placement, "menu-bar-reserve-height", "Menu bar space", "Space below the macOS menu bar, in points. Set to 0 when the menu bar auto-hides.", section: sidebar, range: 0...72, path: \.workspaceSidebar.menuBarReserveHeight)

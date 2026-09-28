@@ -63,6 +63,8 @@ struct WorkspaceSidebarConfiguration: Equatable {
     var tabCollections: [WorkspaceTabCollection] = []
     var displayFilter: WorkspaceSidebarDisplayFilter = .thisDisplay
     var panelsCoverEveryDisplay: Bool = true
+    /// Tabs mode: Music's player sits at the bottom of the expanded sidebar, not under its tab.
+    var musicPlayerAtBottom: Bool = false
 
     var defaultsToOwnDisplay: Bool { displayFilter == .thisDisplay && panelsCoverEveryDisplay }
     var compactRailWidth: CGFloat {
@@ -120,6 +122,8 @@ enum WorkspaceSidebarAction: Equatable {
     case expandForWorkspaceOverride
     case expandSidebar
     case selectWindow(UInt32)
+    /// Focuses a window on the display already showing it, instead of moving it to this one.
+    case focusWindowInPlace(UInt32)
     case closeWindow(UInt32)
     case closeTabWindows(String)
     case detachTabWindow(UInt32)

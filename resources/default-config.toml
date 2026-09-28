@@ -58,6 +58,9 @@ on-mode-changed = []
     # Optional Chrome website icons: downloaded directly as tabs are visited, including Incognito.
     # Requests do not use browser proxy/VPN extensions or secure DNS. Safari uses its app icon.
     browser-tab-icons = false
+    # Keep Apple Music's player at the bottom of the expanded Tabs sidebar while Music is open,
+    # instead of under Music's tab.
+    music-player-at-bottom = false
     # Dock is the default: it shows icons and opens a floating view of every project beside itself.
     # 'sidebar' is a compact rail that expands into window details; 'tabs' lists windows as vertical tabs.
     mode = 'dock'

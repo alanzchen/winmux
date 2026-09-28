@@ -99,6 +99,13 @@ tabs-always-expanded = true
   and name, and a count; its rows start under the group's icon. Groups open and
   close, and tabs move, with short animations. With Reduce Motion, they change in
   place and only hover and drop highlights fade.
+- Apple Music's tab shows what's playing under its row, with its artwork, progress, and
+  previous, play/pause and next buttons. Set `music-player-at-bottom = true` (**Keep the
+  Music player at the bottom** in Settings) to show the player at the bottom of the
+  expanded sidebar instead, above the project switcher, while Music is open. It stays
+  there whichever tab or project is showing, even when Music has no window open.
+  Clicking the track goes to Music's window. If another display is showing that window,
+  focus moves there; with no window open, Music opens one.
 - The animated project switcher is at the bottom. Right-click a project, workspace or group in
   any mode for the shared name field, color swatches and searchable emoji picker.
   Appearance edits keep the menu open. Enter commits the name; Escape discards an

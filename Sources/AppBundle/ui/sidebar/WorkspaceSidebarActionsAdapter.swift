@@ -99,6 +99,8 @@ func handleWorkspaceSidebarAction(
             WorkspaceSidebarPanel.panel(for: scopeId)?.expandSidebar(to: CGFloat(config.workspaceSidebar.width))
         case .selectWindow(let windowId):
             focusWindowFromSidebar(windowId, targetMonitorScopeId: targetMonitorScopeId)
+        case .focusWindowInPlace(let windowId):
+            focusWindowFromSidebar(windowId)
         case .closeWindow(let windowId):
             if config.usesBrowserTabs { WorkspaceSidebarTabUndo.shared.clear() }
             closeWindowFromMiddleClick(windowId) { focusWindowFromSidebar(windowId) }

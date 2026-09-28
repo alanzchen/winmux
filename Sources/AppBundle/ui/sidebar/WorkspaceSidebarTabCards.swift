@@ -83,6 +83,8 @@ struct WorkspaceSidebarTabCardView: View {
     var browserQuery: String = ""
     var browserSearchContext: String = ""
     var isSearching = false
+    /// False while Music's player sits at the bottom of the sidebar instead.
+    var showsNowPlaying = true
     let onBeginRename: () -> Void
     let onCommitOverride: () -> Void
     let onCancelOverride: () -> Void
@@ -100,7 +102,7 @@ struct WorkspaceSidebarTabCardView: View {
     /// Music's tab shows what it's playing under its row.
     private var drawsNowPlaying: Bool {
         guard case .single(let window) = presentation else { return false }
-        return !drawsBrowserCard && workspaceSidebarShowsNowPlaying(window)
+        return showsNowPlaying && !drawsBrowserCard && workspaceSidebarShowsNowPlaying(window)
     }
 
     /// The row heading a card shows where a drop goes. Only a browser card's row takes drops

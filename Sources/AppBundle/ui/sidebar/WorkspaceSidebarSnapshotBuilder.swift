@@ -41,5 +41,6 @@ func workspaceSidebarConfiguration(_ source: Config = config) -> WorkspaceSideba
         tabCollections: workspaceSidebarOrganizationStore.state.collections,
         displayFilter: source.workspaceSidebar.displayFilter,
         panelsCoverEveryDisplay: workspaceSidebarPanelsCoverEveryDisplay(),
+        musicPlayerAtBottom: source.workspaceSidebar.musicPlayerAtBottom,
     )
 }

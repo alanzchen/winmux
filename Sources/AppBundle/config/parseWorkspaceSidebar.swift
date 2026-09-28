@@ -10,6 +10,7 @@ private let workspaceSidebarParser: [String: any ParserProtocol<WorkspaceSidebar
     "tabs-always-expanded": Parser(\.tabsAlwaysExpanded, parseBool),
     "browser-tabs": Parser(\.browserTabs, parseBool),
     "browser-tab-icons": Parser(\.browserTabIcons, parseBool),
+    "music-player-at-bottom": Parser(\.musicPlayerAtBottom, parseBool),
     "mode": Parser(\.mode, parseWorkspaceSidebarMode),
     "show-app-icons": Parser(\.showAppIcons, parseBool),
     "show-workspace-tooltips": Parser(\.showWorkspaceTooltips, parseBool),

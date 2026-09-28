@@ -26,6 +26,25 @@ func workspaceSidebarShowsNowPlaying(_ window: WorkspaceSidebarWindowViewModel) 
     window.appBundleId == appleMusicBundleId
 }
 
+/// Where clicking the player at the bottom of the sidebar goes: Music's window, brought to this
+/// display like its tab, or focused on the display already showing it. Nil when no Music window
+/// is listed, so Music is opened instead.
+func workspaceSidebarBottomMusicPlayerAction(
+    _ workspaces: [WorkspaceSidebarWorkspaceViewModel],
+    targetMonitorScopeId: String,
+) -> WorkspaceSidebarAction? {
+    // A window on screen here first, then one on screen elsewhere, then the first listed.
+    func rank(_ workspace: WorkspaceSidebarWorkspaceViewModel) -> Int {
+        workspaceSidebarTabIsActive(workspace, on: targetMonitorScopeId) ? 0 : workspace.isVisible ? 1 : 2
+    }
+    let target = workspaces.flatMap { workspace in
+        workspaceSidebarPinnedTabWindows(workspace).filter(workspaceSidebarShowsNowPlaying).map { (workspace, $0) }
+    }.min { rank($0.0) < rank($1.0) }
+    guard let (workspace, window) = target else { return nil }
+    return workspaceSidebarWorkspaceIsInUseOnOtherDisplay(workspace, selectedScopeId: targetMonitorScopeId)
+        ? .focusWindowInPlace(window.windowId) : .selectWindow(window.windowId)
+}
+
 func workspaceSidebarNowPlayingTime(_ seconds: TimeInterval) -> String {
     let total = max(0, Int(seconds.rounded(.down)))
     return total >= 3600
@@ -150,6 +169,32 @@ struct WorkspaceSidebarMusicNowPlayingView: View {
         .buttonStyle(WorkspaceSidebarNowPlayingControlStyle())
         .help(label)
         .accessibilityLabel(label)
+    }
+}
+
+/// Music's player at the bottom of the expanded Tabs sidebar, while Music is open: whichever
+/// tab or project is showing, and even when Music has no window.
+struct WorkspaceSidebarBottomMusicPlayer: View {
+    let onSelect: () -> Void
+    @ObservedObject var model: AppleMusicNowPlayingModel = .shared
+    @Environment(\.workspaceSidebarReducesMotion) private var reducesMotion
+
+    var body: some View {
+        ZStack {
+            if model.isRunning {
+                WorkspaceSidebarMusicNowPlayingView(onSelect: onSelect, model: model)
+                    // The player's own top padding follows a tab's row; here it starts the card.
+                    .padding(.top, 6)
+                    .background {
+                        RoundedRectangle(cornerRadius: workspaceSidebarTabCornerRadius, style: .continuous)
+                            .fill(Color.primary.opacity(0.05))
+                    }
+                    .padding(.horizontal, workspaceSidebarTabsListInset).padding(.top, 6)
+                    .transition(reducesMotion ? .opacity : .opacity.combined(with: .move(edge: .bottom)))
+            }
+        }
+        .animation(reducesMotion ? WorkspaceSidebarTabMotion.feedback : WorkspaceSidebarTabMotion.disclosure,
+            value: model.isRunning)
     }
 }
 

@@ -240,6 +240,46 @@ final class WorkspaceSidebarTabCardsTest: XCTestCase {
             .write(to: directory.appendingPathComponent("tabs-browser.png"))
     }
 
+    func testMusicsPlayerMovesFromItsTabToTheBottomOfTheSidebar() throws {
+        var fixture = tabsFixture()
+        fixture.workspaces.append(workspace("Music", windows: [window(9, "Music", app: "Music", bundleId: appleMusicBundleId)]))
+        let running = MusicRunningFlag(false)
+        let music = AppleMusicNowPlayingModel(isMusicRunning: { running.isRunning }, requestStatus: { _ in nil },
+            requestArtwork: { .failed })
+        /// The Music tab's height, and the bottom of the list, which the player at the bottom sits under.
+        func layout(playerAtBottom: Bool) throws -> (musicTab: CGFloat, listBottom: CGFloat) {
+            fixture.configuration.musicPlayerAtBottom = playerAtBottom
+            let view = WorkspaceSidebarView(snapshot: fixture, reduceMotionOverride: true, reduceTransparencyOverride: true,
+                musicPlayerModel: music)
+            let probe = CardsDropTargetProbe()
+            let host = NSHostingView(rootView: view.sidebarContent(expansionProgress: 1, layout: fixture.configuration)
+                .coordinateSpace(name: "workspaceSidebarContent")
+                .onPreferenceChange(WorkspaceSidebarDropTargetPreferenceKey.self) { probe.targets = $0 }
+                .frame(width: 280, height: 520))
+            host.frame = CGRect(x: 0, y: 0, width: 280, height: 520)
+            host.layoutSubtreeIfNeeded()
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.2))
+            host.layoutSubtreeIfNeeded()
+            let tab = try XCTUnwrap(probe.targets.first { $0.kind == .workspace("Music") })
+            let tail = try XCTUnwrap(probe.targets.first { if case .tabGap = $0.kind { $0.frame.minY >= tab.frame.maxY } else { false } })
+            return (tab.frame.height, tail.frame.maxY)
+        }
+        let inline = try layout(playerAtBottom: false)
+        XCTAssertGreaterThan(inline.musicTab, workspaceSidebarTabRowHeight + 30, "Music's tab shows its player under its row")
+        let closed = try layout(playerAtBottom: true)
+        XCTAssertLessThanOrEqual(closed.musicTab, workspaceSidebarTabRowHeight + 6,
+            "With the player at the bottom, Music's tab is one row")
+        XCTAssertEqual(closed.listBottom, inline.listBottom, accuracy: 0.5, "Nothing takes the bottom while Music is closed")
+        running.isRunning = true
+        music.receive(AppleMusicNowPlaying(state: .playing, title: "Song", artist: "Artist", album: "Album", duration: 200,
+            position: 10, positionDate: Date()))
+        let open = try layout(playerAtBottom: true)
+        XCTAssertLessThan(open.listBottom, inline.listBottom - 50, "The player takes the bottom of the sidebar")
+        XCTAssertLessThanOrEqual(open.musicTab, workspaceSidebarTabRowHeight + 6)
+        let unused = try layout(playerAtBottom: false)
+        XCTAssertEqual(unused.listBottom, inline.listBottom, accuracy: 0.5, "Only the setting puts the player at the bottom")
+    }
+
     // MARK: - Fixtures
 
     private func window(_ id: UInt32, _ title: String, focused: Bool = false, app: String = "Safari",

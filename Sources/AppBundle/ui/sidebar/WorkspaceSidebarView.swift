@@ -8,6 +8,9 @@ struct WorkspaceSidebarView: View {
     let dockBadgeModel: WorkspaceSidebarDockBadgeModel
     @ObservedObject var dockBadgePresence: WorkspaceSidebarDockBadgePresence
     @ObservedObject var browserTabsModel: BrowserTabsModel
+    /// What the Music player at the bottom of the Tabs sidebar shows. Only that player observes
+    /// it, so Music's updates don't redraw the whole sidebar.
+    let musicPlayerModel: AppleMusicNowPlayingModel
     @State private var browserWatchScope: String?
     var browserTabs: [UInt32: BrowserWindowTabs] { snapshot.configuration.usesTabsList ? browserTabsModel.snapshots : [:] }
     private var watchedBrowserWindowIds: Set<UInt32> {
@@ -80,11 +83,13 @@ struct WorkspaceSidebarView: View {
     init(snapshot: WorkspaceSidebarSnapshot, actions: WorkspaceSidebarActions = WorkspaceSidebarActions(),
          reduceMotionOverride: Bool? = nil, reduceTransparencyOverride: Bool? = nil,
          dockBadgeModel: WorkspaceSidebarDockBadgeModel = .shared, searchText: String = "",
-         browserTabsModel: BrowserTabsModel = .shared, searchKeyRelay: WorkspaceSidebarSearchKeyRelay? = nil) {
+         browserTabsModel: BrowserTabsModel = .shared, searchKeyRelay: WorkspaceSidebarSearchKeyRelay? = nil,
+         musicPlayerModel: AppleMusicNowPlayingModel = .shared) {
         self.snapshot = snapshot
         self.dockBadgeModel = dockBadgeModel
         self.dockBadgePresence = dockBadgeModel.presence
         self.browserTabsModel = browserTabsModel
+        self.musicPlayerModel = musicPlayerModel
         self.actions = actions
         self._searchText = State(initialValue: searchText)
         self._searchKeyRelay = State(initialValue: searchKeyRelay ?? WorkspaceSidebarSearchKeyRelay())

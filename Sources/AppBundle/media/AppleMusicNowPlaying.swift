@@ -222,6 +222,8 @@ final class AppleMusicNowPlayingModel: ObservableObject {
     @Published private(set) var artwork: NSImage?
     /// The user declined to let WinMux control Music.
     @Published private(set) var needsAutomationPermission = false
+    /// Music is open, as of its last launch or quit, whether or not it has a window.
+    @Published private(set) var isRunning = false
     private var observers: [(NotificationCenter, NSObjectProtocol)] = []
     private var generation = 0
     /// Bumped by every newer piece of state, so a slower reply from Music never overwrites it.
@@ -303,6 +305,12 @@ final class AppleMusicNowPlayingModel: ObservableObject {
         }
     }
 
+    /// Brings Music forward. Opening it again shows its window when none is open.
+    func openMusic() {
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: appleMusicBundleId) else { return }
+        NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration())
+    }
+
     func receive(_ next: AppleMusicNowPlaying) {
         var next = next
         // The notification has no position; keep counting from the last one Music gave.
@@ -318,6 +326,7 @@ final class AppleMusicNowPlayingModel: ObservableObject {
     /// request's reply is used: one sent before a pause may arrive after it.
     private func refresh(askingMusic: Bool = false) {
         guard isMusicRunning() else { return clear() }
+        if !isRunning { isRunning = true }
         stateSequence += 1
         let sequence = stateSequence
         let requestStatus = requestStatus
@@ -386,9 +395,11 @@ final class AppleMusicNowPlayingModel: ObservableObject {
         if artwork != nil { artwork = nil }
     }
 
+    /// Every caller means Music isn't running: it quit, never started, or isn't followed.
     private func clear() {
         stateSequence += 1
         resetArtwork()
         if nowPlaying != nil { nowPlaying = nil }
+        if isRunning { isRunning = false }
     }
 }
