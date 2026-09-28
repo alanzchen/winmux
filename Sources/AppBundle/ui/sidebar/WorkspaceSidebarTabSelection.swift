@@ -54,9 +54,13 @@ final class WorkspaceSidebarTabSelection: ObservableObject {
 final class WorkspaceSidebarTabDragState: ObservableObject {
     static let shared = WorkspaceSidebarTabDragState()
     @Published private(set) var isDragging = false
+    /// The pinned tab being dragged, which stays dimmed until the drag ends.
+    @Published private(set) var draggedPinnedTab: String?
 
-    func set(_ dragging: Bool) {
+    func set(_ dragging: Bool, pinnedTab: String? = nil) {
         if isDragging != dragging { isDragging = dragging }
+        let pinnedTab = dragging ? pinnedTab : nil
+        if draggedPinnedTab != pinnedTab { draggedPinnedTab = pinnedTab }
     }
 }
 
@@ -165,9 +169,25 @@ func setWorkspaceSidebarTabsFavorite(_ workspaces: [Workspace], _ favorite: Bool
     if favorite { try saveWorkspaceSidebarIdentities(workspaces) }
     let names = Set(workspaces.map(\.name))
     try workspaceSidebarOrganizationStore.update { state in
-        for name in names { state.workspaces[name, default: .init()].isFavorite = favorite }
+        for name in names { state.workspaces[name, default: .init()].setFavorite(favorite) }
         if favorite {
             for index in state.collections.indices { state.collections[index].workspaceNames.removeAll(where: names.contains) }
         }
+    }
+}
+
+/// Pins a tab dropped on the pinned tiles, or moves a pinned one there. `gap` puts it beside
+/// another pin. Pinning and placing are one write, so a failure leaves neither behind.
+@MainActor
+func pinWorkspaceSidebarTab(_ workspace: Workspace, beside gap: WorkspaceSidebarTabGap?) throws {
+    let wasPinned = workspaceSidebarOrganizationStore.state.workspaces[workspace.name]?.isFavorite == true
+    if !wasPinned { try saveWorkspaceSidebarIdentities([workspace]) }
+    let order = gap.flatMap { workspacePinnedTabOrder(moving: workspace, beside: $0) } ?? []
+    try workspaceSidebarOrganizationStore.update { state in
+        if !wasPinned {
+            state.workspaces[workspace.name, default: .init()].setFavorite(true)
+            for index in state.collections.indices { state.collections[index].workspaceNames.removeAll { $0 == workspace.name } }
+        }
+        for (index, name) in order.enumerated() { state.workspaces[name, default: .init()].pinOrder = index }
     }
 }

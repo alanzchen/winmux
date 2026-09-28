@@ -21,13 +21,16 @@ struct WorkspaceSidebarPinnedGridLayout {
     }
 }
 
+let workspaceSidebarPinnedGridSpacing: CGFloat = 8
+let workspaceSidebarPinnedGridRowHeight: CGFloat = 54
+
 /// Pins are a small, bounded-height surface. Measure them eagerly so revealing a
 /// zero-width, auto-hidden sidebar never depends on a lazy scroll viewport refresh.
 /// Keeping one flat set of subviews also preserves tile identity across columns.
 struct WorkspaceSidebarPinnedGrid: SwiftUI.Layout {
     let columns: Int
-    private let spacing: CGFloat = 8
-    private let rowHeight: CGFloat = 54
+    private let spacing = workspaceSidebarPinnedGridSpacing
+    private let rowHeight = workspaceSidebarPinnedGridRowHeight
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         let count = max(columns, 1)
@@ -63,10 +66,16 @@ struct WorkspaceSidebarPinnedTab: View {
     let badgeModel: WorkspaceSidebarDockBadgeModel
     var compact = false
     var targetMonitorScopeId: String? = nil
+    /// Expanded, a pin drags as its whole tab: among the pins to rearrange them, or into the list
+    /// to unpin it there. Nil for the compact rail.
+    var actions: WorkspaceSidebarActions? = nil
+    /// The side a dragged tab would go beside this pin.
+    var insertionEdge: HorizontalEdge? = nil
     let onSelect: (UInt32?) -> Void
     @State private var isHovered = false
     @Environment(\.workspaceSidebarReducesMotion) private var reducesMotion
     @ObservedObject private var selection = WorkspaceSidebarTabSelection.shared
+    @ObservedObject private var drag = WorkspaceSidebarTabDragState.shared
 
     var body: some View {
         let windows = workspaceSidebarPinnedTabWindows(workspace)
@@ -133,6 +142,14 @@ struct WorkspaceSidebarPinnedTab: View {
         .overlay {
             WorkspaceSidebarTabSelectionHighlight(isSelected: selection.contains(workspace.name), cornerRadius: compact ? 8 : 13)
         }
+        .opacity(drag.draggedPinnedTab == workspace.name ? 0.45 : 1)
+        .animation(WorkspaceSidebarTabMotion.feedback, value: drag.draggedPinnedTab == workspace.name)
+        .modifier(WorkspaceSidebarOptionalDragModifier(
+            isEnabled: actions != nil,
+            onChanged: { actions?.pinnedTabDragChanged(workspace.name, $0) },
+            onEnded: { actions?.pinnedTabDragEnded(workspace.name, $0) },
+        ))
+        .overlay { WorkspaceSidebarPinnedInsertionLine(edge: insertionEdge) }
         .animation(WorkspaceSidebarTabMotion.selection(reducesMotion: reducesMotion), value: isActiveHere)
         .animation(WorkspaceSidebarTabMotion.selection(reducesMotion: reducesMotion), value: windows.first(where: \.isFocused)?.windowId)
         .onHover { hovering in withAnimation(WorkspaceSidebarTabMotion.hover) { isHovered = hovering } }
@@ -158,6 +175,37 @@ struct WorkspaceSidebarPinnedTab: View {
                 size: compact ? min(20, 26 / CGFloat(max(windowCount, 1))) : 22)
         } else { Image(systemName: "macwindow").font(.system(size: compact ? 19 : 22)) }
     }
+}
+
+/// Where a dragged tab would go among the pins: an accent line centered in the space beside a pin.
+struct WorkspaceSidebarPinnedInsertionLine: View {
+    let edge: HorizontalEdge?
+    @Environment(\.workspaceSidebarReducesMotion) private var reducesMotion
+
+    var body: some View {
+        ZStack(alignment: edge == .trailing ? .trailing : .leading) {
+            Color.clear
+            if let edge {
+                Capsule(style: .continuous)
+                    .fill(Color.accentColor)
+                    .frame(width: 3)
+                    .padding(.vertical, 6)
+                    .offset(x: (edge == .leading ? -1 : 1) * (workspaceSidebarPinnedGridSpacing + 3) / 2)
+                    .transition(reducesMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.9)))
+            }
+        }
+        .animation(reducesMotion ? nil : WorkspaceSidebarTabMotion.feedback, value: edge)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+}
+
+/// The side of this pin a dragged tab would go, while one is beside it.
+func workspaceSidebarPinnedInsertionEdge(_ preview: WorkspaceSidebarDropPreviewViewModel?, workspaceName: String,
+                                         projectId: WorkspaceProjectId) -> HorizontalEdge? {
+    guard let preview, preview.targetsPinned, preview.targetProjectId == projectId,
+          let gap = preview.targetPinnedGap, gap.workspaceName == workspaceName else { return nil }
+    return gap.isAfter ? .trailing : .leading
 }
 
 func workspaceSidebarTabIsActive(_ workspace: WorkspaceSidebarWorkspaceViewModel, on scope: String?) -> Bool {

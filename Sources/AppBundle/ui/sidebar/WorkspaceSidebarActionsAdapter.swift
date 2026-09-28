@@ -62,6 +62,12 @@ func makeWorkspaceSidebarActionsAdapter(
         appIconDragChanged: { windowId, pointer, size in
             updateSidebarWindowDrag(windowId, pointer: pointer, previewStyle: .appIcon(size: size))
         },
+        pinnedTabDragChanged: { name, pointer in
+            updateSidebarPinnedTabDrag(name, pointer: pointer)
+        },
+        pinnedTabDragEnded: { name, pointer in
+            finishSidebarPinnedTabDrag(name, pointer: pointer)
+        },
     )
 }
 

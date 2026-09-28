@@ -46,6 +46,15 @@ struct WorkspaceSidebarItemAppearance: Codable, Hashable {
     var colorHex: String? = nil
     var emoji: String? = nil
     var isFavorite = false
+    /// A pin's place among its project's pins, once they've been rearranged. Pins without
+    /// one follow the arranged pins, in tab order.
+    var pinOrder: Int? = nil
+
+    /// A new pin goes after the arranged pins, and an unpinned tab forgets its place.
+    mutating func setFavorite(_ favorite: Bool) {
+        if favorite != isFavorite { pinOrder = nil }
+        isFavorite = favorite
+    }
 }
 
 struct WorkspaceSidebarOrganization: Codable, Equatable {
@@ -114,7 +123,7 @@ final class WorkspaceSidebarOrganizationStore {
         var seen: Set<String> = []
         let collection = WorkspaceTabCollection(projectId: projectId, workspaceNames: workspaceNames.filter { seen.insert($0).inserted })
         try update { state in
-            for name in workspaceNames { state.workspaces[name, default: .init()].isFavorite = false }
+            for name in workspaceNames { state.workspaces[name, default: .init()].setFavorite(false) }
             for index in state.collections.indices {
                 state.collections[index].workspaceNames.removeAll { workspaceNames.contains($0) }
             }
@@ -133,7 +142,7 @@ final class WorkspaceSidebarOrganizationStore {
             throw error("Choose a group in the same project as this tab.")
         }
         try update { state in
-            if collectionId != nil { state.workspaces[workspaceName, default: .init()].isFavorite = false }
+            if collectionId != nil { state.workspaces[workspaceName, default: .init()].setFavorite(false) }
             for index in state.collections.indices {
                 state.collections[index].workspaceNames.removeAll { $0 == workspaceName }
                 if state.collections[index].id == collectionId { state.collections[index].workspaceNames.append(workspaceName) }
@@ -148,7 +157,7 @@ final class WorkspaceSidebarOrganizationStore {
         }
         let names = Set(workspaceNames)
         try update { state in
-            if collectionId != nil { for name in workspaceNames { state.workspaces[name, default: .init()].isFavorite = false } }
+            if collectionId != nil { for name in workspaceNames { state.workspaces[name, default: .init()].setFavorite(false) } }
             for index in state.collections.indices {
                 state.collections[index].workspaceNames.removeAll(where: names.contains)
                 if state.collections[index].id == collectionId { state.collections[index].workspaceNames += workspaceNames }

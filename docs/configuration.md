@@ -68,7 +68,12 @@ tabs-always-expanded = true
 - Shift-click tabs to choose a range, or Command-click to add or remove one; a plain
   click goes back to one tab. Right-click a chosen tab to group, pin, or close them all.
 - **Pin Tab** places a row in the shortcut tiles at the top; so does dragging it onto
-  them, or, with nothing pinned yet, onto **Drop to Pin** there. Pins, group membership,
+  them, or, with nothing pinned yet, onto **Drop to Pin** there. Dropped beside a tile,
+  it's pinned in that place; a line between the tiles marks the spot. A pinned tile drags
+  as its whole tab, split or empty: beside another tile to rearrange the pins, into the
+  tab list to unpin it where it's dropped, onto a group to unpin it into the group, or
+  onto **New Tab** to unpin it in place. A tab pinned from its menu goes after the pins
+  already arranged. Pins, their order, group membership,
   colors and emoji are saved in `sidebar-organization.json` beside the saved-workspace
   file. Customizing, pinning or grouping a workspace saves its identity and layout for
   restoration; unpinning or ungrouping leaves that saved workspace intact. **Forget

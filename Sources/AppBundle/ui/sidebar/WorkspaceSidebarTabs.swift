@@ -604,7 +604,7 @@ extension WorkspaceSidebarView {
         let sections = workspaceSidebarTabSections(workspaces: folders.filter { isSearching || !$0.appearance.isFavorite },
             collections: snapshot.configuration.tabCollections, projectId: projectId)
         let tailGap = isSearching || !snapshot.configuration.usesTabsList ? nil
-            : workspaceSidebarTabsTailGap(sections: sections)
+            : workspaceSidebarTabsTailGap(sections: sections, lastPin: folders.last { $0.appearance.isFavorite }?.name)
         return GeometryReader { viewport in
             // Measured once per page: every folder shares the width.
             let overrideMinHeight = workspaceSidebarInUseOverrideMinHeight(sectionWidth: viewport.size.width - leadingInset - trailingInset)
@@ -847,8 +847,10 @@ func workspaceSidebarTabInsertionEdge(_ preview: WorkspaceSidebarDropPreviewView
 
 /// The gap the space below the last tab stands for: after the last tab, outside any group.
 /// A group's line would draw inside the group, so below a group the zone draws its own.
-/// Empty groups, which always come last, hold no tab to go after.
-func workspaceSidebarTabsTailGap(sections: [WorkspaceSidebarTabSection]) -> (gap: WorkspaceSidebarTabGap, drawsOwnLine: Bool)? {
+/// Empty groups, which always come last, hold no tab to go after. With every tab pinned, it
+/// goes after the last pin, so a pin dragged there is unpinned into the empty list.
+func workspaceSidebarTabsTailGap(sections: [WorkspaceSidebarTabSection],
+                                 lastPin: String? = nil) -> (gap: WorkspaceSidebarTabGap, drawsOwnLine: Bool)? {
     for section in sections.reversed() {
         switch section {
             case .tab(let workspace): return (WorkspaceSidebarTabGap(workspaceName: workspace.name, isAfter: true), false)
@@ -856,7 +858,7 @@ func workspaceSidebarTabsTailGap(sections: [WorkspaceSidebarTabSection]) -> (gap
                 if let last = workspaces.last { return (WorkspaceSidebarTabGap(workspaceName: last.name, isAfter: true), true) }
         }
     }
-    return nil
+    return lastPin.map { (WorkspaceSidebarTabGap(workspaceName: $0, isAfter: true), true) }
 }
 
 /// The empty space under the tabs, which takes a dropped tab as the last tab.

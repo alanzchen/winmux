@@ -176,6 +176,9 @@ struct WorkspaceSidebarActions {
     var windowDragEnded: @MainActor (UInt32, CGPoint) -> Void
     var tabGroupDragChanged: @MainActor (UInt32, CGPoint) -> Void
     var tabGroupDragEnded: @MainActor (UInt32, CGPoint) -> Void
+    /// Tabs mode: a pinned tile, dragged as its whole tab.
+    var pinnedTabDragChanged: @MainActor (String, CGPoint) -> Void
+    var pinnedTabDragEnded: @MainActor (String, CGPoint) -> Void
 
     init(
         send: @escaping @MainActor (WorkspaceSidebarAction) -> Void = { _ in },
@@ -191,7 +194,9 @@ struct WorkspaceSidebarActions {
         windowDragEnded: @escaping @MainActor (UInt32, CGPoint) -> Void = { _, _ in },
         tabGroupDragChanged: @escaping @MainActor (UInt32, CGPoint) -> Void = { _, _ in },
         tabGroupDragEnded: @escaping @MainActor (UInt32, CGPoint) -> Void = { _, _ in },
-        appIconDragChanged: (@MainActor (UInt32, CGPoint, CGFloat) -> Void)? = nil
+        appIconDragChanged: (@MainActor (UInt32, CGPoint, CGFloat) -> Void)? = nil,
+        pinnedTabDragChanged: @escaping @MainActor (String, CGPoint) -> Void = { _, _ in },
+        pinnedTabDragEnded: @escaping @MainActor (String, CGPoint) -> Void = { _, _ in }
     ) {
         self.send = send
         self.setDropTargets = setDropTargets
@@ -207,5 +212,7 @@ struct WorkspaceSidebarActions {
         self.windowDragEnded = windowDragEnded
         self.tabGroupDragChanged = tabGroupDragChanged
         self.tabGroupDragEnded = tabGroupDragEnded
+        self.pinnedTabDragChanged = pinnedTabDragChanged
+        self.pinnedTabDragEnded = pinnedTabDragEnded
     }
 }

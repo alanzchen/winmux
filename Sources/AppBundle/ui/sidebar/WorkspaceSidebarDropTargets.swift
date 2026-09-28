@@ -9,8 +9,9 @@ enum WorkspaceSidebarDropTargetKind: Equatable {
     /// Tabs mode: the edge between two tabs, where a dropped tab moves, or a dropped window
     /// opens in a tab of its own.
     case tabGap(projectId: WorkspaceProjectId, monitorScopeId: String, gap: WorkspaceSidebarTabGap)
-    /// Tabs mode: the pinned tiles at the top, where a dropped tab is pinned.
-    case pinnedTabs(projectId: WorkspaceProjectId)
+    /// Tabs mode: the pinned tiles at the top, where a dropped tab is pinned: beside the pin in
+    /// `gap`, or, with nothing pinned yet, in the place that offers pinning.
+    case pinnedTabs(projectId: WorkspaceProjectId, gap: WorkspaceSidebarTabGap? = nil)
 }
 
 /// A place between tabs: just before or just after a workspace.
@@ -108,6 +109,32 @@ func workspaceSidebarTabGapBands(for frame: CGRect, inside maxInside: CGFloat = 
         CGRect(x: frame.minX, y: frame.minY - outside, width: frame.width, height: inside + outside),
         CGRect(x: frame.minX, y: frame.maxY - inside, width: frame.width, height: inside + outside),
     )
+}
+
+/// The pinned tiles' drop targets, laid out as `WorkspaceSidebarPinnedGrid` places them: each
+/// tile's halves, which put a dropped tab before or after that tile. They reach halfway across
+/// the space between tiles, and the last tile's reaches the row's end, so the empty cells after
+/// it put a tab last. Together they cover the tiles, which take no drop of their own.
+func workspaceSidebarPinnedDropTargets(names: [String], projectId: WorkspaceProjectId, frame: CGRect,
+                                       columns: Int) -> [WorkspaceSidebarDropTargetFrame] {
+    var targets: [WorkspaceSidebarDropTargetFrame] = []
+    let columns = max(columns, 1)
+    let slop = workspaceSidebarPinnedGridSpacing / 2
+    let width = max((frame.width - CGFloat(columns - 1) * workspaceSidebarPinnedGridSpacing) / CGFloat(columns), 0)
+    for (index, name) in names.enumerated() {
+        let minX = frame.minX + CGFloat(index % columns) * (width + workspaceSidebarPinnedGridSpacing)
+        let minY = frame.minY + CGFloat(index / columns) * (workspaceSidebarPinnedGridRowHeight + workspaceSidebarPinnedGridSpacing)
+        let maxX = index == names.count - 1 ? frame.maxX : minX + width
+        let height = workspaceSidebarPinnedGridRowHeight + 2 * slop
+        targets += [
+            (CGRect(x: minX - slop, y: minY - slop, width: width / 2 + slop, height: height), false),
+            (CGRect(x: minX + width / 2, y: minY - slop, width: maxX - minX - width / 2 + slop, height: height), true),
+        ].map { rect, isAfter in
+            WorkspaceSidebarDropTargetFrame(kind: .pinnedTabs(projectId: projectId,
+                gap: WorkspaceSidebarTabGap(workspaceName: name, isAfter: isAfter)), frame: rect)
+        }
+    }
+    return targets
 }
 
 struct WorkspaceSidebarTabReorderDestination: Equatable {

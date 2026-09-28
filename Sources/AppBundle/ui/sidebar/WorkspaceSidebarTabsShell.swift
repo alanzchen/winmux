@@ -172,38 +172,46 @@ extension WorkspaceSidebarView {
     private func tabsFavorites(_ workspaces: [WorkspaceSidebarWorkspaceViewModel]) -> some View {
         let favorites = workspaces.filter { $0.appearance.isFavorite }
         let grid = WorkspaceSidebarPinnedGridLayout(workspaces: favorites, width: snapshot.visibleWidth - 20)
-        let isPinDropTarget = snapshot.dropPreview?.targetsPinned == true && snapshot.dropPreview?.targetProjectId == snapshot.activeProjectId
-        return tabsFavoriteGrid(favorites, grid: grid, isDropTarget: isPinDropTarget)
+        return tabsFavoriteGrid(favorites, grid: grid)
     }
 
-    private func tabsFavoriteGrid(_ favorites: [WorkspaceSidebarWorkspaceViewModel], grid: WorkspaceSidebarPinnedGridLayout,
-                                  isDropTarget: Bool) -> some View {
-        ScrollView {
-            WorkspaceSidebarPinnedGrid(columns: grid.columns) {
-                ForEach(favorites) { workspace in
-                    WorkspaceSidebarPinnedTab(workspace: workspace, badgeModel: dockBadgeModel,
-                        targetMonitorScopeId: snapshot.targetMonitorScopeId) { windowId in
-                        selectTabWorkspace(workspace, windowId: windowId)
+    /// A tab dropped beside a tile goes there among the pins; the insertion line shows where.
+    private func tabsFavoriteGrid(_ favorites: [WorkspaceSidebarWorkspaceViewModel],
+                                  grid: WorkspaceSidebarPinnedGridLayout) -> some View {
+        // The scroll view reaches past the tiles so it doesn't clip the insertion line beside the outer ones.
+        let lineRoom = workspaceSidebarPinnedGridSpacing
+        return GeometryReader { viewport in
+            ScrollView {
+                WorkspaceSidebarPinnedGrid(columns: grid.columns) {
+                    ForEach(favorites) { workspace in
+                        WorkspaceSidebarPinnedTab(workspace: workspace, badgeModel: dockBadgeModel,
+                            targetMonitorScopeId: snapshot.targetMonitorScopeId, actions: actions,
+                            insertionEdge: workspaceSidebarPinnedInsertionEdge(snapshot.dropPreview,
+                                workspaceName: workspace.name, projectId: snapshot.activeProjectId)) { windowId in
+                            selectTabWorkspace(workspace, windowId: windowId)
+                        }
                     }
                 }
-            }
-            .animation(reduceDockMotion ? nil : .easeInOut(duration: 0.18),
-                value: favorites.map(WorkspaceSidebarPinnedTabIdentity.init))
-        }
-        .frame(height: grid.height)
-        .background {
-            if !favorites.isEmpty {
-                WorkspaceSidebarTabsPinDropTarget(projectId: snapshot.activeProjectId)
-                RoundedRectangle(cornerRadius: 15, style: .continuous)
-                    .fill(Color.accentColor.opacity(isDropTarget ? 0.14 : 0))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 15, style: .continuous)
-                            .strokeBorder(Color.accentColor.opacity(isDropTarget ? 0.65 : 0), lineWidth: 1)
+                .animation(reduceDockMotion ? nil : .easeInOut(duration: 0.18),
+                    value: favorites.map(WorkspaceSidebarPinnedTabIdentity.init))
+                .background {
+                    GeometryReader { content in
+                        Color.clear.preference(key: WorkspaceSidebarDropTargetPreferenceKey.self,
+                            value: favorites.isEmpty ? [] : workspaceSidebarPinnedDropTargets(names: favorites.map(\.name),
+                                projectId: snapshot.activeProjectId,
+                                frame: content.frame(in: .named("workspaceSidebarContent")), columns: grid.columns))
                     }
-                    .padding(-4)
-                    .animation(WorkspaceSidebarTabMotion.feedback, value: isDropTarget)
+                }
+                .padding(.horizontal, lineRoom)
+            }
+            // Tiles scrolled out of view take no drops.
+            .transformPreference(WorkspaceSidebarDropTargetPreferenceKey.self) { targets in
+                targets = workspaceSidebarClippedDropTargets(targets,
+                    to: viewport.frame(in: .named("workspaceSidebarContent")).insetBy(dx: 0, dy: -4))
             }
         }
+        .padding(.horizontal, -lineRoom)
+        .frame(height: grid.height)
         .padding(.horizontal, 10).padding(.bottom, favorites.isEmpty ? 0 : 8)
         .overlay {
             if let workspace = favorites.first(where: { $0.name == activeInUseOverrideWorkspaceName }) {
