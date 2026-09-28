@@ -145,4 +145,99 @@ final class WorkspaceSidebarDisplayWidthTest: XCTestCase {
         XCTAssertEqual(parseConfig(none).errors.descriptions, [])
         XCTAssertEqual(updateWorkspaceSidebarDisplayWidthConfig(in: start, display: "Missing", width: nil), start)
     }
+
+    func testCommentedTableHeadersKeepTheirTablesApart() {
+        let text = """
+            [workspace-sidebar.display-widths] # set by dragging
+            "Studio Display" = 300
+
+            [workspace-sidebar.workspace-labels] # names
+            "Studio Display" = "Work"
+            """
+        let resized = updateWorkspaceSidebarDisplayWidthConfig(in: text, display: "Studio Display", width: 320)
+        let parsed = parseConfig(resized)
+        XCTAssertEqual(parsed.errors.descriptions, [], resized)
+        XCTAssertEqual(parsed.config.workspaceSidebar.displayWidths, ["Studio Display": 320])
+        XCTAssertEqual(parsed.config.workspaceSidebar.workspaceLabels, ["Studio Display": "Work"],
+            "The next table's matching key must survive: \(resized)")
+        XCTAssertTrue(resized.contains("[workspace-sidebar.display-widths] # set by dragging"))
+
+        let reset = updateWorkspaceSidebarDisplayWidthConfig(in: text, display: "Studio Display", width: nil)
+        XCTAssertEqual(parseConfig(reset).config.workspaceSidebar.displayWidths, [:], reset)
+        XCTAssertEqual(parseConfig(reset).config.workspaceSidebar.workspaceLabels, ["Studio Display": "Work"], reset)
+
+        let labels = updateWorkspaceSidebarLabelConfig(in: """
+            [workspace-sidebar.workspace-labels] # names
+            "1" = "Code"
+            [workspace-sidebar.project-labels] # projects
+            "1" = "Client"
+            """, workspaceName: "1", label: "Web")
+        XCTAssertEqual(parseConfig(labels).config.workspaceSidebar.projectLabels, ["1": "Client"], labels)
+        XCTAssertEqual(parseConfig(labels).config.workspaceSidebar.workspaceLabels, ["1": "Web"], labels)
+    }
+
+    func testTextInsideAMultilineStringIsNeverAHeaderOrAKey() {
+        let quote = "\"\"\""
+        let text = """
+            [workspace-sidebar.workspace-labels]
+            "1" = \(quote)
+            [example] # label text
+            "2" = "not a key"
+            \(quote)
+            "2" = "Old"
+            "3" = '''one line'''
+            [workspace-sidebar.project-labels]
+            "2" = "Client"
+            """
+        let renamed = updateWorkspaceSidebarLabelConfig(in: text, workspaceName: "2", label: "Web")
+        let parsed = parseConfig(renamed)
+        XCTAssertEqual(parsed.errors.descriptions, [], renamed)
+        XCTAssertEqual(parsed.config.workspaceSidebar.workspaceLabels,
+            ["1": "[example] # label text\n\"2\" = \"not a key\"\n", "2": "Web", "3": "one line"], renamed)
+        XCTAssertEqual(parsed.config.workspaceSidebar.projectLabels, ["2": "Client"], renamed)
+
+        let replaced = updateWorkspaceSidebarLabelConfig(in: text, workspaceName: "1", label: "Code")
+        let replacedConfig = parseConfig(replaced)
+        XCTAssertEqual(replacedConfig.errors.descriptions, [], "The whole multi-line value goes: \(replaced)")
+        XCTAssertEqual(replacedConfig.config.workspaceSidebar.workspaceLabels, ["1": "Code", "2": "Old", "3": "one line"])
+
+        let widths = "[workspace-sidebar.display-widths]\n\"Left\" = 300\n" + text
+        XCTAssertEqual(parseConfig(updateWorkspaceSidebarDisplayWidthConfig(in: widths, display: "Left", width: nil))
+            .config.workspaceSidebar.workspaceLabels, parseConfig(text).config.workspaceSidebar.workspaceLabels)
+    }
+
+    func testTheTomlParserDecidesWhereMultilineValuesEnd() {
+        let quote = "\"\"\""
+        // An escaped quote before two more doesn't close the string.
+        let escaped = """
+            [workspace-sidebar.workspace-labels]
+            "1" = \(quote)
+            a \\\(quote) still inside
+            "2" = "text"
+            \(quote)
+            "2" = "Old"
+            "3" = \(quote)one\(quote)"
+            "4" = '''two''''
+            """
+        let renamed = updateWorkspaceSidebarLabelConfig(in: escaped, workspaceName: "2", label: "Web")
+        let labels = parseConfig(renamed)
+        XCTAssertEqual(labels.errors.descriptions, [], renamed)
+        XCTAssertEqual(labels.config.workspaceSidebar.workspaceLabels,
+            ["1": "a \(quote) still inside\n\"2\" = \"text\"\n", "2": "Web", "3": "one\"", "4": "two'"], renamed)
+
+        // One line closes a string and opens the next; another closes with four quotes, then opens.
+        for array in [
+            "exec-on-workspace-change = [\n    \(quote)first\n\(quote), \(quote)second\n\(quote),\n]",
+            "exec-on-workspace-change = [\(quote)one\(quote)\", \(quote)two\n\(quote), '''three\n'''', 'four']",
+        ] {
+            let text = array + "\n\n[workspace-sidebar.display-widths]\n\"Left\" = 300\n"
+            XCTAssertEqual(parseConfig(text).errors.descriptions, [], text)
+            let resized = updateWorkspaceSidebarDisplayWidthConfig(in: text, display: "Left", width: 320)
+            XCTAssertEqual(parseConfig(resized).errors.descriptions, [], resized)
+            XCTAssertEqual(parseConfig(resized).config.workspaceSidebar.displayWidths, ["Left": 320], resized)
+            XCTAssertEqual(parseConfig(resized).config.execOnWorkspaceChange, parseConfig(text).config.execOnWorkspaceChange)
+            let reset = updateWorkspaceSidebarDisplayWidthConfig(in: text, display: "Left", width: nil)
+            XCTAssertEqual(parseConfig(reset).config.workspaceSidebar.displayWidths, [:], reset)
+        }
+    }
 }

@@ -1,4 +1,5 @@
 import Foundation
+import TOMLKit
 
 private let workspaceSidebarSectionHeader = "[workspace-sidebar]"
 private let workspaceSidebarMenuBarReserveKey = "menu-bar-reserve-height"
@@ -188,7 +189,22 @@ private func updateWorkspaceSidebarKeyValueSectionConfig(
     preserveCommentsWhenEmpty: Bool = false,
 ) -> String {
     let lines = configText.components(separatedBy: "\n")
-    guard let sectionIndex = lines.firstIndex(where: { $0.trimmingCharacters(in: .whitespaces) == sectionHeader }) else {
+    // Text inside a multi-line value is never a header or a key.
+    let continuations = tomlMultilineValueContinuations(lines)
+    // A table header may carry a comment, including the next table's: that still ends this one,
+    // so its keys are never edited as this table's.
+    func isHeader(_ index: Int) -> Bool {
+        guard !continuations.contains(index) else { return false }
+        let content = tomlUnquotedContent(lines[index])
+        return content.hasPrefix("[") && content.hasSuffix("]")
+    }
+    func isSectionHeader(_ index: Int) -> Bool {
+        guard !continuations.contains(index) else { return false }
+        let line = lines[index]
+        let text = tomlCommentStart(in: line).map { String(line[..<$0]) } ?? line
+        return text.trimmingCharacters(in: .whitespaces) == sectionHeader
+    }
+    guard let sectionIndex = lines.indices.first(where: isSectionHeader) else {
         guard let value else { return configText }
         var result = configText
         if !result.isEmpty, !result.hasSuffix("\n") {
@@ -202,32 +218,39 @@ private func updateWorkspaceSidebarKeyValueSectionConfig(
         return result
     }
 
-    let sectionEnd = lines[(sectionIndex + 1)...]
-        .firstIndex(where: { line in
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            return trimmed.hasPrefix("[") && trimmed.hasSuffix("]")
-        }) ?? lines.endIndex
+    let sectionEnd = lines.indices[(sectionIndex + 1)...].first(where: isHeader) ?? lines.endIndex
 
     var resultLines = Array(lines[..<sectionIndex])
     resultLines.append(lines[sectionIndex])
 
     var wroteValue = false
     var bodyLines: [String] = []
-    for line in lines[(sectionIndex + 1)..<sectionEnd] {
-        if workspaceSidebarLabelKey(in: line) == key {
+    var hasAnyEntries = false
+    var replacing = false
+    for index in (sectionIndex + 1)..<sectionEnd {
+        let line = lines[index]
+        if continuations.contains(index) {
+            // The rest of a replaced key's multi-line value goes with it.
+            if !replacing { bodyLines.append(line) }
+            continue
+        }
+        replacing = workspaceSidebarLabelKey(in: line) == key
+        if replacing {
             if let value, !wroteValue {
                 bodyLines.append(tomlWorkspaceSidebarKeyValueLine(key: key, value: value))
+                hasAnyEntries = true
                 wroteValue = true
             }
             continue
         }
+        if workspaceSidebarLabelKey(in: line) != nil { hasAnyEntries = true }
         bodyLines.append(line)
     }
     if let value, !wroteValue {
         bodyLines.append(tomlWorkspaceSidebarKeyValueLine(key: key, value: value))
+        hasAnyEntries = true
     }
 
-    let hasAnyEntries = bodyLines.contains(where: { workspaceSidebarLabelKey(in: $0) != nil })
     let hasComments = bodyLines.contains { $0.trimmingCharacters(in: .whitespaces).hasPrefix("#") }
     if hasAnyEntries || (preserveCommentsWhenEmpty && hasComments) {
         resultLines.append(contentsOf: bodyLines)
@@ -389,6 +412,33 @@ private func trailingTomlComment(in line: String) -> String? {
 private func tomlCommentStart(in line: String) -> String.Index? {
     let scan = tomlScan(line)
     return scan.commentStart ?? (scan.endsInsideQuote ? line.firstIndex(of: "#") : nil)
+}
+
+/// The indices of lines that continue a value begun on an earlier line: a multi-line string,
+/// array or inline table. Like the Settings writer, the TOML parser decides where the value
+/// ends, so escaped and doubled quotes inside it can't end it early.
+private func tomlMultilineValueContinuations(_ lines: [String]) -> Set<Int> {
+    var result: Set<Int> = []
+    var index = 0
+    while index < lines.count {
+        let line = lines[index].trimmingCharacters(in: .whitespaces)
+        var end = index + 1
+        if !line.hasPrefix("["), !line.hasPrefix("#"), let equal = settingsAssignmentIndex(in: line) {
+            let value = line[line.index(after: equal)...].trimmingCharacters(in: .whitespaces)
+            let delimiter = value.hasPrefix("\"\"\"") ? "\"\"\"" : value.hasPrefix("'''") ? "'''"
+                : value.hasPrefix("[") ? "]" : value.hasPrefix("{") ? "}" : nil
+            if let delimiter {
+                while end < lines.count {
+                    if lines[end - 1].contains(delimiter),
+                       (try? TOMLTable(string: lines[index..<end].joined(separator: "\n") + "\n")) != nil { break }
+                    end += 1
+                }
+            }
+        }
+        result.formUnion((index + 1)..<end)
+        index = end
+    }
+    return result
 }
 
 /// A line's text outside quoted strings and its comment.

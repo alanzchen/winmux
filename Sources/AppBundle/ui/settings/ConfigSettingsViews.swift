@@ -187,7 +187,7 @@ private func settingsKey(in line: String) -> String? {
         .trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
 }
 
-private func settingsAssignmentIndex(in line: String) -> String.Index? {
+func settingsAssignmentIndex(in line: String) -> String.Index? {
     var quote: Character?
     var escaped = false
     for index in line.indices {
