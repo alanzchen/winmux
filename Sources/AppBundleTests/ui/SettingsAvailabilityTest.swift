@@ -156,8 +156,21 @@ final class SettingsAvailabilityTest: XCTestCase {
                    "workspace-sidebar.new-workspace-launcher", "window-tabs.enabled"] {
             XCTAssertEqual(kind(id, off), .available, id)
         }
-        // Another mode's setting stays hidden rather than disabled for the panel.
+        // Another mode's setting, and an unselected alternative, stay hidden rather than disabled.
         XCTAssertEqual(kind("workspace-sidebar.browser-tabs", off), .hidden)
+        XCTAssertEqual(kind("workspace-sidebar.dock-appearance.solid-color", off), .hidden)
+        XCTAssertEqual(kind("workspace-sidebar.dock-appearance.custom-color", off), .hidden)
+        XCTAssertEqual(kind("workspace-sidebar.dock-appearance.glass-opacity", off), .disabled)
+    }
+
+    func testWindowTabsGroupExplainsWhyItIsEmptyInTabsMode() {
+        var configuration = defaultConfig
+        configuration.workspaceSidebar.mode = .tabs
+        XCTAssertEqual(SettingsCatalog.emptyGroupNotice(.windowTabs, in: configuration), SettingsRequirement.hasWindowStacks.text)
+        XCTAssertTrue(SettingsCatalog.fields.filter { $0.group == .windowTabs }.allSatisfy { !$0.availability(in: configuration).isShown })
+        XCTAssertNil(SettingsCatalog.emptyGroupNotice(.gaps, in: configuration))
+        configuration.workspaceSidebar.enabled = false
+        XCTAssertNil(SettingsCatalog.emptyGroupNotice(.windowTabs, in: configuration))
     }
 
     func testDraftsProjectOntoTheConfigurationBeforeSaving() {
@@ -169,9 +182,11 @@ final class SettingsAvailabilityTest: XCTestCase {
         XCTAssertFalse(editor.configuration.usesBrowserTabs, "Drafts don't change the saved configuration")
         XCTAssertEqual(SettingsCatalog.field("window-tabs.enabled").availability(editor), .hidden(
             "Tabs mode has no window stacks. Choose Dock or Sidebar to use this setting."))
-        XCTAssertEqual(editor.value(SettingsCatalog.field("open-new-windows-in-new-workspace")), .bool(false),
-            "The control shows the saved value until its own draft changes")
         XCTAssertTrue(editor.projection.opensNewWindowsInNewWorkspace, "An unset default follows the drafted mode")
+        XCTAssertEqual(editor.value(SettingsCatalog.field("open-new-windows-in-new-workspace")), .bool(true),
+            "The switch shows what the drafted mode would do")
+        editor.setDraft(.text("dock"), for: mode)
+        XCTAssertEqual(editor.value(SettingsCatalog.field("open-new-windows-in-new-workspace")), .bool(false))
     }
 
     /// Every file-backed field has a writer, and it writes what `read` reads back.
@@ -229,5 +244,37 @@ final class SettingsAvailabilityTest: XCTestCase {
         let projected = editor.projection
         await editor.waitUntilIdle()
         XCTAssertEqual(projected.workspaceSidebar, config.workspaceSidebar, "after restoring window chrome defaults")
+    }
+
+    /// Restoring a default that follows the mode removes its key; the projection must too.
+    func testRestoringAModeDependentDefaultProjectsItAsUnset() async {
+        let saved = config
+        defer { config = saved }
+        let disk = SettingsTestDisk()
+        disk.text += "open-new-windows-in-new-workspace = false\n[workspace-sidebar]\n    enabled = true\n    mode = 'tabs'\n"
+        config = parseConfig(disk.text).config
+        let editor = SettingsEditor(persistence: disk.persistence)
+        let newWorkspace = SettingsCatalog.field("open-new-windows-in-new-workspace")
+        disk.failWrites = true
+        editor.reset(.newWindows)
+        await editor.waitUntilIdle()
+        XCTAssertNotNil(editor.error)
+        XCTAssertNil(editor.projection.openNewWindowsInNewWorkspace, "A failed restore keeps its unset intent")
+        XCTAssertEqual(editor.value(newWorkspace), .bool(true), "Unset follows Tabs")
+        let mode = SettingsCatalog.field("workspace-sidebar.mode")
+        editor.setDraft(.text("dock"), for: mode)
+        XCTAssertEqual(editor.value(newWorkspace), .bool(false), "Unset follows the drafted mode")
+        disk.failWrites = false
+        editor.retry()
+        editor.commit(mode)
+        await editor.waitUntilIdle()
+        XCTAssertNil(editor.error)
+        XCTAssertNil(config.openNewWindowsInNewWorkspace)
+        XCTAssertEqual(editor.projection.openNewWindowsInNewWorkspace, config.openNewWindowsInNewWorkspace)
+        XCTAssertFalse(config.opensNewWindowsInNewWorkspace)
+        XCTAssertTrue(editor.unsetDrafts.isEmpty)
+
+        editor.setDraft(.bool(true), for: newWorkspace)
+        XCTAssertEqual(editor.projection.openNewWindowsInNewWorkspace, true, "An explicit edit replaces the unset intent")
     }
 }

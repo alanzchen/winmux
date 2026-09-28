@@ -119,6 +119,8 @@ struct SettingsEditError: LocalizedError {
 final class SettingsEditor: ObservableObject {
     @Published private(set) var configuration: Config { didSet { updateProjection() } }
     @Published private(set) var drafts: [String: SettingsValue] = [:] { didSet { updateProjection() } }
+    /// Drafts restored by removing their key; their value follows the projection.
+    @Published private(set) var unsetDrafts: Set<String> = [] { didSet { updateProjection() } }
     /// The configuration with unsaved drafts applied, for availability and the preview.
     private(set) var projection: Config
     @Published private(set) var isSaving = false
@@ -156,11 +158,18 @@ final class SettingsEditor: ObservableObject {
         self.persistence = persistence
     }
 
-    private func updateProjection() { projection = SettingsProjection.apply(drafts, to: configuration) }
+    private func updateProjection() { projection = SettingsProjection.apply(drafts, unsetting: unsetDrafts, to: configuration) }
 
-    func value(_ field: SettingsField) -> SettingsValue { drafts[field.id] ?? field.read(configuration) }
+    /// An undrafted value comes from the projection, so a default that depends on another
+    /// drafted setting shows what the running app would do.
+    func value(_ field: SettingsField) -> SettingsValue {
+        unsetDrafts.contains(field.id) ? field.read(projection) : drafts[field.id] ?? field.read(projection)
+    }
 
-    func setDraft(_ value: SettingsValue, for field: SettingsField) { drafts[field.id] = value }
+    func setDraft(_ value: SettingsValue, for field: SettingsField) {
+        drafts[field.id] = value
+        unsetDrafts.remove(field.id)
+    }
 
     func commit(_ field: SettingsField) {
         guard let value = drafts[field.id] else { return }
@@ -171,10 +180,11 @@ final class SettingsEditor: ObservableObject {
         let fields = SettingsCatalog.fields.filter {
             $0.group == group && ($0.key != "persistent-workspaces" || configuration.configVersion >= 2)
         }
-        let values = Dictionary(uniqueKeysWithValues: fields.map { ($0.id, $0.defaultValue(for: configuration)) })
+        let values = Dictionary(uniqueKeysWithValues: fields.map { ($0.id, $0.defaultValue(for: projection)) })
+        let unsetting = Set(fields.filter { $0.unsetValue != nil }.map(\.id))
         drafts.merge(values) { _, next in next }
-        enqueue(Request(title: "Restore \(group.title)", fields: fields, values: values,
-            unsetting: Set(fields.filter { $0.unsetValue != nil }.map(\.id))))
+        unsetDrafts.formUnion(unsetting)
+        enqueue(Request(title: "Restore \(group.title)", fields: fields, values: values, unsetting: unsetting))
     }
 
     func saveRaw(_ edits: [SettingsFileEdit], title: String) {
@@ -198,6 +208,7 @@ final class SettingsEditor: ObservableObject {
     func revertDrafts() {
         guard !isSaving else { return }
         drafts = [:]
+        unsetDrafts = []
         queue = []
         error = nil
         failedRequest = nil
@@ -217,6 +228,7 @@ final class SettingsEditor: ObservableObject {
                 for change in entry.preferences { change.field.writePreference?(change.before) }
                 history.removeLast()
                 drafts = [:]
+                unsetDrafts = []
                 configuration = config
                 failedRequest = nil
                 status = "Undid \(entry.title)"
@@ -240,7 +252,7 @@ final class SettingsEditor: ObservableObject {
             || request.fields.contains(where: { request.values[$0.id] != $0.read(configuration) })
             || request.fields.contains(where: { request.unsetting.contains($0.id) && $0.isSet?(configuration) == true })
         else {
-            for field in request.fields { drafts.removeValue(forKey: field.id) }
+            for field in request.fields { drafts.removeValue(forKey: field.id); unsetDrafts.remove(field.id) }
             return
         }
         queue.append(request)
@@ -283,7 +295,10 @@ final class SettingsEditor: ObservableObject {
                         if history.count > 30 { history.removeFirst() }
                     }
                     configuration = config
-                    for (id, value) in request.values where drafts[id] == value { drafts.removeValue(forKey: id) }
+                    for (id, value) in request.values where drafts[id] == value {
+                        drafts.removeValue(forKey: id)
+                        unsetDrafts.remove(id)
+                    }
                     status = "Saved"
                     updateUndoTitle()
                     request.onSuccess?()

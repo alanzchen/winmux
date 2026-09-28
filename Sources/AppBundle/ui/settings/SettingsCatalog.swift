@@ -70,6 +70,8 @@ struct SettingsField: Identifiable {
     var unsetValue: ((Config) -> SettingsValue)?
     /// Whether the file sets such a key, so restoring it has something to remove.
     var isSet: ((Config) -> Bool)?
+    /// Removes such a key from a draft projection.
+    var clear: ((inout Config) -> Void)?
     nonisolated var id: String { [section, key].compactMap { $0 }.joined(separator: ".") }
     var defaultValue: SettingsValue { preferenceDefault ?? read(defaultConfig) }
     func defaultValue(for configuration: Config) -> SettingsValue { unsetValue?(configuration) ?? defaultValue }
@@ -77,10 +79,12 @@ struct SettingsField: Identifiable {
 }
 
 extension SettingsField {
-    func withUnsetValue(_ value: @escaping (Config) -> SettingsValue, isSet: @escaping (Config) -> Bool) -> SettingsField {
+    func withUnsetValue(_ value: @escaping (Config) -> SettingsValue, isSet: @escaping (Config) -> Bool,
+                        clear: @escaping (inout Config) -> Void) -> SettingsField {
         var field = self
         field.unsetValue = value
         field.isSet = isSet
+        field.clear = clear
         return field
     }
 
@@ -93,12 +97,18 @@ extension SettingsField {
 
 @MainActor
 enum SettingsCatalog {
-    static func field(_ key: String) -> SettingsField { (fields + automationFields).first { $0.id == key }! }
+    static let allFields = fields + automationFields
+    static func field(_ key: String) -> SettingsField { allFields.first { $0.id == key }! }
     static func matches(_ field: SettingsField, query: String) -> Bool {
         let terms = query.lowercased().split(whereSeparator: \.isWhitespace)
         return terms.allSatisfy { field.searchText.localizedStandardContains(String($0)) }
     }
-    static func results(_ query: String) -> [SettingsField] { (fields + automationFields).filter { matches($0, query: query) } }
+    static func results(_ query: String) -> [SettingsField] { allFields.filter { matches($0, query: query) } }
+
+    /// Why a page section has no rows in the current configuration.
+    static func emptyGroupNotice(_ group: SettingsGroup, in configuration: Config) -> String? {
+        group == .windowTabs && configuration.usesBrowserTabs ? SettingsRequirement.hasWindowStacks.text : nil
+    }
 
     static let automationFields: [SettingsField] = {
         let events: [(String, String, (Config) -> [String])] = [
@@ -231,7 +241,8 @@ enum SettingsCatalog {
             bool(.newWindows, "auto-add-new-windows-to-tab-group", "Add new windows to the current tab group", "Keep new windows in the selected stack instead of creating a new tile.", path: \.autoAddNewWindowsToTabGroup)
                 .requiring(.hasWindowStacks),
             bool(.newWindows, "open-new-windows-in-new-workspace", "Open new windows in a new workspace", "Give each window you open its own empty workspace in the current project, right after the current one in Tabs mode, where this is on unless you turn it off. Dialogs, restored windows, and windows that on-window-detected rules move to another workspace stay where they are. Takes precedence over adding to the current tab group.", path: \.opensNewWindowsInNewWorkspace)
-                .withUnsetValue({ .bool($0.usesBrowserTabs) }, isSet: { $0.openNewWindowsInNewWorkspace != nil })
+                .withUnsetValue({ .bool($0.usesBrowserTabs) }, isSet: { $0.openNewWindowsInNewWorkspace != nil },
+                    clear: { $0.openNewWindowsInNewWorkspace = nil })
                 .projecting(SettingsProjection.write(\.openNewWindowsInNewWorkspace) { $0.bool }),
             bool(.newWindows, "automatically-unhide-macos-hidden-apps", "Unhide macOS-hidden apps", "Restore apps macOS has hidden when they receive focus.", path: \.automaticallyUnhideMacosHiddenApps),
             bool(.interaction, "enable-shake-to-toggle-tiling", "Shake to toggle tiling", "Shake a window by its title bar to switch between floating and tiled.", path: \.enableShakeToToggleTiling),

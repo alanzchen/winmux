@@ -95,12 +95,13 @@ extension SettingsField {
         return field
     }
 
+    /// Another mode's setting hides, then an unselected alternative, before the panel being
+    /// off disables what remains.
     func availability(in configuration: Config) -> SettingsAvailability {
         let sidebar = configuration.workspaceSidebar
-        if let modes {
-            if !modes.contains(sidebar.mode) { return .hidden("Used in \(settingsModesText(modes)).") }
-            if !sidebar.enabled { return .disabled("Turn on Show Dock, Sidebar, or Tabs to use this setting.") }
-        }
+        if let modes, !modes.contains(sidebar.mode) { return .hidden("Used in \(settingsModesText(modes)).") }
+        if let alternative = requirements.first(where: { $0.effect == .hide && !$0.isMet(configuration) }) { return alternative.result }
+        if modes != nil, !sidebar.enabled { return .disabled("Turn on Show Dock, Sidebar, or Tabs to use this setting.") }
         return requirements.first { !$0.isMet(configuration) }?.result ?? .available
     }
 
@@ -128,11 +129,13 @@ enum SettingsProjection {
     static func text(_ path: WritableKeyPath<Config, String>) -> (inout Config, SettingsValue) -> Void { write(path) { $0.text } }
     static func text(_ path: WritableKeyPath<Config, String?>) -> (inout Config, SettingsValue) -> Void { write(path) { $0.text } }
 
-    /// Applies drafts in catalog order, mirroring how the save queue edits the file.
-    static func apply(_ drafts: [String: SettingsValue], to base: Config) -> Config {
-        guard !drafts.isEmpty else { return base }
+    /// Applies drafts in catalog order, mirroring how the save queue edits the file. Restoring a
+    /// setting whose default depends on others removes its key, so `unsetting` clears it.
+    static func apply(_ drafts: [String: SettingsValue], unsetting: Set<String> = [], to base: Config) -> Config {
+        guard !drafts.isEmpty || !unsetting.isEmpty else { return base }
         var result = base
-        for field in SettingsCatalog.fields + SettingsCatalog.automationFields {
+        for field in SettingsCatalog.allFields {
+            if unsetting.contains(field.id), let clear = field.clear { clear(&result); continue }
             guard let value = drafts[field.id], let project = field.project else { continue }
             if field.preservingDockAppearance { result.workspaceSidebar.freezeInheritedDockAppearance() }
             project(&result, value)

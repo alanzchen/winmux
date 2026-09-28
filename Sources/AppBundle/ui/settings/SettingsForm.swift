@@ -43,7 +43,12 @@ struct SettingsForm: View {
     @ViewBuilder
     private func groupView(_ group: SettingsGroup) -> some View {
         let fields = SettingsCatalog.fields.filter { $0.group == group && ($0.availability(editor).isShown || $0.id == targetField) }
-        if !fields.isEmpty {
+        if fields.isEmpty, let notice = SettingsCatalog.emptyGroupNotice(group, in: editor.projection) {
+            VStack(alignment: .leading, spacing: 7) {
+                Text(group.title).font(.headline)
+                Text(notice).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+        } else if !fields.isEmpty {
             VStack(alignment: .leading, spacing: 7) {
                 HStack {
                     Text(group.title).font(.headline)
