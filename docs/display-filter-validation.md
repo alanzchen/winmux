@@ -24,8 +24,8 @@ visibility → Show workspaces from) restores the all-displays list.
   a filter or workspace change that hides the selection selects the first listed
   match.
 - The tray menu's GitHub Repository item opens github.com/alanzchen/winmux.
-  **File an issue…** still opens the upstream tracker, since the fork has issues
-  disabled.
+  **File an issue…** opened the upstream tracker until issues were enabled on the
+  fork (September 28); it now opens the fork's new-issue page.
 
 ## Checks
 

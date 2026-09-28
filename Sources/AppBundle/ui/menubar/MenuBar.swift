@@ -3,7 +3,7 @@
     import SwiftUI
     
 private let winmuxRepositoryURL = "https://github.com/alanzchen/winmux"
-private let winmuxNewIssueURL = "https://github.com/zimengxiong/winmux/issues/new/choose"
+private let winmuxNewIssueURL = "https://github.com/alanzchen/winmux/issues/new"
 
     @MainActor
     public func menuBar(
