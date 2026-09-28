@@ -126,7 +126,10 @@ final class SettingsEditor: ObservableObject {
     /// Turning on Tabs mode's panel moves window stack entries into separate workspaces,
     /// which Undo can't rebuild. Such a change waits here until the user confirms it.
     @Published private(set) var pendingTabsSwitch: PendingTabsSwitch?
-    enum PendingTabsSwitch: Equatable { case commit(String), undo }
+    enum PendingTabsSwitch: Equatable { case save, undo }
+    /// The save awaiting confirmation. Its drafts apply only once confirmed, so the page
+    /// keeps showing the running mode behind the question.
+    private var pendingSave: Request?
     var hasWindowStacks: () -> Bool = { workspacesHaveWindowStacks() }
     @Published private(set) var isSaving = false
     @Published private(set) var error: String?
@@ -138,7 +141,9 @@ final class SettingsEditor: ObservableObject {
     private var failedRequest: Request?
     private var history: [History] = []
     var canRetry: Bool { failedRequest != nil }
-    var hasPendingDocument: Bool { failedRequest?.document != nil || queue.contains { $0.document != nil } }
+    var hasPendingDocument: Bool {
+        failedRequest?.document != nil || pendingSave?.document != nil || queue.contains { $0.document != nil }
+    }
 
     private struct Request {
         var title: String
@@ -149,6 +154,8 @@ final class SettingsEditor: ObservableObject {
         var onSuccess: (() -> Void)?
         /// Fields restored by removing their key.
         var unsetting: Set<String> = []
+        /// The user agreed that this save may turn on Tabs mode's panel.
+        var tabsApproved = false
     }
     private struct History {
         var title: String
@@ -178,35 +185,54 @@ final class SettingsEditor: ObservableObject {
 
     func commit(_ field: SettingsField) {
         guard let value = drafts[field.id] else { return }
-        if turnsOnTabs(field.id) {
-            pendingTabsSwitch = .commit(field.id)
-            return
-        }
         enqueue(Request(title: field.title, fields: [field], values: [field.id: value]))
     }
 
-    private func turnsOnTabs(_ id: String) -> Bool {
-        var others = drafts
-        others.removeValue(forKey: id)
-        let before = SettingsProjection.apply(others, unsetting: unsetDrafts, to: configuration)
-        return !before.usesBrowserTabs && projection.usesBrowserTabs && hasWindowStacks()
+    /// Whether applying `request` to the running configuration would turn on Tabs mode's panel
+    /// while window stacks exist. Checked as each save is about to run, so queued, retried and
+    /// TOML Editor saves ask too.
+    private func turnsOnTabs(_ request: Request) -> Bool {
+        guard !request.tabsApproved, !configuration.usesBrowserTabs else { return false }
+        let next: Config
+        if let document = request.document {
+            next = parseConfig(document.text).config
+        } else {
+            next = SettingsProjection.apply(request.values, unsetting: request.unsetting, to: configuration)
+        }
+        return next.usesBrowserTabs && hasWindowStacks()
+    }
+
+    /// Sets a save aside until the user answers. Its drafts leave the form meanwhile, so the page
+    /// keeps showing the running mode behind the question; later saves wait behind it.
+    private func hold(_ request: Request) {
+        for (id, value) in request.values where drafts[id] == value { drafts.removeValue(forKey: id) }
+        unsetDrafts.subtract(request.unsetting)
+        pendingSave = request
+        pendingTabsSwitch = .save
     }
 
     func confirmTabsSwitch() {
         guard let pending = pendingTabsSwitch else { return }
         pendingTabsSwitch = nil
         switch pending {
-            case .commit(let id):
-                let field = SettingsCatalog.field(id)
-                if let value = drafts[id] { enqueue(Request(title: field.title, fields: [field], values: [id: value])) }
+            case .save:
+                guard var request = pendingSave else { return }
+                pendingSave = nil
+                request.tabsApproved = true
+                drafts.merge(request.values) { _, next in next }
+                unsetDrafts.formUnion(request.unsetting)
+                queue.insert(request, at: 0)
+                startWorkerIfNeeded()
             case .undo: performUndo()
         }
     }
 
+    /// Drops the save that asked. Saves queued behind it go ahead.
     func cancelTabsSwitch() {
-        guard let pending = pendingTabsSwitch else { return }
+        let wasSaving = pendingSave != nil
         pendingTabsSwitch = nil
-        if case .commit(let id) = pending { drafts.removeValue(forKey: id) }
+        pendingSave = nil
+        if wasSaving { startWorkerIfNeeded() }
     }
 
     func reset(_ group: SettingsGroup) {
@@ -249,6 +275,7 @@ final class SettingsEditor: ObservableObject {
         queue = []
         error = nil
         failedRequest = nil
+        cancelTabsSwitch()
         status = "Using the current configuration"
     }
 
@@ -294,23 +321,29 @@ final class SettingsEditor: ObservableObject {
     private func enqueue(_ request: Request) {
         // Do not write for draft synchronization or an unchanged control. A key restored by
         // removing it still has work to do while the file sets it.
-        guard worker != nil || failedRequest != nil || !queue.isEmpty || request.fields.isEmpty
+        guard worker != nil || failedRequest != nil || pendingSave != nil || !queue.isEmpty || request.fields.isEmpty
             || request.fields.contains(where: { request.values[$0.id] != $0.read(configuration) })
             || request.fields.contains(where: { request.unsetting.contains($0.id) && $0.isSet?(configuration) == true })
         else {
             for field in request.fields { drafts.removeValue(forKey: field.id); unsetDrafts.remove(field.id) }
             return
         }
+        // Ask before the page moves on, when nothing is ahead of this save.
+        if worker == nil, failedRequest == nil, pendingSave == nil, queue.isEmpty, turnsOnTabs(request) { return hold(request) }
         queue.append(request)
         startWorkerIfNeeded()
     }
 
     private func startWorkerIfNeeded() {
-        guard worker == nil, failedRequest == nil, !queue.isEmpty else { return }
+        guard worker == nil, failedRequest == nil, pendingSave == nil, !queue.isEmpty else { return }
         isSaving = true
         worker = Task {
             while !queue.isEmpty {
                 let request = queue.removeFirst()
+                if turnsOnTabs(request) {
+                    hold(request)
+                    break
+                }
                 error = nil
                 failedRequest = nil
                 status = "Saving…"

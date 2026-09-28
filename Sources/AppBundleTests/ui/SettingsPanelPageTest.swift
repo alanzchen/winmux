@@ -67,6 +67,19 @@ final class SettingsPanelPageTest: XCTestCase {
         XCTAssertNil(SettingsPanelLayout.callout(target: SettingsPanelLayout.modeField, in: configuration), "The header is always shown")
     }
 
+    func testDisplaySummaryFollowsHowTheRunningAppResolvesMonitors() {
+        let all = ["Studio Display", "DELL U2723QE"]
+        XCTAssertEqual(SettingsPanelLayout.monitorSummary(configured: [], resolved: all, all: all, main: all[0]),
+            "Panels appear on every display.")
+        // Legacy `monitor = 'main'` puts a panel on every display.
+        XCTAssertEqual(SettingsPanelLayout.monitorSummary(configured: [.main], resolved: all, all: all, main: all[0]),
+            "Panels appear on every display.")
+        XCTAssertEqual(SettingsPanelLayout.monitorSummary(configured: [.secondary], resolved: [all[1]], all: all, main: all[0]),
+            "Panels appear on DELL U2723QE. While a display has no panel, every panel lists all displays' workspaces.")
+        XCTAssertEqual(SettingsPanelLayout.monitorSummary(configured: [.sequenceNumber(9)], resolved: [], all: all, main: all[0]),
+            "No display matches the monitor setting, so the panel appears on the main display, Studio Display.")
+    }
+
     func testSwitchingToTabsAsksFirstWhileWindowStacksExist() async {
         let saved = config
         defer { config = saved }
@@ -82,6 +95,7 @@ final class SettingsPanelPageTest: XCTestCase {
         await editor.waitUntilIdle()
         XCTAssertNotNil(editor.pendingTabsSwitch)
         XCTAssertEqual(config.workspaceSidebar.mode, .dock, "Nothing is saved before confirmation")
+        XCTAssertEqual(editor.projection.workspaceSidebar.mode, .dock, "The page keeps the running mode behind the question")
         editor.cancelTabsSwitch()
         XCTAssertNil(editor.pendingTabsSwitch)
         XCTAssertEqual(editor.value(mode), .text("dock"), "Cancel puts the cards back")
@@ -147,6 +161,95 @@ final class SettingsPanelPageTest: XCTestCase {
         await editor.waitUntilIdle()
         XCTAssertNil(editor.pendingTabsSwitch, "Without stacks there is nothing to lose")
         XCTAssertTrue(config.usesBrowserTabs)
+    }
+
+    /// The question compares the running configuration with each save as it's about to run,
+    /// so saves queued behind a failure, and TOML Editor saves, ask too.
+    func testQueuedRetriedAndDocumentSavesAskBeforeTurningTabsOn() async {
+        let saved = config
+        defer { config = saved }
+        let disk = SettingsTestDisk()
+        disk.text += "[workspace-sidebar]\n    enabled = true\n    mode = 'dock'\n"
+        config = parseConfig(disk.text).config
+        let editor = SettingsEditor(persistence: disk.persistence)
+        editor.hasWindowStacks = { true }
+        let mode = SettingsCatalog.field(SettingsPanelLayout.modeField)
+        let enabled = SettingsCatalog.field(SettingsPanelLayout.enabledField)
+
+        disk.failWrites = true
+        editor.setDraft(.bool(false), for: enabled)
+        editor.commit(enabled)
+        await editor.waitUntilIdle()
+        XCTAssertNotNil(editor.error)
+        editor.setDraft(.text("tabs"), for: mode)
+        editor.commit(mode)
+        editor.setDraft(.bool(true), for: enabled)
+        editor.commit(enabled)
+        XCTAssertNil(editor.pendingTabsSwitch, "Nothing turns Tabs on until the queue reaches that save")
+        disk.failWrites = false
+        editor.retry()
+        await editor.waitUntilIdle()
+        XCTAssertEqual(editor.pendingTabsSwitch, .save, "Panel off, then Tabs, then panel on: the last save asks")
+        XCTAssertEqual(config.workspaceSidebar.mode, .tabs)
+        XCTAssertFalse(config.usesBrowserTabs)
+        XCTAssertFalse(editor.projection.workspaceSidebar.enabled, "The page shows the running panel while it asks")
+        editor.confirmTabsSwitch()
+        await editor.waitUntilIdle()
+        XCTAssertTrue(config.usesBrowserTabs)
+
+        XCTAssertTrue(disk.text.contains("mode = \"tabs\""), disk.text)
+        let document = disk.text.replacingOccurrences(of: "mode = \"tabs\"", with: "mode = \"dock\"")
+        editor.saveDocument(document, expected: disk.text)
+        await editor.waitUntilIdle()
+        XCTAssertEqual(config.workspaceSidebar.mode, .dock)
+        var ran = false
+        editor.saveDocument(document.replacingOccurrences(of: "mode = \"dock\"", with: "mode = \"tabs\""), expected: disk.text) { ran = true }
+        await editor.waitUntilIdle()
+        XCTAssertEqual(editor.pendingTabsSwitch, .save, "A TOML edit that turns Tabs on asks too")
+        XCTAssertTrue(editor.hasPendingDocument)
+        editor.cancelTabsSwitch()
+        await editor.waitUntilIdle()
+        XCTAssertFalse(ran)
+        XCTAssertFalse(config.usesBrowserTabs)
+        XCTAssertFalse(editor.hasPendingDocument)
+    }
+
+    func testRevertingAndRestoringDefaultsRespectTheTabsQuestion() async {
+        let saved = config
+        defer { config = saved }
+        let disk = SettingsTestDisk()
+        disk.text += "[workspace-sidebar]\n    enabled = false\n    mode = 'tabs'\n"
+        config = parseConfig(disk.text).config
+        let editor = SettingsEditor(persistence: disk.persistence)
+        editor.hasWindowStacks = { true }
+        let enabled = SettingsCatalog.field(SettingsPanelLayout.enabledField)
+
+        // Restoring the panel switch alone would turn Tabs on.
+        editor.reset([enabled], title: "Panel")
+        await editor.waitUntilIdle()
+        XCTAssertEqual(editor.pendingTabsSwitch, .save)
+        XCTAssertTrue(disk.writes.isEmpty)
+        XCTAssertFalse(editor.projection.workspaceSidebar.enabled)
+        editor.revertDrafts()
+        XCTAssertNil(editor.pendingTabsSwitch, "Revert also drops the question")
+        editor.confirmTabsSwitch()
+        await editor.waitUntilIdle()
+        XCTAssertTrue(disk.writes.isEmpty, "A dropped question can't be confirmed later")
+
+        editor.reset([enabled], title: "Panel")
+        editor.confirmTabsSwitch()
+        await editor.waitUntilIdle()
+        XCTAssertTrue(config.usesBrowserTabs)
+        XCTAssertEqual(editor.undoTitle, "Undo Restore Panel")
+
+        // Restoring the whole header also restores Dock mode, so it asks nothing.
+        disk.text = disk.text.replacingOccurrences(of: "enabled = true", with: "enabled = false")
+        config = parseConfig(disk.text).config
+        editor.synchronize(config)
+        editor.reset(.dockMode)
+        await editor.waitUntilIdle()
+        XCTAssertNil(editor.pendingTabsSwitch)
+        XCTAssertEqual(config.workspaceSidebar.mode, .dock)
     }
 
     func testRestoringASectionLeavesOtherModesSettingsAlone() async {

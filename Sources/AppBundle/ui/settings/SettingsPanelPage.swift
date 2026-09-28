@@ -29,7 +29,7 @@ struct SettingsPanelPage: View {
                     VStack(alignment: .leading, spacing: 20) {
                         ForEach(SettingsPanelLayout.sections(mode)) { section($0, mode: mode) }
                         section(SettingsPanelLayout.shared, mode: mode, footer: AnyView(VStack(alignment: .leading, spacing: 6) {
-                            Text(SettingsPanelLayout.monitorSummary(sidebar.monitor))
+                            Text(SettingsPanelLayout.monitorSummary(sidebar))
                                 .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                             Button("Edit Displays in TOML Editor…", action: openTOMLEditor).controlSize(.small)
                         }))
@@ -130,15 +130,16 @@ struct SettingsModePicker: View {
             Text("Mode")
             HStack(spacing: 8) {
                 ForEach(WorkspaceSidebarMode.settingsOrder) { mode in
+                    let notApplied = mode == selected && mode != live && !editor.isSaving && editor.pendingTabsSwitch == nil
                     Button {
                         editor.setDraft(.text(mode.rawValue), for: field)
                         editor.commit(field)
                     } label: {
-                        card(mode, isSelected: mode == selected,
-                            notApplied: mode == selected && mode != live && !editor.isSaving && editor.pendingTabsSwitch == nil)
+                        card(mode, isSelected: mode == selected, notApplied: notApplied)
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("\(mode.settingsTitle) mode")
+                    .accessibilityValue(notApplied ? "Not applied" : "")
                     .accessibilityHint(mode.settingsSummary)
                     .accessibilityAddTraits(mode == selected ? .isSelected : [])
                 }

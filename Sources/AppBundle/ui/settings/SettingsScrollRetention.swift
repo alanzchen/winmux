@@ -76,8 +76,10 @@ final class SettingsScrollAnchor: NSView {
 
     private func restore(_ point: CGPoint?) {
         guard !revealingTarget, let point, let scroll else { restored = true; return }
+        let target = page
         DispatchQueue.main.async { [weak self, weak scroll] in
-            guard let self, !self.dismantled, let scroll else { return }
+            // A later page switch owns the position now; its own restore finishes the job.
+            guard let self, !self.dismantled, self.page == target, let scroll else { return }
             if !self.revealingTarget {
                 let y = min(point.y, max((scroll.documentView?.bounds.height ?? 0) - scroll.contentView.bounds.height, 0))
                 let x = min(point.x, max((scroll.documentView?.bounds.width ?? 0) - scroll.contentView.bounds.width, 0))

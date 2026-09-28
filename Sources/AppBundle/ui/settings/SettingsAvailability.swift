@@ -115,7 +115,7 @@ extension SettingsField {
         let sidebar = configuration.workspaceSidebar
         if let modes, !modes.contains(sidebar.mode) { return .hidden("Used in \(settingsModesText(modes)).") }
         if let alternative = requirements.first(where: { $0.effect == .hide && !$0.isMet(configuration) }) { return alternative.result(in: configuration) }
-        if modes != nil, !sidebar.enabled { return .disabled("Turn on Show Dock, Sidebar, or Tabs to use this setting.") }
+        if modes != nil, !sidebar.enabled { return .disabled("Turn on Show the workspace panel to use this setting.") }
         return requirements.first { !$0.isMet(configuration) }?.result(in: configuration) ?? .available
     }
 

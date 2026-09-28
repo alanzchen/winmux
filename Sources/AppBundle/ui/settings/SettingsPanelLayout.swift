@@ -95,17 +95,18 @@ enum SettingsPanelLayout {
         return others.isEmpty ? nil : "Also changes \(settingsModesText(others))."
     }
 
-    /// Which displays get a panel (`monitor`), which Settings doesn't edit.
-    static func monitorSummary(_ monitors: [MonitorDescription]) -> String {
-        guard !monitors.isEmpty else { return "Panels appear on every display." }
-        let names = monitors.map { monitor in
-            switch monitor {
-                case .main: "the main display"
-                case .secondary: "the secondary display"
-                case .sequenceNumber(let number): "display \(number)"
-                case .pattern(let pattern, _): "displays matching “\(pattern)”"
-            }
-        }
-        return "Panels appear on \(names.joined(separator: ", ")). While a display has no panel, every panel lists all displays' workspaces."
+    /// Which displays get a panel (`monitor`, which Settings doesn't edit), from the displays
+    /// the running app resolves it to: `resolved` is empty when nothing matches.
+    static func monitorSummary(configured: [MonitorDescription], resolved: [String], all: [String], main: String) -> String {
+        if configured.isEmpty || !resolved.isEmpty && resolved.count >= all.count { return "Panels appear on every display." }
+        if resolved.isEmpty { return "No display matches the monitor setting, so the panel appears on the main display, \(main)." }
+        let names = resolved.count == 1 ? resolved[0] : resolved.dropLast().joined(separator: ", ") + " and " + resolved.last!
+        return "Panels appear on \(names). While a display has no panel, every panel lists all displays' workspaces."
+    }
+
+    @MainActor
+    static func monitorSummary(_ sidebar: WorkspaceSidebarConfig) -> String {
+        monitorSummary(configured: sidebar.monitor, resolved: sidebar.resolvedMonitors(sortedMonitors: sortedMonitors).map(\.name),
+            all: sortedMonitors.map(\.name), main: mainMonitor.name)
     }
 }

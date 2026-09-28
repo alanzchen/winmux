@@ -27,9 +27,11 @@ For example, `width` is Project column width on a Dock that can collapse, Panel
 width on one kept expanded, Expanded width in Sidebar, and Sidebar width in Tabs.
 
 Turning on Tabs mode's panel moves window stack entries into separate tabs, which
-Undo can't rebuild. When stacks with more than one window exist, the mode card,
-turning on a panel set to Tabs, or an Undo that would do either asks first. Picking
-Tabs while the panel is off doesn't ask. If a mode can't be saved, its card says
+Undo can't rebuild. When stacks with more than one window exist, any Settings save
+that would do that asks first: a mode card, turning on a panel set to Tabs, a TOML
+Editor save, a save retried after a failure, or an Undo. The question comes as the
+save is about to run, and the page keeps showing the running mode meanwhile.
+Picking Tabs while the panel is off doesn't ask. If a mode can't be saved, its card says
 **Not applied** while the running panel keeps the previous mode.
 
 A section's **Restore Defaults** resets only that section's rows; its menu names
@@ -47,7 +49,7 @@ Opening a result never switches the mode by itself.
 The Dock's Left/Bottom/Right buttons explain native Dock auto-hide behavior. The
 Dock's interactive sample uses WinMux's existing shelf material, workspace tile,
 and magnification geometry; it does not control sample windows. Sidebar shows its
-expanded surface. The Tabs preview shows sample rows on the Tabs background, with
+rail at the collapsed width; **Expanded** shows the expanded surface. The Tabs preview shows sample rows on the Tabs background, with
 badges and browser tabs when those settings are on.
 It responds immediately to slider drafts, which save when dragging finishes.
 Color changes save after a short pause. Toggles and menus save immediately.

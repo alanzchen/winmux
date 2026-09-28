@@ -15,7 +15,7 @@ struct SettingsDockPreview: View {
             HStack {
                 Text("Live preview").font(.headline)
                 Spacer()
-                if previewConfiguration.showAppIcons {
+                if !previewConfiguration.usesTabsList {
                     Toggle("Expanded", isOn: $expanded).toggleStyle(.button).controlSize(.small)
                 }
             }
@@ -24,9 +24,11 @@ struct SettingsDockPreview: View {
                 if previewConfiguration.usesTabsList {
                     tabsPreview
                         .frame(width: min(previewConfiguration.expandedWidth, 245), height: 164)
-                } else if expanded || !previewConfiguration.showAppIcons || sidebar.alwaysExpanded {
+                } else if expanded || sidebar.alwaysExpanded {
                     expandedPreview
                         .frame(width: min(previewConfiguration.expandedWidth, 245), height: 164)
+                } else if !previewConfiguration.showAppIcons {
+                    sidebarRailPreview
                 } else {
                     SettingsDockPreviewShelf(configuration: previewConfiguration,
                         showsBadge: sidebar.showAppBadges)
@@ -43,9 +45,28 @@ struct SettingsDockPreview: View {
     private var caption: String {
         switch sidebar.mode {
             case .dock: "Sample workspace. Hover over the icons to try magnification. Preview updates while you adjust a slider; changes save when you release it."
-            case .sidebar: "Sample expanded Sidebar. Preview updates while you adjust a slider; changes save when you release it."
+            case .sidebar: "Sample Sidebar rail; choose Expanded to see window details. Preview updates while you adjust a slider; changes save when you release it."
             case .tabs: "Sample tabs. The sidebar takes on the current project's color."
         }
+    }
+
+    private var sidebarRailPreview: some View {
+        let width = CGFloat(sidebar.collapsedWidth)
+        return VStack(spacing: 8) {
+            ForEach(["1", "2", "3"], id: \.self) { name in
+                WorkspaceSidebarWorkspaceIcon(identifier: name, isActive: name == "1", size: max(min(width - 12, 34), 16),
+                    railWidth: width, showsIndicator: false)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 12)
+        .frame(width: width, height: 164)
+        .background { WorkspaceSidebarSurface(shape: RoundedRectangle(cornerRadius: 12), configuration: previewConfiguration) }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.leading, 16)
+        .allowsHitTesting(false)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Sample Sidebar rail, \(sidebar.collapsedWidth) points wide, with three workspaces")
     }
 
     private var tabsPreview: some View {

@@ -31,7 +31,6 @@ struct SettingsForm: View {
                     .padding(20)
                     .background(SettingsScrollRetention(page: scrollPage, revealingTarget: targetField != nil))
                 }
-                .coordinateSpace(name: "settingsScroll")
                 .onChange(of: targetField) { target in reveal(target, proxy: proxy) }
                 // Each mode's rows keep their own scroll position; a search target stays in view.
                 .onChange(of: scrollPage) { _ in reveal(targetField, proxy: proxy) }
@@ -132,6 +131,7 @@ struct SettingsFieldRow: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .disabled(!availability.isAvailable)
         .background(highlighted ? Color.accentColor.opacity(0.12) : Color.clear)
+        .background { if highlighted { SettingsRevealMarker() } }
         .overlay(alignment: .bottom) { Divider().padding(.leading, 12) }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("settings.\(field.id)")
@@ -265,6 +265,21 @@ struct SettingsFieldRow: View {
         else { editor.setDraft(value, for: field) }
         if commit { editor.commit(field) }
     }
+}
+
+/// Marks the row a search opened, so its on-screen frame can be checked.
+struct SettingsRevealMarker: NSViewRepresentable {
+    static let identifier = NSUserInterfaceItemIdentifier("settings.revealedRow")
+    func makeNSView(context: Context) -> NSView {
+        let view = SettingsPassThroughView()
+        view.identifier = Self.identifier
+        return view
+    }
+    func updateNSView(_ view: NSView, context: Context) {}
+}
+
+private final class SettingsPassThroughView: NSView {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
 
 private struct SettingsEffectiveDockSize: View {

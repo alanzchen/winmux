@@ -162,17 +162,53 @@ final class ShortcutSettingsLayoutTest: XCTestCase {
         SettingsScrollMemory.shared.positions["appearance.dock"] = CGPoint(x: 0, y: 120)
         var configuration = defaultConfig
         configuration.workspaceSidebar.mode = .dock
+        let (window, _) = hostPanelPage(configuration, target: "workspace-sidebar.show-weekday")
+        defer { window.close() }
+        try assertRevealedRowIsVisible(in: window, "The search target near the end must win over the previous offset")
+    }
+
+    /// Another mode's setting, or any panel setting while the panel is off, opens at the top;
+    /// switching to its mode then reveals it in its own section.
+    func testSearchRevealsOtherModesAndPanelOffSettings() throws {
+        var configuration = defaultConfig
+        configuration.workspaceSidebar.mode = .dock
+        let (window, editor) = hostPanelPage(configuration, target: "workspace-sidebar.browser-tabs")
+        defer { window.close() }
+        try assertRevealedRowIsVisible(in: window, "Tabs setting from Dock")
+        configuration.workspaceSidebar.mode = .tabs
+        editor.synchronize(configuration)
+        settle(window)
+        settle(window)
+        try assertRevealedRowIsVisible(in: window, "Same setting in its own section after switching")
+
+        configuration.workspaceSidebar.enabled = false
+        let (offWindow, _) = hostPanelPage(configuration, target: "workspace-sidebar.width")
+        defer { offWindow.close() }
+        try assertRevealedRowIsVisible(in: offWindow, "Panel setting while the panel is off")
+    }
+
+    private func hostPanelPage(_ configuration: Config, target: String) -> (NSWindow, SettingsEditor) {
         let editor = SettingsEditor(configuration: configuration)
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 480, height: 480),
             styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
-        defer { window.close() }
         window.contentView = NSHostingView(rootView: SettingsForm(page: .appearance, editor: editor,
-            model: .shared, targetField: "workspace-sidebar.show-weekday"))
+            model: .shared, targetField: target))
         settle(window)
         settle(window)
-        let scroll = try XCTUnwrap(descendants(try XCTUnwrap(window.contentView)).compactMap { $0 as? NSScrollView }.first)
-        XCTAssertGreaterThan(scroll.contentView.bounds.minY, 600, "The search target at the end must win over the previous offset")
+        return (window, editor)
+    }
+
+    private func assertRevealedRowIsVisible(in window: NSWindow, _ message: String) throws {
+        let content = try XCTUnwrap(window.contentView)
+        let markers = descendants(content).filter { $0.identifier == SettingsRevealMarker.identifier }
+        XCTAssertEqual(markers.count, 1, "\(message): exactly one row is the search target")
+        let marker = try XCTUnwrap(markers.first)
+        let scroll = try XCTUnwrap(marker.enclosingScrollView)
+        let frame = marker.convert(marker.bounds, to: scroll.contentView)
+        XCTAssertGreaterThan(frame.height, 0, message)
+        XCTAssertTrue(scroll.contentView.bounds.insetBy(dx: -1, dy: -1).contains(frame),
+            "\(message): row \(frame) outside visible \(scroll.contentView.bounds)")
     }
 
     private func makeWindow(_ pane: SettingsSidebarItem) -> NSWindow {
