@@ -214,6 +214,108 @@ final class SettingsPanelPageTest: XCTestCase {
         XCTAssertFalse(editor.hasPendingDocument)
     }
 
+    /// With automatic reload off, the file can already say Tabs while the app runs Dock. Any save
+    /// then reloads Tabs, so it asks too.
+    func testASaveThatWouldLoadAnExternalTabsEditAsks() async {
+        let saved = config
+        defer { config = saved }
+        let disk = SettingsTestDisk()
+        disk.text += "[workspace-sidebar]\n    enabled = true\n    mode = 'dock'\n"
+        config = parseConfig(disk.text).config
+        let editor = SettingsEditor(persistence: disk.persistence)
+        editor.hasWindowStacks = { true }
+        disk.text = disk.text.replacingOccurrences(of: "mode = 'dock'", with: "mode = 'tabs'")
+        let width = SettingsCatalog.field("workspace-sidebar.width")
+        editor.setDraft(.integer(300), for: width)
+        editor.commit(width)
+        await editor.waitUntilIdle()
+        XCTAssertEqual(editor.pendingTabsSwitch, .save)
+        XCTAssertTrue(disk.writes.isEmpty)
+        editor.confirmTabsSwitch()
+        await editor.waitUntilIdle()
+        XCTAssertTrue(config.usesBrowserTabs)
+        XCTAssertEqual(config.workspaceSidebar.width, 300)
+    }
+
+    /// Confirming a held save must not replace a newer choice queued behind it.
+    func testConfirmingKeepsANewerDraftQueuedBehindTheHeldSave() async {
+        let saved = config
+        defer { config = saved }
+        let disk = SettingsTestDisk()
+        disk.text += "[workspace-sidebar]\n    enabled = true\n    mode = 'dock'\n"
+        config = parseConfig(disk.text).config
+        let editor = SettingsEditor(persistence: disk.persistence)
+        editor.hasWindowStacks = { true }
+        let mode = SettingsCatalog.field(SettingsPanelLayout.modeField)
+        let seconds = SettingsCatalog.field("workspace-sidebar.show-seconds")
+        disk.failWrites = true
+        editor.setDraft(.bool(!config.workspaceSidebar.showSeconds), for: seconds)
+        editor.commit(seconds)
+        await editor.waitUntilIdle()
+        editor.setDraft(.text("tabs"), for: mode)
+        editor.commit(mode)
+        editor.setDraft(.text("sidebar"), for: mode)
+        editor.commit(mode)
+        disk.failWrites = false
+        editor.retry()
+        await editor.waitUntilIdle()
+        XCTAssertEqual(editor.pendingTabsSwitch, .save)
+        XCTAssertEqual(editor.value(mode), .text("sidebar"), "The newer choice stays in the form")
+        disk.failAfterWrites = disk.writes.count + 1
+        editor.confirmTabsSwitch()
+        await editor.waitUntilIdle()
+        XCTAssertEqual(config.workspaceSidebar.mode, .tabs)
+        XCTAssertNotNil(editor.error, "The Sidebar save failed")
+        XCTAssertEqual(editor.projection.workspaceSidebar.mode, .sidebar, "The failed newer choice still shows, not applied")
+    }
+
+    /// While a question is open, Undo waits and new saves queue behind it.
+    func testUndoAndSavesWaitWhileTheTabsQuestionIsOpen() async {
+        let saved = config
+        defer { config = saved }
+        let disk = SettingsTestDisk()
+        disk.text += "[workspace-sidebar]\n    enabled = true\n    mode = 'tabs'\n"
+        config = parseConfig(disk.text).config
+        let editor = SettingsEditor(persistence: disk.persistence)
+        editor.hasWindowStacks = { true }
+        let mode = SettingsCatalog.field(SettingsPanelLayout.modeField)
+        let seconds = SettingsCatalog.field("workspace-sidebar.show-seconds")
+        let secondsBefore = config.workspaceSidebar.showSeconds
+
+        editor.setDraft(.text("dock"), for: mode)
+        editor.commit(mode)
+        await editor.waitUntilIdle()
+        XCTAssertEqual(config.workspaceSidebar.mode, .dock)
+        editor.undo()
+        XCTAssertEqual(editor.pendingTabsSwitch, .undo)
+        editor.undo()
+        editor.setDraft(.bool(!secondsBefore), for: seconds)
+        editor.commit(seconds)
+        await editor.waitUntilIdle()
+        XCTAssertEqual(config.workspaceSidebar.showSeconds, secondsBefore, "A save waits behind the open question")
+        editor.confirmTabsSwitch()
+        await editor.waitUntilIdle()
+        XCTAssertEqual(config.workspaceSidebar.mode, .tabs, "The confirmed Undo is the one that ran")
+        XCTAssertEqual(config.workspaceSidebar.showSeconds, !secondsBefore, "Then the queued save")
+        XCTAssertEqual(editor.undoTitle, "Undo \(seconds.title)")
+
+        editor.setDraft(.text("dock"), for: mode)
+        editor.commit(mode)
+        await editor.waitUntilIdle()
+        editor.setDraft(.text("tabs"), for: mode)
+        editor.commit(mode)
+        XCTAssertEqual(editor.pendingTabsSwitch, .save)
+        editor.undo()
+        await editor.waitUntilIdle()
+        XCTAssertEqual(editor.pendingTabsSwitch, .save, "Undo waits while a save is held")
+        XCTAssertEqual(config.workspaceSidebar.mode, .dock)
+        editor.cancelTabsSwitch()
+        editor.undo()
+        XCTAssertEqual(editor.pendingTabsSwitch, .undo, "Undoing the switch to Dock would turn Tabs back on")
+        editor.cancelTabsSwitch()
+        XCTAssertEqual(config.workspaceSidebar.mode, .dock)
+    }
+
     func testRevertingAndRestoringDefaultsRespectTheTabsQuestion() async {
         let saved = config
         defer { config = saved }

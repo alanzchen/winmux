@@ -130,6 +130,9 @@ final class SettingsEditor: ObservableObject {
     /// The save awaiting confirmation. Its drafts apply only once confirmed, so the page
     /// keeps showing the running mode behind the question.
     private var pendingSave: Request?
+    /// The held save's own drafts, set aside; newer edits of the same fields stay in the form.
+    private var heldDrafts: [String: SettingsValue] = [:]
+    private var heldUnset: Set<String> = []
     var hasWindowStacks: () -> Bool = { workspacesHaveWindowStacks() }
     @Published private(set) var isSaving = false
     @Published private(set) var error: String?
@@ -188,25 +191,45 @@ final class SettingsEditor: ObservableObject {
         enqueue(Request(title: field.title, fields: [field], values: [field.id: value]))
     }
 
-    /// Whether applying `request` to the running configuration would turn on Tabs mode's panel
-    /// while window stacks exist. Checked as each save is about to run, so queued, retried and
-    /// TOML Editor saves ask too.
+    private func fileEdits(for request: Request) -> [SettingsFileEdit] {
+        request.edits + request.fields.compactMap { field in
+            guard field.writePreference == nil, let value = request.values[field.id] else { return nil }
+            let rendered = request.unsetting.contains(field.id) ? settingsUnsetRenderedValue : field.render(value)
+            return SettingsFileEdit(section: field.section, values: [field.key: rendered],
+                preservingDockAppearance: field.preservingDockAppearance)
+        }
+    }
+
+    /// Whether the file this save writes would turn on Tabs mode's panel, which the running app
+    /// doesn't use, while window stacks exist. The save starts from the file on disk, which may
+    /// hold changes the app hasn't loaded, so the check does too. Checked as each save is about
+    /// to run, so queued, retried and TOML Editor saves ask as well.
     private func turnsOnTabs(_ request: Request) -> Bool {
         guard !request.tabsApproved, !configuration.usesBrowserTabs else { return false }
-        let next: Config
+        let text: String
         if let document = request.document {
-            next = parseConfig(document.text).config
+            text = document.text
         } else {
-            next = SettingsProjection.apply(request.values, unsetting: request.unsetting, to: configuration)
+            let edits = fileEdits(for: request)
+            guard !edits.isEmpty, let disk = try? persistence.read(persistence.target()) else { return false }
+            text = edits.reduce(disk) { text, edit in
+                updateSettingsAppearanceConfig(in: text, section: edit.section, values: edit.values,
+                    preservingDockAppearance: edit.preservingDockAppearance)
+            }
         }
-        return next.usesBrowserTabs && hasWindowStacks()
+        return parseConfig(text).config.usesBrowserTabs && hasWindowStacks()
     }
 
     /// Sets a save aside until the user answers. Its drafts leave the form meanwhile, so the page
     /// keeps showing the running mode behind the question; later saves wait behind it.
     private func hold(_ request: Request) {
-        for (id, value) in request.values where drafts[id] == value { drafts.removeValue(forKey: id) }
-        unsetDrafts.subtract(request.unsetting)
+        heldDrafts = [:]
+        heldUnset = []
+        for (id, value) in request.values where drafts[id] == value && request.unsetting.contains(id) == unsetDrafts.contains(id) {
+            heldDrafts[id] = value
+            if unsetDrafts.remove(id) != nil { heldUnset.insert(id) }
+            drafts.removeValue(forKey: id)
+        }
         pendingSave = request
         pendingTabsSwitch = .save
     }
@@ -219,20 +242,26 @@ final class SettingsEditor: ObservableObject {
                 guard var request = pendingSave else { return }
                 pendingSave = nil
                 request.tabsApproved = true
-                drafts.merge(request.values) { _, next in next }
-                unsetDrafts.formUnion(request.unsetting)
+                for (id, value) in heldDrafts where drafts[id] == nil {
+                    drafts[id] = value
+                    if heldUnset.contains(id) { unsetDrafts.insert(id) }
+                }
+                heldDrafts = [:]
+                heldUnset = []
                 queue.insert(request, at: 0)
                 startWorkerIfNeeded()
             case .undo: performUndo()
         }
     }
 
-    /// Drops the save that asked. Saves queued behind it go ahead.
+    /// Drops the save or Undo that asked. Saves queued behind it go ahead.
     func cancelTabsSwitch() {
-        let wasSaving = pendingSave != nil
+        guard pendingTabsSwitch != nil else { return }
         pendingTabsSwitch = nil
         pendingSave = nil
-        if wasSaving { startWorkerIfNeeded() }
+        heldDrafts = [:]
+        heldUnset = []
+        startWorkerIfNeeded()
     }
 
     func reset(_ group: SettingsGroup) {
@@ -280,7 +309,7 @@ final class SettingsEditor: ObservableObject {
     }
 
     func undo() {
-        guard !isSaving, failedRequest == nil, queue.isEmpty, let entry = history.last else { return }
+        guard !isSaving, failedRequest == nil, pendingTabsSwitch == nil, queue.isEmpty, let entry = history.last else { return }
         if let file = entry.file, !configuration.usesBrowserTabs, parseConfig(file.before).config.usesBrowserTabs, hasWindowStacks() {
             pendingTabsSwitch = .undo
             return
@@ -288,8 +317,9 @@ final class SettingsEditor: ObservableObject {
         performUndo()
     }
 
+    /// Saves made while an Undo waited for its answer queue behind it and run afterwards.
     private func performUndo() {
-        guard !isSaving, failedRequest == nil, queue.isEmpty, let entry = history.last else { return }
+        guard !isSaving, failedRequest == nil, let entry = history.last else { return }
         isSaving = true
         error = nil
         worker = Task {
@@ -321,7 +351,7 @@ final class SettingsEditor: ObservableObject {
     private func enqueue(_ request: Request) {
         // Do not write for draft synchronization or an unchanged control. A key restored by
         // removing it still has work to do while the file sets it.
-        guard worker != nil || failedRequest != nil || pendingSave != nil || !queue.isEmpty || request.fields.isEmpty
+        guard worker != nil || failedRequest != nil || pendingTabsSwitch != nil || !queue.isEmpty || request.fields.isEmpty
             || request.fields.contains(where: { request.values[$0.id] != $0.read(configuration) })
             || request.fields.contains(where: { request.unsetting.contains($0.id) && $0.isSet?(configuration) == true })
         else {
@@ -329,13 +359,13 @@ final class SettingsEditor: ObservableObject {
             return
         }
         // Ask before the page moves on, when nothing is ahead of this save.
-        if worker == nil, failedRequest == nil, pendingSave == nil, queue.isEmpty, turnsOnTabs(request) { return hold(request) }
+        if worker == nil, failedRequest == nil, pendingTabsSwitch == nil, queue.isEmpty, turnsOnTabs(request) { return hold(request) }
         queue.append(request)
         startWorkerIfNeeded()
     }
 
     private func startWorkerIfNeeded() {
-        guard worker == nil, failedRequest == nil, pendingSave == nil, !queue.isEmpty else { return }
+        guard worker == nil, failedRequest == nil, pendingTabsSwitch == nil, !queue.isEmpty else { return }
         isSaving = true
         worker = Task {
             while !queue.isEmpty {
@@ -348,17 +378,10 @@ final class SettingsEditor: ObservableObject {
                 failedRequest = nil
                 status = "Saving…"
                 do {
-                    var edits = request.edits
-                    var preferences: [(field: SettingsField, before: SettingsValue, after: SettingsValue)] = []
-                    for field in request.fields {
-                        guard let value = request.values[field.id] else { continue }
-                        if field.writePreference != nil {
-                            preferences.append((field, field.read(configuration), value))
-                        } else {
-                            let rendered = request.unsetting.contains(field.id) ? settingsUnsetRenderedValue : field.render(value)
-                            edits.append(SettingsFileEdit(section: field.section, values: [field.key: rendered],
-                                preservingDockAppearance: field.preservingDockAppearance))
-                        }
+                    let edits = fileEdits(for: request)
+                    let preferences: [(field: SettingsField, before: SettingsValue, after: SettingsValue)] = request.fields.compactMap { field in
+                        guard field.writePreference != nil, let value = request.values[field.id] else { return nil }
+                        return (field, field.read(configuration), value)
                     }
                     let file: SettingsFileUndo?
                     if let document = request.document {
