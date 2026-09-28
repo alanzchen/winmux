@@ -162,6 +162,30 @@ pointer. Tiled windows follow as you drag. When you let go, WinMux saves the new
 `width`, from 120 to 480 points and always greater than `collapsed-width`. A bottom
 Dock keeps its fitted height.
 
+In Sidebar and Tabs modes, each display remembers its own width. Dragging the edge
+on one display resizes only that display's panel and saves its width under the
+display's name. Displays you haven't resized use `width`. Double-click the edge to
+put a display back on `width`. Set `width-per-display = false` (**Remember width
+for each display** in Settings) to have every display share `width` again; the saved
+widths stay in the file for when you turn it back on:
+
+```toml
+[workspace-sidebar]
+width = 240
+width-per-display = true
+
+[workspace-sidebar.display-widths]
+"Built-in Retina Display" = 220
+"DELL U3224KB" = 320
+```
+
+Widths are saved under each display's name in the panel's display menu, where
+identical displays are numbered from left to right, such as `"DELL U3224KB 2"`. Their
+widths therefore follow their places in the arrangement. While only one of them is
+connected, it goes by its plain name, which keeps a width of its own. Edit the table
+in the form shown above: WinMux reports an error instead of saving a dragged width
+into an inline `display-widths = { … }` table.
+
 In Dock mode, expanding normally keeps the Dock in place and opens a floating view
 with one column per project. With `always-expanded`, the Dock instead becomes a
 reserved one-pane panel: at the bottom it lists every project; on the left or right

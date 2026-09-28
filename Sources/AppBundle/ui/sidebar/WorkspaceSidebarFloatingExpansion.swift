@@ -85,7 +85,7 @@ extension WorkspaceSidebarPanel {
     /// SwiftUI hit testing. A collapsing view keeps fading, but passes input through at once.
     var activeExpandedSurfaceFrameInHostingView: CGRect? {
         guard config.workspaceSidebar.floatsExpandedDockView,
-              viewModel.workspaceSidebarVisibleWidth >= CGFloat(config.workspaceSidebar.width) - 0.5,
+              viewModel.workspaceSidebarVisibleWidth >= CGFloat(sidebarSettings.width) - 0.5,
               let expandedSurfaceFrame, !expandedSurfaceFrame.isEmpty
         else { return nil }
         return expandedSurfaceFrame

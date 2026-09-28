@@ -37,6 +37,8 @@ private let workspaceSidebarParser: [String: any ParserProtocol<WorkspaceSidebar
     },
     "collapsed-width": Parser(\.collapsedWidth, parseWorkspaceSidebarWidth),
     "width": Parser(\.width, parseWorkspaceSidebarWidth),
+    "width-per-display": Parser(\.widthPerDisplay, parseBool),
+    "display-widths": Parser(\.displayWidths, parseWorkspaceSidebarDisplayWidths),
     "monitor": Parser(\.monitor) { value, backtrace, errors in
         parseMonitorDescriptions(value, backtrace, &errors)
     },
@@ -108,6 +110,15 @@ func parseWorkspaceSidebar(
             "Must be greater than collapsed-width when always-expanded is true",
         )]
     }
+    // Unlike width, which predates tabs-always-expanded, these are also checked for Tabs mode.
+    if parsed.pinsSidebarOpen {
+        for (display, width) in parsed.displayWidths.sorted(by: { $0.key < $1.key }) where width <= parsed.collapsedWidth {
+            errors += [.semantic(
+                backtrace + .key("display-widths") + .key(display),
+                "Must be greater than collapsed-width while the panel is kept expanded",
+            )]
+        }
+    }
     return parsed
 }
 
@@ -151,6 +162,24 @@ private func parseChromeSolidColor(_ raw: TOMLValueConvertible, _ backtrace: Tom
 private func parseWorkspaceSidebarWidth(_ raw: TOMLValueConvertible, _ backtrace: TomlBacktrace) -> ParsedToml<Int> {
     parseInt(raw, backtrace)
         .filter(.semantic(backtrace, "Must be greater than 0")) { $0 > 0 }
+}
+
+private func parseWorkspaceSidebarDisplayWidths(
+    _ raw: TOMLValueConvertible,
+    _ backtrace: TomlBacktrace,
+    _ errors: inout [TomlParseError],
+) -> [String: Int] {
+    guard let rawTable = raw.table else {
+        errors += [expectedActualTypeError(expected: .table, actual: raw.type, backtrace)]
+        return [:]
+    }
+    var result: [String: Int] = [:]
+    for (display, rawWidth) in rawTable {
+        if let width = parseWorkspaceSidebarWidth(rawWidth, backtrace + .key(display)).getOrNil(appendErrorTo: &errors) {
+            result[display] = width
+        }
+    }
+    return result
 }
 
 private func parseWorkspaceSidebarMenuBarReserveHeight(_ raw: TOMLValueConvertible, _ backtrace: TomlBacktrace) -> ParsedToml<Int> {

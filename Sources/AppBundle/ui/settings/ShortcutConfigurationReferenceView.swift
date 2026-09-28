@@ -28,6 +28,7 @@ struct ShortcutConfigurationReferenceView: View {
                     ReferenceRow("project-labels", "Override visible project names.")
                     ReferenceRow("project-colors", "Assign project colors using #RRGGBB values.")
                     ReferenceRow("project-emojis", "Choose one emoji per project for Dock indicators, or right-click an indicator to edit it.")
+                    ReferenceRow("display-widths", "Each display's own Sidebar and Tabs width in points, by its name in the display menu. Dragging a panel's edge saves it.")
                 }
                 Text("The Configuration editor validates the entire file before saving and shows parser errors inline.")
                     .font(.caption)

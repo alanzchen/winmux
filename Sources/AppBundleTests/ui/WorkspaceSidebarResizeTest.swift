@@ -312,6 +312,195 @@ final class WorkspaceSidebarResizeTest: XCTestCase {
         }
     }
 
+    func testDraggingOneDisplaysEdgeResizesOnlyThatDisplay() async throws {
+        try await withTwoDisplays { left, right in
+            var written: [String] = []
+            workspaceSidebarWidthPersistenceForTests = fakePersistence(onWrite: { written.append($0) })
+            XCTAssertTrue(right.beginSidebarResize(atScreenX: 2400))
+            right.updateSidebarResize(toScreenX: 2460)
+            XCTAssertEqual(config.workspaceSidebar.displayWidths, ["Right": 300])
+            XCTAssertEqual(config.workspaceSidebar.width, 240, "Other displays keep the shared width")
+            XCTAssertEqual(right.viewModel.workspaceSidebarVisibleWidth, 300)
+            XCTAssertEqual(right.viewModel.workspaceSidebarAppearance.expandedWidth, 300)
+            XCTAssertEqual(left.viewModel.workspaceSidebarVisibleWidth, 240)
+            XCTAssertEqual(left.viewModel.workspaceSidebarAppearance.expandedWidth, 240)
+            XCTAssertEqual(self.monitor(named: "Right").workspaceSidebarInset, 300)
+            XCTAssertEqual(self.monitor(named: "Left").workspaceSidebarInset, 240)
+
+            let save = try XCTUnwrap(right.endSidebarResize())
+            await save.value
+            XCTAssertEqual(written.count, 1)
+            let saved = parseConfig(written[0])
+            XCTAssertEqual(saved.errors.descriptions, [])
+            XCTAssertEqual(saved.config.workspaceSidebar.displayWidths, ["Right": 300], written[0])
+            XCTAssertEqual(saved.config.workspaceSidebar.width, 240, written[0])
+
+            // The next drag on the other display starts from its own width.
+            XCTAssertTrue(left.beginSidebarResize(atScreenX: 500))
+            left.updateSidebarResize(toScreenX: 440)
+            XCTAssertEqual(config.workspaceSidebar.displayWidths, ["Right": 300, "Left": 180])
+            XCTAssertEqual(right.viewModel.workspaceSidebarVisibleWidth, 300)
+            left.cancelSidebarResize()
+            XCTAssertEqual(config.workspaceSidebar.displayWidths, ["Right": 300],
+                "Cancelling leaves a display without its own width on the shared one")
+        }
+    }
+
+    func testReturningToTheStartWidthGivesTheDisplayNoWidthOfItsOwn() async throws {
+        try await withTwoDisplays { left, _ in
+            var written: [String] = []
+            workspaceSidebarWidthPersistenceForTests = fakePersistence(onWrite: { written.append($0) })
+            XCTAssertTrue(left.beginSidebarResize(atScreenX: 500))
+            left.updateSidebarResize(toScreenX: 500)
+            XCTAssertEqual(config.workspaceSidebar.displayWidths, [:], "A click on the edge must not pin the shared width")
+            left.updateSidebarResize(toScreenX: 560)
+            XCTAssertEqual(config.workspaceSidebar.displayWidths, ["Left": 300])
+            left.updateSidebarResize(toScreenX: 500)
+            XCTAssertEqual(config.workspaceSidebar.displayWidths, [:], "Back at the start, it follows the shared width again")
+            XCTAssertNil(left.endSidebarResize())
+            XCTAssertEqual(written, [])
+        }
+    }
+
+    func testDoubleClickingTheEdgePutsTheDisplayBackOnTheSharedWidth() async throws {
+        try await withTwoDisplays { left, right in
+            var written: [String] = []
+            workspaceSidebarWidthPersistenceForTests = fakePersistence(onWrite: { written.append($0) },
+                text: "[workspace-sidebar.display-widths]\n\"Left\" = 300\n\"Right\" = 320\n")
+            config.workspaceSidebar.displayWidths = ["Left": 300, "Right": 320]
+            WorkspaceSidebarPanel.refreshAll()
+            XCTAssertEqual(left.viewModel.workspaceSidebarVisibleWidth, 300)
+
+            let save = try XCTUnwrap(left.resetSidebarDisplayWidth())
+            XCTAssertEqual(config.workspaceSidebar.displayWidths, ["Right": 320])
+            XCTAssertEqual(left.viewModel.workspaceSidebarVisibleWidth, 240)
+            XCTAssertEqual(right.viewModel.workspaceSidebarVisibleWidth, 320)
+            await save.value
+            XCTAssertEqual(written.count, 1)
+            XCTAssertEqual(parseConfig(written[0]).config.workspaceSidebar.displayWidths, ["Right": 320], written[0])
+            XCTAssertNil(left.resetSidebarDisplayWidth(), "A display already on the shared width has nothing to reset")
+
+            config.workspaceSidebar.widthPerDisplay = false
+            XCTAssertNil(right.resetSidebarDisplayWidth(), "With one shared width, double-clicking changes nothing")
+            XCTAssertEqual(written.count, 1)
+        }
+    }
+
+    func testTurningOffWidthPerDisplayMidDragCancelsTheDrag() async throws {
+        try await withTwoDisplays { left, _ in
+            XCTAssertTrue(left.beginSidebarResize(atScreenX: 500))
+            left.updateSidebarResize(toScreenX: 560)
+            XCTAssertEqual(config.workspaceSidebar.displayWidths, ["Left": 300])
+            // A reload turned the setting off, so this edge now sets the shared width.
+            config.workspaceSidebar.widthPerDisplay = false
+            left.updateSidebarResize(toScreenX: 600)
+            XCTAssertNil(left.sidebarResize)
+            XCTAssertEqual(config.workspaceSidebar.displayWidths, [:])
+            XCTAssertEqual(config.workspaceSidebar.width, 240)
+        }
+    }
+
+    func testAFailedDisplayWidthSaveRemovesTheDraggedWidth() async throws {
+        try await withTwoDisplays { left, _ in
+            workspaceSidebarWidthPersistenceForTests = fakePersistence(onWrite: { _ in }, failsRead: true)
+            let oldMessage = MessageModel.shared.message
+            defer { MessageModel.shared.message = oldMessage }
+            XCTAssertTrue(left.beginSidebarResize(atScreenX: 500))
+            left.updateSidebarResize(toScreenX: 560)
+            let save = try XCTUnwrap(left.endSidebarResize())
+            XCTAssertEqual(config.workspaceSidebar.displayWidths, ["Left": 300])
+            await save.value
+            XCTAssertEqual(config.workspaceSidebar.displayWidths, [:])
+            XCTAssertEqual(left.viewModel.workspaceSidebarVisibleWidth, 240)
+            XCTAssertEqual(MessageModel.shared.message?.description, "Workspace Sidebar Error")
+        }
+    }
+
+    func testDisplayWidthsSurviveTheSaveAndReload() async throws {
+        try await withTwoDisplays { left, right in
+            let disk = SidebarWidthTestDisk()
+            workspaceSidebarWidthPersistenceForTests = disk.persistence
+            XCTAssertTrue(right.beginSidebarResize(atScreenX: 2400))
+            right.updateSidebarResize(toScreenX: 2460)
+            await right.endSidebarResize()?.value
+            XCTAssertEqual(disk.writes.count, 1)
+            XCTAssertEqual(config.workspaceSidebar.displayWidths, ["Right": 300], "The reloaded file keeps the width")
+            XCTAssertEqual(right.viewModel.workspaceSidebarVisibleWidth, 300)
+            XCTAssertEqual(left.viewModel.workspaceSidebarVisibleWidth, 240)
+
+            // Dragging a display that has its own width changes that width.
+            XCTAssertTrue(right.beginSidebarResize(atScreenX: 2400))
+            right.updateSidebarResize(toScreenX: 2340)
+            await right.endSidebarResize()?.value
+            XCTAssertEqual(config.workspaceSidebar.displayWidths, ["Right": 240],
+                "Dragged to the shared width, the display still keeps a width of its own")
+            XCTAssertEqual(disk.writes.count, 2)
+
+            await right.resetSidebarDisplayWidth()?.value
+            XCTAssertEqual(config.workspaceSidebar.displayWidths, [:])
+            XCTAssertFalse(disk.text.contains("display-widths"), disk.text)
+        }
+    }
+
+    func testDoubleClickingTheHandleResetsWithoutStartingADrag() async throws {
+        try await withTwoDisplays { left, _ in
+            let disk = SidebarWidthTestDisk(extra: "\n[workspace-sidebar.display-widths]\n\"Left\" = 300\n")
+            workspaceSidebarWidthPersistenceForTests = disk.persistence
+            config.workspaceSidebar.displayWidths = ["Left": 300]
+            WorkspaceSidebarPanel.refreshAll()
+            let handle = left.resizeHandleView
+            func click(_ count: Int) throws -> (down: NSEvent, up: NSEvent) {
+                let event = { (type: NSEvent.EventType) in
+                    NSEvent.mouseEvent(with: type, location: .zero, modifierFlags: [], timestamp: 0,
+                        windowNumber: left.windowNumber, context: nil, eventNumber: 0, clickCount: count, pressure: 1)
+                }
+                return (try XCTUnwrap(event(.leftMouseDown)), try XCTUnwrap(event(.leftMouseUp)))
+            }
+            let first = try click(1)
+            handle.mouseDown(with: first.down)
+            XCTAssertNotNil(left.sidebarResize, "The first click starts a drag")
+            handle.mouseUp(with: first.up)
+            XCTAssertNil(left.sidebarResize)
+            XCTAssertEqual(disk.writes.count, 0, "A click without moving saves nothing")
+
+            let second = try click(2)
+            handle.mouseDown(with: second.down)
+            XCTAssertNil(left.sidebarResize, "The second click resets instead of dragging")
+            XCTAssertEqual(config.workspaceSidebar.displayWidths, [:])
+            XCTAssertEqual(left.viewModel.workspaceSidebarVisibleWidth, 240)
+            handle.mouseUp(with: second.up)
+            for _ in 0 ..< 50 where disk.writes.isEmpty { try await Task.sleep(for: .milliseconds(10)) }
+            XCTAssertEqual(disk.writes.count, 1)
+            XCTAssertFalse(disk.text.contains("display-widths"), disk.text)
+        }
+    }
+
+    func testAnInlineWidthTableIsNotSilentlyLeftBehind() async throws {
+        try await withTwoDisplays { left, right in
+            let disk = SidebarWidthTestDisk(extra: "    display-widths = { \"Left\" = 300 }\n")
+            workspaceSidebarWidthPersistenceForTests = disk.persistence
+            let oldMessage = MessageModel.shared.message
+            defer { MessageModel.shared.message = oldMessage }
+            config.workspaceSidebar.displayWidths = ["Left": 300]
+            WorkspaceSidebarPanel.refreshAll()
+            let original = disk.text
+
+            await left.resetSidebarDisplayWidth()?.value
+            XCTAssertEqual(config.workspaceSidebar.displayWidths, ["Left": 300],
+                "A reset the file can't take puts the width back instead of reporting success")
+            XCTAssertEqual(MessageModel.shared.message?.description, "Workspace Sidebar Error")
+
+            MessageModel.shared.message = nil
+            XCTAssertTrue(right.beginSidebarResize(atScreenX: 2400))
+            right.updateSidebarResize(toScreenX: 2460)
+            await right.endSidebarResize()?.value
+            XCTAssertEqual(config.workspaceSidebar.displayWidths, ["Left": 300])
+            XCTAssertEqual(MessageModel.shared.message?.description, "Workspace Sidebar Error")
+            XCTAssertEqual(disk.text, original)
+            XCTAssertEqual(disk.writes.count, 0)
+        }
+    }
+
     func testThrottledRefreshesFinishWithTheLatestWidth() {
         let throttle = WorkspaceSidebarThrottle(interval: 60)
         var runs: [Int] = []
@@ -329,21 +518,50 @@ final class WorkspaceSidebarResizeTest: XCTestCase {
         XCTAssertEqual(runs, [1, 3, 5], "Reset drops waiting work and runs the next request at once")
     }
 
-    private func fakePersistence(onWrite: @escaping (String) -> Void, failsRead: Bool = false) -> SettingsPersistence {
+    private func fakePersistence(onWrite: @escaping (String) -> Void, failsRead: Bool = false,
+                                 text: String = "") -> SettingsPersistence {
         let url = URL(fileURLWithPath: "/tmp/winmux-sidebar-resize-test.toml")
         return SettingsPersistence(
             target: { url },
             read: { _ in
                 if failsRead { throw SettingsEditError("unreadable") }
-                return "[workspace-sidebar]\n    always-expanded = true\n    width = 240\n"
+                return "[workspace-sidebar]\n    always-expanded = true\n    width = 240\n" + text
             },
             write: { _, text in onWrite(text) },
             reload: { _ in true },
         )
     }
 
+    private func monitor(named name: String) -> Monitor {
+        monitors.first { $0.name == name }!
+    }
+
+    /// A Tabs panel on each of two displays, which remember their own widths.
+    private func withTwoDisplays(
+        _ body: @MainActor (_ left: WorkspaceSidebarPanel, _ right: WorkspaceSidebarPanel) async throws -> Void,
+    ) async throws {
+        let left = SavedWorkspaceTestMonitor(id: 1, name: "Left", x: 0, isMain: true, uuid: nil)
+        let right = SavedWorkspaceTestMonitor(id: 2, name: "Right", x: 1920, uuid: nil)
+        setMonitorsForTests([left, right])
+        defer { setMonitorsForTests(nil) }
+        try await withAlwaysExpandedPanel(mode: .tabs, widthPerDisplay: true) { leftPanel in
+            let rightPanel = try XCTUnwrap(WorkspaceSidebarPanel.panel(for: workspaceSidebarMonitorScopeId(for: right)))
+            let trackingDepth = rightPanel.menuTrackingDepth
+            rightPanel.menuTrackingDepth = 1
+            defer {
+                rightPanel.cancelSidebarResize()
+                rightPanel.menuTrackingDepth = trackingDepth
+            }
+            XCTAssertEqual(leftPanel.sidebarDisplayName, "Left")
+            XCTAssertEqual(rightPanel.sidebarDisplayName, "Right")
+            try await body(leftPanel, rightPanel)
+        }
+    }
+
+    /// Most tests drive the shared width; the per-display tests turn on `widthPerDisplay`.
     private func withAlwaysExpandedPanel(
         mode: WorkspaceSidebarMode = .sidebar,
+        widthPerDisplay: Bool = false,
         _ body: @MainActor (WorkspaceSidebarPanel) async throws -> Void,
     ) async throws {
         _ = NSApplication.shared
@@ -355,6 +573,7 @@ final class WorkspaceSidebarResizeTest: XCTestCase {
         config.workspaceSidebar.alwaysExpanded = true
         config.workspaceSidebar.dockPosition = .left
         config.workspaceSidebar.width = 240
+        config.workspaceSidebar.widthPerDisplay = widthPerDisplay
         TrayMenuModel.shared.isEnabled = true
         // An earlier drag in this process must not defer the first live update.
         workspaceSidebarLiveResizeRefresh.reset()
@@ -375,6 +594,35 @@ final class WorkspaceSidebarResizeTest: XCTestCase {
         panel.visibleSurfaceFrame = CGRect(x: 0, y: 0, width: 240, height: panel.hostingView.bounds.height)
         panel.updateResizeHandle()
         try await body(panel)
+    }
+}
+
+/// A config file that keeps what the sidebar writes and reloads it into the running config.
+@MainActor
+private final class SidebarWidthTestDisk {
+    var text: String
+    var writes: [String] = []
+
+    init(extra: String = "") {
+        text = "[workspace-sidebar]\n    enabled = true\n    mode = 'tabs'\n    always-expanded = true\n    width = 240\n" + extra
+    }
+
+    var persistence: SettingsPersistence {
+        SettingsPersistence(
+            target: { URL(fileURLWithPath: "/tmp/winmux-sidebar-width-disk-test.toml") },
+            read: { [unowned self] _ in text },
+            write: { [unowned self] _, text in
+                self.text = text
+                writes.append(text)
+            },
+            reload: { [unowned self] _ in
+                let parsed = parseConfig(text)
+                guard parsed.errors.isEmpty else { return false }
+                config.workspaceSidebar = parsed.config.workspaceSidebar
+                WorkspaceSidebarPanel.refreshAll()
+                return true
+            },
+        )
     }
 }
 

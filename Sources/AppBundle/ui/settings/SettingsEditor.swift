@@ -52,15 +52,22 @@ struct SettingsPersistence {
     var reload: (URL) async throws -> Bool = { try await reloadConfig(forceConfigUrl: $0) }
 
     func save(_ edits: [SettingsFileEdit]) async throws -> SettingsFileUndo {
+        try await save { text in
+            edits.reduce(text) { text, edit in
+                updateSettingsAppearanceConfig(in: text, section: edit.section, values: edit.values,
+                    preservingDockAppearance: edit.preservingDockAppearance)
+            }
+        }
+    }
+
+    /// Saves `edit` applied to the file's current text, for changes a key/value edit can't express.
+    func save(_ edit: (String) throws -> String) async throws -> SettingsFileUndo {
         let url = target()
         let before = try read(url)
         guard parseConfig(before).errors.isEmpty else {
             throw SettingsEditError("The configuration on disk contains errors. Open Advanced → TOML Editor to fix them before changing form settings. The file has not been changed.")
         }
-        let after = edits.reduce(before) { text, edit in
-            updateSettingsAppearanceConfig(in: text, section: edit.section, values: edit.values,
-                preservingDockAppearance: edit.preservingDockAppearance)
-        }
+        let after = try edit(before)
         try await apply(after, replacing: before, at: url)
         return SettingsFileUndo(url: url, before: before, after: after)
     }

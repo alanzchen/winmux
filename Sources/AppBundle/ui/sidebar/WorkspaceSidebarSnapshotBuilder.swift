@@ -1,18 +1,19 @@
 import Foundation
 
 extension TrayMenuModel {
-    @MainActor func refreshWorkspaceSidebarAppearance() {
+    /// `displayName` is the panel's display, which may have its own width.
+    @MainActor func refreshWorkspaceSidebarAppearance(displayName: String? = nil) {
         // Config is not observable. Publish appearance-only changes even when the
         // workspace data and panel width are unchanged, without resetting view state.
-        setIfChanged(\.workspaceSidebarAppearance, workspaceSidebarConfiguration())
+        setIfChanged(\.workspaceSidebarAppearance, workspaceSidebarConfiguration(displayName: displayName))
     }
 }
 
 @MainActor
-func workspaceSidebarConfiguration(_ source: Config = config) -> WorkspaceSidebarConfiguration {
+func workspaceSidebarConfiguration(_ source: Config = config, displayName: String? = nil) -> WorkspaceSidebarConfiguration {
     WorkspaceSidebarConfiguration(
         collapsedWidth: workspaceSidebarCollapsedContentWidth(source.workspaceSidebar),
-        expandedWidth: CGFloat(source.workspaceSidebar.width),
+        expandedWidth: CGFloat(source.workspaceSidebar.width(onDisplayNamed: displayName)),
         topPadding: TrayMenuModel.shared.workspaceSidebarTopPadding,
         showMonitorSelector: TrayMenuModel.shared.workspaceSidebarShowsMonitorSelector,
         showsClock: source.workspaceSidebar.showClock,

@@ -156,6 +156,12 @@ struct WorkspaceSidebarConfig: ConvenienceCopyable, Equatable, Sendable {
     var dockLeftGap: Int = 2
     var collapsedWidth: Int = 44
     var width: Int = 240
+    /// Sidebar and Tabs modes: dragging a panel's edge sets only its display's width, which
+    /// that display keeps. Displays without a width of their own use `width`.
+    var widthPerDisplay: Bool = true
+    /// Widths saved by dragging, keyed by the display menu's name for each display.
+    /// Used while `widthPerDisplay` is on.
+    var displayWidths: [String: Int] = [:]
     var monitor: [MonitorDescription] = []
     var displayFilter: WorkspaceSidebarDisplayFilter = .thisDisplay
     var showStatusPills: Bool = true
@@ -308,7 +314,54 @@ struct WindowTabsConfig: ConvenienceCopyable, Equatable, Sendable {
     var height: Int = 36
 }
 
+/// The saved width a sidebar drag changes: the shared `width`, or one display's own width.
+enum WorkspaceSidebarWidthTarget: Equatable, Sendable {
+    case shared
+    case display(String)
+}
+
 extension WorkspaceSidebarConfig {
+    /// Dock mode's `width` sizes the floating project columns, which have no edge to drag.
+    var usesDisplayWidths: Bool { widthPerDisplay && !showAppIcons }
+
+    func widthTarget(forDisplayNamed name: String?) -> WorkspaceSidebarWidthTarget {
+        guard usesDisplayWidths, let name else { return .shared }
+        return .display(name)
+    }
+
+    /// nil when the display has no width of its own.
+    func savedWidth(_ target: WorkspaceSidebarWidthTarget) -> Int? {
+        switch target {
+            case .shared: width
+            case .display(let name): displayWidths[name]
+        }
+    }
+
+    /// nil removes a display's own width. The shared width is never removed.
+    mutating func setSavedWidth(_ newWidth: Int?, for target: WorkspaceSidebarWidthTarget) {
+        switch target {
+            case .shared: if let newWidth { width = newWidth }
+            case .display(let name): displayWidths[name] = newWidth
+        }
+    }
+
+    func width(onDisplayNamed name: String?) -> Int {
+        savedWidth(widthTarget(forDisplayNamed: name)) ?? width
+    }
+
+    /// A copy whose `width` is the display's, for code that sizes that display's panel.
+    func onDisplay(named name: String?) -> WorkspaceSidebarConfig {
+        var result = self
+        result.width = width(onDisplayNamed: name)
+        return result
+    }
+
+    @MainActor
+    func onDisplay(_ monitor: Monitor) -> WorkspaceSidebarConfig {
+        guard usesDisplayWidths, !displayWidths.isEmpty else { return self }
+        return onDisplay(named: workspaceSidebarMonitorDisplayName(monitor, among: sortedMonitors))
+    }
+
     @MainActor
     func resolvedMonitor(sortedMonitors: [Monitor]) -> Monitor? {
         monitor.lazy

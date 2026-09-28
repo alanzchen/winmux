@@ -113,7 +113,7 @@ extension WorkspaceSidebarPanel {
 
     var slideOffset: CGPoint {
         var surface = visibleSurfaceFrameInHostingView
-        let settings = config.workspaceSidebar
+        let settings = sidebarSettings
         let compactWidth = workspaceSidebarHoverActivationWidth(settings)
         let width = max(viewModel.workspaceSidebarVisibleWidth, compactWidth)
         let progress = min(max((width - compactWidth) / max(CGFloat(settings.width) - compactWidth, 1), 0), 1)
@@ -182,7 +182,7 @@ extension WorkspaceSidebarPanel {
         // Prepare the real content size before revealing it. A hide never compresses
         // icons; reversing mid-flight uses the current presentation-layer transform.
         viewModel.workspaceSidebarVisibleWidth = width
-        if width < CGFloat(config.workspaceSidebar.width) {
+        if width < CGFloat(sidebarSettings.width) {
             viewModel.isWorkspaceSidebarExpanded = config.workspaceSidebar.pinsSidebarOpen
         }
         hostingView.layoutSubtreeIfNeeded()

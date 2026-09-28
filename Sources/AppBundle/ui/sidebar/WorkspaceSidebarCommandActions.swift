@@ -16,7 +16,7 @@ func openWorkspaceSidebarFromCommand() {
     panel.shouldLockNextSidebarSearchExpansion = true
     panel.bufferedCommandSidebarSearchKeys = []
     installWorkspaceSidebarCommandMouseUnlockMonitor(panel)
-    panel.expandSidebar(to: CGFloat(config.workspaceSidebar.width))
+    panel.expandSidebar(to: CGFloat(panel.sidebarSettings.width))
     panel.beginInlineTextEditing(
         locksExpansion: true,
         cancelsOnPointerExit: false,
@@ -71,7 +71,7 @@ func closeWorkspaceSidebarFromCommand(_ panel: WorkspaceSidebarPanel, restorePre
         NotificationCenter.default.post(name: workspaceSidebarWillCollapseNotification, object: panel)
     }
     clearWorkspaceSidebarCommandInputState(panel)
-    let configuredRestingWidth = workspaceSidebarRestingWidth(config.workspaceSidebar)
+    let configuredRestingWidth = workspaceSidebarRestingWidth(panel.sidebarSettings)
     let restingWidth = config.workspaceSidebar.pinsSidebarOpen
         ? max(configuredRestingWidth, panel.viewModel.workspaceSidebarVisibleWidth)
         : configuredRestingWidth

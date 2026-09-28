@@ -106,16 +106,16 @@ extension WorkspaceSidebarPanel {
         if expandedDockHoverSource == nil, config.workspaceSidebar.showAppIcons,
            !config.workspaceSidebar.pinsSidebarOpen, autoHideReason == nil,
            viewModel.workspaceSidebarVisibleWidth > 0,
-           viewModel.workspaceSidebarVisibleWidth <= workspaceSidebarHoverActivationWidth(config.workspaceSidebar),
+           viewModel.workspaceSidebarVisibleWidth <= workspaceSidebarHoverActivationWidth(sidebarSettings),
            !visibleSurfaceFrameOnScreen.isEmpty {
             // A bottom Dock becomes narrower when expanded. Keep the launch area
             // in the hover region so its stationary pointer cannot collapse and
             // immediately reopen the view as the compact Dock returns underneath it.
             expandedDockHoverSource = WorkspaceSidebarExpansionHoverSource(
                 region: workspaceSidebarHoverRegion(surface: visibleSurfaceFrameOnScreen, displayFrame: frame,
-                    sidebarConfig: config.workspaceSidebar, exitTolerance: hoverExitTolerance,
+                    sidebarConfig: sidebarSettings, exitTolerance: hoverExitTolerance,
                     fittedDockWidth: fittedDockRestingWidth),
-                panelFrame: frame, sidebarConfig: config.workspaceSidebar)
+                panelFrame: frame, sidebarConfig: sidebarSettings)
         }
         debugWorkspaceSidebarHoverLog("expandSidebar panel=\(monitorScopeId) target=\(expandedWidth) visible=\(viewModel.workspaceSidebarVisibleWidth) frame=\(frame) mouse=\(NSEvent.mouseLocation)")
         pendingExpand?.cancel()
@@ -207,7 +207,7 @@ extension WorkspaceSidebarPanel {
         // The compact Dock's length is content-dependent. Before its first layout,
         // do not invent a full-display hit region that could steal hover/clicks.
         guard !config.workspaceSidebar.showAppIcons else { return .zero }
-        let settings = config.workspaceSidebar
+        let settings = sidebarSettings
         let startWidth = settings.effectiveCollapsedWidth
         let progress = (viewModel.workspaceSidebarVisibleWidth - startWidth) / max(CGFloat(settings.width) - startWidth, 1)
         return workspaceSidebarSurfaceFrame(
@@ -279,7 +279,7 @@ extension WorkspaceSidebarPanel {
             lastEdgeTrapSample = sample
             return
         }
-        let collapsedWidth = workspaceSidebarRestingWidth(config.workspaceSidebar)
+        let collapsedWidth = workspaceSidebarRestingWidth(sidebarSettings)
         debugWorkspaceSidebarEdgeTrapLog(
             "entry panel=\(monitorScopeId) visible=\(isVisible) enabled=\(config.workspaceSidebar.enabled) shift=\(currentSessionModifierFlags().contains(.maskShift)) mouseDrag=\(isMouseWindowDragInProgress()) sidebarDrag=\(isWorkspaceSidebarItemDragActive()) width=\(viewModel.workspaceSidebarVisibleWidth) collapsed=\(collapsedWidth) sample=\(sample) previous=\(String(describing: lastEdgeTrapSample)) suppressUntil=\(edgeTrapSuppressedUntil) startedAt=\(String(describing: edgeTrapStartedAt))"
         )
@@ -532,7 +532,7 @@ extension WorkspaceSidebarPanel {
         guard currentSidebarPanelLayout() != nil else { return }
         debugWorkspaceSidebarRenameLog("prepareForInlineTextEditing before visible=\(isVisible) isKey=\(isKeyWindow) ignoresMouse=\(ignoresMouseEvents) firstResponder=\(String(describing: firstResponder))")
         cancelExpansionWork()
-        expandSidebar(to: CGFloat(config.workspaceSidebar.width))
+        expandSidebar(to: CGFloat(sidebarSettings.width))
         ignoresMouseEvents = false
         orderFrontRegardless()
         makeKeyAndOrderFront(nil)
@@ -726,7 +726,8 @@ extension WorkspaceSidebarPanel {
         // Monitor geometry uses top-left coordinates; the native panel's origin is at
         // the bottom. Share the final tiled boundary, including Dock reservation and gaps.
         let bottomInset = config.workspaceSidebar.usesTabsList ? monitor.rect.maxY - monitor.standardTilingRect.maxY : 0
-        return workspaceSidebarPanelLayout(screenFrame: screen.frame, sidebarConfig: config.workspaceSidebar, tabsBottomInset: bottomInset)
+        return workspaceSidebarPanelLayout(screenFrame: screen.frame, sidebarConfig: config.workspaceSidebar.onDisplay(monitor),
+            tabsBottomInset: bottomInset)
     }
 
     func sidebarIsSuppressed(on monitor: Monitor) -> Bool {
@@ -749,8 +750,8 @@ extension WorkspaceSidebarPanel {
     func setHovering(_ isHovering: Bool) {
         guard currentSidebarPanelLayout() != nil else { return }
         guard menuTrackingDepth == 0, NSApp.modalWindow == nil else { return }
-        let expandedWidth = CGFloat(config.workspaceSidebar.width)
-        let collapsedWidth = workspaceSidebarRestingWidth(config.workspaceSidebar)
+        let expandedWidth = CGFloat(sidebarSettings.width)
+        let collapsedWidth = workspaceSidebarRestingWidth(sidebarSettings)
         if viewModel.workspaceSidebarVisibleWidth > collapsedWidth + 0.5 || pendingCollapse != nil {
             debugWorkspaceSidebarHoverLog("setHovering panel=\(monitorScopeId) isHovering=\(isHovering) visible=\(viewModel.workspaceSidebarVisibleWidth) frame=\(frame) mouse=\(NSEvent.mouseLocation)")
         }
@@ -842,13 +843,13 @@ extension WorkspaceSidebarPanel {
 
         if config.workspaceSidebar.usesDockMagnification, !viewModel.isWorkspaceSidebarExpanded,
            !shouldKeepSidebarOpenForInlineTextEditing() {
-            showCollapsedSidebarDuringExternalDrag(collapsedWidth: workspaceSidebarHoverActivationWidth(config.workspaceSidebar))
+            showCollapsedSidebarDuringExternalDrag(collapsedWidth: workspaceSidebarHoverActivationWidth(sidebarSettings))
             return
         }
 
         if isExternalWindowDrag && !isSidebarOriginatedDrag && isMousePushedAgainstDisplayEdge() {
             showCollapsedSidebarDuringExternalDrag(
-                collapsedWidth: workspaceSidebarHoverActivationWidth(config.workspaceSidebar)
+                collapsedWidth: workspaceSidebarHoverActivationWidth(sidebarSettings)
             )
             return
         }
@@ -883,7 +884,7 @@ extension WorkspaceSidebarPanel {
         pendingExpand = nil
         guard !config.workspaceSidebar.pinsSidebarOpen else {
             cancelExpansionWork()
-            expandSidebar(to: CGFloat(config.workspaceSidebar.width))
+            expandSidebar(to: CGFloat(sidebarSettings.width))
             return
         }
         guard autoHideReason == nil else { return }
@@ -1021,7 +1022,7 @@ extension WorkspaceSidebarPanel {
             if config.workspaceSidebar.usesDockMagnification,
                !panel.ignoresMouseEvents, panel.autoHideReason == nil,
                !panel.viewModel.isWorkspaceSidebarExpanded,
-               panel.viewModel.workspaceSidebarVisibleWidth == workspaceSidebarHoverActivationWidth(config.workspaceSidebar),
+               panel.viewModel.workspaceSidebarVisibleWidth == workspaceSidebarHoverActivationWidth(panel.sidebarSettings),
                panel.pendingExpand == nil, panel.pendingCollapse == nil, panel.pendingCollapseFinalize == nil,
                !panel.shouldKeepSidebarOpenForInlineTextEditing(), !isWorkspaceSidebarDragInProgress(),
                !isMouseWindowDragInProgress(), panel.visibleSurfaceFrameOnScreen.contains(screenPoint) { continue }
@@ -1122,14 +1123,14 @@ extension WorkspaceSidebarPanel {
                     surface.size.height = 0
             }
         }
-        let hoverRegion = workspaceSidebarHoverRegion(surface: surface, displayFrame: frame, sidebarConfig: config.workspaceSidebar,
+        let hoverRegion = workspaceSidebarHoverRegion(surface: surface, displayFrame: frame, sidebarConfig: sidebarSettings,
             exitTolerance: hoverExitTolerance, fittedDockWidth: fittedDockRestingWidth)
         // Pointer re-entry may reverse an in-flight hide. Once hidden, only the
         // normal edge-reveal geometry remains; suppression never retains hover.
         let retainsOpeningDock = autoHideReason == nil || (autoHideReason == .pointerExit && slideTransition.isAnimating)
         let insideOpeningDock = retainsOpeningDock && viewModel.isWorkspaceSidebarExpanded
             && expandedDockHoverSource?.contains(point, panelFrame: frame,
-                sidebarConfig: config.workspaceSidebar) == true
+                sidebarConfig: sidebarSettings) == true
         // Floating project columns keep the Dock expanded. Their tolerance also spans
         // the narrower gap back to the resting Dock. Like an outgoing expanded view, they
         // never become a wide re-entry target while the Dock hides.
@@ -1137,7 +1138,7 @@ extension WorkspaceSidebarPanel {
             && isScreenPointInsideExpandedSurface(point, tolerance: hoverExitTolerance)
         let inside = hoverRegion.contains(point) || insideOpeningDock || insideExpandedView
             || (autoHideReason == nil && isScreenPointInsideDockIcon(point))
-        if viewModel.workspaceSidebarVisibleWidth > workspaceSidebarRestingWidth(config.workspaceSidebar) + 0.5 || pendingCollapse != nil {
+        if viewModel.workspaceSidebarVisibleWidth > workspaceSidebarRestingWidth(sidebarSettings) + 0.5 || pendingCollapse != nil {
             debugWorkspaceSidebarHoverLog("hoverRegion panel=\(monitorScopeId) inside=\(inside) hoverWidth=\(hoverRegion.width) visibleWidth=\(viewModel.workspaceSidebarVisibleWidth) frame=\(frame) mouse=\(NSEvent.mouseLocation) suppressUntil=\(splitBrowseCollapseSuppressedUntil)")
         }
         return inside
@@ -1150,10 +1151,10 @@ extension WorkspaceSidebarPanel {
     func isMouseDeepEnoughToExpand() -> Bool {
         guard isVisible else { return false }
         return workspaceSidebarHoverDepth(
-            point: NSEvent.mouseLocation, displayFrame: frame, sidebarConfig: config.workspaceSidebar,
+            point: NSEvent.mouseLocation, displayFrame: frame, sidebarConfig: sidebarSettings,
             thickness: config.workspaceSidebar.showAppIcons && !config.workspaceSidebar.pinsSidebarOpen
-                ? fittedDockRestingWidth ?? workspaceSidebarHoverActivationWidth(config.workspaceSidebar)
-                : workspaceSidebarHoverActivationWidth(config.workspaceSidebar),
+                ? fittedDockRestingWidth ?? workspaceSidebarHoverActivationWidth(sidebarSettings)
+                : workspaceSidebarHoverActivationWidth(sidebarSettings),
         )
     }
 }
@@ -1178,7 +1179,7 @@ extension WorkspaceSidebarPanel {
             return
         }
 
-        if let source = expandedDockHoverSource, !source.matches(panelFrame: layout.frame, sidebarConfig: config.workspaceSidebar) {
+        if let source = expandedDockHoverSource, !source.matches(panelFrame: layout.frame, sidebarConfig: sidebarSettings) {
             expandedDockHoverSource = nil
         }
         if frame != layout.frame {
@@ -1209,7 +1210,7 @@ extension WorkspaceSidebarPanel {
             viewModel.isWorkspaceSidebarExpanded = false
             if layout.collapsedWidth == 0 {
                 if isScreenPointInsideHoverRegion(mouseLocation) {
-                    viewModel.workspaceSidebarVisibleWidth = workspaceSidebarHoverActivationWidth(config.workspaceSidebar)
+                    viewModel.workspaceSidebarVisibleWidth = workspaceSidebarHoverActivationWidth(sidebarSettings)
                 } else { hideSidebar(.pointerExit) }
             } else { viewModel.workspaceSidebarVisibleWidth = layout.collapsedWidth }
         } else if viewModel.workspaceSidebarVisibleWidth == 0 {

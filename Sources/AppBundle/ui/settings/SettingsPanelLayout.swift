@@ -43,14 +43,15 @@ enum SettingsPanelLayout {
             case .sidebar:
                 return [
                     .init(id: "sidebar.behavior", title: "Behavior", fields: ids(["always-expanded", "auto-hide", "collapsed-width",
-                        "width", "show-workspace-tooltips"])),
+                        "width", "width-per-display", "show-workspace-tooltips"])),
                     .init(id: "sidebar.appearance", title: "Appearance",
                         fields: ids(["sidebar-appearance.blur", "sidebar-appearance.background-opacity"])),
                     clock,
                 ]
             case .tabs:
                 return [
-                    .init(id: "tabs.behavior", title: "Behavior", fields: ids(["tabs-always-expanded", "auto-hide", "collapsed-width", "width"])),
+                    .init(id: "tabs.behavior", title: "Behavior", fields: ids(["tabs-always-expanded", "auto-hide", "collapsed-width", "width",
+                        "width-per-display"])),
                     .init(id: "tabs.content", title: "Content",
                         note: "The tab sidebar takes on the current project's color. Right-click a project to change it.",
                         fields: ids(["browser-tabs", "browser-tab-icons", "music-player-at-bottom", "show-app-badges"])),

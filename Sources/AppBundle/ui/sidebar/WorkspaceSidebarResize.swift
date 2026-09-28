@@ -46,27 +46,55 @@ struct WorkspaceSidebarResizeSession: Equatable {
     let startWidth: Int
     let paneCount: Int
     let position: WorkspaceDockPosition
-    /// The width this drag last put in config. A reload that replaced it wins over the drag.
-    var lastAppliedWidth: Int
+    let target: WorkspaceSidebarWidthTarget
+    /// The target's saved width before the drag: nil for a display without its own width.
+    let startSavedWidth: Int?
+    /// What this drag last put in config. A reload that replaced it wins over the drag.
+    var lastAppliedWidth: Int?
 
     func width(forPointerX pointerX: CGFloat, bounds: ClosedRange<Int>) -> Int {
         workspaceSidebarResizedWidth(startWidth: startWidth, pointerDeltaX: pointerX - startPointerX,
             position: position, paneCount: paneCount, bounds: bounds)
     }
+
+    /// Back at its start width, a display without its own width keeps following the shared one.
+    func savedWidth(for width: Int) -> Int? {
+        width == startWidth ? startSavedWidth : width
+    }
 }
 
 extension WorkspaceSidebarPanel {
+    /// Widths are remembered by the display menu's name for the panel's display.
+    var sidebarDisplayName: String? {
+        workspaceSidebarMonitor(forScopeId: monitorScopeId).map { workspaceSidebarMonitorDisplayName($0, among: sortedMonitors) }
+    }
+
+    /// The sidebar settings with this display's own width.
+    var sidebarSettings: WorkspaceSidebarConfig {
+        let settings = config.workspaceSidebar
+        // Hover paths read this often. Skip the display lookup while no display has its own width.
+        guard settings.usesDisplayWidths, !settings.displayWidths.isEmpty else { return settings }
+        return settings.onDisplay(named: sidebarDisplayName)
+    }
+
+    var sidebarWidthTarget: WorkspaceSidebarWidthTarget {
+        config.workspaceSidebar.widthTarget(forDisplayNamed: sidebarDisplayName)
+    }
+
     @discardableResult
     func beginSidebarResize(atScreenX pointerX: CGFloat) -> Bool {
         let settings = config.workspaceSidebar
         guard sidebarResize == nil, workspaceSidebarAllowsResize(settings), autoHideReason == nil,
               currentSidebarPanelLayout() != nil else { return false }
+        let target = sidebarWidthTarget
         sidebarResize = WorkspaceSidebarResizeSession(
             startPointerX: pointerX,
-            startWidth: settings.width,
+            startWidth: sidebarSettings.width,
             paneCount: isBrowsingSecondProject ? 2 : 1,
             position: settings.effectiveDockPosition,
-            lastAppliedWidth: settings.width,
+            target: target,
+            startSavedWidth: settings.savedWidth(target),
+            lastAppliedWidth: settings.savedWidth(target),
         )
         resizeHandleView.isResizing = true
         installSidebarResizeMouseUpMonitors()
@@ -76,27 +104,43 @@ extension WorkspaceSidebarPanel {
 
     func updateSidebarResize(toScreenX pointerX: CGFloat) {
         guard var session = sidebarResize else { return }
-        // A config reload during the drag may have turned the setting off or moved the panel.
+        // A config reload during the drag may have turned the setting off, moved the panel,
+        // or changed which width the panel's edge sets.
         guard workspaceSidebarAllowsResize(config.workspaceSidebar),
-              config.workspaceSidebar.effectiveDockPosition == session.position
+              config.workspaceSidebar.effectiveDockPosition == session.position,
+              sidebarWidthTarget == session.target
         else {
             cancelSidebarResize()
             return
         }
         // Bounds follow a reloaded collapsed-width, so the saved width stays valid.
-        let width = session.width(forPointerX: pointerX, bounds: workspaceSidebarResizeWidthBounds(config.workspaceSidebar))
+        let width = session.savedWidth(for: session.width(forPointerX: pointerX,
+            bounds: workspaceSidebarResizeWidthBounds(config.workspaceSidebar)))
         session.lastAppliedWidth = width
         sidebarResize = session
-        applyLiveWorkspaceSidebarWidth(width)
+        applyLiveWorkspaceSidebarWidth(width, for: session.target)
     }
 
     /// Saves the dragged width. Returns the save, for tests to await.
     @discardableResult
     func endSidebarResize() -> Task<Void, Never>? {
         guard let session = finishSidebarResizeSession(keepingPendingRefresh: true) else { return nil }
-        let width = config.workspaceSidebar.width
-        guard width == session.lastAppliedWidth, width != session.startWidth else { return nil }
-        return commitWorkspaceSidebarWidth(width, previousWidth: session.startWidth)
+        let width = config.workspaceSidebar.savedWidth(session.target)
+        guard width == session.lastAppliedWidth, width != session.startSavedWidth else { return nil }
+        return commitWorkspaceSidebarWidth(width, for: session.target, previousWidth: session.startSavedWidth)
+    }
+
+    /// Double-clicking the edge puts the display back on the shared width. Returns the
+    /// save, for tests to await.
+    @discardableResult
+    func resetSidebarDisplayWidth() -> Task<Void, Never>? {
+        let target = sidebarWidthTarget
+        guard sidebarResize == nil, case .display = target, workspaceSidebarAllowsResize(config.workspaceSidebar),
+              autoHideReason == nil, let previousWidth = config.workspaceSidebar.savedWidth(target)
+        else { return nil }
+        applyLiveWorkspaceSidebarWidth(nil, for: target)
+        workspaceSidebarLiveResizeRefresh.flush()
+        return commitWorkspaceSidebarWidth(nil, for: target, previousWidth: previousWidth)
     }
 
     /// Puts back the width from before the drag, unless a reload has replaced it since.
@@ -105,8 +149,9 @@ extension WorkspaceSidebarPanel {
     func cancelSidebarResize() {
         // Drop the dragged width's pending refresh rather than running it here.
         guard let session = finishSidebarResizeSession(keepingPendingRefresh: false) else { return }
-        if config.workspaceSidebar.width == session.lastAppliedWidth, session.lastAppliedWidth != session.startWidth {
-            config.workspaceSidebar.width = session.startWidth
+        if config.workspaceSidebar.savedWidth(session.target) == session.lastAppliedWidth,
+           session.lastAppliedWidth != session.startSavedWidth {
+            config.workspaceSidebar.setSavedWidth(session.startSavedWidth, for: session.target)
         }
         // Either the restored width or the dropped refresh still has to reach panels and tiles.
         DispatchQueue.main.async {
@@ -218,13 +263,13 @@ final class WorkspaceSidebarThrottle {
 /// layout-only refresh sessions, which skip windows whose frames did not change.
 @MainActor let workspaceSidebarLiveResizeRefresh = WorkspaceSidebarThrottle(interval: 1.0 / 60)
 
-/// Resizes every sidebar and retiles windows while the pointer moves. The Settings
+/// Resizes the sidebars and retiles windows while the pointer moves. The Settings
 /// file is written once, when the drag ends, so config holds the width only briefly
-/// before a reload of the same value replaces it.
+/// before a reload of the same value replaces it. nil removes a display's own width.
 @MainActor
-func applyLiveWorkspaceSidebarWidth(_ width: Int) {
-    guard config.workspaceSidebar.width != width else { return }
-    config.workspaceSidebar.width = width
+func applyLiveWorkspaceSidebarWidth(_ width: Int?, for target: WorkspaceSidebarWidthTarget = .shared) {
+    guard config.workspaceSidebar.savedWidth(target) != width else { return }
+    config.workspaceSidebar.setSavedWidth(width, for: target)
     workspaceSidebarLiveResizeRefresh.run {
         WorkspaceSidebarPanel.refreshAll()
         if isWinMuxRuntimeReady { scheduleRefreshSession(.onSidebarResized) }
@@ -239,7 +284,8 @@ func applyLiveWorkspaceSidebarWidth(_ width: Int) {
 /// reload, and roll back on failure. Saves run one at a time, in drag order.
 @MainActor
 @discardableResult
-func commitWorkspaceSidebarWidth(_ width: Int, previousWidth: Int) -> Task<Void, Never>? {
+func commitWorkspaceSidebarWidth(_ width: Int?, for target: WorkspaceSidebarWidthTarget = .shared,
+                                 previousWidth: Int?) -> Task<Void, Never>? {
     let persistence: SettingsPersistence
     if let override = workspaceSidebarWidthPersistenceForTests {
         persistence = override
@@ -252,12 +298,28 @@ func commitWorkspaceSidebarWidth(_ width: Int, previousWidth: Int) -> Task<Void,
     let task = Task { @MainActor in
         await previous?.value
         do {
-            _ = try await persistence.save([SettingsFileEdit(section: "workspace-sidebar", values: ["width": "\(width)"])])
+            switch target {
+                case .shared:
+                    guard let width else { return }
+                    _ = try await persistence.save([SettingsFileEdit(section: "workspace-sidebar", values: ["width": "\(width)"])])
+                case .display(let name):
+                    _ = try await persistence.save { text in
+                        let updated = updateWorkspaceSidebarDisplayWidthConfig(in: text, display: name, width: width)
+                        // The line edit can't rewrite a hand-written inline table, so it would add
+                        // a second table or change nothing. Nor may it change any other setting.
+                        var expected = parseConfig(text).config.workspaceSidebar
+                        expected.displayWidths[name] = width
+                        guard parseConfig(updated).config.workspaceSidebar == expected else {
+                            throw SettingsEditError("WinMux couldn't update [workspace-sidebar.display-widths] in your configuration. Edit it in Advanced → TOML Editor.")
+                        }
+                        return updated
+                    }
+            }
         } catch {
             // A failed reload already restored the file and config. A save that never
             // wrote leaves the dragged width in memory only, so put the old one back.
-            if config.workspaceSidebar.width == width {
-                applyLiveWorkspaceSidebarWidth(previousWidth)
+            if config.workspaceSidebar.savedWidth(target) == width {
+                applyLiveWorkspaceSidebarWidth(previousWidth, for: target)
                 workspaceSidebarLiveResizeRefresh.flush()
             }
             showWorkspaceSidebarError("The sidebar width could not be saved. \(error.localizedDescription)")
@@ -379,6 +441,10 @@ final class WorkspaceSidebarResizeHandleView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        if event.clickCount >= 2 {
+            panel?.resetSidebarDisplayWidth()
+            return
+        }
         guard panel?.beginSidebarResize(atScreenX: NSEvent.mouseLocation.x) == true else { return }
         resizeCursor.set()
     }

@@ -90,6 +90,10 @@ on-mode-changed = []
     dock-left-gap = 2
     collapsed-width = 50
     width = 280
+    # Sidebar and Tabs modes: dragging a panel's inner edge sets that display's width only,
+    # saved under its display menu name in [workspace-sidebar.display-widths]. Other displays use width.
+    # Double-click the edge to put a display back on width.
+    width-per-display = true
     # Omit monitor to show an independent sidebar on every display.
     # Legacy monitor = 'main' is also treated as all displays for this sidebar.
     # Use monitor = 1, 'secondary', 2, or a list to restrict it.

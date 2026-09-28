@@ -159,11 +159,32 @@ func updateWorkspaceSidebarProjectEmojiConfig(
     )
 }
 
+/// nil removes the display's own width, and the table once it's empty.
+func updateWorkspaceSidebarDisplayWidthConfig(in configText: String, display: String, width: Int?) -> String {
+    updateWorkspaceSidebarKeyValueSectionConfig(
+        in: configText,
+        sectionHeader: "[workspace-sidebar.display-widths]",
+        key: display,
+        renderedValue: width.map { "\($0)" },
+    )
+}
+
 private func updateWorkspaceSidebarKeyValueSectionConfig(
     in configText: String,
     sectionHeader: String,
     key: String,
     value: String?,
+    preserveCommentsWhenEmpty: Bool = false,
+) -> String {
+    updateWorkspaceSidebarKeyValueSectionConfig(in: configText, sectionHeader: sectionHeader, key: key,
+        renderedValue: value.map { "\"\(tomlEscape($0))\"" }, preserveCommentsWhenEmpty: preserveCommentsWhenEmpty)
+}
+
+private func updateWorkspaceSidebarKeyValueSectionConfig(
+    in configText: String,
+    sectionHeader: String,
+    key: String,
+    renderedValue value: String?,
     preserveCommentsWhenEmpty: Bool = false,
 ) -> String {
     let lines = configText.components(separatedBy: "\n")
@@ -401,7 +422,7 @@ private func tomlScan(_ line: String) -> (unquoted: String, commentStart: String
 }
 
 private func tomlWorkspaceSidebarKeyValueLine(key: String, value: String) -> String {
-    "\"\(tomlEscape(key))\" = \"\(tomlEscape(value))\""
+    "\"\(tomlEscape(key))\" = \(value)"
 }
 
 func tomlEscape(_ raw: String) -> String {

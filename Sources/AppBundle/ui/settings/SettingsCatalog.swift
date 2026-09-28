@@ -264,9 +264,11 @@ enum SettingsCatalog {
                 .used(in: collapsibleRails).requiring(.disables("Turn on Blur background to adjust darkness.") { $0.workspaceSidebar.sidebarAppearance.blur }),
             int(.sidebarAppearance, "width", "Expanded width", "Width in points of the expanded panel, or of each project column in the Dock's floating view. When the panel is kept expanded, you can also drag its inner edge.", section: sidebar, range: workspaceSidebarResizableWidthRange, path: \.workspaceSidebar.width)
                 .used(in: .allModes)
-                .titled(by: [.sidebar: ("Expanded width", "Width of the expanded Sidebar, in points. While it's kept expanded, you can also drag its inner edge."),
-                             .tabs: ("Sidebar width", "Width of the open tab sidebar, in points. While it's kept open, you can also drag its inner edge.")])
+                .titled(by: [.sidebar: ("Expanded width", "Width of the expanded Sidebar, in points. While it's kept expanded, you can also drag its inner edge. With Remember width for each display, a display you've resized keeps its own width."),
+                             .tabs: ("Sidebar width", "Width of the open tab sidebar, in points. While it's kept open, you can also drag its inner edge. With Remember width for each display, a display you've resized keeps its own width.")])
                 .dockWidthTitle(),
+            bool(.sidebarAppearance, "width-per-display", "Remember width for each display", "Dragging the panel's inner edge changes only that display's width, and the display keeps it. Displays you haven't resized use the width above. Double-click the edge to put a display back on it.", section: sidebar, path: \.workspaceSidebar.widthPerDisplay)
+                .used(in: [.sidebar, .tabs]),
             int(.sidebarAppearance, "collapsed-width", "Collapsed width", "Compact rail width in Sidebar and Tabs modes. Dock thickness follows icon size.", section: sidebar, range: 28...120, path: \.workspaceSidebar.collapsedWidth)
                 .used(in: [.sidebar, .tabs]).requiring(.panelCanCollapse)
                 .titled(by: [.sidebar: ("Collapsed width", "Width of the compact rail, in points."),

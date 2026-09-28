@@ -11,7 +11,7 @@ extension Monitor {
     var workspaceSidebarInset: CGFloat {
         guard config.workspaceSidebar.enabled else { return 0 }
         return workspaceSidebarResolvedPanelMonitors().contains { $0.rect.topLeftCorner == rect.topLeftCorner }
-            ? workspaceSidebarReservedWidth(config.workspaceSidebar,
+            ? workspaceSidebarReservedWidth(config.workspaceSidebar.onDisplay(self),
                 availableHeight: max(rect.height - CGFloat(config.workspaceSidebar.menuBarReserveHeight), 0))
             : 0
     }

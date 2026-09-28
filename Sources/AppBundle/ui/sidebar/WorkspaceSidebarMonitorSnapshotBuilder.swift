@@ -37,19 +37,28 @@ func buildWorkspaceSidebarMonitorScopes(
             isFocusedMonitor: false,
         ))
     }
-    let names = sortedMonitors.map { $0.name.trimmingCharacters(in: .whitespacesAndNewlines) }
-    return scopes + sortedMonitors.enumerated().map { index, monitor in
+    return scopes + sortedMonitors.map { monitor in
         let scopeId = workspaceSidebarMonitorScopeId(for: monitor)
-        let sameName = names.indices.filter { names[$0] == names[index] }
         return WorkspaceSidebarMonitorScopeViewModel(
             id: scopeId,
-            displayName: workspaceSidebarMonitorDisplayName(monitor, fallbackIndex: index + 1,
-                duplicateNumber: sameName.count > 1 ? sameName.firstIndex(of: index).map { $0 + 1 } : nil),
+            displayName: workspaceSidebarMonitorDisplayName(monitor, among: sortedMonitors),
             subtitle: monitor.isMain ? "Main display" : nil,
             systemImageName: "display",
             isFocusedMonitor: scopeId == focusedMonitorScopeId,
         )
     }
+}
+
+/// The display menu's name for a display. Identical displays are numbered from left to right.
+/// Each display's own sidebar width is saved under it.
+func workspaceSidebarMonitorDisplayName(_ monitor: Monitor, among monitors: [Monitor]) -> String {
+    let names = monitors.map { $0.name.trimmingCharacters(in: .whitespacesAndNewlines) }
+    guard let index = monitors.firstIndex(where: { $0.rect.topLeftCorner == monitor.rect.topLeftCorner }) else {
+        return workspaceSidebarMonitorDisplayName(monitor, fallbackIndex: 1)
+    }
+    let sameName = names.indices.filter { names[$0] == names[index] }
+    return workspaceSidebarMonitorDisplayName(monitor, fallbackIndex: index + 1,
+        duplicateNumber: sameName.count > 1 ? sameName.firstIndex(of: index).map { $0 + 1 } : nil)
 }
 
 /// A display's own name, including the main display's. Identical displays are numbered.

@@ -102,7 +102,9 @@ func handleWorkspaceSidebarAction(
             overrideWorkspaceInUseFromSidebar(name, targetMonitorScopeId: targetMonitorScopeId)
         case .expandForWorkspaceOverride, .expandSidebar:
             let scopeId = targetMonitorScopeId ?? viewModel.workspaceSidebarTargetMonitorScopeId
-            WorkspaceSidebarPanel.panel(for: scopeId)?.expandSidebar(to: CGFloat(config.workspaceSidebar.width))
+            if let panel = WorkspaceSidebarPanel.panel(for: scopeId) {
+                panel.expandSidebar(to: CGFloat(panel.sidebarSettings.width))
+            }
         case .selectWindow(let windowId):
             focusWindowFromSidebar(windowId, targetMonitorScopeId: targetMonitorScopeId)
         case .focusWindowInPlace(let windowId):

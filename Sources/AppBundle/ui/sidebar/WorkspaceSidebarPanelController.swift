@@ -163,7 +163,7 @@ final class WorkspaceSidebarPanel: NSPanelHud, WorkspaceSidebarInputOwner {
         // changed. workspaceSidebarVisibleWidth/isWorkspaceSidebarExpanded are panel-local and
         // never synced. experimentalUISettings is stateless (reads UserDefaults live) and only
         // the menu bar label observes it, so it isn't synced either.
-        viewModel.refreshWorkspaceSidebarAppearance()
+        viewModel.refreshWorkspaceSidebarAppearance(displayName: sidebarDisplayName)
         viewModel.setIfChanged(\.trayText, TrayMenuModel.shared.trayText)
         viewModel.setIfChanged(\.trayItems, TrayMenuModel.shared.trayItems)
         viewModel.setIfChanged(\.isEnabled, TrayMenuModel.shared.isEnabled)
