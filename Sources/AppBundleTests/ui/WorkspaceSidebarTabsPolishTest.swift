@@ -246,7 +246,7 @@ final class WorkspaceSidebarTabsPolishTest: XCTestCase {
         for mode in ["tabs", "dock", "sidebar"] {
             let editor = SettingsEditor(configuration: defaultConfig)
             editor.setDraft(.text(mode), for: SettingsCatalog.field("workspace-sidebar.mode"))
-            XCTAssertEqual(field.visible(editor), mode != "sidebar")
+            XCTAssertEqual(field.availability(editor).isShown, mode != "sidebar")
         }
     }
 

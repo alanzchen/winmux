@@ -22,9 +22,15 @@ It responds immediately to slider drafts, which save when dragging finishes.
 Color changes save after a short pause. Toggles and menus save immediately.
 Text fields use **Apply** or Return; automation actions use **Apply**.
 
-Only relevant controls appear: Liquid Glass shows opacity, Solid color shows its
-palette, Custom shows a color picker, and clock/tab options follow their parent
-toggle. Compact Dock and Sidebar/expanded-panel appearance remain separate.
+Controls follow what the running panel uses. Settings for another mode are
+hidden, and so are unselected alternatives: Liquid Glass shows opacity, Solid color
+shows its palette, and Custom shows a color picker. A setting that depends on another
+stays in view, disabled, and says what to change. Examples are seconds under the
+clock, the magnification amount, and compact-Dock settings while the Dock is kept
+expanded. When a mode fixes a behavior, the row says so instead of showing a switch;
+in Tabs mode, New Tab always opens the launcher. Tabs mode has no window stacks, so
+their settings are hidden while its panel is on. Compact Dock and
+Sidebar/expanded-panel appearance remain separate.
 **Maximum icon size** explains adaptive sizing and reports the current fitted
 size when a running panel is smaller. Magnification is displayed as a multiplier.
 

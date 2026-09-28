@@ -7,24 +7,8 @@ struct SettingsDockPreview: View {
     @ObservedObject var editor: SettingsEditor
     @State private var expanded = false
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
-    private func value(_ key: String) -> SettingsValue { editor.value(SettingsCatalog.field(key)) }
-    var previewConfiguration: WorkspaceSidebarConfiguration {
-        var layout = WorkspaceSidebarConfiguration.empty
-        layout.showAppIcons = value("workspace-sidebar.mode").text == "dock"
-        layout.dockPosition = WorkspaceDockPosition(rawValue: value("workspace-sidebar.dock-position").text) ?? .left
-        layout.dockIconSize = CGFloat(value("workspace-sidebar.dock-icon-size").integer)
-        layout.dockMagnification = value("workspace-sidebar.dock-magnification").bool && !value("workspace-sidebar.always-expanded").bool
-        layout.dockMagnificationAmount = value("workspace-sidebar.dock-magnification-amount").number
-        layout.chromeStyle = ChromeStyle(rawValue: value("workspace-sidebar.dock-appearance.style").text) ?? .liquidGlass
-        layout.glassOpacity = value("workspace-sidebar.dock-appearance.glass-opacity").number
-        layout.solidChromeColor = ChromeSolidColor(rawValue: value("workspace-sidebar.dock-appearance.solid-color").text) ?? .midnight
-        layout.solidChromeCustomColor = value("workspace-sidebar.dock-appearance.custom-color").text
-        layout.sidebarBlur = value("workspace-sidebar.sidebar-appearance.blur").bool
-        layout.sidebarBackgroundOpacity = value("workspace-sidebar.sidebar-appearance.background-opacity").number
-        layout.expandedWidth = CGFloat(value("workspace-sidebar.width").integer)
-        layout.compactLeftGap = CGFloat(value("workspace-sidebar.dock-left-gap").integer)
-        return layout
-    }
+    private var sidebar: WorkspaceSidebarConfig { editor.projection.workspaceSidebar }
+    var previewConfiguration: WorkspaceSidebarConfiguration { workspaceSidebarConfiguration(editor.projection) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -37,12 +21,12 @@ struct SettingsDockPreview: View {
             }
             ZStack {
                 Color(nsColor: .underPageBackgroundColor)
-                if expanded || !previewConfiguration.showAppIcons || value("workspace-sidebar.always-expanded").bool {
+                if expanded || !previewConfiguration.showAppIcons || sidebar.alwaysExpanded {
                     expandedPreview
                         .frame(width: min(previewConfiguration.expandedWidth, 245), height: 164)
                 } else {
                     SettingsDockPreviewShelf(configuration: previewConfiguration,
-                        showsBadge: value("workspace-sidebar.show-app-badges").bool)
+                        showsBadge: sidebar.showAppBadges)
                 }
             }
             .frame(height: 194)

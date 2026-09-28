@@ -38,9 +38,9 @@ final class WorkspaceSidebarAppRemindersTest: XCTestCase {
         var settings = defaultConfig
         settings.workspaceSidebar.mode = .dock
         let editor = SettingsEditor(configuration: settings)
-        XCTAssertTrue(field.visible(editor))
+        XCTAssertTrue(field.availability(editor).isShown)
         editor.setDraft(.text("sidebar"), for: SettingsCatalog.field("workspace-sidebar.mode"))
-        XCTAssertFalse(field.visible(editor))
+        XCTAssertFalse(field.availability(editor).isShown)
         XCTAssertTrue(SettingsCatalog.results("reminders").contains { $0.id == field.id })
         XCTAssertFalse(WorkspaceSidebarConfig().showHiddenWorkspaceAppReminders)
         let (parsed, errors) = parseConfig("[workspace-sidebar]\nshow-hidden-workspace-app-reminders = true\nshow-app-badges = false\n")

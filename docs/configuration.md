@@ -165,8 +165,8 @@ are not listed follow in creation order:
 project-order = ["project-2b7e0c4a-1d3f-4e5a-9b8c-7d6e5f4a3b2c", "default"]
 ```
 
-`always-expanded` (or `tabs-always-expanded` in Tabs mode) takes precedence over `auto-hide`. In Sidebar mode,
-`stay-on-top = false` allows system UI such as the macOS Dock to appear above it.
+`always-expanded` (or `tabs-always-expanded` in Tabs mode) takes precedence over `auto-hide`. In every mode,
+`stay-on-top = false` allows system UI such as the macOS Dock to appear above the panel.
 
 ## Clock and calendar
 
@@ -179,7 +179,11 @@ show-weekday = true
 ```
 
 `show-clock = false` hides the whole clock card. The other options control its
-parts independently; a weekday label can remain visible without the date.
+parts independently; a weekday label can remain visible without the date. Tabs mode
+has no clock. A Dock on the left or right shows only the time until it is kept
+expanded; a bottom Dock shows the date line when it is tall enough.
+
+`show-status-pills` has no effect. WinMux still accepts it so older configurations load.
 
 ## Window spacing
 

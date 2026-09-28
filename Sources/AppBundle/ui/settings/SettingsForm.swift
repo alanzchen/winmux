@@ -42,7 +42,7 @@ struct SettingsForm: View {
 
     @ViewBuilder
     private func groupView(_ group: SettingsGroup) -> some View {
-        let fields = SettingsCatalog.fields.filter { $0.group == group && ($0.visible(editor) || $0.id == targetField) }
+        let fields = SettingsCatalog.fields.filter { $0.group == group && ($0.availability(editor).isShown || $0.id == targetField) }
         if !fields.isEmpty {
             VStack(alignment: .leading, spacing: 7) {
                 HStack {
@@ -82,15 +82,51 @@ struct SettingsFieldRow: View {
     @State private var isDragging = false
     @State private var colorSave: Task<Void, Never>?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     private var current: SettingsValue { editor.value(field) }
-    private var unavailable: String? {
-        if !field.visible(editor) { return SettingsCatalog.visibilityHint(for: field, editor: editor) }
-        return field.unavailableReason(editor)
-    }
+    private var availability: SettingsAvailability { field.availability(editor) }
 
     var body: some View {
+        let availability = availability
         VStack(alignment: .leading, spacing: 6) {
+            if case .forced = availability {
+                // The mode fixes this behavior; a switch showing the stored value would contradict it.
+                Text(field.title).fixedSize(horizontal: false, vertical: true)
+            } else {
+                control
+            }
+            Text(availability.reason ?? field.help)
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            if reduceMotion, field.key.hasPrefix("dock-magnification") {
+                Text("macOS Reduce Motion is on, so magnification is currently paused.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            if reduceTransparency, field.key == "glass-opacity" || field.section == "workspace-sidebar.sidebar-appearance" {
+                Text("macOS Reduce Transparency is on, so WinMux currently draws this background opaque.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            if field.id == "workspace-sidebar.dock-icon-size" {
+                SettingsEffectiveDockSize(maximum: current.integer)
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .disabled(!availability.isAvailable)
+        .background(highlighted ? Color.accentColor.opacity(0.12) : Color.clear)
+        .overlay(alignment: .bottom) { Divider().padding(.leading, 12) }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("settings.\(field.id)")
+        .onDisappear {
+            colorSave?.cancel()
+            if case .color = field.control { editor.commit(field) }
+            if isDragging { editor.commit(field) }
+        }
+    }
+
+    @ViewBuilder
+    private var control: some View {
             switch field.control {
                 case .toggle:
                     HStack {
@@ -140,29 +176,6 @@ struct SettingsFieldRow: View {
                             }
                         }), supportsOpacity: false)
             }
-            Text(unavailable ?? field.help)
-                .font(.caption).foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            if reduceMotion, field.key.hasPrefix("dock-magnification") {
-                Text("macOS Reduce Motion is on, so magnification is currently paused.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            if field.id == "workspace-sidebar.dock-icon-size" {
-                SettingsEffectiveDockSize(maximum: current.integer)
-            }
-        }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .disabled(unavailable != nil)
-        .background(highlighted ? Color.accentColor.opacity(0.12) : Color.clear)
-        .overlay(alignment: .bottom) { Divider().padding(.leading, 12) }
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("settings.\(field.id)")
-        .onDisappear {
-            colorSave?.cancel()
-            if case .color = field.control { editor.commit(field) }
-            if isDragging { editor.commit(field) }
-        }
     }
 
     private var positionPicker: some View {

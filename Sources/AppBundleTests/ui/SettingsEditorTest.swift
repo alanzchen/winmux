@@ -30,11 +30,11 @@ final class SettingsEditorTest: XCTestCase {
         var configuration = defaultConfig
         configuration.workspaceSidebar.mode = .dock
         let editor = SettingsEditor(configuration: configuration)
-        XCTAssertTrue(workspace.visible(editor))
-        XCTAssertTrue(app.visible(editor))
+        XCTAssertTrue(workspace.availability(editor).isShown)
+        XCTAssertTrue(app.availability(editor).isShown)
         editor.setDraft(.text("sidebar"), for: SettingsCatalog.field("workspace-sidebar.mode"))
-        XCTAssertTrue(workspace.visible(editor))
-        XCTAssertFalse(app.visible(editor))
+        XCTAssertTrue(workspace.availability(editor).isShown)
+        XCTAssertFalse(app.availability(editor).isShown)
         XCTAssertTrue(SettingsCatalog.results("tooltip").contains { $0.id == workspace.id })
         XCTAssertTrue(SettingsCatalog.results("tooltip").contains { $0.id == app.id })
     }
@@ -65,15 +65,17 @@ final class SettingsEditorTest: XCTestCase {
 
     func testDependentControlsAndPreviewRespondBeforeSaving() {
         var configuration = defaultConfig
+        configuration.workspaceSidebar.enabled = true
         configuration.workspaceSidebar.mode = .dock
         let editor = SettingsEditor(configuration: configuration)
         let clock = SettingsCatalog.field("workspace-sidebar.show-clock")
         editor.setDraft(.bool(false), for: clock)
-        XCTAssertFalse(SettingsCatalog.field("workspace-sidebar.show-seconds").visible(editor))
+        XCTAssertEqual(SettingsCatalog.field("workspace-sidebar.show-seconds").availability(editor),
+            .disabled("Turn on Show clock to use this setting."), "A dependent setting stays in view, disabled")
         let style = SettingsCatalog.field("workspace-sidebar.dock-appearance.style")
         editor.setDraft(.text("solid"), for: style)
-        XCTAssertFalse(SettingsCatalog.field("workspace-sidebar.dock-appearance.glass-opacity").visible(editor))
-        XCTAssertTrue(SettingsCatalog.field("workspace-sidebar.dock-appearance.solid-color").visible(editor))
+        XCTAssertFalse(SettingsCatalog.field("workspace-sidebar.dock-appearance.glass-opacity").availability(editor).isShown)
+        XCTAssertTrue(SettingsCatalog.field("workspace-sidebar.dock-appearance.solid-color").availability(editor).isShown)
         editor.setDraft(.integer(32), for: SettingsCatalog.field("workspace-sidebar.dock-icon-size"))
         editor.setDraft(.text("right"), for: SettingsCatalog.field("workspace-sidebar.dock-position"))
         let preview = SettingsDockPreview(editor: editor).previewConfiguration
@@ -445,7 +447,7 @@ private extension SettingsEditor {
 }
 
 @MainActor
-private final class SettingsTestDisk {
+final class SettingsTestDisk {
     var text = "config-version = 2\nstart-at-login = false\nauto-reload-config = false\n"
     var writes: [String] = []
     var failWrites = false

@@ -117,8 +117,10 @@ struct SettingsEditError: LocalizedError {
 
 @MainActor
 final class SettingsEditor: ObservableObject {
-    @Published private(set) var configuration: Config
-    @Published private(set) var drafts: [String: SettingsValue] = [:]
+    @Published private(set) var configuration: Config { didSet { updateProjection() } }
+    @Published private(set) var drafts: [String: SettingsValue] = [:] { didSet { updateProjection() } }
+    /// The configuration with unsaved drafts applied, for availability and the preview.
+    private(set) var projection: Config
     @Published private(set) var isSaving = false
     @Published private(set) var error: String?
     @Published private(set) var undoTitle: String?
@@ -148,9 +150,13 @@ final class SettingsEditor: ObservableObject {
     }
 
     init(configuration: Config? = nil, persistence: SettingsPersistence = .init()) {
-        self.configuration = configuration ?? config
+        let configuration = configuration ?? config
+        self.configuration = configuration
+        projection = configuration
         self.persistence = persistence
     }
+
+    private func updateProjection() { projection = SettingsProjection.apply(drafts, to: configuration) }
 
     func value(_ field: SettingsField) -> SettingsValue { drafts[field.id] ?? field.read(configuration) }
 

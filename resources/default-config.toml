@@ -105,7 +105,6 @@ on-mode-changed = []
     new-workspace-launcher = false
     # For apps without a tested adapter, let the launcher press the app's own New Window menu item.
     launcher-menu-fallback = false
-    show-status-pills = true
     show-clock = false
     show-seconds = true
     show-date = false
