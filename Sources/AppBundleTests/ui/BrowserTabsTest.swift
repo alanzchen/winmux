@@ -397,6 +397,117 @@ final class BrowserTabsTest: XCTestCase {
         assertWatch(model, [], "The other sidebar's reads end with it")
     }
 
+    func testAChosenBrowserTabShowsSelectedAtOnceAndUntilTheBrowserSaysOtherwise() throws {
+        let tree = fixture(.chromium)
+        tree.container.append(tab("Gamma", selected: false))
+        let before = try XCTUnwrap(tree.scanner.scan())
+        XCTAssertEqual(before.tabs.map(\.isSelected), [true, false, false])
+        let third = before.tabs[2].target
+        var pending = BrowserTabPendingSelections()
+        let attempt = pending.begin(third, now: 10)
+        XCTAssertEqual(pending.apply(before).tabs.map(\.isSelected), [false, false, true], "The row chosen is the one shown selected")
+        pending.settle(attempt: attempt, windowId: 123, refused: false, now: 10.2)
+        pending.observe(before, readStarted: 10.1)
+        pending.observe(before, readStarted: 11.1)
+        XCTAssertEqual(pending.apply(before).tabs.map(\.isSelected), [false, false, true],
+            "Reads begun before the switch, or before the browser redrew its tab strip, still show the first tab")
+        tree.tabs[0].selected = false
+        tree.container.nodes[2].selected = true
+        let after = try XCTUnwrap(tree.scanner.scan())
+        pending.observe(after, readStarted: 11.15)
+        XCTAssertEqual(pending.apply(before).tabs.map(\.isSelected), [true, false, false], "Once confirmed, reads alone decide")
+
+        // A read well after the switch that shows another tab wins, as when the browser declined.
+        let second = pending.begin(before.tabs[1].target, now: 20)
+        pending.settle(attempt: second, windowId: 123, refused: false, now: 20.1)
+        pending.observe(after, readStarted: 21.1)
+        XCTAssertEqual(pending.apply(after).tabs.map(\.isSelected), [false, false, true])
+        // A press the browser refused shows the real selection straight away.
+        let refused = pending.begin(before.tabs[1].target, now: 30)
+        pending.settle(attempt: refused, windowId: 123, refused: true, now: 30.1)
+        XCTAssertEqual(pending.apply(after).tabs.map(\.isSelected), [false, false, true])
+        // Nothing lingers: a choice unconfirmed for three seconds lapses.
+        _ = pending.begin(before.tabs[1].target, now: 40)
+        pending.expire(now: 42.9)
+        XCTAssertEqual(pending.apply(after).tabs.map(\.isSelected), [false, true, false])
+        pending.expire(now: 43)
+        XCTAssertEqual(pending.apply(after).tabs.map(\.isSelected), [false, false, true])
+        // A choice whose tab has since closed changes nothing.
+        _ = pending.begin(BrowserTabTarget(windowId: 123, pid: 45, windowSession: after.windowSession, tabId: UUID()), now: 50)
+        XCTAssertEqual(pending.apply(after).tabs.map(\.isSelected), [false, false, true])
+    }
+
+    func testAPressAnotherClickSupersededNeverSettlesTheNewerChoice() throws {
+        let snapshot = try XCTUnwrap({ () -> BrowserWindowTabs? in
+            let tree = fixture(.chromium)
+            tree.container.append(tab("Gamma", selected: false))
+            return tree.scanner.scan()
+        }())
+        let (second, third) = (snapshot.tabs[1].target, snapshot.tabs[2].target)
+        var pending = BrowserTabPendingSelections()
+        // The same tab clicked twice, and the first press comes back refused.
+        let again = pending.begin(third, now: 0)
+        let latest = pending.begin(third, now: 0.1)
+        pending.settle(attempt: again, windowId: 123, refused: true, now: 0.2)
+        XCTAssertEqual(pending.apply(snapshot).tabs.map(\.isSelected), [false, false, true], "The second click still shows")
+        pending.settle(attempt: latest, windowId: 123, refused: false, now: 0.3)
+        pending.observe(snapshot, readStarted: 0.4)
+        XCTAssertEqual(pending.apply(snapshot).tabs.map(\.isSelected), [false, false, true])
+        // Second, then third, then second again: only the last press settles the choice.
+        let a = pending.begin(second, now: 1)
+        let b = pending.begin(third, now: 1.1)
+        let c = pending.begin(second, now: 1.2)
+        pending.settle(attempt: a, windowId: 123, refused: true, now: 1.3)
+        pending.settle(attempt: b, windowId: 123, refused: true, now: 1.3)
+        XCTAssertEqual(pending.apply(snapshot).tabs.map(\.isSelected), [false, true, false])
+        pending.settle(attempt: c, windowId: 123, refused: true, now: 1.4)
+        XCTAssertEqual(pending.apply(snapshot).tabs.map(\.isSelected), [true, false, false])
+        // A click in another window cuts this press short before it presses: each window keeps its own.
+        let other = try XCTUnwrap(BrowserTabScanner(root: fixture(.chromium).root, adapter: .chromium, windowId: 456, pid: 45).scan())
+        let here = pending.begin(third, now: 2)
+        _ = pending.begin(other.tabs[1].target, now: 2.1)
+        pending.settle(attempt: here, windowId: 123, refused: true, now: 2.2)
+        XCTAssertEqual(pending.apply(snapshot).tabs.map(\.isSelected), [true, false, false])
+        XCTAssertEqual(pending.apply(other).tabs.map(\.isSelected), [false, true])
+    }
+
+    func testAReadBegunBeforeAClickNeverConfirmsIt() throws {
+        let tree = fixture(.chromium)
+        tree.container.append(tab("Gamma", selected: false))
+        let read = try XCTUnwrap(tree.scanner.scan())
+        func selecting(_ index: Int) -> BrowserWindowTabs {
+            var snapshot = read
+            snapshot.tabs = snapshot.tabs.enumerated().map { offset, tab in
+                var tab = tab
+                tab.isSelected = offset == index
+                return tab
+            }
+            return snapshot
+        }
+        let (second, third) = (read.tabs[1].target, read.tabs[2].target)
+        var pending = BrowserTabPendingSelections()
+        let toSecond = pending.begin(second, now: 1)
+        pending.settle(attempt: toSecond, windowId: 123, refused: false, now: 1.1)
+        pending.observe(selecting(1), readStarted: 1.2)
+        // Third, whose tab strip still shows the second tab, then quickly the second again.
+        let toThird = pending.begin(third, now: 2)
+        pending.settle(attempt: toThird, windowId: 123, refused: false, now: 2.1)
+        pending.observe(selecting(1), readStarted: 2.2)
+        let back = pending.begin(second, now: 2.3)
+        pending.observe(selecting(1), readStarted: 2.25)
+        XCTAssertEqual(pending.apply(selecting(2)).tabs.map(\.isSelected), [false, true, false],
+            "A read from before the click back, still showing the second tab, doesn't confirm it")
+        pending.settle(attempt: back, windowId: 123, refused: false, now: 2.4)
+        pending.observe(selecting(1), readStarted: 2.35)
+        XCTAssertEqual(pending.apply(selecting(2)).tabs.map(\.isSelected), [false, true, false],
+            "Nor does one begun after the click but before its press, arriving later")
+        pending.observe(selecting(2), readStarted: 2.45)
+        XCTAssertEqual(pending.apply(selecting(2)).tabs.map(\.isSelected), [false, true, false],
+            "The third tab, shown while the browser redraws, doesn't flash back")
+        pending.observe(selecting(1), readStarted: 2.5)
+        XCTAssertEqual(pending.apply(selecting(2)).tabs.map(\.isSelected), [false, false, true], "Once confirmed, reads alone decide")
+    }
+
     func testTitlesOnlyRemoveKnownDiagnosticSuffixes() {
         XCTAssertEqual(browserTabDisplayTitle("Design - API - Memory usage - 64 MB"), "Design - API")
         XCTAssertEqual(browserTabDisplayTitle("项目 - 内存用量 - 64 MB"), "项目")

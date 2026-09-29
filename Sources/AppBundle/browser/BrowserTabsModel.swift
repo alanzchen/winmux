@@ -15,6 +15,7 @@ final class BrowserTabsModel: ObservableObject {
     private var watched: [String: Set<UInt32>] = [:]
     private var iconsEnabled = false
     private var iconAssociations = BrowserTabIconAssociations()
+    private var pendingSelections = BrowserTabPendingSelections()
     private let safariExtension: SafariExtensionBridge
     private var safariAssociations = SafariExtensionAssociations()
     private var safariEvidence: SafariExtensionEvidence?
@@ -37,6 +38,7 @@ final class BrowserTabsModel: ObservableObject {
     func setEnabled(_ enabled: Bool) {
         safariExtension.setEnabled(enabled)
         if !enabled {
+            pendingSelections = .init()
             safariAssociations = .init()
             safariEvidence = nil
             withoutTabStrips = [:]
@@ -110,6 +112,7 @@ final class BrowserTabsModel: ObservableObject {
             if reads >= 3 || ProcessInfo.processInfo.systemUptime - now > 0.12 { break }
             guard schedule.isDue(window.windowId, now: now),
                   let app = window.app as? MacApp, app.browserTabsMayRead else { continue }
+            let readStarted = ProcessInfo.processInfo.systemUptime
             let read = try? await app.readBrowserTabs(window.windowId, readIcons: iconsEnabled)
             let result = read?.tabs
             reads += 1
@@ -120,6 +123,7 @@ final class BrowserTabsModel: ObservableObject {
                 if !iconsEnabled { result.iconCandidate = nil }
                 iconAssociations.update(result, now: ProcessInfo.processInfo.systemUptime)
                 cache.receive(result, now: ProcessInfo.processInfo.systemUptime)
+                pendingSelections.observe(result, readStarted: readStarted)
                 publish()
             } else {
                 cache.recordFailure(windowId: window.windowId, now: ProcessInfo.processInfo.systemUptime)
@@ -129,8 +133,9 @@ final class BrowserTabsModel: ObservableObject {
 
     private func publish() {
         updateSafariAssociations()
+        pendingSelections.expire(now: ProcessInfo.processInfo.systemUptime)
         let next = cache.snapshots.mapValues { value in
-            var value = value
+            var value = pendingSelections.apply(value)
             value.tabs = value.tabs.map { tab in
                 var tab = safariAssociations.described(tab)
                 tab.iconOrigin = iconsEnabled ? iconAssociations.origins[tab.target] : nil
@@ -213,11 +218,19 @@ final class BrowserTabsModel: ObservableObject {
             return
         }
         guard browserTabSelectionAllowed(workspace: workspace, monitorScopeId: monitorScopeId) else { return }
+        // Show the chosen tab as selected now, not once the next read confirms it.
+        let attempt = pendingSelections.begin(target, now: ProcessInfo.processInfo.systemUptime)
+        publish()
         let token = generation
         selectionTask = Task { [weak self] in
-            _ = try? await app.selectBrowserTab(target)
-            guard !Task.isCancelled, let self, self.generation == token else { return }
+            // Cancelled or not, a press that ran reports whether it did; none that didn't switched the tab.
+            let pressed = (try? await app.selectBrowserTab(target)) == true
+            guard let self, self.generation == token else { return }
+            self.pendingSelections.settle(attempt: attempt, windowId: target.windowId, refused: !pressed,
+                now: ProcessInfo.processInfo.systemUptime)
+            if !pressed { self.publish() }
             self.schedule.reset(target.windowId)
+            guard !Task.isCancelled else { return }
             guard Window.get(byId: target.windowId) === window else { return }
             if let workspace = window.toLiveFocusOrNil()?.workspace,
                !browserTabSelectionAllowed(workspace: workspace, monitorScopeId: monitorScopeId) { return }

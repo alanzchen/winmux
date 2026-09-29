@@ -101,6 +101,57 @@ struct BrowserTabSnapshotCache {
     }
 }
 
+/// The tab just chosen in the sidebar, shown as its window's selected tab at once. Only reads begun
+/// after its press count: one that shows the tab selected confirms it, and once the browser has
+/// had a moment to redraw its tab strip, any read shows what's really selected. Reads begun sooner
+/// can still show a tab from before, even one an earlier click chose, and would flash it back.
+struct BrowserTabPendingSelections {
+    private struct Entry {
+        let target: BrowserTabTarget
+        let attempt: Int
+        let since: TimeInterval
+        var switched: TimeInterval? = nil
+    }
+    private var entries: [UInt32: Entry] = [:]
+    private var attempts = 0
+    static let lifetime: TimeInterval = 3
+    static let redraw: TimeInterval = 1
+
+    /// Each click is its own attempt, so a press it superseded can't settle it, even for the same tab.
+    mutating func begin(_ target: BrowserTabTarget, now: TimeInterval) -> Int {
+        attempts += 1
+        entries[target.windowId] = Entry(target: target, attempt: attempts, since: now)
+        return attempts
+    }
+
+    /// The press is over. A refused one shows the real selection at once; otherwise reads decide.
+    mutating func settle(attempt: Int, windowId: UInt32, refused: Bool, now: TimeInterval) {
+        guard entries[windowId]?.attempt == attempt else { return }
+        if refused { entries[windowId] = nil } else { entries[windowId]?.switched = now }
+    }
+
+    mutating func observe(_ snapshot: BrowserWindowTabs, readStarted: TimeInterval) {
+        guard let entry = entries[snapshot.windowId], let switched = entry.switched, readStarted >= switched else { return }
+        let confirmed = snapshot.tabs.contains { $0.target == entry.target && $0.isSelected }
+        if confirmed || readStarted - switched >= Self.redraw { entries[snapshot.windowId] = nil }
+    }
+
+    mutating func expire(now: TimeInterval) {
+        entries = entries.filter { now - $0.value.since < Self.lifetime }
+    }
+
+    func apply(_ snapshot: BrowserWindowTabs) -> BrowserWindowTabs {
+        guard let entry = entries[snapshot.windowId], snapshot.tabs.contains(where: { $0.target == entry.target }) else { return snapshot }
+        var snapshot = snapshot
+        snapshot.tabs = snapshot.tabs.map { tab in
+            var tab = tab
+            tab.isSelected = tab.target == entry.target
+            return tab
+        }
+        return snapshot
+    }
+}
+
 /// Scheduling is independent of AX so hidden panels, retry backoff and noisy
 /// notifications can be verified without querying any live browser.
 struct BrowserTabReadSchedule {
