@@ -111,27 +111,28 @@ func workspaceSidebarTabGapBands(for frame: CGRect, inside maxInside: CGFloat = 
     )
 }
 
-/// The pinned tiles' drop targets, laid out as `WorkspaceSidebarPinnedGrid` places them: each
-/// tile's halves, which put a dropped tab before or after that tile. They reach halfway across
-/// the space between tiles, and the last tile's reaches the row's end, so the empty cells after
-/// it put a tab last. Together they cover the tiles, which take no drop of their own.
-func workspaceSidebarPinnedDropTargets(names: [String], projectId: WorkspaceProjectId, frame: CGRect,
-                                       columns: Int) -> [WorkspaceSidebarDropTargetFrame] {
+/// The pinned tiles' drop targets, laid out as `WorkspaceSidebarPinnedGrid` places them. Each
+/// tile is a tab: a tab moving across it goes before or after it among the pins, by the half
+/// under the pointer, and a pause over it arms a split, as in the list. The tiles reach halfway
+/// across the space between them, and past the last one, the rest of its row puts a tab last.
+func workspaceSidebarPinnedDropTargets(names: [String], projectId: WorkspaceProjectId, monitorScopeId: String,
+                                       frame: CGRect, columns: Int) -> [WorkspaceSidebarDropTargetFrame] {
     var targets: [WorkspaceSidebarDropTargetFrame] = []
     let columns = max(columns, 1)
     let slop = workspaceSidebarPinnedGridSpacing / 2
     let width = max((frame.width - CGFloat(columns - 1) * workspaceSidebarPinnedGridSpacing) / CGFloat(columns), 0)
+    let destination = WorkspaceSidebarTabReorderDestination(projectId: projectId, monitorScopeId: monitorScopeId,
+        collectionId: nil, arrangesPins: true)
     for (index, name) in names.enumerated() {
-        let minX = frame.minX + CGFloat(index % columns) * (width + workspaceSidebarPinnedGridSpacing)
-        let minY = frame.minY + CGFloat(index / columns) * (workspaceSidebarPinnedGridRowHeight + workspaceSidebarPinnedGridSpacing)
-        let maxX = index == names.count - 1 ? frame.maxX : minX + width
-        let height = workspaceSidebarPinnedGridRowHeight + 2 * slop
-        targets += [
-            (CGRect(x: minX - slop, y: minY - slop, width: width / 2 + slop, height: height), false),
-            (CGRect(x: minX + width / 2, y: minY - slop, width: maxX - minX - width / 2 + slop, height: height), true),
-        ].map { rect, isAfter in
-            WorkspaceSidebarDropTargetFrame(kind: .pinnedTabs(projectId: projectId,
-                gap: WorkspaceSidebarTabGap(workspaceName: name, isAfter: isAfter)), frame: rect)
+        let tile = CGRect(x: frame.minX + CGFloat(index % columns) * (width + workspaceSidebarPinnedGridSpacing),
+            y: frame.minY + CGFloat(index / columns) * (workspaceSidebarPinnedGridRowHeight + workspaceSidebarPinnedGridSpacing),
+            width: width, height: workspaceSidebarPinnedGridRowHeight).insetBy(dx: -slop, dy: -slop)
+        targets.append(WorkspaceSidebarDropTargetFrame(kind: .workspace(name), frame: tile, acceptsSides: true,
+            tabReorderDestination: destination))
+        if index == names.count - 1, index % columns < columns - 1 {
+            targets.append(WorkspaceSidebarDropTargetFrame(kind: .pinnedTabs(projectId: projectId,
+                gap: WorkspaceSidebarTabGap(workspaceName: name, isAfter: true)),
+                frame: CGRect(x: tile.maxX, y: tile.minY, width: frame.maxX + slop - tile.maxX, height: tile.height)))
         }
     }
     return targets
@@ -141,6 +142,17 @@ struct WorkspaceSidebarTabReorderDestination: Equatable {
     let projectId: WorkspaceProjectId
     let monitorScopeId: String
     let collectionId: String?
+    /// A pinned tile, which a moving tab passes by its sides instead of its edges.
+    var arrangesPins = false
+
+    /// Where a tab moving across `name`'s tab goes before a pause arms a split: by the row's
+    /// nearer edge, or among the pins by the tile's nearer side.
+    func reorderTarget(beside name: String, rect: Rect, point: CGPoint) -> WorkspaceSidebarDropTargetKind {
+        arrangesPins
+            ? .pinnedTabs(projectId: projectId, gap: .init(workspaceName: name, isAfter: point.x >= rect.center.x))
+            : .tabGap(projectId: projectId, monitorScopeId: monitorScopeId,
+                gap: .init(workspaceName: name, isAfter: point.y >= rect.center.y, collectionId: collectionId))
+    }
 }
 
 struct WorkspaceSidebarDropTarget {
@@ -188,17 +200,31 @@ func workspaceSidebarLocalDropTarget(
     includesTabGaps: Bool = true,
 ) -> WorkspaceSidebarDropTargetFrame? {
     guard surface.contains(point) else { return nil }
-    for target in targets.reversed() {
-        if !includesTabGaps, case .tabGap = target.kind { continue }
-        let clipped = target.frame.intersection(surface)
-        guard !clipped.isNull, !clipped.isEmpty else { continue }
-        let hitRect = CGRect(x: clipped.minX - hitSlop.left, y: clipped.minY - hitSlop.top,
-            width: clipped.width + hitSlop.left + hitSlop.right,
-            height: clipped.height + hitSlop.top + hitSlop.bottom)
-        if hitRect.contains(point) {
-            return .init(kind: target.kind, frame: clipped, acceptsSides: target.acceptsSides,
-                tabReorderDestination: target.tabReorderDestination)
+    func hit(_ slop: NSEdgeInsets) -> WorkspaceSidebarDropTargetFrame? {
+        for target in targets.reversed() {
+            if !includesTabGaps, target.kind.isGap { continue }
+            let clipped = target.frame.intersection(surface)
+            guard !clipped.isNull, !clipped.isEmpty else { continue }
+            let hitRect = CGRect(x: clipped.minX - slop.left, y: clipped.minY - slop.top,
+                width: clipped.width + slop.left + slop.right, height: clipped.height + slop.top + slop.bottom)
+            if hitRect.contains(point) {
+                return .init(kind: target.kind, frame: clipped, acceptsSides: target.acceptsSides,
+                    tabReorderDestination: target.tabReorderDestination)
+            }
+        }
+        return nil
+    }
+    // The target under the pointer wins over a neighbor that only the slop reaches.
+    return hit(NSEdgeInsets()) ?? hit(hitSlop)
+}
+
+extension WorkspaceSidebarDropTargetKind {
+    /// A place between tabs or pins rather than a tab, which a window from the screen doesn't take.
+    var isGap: Bool {
+        switch self {
+            case .tabGap: true
+            case .pinnedTabs(_, let gap): gap != nil
+            default: false
         }
     }
-    return nil
 }

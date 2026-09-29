@@ -117,7 +117,5 @@ func workspaceSidebarDeliberateTabDropTarget(_ target: WorkspaceSidebarDropTarge
         return armed
     }
     guard let destination = target.tabReorderDestination else { return nil }
-    return .init(kind: .tabGap(projectId: destination.projectId, monitorScopeId: destination.monitorScopeId,
-        gap: .init(workspaceName: name, isAfter: point.y >= target.rect.center.y,
-            collectionId: destination.collectionId)), rect: target.rect)
+    return .init(kind: destination.reorderTarget(beside: name, rect: target.rect, point: point), rect: target.rect)
 }

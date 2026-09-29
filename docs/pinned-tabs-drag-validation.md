@@ -10,6 +10,14 @@ In Tabs mode the pinned tiles now take part in drag and drop both ways.
   unpin it into the group, or onto **New Tab** to unpin it in place. The tile stays
   dimmed and the pointer carries its icon until the drop. With every tab pinned, the
   empty list below still takes a pin.
+- A tile takes a dropped window as a tab in the list does: moving across it places the
+  tab beside it among the pins, and a brief pause over it arms a split, with the half
+  under the pointer highlighted. Dropping then tiles the window beside the pin's window
+  on that side; the tab stays pinned. An empty pin takes the window in, and a window
+  dragged in from the screen joins the pin (added September 28, after 0.6.372). For
+  windows from the screen, the tile under the pointer now wins over a neighbor that only
+  the drop slop reaches, in the list as well as among the pins.
+  Dragging a pinned tile over another rearranges; pins don't split with each other.
 - The pins' order is saved as `pinOrder` beside each pin in `sidebar-organization.json`,
   so it survives relaunch. Rearranging pins doesn't change the tabs' own order, so an
   unpinned tab returns to its place in the list. A tab pinned from its menu goes
@@ -33,12 +41,17 @@ In Tabs mode the pinned tiles now take part in drag and drop both ways.
   a test failed.
 - Offscreen renders checked the insertion line at both outer tile edges in light
   and dark appearances.
-- Full host suite: 1652 tests, 7 skipped, 0 failures. ARM64 build passes.
+- Full host suite: 1652 tests, 7 skipped, 0 failures, and 1675 with the split change
+  on the newer main. ARM64 build passes.
 - Native, in the `winmux-tests` Tart VM (macOS 27, unsigned candidate, synthetic
   CGEvent drags with TextEdit windows): pinning onto Drop to Pin, after and before a
   tile, rearranging, unpinning into a list gap and below the last tab, an empty pin
   dragged into the list, clicking tiles to focus their windows, the tiles' context
   menu, and the arranged order after relaunching WinMux. The host Mac was locked.
+- Split change, natively in the same VM: a tab paused over a tile's left half
+  highlighted that half and joined the pin on the left; a quick drag across a tile
+  pinned the tab after it instead; a window dragged by its title bar from the screen
+  onto a tile highlighted the whole tile and joined that pin.
 - Not verified natively: two displays, several projects, browser-group tiles, and
   more than three rows of pins. The mouse-up cleanup that drops a pin when its
   gesture ends without the end callback has no test: it needs a real panel under
@@ -61,6 +74,14 @@ self-anchored move crashes, that failed drops record undo entries, and that the
 mouse-up cleanup leaks drag state did not hold up against the code. Both
 reviewers' final verdict was ship. Reports are under ignored
 `.local/reviews/pinned-drag-20260928/`.
+
+For the split change, Astra found that a screen drag's hit slop let a neighboring tile,
+or the empty-row band, take a drop aimed at the tile under the pointer; agy found the
+band issue too, and a possible floating-point sliver band after a full row. Hit testing
+now prefers the target under the pointer, screen drags skip the pins' gap targets, and
+the band follows the column count. Both also noted that a release a pixel past a
+tile's midpoint commits the position shown at the last drag event; that is kept, as
+in the list. Both reviewers' final verdict was ship.
 
 Known limitation: a cross-project drop into a group makes two organization writes.
 If the second fails with an I/O error, the tab ends up unpinned in the target

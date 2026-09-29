@@ -465,6 +465,8 @@ struct WorkspaceSidebarTabDropSideHighlight: View {
     let placement: WorkspaceSidebarTabDropPlacement?
     /// Where its label sits; without a pointer to avoid, the half's outer end.
     var labelSlot: WorkspaceSidebarTabDropLabelSlot? = nil
+    /// A pinned tile's corners; rows take their level's.
+    var cornerRadius: CGFloat? = nil
     @Environment(\.workspaceSidebarTabIndent) private var indent
     @Environment(\.workspaceSidebarReducesMotion) private var reducesMotion
 
@@ -472,7 +474,7 @@ struct WorkspaceSidebarTabDropSideHighlight: View {
         GeometryReader { geometry in
             if let placement {
                 let width = placement == .stack ? geometry.size.width : geometry.size.width / 2
-                let shape = RoundedRectangle(cornerRadius: indent.rowCornerRadius, style: .continuous)
+                let shape = RoundedRectangle(cornerRadius: cornerRadius ?? indent.rowCornerRadius, style: .continuous)
                 shape
                     .fill(Color.accentColor.opacity(0.16))
                     .overlay { shape.strokeBorder(Color.accentColor.opacity(0.65), lineWidth: 1) }

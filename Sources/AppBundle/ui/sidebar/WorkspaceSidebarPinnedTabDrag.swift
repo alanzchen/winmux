@@ -28,10 +28,11 @@ func workspaceSidebarPinnedTabDrop(_ tab: Workspace, target: WorkspaceSidebarDro
             guard Workspace.existing(byName: gap.workspaceName)?.projectId == projectId else { return nil }
             return .list(projectId: projectId, monitorScopeId: monitorScopeId, gap: gap)
         case .workspace(let name):
-            // Over a tab, it goes by the edge nearer the pointer, as a moving tab does before a split arms.
+            // Over a tab or a pin, it goes by the nearer edge or side, as a moving tab does before a split
+            // arms. A pinned tab doesn't split.
             guard let destination = target.tabReorderDestination, Workspace.existing(byName: name) != nil else { return nil }
-            return .list(projectId: destination.projectId, monitorScopeId: destination.monitorScopeId,
-                gap: .init(workspaceName: name, isAfter: point.y >= target.rect.center.y, collectionId: destination.collectionId))
+            return workspaceSidebarPinnedTabDrop(tab, target: .init(kind: destination.reorderTarget(beside: name,
+                rect: target.rect, point: point), rect: target.rect), point: point)
         case .tabCollection(let id):
             guard workspaceSidebarOrganizationStore.state.collections.contains(where: { $0.id == id && $0.projectId == tab.projectId })
             else { return nil }

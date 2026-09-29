@@ -71,6 +71,11 @@ struct WorkspaceSidebarPinnedTab: View {
     var actions: WorkspaceSidebarActions? = nil
     /// The side a dragged tab would go beside this pin.
     var insertionEdge: HorizontalEdge? = nil
+    /// A dragged window joins this pin: beside its window on `dropPlacement`'s side, or, with no
+    /// side, into it.
+    var isDropTarget = false
+    var dropPlacement: WorkspaceSidebarTabDropPlacement? = nil
+    var dropLabelSlot: WorkspaceSidebarTabDropLabelSlot? = nil
     let onSelect: (UInt32?) -> Void
     @State private var isHovered = false
     @Environment(\.workspaceSidebarReducesMotion) private var reducesMotion
@@ -149,6 +154,17 @@ struct WorkspaceSidebarPinnedTab: View {
             onChanged: { actions?.pinnedTabDragChanged(workspace.name, $0) },
             onEnded: { actions?.pinnedTabDragEnded(workspace.name, $0) },
         ))
+        .overlay {
+            let shape = RoundedRectangle(cornerRadius: 13, style: .continuous)
+            shape.fill(Color.accentColor.opacity(isDropTarget && dropPlacement == nil ? 0.14 : 0))
+                .overlay { shape.strokeBorder(Color.accentColor.opacity(isDropTarget && dropPlacement == nil ? 0.65 : 0), lineWidth: 1) }
+                .allowsHitTesting(false)
+                .animation(WorkspaceSidebarTabMotion.feedback, value: isDropTarget)
+        }
+        .overlay {
+            WorkspaceSidebarTabDropSideHighlight(placement: isDropTarget ? dropPlacement : nil, labelSlot: dropLabelSlot,
+                cornerRadius: 13)
+        }
         .overlay { WorkspaceSidebarPinnedInsertionLine(edge: insertionEdge) }
         .animation(WorkspaceSidebarTabMotion.selection(reducesMotion: reducesMotion), value: isActiveHere)
         .animation(WorkspaceSidebarTabMotion.selection(reducesMotion: reducesMotion), value: windows.first(where: \.isFocused)?.windowId)

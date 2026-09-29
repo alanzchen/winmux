@@ -72,8 +72,11 @@ tabs-always-expanded = true
   it's pinned in that place; a line between the tiles marks the spot. A pinned tile drags
   as its whole tab, split or empty: beside another tile to rearrange the pins, into the
   tab list to unpin it where it's dropped, onto a group to unpin it into the group, or
-  onto **New Tab** to unpin it in place. A tab pinned from its menu goes after the pins
-  already arranged. Pins, their order, group membership,
+  onto **New Tab** to unpin it in place. Drag a tab onto a pinned tile and pause for a
+  moment to tile its window beside the pin's, as in the list; the half under the pointer
+  is highlighted and chooses the side, and an empty pin takes the window in. A window
+  dragged in from the screen joins the pin it's dropped on. A tab pinned from its menu
+  goes after the pins already arranged. Pins, their order, group membership,
   colors and emoji are saved in `sidebar-organization.json` beside the saved-workspace
   file. Customizing, pinning or grouping a workspace saves its identity and layout for
   restoration; unpinning or ungrouping leaves that saved workspace intact. **Forget

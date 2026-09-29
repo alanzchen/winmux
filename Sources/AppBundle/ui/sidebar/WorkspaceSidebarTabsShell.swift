@@ -175,7 +175,8 @@ extension WorkspaceSidebarView {
         return tabsFavoriteGrid(favorites, grid: grid)
     }
 
-    /// A tab dropped beside a tile goes there among the pins; the insertion line shows where.
+    /// A tab dropped beside a tile goes there among the pins, and the insertion line shows where;
+    /// after a pause over a tile, a window joins that pin's split instead.
     private func tabsFavoriteGrid(_ favorites: [WorkspaceSidebarWorkspaceViewModel],
                                   grid: WorkspaceSidebarPinnedGridLayout) -> some View {
         // The scroll view reaches past the tiles so it doesn't clip the insertion line beside the outer ones.
@@ -187,7 +188,10 @@ extension WorkspaceSidebarView {
                         WorkspaceSidebarPinnedTab(workspace: workspace, badgeModel: dockBadgeModel,
                             targetMonitorScopeId: snapshot.targetMonitorScopeId, actions: actions,
                             insertionEdge: workspaceSidebarPinnedInsertionEdge(snapshot.dropPreview,
-                                workspaceName: workspace.name, projectId: snapshot.activeProjectId)) { windowId in
+                                workspaceName: workspace.name, projectId: snapshot.activeProjectId),
+                            isDropTarget: snapshot.dropPreview?.targetWorkspaceName == workspace.name,
+                            dropPlacement: snapshot.dropPreview?.targetPlacement,
+                            dropLabelSlot: snapshot.dropPreview?.targetLabelSlot) { windowId in
                             selectTabWorkspace(workspace, windowId: windowId)
                         }
                     }
@@ -198,7 +202,7 @@ extension WorkspaceSidebarView {
                     GeometryReader { content in
                         Color.clear.preference(key: WorkspaceSidebarDropTargetPreferenceKey.self,
                             value: favorites.isEmpty ? [] : workspaceSidebarPinnedDropTargets(names: favorites.map(\.name),
-                                projectId: snapshot.activeProjectId,
+                                projectId: snapshot.activeProjectId, monitorScopeId: snapshot.targetMonitorScopeId,
                                 frame: content.frame(in: .named("workspaceSidebarContent")), columns: grid.columns))
                     }
                 }

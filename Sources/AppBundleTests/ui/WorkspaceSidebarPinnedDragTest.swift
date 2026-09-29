@@ -52,11 +52,17 @@ final class WorkspaceSidebarPinnedDragTest: XCTestCase {
     }
 
     /// What dropping a dragged pin on `kind` would do, with the pointer in the target's upper or lower half.
-    private func drop(_ tab: Workspace, _ kind: WorkspaceSidebarDropTargetKind, lower: Bool = false,
+    private func drop(_ tab: Workspace, _ kind: WorkspaceSidebarDropTargetKind, lower: Bool = false, left: Bool = false,
                       reorder: WorkspaceSidebarTabReorderDestination? = nil) -> WorkspaceSidebarPinnedTabDrop? {
         let target = WorkspaceSidebarDropTarget(kind: kind, rect: Rect(topLeftX: 0, topLeftY: 100, width: 200, height: 36),
             tabReorderDestination: reorder)
-        return workspaceSidebarPinnedTabDrop(tab, target: target, point: CGPoint(x: 100, y: lower ? 130 : 105))
+        return workspaceSidebarPinnedTabDrop(tab, target: target, point: CGPoint(x: left ? 50 : 150, y: lower ? 130 : 105))
+    }
+
+    private func pinTile(_ tab: Workspace) -> WorkspaceSidebarDropTarget {
+        WorkspaceSidebarDropTarget(kind: .workspace(tab.name), rect: Rect(topLeftX: 0, topLeftY: 0, width: 106, height: 54),
+            acceptsSides: true, tabReorderDestination: .init(projectId: tab.projectId, monitorScopeId: "s", collectionId: nil,
+                arrangesPins: true))
     }
 
     func testArrangedPinsComeFirstAndThePinsNotYetArrangedFollowInTabOrder() {
@@ -312,23 +318,97 @@ final class WorkspaceSidebarPinnedDragTest: XCTestCase {
         XCTAssertEqual(older.state.workspaces["a"], .init(isFavorite: true))
     }
 
-    func testEachPinnedTilesHalvesPlaceADroppedTabBeforeOrAfterIt() throws {
+    func testEachPinnedTileTakesDropsAsATabAndTheRestOfTheLastRowPutsATabLast() throws {
         // Two columns of 96 points, 8 apart; c is alone on the second row.
         let frame = CGRect(x: 0, y: 0, width: 200, height: 116)
-        let targets = workspaceSidebarPinnedDropTargets(names: ["a", "b", "c"], projectId: "p", frame: frame, columns: 2)
-        XCTAssertEqual(targets.count, 6, "Two halves per tile, and no drop on the tiles as a whole")
-        func hit(_ x: CGFloat, _ y: CGFloat) -> WorkspaceSidebarTabGap? {
-            guard case .pinnedTabs(_, let gap)? = workspaceSidebarLocalDropTarget(at: CGPoint(x: x, y: y), targets: targets,
-                surface: frame.insetBy(dx: -20, dy: -20))?.kind else { return nil }
-            return gap
+        let targets = workspaceSidebarPinnedDropTargets(names: ["a", "b", "c"], projectId: "p", monitorScopeId: "s",
+            frame: frame, columns: 2)
+        func hit(_ x: CGFloat, _ y: CGFloat) -> WorkspaceSidebarDropTargetFrame? {
+            workspaceSidebarLocalDropTarget(at: CGPoint(x: x, y: y), targets: targets, surface: frame.insetBy(dx: -20, dy: -20))
         }
-        XCTAssertEqual(hit(10, 20), .init(workspaceName: "a", isAfter: false))
-        XCTAssertEqual(hit(90, 20), .init(workspaceName: "a", isAfter: true))
-        XCTAssertEqual(hit(99, 20), .init(workspaceName: "a", isAfter: true), "The space between tiles splits between them")
-        XCTAssertEqual(hit(102, 20), .init(workspaceName: "b", isAfter: false))
-        XCTAssertEqual(hit(198, 50), .init(workspaceName: "b", isAfter: true))
-        XCTAssertEqual(hit(20, 100), .init(workspaceName: "c", isAfter: false))
-        XCTAssertEqual(hit(160, 100), .init(workspaceName: "c", isAfter: true), "The empty cell after the last pin puts a tab last")
+        XCTAssertEqual(hit(10, 20)?.kind, .workspace("a"))
+        XCTAssertEqual(hit(99, 20)?.kind, .workspace("a"), "The space between tiles splits between them")
+        XCTAssertEqual(hit(102, 20)?.kind, .workspace("b"))
+        XCTAssertEqual(hit(20, 100)?.kind, .workspace("c"))
+        XCTAssertEqual(hit(160, 100)?.kind, .pinnedTabs(projectId: "p", gap: .init(workspaceName: "c", isAfter: true)),
+            "The empty cell after the last pin puts a tab last")
+        let tile = try XCTUnwrap(hit(10, 20))
+        XCTAssertTrue(tile.acceptsSides, "A pause over a tile arms a split")
+        XCTAssertEqual(tile.tabReorderDestination?.arrangesPins, true)
+        XCTAssertEqual(tile.frame, CGRect(x: -4, y: -4, width: 104, height: 62))
+        let rect = Rect(topLeftX: -4, topLeftY: -4, width: 104, height: 62)
+        XCTAssertEqual(tile.tabReorderDestination?.reorderTarget(beside: "a", rect: rect, point: CGPoint(x: 20, y: 50)),
+            .pinnedTabs(projectId: "p", gap: .init(workspaceName: "a", isAfter: false)), "Moving past it goes by its nearer side")
+        XCTAssertEqual(tile.tabReorderDestination?.reorderTarget(beside: "a", rect: rect, point: CGPoint(x: 80, y: 5)),
+            .pinnedTabs(projectId: "p", gap: .init(workspaceName: "a", isAfter: true)))
+        let full = workspaceSidebarPinnedDropTargets(names: ["a", "b"], projectId: "p", monitorScopeId: "s",
+            frame: CGRect(x: 0, y: 0, width: 200, height: 54), columns: 2)
+        XCTAssertEqual(full.count, 2, "A full last row has no space after it")
+    }
+
+    func testAWindowFromTheScreenHitsThePinUnderThePointerDespiteTheSlop() {
+        // A screen drag's slop (12 and 14 points) reaches past each tile into its neighbors.
+        let frame = CGRect(x: 0, y: 0, width: 200, height: 116)
+        let targets = workspaceSidebarPinnedDropTargets(names: ["a", "b", "c"], projectId: "p", monitorScopeId: "s",
+            frame: frame, columns: 2)
+        let slop = NSEdgeInsets(top: 12, left: 14, bottom: 12, right: 14)
+        func screenHit(_ x: CGFloat, _ y: CGFloat) -> WorkspaceSidebarDropTargetKind? {
+            workspaceSidebarLocalDropTarget(at: CGPoint(x: x, y: y), targets: targets, surface: frame.insetBy(dx: -40, dy: -40),
+                hitSlop: slop, includesTabGaps: false)?.kind
+        }
+        XCTAssertEqual(screenHit(90, 20), .workspace("a"), "Not b, whose slop reaches in")
+        XCTAssertEqual(screenHit(20, 50), .workspace("a"), "Not c below")
+        XCTAssertEqual(screenHit(90, 100), .workspace("c"), "Not the space after it, which a screen window doesn't take")
+        XCTAssertNil(screenHit(170, 100))
+        XCTAssertEqual(screenHit(20, 124), .workspace("c"), "Just below the tiles, the slop still reaches the nearest")
+    }
+
+    func testAFullLastRowHasNoSpaceAfterItAtAnyWidth() {
+        for width in stride(from: CGFloat(150), through: 330, by: 0.5) {
+            let columns = WorkspaceSidebarPinnedGridLayout(workspaces: [], width: width).columns
+            let names = (0..<(2 * columns)).map { "pin\($0)" }
+            let targets = workspaceSidebarPinnedDropTargets(names: names, projectId: "p", monitorScopeId: "s",
+                frame: CGRect(x: 0, y: 0, width: width, height: 116), columns: columns)
+            XCTAssertFalse(targets.contains { $0.kind.isGap }, "width \(width), \(columns) columns")
+        }
+    }
+
+    func testAWindowPausedOverAPinSplitsWithItAndMovingOnRearranges() async throws {
+        let (a, _, _, d) = try tabs()
+        let window = try XCTUnwrap(d.allLeafWindowsRecursive.first)
+        let tile = pinTile(a)
+        defer { WorkspaceSidebarTabSplitHoverController.shared.reset() }
+        let moving = try XCTUnwrap(workspaceSidebarDeliberateTabDropTarget(tile, sourceWindow: window, point: CGPoint(x: 20, y: 27)))
+        XCTAssertEqual(moving.kind, .pinnedTabs(projectId: a.projectId, gap: .init(workspaceName: a.name, isAfter: false)),
+            "Moving, it would be pinned before the tile")
+        try await Task.sleep(for: .milliseconds(300))
+        let armed = try XCTUnwrap(workspaceSidebarDeliberateTabDropTarget(tile, sourceWindow: window, point: CGPoint(x: 20, y: 27)))
+        XCTAssertEqual(armed.kind, .workspace(a.name), "After a pause, it joins the pin")
+        XCTAssertTrue(armed.acceptsSides)
+        previewWorkspaceSidebarDrop(window.windowId, subject: .window, target: armed.kind, placement: .left)
+        XCTAssertEqual(TrayMenuModel.shared.workspaceSidebarDropPreview?.targetWorkspaceName, a.name)
+        XCTAssertEqual(TrayMenuModel.shared.workspaceSidebarDropPreview?.targetPlacement, .left)
+
+        applyTabDrop(sourceNode: window, sourceWindow: window, targetWorkspace: a, placement: .left)
+        XCTAssertEqual(a.allLeafWindowsRecursive.map(\.windowId), [4, 1], "Split on the side it was dropped")
+        XCTAssertEqual(pins(), ["a", "b", "c"], "The pin keeps its place")
+
+        let empty = Workspace.get(byName: "empty")
+        try setWorkspaceSidebarTabFavorite(empty, true)
+        _ = workspaceSidebarDeliberateTabDropTarget(pinTile(empty), sourceWindow: window, point: CGPoint(x: 80, y: 27))
+        try await Task.sleep(for: .milliseconds(300))
+        let intoEmpty = try XCTUnwrap(workspaceSidebarDeliberateTabDropTarget(pinTile(empty), sourceWindow: window,
+            point: CGPoint(x: 80, y: 27)))
+        XCTAssertEqual(intoEmpty.kind, .workspace(empty.name))
+        XCTAssertFalse(intoEmpty.acceptsSides, "An empty pin has no window to go beside; the window goes into it")
+    }
+
+    func testAPinnedTabDraggedOverAnotherPinRearrangesInsteadOfSplitting() throws {
+        let (a, b, _, _) = try tabs()
+        let pin = WorkspaceSidebarTabReorderDestination(projectId: a.projectId, monitorScopeId: "s", collectionId: nil,
+            arrangesPins: true)
+        XCTAssertEqual(drop(b, .workspace(a.name), left: true, reorder: pin), .rearrange(.init(workspaceName: a.name, isAfter: false)))
+        XCTAssertNil(drop(b, .workspace(a.name), reorder: pin), "b already follows a")
     }
 
     func testRenderedPinsTakeDropsBesideEachTileAndMarkWhereTheTabGoes() throws {
@@ -349,16 +429,14 @@ final class WorkspaceSidebarPinnedDragTest: XCTestCase {
                 appearance: .init(isFavorite: index < 2, pinOrder: index == 0 ? 1 : 0))
         }
         let targets = try renderedDropTargets(fixture)
-        let pinned = targets.compactMap { target -> WorkspaceSidebarTabGap? in
-            guard case .pinnedTabs(workspaceProjectDefaultId, let gap?) = target.kind else { return nil }
-            return gap
-        }
-        XCTAssertEqual(pinned.map(\.workspaceName), ["two", "two", "one", "one"], "In the arranged order")
-        let first = try XCTUnwrap(targets.first { $0.kind == .pinnedTabs(projectId: workspaceProjectDefaultId,
-            gap: .init(workspaceName: "two", isAfter: false)) })
-        let second = try XCTUnwrap(targets.first { $0.kind == .pinnedTabs(projectId: workspaceProjectDefaultId,
-            gap: .init(workspaceName: "one", isAfter: true)) })
-        XCTAssertLessThan(first.frame.minX, second.frame.minX)
+        let tiles = targets.filter { $0.tabReorderDestination?.arrangesPins == true }
+        XCTAssertEqual(tiles.map(\.kind), [.workspace("two"), .workspace("one")], "In the arranged order")
+        XCTAssertTrue(tiles.allSatisfy(\.acceptsSides))
+        XCTAssertLessThan(tiles[0].frame.minX, tiles[1].frame.minX)
+        XCTAssertEqual(tiles[0].tabReorderDestination?.monitorScopeId, "monitor:0,0")
+        let last = try XCTUnwrap(targets.first { $0.kind == .pinnedTabs(projectId: workspaceProjectDefaultId,
+            gap: .init(workspaceName: "one", isAfter: true)) }, "The rest of the last row puts a tab last")
+        XCTAssertGreaterThanOrEqual(last.frame.minX, tiles[1].frame.maxX)
         XCTAssertFalse(targets.contains { $0.kind == .pinnedTabs(projectId: workspaceProjectDefaultId) },
             "Beside a pin is the only place among the pins")
 
