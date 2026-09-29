@@ -57,9 +57,26 @@ if ! mkdir "$cache_lock" 2>/dev/null; then
 fi
 dmg_stage=""
 appcast_stage=""
+# Xcode registers the apps it builds with Launch Services, and with them the WinMux Tabs Safari
+# extension. Safari could then load a build's copy, which isn't notarized and so counts as
+# unsigned, instead of the installed app's. Unregister every copy this build made, including
+# the one Xcode installs for the archive and deletes afterwards, whose record remains
+# (`lsregister -u` removes a deleted path's record).
+unregister_built_apps() {
+    local lsregister=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
+    local built=("$derived/Build/Intermediates.noindex/ArchiveIntermediates/WinMux/InstallationBuildProductsLocation/Applications/WinMux.app" "$app")
+    if [[ -n "${export_dir:-}" ]]; then built+=("$export_dir/WinMux.app"); fi
+    if [[ -n "${dist:-}" ]]; then built+=("$dist/WinMux.app"); fi
+    local path
+    for path in "${built[@]}"; do
+        /usr/bin/pluginkit -r "$path/Contents/PlugIns/WinMuxSafariExtension.appex" >/dev/null 2>&1 || true
+        "$lsregister" -u "$path" >/dev/null 2>&1 || true
+    done
+}
 cleanup() {
     if [[ -n "$dmg_stage" ]]; then rm -rf "$dmg_stage"; fi
     if [[ -n "$appcast_stage" ]]; then rm -rf "$appcast_stage"; fi
+    unregister_built_apps
     rmdir "$cache_lock"
 }
 trap cleanup EXIT
@@ -84,6 +101,8 @@ xcodebuild-pretty "$release_dir/WinMux-$VERSION-xcodebuild.log" \
     CODE_SIGN_IDENTITY="$CODESIGN_IDENTITY" DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" \
     CODE_SIGN_STYLE="$CODESIGN_STYLE" archive
 test -d "$app"
+# Right away, not only on exit: signing, notarizing and packaging take minutes.
+unregister_built_apps
 
 # Re-sign with the entitlements Xcode resolved: resources/WinMux.entitlements still holds build
 # setting references such as the team-prefixed app group.
