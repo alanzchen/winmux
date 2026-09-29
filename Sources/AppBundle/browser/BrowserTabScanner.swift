@@ -68,6 +68,9 @@ final class BrowserTabScanner<Node: BrowserTabAXNode> {
     private let now: () -> TimeInterval
     private let isCancelled: () -> Bool
     private(set) var observedNodes: [Node] = []
+    /// Whether the last discovery read the whole window and found no tab at all, as in Safari's
+    /// Settings or a window whose one tab hides the tab bar. A failed or partial read never says so.
+    private(set) var foundNoTabStrip = false
 
     init(root: Node, adapter: BrowserTabAdapter, windowId: UInt32, pid: Int32,
          now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
@@ -82,6 +85,8 @@ final class BrowserTabScanner<Node: BrowserTabAXNode> {
     }
 
     func scan(until budgetEnd: TimeInterval = .infinity, cancelled: () -> Bool = { false }) -> BrowserWindowTabs? {
+        // Only this scan's own full discovery may say the window has no tab strip.
+        foundNoTabStrip = false
         let started = now()
         guard started < budgetEnd, !isCancelled(), !cancelled() else { return nil }
         let discoveryDeadline = min(budgetEnd, started + 0.15)
@@ -171,6 +176,7 @@ final class BrowserTabScanner<Node: BrowserTabAXNode> {
     }
 
     private func discover(deadline: TimeInterval, cancelled: () -> Bool) -> Node? {
+        foundNoTabStrip = false
         var queue: [(Node, Int)] = [(root, 0)]
         var visited: [Node] = []
         var candidates: [Node] = []
@@ -197,6 +203,7 @@ final class BrowserTabScanner<Node: BrowserTabAXNode> {
             guard let children = node.children(), children.count <= 256 else { return nil }
             queue += children.map { ($0, depth + 1) }
         }
+        foundNoTabStrip = candidates.isEmpty
         guard candidates.count == 1, candidates[0].window() == root, now() < deadline else { return nil }
         return candidates[0]
     }

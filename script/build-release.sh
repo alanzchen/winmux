@@ -85,6 +85,17 @@ xcodebuild-pretty "$release_dir/WinMux-$VERSION-xcodebuild.log" \
     CODE_SIGN_STYLE="$CODESIGN_STYLE" archive
 test -d "$app"
 
+# Re-sign with the entitlements Xcode resolved: resources/WinMux.entitlements still holds build
+# setting references such as the team-prefixed app group.
+resolved_entitlements="$release_dir/WinMux-$VERSION.entitlements"
+codesign -d --entitlements - --xml "$app" > "$resolved_entitlements"
+python3 - "$resolved_entitlements" "$DEVELOPMENT_TEAM" <<'PY'
+import plistlib, sys
+with open(sys.argv[1], 'rb') as stream:
+    entitlements = plistlib.load(stream)
+if entitlements.get('com.apple.security.application-groups') != [f'{sys.argv[2]}.com.zimengxiong.winmux']:
+    raise SystemExit('The archived app must belong to the team-prefixed WinMux app group')
+PY
 # Keep the CLI outside MacOS: WinMux and winmux alias on default macOS volumes.
 # Insert the independently signed helper before the final bundle signature.
 mkdir -p "$app/Contents/Helpers"
@@ -92,7 +103,7 @@ mkdir -p "$app/Contents/Helpers"
 python3 -B script/verify-bundle-executables.py "$app"
 sign_args=(--force --sign "$CODESIGN_IDENTITY")
 if [[ "$CODESIGN_IDENTITY" != - ]]; then sign_args+=(--options runtime --timestamp); fi
-codesign "${sign_args[@]}" --entitlements resources/WinMux.entitlements "$app"
+codesign "${sign_args[@]}" --entitlements "$resolved_entitlements" "$app"
 
 archive_signature="$(codesign -dv --verbose=4 "$app" 2>&1)"
 if [[ "$archive_signature" == *"Authority=Developer ID Application:"* ]]; then
@@ -132,9 +143,31 @@ verify_code "$app/Contents/Helpers/winmux"
 if [[ "$archive_signature" == *"Authority=Developer ID Application:"* ]]; then
     while IFS= read -r -d '' nested; do
         verify_code "$nested"
-    done < <(find "$app/Contents" -type d \( -name '*.framework' -o -name '*.xpc' -o -name '*.app' \) -print0)
+    done < <(find "$app/Contents" -type d \( -name '*.framework' -o -name '*.xpc' -o -name '*.app' -o -name '*.appex' \) -print0)
 fi
-for executable in "$app/Contents/MacOS/WinMux" "$app/Contents/Helpers/winmux"; do
+safari_extension="$app/Contents/PlugIns/WinMuxSafariExtension.appex"
+python3 - "$app" "$safari_extension" "$DEVELOPMENT_TEAM" <<'PY'
+import plistlib, subprocess, sys
+app, extension, team = sys.argv[1], sys.argv[2], sys.argv[3]
+def entitlements(path):
+    return plistlib.loads(subprocess.run(['codesign', '-d', '--entitlements', '-', '--xml', path],
+                                         check=True, capture_output=True).stdout)
+with open(f'{extension}/Contents/Info.plist', 'rb') as stream:
+    info = plistlib.load(stream)
+if info.get('NSExtension', {}).get('NSExtensionPointIdentifier') != 'com.apple.Safari.web-extension':
+    raise SystemExit('WinMux.app must embed the WinMux Tabs Safari extension')
+if info.get('CFBundleIdentifier') != 'com.zimengxiong.winmux.safari-extension':
+    raise SystemExit('Incorrect Safari extension bundle identifier')
+group = f'{team}.com.zimengxiong.winmux'
+if info.get('WinMuxAppGroup') != group:
+    raise SystemExit('The Safari extension must reach WinMux through the team-prefixed app group')
+if entitlements(app).get('com.apple.security.application-groups') != [group]:
+    raise SystemExit('WinMux must belong to the team-prefixed app group its Safari extension uses')
+sandbox = entitlements(extension)
+if sandbox.get('com.apple.security.app-sandbox') is not True or sandbox.get('com.apple.security.application-groups') != [group]:
+    raise SystemExit('The Safari extension must be sandboxed in the WinMux app group')
+PY
+for executable in "$app/Contents/MacOS/WinMux" "$app/Contents/Helpers/winmux" "$safari_extension/Contents/MacOS/WinMuxSafariExtension"; do
     archs="$(lipo -archs "$executable")"
     [[ "$archs" == arm64 ]] || { echo "$executable must contain only arm64; found $archs" >&2; exit 1; }
 done

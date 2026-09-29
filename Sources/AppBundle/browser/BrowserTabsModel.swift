@@ -15,9 +15,15 @@ final class BrowserTabsModel: ObservableObject {
     private var watched: [String: Set<UInt32>] = [:]
     private var iconsEnabled = false
     private var iconAssociations = BrowserTabIconAssociations()
+    private let safariExtension: SafariExtensionBridge
+    private var safariAssociations = SafariExtensionAssociations()
+    private var safariEvidence: SafariExtensionEvidence?
+    /// When a window's last read found no tab strip at all.
+    private var withoutTabStrips: [UInt32: TimeInterval] = [:]
 
-    init(snapshots: [UInt32: BrowserWindowTabs] = [:]) {
+    init(snapshots: [UInt32: BrowserWindowTabs] = [:], safariExtension: SafariExtensionBridge = .shared) {
         self.snapshots = snapshots
+        self.safariExtension = safariExtension
     }
 
     func watch(_ windowIds: Set<UInt32>, sidebar: String) {
@@ -26,6 +32,12 @@ final class BrowserTabsModel: ObservableObject {
     }
 
     func setEnabled(_ enabled: Bool) {
+        safariExtension.setEnabled(enabled)
+        if !enabled {
+            safariAssociations = .init()
+            safariEvidence = nil
+            withoutTabStrips = [:]
+        }
         let icons = enabled && config.workspaceSidebar.browserTabIcons
         BrowserTabIconModel.shared.setEnabled(icons)
         if icons != iconsEnabled {
@@ -63,6 +75,8 @@ final class BrowserTabsModel: ObservableObject {
     func markDirty(_ windowId: UInt32, pid: Int32) {
         guard task != nil, Window.get(byId: windowId)?.app.pid == pid else { return }
         schedule.markDirty(windowId)
+        // The window may have just shown its tab strip, as when a second tab opens.
+        withoutTabStrips[windowId] = nil
     }
 
     private func reconcile(generation token: Int) async {
@@ -71,9 +85,11 @@ final class BrowserTabsModel: ObservableObject {
         let now = ProcessInfo.processInfo.systemUptime
         let ownerPids = Dictionary(uniqueKeysWithValues: owners.map { ($0.windowId, $0.app.pid) })
         cache.reconcile(owners: ownerPids, now: now)
+        safariExtension.retain(safariIsRunning: MacApp.allAppsMap.values.contains { $0.rawAppBundleId == safariBundleId })
         iconAssociations.retain(Set(cache.snapshots.values.flatMap { $0.tabs.map(\.target) }))
         publish()
         schedule.retain(Set(ownerPids.keys))
+        withoutTabStrips = withoutTabStrips.filter { ownerPids[$0.key] != nil }
         schedule.focus(focus.windowOrNil?.windowId)
         // Hidden rails retain their cache but do no browser work. Revealing them
         // resumes reads without creating a window-layout refresh session.
@@ -91,9 +107,11 @@ final class BrowserTabsModel: ObservableObject {
             if reads >= 3 || ProcessInfo.processInfo.systemUptime - now > 0.12 { break }
             guard schedule.isDue(window.windowId, now: now),
                   let app = window.app as? MacApp, app.browserTabsMayRead else { continue }
-            let result = try? await app.readBrowserTabs(window.windowId, readIcons: iconsEnabled)
+            let read = try? await app.readBrowserTabs(window.windowId, readIcons: iconsEnabled)
+            let result = read?.tabs
             reads += 1
             guard generation == token, !Task.isCancelled else { return }
+            withoutTabStrips[window.windowId] = read?.hasNoTabStrip == true ? ProcessInfo.processInfo.systemUptime : nil
             schedule.didRead(window.windowId, now: ProcessInfo.processInfo.systemUptime, succeeded: result != nil)
             if var result, Window.get(byId: window.windowId)?.app === app {
                 if !iconsEnabled { result.iconCandidate = nil }
@@ -107,16 +125,39 @@ final class BrowserTabsModel: ObservableObject {
     }
 
     private func publish() {
+        updateSafariAssociations()
         let next = cache.snapshots.mapValues { value in
             var value = value
             value.tabs = value.tabs.map { tab in
-                var tab = tab
+                var tab = safariAssociations.described(tab)
                 tab.iconOrigin = iconsEnabled ? iconAssociations.origins[tab.target] : nil
                 return tab
             }
             return value
         }
         if snapshots != next { snapshots = next }
+    }
+
+    /// Pairs Safari windows with what the extension reports, only when there's something new: a
+    /// fresh read, a report, or a Safari window appearing or going.
+    private func updateSafariAssociations() {
+        let safari = cache.snapshots.values.filter { MacApp.allAppsMap[$0.pid]?.rawAppBundleId == safariBundleId }
+        let read = Set(safari.map(\.windowId))
+        func frame(_ id: UInt32) -> CGRect? {
+            Window.get(byId: id)?.lastKnownActualRect.map { CGRect(x: $0.topLeftX, y: $0.topLeftY, width: $0.width, height: $0.height) }
+                ?? windowServerFrame(id)
+        }
+        let live = MacWindow.allWindowsMap.values.filter { $0.app.rawAppBundleId == safariBundleId }.map(\.windowId)
+        let unread = safariExtensionUnreadWindows(live: live, read: read, withoutTabStrips: safariExtensionStriplessWindows(
+            withoutTabStrips, watched: schedule.watched, now: ProcessInfo.processInfo.systemUptime)).map(frame)
+        let evidence = SafariExtensionEvidence(observed: Dictionary(uniqueKeysWithValues: safari.map { ($0.windowId, cache.observed[$0.windowId] ?? 0) }),
+            reports: safariExtension.generation, unreadFrames: unread)
+        guard evidence != safariEvidence else { return }
+        safariEvidence = evidence
+        safariAssociations.update(safari.map { .init(snapshot: $0, frame: frame($0.windowId), observed: cache.observed[$0.windowId] ?? 0) },
+            windows: safariExtension.windows, unreadFrames: unread, now: ProcessInfo.processInfo.systemUptime)
+        // Safari reports where its windows are only with its tabs; ask again rather than wait a minute.
+        if safariAssociations.awaitsFrames { safariExtension.requestResync(atMostEvery: 10) }
     }
 
     /// Closes one browser tab, as middle-clicking it in a browser's tab bar does. The window
@@ -181,6 +222,16 @@ final class BrowserTabsModel: ObservableObject {
             focusWindowFromSidebar(target.windowId, targetMonitorScopeId: monitorScopeId)
         }
     }
+}
+
+/// Where the window server has a window WinMux hasn't measured yet, such as one that just opened,
+/// in the same top-left screen coordinates.
+private func windowServerFrame(_ id: UInt32) -> CGRect? {
+    var value = UnsafeRawPointer(bitPattern: UInt(id))
+    guard let ids = CFArrayCreate(nil, &value, 1, nil),
+          let bounds = (CGWindowListCreateDescriptionFromArray(ids) as? [[String: Any]])?.first?[kCGWindowBounds as String] as? NSDictionary
+    else { return nil }
+    return CGRect(dictionaryRepresentation: bounds)
 }
 
 @MainActor

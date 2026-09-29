@@ -21,6 +21,7 @@ struct SettingsPanelCallout: Equatable {
 enum SettingsPanelLayout {
     static let enabledField = "workspace-sidebar.enabled"
     static let modeField = "workspace-sidebar.mode"
+    static let tabsContentSection = "tabs.content"
 
     static func sections(_ mode: WorkspaceSidebarMode) -> [SettingsPanelSection] {
         func ids(_ keys: [String]) -> [String] { keys.map { "workspace-sidebar." + $0 } }
@@ -52,7 +53,7 @@ enum SettingsPanelLayout {
                 return [
                     .init(id: "tabs.behavior", title: "Behavior", fields: ids(["tabs-always-expanded", "auto-hide", "collapsed-width", "width",
                         "width-per-display"])),
-                    .init(id: "tabs.content", title: "Content",
+                    .init(id: tabsContentSection, title: "Content",
                         note: "The tab sidebar takes on the current project's color. Right-click a project to change it.",
                         fields: ids(["browser-tabs", "browser-tab-icons", "music-player-at-bottom", "show-app-badges"])),
                 ]

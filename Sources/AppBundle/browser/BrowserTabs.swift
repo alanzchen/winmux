@@ -26,11 +26,21 @@ struct BrowserTabTarget: Hashable, Sendable {
     var rowId: String { "browser-tab:\(windowId):\(tabId)" }
 }
 
+enum BrowserTabAudio: Hashable, Sendable {
+    case playing
+    case muted
+}
+
 struct BrowserTab: Hashable, Identifiable, Sendable {
     let target: BrowserTabTarget
     var title: String
     var isSelected: Bool
     var iconOrigin: URL? = nil
+    /// From the WinMux Tabs Safari extension: the tab's website icon, by key, its host name,
+    /// and whether it's playing sound or muted.
+    var siteIcon: String? = nil
+    var host: String? = nil
+    var audio: BrowserTabAudio? = nil
     var id: UUID { target.tabId }
 }
 
@@ -44,14 +54,23 @@ struct BrowserWindowTabs: Equatable, Sendable {
     var isGroup: Bool { tabs.count > 1 }
 }
 
+/// One read of a window's tab strip: its tabs, or none, and then whether it has no strip at all.
+struct BrowserTabRead: Sendable {
+    var tabs: BrowserWindowTabs?
+    var hasNoTabStrip = false
+}
+
 /// Last complete reads survive short browser transitions, but not indefinite failures.
 struct BrowserTabSnapshotCache {
     private(set) var snapshots: [UInt32: BrowserWindowTabs] = [:]
+    /// When each window's snapshot was last read. Only a new read is new evidence about its tabs.
+    private(set) var observed: [UInt32: TimeInterval] = [:]
     private var failedSince: [UInt32: TimeInterval] = [:]
     static let maximumAge: TimeInterval = 10
 
     mutating func receive(_ snapshot: BrowserWindowTabs, now: TimeInterval) {
         snapshots[snapshot.windowId] = snapshot
+        observed[snapshot.windowId] = now
         failedSince[snapshot.windowId] = nil
     }
 
@@ -64,6 +83,7 @@ struct BrowserTabSnapshotCache {
             owners[id] == value.pid && now - (failedSince[id] ?? now) < Self.maximumAge
         }
         failedSince = failedSince.filter { snapshots[$0.key] != nil }
+        observed = observed.filter { snapshots[$0.key] != nil }
     }
 
     /// A tab the user just closed leaves the list before the next read confirms it.

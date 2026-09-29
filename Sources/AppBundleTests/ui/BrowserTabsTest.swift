@@ -113,6 +113,28 @@ final class BrowserTabsTest: XCTestCase {
         XCTAssertEqual(outline.childReads, 0)
     }
 
+    func testOnlyAFullReadWithNoTabAtAllSaysAWindowHasNoTabStrip() {
+        let root = BrowserTestNode("AXWindow")
+        root.append(BrowserTestNode("AXToolbar"))
+        root.append(BrowserTestNode("AXGroup"))
+        let scanner = BrowserTabScanner(root: root, adapter: .safari, windowId: 1, pid: 2)
+        XCTAssertNil(scanner.scan())
+        XCTAssertTrue(scanner.foundNoTabStrip, "Such as Safari's Settings, or a lone tab with the tab bar hidden")
+        let unknown = BrowserTestNode("AXGroup")
+        unknown.unreadable = true
+        root.append(unknown)
+        XCTAssertNil(scanner.scan())
+        XCTAssertFalse(scanner.foundNoTabStrip, "An unreadable branch could hold a tab strip")
+        root.nodes.removeLast()
+        XCTAssertNil(scanner.scan())
+        XCTAssertTrue(scanner.foundNoTabStrip)
+        XCTAssertNil(scanner.scan(cancelled: { true }))
+        XCTAssertFalse(scanner.foundNoTabStrip, "A scan that stopped early says nothing about the window")
+        let tree = fixture(.safari)
+        XCTAssertNotNil(tree.scanner.scan())
+        XCTAssertFalse(tree.scanner.foundNoTabStrip)
+    }
+
     func testDuplicateTitlesReorderByIdentityAndSelectExactControl() throws {
         let tree = fixture(.chromium)
         tree.tabs.forEach { $0.title = "Duplicate" }

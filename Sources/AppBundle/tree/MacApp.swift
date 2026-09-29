@@ -184,10 +184,10 @@ final class MacApp: AbstractApp {
         }
     }
 
-    func readBrowserTabs(_ windowId: UInt32, readIcons: Bool = false) async throws -> BrowserWindowTabs? {
-        guard let adapter = BrowserTabAdapter(bundleId: rawAppBundleId) else { return nil }
+    func readBrowserTabs(_ windowId: UInt32, readIcons: Bool = false) async throws -> BrowserTabRead {
+        guard let adapter = BrowserTabAdapter(bundleId: rawAppBundleId) else { return .init() }
         return try await thread?.runInLoop { [windows, pid] job in
-            guard let window = windows.threadGuarded[windowId] else { return nil }
+            guard let window = windows.threadGuarded[windowId] else { return BrowserTabRead() }
             defer { AXUIElementSetMessagingTimeout(window.ax, 1.0) }
             if window.browserTabScanner == nil {
                 window.browserTabScanner = BrowserTabScanner(root: NativeBrowserTabNode(element: window.ax),
@@ -209,8 +209,8 @@ final class MacApp: AbstractApp {
             }
             try job.checkCancellation()
             if let nodes = window.browserTabScanner?.observedNodes { window.browserTabObservation?.update(nodes) }
-            return snapshot
-        } ?? nil
+            return BrowserTabRead(tabs: snapshot, hasNoTabStrip: snapshot == nil && window.browserTabScanner?.foundNoTabStrip == true)
+        } ?? .init()
     }
 
     func selectBrowserTab(_ target: BrowserTabTarget) async throws -> Bool {

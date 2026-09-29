@@ -14,7 +14,7 @@ func workspaceSidebarMatchingBrowserTabs(_ snapshot: BrowserWindowTabs?, window:
     guard !terms.isEmpty else { return snapshot.tabs }
     let header = workspaceSidebarBrowserHeaderSearchText(window, workspace: workspace, context: context)
     return snapshot.tabs.filter { tab in
-        let text = tab.title.localizedLowercase + " " + header
+        let text = [tab.title, tab.host ?? "", header].joined(separator: " ").localizedLowercase
         return terms.allSatisfy(text.contains)
     }
 }
@@ -31,6 +31,15 @@ private func workspaceSidebarBrowserHeaderSearchText(_ window: WorkspaceSidebarW
      workspace.sidebarLabel, workspace.displayName, workspace.name, context].joined(separator: " ").localizedLowercase
 }
 
+func workspaceSidebarBrowserTabAccessibilityLabel(_ tab: BrowserTab, appName: String) -> String {
+    let sound = switch tab.audio {
+        case .playing: ", playing sound"
+        case .muted: ", muted"
+        case nil: ""
+    }
+    return "\(tab.title)\(sound), browser tab in \(appName)"
+}
+
 /// A browser tab selects and closes, like a tab in the browser's own tab bar. Window close,
 /// drag, split, rename and workspace actions belong exclusively to the owning window's header.
 struct WorkspaceSidebarBrowserTabRowView: View {
@@ -42,6 +51,7 @@ struct WorkspaceSidebarBrowserTabRowView: View {
     let onClose: () -> Void
     @State private var isHovered = false
     @ObservedObject private var icons = BrowserTabIconModel.shared
+    @ObservedObject private var siteIcons = SafariExtensionIcons.shared
     @Environment(\.workspaceSidebarTabIndent) private var indent
     @Environment(\.workspaceSidebarReducesMotion) private var reducesMotion
 
@@ -52,7 +62,9 @@ struct WorkspaceSidebarBrowserTabRowView: View {
             // The same columns as a tab's row: icon, title, then the trailing slot.
             HStack(spacing: 9) {
                 Group {
-                    if let origin = tab.iconOrigin, let image = icons.images[origin] {
+                    if let key = tab.siteIcon, let image = siteIcons.images[key] {
+                        Image(nsImage: image).resizable().aspectRatio(contentMode: .fit)
+                    } else if let origin = tab.iconOrigin, let image = icons.images[origin] {
                         Image(nsImage: image).resizable().aspectRatio(contentMode: .fit)
                     } else {
                         WorkspaceSidebarTabIcon(bundleId: window.appBundleId, bundlePath: window.appBundlePath)
@@ -63,6 +75,14 @@ struct WorkspaceSidebarBrowserTabRowView: View {
                     .foregroundStyle(Color.primary.opacity(isShown ? 0.95 : 0.82))
                     .lineLimit(1).truncationMode(.tail)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                if let audio = tab.audio {
+                    Image(systemName: audio == .muted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(Color.primary.opacity(0.55))
+                        .help(audio == .muted ? "Muted" : "Playing sound")
+                        .accessibilityHidden(true)
+                        .transition(.opacity)
+                }
                 Group {
                     if tab.isSelected {
                         Image(systemName: "checkmark").font(.system(size: 9, weight: .semibold)).foregroundStyle(.secondary)
@@ -113,7 +133,7 @@ struct WorkspaceSidebarBrowserTabRowView: View {
         .onAppear { icons.request(tab.iconOrigin) }
         .onChange(of: tab.iconOrigin) { icons.request($0) }
         .help(tab.title)
-        .accessibilityLabel("\(tab.title), browser tab in \(window.appName)")
+        .accessibilityLabel(workspaceSidebarBrowserTabAccessibilityLabel(tab, appName: window.appName))
         .accessibilityAddTraits(isShown ? .isSelected : [])
         .id(tab.target.rowId)
     }

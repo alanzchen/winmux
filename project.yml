@@ -11,6 +11,17 @@ configs:
   Debug: debug
   Release: release
 
+# The app and its Safari extension share an app group: the extension reaches WinMux through a
+# socket in the group's container. Team-prefixed groups need no provisioning profile on macOS.
+settings:
+  configs:
+    Debug:
+      WINMUX_BUNDLE_ID: com.zimengxiong.winmux.debug
+      WINMUX_APP_GROUP: $(DEVELOPMENT_TEAM).com.zimengxiong.winmux.debug
+    Release:
+      WINMUX_BUNDLE_ID: com.zimengxiong.winmux
+      WINMUX_APP_GROUP: $(DEVELOPMENT_TEAM).com.zimengxiong.winmux
+
 targets:
   WinMux:
     type: application
@@ -28,6 +39,8 @@ targets:
         SUAutomaticallyUpdate: true
         SUFeedURL: ${XCODEGEN_WINMUX_UPDATE_FEED_URL}
         SUPublicEDKey: $(SPARKLE_PUBLIC_KEY)
+        # Where the WinMux Tabs Safari extension reaches the app.
+        WinMuxAppGroup: $(WINMUX_APP_GROUP)
         # Sidebar workspace and project drags; resources/WinMux-Info.plist is generated from these properties.
         UTExportedTypeDeclarations:
           - UTTypeIdentifier: dev.winmux.sidebar-workspace
@@ -49,6 +62,7 @@ targets:
         product: AppBundle
       - package: WinMuxPackage
         product: SparkleSupport
+      - target: WinMuxSafariExtension
     # https://developer.apple.com/documentation/xcode/build-settings-reference
     settings:
       base:
@@ -65,10 +79,10 @@ targets:
       configs:
         Debug:
           PRODUCT_NAME: WinMux-Debug
-          PRODUCT_BUNDLE_IDENTIFIER: com.zimengxiong.winmux.debug
+          PRODUCT_BUNDLE_IDENTIFIER: $(WINMUX_BUNDLE_ID)
         Release:
           PRODUCT_NAME: WinMux
-          PRODUCT_BUNDLE_IDENTIFIER: com.zimengxiong.winmux
+          PRODUCT_BUNDLE_IDENTIFIER: $(WINMUX_BUNDLE_ID)
           SWIFT_TREAT_WARNINGS_AS_ERRORS: YES
           GCC_TREAT_WARNINGS_AS_ERRORS: YES
     entitlements:
@@ -78,3 +92,48 @@ targets:
         com.apple.security.app-sandbox: false
         # The app launcher asks apps like Safari and Terminal for a new window with Apple events.
         com.apple.security.automation.apple-events: true
+        com.apple.security.application-groups:
+          - $(WINMUX_APP_GROUP)
+  # WinMux Tabs: a Safari web extension that reports tabs' website icons and sound to the Tabs
+  # sidebar. Safari loads it from WinMux.app/Contents/PlugIns.
+  WinMuxSafariExtension:
+    type: app-extension
+    platform: macOS
+    deploymentTarget: "13.0"
+    info:
+      path: Sources/SafariExtension/Info.plist
+      properties:
+        CFBundleDisplayName: WinMux Tabs
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.Safari.web-extension
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).SafariWebExtensionHandler
+        WinMuxAppGroup: $(WINMUX_APP_GROUP)
+    sources:
+      - path: Sources/SafariExtension/SafariWebExtensionHandler.swift
+      - path: Sources/SafariExtension/Resources
+        buildPhase: resources
+    settings:
+      base:
+        ARCHS: arm64
+        ONLY_ACTIVE_ARCH: "NO"
+        SWIFT_VERSION: 6.2
+        MARKETING_VERSION: ${XCODEGEN_WINMUX_VERSION}
+        CURRENT_PROJECT_VERSION: ${XCODEGEN_WINMUX_VERSION}
+        CODE_SIGN_STYLE: ${XCODEGEN_WINMUX_CODE_SIGN_STYLE}
+        ENABLE_HARDENED_RUNTIME: YES
+        CODE_SIGN_IDENTITY: ${XCODEGEN_WINMUX_CODE_SIGN_IDENTITY}
+        DEVELOPMENT_TEAM: ${XCODEGEN_WINMUX_DEVELOPMENT_TEAM}
+        PRODUCT_NAME: WinMuxSafariExtension
+        PRODUCT_BUNDLE_IDENTIFIER: $(WINMUX_BUNDLE_ID).safari-extension
+      configs:
+        Release:
+          SWIFT_TREAT_WARNINGS_AS_ERRORS: YES
+    entitlements:
+      path: Sources/SafariExtension/SafariExtension.entitlements
+      properties:
+        # Safari runs web extensions' native code only in a sandbox.
+        com.apple.security.app-sandbox: true
+        com.apple.security.application-groups:
+          - $(WINMUX_APP_GROUP)

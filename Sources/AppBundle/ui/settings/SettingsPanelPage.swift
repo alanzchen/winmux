@@ -27,7 +27,7 @@ struct SettingsPanelPage: View {
                 layout {
                     SettingsDockPreview(editor: editor).frame(width: wide ? 280 : nil)
                     VStack(alignment: .leading, spacing: 20) {
-                        ForEach(SettingsPanelLayout.sections(mode)) { section($0, mode: mode) }
+                        ForEach(SettingsPanelLayout.sections(mode)) { section($0, mode: mode, footer: footer($0)) }
                         section(SettingsPanelLayout.shared, mode: mode, footer: AnyView(VStack(alignment: .leading, spacing: 6) {
                             Text(SettingsPanelLayout.monitorSummary(sidebar))
                                 .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
@@ -41,6 +41,12 @@ struct SettingsPanelPage: View {
                     .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
         }
+    }
+
+    private func footer(_ section: SettingsPanelSection) -> AnyView? {
+        guard section.id == SettingsPanelLayout.tabsContentSection, sidebar.browserTabs, SafariExtensionBridge.shared.isAvailable
+        else { return nil }
+        return AnyView(SafariExtensionSettingsStatus())
     }
 
     private func row(_ id: String, mode: WorkspaceSidebarMode? = nil) -> some View {
@@ -114,6 +120,39 @@ struct SettingsPanelPage: View {
         let field = SettingsCatalog.field(SettingsPanelLayout.enabledField)
         editor.setDraft(.bool(true), for: field)
         editor.commit(field)
+    }
+}
+
+/// Whether Safari's WinMux Tabs extension is on and reporting, under Tabs mode's content settings.
+struct SafariExtensionSettingsStatus: View {
+    @State private var connection: SafariExtensionConnection? = nil
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(summary).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            Button("Safari Extension Settings…") { SafariExtensionBridge.shared.showInSafari() }.controlSize(.small)
+        }
+        .task { await refresh() }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            _ = Task { await refresh() }
+        }
+    }
+
+    private var summary: String {
+        switch connection {
+            case .connected(allSites: true):
+                "WinMux Tabs is showing Safari tabs' website icons and sound."
+            case .connected(allSites: false):
+                "WinMux Tabs can't read every website, so some Safari tabs keep Safari's icon. Allow it on every website in Safari."
+            case .waiting:
+                "WinMux Tabs is on in Safari. Website icons appear once Safari reports its tabs, within a minute."
+            case .off, .unavailable, nil:
+                "Website icons for Safari tabs come from WinMux Tabs, a Safari extension included with WinMux. Turn it on in Safari's Extensions settings and allow it on every website."
+        }
+    }
+
+    private func refresh() async {
+        connection = await SafariExtensionBridge.shared.connection()
     }
 }
 

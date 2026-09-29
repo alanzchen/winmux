@@ -1,0 +1,48 @@
+{
+    "manifest_version": 3,
+    "name": "WinMux Tabs",
+    "description": "Shows your Safari tabs' website icons and sound in WinMux's Tabs sidebar. Tab titles, host names and icons go only to WinMux on this Mac.",
+    "version": "1.0",
+    "icons": {
+        "48": "icon-48.png",
+        "96": "icon-96.png",
+        "128": "icon-128.png",
+        "256": "icon-256.png",
+        "512": "icon-512.png"
+    },
+    "background": {
+        "scripts": [
+            "shared.js",
+            "background.js"
+        ],
+        "persistent": false
+    },
+    "content_scripts": [
+        {
+            "js": [
+                "shared.js",
+                "content.js"
+            ],
+            "matches": [
+                "*://*/*"
+            ],
+            "run_at": "document_idle",
+            "all_frames": false
+        }
+    ],
+    "permissions": [
+        "tabs",
+        "nativeMessaging",
+        "storage",
+        "alarms",
+        "scripting"
+    ],
+    "host_permissions": [
+        "*://*/*"
+    ],
+    "browser_specific_settings": {
+        "safari": {
+            "strict_min_version": "18.4"
+        }
+    }
+}

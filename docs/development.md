@@ -47,6 +47,16 @@ your certificate and team configuration; see the [release guide](releasing.md).
 The output includes the app, its embedded CLI, a DMG, and a portable
 `WinMux-<version>-macOS.zip` containing `WinMux.app` and `bin/winmux`.
 
+The app embeds the WinMux Tabs Safari extension (`Sources/SafariExtension`), and only a
+Developer ID–signed build with your team can talk to it. To try the extension, build with
+`DEVELOPMENT_TEAM` and a Developer ID identity, move the app into `/Applications` (Safari can't
+read a bundle elsewhere in your home folder), and open it once so Launch Services registers the
+extension. Safari 27.0 lists an extension that isn't notarized only after **Settings › Developer ›
+Allow unsigned extensions**, which Safari turns off each time it quits. Don't register the extension with `pluginkit -a` on its own: Safari 27.0 crashes
+at launch loading an extension whose app Launch Services doesn't know. The extension's scripts
+can be exercised without Safari in `SafariExtensionTest` (JavaScriptCore) and, for the
+background script's lifecycle, with a fake `browser` object in Node.
+
 To build only the release CLI:
 
 ```sh

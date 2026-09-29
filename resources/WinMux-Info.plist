@@ -53,5 +53,7 @@
 	<string>https://raw.githubusercontent.com/alanzchen/winmux/updates/prerelease.xml</string>
 	<key>SUPublicEDKey</key>
 	<string>$(SPARKLE_PUBLIC_KEY)</string>
+	<key>WinMuxAppGroup</key>
+	<string>$(WINMUX_APP_GROUP)</string>
 </dict>
 </plist>

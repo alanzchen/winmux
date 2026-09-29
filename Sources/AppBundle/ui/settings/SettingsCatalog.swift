@@ -214,7 +214,7 @@ enum SettingsCatalog {
                 .used(in: [.tabs]),
             bool(.dockContent, "browser-tabs", "Show browser tabs", "List and select tabs inside Safari and compatible Chrome, Brave, and Edge windows. Applies to the expanded Tabs sidebar.", section: sidebar, path: \.workspaceSidebar.browserTabs)
                 .used(in: [.tabs]),
-            bool(.dockContent, "browser-tab-icons", "Website icons for Chrome-family tabs", "Read the selected tab's address in each listed Chrome, Chromium, Brave or Edge window and download its icon directly, without cookies. Includes Incognito and does not use browser proxy or VPN extensions or secure DNS. Icons appear as tabs are selected. Safari uses its app icon.", section: sidebar, path: \.workspaceSidebar.browserTabIcons)
+            bool(.dockContent, "browser-tab-icons", "Website icons for Chrome-family tabs", "Read the selected tab's address in each listed Chrome, Chromium, Brave or Edge window and download its icon directly, without cookies. Includes Incognito and does not use browser proxy or VPN extensions or secure DNS. Icons appear as tabs are selected. Safari tabs get their icons from the WinMux Tabs Safari extension instead.", section: sidebar, path: \.workspaceSidebar.browserTabIcons)
                 .used(in: [.tabs]).requiring(.disables("Turn on Show browser tabs to use website icons.") { $0.workspaceSidebar.browserTabs }),
             bool(.dockContent, "music-player-at-bottom", "Keep the Music player at the bottom", "Show Apple Music's player at the bottom of the expanded Tabs sidebar while Music is open, whichever tab or project is showing, instead of under Music's tab.", section: sidebar, path: \.workspaceSidebar.musicPlayerAtBottom)
                 .used(in: [.tabs]),
