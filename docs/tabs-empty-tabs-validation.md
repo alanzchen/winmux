@@ -36,12 +36,15 @@ Tabs mode no longer keeps empty tabs.
   revision): moving a tab's windows out with `move-node-to-workspace` closed the tab and
   showed the previous one with no Empty Tab row; a pinned Calculator tab turned into a
   greyed Calculator tile when Calculator quit, and clicking it relaunched Calculator into
-  the pin. Another session started using the same VM partway through, so later native
-  checks (the reviewed fixes, a title-bar drag that empties the tab on screen, a running
-  app asked for a window, the launcher) were not run; one early run lost its TextEdit
-  windows to that session's activity.
-- Not verified natively: multiple displays, projects, native Spaces, and apps without a
-  new-window adapter while running (the menu fallback is off by default).
+  the pin. On the shipped revision (`ffa873c2`): dragging the window on screen by its title
+  bar onto another tab took the view with it and closed the emptied tab; a pinned TextEdit
+  tab whose window was closed while TextEdit kept running turned greyed, and clicking it,
+  after macOS's one-time Automation prompt, opened a new TextEdit document in the pin.
+  Another session shared the VM for a while; one early run lost its TextEdit windows to
+  that session's activity.
+- Not verified natively: the launcher on a display's only tab, multiple displays,
+  projects, native Spaces, and apps without a new-window adapter while running (the menu
+  fallback is off by default).
 
 ## Review
 
