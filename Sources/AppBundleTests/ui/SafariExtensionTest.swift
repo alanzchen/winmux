@@ -453,7 +453,7 @@ final class SafariExtensionTest: XCTestCase {
     func testTheSocketAnswersEachExchangeAndAStalledPeerHoldsUpNoOther() throws {
         let path = socketPath()
         let answers = SocketTestAnswers()
-        var server: SafariExtensionServer? = try self.server("always", path: path, answers: answers)
+        let server = try self.server("always", path: path, answers: answers)
         let stalled = try connect(path)
         defer { close(stalled) }
         // Half a header, then nothing, as a stuck peer might send.
@@ -471,9 +471,9 @@ final class SafariExtensionTest: XCTestCase {
         // The stalled peer is dropped at its deadline, without an answer.
         var byte: UInt8 = 0
         XCTAssertLessThanOrEqual(read(stalled, &byte, 1), 0)
-        server = nil
+        // Stopped as the bridge stops it: the last exchange can briefly outlive the reference.
+        server.stop()
         XCTAssertFalse(FileManager.default.fileExists(atPath: path), "Stopping the server removes its socket")
-        _ = server
     }
 
     func testAStoppedServerNeverRemovesTheSocketOfTheOneThatReplacedIt() throws {
