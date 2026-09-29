@@ -37,3 +37,25 @@ Sidebar, tab chrome, and shortcut bindings were disabled. The browser was first 
 The test-created Zen instance was then quit. WinMux's read-only mode suppresses native writes; this check verifies actual AX classification, model registration, and routing while preserving the host's window positions. It does **not** verify physical workspace hiding or focus/stacking effects with native writes enabled. The native AX tree was readable, but the UI automation screenshot endpoint could not capture the open Format menu, so no screenshot fixture is supplied.
 
 `AxTransientWindowTest` replays the captured sheet and service records. Additional synthetic cases cover standalone dialogs, picture-in-picture, non-native fullscreen, unknown ownership, canonical focus references, and cyclic accessibility ancestry.
+
+## Safari's crowded tab bar
+
+`safari-27.0-crowded-tab-bar.json` is a reduced **actual native AX capture** of one Safari **27.0** window on macOS **27.0 (26A428)**, taken on September 29, 2026 in an isolated VM during the browser-tab CPU audit. The window was 704×680 points with 24 static local pages open, the first tab active, and the tab bar scrolled to its end.
+
+Tab titles are replaced with `Tab NN` in tab-bar order. Page content, the tabs' favicon and title-text children, the address field, the window UUID, and process IDs are omitted. The window keeps its top-level structure (split group, toolbar, tab bar, window buttons), so discovery walks what Safari exposes.
+
+### Captured behavior
+
+- The tab bar, an `AXOpaqueProviderGroup` described as "Tab bar, 24 tabs", lists all 24 tabs among its `AXChildren`.
+- Tabs 02–08 sit outside the visible bar (frame `0,736 32×32`) and answer `AXParent` with error −25212 (`kAXErrorNoValue`). Every other tab, including the active one, names the tab bar.
+- Every tab answers `AXSelected` with error −25205 (attribute unsupported); `AXValue` carries the selection.
+
+### Native check with 40 tabs
+
+The same day, WinMux's scanner code ran natively against one Safari window with 40 local pages, opened by AppleScript with the first tab then selected:
+
+- Tabs 02–08 again answered `AXParent` and `AXWindow` with `kAXErrorNoValue`. Safari accepted `AXPress` and the tab's close action on them, returning success, but did neither, even after `AXScrollToVisible`.
+- Tabs 09–24 sat piled at one position. They answered `AXTitle` with `kAXErrorNoValue` while `AXDescription` held the title, and offered only `AXScrollToVisible`. After scrolling one into view it offered `AXPress` and close, and pressing it selected it.
+- Once any tab had been selected through `AXPress`, every tab named the tab bar again.
+
+WinMux used to require every tab to name its container and to have a title, so these windows never became browser tab groups. `BrowserTabsTest` replays the capture and checks that the whole group appears; that a tab out of view is scrolled into view before it's pressed or closed, and is refused rather than reported done if it still names no parent; that a piled-up tab is named by its description; and that the guards against foreign and stale controls still hold.

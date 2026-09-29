@@ -1,0 +1,739 @@
+{
+  "provenance": {
+    "kind": "actual native accessibility capture, reduced",
+    "capturedOn": "2026-09-29",
+    "Safari": "27.0",
+    "macOS": "27.0 (26A428)",
+    "source": "Isolated macOS 27 VM during the WinMux browser-tab CPU audit: one Safari window, 704x680 points, 24 static local pages, the first tab active and the tab bar scrolled to its end.",
+    "normalization": "Titles replaced with \"Tab NN\" in tab-bar order; page content, favicon and title-text children, the address field value, window UUID, process IDs and web-view process IDs omitted. AXSelected read as error -25205 (attribute unsupported) on every tab; AXValue carries selection.",
+    "observation": "Tabs 02-08 sit outside the visible tab bar (frame 0,736 32x32) and answer AXParent with error -25212 (kAXErrorNoValue), yet the tab bar lists them among its AXChildren. Every other tab, including the active one, names the tab bar as its parent."
+  },
+  "window": {
+    "AXRole": "AXWindow",
+    "AXSubrole": "AXStandardWindow",
+    "frame": [
+      320,
+      30,
+      704,
+      680
+    ],
+    "AXTitle": "Tab 01",
+    "children": [
+      {
+        "AXRole": "AXSplitGroup",
+        "frame": [
+          320,
+          30,
+          704,
+          680
+        ],
+        "children": [
+          {
+            "AXRole": "AXSplitter",
+            "frame": [
+              319,
+              120,
+              0,
+              590
+            ]
+          },
+          {
+            "AXRole": "AXTabGroup",
+            "frame": [
+              320,
+              30,
+              704,
+              680
+            ],
+            "children": [
+              {
+                "AXRole": "AXGroup",
+                "frame": [
+                  320,
+                  30,
+                  704,
+                  680
+                ],
+                "children": [
+                  {
+                    "AXRole": "AXGroup",
+                    "frame": [
+                      320,
+                      30,
+                      704,
+                      680
+                    ],
+                    "children": [
+                      {
+                        "AXRole": "AXScrollArea",
+                        "frame": [
+                          320,
+                          120,
+                          704,
+                          590
+                        ],
+                        "children": [
+                          {
+                            "AXRole": "AXWebArea",
+                            "frame": [
+                              320,
+                              120,
+                              704,
+                              590
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "AXRole": "AXToolbar",
+        "frame": [
+          320,
+          30,
+          704,
+          52
+        ],
+        "children": [
+          {
+            "AXRole": "AXGroup",
+            "frame": [
+              412,
+              30,
+              71,
+              52
+            ],
+            "children": [
+              {
+                "AXRole": "AXButton",
+                "frame": [
+                  415,
+                  37,
+                  38,
+                  38
+                ]
+              },
+              {
+                "AXRole": "AXMenuButton",
+                "frame": [
+                  451,
+                  37,
+                  20,
+                  38
+                ]
+              }
+            ]
+          },
+          {
+            "AXRole": "AXGroup",
+            "frame": [
+              483,
+              30,
+              77,
+              52
+            ],
+            "children": [
+              {
+                "AXRole": "AXGroup",
+                "frame": [
+                  486,
+                  37,
+                  75,
+                  38
+                ],
+                "children": [
+                  {
+                    "AXRole": "AXButton",
+                    "AXSubrole": "AXSegment",
+                    "frame": [
+                      487,
+                      39,
+                      37,
+                      36
+                    ]
+                  },
+                  {
+                    "AXRole": "AXButton",
+                    "AXSubrole": "AXSegment",
+                    "frame": [
+                      524,
+                      39,
+                      38,
+                      36
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "AXRole": "AXGroup",
+            "frame": [
+              568,
+              30,
+              289,
+              52
+            ],
+            "children": [
+              {
+                "AXRole": "AXButton",
+                "frame": [
+                  568,
+                  39,
+                  34,
+                  34
+                ]
+              },
+              {
+                "AXRole": "AXButton",
+                "frame": [
+                  594,
+                  41,
+                  24,
+                  30
+                ]
+              },
+              {
+                "AXRole": "AXTextField",
+                "frame": [
+                  595,
+                  48,
+                  205,
+                  31
+                ]
+              },
+              {
+                "AXRole": "AXButton",
+                "frame": [
+                  806,
+                  42,
+                  24,
+                  28
+                ]
+              },
+              {
+                "AXRole": "AXButton",
+                "frame": [
+                  828,
+                  42,
+                  24,
+                  29
+                ]
+              }
+            ]
+          },
+          {
+            "AXRole": "AXButton",
+            "frame": [
+              905,
+              30,
+              36,
+              52
+            ]
+          },
+          {
+            "AXRole": "AXButton",
+            "frame": [
+              941,
+              30,
+              36,
+              52
+            ]
+          },
+          {
+            "AXRole": "AXButton",
+            "frame": [
+              977,
+              30,
+              43,
+              52
+            ]
+          }
+        ]
+      },
+      {
+        "AXRole": "AXOpaqueProviderGroup",
+        "AXSubrole": "AXOpaqueProviderList",
+        "frame": [
+          320,
+          82,
+          704,
+          38
+        ],
+        "AXDescription": "Tab bar, 24 tabs",
+        "tabBar": true,
+        "children": [
+          {
+            "AXRole": "AXRadioButton",
+            "AXSubrole": "AXTabButton",
+            "frame": [
+              328,
+              82,
+              196,
+              32
+            ],
+            "AXTitle": "Tab 01",
+            "AXValue": 1,
+            "AXSelected": {
+              "error": -25205
+            },
+            "AXParent": "tab bar",
+            "isNarrow": false
+          },
+          {
+            "AXRole": "AXRadioButton",
+            "AXSubrole": "AXTabButton",
+            "frame": [
+              0,
+              736,
+              32,
+              32
+            ],
+            "AXTitle": "Tab 02",
+            "AXValue": 0,
+            "AXSelected": {
+              "error": -25205
+            },
+            "AXParent": {
+              "error": -25212
+            },
+            "isNarrow": true
+          },
+          {
+            "AXRole": "AXRadioButton",
+            "AXSubrole": "AXTabButton",
+            "frame": [
+              0,
+              736,
+              32,
+              32
+            ],
+            "AXTitle": "Tab 03",
+            "AXValue": 0,
+            "AXSelected": {
+              "error": -25205
+            },
+            "AXParent": {
+              "error": -25212
+            },
+            "isNarrow": true
+          },
+          {
+            "AXRole": "AXRadioButton",
+            "AXSubrole": "AXTabButton",
+            "frame": [
+              0,
+              736,
+              32,
+              32
+            ],
+            "AXTitle": "Tab 04",
+            "AXValue": 0,
+            "AXSelected": {
+              "error": -25205
+            },
+            "AXParent": {
+              "error": -25212
+            },
+            "isNarrow": true
+          },
+          {
+            "AXRole": "AXRadioButton",
+            "AXSubrole": "AXTabButton",
+            "frame": [
+              0,
+              736,
+              32,
+              32
+            ],
+            "AXTitle": "Tab 05",
+            "AXValue": 0,
+            "AXSelected": {
+              "error": -25205
+            },
+            "AXParent": {
+              "error": -25212
+            },
+            "isNarrow": true
+          },
+          {
+            "AXRole": "AXRadioButton",
+            "AXSubrole": "AXTabButton",
+            "frame": [
+              0,
+              736,
+              32,
+              32
+            ],
+            "AXTitle": "Tab 06",
+            "AXValue": 0,
+            "AXSelected": {
+              "error": -25205
+            },
+            "AXParent": {
+              "error": -25212
+            },
+            "isNarrow": true
+          },
+          {
+            "AXRole": "AXRadioButton",
+            "AXSubrole": "AXTabButton",
+            "frame": [
+              0,
+              736,
+              32,
+              32
+            ],
+            "AXTitle": "Tab 07",
+            "AXValue": 0,
+            "AXSelected": {
+              "error": -25205
+            },
+            "AXParent": {
+              "error": -25212
+            },
+            "isNarrow": true
+          },
+          {
+            "AXRole": "AXRadioButton",
+            "AXSubrole": "AXTabButton",
+            "frame": [
+              0,
+              736,
+              32,
+              32
+            ],
+            "AXTitle": "Tab 08",
+            "AXValue": 0,
+            "AXSelected": {
+              "error": -25205
+            },
+            "AXParent": {
+              "error": -25212
+            },
+            "isNarrow": true
+          },
+          {
+            "AXRole": "AXRadioButton",
+            "AXSubrole": "AXTabButton",
+            "frame": [
+              525,
+              82,
+              32,
+              32
+            ],
+            "AXTitle": "Tab 09",
+            "AXValue": 0,
+            "AXSelected": {
+              "error": -25205
+            },
+            "AXParent": "tab bar",
+            "isNarrow": true
+          },
+          {
+            "AXRole": "AXRadioButton",
+            "AXSubrole": "AXTabButton",
+            "frame": [
+              527,
+              82,
+              32,
+              32
+            ],
+            "AXTitle": "Tab 10",
+            "AXValue": 0,
+            "AXSelected": {
+              "error": -25205
+            },
+            "AXParent": "tab bar",
+            "isNarrow": true
+          },
+          {
+            "AXRole": "AXRadioButton",
+            "AXSubrole": "AXTabButton",
+            "frame": [
+              555,
+              82,
+              32,
+              32
+            ],
+            "AXTitle": "Tab 11",
+            "AXValue": 0,
+            "AXSelected": {
+              "error": -25205
+            },
+            "AXParent": "tab bar",
+            "isNarrow": true
+          },
+          {
+            "AXRole": "AXRadioButton",
+            "AXSubrole": "AXTabButton",
+            "frame": [
+              588,
+              82,
+              32,
+              32
+            ],
+            "AXTitle": "Tab 12",
+            "AXValue": 0,
+            "AXSelected": {
+              "error": -25205
+            },
+            "AXParent": "tab bar",
+            "isNarrow": true
+          },
+          {
+            "AXRole": "AXRadioButton",
+            "AXSubrole": "AXTabButton",
+            "frame": [
+              621,
+              82,
+              32,
+              32
+            ],
+            "AXTitle": "Tab 13",
+            "AXValue": 0,
+            "AXSelected": {
+              "error": -25205
+            },
+            "AXParent": "tab bar",
+            "isNarrow": true
+          },
+          {
+            "AXRole": "AXRadioButton",
+            "AXSubrole": "AXTabButton",
+            "frame": [
+              654,
+              82,
+              32,
+              32
+            ],
+            "AXTitle": "Tab 14",
+            "AXValue": 0,
+            "AXSelected": {
+              "error": -25205
+            },
+            "AXParent": "tab bar",
+            "isNarrow": true
+          },
+          {
+            "AXRole": "AXRadioButton",
+            "AXSubrole": "AXTabButton",
+            "frame": [
+              687,
+              82,
+              32,
+              32
+            ],
+            "AXTitle": "Tab 15",
+            "AXValue": 0,
+            "AXSelected": {
+              "error": -25205
+            },
+            "AXParent": "tab bar",
+            "isNarrow": true
+          },
+          {
+            "AXRole": "AXRadioButton",
+            "AXSubrole": "AXTabButton",
+            "frame": [
+              720,
+              82,
+              32,
+              32
+            ],
+            "AXTitle": "Tab 16",
+            "AXValue": 0,
+            "AXSelected": {
+              "error": -25205
+            },
+            "AXParent": "tab bar",
+            "isNarrow": true
+          },
+          {
+            "AXRole": "AXRadioButton",
+            "AXSubrole": "AXTabButton",
+            "frame": [
+              753,
+              82,
+              32,
+              32
+            ],
+            "AXTitle": "Tab 17",
+            "AXValue": 0,
+            "AXSelected": {
+              "error": -25205
+            },
+            "AXParent": "tab bar",
+            "isNarrow": true
+          },
+          {
+            "AXRole": "AXRadioButton",
+            "AXSubrole": "AXTabButton",
+            "frame": [
+              786,
+              82,
+              32,
+              32
+            ],
+            "AXTitle": "Tab 18",
+            "AXValue": 0,
+            "AXSelected": {
+              "error": -25205
+            },
+            "AXParent": "tab bar",
+            "isNarrow": true
+          },
+          {
+            "AXRole": "AXRadioButton",
+            "AXSubrole": "AXTabButton",
+            "frame": [
+              819,
+              82,
+              32,
+              32
+            ],
+            "AXTitle": "Tab 19",
+            "AXValue": 0,
+            "AXSelected": {
+              "error": -25205
+            },
+            "AXParent": "tab bar",
+            "isNarrow": true
+          },
+          {
+            "AXRole": "AXRadioButton",
+            "AXSubrole": "AXTabButton",
+            "frame": [
+              852,
+              82,
+              32,
+              32
+            ],
+            "AXTitle": "Tab 20",
+            "AXValue": 0,
+            "AXSelected": {
+              "error": -25205
+            },
+            "AXParent": "tab bar",
+            "isNarrow": true
+          },
+          {
+            "AXRole": "AXRadioButton",
+            "AXSubrole": "AXTabButton",
+            "frame": [
+              885,
+              82,
+              32,
+              32
+            ],
+            "AXTitle": "Tab 21",
+            "AXValue": 0,
+            "AXSelected": {
+              "error": -25205
+            },
+            "AXParent": "tab bar",
+            "isNarrow": true
+          },
+          {
+            "AXRole": "AXRadioButton",
+            "AXSubrole": "AXTabButton",
+            "frame": [
+              918,
+              82,
+              32,
+              32
+            ],
+            "AXTitle": "Tab 22",
+            "AXValue": 0,
+            "AXSelected": {
+              "error": -25205
+            },
+            "AXParent": "tab bar",
+            "isNarrow": true
+          },
+          {
+            "AXRole": "AXRadioButton",
+            "AXSubrole": "AXTabButton",
+            "frame": [
+              951,
+              82,
+              32,
+              32
+            ],
+            "AXTitle": "Tab 23",
+            "AXValue": 0,
+            "AXSelected": {
+              "error": -25205
+            },
+            "AXParent": "tab bar",
+            "isNarrow": true
+          },
+          {
+            "AXRole": "AXRadioButton",
+            "AXSubrole": "AXTabButton",
+            "frame": [
+              984,
+              82,
+              32,
+              32
+            ],
+            "AXTitle": "Tab 24",
+            "AXValue": 0,
+            "AXSelected": {
+              "error": -25205
+            },
+            "AXParent": "tab bar",
+            "isNarrow": true
+          }
+        ]
+      },
+      {
+        "AXRole": "AXButton",
+        "AXSubrole": "AXCloseButton",
+        "frame": [
+          338,
+          48,
+          16,
+          16
+        ]
+      },
+      {
+        "AXRole": "AXButton",
+        "AXSubrole": "AXFullScreenButton",
+        "frame": [
+          384,
+          48,
+          16,
+          16
+        ],
+        "children": [
+          {
+            "AXRole": "AXGroup",
+            "frame": [
+              385,
+              49,
+              14,
+              14
+            ]
+          }
+        ]
+      },
+      {
+        "AXRole": "AXButton",
+        "AXSubrole": "AXMinimizeButton",
+        "frame": [
+          361,
+          48,
+          16,
+          16
+        ]
+      }
+    ]
+  }
+}

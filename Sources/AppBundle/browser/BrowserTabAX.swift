@@ -6,6 +6,21 @@ func browserTabSelectedValue(value: NSNumber?, selected: NSNumber?) -> Bool? {
     value?.boolValue ?? selected?.boolValue
 }
 
+/// A tab's title. Safari's tabs piled up in a crowded tab bar have none, only their description.
+func browserTabTitle(_ title: Any, description: Any) -> String? {
+    if let title = title as? String { return title }
+    return browserTabAXError(title as CFTypeRef) == AXError.noValue.rawValue ? description as? String : nil
+}
+
+/// The error code a multiple-attribute read returned in place of one attribute's value, if any.
+func browserTabAXError(_ value: CFTypeRef) -> Int32? {
+    guard CFGetTypeID(value) == AXValueGetTypeID() else { return nil }
+    let value = unsafeDowncast(value, to: AXValue.self)
+    var error: Int32 = 0
+    guard AXValueGetType(value) == .axError, AXValueGetValue(value, .axError, &error) else { return nil }
+    return error
+}
+
 struct NativeBrowserTabNode: BrowserTabAXNode {
     let element: AXUIElement
 
@@ -48,20 +63,27 @@ struct NativeBrowserTabNode: BrowserTabAXNode {
     func window() -> Self? { reference(kAXWindowAttribute) }
 
     func tabInfo() -> BrowserTabAXInfo? {
-        guard let values = values([kAXTitleAttribute, kAXSelectedAttribute, kAXValueAttribute]), values.count == 3,
-              let title = values[0] as? String,
+        guard let values = values([kAXTitleAttribute, kAXSelectedAttribute, kAXValueAttribute, kAXDescriptionAttribute]),
+              values.count == 4, let title = browserTabTitle(values[0], description: values[3]),
               let selected = browserTabSelectedValue(value: values[2] as? NSNumber, selected: values[1] as? NSNumber) else { return nil }
         return .init(title: title, selected: selected)
     }
 
     func tabRecord() -> BrowserTabAXRecord<Self>? {
-        guard let values = values([kAXRoleAttribute, kAXSubroleAttribute, kAXTitleAttribute,
-                                   kAXSelectedAttribute, kAXValueAttribute, kAXParentAttribute]), values.count == 6,
-              let role = values[0] as? String, let subrole = values[1] as? String, let title = values[2] as? String,
-              let selected = browserTabSelectedValue(value: values[4] as? NSNumber, selected: values[3] as? NSNumber),
-              CFGetTypeID(values[5] as CFTypeRef) == AXUIElementGetTypeID() else { return nil }
+        guard let values = values([kAXRoleAttribute, kAXSubroleAttribute, kAXTitleAttribute, kAXSelectedAttribute,
+                                   kAXValueAttribute, kAXParentAttribute, kAXWindowAttribute, kAXDescriptionAttribute]),
+              values.count == 8, let role = values[0] as? String, let subrole = values[1] as? String,
+              let title = browserTabTitle(values[2], description: values[7]),
+              let selected = browserTabSelectedValue(value: values[4] as? NSNumber, selected: values[3] as? NSNumber)
+        else { return nil }
         return .init(structure: .init(role: role, subrole: subrole), info: .init(title: title, selected: selected),
-            parent: .init(element: unsafeDowncast(values[5] as CFTypeRef, to: AXUIElement.self)))
+            parent: link(values[5]), window: link(values[6]))
+    }
+
+    private func link(_ value: Any) -> BrowserTabAXLink<Self> {
+        let value = value as CFTypeRef
+        if CFGetTypeID(value) == AXUIElementGetTypeID() { return .element(.init(element: unsafeDowncast(value, to: AXUIElement.self))) }
+        return browserTabAXError(value) == AXError.noValue.rawValue ? .none : .unreadable
     }
 
     func press() -> Bool {

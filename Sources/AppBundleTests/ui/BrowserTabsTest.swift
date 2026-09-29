@@ -113,6 +113,227 @@ final class BrowserTabsTest: XCTestCase {
         XCTAssertEqual(outline.childReads, 0)
     }
 
+    func testSafarisTabsScrolledOutOfACrowdedTabBarStillMakeTheWholeGroup() throws {
+        // Safari 27 tabs outside the visible tab bar answer AXParent with kAXErrorNoValue.
+        let window = try crowdedSafariWindow()
+        XCTAssertEqual(window.tabs.filter(\.reportsNoParent).map(\.title), (2...8).map { String(format: "Tab %02d", $0) })
+        // With 40 tabs, the native check found those tabs naming no window either, and others
+        // piled up with no title, only a description.
+        window.tabs.filter(\.reportsNoParent).forEach { $0.reportsNoWindow = true }
+        for tab in window.tabs[8...15] {
+            tab.summary = tab.title
+            tab.title = "unused"
+            tab.reportsNoTitle = true
+        }
+        let scanner = BrowserTabScanner(root: window.root, adapter: .safari, windowId: 7, pid: 8)
+        let snapshot = try XCTUnwrap(scanner.scan())
+        XCTAssertEqual(snapshot.tabs.map(\.title), (1...24).map { String(format: "Tab %02d", $0) })
+        XCTAssertEqual(snapshot.tabs.filter(\.isSelected).map(\.title), ["Tab 01"])
+        XCTAssertTrue(scanner.container === window.tabBar)
+        XCTAssertEqual(try XCTUnwrap(scanner.scan()).tabs.map(\.id), snapshot.tabs.map(\.id), "Reads after discovery keep each tab")
+    }
+
+    func testATabOutOfViewIsActedOnOnlyOnceItsBarShowsIt() throws {
+        // Natively, Safari accepts a press or close on a tab that names no parent and does neither.
+        let window = try crowdedSafariWindow()
+        let scanner = BrowserTabScanner(root: window.root, adapter: .safari, windowId: 7, pid: 8)
+        let snapshot = try XCTUnwrap(scanner.scan())
+        let close = "Name:close tab\nTarget:0x0\n\(browserTabCloseSelector)"
+        let (hidden, other) = (window.tabs[4], window.tabs[5])
+        hidden.reportsNoWindow = true
+        hidden.actions = ["AXScrollToVisible", "AXPress", close]
+        XCTAssertFalse(scanner.select(snapshot.tabs[4].target), "Scrolling that leaves it out of view says so")
+        XCTAssertFalse(scanner.close(snapshot.tabs[4].target))
+        XCTAssertEqual(hidden.presses, 0)
+        XCTAssertEqual(hidden.performed, ["AXScrollToVisible", "AXScrollToVisible"])
+        other.actions = ["AXPress", close]
+        XCTAssertFalse(scanner.select(snapshot.tabs[5].target), "Nor is one that can't be scrolled into view pressed")
+        XCTAssertEqual(other.presses, 0)
+        // Once scrolling shows it, it names its bar again and is pressed or closed.
+        hidden.onPerform = { action in
+            if action == "AXScrollToVisible" { hidden.reportsNoParent = false; hidden.reportsNoWindow = false }
+        }
+        XCTAssertTrue(scanner.select(snapshot.tabs[4].target))
+        XCTAssertEqual(hidden.presses, 1)
+        hidden.reportsNoParent = true
+        XCTAssertTrue(scanner.close(snapshot.tabs[4].target))
+        XCTAssertEqual(hidden.performed.last, close)
+    }
+
+    func testATabPiledUpInTheBarIsScrolledIntoViewBeforeItsPressedOrClosed() throws {
+        // Natively, Safari's piled-up tabs have no title, only a description, and offer only
+        // AXScrollToVisible until they're in view.
+        let window = try crowdedSafariWindow()
+        let scanner = BrowserTabScanner(root: window.root, adapter: .safari, windowId: 7, pid: 8)
+        let snapshot = try XCTUnwrap(scanner.scan())
+        let piled = window.tabs[12]
+        let close = "Name:close tab\nTarget:0x0\n\(browserTabCloseSelector)"
+        piled.supportsPress = false
+        piled.actions = ["AXScrollToVisible"]
+        piled.onPerform = { action in
+            guard action == "AXScrollToVisible" else { return }
+            piled.supportsPress = true
+            piled.actions = ["AXScrollToVisible", "AXPress", close]
+        }
+        XCTAssertTrue(scanner.select(snapshot.tabs[12].target))
+        XCTAssertEqual(piled.presses, 1)
+        piled.actions = ["AXScrollToVisible"]
+        XCTAssertTrue(scanner.close(snapshot.tabs[12].target))
+        XCTAssertEqual(piled.performed, ["AXScrollToVisible", "AXScrollToVisible", close])
+        // A tab already in view is pressed without scrolling.
+        XCTAssertTrue(scanner.select(snapshot.tabs[20].target))
+        XCTAssertEqual(window.tabs[20].performed, [])
+    }
+
+    func testATabThatChangesWhileScrollingIntoViewIsCheckedAgainBeforeItsPressed() throws {
+        try checkATabThatChangesWhileScrollingIntoView(closing: false)
+        try checkATabThatChangesWhileScrollingIntoView(closing: true)
+    }
+
+    private func checkATabThatChangesWhileScrollingIntoView(closing: Bool) throws {
+        let window = try crowdedSafariWindow()
+        let scanner = BrowserTabScanner(root: window.root, adapter: .safari, windowId: 7, pid: 8)
+        let snapshot = try XCTUnwrap(scanner.scan())
+        let close = "Name:close tab\nTarget:0x0\n\(browserTabCloseSelector)"
+        let elsewhere = BrowserTestNode("AXGroup")
+        let otherWindow = BrowserTestNode("AXWindow")
+        var cancelled = false
+        // Each way the tab can stop being this bar's while it scrolls, for a piled-up tab and for
+        // one out of view.
+        let changes: [(String, (BrowserTestNode) -> Void)] = [
+            ("moves to another group", { $0.reportsNoParent = false; $0.ancestor = elsewhere }),
+            ("names another window", { $0.reportsNoParent = false; $0.owner = otherWindow }),
+            ("can't say its window", { $0.reportsNoParent = false; $0.windowUnreadable = true }),
+            ("leaves the bar", { tab in tab.reportsNoParent = false; window.tabBar.nodes.removeAll { $0 === tab } }),
+            ("is cancelled", { $0.reportsNoParent = false; cancelled = true }),
+            ("is cancelled as it's read again", { tab in
+                tab.reportsNoParent = false
+                tab.onInfoRead = { cancelled = true }
+            }),
+        ]
+        withExtendedLifetime((elsewhere, otherWindow)) {
+            for (index, (change, apply)) in changes.enumerated() {
+                for piled in [true, false] {
+                    let tab = window.tabs[piled ? 10 + index : 1 + index]
+                    tab.reportsNoParent = !piled
+                    tab.supportsPress = !piled
+                    tab.actions = piled ? ["AXScrollToVisible"] : ["AXScrollToVisible", "AXPress", close]
+                    tab.onPerform = { action in
+                        guard action == "AXScrollToVisible" else { return }
+                        tab.supportsPress = true
+                        tab.actions = ["AXScrollToVisible", "AXPress", close]
+                        apply(tab)
+                    }
+                    let target = snapshot.tabs[window.tabs.firstIndex { $0 === tab }!].target
+                    let done = closing ? scanner.close(target, cancelled: { cancelled }) : scanner.select(target, cancelled: { cancelled })
+                    XCTAssertFalse(done, "\(change), piled: \(piled), closing: \(closing)")
+                    XCTAssertEqual(tab.presses, 0, "\(change), piled: \(piled), closing: \(closing)")
+                    XCTAssertEqual(tab.performed, ["AXScrollToVisible"], "\(change), piled: \(piled), closing: \(closing)")
+                    cancelled = false
+                    tab.onInfoRead = {}
+                }
+            }
+        }
+        XCTAssertFalse(window.tabs.contains { $0.performed.contains(close) })
+    }
+
+    func testAPiledUpTabWithoutATitleIsNamedByItsDescription() throws {
+        var noValue = AXError.noValue.rawValue
+        var cannotComplete = AXError.cannotComplete.rawValue
+        let missing = try XCTUnwrap(AXValueCreate(.axError, &noValue))
+        XCTAssertEqual(browserTabTitle("Tab 09", description: "Other"), "Tab 09")
+        XCTAssertEqual(browserTabTitle(missing, description: "Tab 09"), "Tab 09")
+        XCTAssertEqual(browserTabTitle("", description: "Tab 09"), "", "An empty title is still the tab's title")
+        XCTAssertNil(browserTabTitle(try XCTUnwrap(AXValueCreate(.axError, &cannotComplete)), description: "Tab 09"))
+        XCTAssertNil(browserTabTitle(missing, description: missing))
+    }
+
+    func testOnlyTheTabBarsOwnUnselectedTabsMayLackAParent() throws {
+        let window = try crowdedSafariWindow()
+        let scanner = BrowserTabScanner(root: window.root, adapter: .safari, windowId: 7, pid: 8)
+        let snapshot = try XCTUnwrap(scanner.scan())
+        // The selected tab always shows, so it must name its tab bar.
+        window.tabs[0].reportsNoParent = true
+        XCTAssertNil(scanner.scan())
+        XCTAssertNil(BrowserTabScanner(root: window.root, adapter: .safari, windowId: 7, pid: 8).scan())
+        window.tabs[0].reportsNoParent = false
+        // A tab that names some other parent, or whose parent can't be read, isn't the bar's.
+        let elsewhere = BrowserTestNode("AXGroup")
+        window.tabs[3].reportsNoParent = false
+        window.tabs[3].ancestor = elsewhere
+        withExtendedLifetime(elsewhere) { XCTAssertNil(scanner.scan()) }
+        window.tabs[3].ancestor = window.tabBar
+        window.tabs[3].unreadable = true
+        XCTAssertNil(scanner.scan())
+        window.tabs[3].unreadable = false
+        window.tabs[3].reportsNoParent = true
+        XCTAssertNotNil(scanner.scan())
+        // A tab out of view that names another window, or whose window can't be read, is neither
+        // listed nor pressed or closed; the rejected read keeps every tab's identity.
+        let otherWindow = BrowserTestNode("AXWindow")
+        window.tabs[4].owner = otherWindow
+        withExtendedLifetime(otherWindow) {
+            XCTAssertNil(scanner.scan())
+            XCTAssertFalse(scanner.select(snapshot.tabs[4].target))
+        }
+        window.tabs[4].owner = window.root
+        window.tabs[4].windowUnreadable = true
+        window.tabs[4].actions = ["Name:Close Tab\nTarget:0x0\n\(browserTabCloseSelector)"]
+        XCTAssertNil(scanner.scan())
+        XCTAssertFalse(scanner.select(snapshot.tabs[4].target))
+        XCTAssertFalse(scanner.close(snapshot.tabs[4].target))
+        window.tabs[4].windowUnreadable = false
+        XCTAssertEqual(try XCTUnwrap(scanner.scan()).tabs.map(\.id), snapshot.tabs.map(\.id))
+        // A tab its tab bar no longer lists can't be pressed.
+        window.tabBar.nodes.remove(at: 5)
+        XCTAssertFalse(scanner.select(snapshot.tabs[5].target))
+        XCTAssertEqual(window.tabs.map(\.presses), Array(repeating: 0, count: 24))
+        XCTAssertEqual(window.tabs[4].performed, [])
+    }
+
+    func testATabOutOfViewIsPressedOnlyWhileItsTabBarStillHoldsTheSelectedTab() throws {
+        let window = try crowdedSafariWindow()
+        let scanner = BrowserTabScanner(root: window.root, adapter: .safari, windowId: 7, pid: 8)
+        let snapshot = try XCTUnwrap(scanner.scan())
+        // The selected tab no longer names the bar, as when Safari replaces its tab bar: the
+        // failed read keeps the old handles, but a tab taken on the bar's word isn't pressed.
+        window.tabs[0].reportsNoParent = true
+        XCTAssertNil(scanner.scan())
+        XCTAssertFalse(scanner.select(snapshot.tabs[4].target))
+        XCTAssertTrue(scanner.select(snapshot.tabs[10].target), "A tab that names its bar still can be")
+        window.tabs[0].reportsNoParent = false
+        window.tabBar.nodes.removeFirst()
+        XCTAssertFalse(scanner.select(snapshot.tabs[4].target), "Nor once the bar stops listing that tab")
+        XCTAssertEqual(window.tabs.map(\.presses), (0..<24).map { $0 == 10 ? 1 : 0 })
+    }
+
+    func testChromeFamilyTabsOutOfViewFollowTheSameRules() throws {
+        let tree = fixture(.chromium)
+        tree.tabs[1].reportsNoParent = true
+        tree.tabs[1].reportsNoWindow = true
+        let snapshot = try XCTUnwrap(tree.scanner.scan())
+        XCTAssertEqual(snapshot.tabs.map(\.title), ["Alpha", "Beta"])
+        XCTAssertFalse(tree.scanner.select(snapshot.tabs[1].target), "Not pressed while it names no tab strip")
+        tree.tabs[1].actions = ["AXScrollToVisible"]
+        tree.tabs[1].onPerform = { _ in tree.tabs[1].reportsNoParent = false; tree.tabs[1].reportsNoWindow = false }
+        XCTAssertTrue(tree.scanner.select(snapshot.tabs[1].target))
+        tree.tabs[1].reportsNoParent = true
+        tree.tabs[0].reportsNoParent = true
+        XCTAssertNil(tree.scanner.scan(), "The selected tab must name its tab strip")
+        XCTAssertFalse(tree.scanner.select(snapshot.tabs[1].target))
+        XCTAssertEqual(tree.tabs.map(\.presses), [0, 1])
+    }
+
+    func testAnAttributeReadThatAnsweredNoValueIsToldApartFromOtherErrors() throws {
+        var noValue = AXError.noValue.rawValue
+        var unsupported = AXError.attributeUnsupported.rawValue
+        var point = CGPoint(x: 1, y: 2)
+        XCTAssertEqual(browserTabAXError(try XCTUnwrap(AXValueCreate(.axError, &noValue))), -25212)
+        XCTAssertEqual(browserTabAXError(try XCTUnwrap(AXValueCreate(.axError, &unsupported))), -25205)
+        XCTAssertNil(browserTabAXError(try XCTUnwrap(AXValueCreate(.cgPoint, &point))))
+        XCTAssertNil(browserTabAXError("Tab" as CFString))
+    }
+
     func testOnlyAFullReadWithNoTabAtAllSaysAWindowHasNoTabStrip() {
         let root = BrowserTestNode("AXWindow")
         root.append(BrowserTestNode("AXToolbar"))
@@ -678,6 +899,35 @@ final class BrowserTabsTest: XCTestCase {
         return (root, container, tabs, BrowserTabScanner(root: root, adapter: adapter, windowId: 123, pid: 45))
     }
 
+    /// A Safari window with 24 tabs, from the capture in test-fixtures/accessibility.
+    private func crowdedSafariWindow() throws -> (root: BrowserTestNode, tabBar: BrowserTestNode, tabs: [BrowserTestNode]) {
+        let url = projectRoot.appending(path: "test-fixtures/accessibility/safari-27.0-crowded-tab-bar.json")
+        let fixture = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        let window = try XCTUnwrap(fixture["window"] as? [String: Any])
+        var tabBar: BrowserTestNode?
+        var tabs: [BrowserTestNode] = []
+        func node(_ record: [String: Any]) -> BrowserTestNode {
+            let node = BrowserTestNode(record["AXRole"] as? String ?? "", subrole: record["AXSubrole"] as? String ?? "")
+            node.title = record["AXTitle"] as? String ?? ""
+            node.selected = record["AXValue"] as? Int == 1
+            node.reportsNoParent = (record["AXParent"] as? [String: Any])?["error"] as? Int == -25212
+            if record["tabBar"] as? Bool == true { tabBar = node }
+            if node.subrole == "AXTabButton" { tabs.append(node) }
+            return node
+        }
+        // Parents first, so each node learns its window as it's added.
+        func add(_ children: [[String: Any]]?, to parent: BrowserTestNode) {
+            for record in children ?? [] {
+                let child = node(record)
+                parent.append(child)
+                add(record["children"] as? [[String: Any]], to: child)
+            }
+        }
+        let root = node(window)
+        add(window["children"] as? [[String: Any]], to: root)
+        return (root, try XCTUnwrap(tabBar), tabs)
+    }
+
     private func tab(_ title: String, selected: Bool) -> BrowserTestNode {
         let node = BrowserTestNode("AXRadioButton", subrole: "AXTabButton")
         node.title = title
@@ -693,6 +943,14 @@ private final class BrowserTestNode: BrowserTabAXNode {
     var title = ""
     var selected = false
     var unreadable = false
+    /// Answers its parent with kAXErrorNoValue, as Safari's tabs scrolled out of view do.
+    var reportsNoParent = false
+    /// Answers its window with kAXErrorNoValue, or fails to answer at all.
+    var reportsNoWindow = false
+    var windowUnreadable = false
+    /// Answers its title with kAXErrorNoValue and has only a description, as Safari's piled-up tabs do.
+    var reportsNoTitle = false
+    var summary = ""
     var supportsPress = true
     var presses = 0
     var structureReads = 0
@@ -714,12 +972,32 @@ private final class BrowserTestNode: BrowserTabAXNode {
         return unreadable ? nil : .init(role: role, subrole: subrole)
     }
     func children() -> [BrowserTestNode]? { childReads += 1; return unreadable ? nil : nodes }
-    func parent() -> BrowserTestNode? { ancestor }
-    func window() -> BrowserTestNode? { owner }
-    func tabInfo() -> BrowserTabAXInfo? { infoReads += 1; onInfoRead(); return unreadable ? nil : .init(title: title, selected: selected) }
+    func parent() -> BrowserTestNode? { reportsNoParent ? nil : ancestor }
+    func tabRecord() -> BrowserTabAXRecord<BrowserTestNode>? {
+        guard let structure = structure(), let info = tabInfo() else { return nil }
+        let parent: BrowserTabAXLink<BrowserTestNode> = reportsNoParent ? .none : ancestor.map { .element($0) } ?? .unreadable
+        let window: BrowserTabAXLink<BrowserTestNode> = windowUnreadable ? .unreadable
+            : reportsNoWindow ? .none : owner.map { .element($0) } ?? .unreadable
+        return .init(structure: structure, info: info, parent: parent, window: window)
+    }
+    func window() -> BrowserTestNode? { reportsNoWindow || windowUnreadable ? nil : owner }
+    func tabInfo() -> BrowserTabAXInfo? {
+        infoReads += 1
+        onInfoRead()
+        var noValue = AXError.noValue.rawValue
+        guard !unreadable, let title = reportsNoTitle ? AXValueCreate(.axError, &noValue).flatMap { browserTabTitle($0, description: summary) } : title
+        else { return nil }
+        return .init(title: title, selected: selected)
+    }
     func press() -> Bool { if supportsPress { presses += 1 }; return supportsPress }
     var actions: [String] = []
     var performed: [String] = []
     func actionNames() -> [String] { actions }
-    func perform(_ action: String) -> Bool { performed.append(action); return actions.contains(action) }
+    var onPerform: (String) -> Void = { _ in }
+    func perform(_ action: String) -> Bool {
+        performed.append(action)
+        guard actions.contains(action) else { return false }
+        onPerform(action)
+        return true
+    }
 }

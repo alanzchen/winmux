@@ -126,6 +126,11 @@ team. See [Local development](development.md#build-an-app-and-matching-cli) to t
 - Arc, Dia, Opera, Vivaldi, Safari Technology Preview, and custom tab-strip layouts
   are not enabled. A hidden or unrecognized tab strip, including some native browser
   groups and multi-selected tabs, falls back to the ordinary window row.
+- Safari can leave tabs of a crowded tab bar without a parent, or piled up without a title.
+  WinMux still lists them from the tab bar that lists them, naming piled-up tabs by their
+  description; the selected tab, which always shows, must name its tab bar. A tab is scrolled
+  into view before it's selected or closed. Safari ignores both on a tab that still names no
+  parent, so WinMux then leaves it and brings its window forward as it is.
 - Transient Accessibility failures retain the last complete snapshot. Repeated
   failures fall back after ten seconds and retries back off to thirty seconds.
   Hidden sidebars do no browser reads and keep their last snapshot to preserve the
