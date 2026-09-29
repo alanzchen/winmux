@@ -9,7 +9,7 @@ extension WorkspaceSidebarView {
         let pagerInset = layout.compactHorizontalInset +
             (workspaceSidebarContentLeadingInset - layout.compactHorizontalInset) * expansionProgress
         let project = snapshot.projects.first { $0.id == snapshot.activeProjectId }
-        let visible = workspaceSidebarVisibleWorkspacesByProject(workspaces: snapshot.workspaces,
+        let visible = workspaceSidebarVisibleWorkspacesByProject(workspaces: tabsListedWorkspaces,
             selectedScopeId: snapshot.selectedMonitorScopeId, focusedMonitorScopeId: snapshot.focusedMonitorScopeId,
             browsedProjectId: nil).mapValues { workspaceSidebarOrderedTabs($0, collections: snapshot.configuration.tabCollections) }
         let filtered = workspaceSidebarFilteredWorkspacesByProject(visible, projects: snapshot.projects, query: searchText,
@@ -113,7 +113,8 @@ extension WorkspaceSidebarView {
                                 Divider().padding(.horizontal, 8).padding(.vertical, 3)
                             }
                             WorkspaceSidebarPinnedTab(workspace: workspace, badgeModel: dockBadgeModel, compact: true,
-                                targetMonitorScopeId: snapshot.targetMonitorScopeId) { windowId in
+                                targetMonitorScopeId: snapshot.targetMonitorScopeId,
+                                onOpenSavedApps: { selectTabWorkspace(workspace, action: .openSavedTab(workspace.name)) }) { windowId in
                                 selectTabWorkspace(workspace, windowId: windowId)
                             }
                             .frame(width: 34, height: 34)
@@ -191,7 +192,8 @@ extension WorkspaceSidebarView {
                                 workspaceName: workspace.name, projectId: snapshot.activeProjectId),
                             isDropTarget: snapshot.dropPreview?.targetWorkspaceName == workspace.name,
                             dropPlacement: snapshot.dropPreview?.targetPlacement,
-                            dropLabelSlot: snapshot.dropPreview?.targetLabelSlot) { windowId in
+                            dropLabelSlot: snapshot.dropPreview?.targetLabelSlot,
+                            onOpenSavedApps: { selectTabWorkspace(workspace, action: .openSavedTab(workspace.name)) }) { windowId in
                             selectTabWorkspace(workspace, windowId: windowId)
                         }
                     }
@@ -240,9 +242,11 @@ extension WorkspaceSidebarView {
         }
     }
 
-    private func selectTabWorkspace(_ workspace: WorkspaceSidebarWorkspaceViewModel, windowId: UInt32?) {
+    private func selectTabWorkspace(_ workspace: WorkspaceSidebarWorkspaceViewModel, windowId: UInt32? = nil,
+                                    action: WorkspaceSidebarAction? = nil) {
         let (activation, _) = tabActivation(workspace, isPinned: false, pageAllowsActivation: true)
-        activation.select(windowId.map(WorkspaceSidebarAction.selectWindow) ?? .selectWorkspace(workspace.name), send: actions.send)
+        activation.select(action ?? windowId.map(WorkspaceSidebarAction.selectWindow) ?? .selectWorkspace(workspace.name),
+            send: actions.send)
     }
 
     func tabCollectionDisclosure(_ group: WorkspaceTabCollection, isSearching: Bool = false) -> WorkspaceSidebarTabCollectionDisclosure {

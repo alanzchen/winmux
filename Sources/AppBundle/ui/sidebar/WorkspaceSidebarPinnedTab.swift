@@ -76,6 +76,9 @@ struct WorkspaceSidebarPinnedTab: View {
     var isDropTarget = false
     var dropPlacement: WorkspaceSidebarTabDropPlacement? = nil
     var dropLabelSlot: WorkspaceSidebarTabDropLabelSlot? = nil
+    /// Selects a saved pin whose windows are gone and opens its apps in it, as a click that
+    /// activates it does; one that only chooses it, with Shift or Command, opens nothing.
+    var onOpenSavedApps: (() -> Void)? = nil
     let onSelect: (UInt32?) -> Void
     @State private var isHovered = false
     @Environment(\.workspaceSidebarReducesMotion) private var reducesMotion
@@ -102,9 +105,27 @@ struct WorkspaceSidebarPinnedTab: View {
             }
             HStack(spacing: 0) {
                 if windows.isEmpty {
-                    Button { onSelect(nil) } label: {
-                        icon(nil, windowCount: 0).frame(maxWidth: .infinity, minHeight: compact ? 34 : 54)
-                    }.buttonStyle(.plain).accessibilityLabel(workspace.displayName)
+                    // A saved pin whose app isn't open shows that app, greyed; clicking opens it again.
+                    let savedApps = workspace.savedState?.apps ?? []
+                    let appNames = workspaceSidebarSavedAppNames(savedApps)
+                    Button {
+                        if !savedApps.isEmpty, let onOpenSavedApps { onOpenSavedApps() } else { onSelect(nil) }
+                    } label: {
+                        Group {
+                            if savedApps.isEmpty || (savedApps.count == 1 && workspace.appearance.emoji != nil) {
+                                icon(nil, windowCount: 0)
+                            } else {
+                                WorkspaceSidebarSavedAppIcons(apps: savedApps, size: compact ? 18 : 22)
+                            }
+                        }
+                        .opacity(savedApps.isEmpty ? 1 : 0.45)
+                        .saturation(savedApps.isEmpty ? 1 : 0)
+                        .frame(maxWidth: .infinity, minHeight: compact ? 34 : 54)
+                        .contentShape(Rectangle())
+                    }.buttonStyle(.plain)
+                        .help(savedApps.isEmpty ? workspace.displayName : "Open \(appNames)")
+                        .accessibilityLabel(savedApps.isEmpty ? workspace.displayName : "\(workspace.displayName), \(appNames) not open")
+                        .accessibilityHint(savedApps.isEmpty ? "" : "Opens \(appNames)")
                         .sidebarIdentityMenu(.workspace(workspace.name))
                 } else {
                     ForEach(displayedWindows) { window in
@@ -191,6 +212,33 @@ struct WorkspaceSidebarPinnedTab: View {
                 size: compact ? min(20, 26 / CGFloat(max(windowCount, 1))) : 22)
         } else { Image(systemName: "macwindow").font(.system(size: compact ? 19 : 22)) }
     }
+}
+
+/// A saved tab's apps while none of its windows are open: one icon per app, up to three.
+struct WorkspaceSidebarSavedAppIcons: View {
+    let apps: [WorkspaceSidebarSavedApp]
+    var size: CGFloat = 22
+
+    var body: some View {
+        let shown = workspaceSidebarDistinctSavedApps(apps).prefix(3)
+        HStack(spacing: 4) {
+            ForEach(Array(shown), id: \.bundleId) { app in
+                WorkspaceSidebarTabIcon(bundleId: app.bundleId, bundlePath: app.bundlePath,
+                    size: shown.count > 1 ? size * 0.8 : size)
+            }
+        }
+        .accessibilityHidden(true)
+    }
+}
+
+/// Each app once, in the order its windows were saved.
+func workspaceSidebarDistinctSavedApps(_ apps: [WorkspaceSidebarSavedApp]) -> [WorkspaceSidebarSavedApp] {
+    var seen: Set<String> = []
+    return apps.filter { seen.insert($0.bundleId).inserted }
+}
+
+func workspaceSidebarSavedAppNames(_ apps: [WorkspaceSidebarSavedApp]) -> String {
+    ListFormatter.localizedString(byJoining: workspaceSidebarDistinctSavedApps(apps).map(\.name))
 }
 
 /// Where a dragged tab would go among the pins: an accent line centered in the space beside a pin.

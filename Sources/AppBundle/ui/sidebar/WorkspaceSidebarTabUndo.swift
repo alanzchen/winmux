@@ -68,6 +68,8 @@ struct WorkspaceSidebarTabUndoSnapshot {
 
     private func undoIdentity(_ record: SavedWorkspaceRecord) -> SavedWorkspaceRecord {
         var record = record
+        // Like the layout, the tab's apps are captured in the background after an edit.
+        record.launchApps = nil
         record.layout = .init()
         record.lastVisibleSequence = nil
         return record
@@ -125,8 +127,22 @@ struct WorkspaceSidebarTabUndoSnapshot {
         for window in recentWindows.reversed() { window.markAsMostRecentChild() }
         let beforeByName = Dictionary(uniqueKeysWithValues: saved.map { ($0.workspaceName, $0) })
         let afterByName = Dictionary(uniqueKeysWithValues: after.saved.map { ($0.workspaceName, $0) })
+        func windowsByName(_ snapshot: Self) -> [String: Set<ObjectIdentifier>] {
+            Dictionary(snapshot.items.map { ($0.workspace.name, Set($0.windows.map { ObjectIdentifier($0.window) })) },
+                uniquingKeysWith: { first, _ in first })
+        }
+        let windowsBefore = windowsByName(self)
+        let windowsAfter = windowsByName(after)
         for name in Set(beforeByName.keys).union(afterByName.keys) {
-            guard beforeByName[name].map(undoIdentity) != afterByName[name].map(undoIdentity) else { continue }
+            guard beforeByName[name].map(undoIdentity) != afterByName[name].map(undoIdentity) else {
+                // A tab whose windows the edit changed shows its apps as they were; captures since
+                // recorded the edit's result. Other tabs keep what captures learned meanwhile.
+                if windowsBefore[name] != windowsAfter[name], let before = beforeByName[name],
+                   savedWorkspaceStore.record(named: name).map({ $0.launchApps != before.launchApps }) == true {
+                    savedWorkspaceStore.update(named: name) { $0.launchApps = before.launchApps }
+                }
+                continue
+            }
             if var record = beforeByName[name] {
                 if let current = savedWorkspaceStore.record(named: name) {
                     record.layout = current.layout
@@ -158,6 +174,7 @@ private struct WorkspaceSidebarUndoWorkspace: Equatable {
     let projectId: WorkspaceProjectId
     let namingStyle: WorkspaceNamingStyle
     let lifecycle: WorkspaceLifecycle
+    let hasHadWindows: Bool
     let preferredMonitorPoint: CGPoint?
     let retainsEmptyAfterProjectMove: Bool
     let tree: WorkspaceSidebarUndoTree
@@ -169,6 +186,7 @@ private struct WorkspaceSidebarUndoWorkspace: Equatable {
         projectId = workspace.projectId
         namingStyle = workspace.namingStyle
         lifecycle = workspace.lifecycle
+        hasHadWindows = workspace.hasHadWindows
         preferredMonitorPoint = workspace.preferredMonitorPoint
         retainsEmptyAfterProjectMove = workspace.retainsEmptyAfterProjectMove
         tree = .init(workspace.rootTilingContainer)
@@ -185,6 +203,7 @@ private struct WorkspaceSidebarUndoWorkspace: Equatable {
         workspace.projectId = projectId
         workspace.restoreNamingStyle(namingStyle)
         workspace.lifecycle = lifecycle
+        workspace.hasHadWindows = hasHadWindows
         workspace.preferredMonitorPoint = preferredMonitorPoint
         workspace.retainsEmptyAfterProjectMove = retainsEmptyAfterProjectMove
         let oldRoot = workspace.rootTilingContainer

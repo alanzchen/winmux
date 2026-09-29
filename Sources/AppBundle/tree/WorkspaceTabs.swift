@@ -92,6 +92,41 @@ func workspaceTabNeighbor(of workspace: Workspace) -> Workspace? {
     return tabs[(index + 1)...].first(where: isTab) ?? tabs[..<index].reversed().first(where: isTab)
 }
 
+/// Tabs mode: a tab whose windows have all gone, however they went. It closes once it's off
+/// screen. A pinned or saved tab stays, as does a new tab that hasn't had a window yet, and
+/// the tab the launcher is choosing an app for.
+@MainActor
+func workspaceTabWasLeftEmpty(_ tab: Workspace) -> Bool {
+    workspaceTabWasLeftEmptyIgnoringLauncher(tab) && WorkspaceLauncherPanel.shared.workspace !== tab
+}
+
+@MainActor
+func workspaceTabWasLeftEmptyIgnoringLauncher(_ tab: Workspace) -> Bool {
+    config.usesBrowserTabs && tab.hasHadWindows && !tab.isArchived && !workspaceHasLifecycleWindows(tab) &&
+        !tab.isKeptWhenEmpty && !tab.isAwaitingSavedWorkspaceRestoration
+}
+
+/// A tab left empty on screen gives its display to the next tab there, or the previous one,
+/// in the order the sidebar shows; tabs with windows first. With no other tab on that
+/// display, it stays, and the sidebar doesn't list it.
+@MainActor
+func leaveTabsLeftEmptyOnScreen() {
+    guard config.usesBrowserTabs else { return }
+    for tab in Workspace.all where tab.isVisible && workspaceTabWasLeftEmpty(tab) {
+        guard let next = workspaceTabReplacingEmptyTab(tab) else { continue }
+        if focus.workspace === tab { _ = next.focusWorkspace() } else { _ = tab.workspaceMonitor.setActiveWorkspace(next) }
+    }
+}
+
+@MainActor
+func workspaceTabReplacingEmptyTab(_ tab: Workspace) -> Workspace? {
+    let monitor = tab.workspaceMonitor
+    let tabs = workspaceNavigationTabs(current: tab).filter { $0 === tab || (!$0.isVisible && $0.workspaceMonitor.rect == monitor.rect) }
+    guard let index = tabs.firstIndex(where: { $0 === tab }) else { return nil }
+    let nearest = Array(tabs[(index + 1)...]) + tabs[..<index].reversed()
+    return nearest.first(where: workspaceHasLifecycleWindows) ?? nearest.first(where: \.isKeptWhenEmpty)
+}
+
 /// Closing a tab's last window moves to the next tab, as closing a browser tab does. A saved
 /// workspace stays: like a pinned tab, it's kept even when empty.
 @MainActor
@@ -126,7 +161,11 @@ func closeUnusedNewTab(_ newTab: WorkspaceLauncherNewTab) {
         return
     }
     guard tab.isVisible, !tab.isKeptWhenEmpty else { return }
-    guard let destination = previous ?? workspaceTabNeighbor(of: tab).flatMap({ $0.isVisible ? nil : $0 }) else { return }
+    guard let destination = previous ?? workspaceTabNeighbor(of: tab).flatMap({ $0.isVisible ? nil : $0 }) else {
+        // Its display has no other tab: it stays on screen, left empty, and the list leaves it out.
+        tab.hasHadWindows = true
+        return
+    }
     if tab === focus.workspace {
         _ = destination.focusWorkspace()
     } else {

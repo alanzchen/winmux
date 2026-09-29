@@ -9,6 +9,8 @@ final class Workspace: TreeNode, NonLeafTreeNodeObject, Hashable, Comparable {
     var projectId: WorkspaceProjectId = workspaceProjectDefaultId
     var preferredMonitorPoint: CGPoint?
     var lifecycle: WorkspaceLifecycle = .durable
+    /// Whether it has held a window. In Tabs mode, a tab left empty after that closes.
+    var hasHadWindows = false
     // Keep an explicitly moved blank workspace available until it is visited or used.
     var retainsEmptyAfterProjectMove = false
 
@@ -73,6 +75,8 @@ final class Workspace: TreeNode, NonLeafTreeNodeObject, Hashable, Comparable {
         winMuxWorkspaceState.pruneProjectWorkspaceIndexes()
         repairInvalidVisibleWorkspaceAssignments()
         rearrangeWorkspacesOnMonitors()
+        // Once every display shows a workspace it may, so a replacement can't break another's.
+        leaveTabsLeftEmptyOnScreen()
         pruneEmptyWorkspaces()
         clearOrphanedWorkspaceSidebarLabels()
         ensureVisibleActiveProjectWorkspaces()
@@ -130,8 +134,9 @@ extension Workspace {
         if isVisible || workspaceHasLifecycleWindows(self) {
             retainsEmptyAfterProjectMove = false
         }
-        if workspaceHasLifecycleWindows(self), lifecycle == .transient {
-            lifecycle = .durable
+        if workspaceHasLifecycleWindows(self) {
+            hasHadWindows = true
+            if lifecycle == .transient { lifecycle = .durable }
         }
     }
 

@@ -95,6 +95,27 @@ final class SavedWorkspaceRuntime {
     /// A failed organization write must keep a name reserved without retrying every refresh.
     var organizationPruneRetryAfter: [String: Date] = [:]
     var manualArmUntilByBundleId: [String: Date] = [:]
+    /// A saved tab the user reopened an app from, whose slots its windows take first. With
+    /// `bypassesRouting`, the tab had no slot for the app: its first new window isn't routed.
+    private(set) var preferredRestoreWorkspaceByBundleId: [String: (workspaceName: String, until: Date, bypassesRouting: Bool)] = [:]
+
+    func preferRestoring(bundleId: String, into workspaceName: String, bypassingRouting: Bool = false) {
+        preferredRestoreWorkspaceByBundleId[bundleId] = (workspaceName, now.addingTimeInterval(SavedWorkspaceTiming.restoreWindow),
+            bypassingRouting)
+    }
+
+    /// Whether the next window of this app skips saved routing, once.
+    func takeRoutingBypass(bundleId: String) -> Bool {
+        guard let preferred = preferredRestoreWorkspaceByBundleId[bundleId], preferred.bypassesRouting, now < preferred.until
+        else { return false }
+        preferredRestoreWorkspaceByBundleId[bundleId] = nil
+        return true
+    }
+
+    func preferredRestoreWorkspace(bundleId: String) -> String? {
+        guard let preferred = preferredRestoreWorkspaceByBundleId[bundleId], now < preferred.until else { return nil }
+        return preferred.workspaceName
+    }
     var visibleOnHomeAtLastCheckpoint: Set<String> = []
     var didRunLabelAdoption = false
     var checkpointTask: Task<Void, Never>?

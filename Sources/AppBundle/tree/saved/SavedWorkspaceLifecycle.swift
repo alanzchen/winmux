@@ -159,7 +159,7 @@ func ensureSavedWorkspaceRecord(_ workspace: Workspace, flush: Bool = true, keep
     let label = config.workspaceSidebar.workspaceLabels[workspace.name]?
         .trimmingCharacters(in: .whitespacesAndNewlines)
         .takeIf { !$0.isEmpty }
-    let record = SavedWorkspaceRecord(
+    var record = SavedWorkspaceRecord(
         workspaceName: workspace.name,
         displayName: label,
         projectId: workspace.projectId,
@@ -169,6 +169,7 @@ func ensureSavedWorkspaceRecord(_ workspace: Workspace, flush: Bool = true, keep
         lastVisibleSequence: workspace.isVisible ? savedWorkspaceStore.takeVisibilitySequence() : nil,
         layout: snapshotSavedWorkspaceLayoutNow(workspace),
     )
+    if case let apps = savedLaunchApps(record.layout.allSlots), !apps.isEmpty { record.launchApps = apps }
     check(savedWorkspaceStore.insert(record))
     if workspace.isVisible {
         savedWorkspaceRuntime.visibleOnHomeAtLastCheckpoint.insert(workspace.name)

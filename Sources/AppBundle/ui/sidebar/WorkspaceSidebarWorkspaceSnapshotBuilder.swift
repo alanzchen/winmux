@@ -49,6 +49,7 @@ private func makeWorkspaceSidebarWorkspaceViewModel(
         apps: buildWorkspaceSidebarAppSummaries(for: workspace),
         savedState: runningApps.flatMap { workspaceSidebarSavedState(for: workspace, runningApps: $0) },
         appearance: workspaceSidebarOrganizationStore.state.workspaces[workspace.name] ?? .init(),
+        isLeftEmpty: workspaceTabWasLeftEmpty(workspace),
     )
 }
 
@@ -64,7 +65,23 @@ func workspaceSidebarSavedState(for workspace: Workspace, runningApps: [String: 
             savedWorkspaceAppDisplayName(bundleId: app.bundleId, appName: app.appName, bundlePath: app.bundlePath)
         },
         keepWhenEmpty: record.keepWhenEmpty != false,
+        apps: workspaceSidebarSavedApps(for: workspace),
     )
+}
+
+/// The apps a saved tab opens in: those of its saved windows, one per window, then any others its
+/// windows had last, whose slots have expired.
+@MainActor
+func workspaceSidebarSavedApps(for workspace: Workspace) -> [WorkspaceSidebarSavedApp] {
+    guard let record = savedWorkspaceStore.record(named: workspace.name) else { return [] }
+    let slots = record.layout.allSlots.filter { $0.bundleId != winMuxAppId && $0.bundleId != lockScreenAppBundleId }
+    let waiting = Set(slots.map(\.bundleId))
+    let apps = slots.map { ($0.bundleId, $0.bundlePath, $0.appName) } +
+        (record.launchApps ?? []).filter { !waiting.contains($0.bundleId) }.map { ($0.bundleId, $0.bundlePath, $0.appName) }
+    return apps.map { bundleId, bundlePath, appName in
+        WorkspaceSidebarSavedApp(bundleId: bundleId, bundlePath: bundlePath,
+            name: savedWorkspaceAppDisplayName(bundleId: bundleId, appName: appName, bundlePath: bundlePath))
+    }
 }
 
 func visibleWorkspaceNamesForSidebar(

@@ -261,7 +261,8 @@ struct WorkspaceSidebarTabCardView: View {
             case .empty:
                 WorkspaceSidebarEmptyTabRowView(isActive: isActive, actions: actions, workspace: workspace,
                     onBeginRename: onBeginRename,
-                    onSelect: { activation.select(.selectWorkspace(workspace.name), send: actions.send) })
+                    onSelect: { activation.select(.selectWorkspace(workspace.name), send: actions.send) },
+                    onOpenSavedApps: { activation.select(.openSavedTab(workspace.name), send: actions.send) })
             case .folder:
                 EmptyView()
         }
@@ -344,27 +345,43 @@ struct WorkspaceSidebarTabCardView: View {
 }
 
 /// The tab of an empty workspace, such as a new tab waiting for an app. Closing it moves to
-/// the next tab and removes the workspace; the only tab can't be closed.
+/// the next tab and removes the workspace; the only tab can't be closed. A saved tab whose
+/// apps aren't open shows them, greyed, and clicking it opens them again.
 struct WorkspaceSidebarEmptyTabRowView: View {
     let isActive: Bool
     let actions: WorkspaceSidebarActions
     let workspace: WorkspaceSidebarWorkspaceViewModel
     let onBeginRename: () -> Void
     let onSelect: () -> Void
+    /// Selects it and opens its saved apps, as a click that activates it does.
+    var onOpenSavedApps: () -> Void = {}
     @State private var isHovered = false
     @Environment(\.workspaceSidebarTabIndent) private var indent
     @Environment(\.workspaceSidebarReducesMotion) private var reducesMotion
 
+    private var savedApps: [WorkspaceSidebarSavedApp] { workspace.savedState?.apps ?? [] }
+    private var title: String {
+        if !workspace.sidebarLabel.isEmpty { return workspace.displayName }
+        return savedApps.isEmpty ? "Empty Tab" : workspaceSidebarSavedAppNames(savedApps)
+    }
+
     var body: some View {
-        Button(action: onSelect) {
+        Button {
+            if savedApps.isEmpty { onSelect() } else { onOpenSavedApps() }
+        } label: {
             HStack(spacing: 9) {
-                Image(systemName: "square.dashed")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(Color.primary.opacity(0.55))
-                    .frame(width: workspaceSidebarTabIconSize, height: workspaceSidebarTabIconSize)
-                Text(workspace.sidebarLabel.isEmpty ? "Empty Tab" : workspace.displayName)
+                if let app = savedApps.first {
+                    WorkspaceSidebarTabIcon(bundleId: app.bundleId, bundlePath: app.bundlePath)
+                        .saturation(0).opacity(0.45)
+                } else {
+                    Image(systemName: "square.dashed")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(Color.primary.opacity(0.55))
+                        .frame(width: workspaceSidebarTabIconSize, height: workspaceSidebarTabIconSize)
+                }
+                Text(title)
                     .font(.system(size: 13, weight: isActive ? .medium : .regular))
-                    .foregroundStyle(Color.primary.opacity(isActive ? 0.9 : 0.65))
+                    .foregroundStyle(Color.primary.opacity(isActive ? 0.9 : (savedApps.isEmpty ? 0.65 : 0.5)))
                     .lineLimit(1)
                 Spacer(minLength: 0)
             }
@@ -375,8 +392,8 @@ struct WorkspaceSidebarEmptyTabRowView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help("Empty tab")
-        .accessibilityLabel("Empty tab")
+        .help(savedApps.isEmpty ? "Empty tab" : "Open \(workspaceSidebarSavedAppNames(savedApps))")
+        .accessibilityLabel(savedApps.isEmpty ? "Empty tab" : "\(title), not open")
         .accessibilityAddTraits(isActive ? .isSelected : [])
         .accessibilityAction(named: "Close") { close() }
         .overlay(alignment: .trailing) {

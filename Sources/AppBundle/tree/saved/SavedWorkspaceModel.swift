@@ -52,6 +52,9 @@ struct SavedWorkspaceRecord: Codable, Equatable, Sendable {
     /// Bumped each time the workspace becomes visible on its home display.
     var lastVisibleSequence: Int?
     var layout: SavedWorkspaceLayout = .init()
+    /// The apps of its windows when it last had some. After their slots expire, a tab whose
+    /// windows are gone still shows these apps, and opens them when clicked.
+    var launchApps: [SavedLaunchApp]? = nil
 
     init(
         id: String = newSavedWorkspaceRecordId(),
@@ -88,6 +91,7 @@ struct SavedWorkspaceRecord: Codable, Equatable, Sendable {
         case keepWhenEmpty
         case lastVisibleSequence
         case layout
+        case launchApps
     }
 
     init(from decoder: any Decoder) throws {
@@ -102,7 +106,21 @@ struct SavedWorkspaceRecord: Codable, Equatable, Sendable {
         keepWhenEmpty = try container.decodeIfPresent(Bool.self, forKey: .keepWhenEmpty)
         lastVisibleSequence = try container.decodeIfPresent(Int.self, forKey: .lastVisibleSequence)
         layout = try container.decodeIfPresent(SavedWorkspaceLayout.self, forKey: .layout) ?? .init()
+        launchApps = try container.decodeIfPresent([SavedLaunchApp].self, forKey: .launchApps)
     }
+}
+
+struct SavedLaunchApp: Codable, Equatable, Sendable {
+    var bundleId: String
+    var bundlePath: String?
+    var appName: String?
+}
+
+/// Each app of these slots once, in slot order, leaving out WinMux and the lock screen.
+func savedLaunchApps(_ slots: [SavedWindowSlot]) -> [SavedLaunchApp] {
+    var seen: Set<String> = []
+    return slots.filter { $0.bundleId != winMuxAppId && $0.bundleId != lockScreenAppBundleId && seen.insert($0.bundleId).inserted }
+        .map { SavedLaunchApp(bundleId: $0.bundleId, bundlePath: $0.bundlePath, appName: $0.appName) }
 }
 
 struct SavedDisplayAffinity: Codable, Equatable, Sendable {

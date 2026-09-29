@@ -211,6 +211,15 @@ func captureSavedWorkspace(
     for slot in previousSlots where !remaining.contains(slot.id) {
         runtime.vanishedSlots.removeValue(forKey: slot.id)
     }
+    // The tab's apps: its live windows', or, until it has had any here, its saved windows'.
+    let liveApps = savedLaunchApps(snapshot.layout.allSlots.filter {
+        snapshot.liveTiled.contains($0.id) || snapshot.liveFloating.contains($0.id)
+    })
+    if !liveApps.isEmpty {
+        updated.launchApps = liveApps
+    } else if updated.launchApps == nil, case let savedApps = savedLaunchApps(previousSlots), !savedApps.isEmpty {
+        updated.launchApps = savedApps
+    }
     _ = savedWorkspaceStore.update(named: workspaceName) { $0 = updated }
 }
 

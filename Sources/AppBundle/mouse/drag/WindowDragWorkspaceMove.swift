@@ -6,11 +6,18 @@ func shouldSuppressSwapDestination(sourceWindow: Window, subject: WindowDragSubj
 
 @MainActor
 func applySidebarWorkspaceMove(sourceNode: TreeNode, sourceWindow: Window, targetWorkspace: Workspace) {
+    let source = sourceNode.nodeWorkspace
+    let sourceWasOnScreen = source?.isVisible == true
     if sourceNode is Window, sourceWindow.isFloating {
         sourceNode.bind(to: targetWorkspace, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
     } else {
         let binding = workspaceAppendBindingData(targetWorkspace: targetWorkspace, index: INDEX_BIND_LAST)
         sourceNode.bind(to: binding.parent, adaptiveWeight: binding.adaptiveWeight, index: binding.index)
+    }
+    // Tabs mode: moving the last window out of the tab on screen follows it to its new tab,
+    // instead of leaving the display on an empty one.
+    if config.usesBrowserTabs, sourceWasOnScreen, let source, source !== targetWorkspace, !workspaceHasLifecycleWindows(source) {
+        _ = sourceWindow.focusWindow()
     }
 }
 

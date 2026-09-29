@@ -738,7 +738,7 @@ extension WorkspaceSidebarView {
     /// A project's tabs as this sidebar shows them, for Shift-click ranges: the pinned tiles, then
     /// the list, groups included. The tab on screen on this sidebar's display anchors a first range.
     func workspaceSidebarTabSelectionContext(projectId: WorkspaceProjectId) -> (order: [String], active: String?) {
-        let tabs = workspaceSidebarOrderedTabs(workspaceSidebarVisibleWorkspacesByProject(workspaces: snapshot.workspaces,
+        let tabs = workspaceSidebarOrderedTabs(workspaceSidebarVisibleWorkspacesByProject(workspaces: tabsListedWorkspaces,
             selectedScopeId: snapshot.selectedMonitorScopeId, focusedMonitorScopeId: snapshot.focusedMonitorScopeId,
             browsedProjectId: nil)[projectId] ?? [], collections: snapshot.configuration.tabCollections)
         let listed = workspaceSidebarTabSections(workspaces: tabs.filter { !$0.appearance.isFavorite },

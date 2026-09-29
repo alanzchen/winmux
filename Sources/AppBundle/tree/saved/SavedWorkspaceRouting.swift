@@ -199,6 +199,9 @@ func routeNewWindowToSavedWorkspaceIfNeeded(_ window: Window, isRegularWindow: B
     }) {
         return try await placeWindowInSavedSlot(window, location)
     }
+    // Opened from a saved tab with no window of this app waiting there: its first new window
+    // goes to that tab, which is on screen, not into another tab's saved place.
+    if runtime.takeRoutingBypass(bundleId: bundleId) { return false }
 
     guard wasAdmitted || isStartup || runtime.isStartupRestoreActive ||
         runtime.isArmed(bundleId: bundleId, launchDate: window.app.launchDate, pid: window.app.pid)
@@ -247,6 +250,11 @@ func waitingSavedSlots(bundleId: String, routingWindow: Window) -> [SavedSlotLoc
             }
             result.append(SavedSlotLocation(workspaceName: record.workspaceName, slot: slot, isFloating: isFloating))
         }
+    }
+    // Reopened from one of its tabs: that tab's slots come first, so ties go to it.
+    if let preferred = runtime.preferredRestoreWorkspace(bundleId: bundleId) {
+        result = result.enumerated().sorted { ($0.element.workspaceName == preferred ? 0 : 1, $0.offset) <
+            ($1.element.workspaceName == preferred ? 0 : 1, $1.offset) }.map(\.element)
     }
     return result
 }

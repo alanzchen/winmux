@@ -190,6 +190,8 @@ func handleWorkspaceSidebarAction(
             setSavedWorkspacePinnedFromSidebar(name, pinned: pinned)
         case .openSavedWorkspaceApps(let name):
             openSavedWorkspaceAppsFromSidebar(name)
+        case .openSavedTab(let name):
+            openSavedTabFromSidebar(name, targetMonitorScopeId: targetMonitorScopeId)
         case .moveProject(let projectId, let targetId, let after):
             moveWorkspaceSidebarProject(projectId, relativeTo: targetId, after: after)
         case .moveWorkspace(let workspaceName, let projectId):

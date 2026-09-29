@@ -762,6 +762,53 @@ func openSavedWorkspaceAppsFromSidebar(_ workspaceName: String) -> Task<SavedWor
     }
 }
 
+/// A saved tab whose windows are gone, clicked: it comes to the screen, then its apps open into
+/// it. An app that quit relaunches, and its windows return to their saved places, this tab's
+/// first. Otherwise, a running app or one whose saved windows have expired, the app is asked
+/// for a new window in this tab, as the launcher asks.
+@MainActor
+func openSavedTabFromSidebar(_ name: String, targetMonitorScopeId: String? = nil) {
+    WorkspaceSidebarPanel.suppressEdgeTrapForWorkspaceActivation()
+    var opened: Workspace?
+    runWorkspaceSidebarSession(afterLayout: {
+        guard let opened, winMuxWorkspaceState.workspaceById[opened.id] === opened,
+              !workspaceHasLifecycleWindows(opened) else { return }
+        openSavedTabApps(opened)
+    }) {
+        guard let workspace = Workspace.existing(byName: name),
+              focusWorkspaceFromSidebar(workspace, targetMonitorScopeId: targetMonitorScopeId) else { return }
+        opened = workspace
+    }
+}
+
+@MainActor
+func openSavedTabApps(_ tab: Workspace, requestNewWindow: @MainActor (NewWindowRequestTarget, Workspace) -> Void = { target, tab in
+    requestNewWindow(target, targetWorkspace: tab) { outcome in
+        if case .failed(let reason) = outcome { showWorkspaceSidebarError(reason) }
+    }
+}) {
+    let apps = workspaceSidebarDistinctSavedApps(workspaceSidebarSavedApps(for: tab))
+    let runningApps = savedWorkspaceRuntime.environment.runningApps()
+    let waiting = Set(savedWorkspaceStore.record(named: tab.name)?.layout.allSlots.map(\.bundleId) ?? [])
+    var relaunches = false
+    for app in apps {
+        if runningApps[app.bundleId] == nil, waiting.contains(app.bundleId) {
+            savedWorkspaceRuntime.preferRestoring(bundleId: app.bundleId, into: tab.name)
+            relaunches = true
+        } else {
+            // An app WinMux can only launch opens its window in the tab on screen, so saved
+            // routing mustn't send it to another tab's saved place first.
+            if runningApps[app.bundleId] == nil, newWindowMethod(bundleId: app.bundleId, isRunning: false,
+                menuFallbackEnabled: config.workspaceSidebar.launcherMenuFallback) == .open {
+                savedWorkspaceRuntime.preferRestoring(bundleId: app.bundleId, into: tab.name, bypassingRouting: true)
+            }
+            requestNewWindow(NewWindowRequestTarget(bundleId: app.bundleId, appName: app.name,
+                bundleURL: app.bundlePath.map { URL(fileURLWithPath: $0) }), tab)
+        }
+    }
+    if relaunches { openSavedWorkspaceAppsFromSidebar(tab.name) }
+}
+
 @MainActor
 func deleteWorkspaceFromSidebar(_ workspace: WorkspaceSidebarWorkspaceViewModel) {
     runWorkspaceSidebarSession {

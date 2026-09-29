@@ -58,6 +58,7 @@ final class WorkspaceSidebarSavedWorkspaceTest: XCTestCase {
             isHomeConnected: true,
             isForceAssignedByConfig: false,
             missingAppNames: [],
+            apps: [.init(bundleId: "bobko.WinMux.test-app", bundlePath: nil, name: "bobko.WinMux.test-app")],
         ))
     }
 

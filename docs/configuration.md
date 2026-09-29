@@ -86,7 +86,17 @@ tabs-always-expanded = true
 - **New Tab** opens an empty workspace after the current one with the
   [launcher](#open-a-new-window-from-new-workspace). A new window normally gets its own
   tab; [`open-new-windows-in-new-workspace`](#open-each-new-window-in-its-own-workspace)
-  can override that default. Saved tabs stay when their last window closes.
+  can override that default.
+- Tabs don't stay empty. When a tab's last window goes, whether it closes, moves to
+  another tab or display, or is dragged away, the tab closes and its display shows the
+  next tab, or the previous one. Moving the last window of the tab on screen into another
+  tab follows it there. A new tab stays until something opens in it or you leave it. When
+  a display has no other tab, it keeps showing the empty one, which the list leaves out.
+- Pinned and saved tabs stay when their last window closes, greyed and showing their
+  apps' icons. Clicking one selects it and opens those apps again: an app that quit
+  relaunches and its windows return to their saved places, this tab first; a running app
+  is asked for a new window in the tab, as the [launcher](#open-a-new-window-from-new-workspace)
+  asks. Shift- or Command-clicking only chooses the tab.
 - Hover a tab and click **×**, or middle-click, to close its window. In a split,
   this closes only that segment. **Separate into Tabs** gives each window its own row.
   In a [browser window's tab list](browser-tabs.md), the same closes one browser tab.

@@ -151,6 +151,8 @@ enum WorkspaceSidebarAction: Equatable {
     case forgetSavedWorkspace(String)
     case setSavedWorkspacePinned(String, Bool)
     case openSavedWorkspaceApps(String)
+    /// Tabs mode: selects a saved tab whose windows are gone and opens its apps into it.
+    case openSavedTab(String)
     case moveWorkspace(String, toProject: WorkspaceProjectId)
     case moveWindow(UInt32, toWorkspace: String)
     case moveTabGroup(UInt32, toWorkspace: String)

@@ -139,6 +139,8 @@ final class WorkspaceLauncherPanel: NSPanelHud {
         request = nil
         self.workspace = workspace
         self.newTab = newTab.flatMap { $0.isNew ? $0 : pending }
+        // Tabs mode: a tab left empty is listed as a new tab while the launcher is open for it.
+        if workspaceTabWasLeftEmptyIgnoringLauncher(workspace) { runWorkspaceSidebarSession {} }
         sessionId += 1
         let session = sessionId
         model.query = ""
@@ -174,8 +176,10 @@ final class WorkspaceLauncherPanel: NSPanelHud {
     func dismiss(_ reason: WorkspaceLauncherDismissal = .closed) {
         // Losing key status as the Space changes already scheduled a close; the tab stays.
         if reason == .spaceChanged { closingNewTab = nil }
-        guard workspace != nil else { return }
+        guard let shown = workspace else { return }
         workspace = nil
+        // An empty tab it was open for without being a new tab of its own goes back out of the list.
+        if newTab == nil, workspaceTabWasLeftEmptyIgnoringLauncher(shown) { runWorkspaceSidebarSession {} }
         request?.cancel()
         request = nil
         orderOut(nil)
