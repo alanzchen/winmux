@@ -26,6 +26,9 @@ final class BrowserTabsModel: ObservableObject {
         self.safariExtension = safariExtension
     }
 
+    /// The windows some sidebar shows, and so the ones read.
+    var watchedWindowIds: Set<UInt32> { schedule.watched }
+
     func watch(_ windowIds: Set<UInt32>, sidebar: String) {
         watched[sidebar] = windowIds.isEmpty ? nil : windowIds
         schedule.watch(watched.values.reduce(into: Set<UInt32>()) { $0.formUnion($1) })

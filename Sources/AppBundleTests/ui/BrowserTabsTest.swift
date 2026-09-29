@@ -299,6 +299,104 @@ final class BrowserTabsTest: XCTestCase {
         }
     }
 
+    /// Hosts a Tabs sidebar the way its panel does: the same view, given each new snapshot.
+    @MainActor
+    private final class BrowserWatchSidebar {
+        let host = NSHostingView(rootView: AnyView(EmptyView()))
+        let model: BrowserTabsModel
+
+        init(model: BrowserTabsModel) {
+            self.model = model
+            host.frame = CGRect(x: 0, y: 0, width: 280, height: 480)
+        }
+
+        func show(_ windows: [WorkspaceSidebarWindowViewModel], width: CGFloat = 280, scope: String = "monitor:0.0,0.0") {
+            var snapshot = WorkspaceSidebarSnapshot.empty
+            snapshot.configuration.usesTabsList = true
+            snapshot.configuration.expandedWidth = 280
+            snapshot.configuration.collapsedWidth = 44
+            snapshot.visibleWidth = width
+            snapshot.targetMonitorScopeId = scope
+            snapshot.projects = [.init(id: workspaceProjectDefaultId, displayName: "Research", colorHex: nil, emoji: nil)]
+            snapshot.workspaces = windows.map { window in
+                WorkspaceSidebarWorkspaceViewModel(name: window.workspaceName, projectId: workspaceProjectDefaultId,
+                    displayName: window.workspaceName, sidebarLabel: "", isGeneratedName: true, monitorScopeId: scope,
+                    monitorName: nil, isFocused: window.isFocused, isVisible: window.isFocused, items: [.init(kind: .window(window))])
+            }
+            host.rootView = AnyView(WorkspaceSidebarView(snapshot: snapshot, reduceMotionOverride: true,
+                reduceTransparencyOverride: true, browserTabsModel: model).frame(width: 280, height: 480))
+            host.layoutSubtreeIfNeeded()
+        }
+
+        func hide() {
+            host.rootView = AnyView(EmptyView())
+            host.layoutSubtreeIfNeeded()
+        }
+    }
+
+    private func browserWindow(_ id: UInt32, workspace: String, focused: Bool = false) -> WorkspaceSidebarWindowViewModel {
+        .init(windowId: id, workspaceName: workspace, appName: "Google Chrome", appBundleId: "com.google.Chrome",
+            appBundlePath: nil, title: "Page \(id)", isFocused: focused)
+    }
+
+    /// SwiftUI applies a new root view on its next pass. Let it run first, even when the watch
+    /// shouldn't change, then wait for the expected watch rather than a fixed time.
+    @MainActor
+    private func assertWatch(_ model: BrowserTabsModel, _ expected: Set<UInt32>, _ message: String, line: UInt = #line) {
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        let deadline = Date(timeIntervalSinceNow: 2)
+        while model.watchedWindowIds != expected, Date() < deadline {
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01))
+        }
+        XCTAssertEqual(model.watchedWindowIds, expected, message, line: line)
+    }
+
+    @MainActor
+    func testTheSidebarReadsTheBrowserWindowsItShowsAfterEachSnapshot() {
+        // Each change must be read from the new snapshot, not the view before it: a watch one change
+        // behind never read a window after launch, or one that joined a project later.
+        let model = BrowserTabsModel()
+        let sidebar = BrowserWatchSidebar(model: model)
+        let a = browserWindow(83, workspace: "1", focused: true)
+        let b = browserWindow(67, workspace: "2")
+        sidebar.show([], width: 0)
+        assertWatch(model, [], "A panel first appears empty")
+        sidebar.show([a, b])
+        assertWatch(model, [83, 67], "The first real snapshot's windows are read")
+        sidebar.show([a])
+        assertWatch(model, [83], "A window that leaves the sidebar stops being read at once")
+        sidebar.show([a, b])
+        assertWatch(model, [83, 67], "A window that joins the project is read")
+        sidebar.show([browserWindow(83, workspace: "1"), browserWindow(67, workspace: "2", focused: true)])
+        assertWatch(model, [83, 67], "Focusing the other window changes nothing read")
+        sidebar.show([a, b], width: 44)
+        assertWatch(model, [], "The collapsed rail shows no browser tabs, so it reads none")
+        sidebar.show([a, b])
+        assertWatch(model, [83, 67], "Expanding it again reads them again")
+        sidebar.hide()
+        assertWatch(model, [], "A sidebar that goes away stops its reads")
+        sidebar.show([a])
+        assertWatch(model, [83], "One that appears with windows reads them at once")
+    }
+
+    @MainActor
+    func testEachDisplaysSidebarKeepsItsOwnReadsWhenOneMovesOrGoes() {
+        let model = BrowserTabsModel()
+        let left = BrowserWatchSidebar(model: model)
+        let right = BrowserWatchSidebar(model: model)
+        left.show([browserWindow(83, workspace: "1", focused: true)], scope: "monitor:0.0,0.0")
+        right.show([browserWindow(67, workspace: "2", focused: true)], scope: "monitor:1920.0,0.0")
+        assertWatch(model, [83, 67], "Both sidebars' windows are read")
+        // The left panel now describes another display with the same windows...
+        left.show([browserWindow(83, workspace: "1", focused: true)], scope: "monitor:0.0,1080.0")
+        assertWatch(model, [83, 67], "Moving keeps its windows read")
+        // ...and its old display's reads are gone, not left behind to keep a window read.
+        left.show([], scope: "monitor:0.0,1080.0")
+        assertWatch(model, [67], "Only the new display's reads remained to clear")
+        right.hide()
+        assertWatch(model, [], "The other sidebar's reads end with it")
+    }
+
     func testTitlesOnlyRemoveKnownDiagnosticSuffixes() {
         XCTAssertEqual(browserTabDisplayTitle("Design - API - Memory usage - 64 MB"), "Design - API")
         XCTAssertEqual(browserTabDisplayTitle("项目 - 内存用量 - 64 MB"), "项目")

@@ -26,12 +26,18 @@ struct WorkspaceSidebarView: View {
             .flatMap(workspaceSidebarPinnedTabWindows).map(\.windowId))
     }
 
-    private func updateBrowserWatch() {
-        if let previous = browserWatchScope, previous != snapshot.targetMonitorScopeId {
+    private var browserWatch: WorkspaceSidebarBrowserWatch {
+        .init(windowIds: watchedBrowserWindowIds, scope: snapshot.targetMonitorScopeId)
+    }
+
+    /// Takes the watch to apply as a value: `onChange` runs on the previous view, whose snapshot
+    /// would give the windows the sidebar showed before this change.
+    private func updateBrowserWatch(_ watch: WorkspaceSidebarBrowserWatch) {
+        if let previous = browserWatchScope, previous != watch.scope {
             browserTabsModel.watch([], sidebar: previous)
         }
-        browserWatchScope = snapshot.targetMonitorScopeId
-        browserTabsModel.watch(watchedBrowserWindowIds, sidebar: snapshot.targetMonitorScopeId)
+        browserWatchScope = watch.scope
+        browserTabsModel.watch(watch.windowIds, sidebar: watch.scope)
     }
     @State var projectSwipeTranslation: CGFloat = 0
     @State var projectSwipeStartProjectId: WorkspaceProjectId? = nil
@@ -215,12 +221,11 @@ struct WorkspaceSidebarView: View {
         }
         .onAppear {
             lastActiveProjectId = snapshot.activeProjectId
-            updateBrowserWatch()
+            updateBrowserWatch(browserWatch)
             refreshSidebarSearchKeyHandler()
         }
         .onChange(of: snapshot) { refreshSidebarSearch(for: $0) }
-        .onChange(of: watchedBrowserWindowIds) { _ in updateBrowserWatch() }
-        .onChange(of: snapshot.targetMonitorScopeId) { _ in updateBrowserWatch() }
+        .onChange(of: browserWatch) { updateBrowserWatch($0) }
         .onDisappear {
             if let scope = browserWatchScope { browserTabsModel.watch([], sidebar: scope) }
             // The handler holds a copy of this view, which holds the relay.
@@ -559,6 +564,12 @@ private func workspaceSidebarDragPointer(from notification: Notification) -> CGP
 
 private func notificationPanel(from notification: Notification) -> WorkspaceSidebarPanel? {
     notification.object as? WorkspaceSidebarPanel
+}
+
+/// The browser windows one sidebar reads, and the display it's on.
+struct WorkspaceSidebarBrowserWatch: Equatable {
+    let windowIds: Set<UInt32>
+    let scope: String
 }
 
 struct WorkspaceSidebarContainerView: View {
