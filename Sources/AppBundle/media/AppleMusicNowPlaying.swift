@@ -15,7 +15,8 @@ struct AppleMusicNowPlaying: Equatable {
     var artist: String
     var album: String
     var duration: TimeInterval?
-    /// Where playback was at `positionDate`; nil until Music has been asked.
+    /// Where playback was at `positionDate`; nil until Music has been asked, except that a new
+    /// track is assumed to start at zero while Music answers.
     var position: TimeInterval?
     var positionDate: Date
 
@@ -228,6 +229,10 @@ final class AppleMusicNowPlayingModel: ObservableObject {
     private var generation = 0
     /// Bumped by every newer piece of state, so a slower reply from Music never overwrites it.
     private(set) var stateSequence = 0
+    /// Music's last status reply said where it is, so a new track's start may be assumed.
+    private var musicAnswers = false
+    /// The position is that assumption, which Music hasn't confirmed yet.
+    private var positionIsGuess = false
     private let isMusicRunning: @MainActor () -> Bool
     /// Music's status, or nil when WinMux may not ask it without prompting.
     private let requestStatus: @Sendable (_ askingMusic: Bool) async -> AppleMusicScriptOutput?
@@ -313,10 +318,18 @@ final class AppleMusicNowPlayingModel: ObservableObject {
 
     func receive(_ next: AppleMusicNowPlaying) {
         var next = next
-        // The notification has no position; keep counting from the last one Music gave.
-        if let current = nowPlaying, current.trackKey == next.trackKey, next.state != .stopped {
+        var guessed = false
+        // The notification has no position; keep counting from the last one Music gave. While
+        // Music answers, a new track starts from its beginning until its reply says otherwise,
+        // so the progress bar doesn't drop out and back in meanwhile.
+        if next.state != .stopped, let current = nowPlaying, current.trackKey == next.trackKey {
             next.position = current.elapsed(at: next.positionDate)
+            guessed = positionIsGuess
+        } else if next.state != .stopped, musicAnswers {
+            next.position = 0
+            guessed = true
         }
+        positionIsGuess = guessed && next.position != nil
         stateSequence += 1
         apply(next)
         refresh()
@@ -331,17 +344,35 @@ final class AppleMusicNowPlayingModel: ObservableObject {
         let sequence = stateSequence
         let requestStatus = requestStatus
         _ = Task { [weak self] in
-            guard let result = await requestStatus(askingMusic) else { return }
+            let result = await requestStatus(askingMusic)
             self?.receive(statusResult: result, sequence: sequence)
         }
     }
 
-    func receive(statusResult result: AppleMusicScriptOutput, sequence: Int) {
-        guard sequence == stateSequence, case .success(let output) = result else { return }
+    /// `result` is nil when Music may not be asked without prompting.
+    func receive(statusResult result: AppleMusicScriptOutput?, sequence: Int) {
+        guard sequence == stateSequence else { return }
+        guard case .success(let output) = result else { return statusFailed() }
         needsAutomationPermission = false
         if output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return clear() }
-        if let next = appleMusicNowPlaying(statusOutput: output) { apply(next) }
+        if let next = appleMusicNowPlaying(statusOutput: output) {
+            musicAnswers = true
+            positionIsGuess = false
+            apply(next)
+        } else {
+            statusFailed()
+        }
         loadArtworkIfNeeded()
+    }
+
+    /// Music didn't say where it is: a new track's assumed start goes rather than count on
+    /// unchecked, and none is assumed until Music answers again.
+    private func statusFailed() {
+        musicAnswers = false
+        guard positionIsGuess, var current = nowPlaying else { return }
+        positionIsGuess = false
+        current.position = nil
+        nowPlaying = current
     }
 
     func apply(_ next: AppleMusicNowPlaying) {
@@ -398,6 +429,8 @@ final class AppleMusicNowPlayingModel: ObservableObject {
     /// Every caller means Music isn't running: it quit, never started, or isn't followed.
     private func clear() {
         stateSequence += 1
+        musicAnswers = false
+        positionIsGuess = false
         resetArtwork()
         if nowPlaying != nil { nowPlaying = nil }
         if isRunning { isRunning = false }

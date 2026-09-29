@@ -205,6 +205,97 @@ final class WorkspaceSidebarNowPlayingTest: XCTestCase {
         XCTAssertEqual(model.nowPlaying?.position, 42)
     }
 
+    func testANewTrackStartsFromItsBeginningUntilMusicSaysWhereItIs() {
+        let model = AppleMusicNowPlayingModel(isMusicRunning: { true }, requestStatus: { _ in nil },
+            requestArtwork: { .failed })
+        model.receive(track(.playing))
+        model.receive(track(.playing, title: "Next"))
+        XCTAssertNil(model.nowPlaying?.position, "Nothing is assumed before Music has said where it is")
+        model.receive(statusResult: status("playing", title: "Next", position: "120"), sequence: model.stateSequence)
+        model.receive(track(.paused, title: "Next"))
+        XCTAssertEqual(model.nowPlaying?.position ?? 0, 120, accuracy: 1, "The same track counts on from Music's answer")
+        model.receive(track(.paused, title: "Third"))
+        XCTAssertEqual(model.nowPlaying?.title, "Third")
+        XCTAssertEqual(model.nowPlaying?.position, 0)
+        XCTAssertEqual(model.nowPlaying?.elapsed(at: Date().addingTimeInterval(60)), 0, "A paused new track stays put")
+        model.receive(track(.playing, title: "Fourth"))
+        XCTAssertEqual(model.nowPlaying?.position, 0, "Skipping on before Music answers keeps the progress bar")
+        model.receive(statusResult: status("playing", title: "Fourth", position: "0,5"), sequence: model.stateSequence)
+        XCTAssertEqual(model.nowPlaying?.position, 0.5, "Music's answer replaces the assumption")
+        model.receive(track(.stopped))
+        XCTAssertNil(model.nowPlaying?.position)
+        model.receive(track(.playing, title: "Fifth"))
+        XCTAssertEqual(model.nowPlaying?.position, 0, "Playing again after a stop starts from the beginning too")
+    }
+
+    func testAnAssumedStartMusicDoesntConfirmIsDropped() {
+        let model = AppleMusicNowPlayingModel(isMusicRunning: { true }, requestStatus: { _ in nil },
+            requestArtwork: { .failed })
+        model.receive(statusResult: status("playing", position: "30"), sequence: model.stateSequence)
+        let beforeTheChange = model.stateSequence
+        model.receive(track(.playing, title: "Next"))
+        model.receive(track(.playing, title: "Next"))
+        XCTAssertEqual(model.nowPlaying?.position ?? -1, 0, accuracy: 1, "Music repeating itself keeps the assumption")
+        model.receive(statusResult: .failed, sequence: beforeTheChange)
+        XCTAssertNotNil(model.nowPlaying?.position, "A failure from before the track changed is ignored")
+        model.receive(statusResult: .failed, sequence: model.stateSequence)
+        XCTAssertNil(model.nowPlaying?.position, "A track that resumed partway doesn't count on from zero unchecked")
+        model.receive(track(.playing, title: "Third"))
+        XCTAssertNil(model.nowPlaying?.position, "Nothing is assumed until Music answers again")
+        model.receive(statusResult: status("playing", title: "Third", position: "5"), sequence: model.stateSequence)
+        model.receive(track(.playing, title: "Fourth"))
+        XCTAssertEqual(model.nowPlaying?.position, 0)
+        model.receive(statusResult: nil, sequence: model.stateSequence)
+        XCTAssertNil(model.nowPlaying?.position, "Nor once WinMux may no longer ask Music")
+        model.receive(statusResult: status("playing", title: "Fourth", position: "5"), sequence: model.stateSequence)
+        model.receive(statusResult: .failed, sequence: model.stateSequence)
+        XCTAssertEqual(model.nowPlaying?.position, 5, "A position Music gave is kept")
+    }
+
+    func testAnAssumedStartGoesOnceMusicMayNoLongerBeAsked() async throws {
+        let attempts = AttemptCounter()
+        let model = AppleMusicNowPlayingModel(isMusicRunning: { true }, requestStatus: { _ in
+            await attempts.next() == 1 ? .success(["playing", "Song", "Artist", "Album", "200", "30"].joined(separator: "\u{1F}")) : nil
+        }, requestArtwork: { .success("") })
+        model.receive(track(.playing))
+        try await waitUntil { model.nowPlaying?.position == 30 }
+        model.receive(track(.playing, title: "Next"))
+        XCTAssertEqual(model.nowPlaying?.position, 0)
+        try await waitUntil { model.nowPlaying?.position == nil }
+        XCTAssertEqual(model.nowPlaying?.title, "Next")
+    }
+
+    /// Music's tab doesn't shrink and grow back while Music is asked where a new track is.
+    func testSwitchingTracksKeepsTheProgressBarWhileMusicIsAsked() async throws {
+        let replies = HeldReplies()
+        defer { Task { await replies.release() } }
+        let model = AppleMusicNowPlayingModel(isMusicRunning: { true }, requestStatus: { _ in
+            await replies.wait()
+            return nil
+        }, requestArtwork: { .failed })
+        let host = NSHostingView(rootView: WorkspaceSidebarMusicNowPlayingView(onSelect: {}, model: model)
+            .frame(width: 280))
+        func height() -> CGFloat {
+            host.layoutSubtreeIfNeeded()
+            return host.fittingSize.height
+        }
+        model.receive(track(.playing))
+        try await waitUntil { height() > 40 }
+        let withoutProgress = height()
+        model.receive(statusResult: status("playing"), sequence: model.stateSequence)
+        try await waitUntil { height() > withoutProgress + 5 }
+        let withProgress = height()
+        model.receive(track(.playing, title: "Next"))
+        // Music's answer stays held throughout, past the track change's animation.
+        var lowest = withProgress
+        for _ in 0..<30 {
+            lowest = min(lowest, height())
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(model.nowPlaying?.title, "Next")
+        XCTAssertEqual(lowest, withProgress, accuracy: 0.5)
+    }
+
     func testArtworkThatFailsToLoadIsRetriedOnTheNextUpdate() async throws {
         let attempts = AttemptCounter()
         let png = try XCTUnwrap(NSImage(size: NSSize(width: 2, height: 2), flipped: false) { _ in
@@ -267,5 +358,22 @@ private actor AttemptCounter {
     func next() -> Int {
         count += 1
         return count
+    }
+}
+
+/// Holds a test's requests to Music until it lets them through.
+private actor HeldReplies {
+    private var released = false
+    private var waiting: [CheckedContinuation<Void, Never>] = []
+
+    func wait() async {
+        guard !released else { return }
+        await withCheckedContinuation { waiting.append($0) }
+    }
+
+    func release() {
+        released = true
+        for continuation in waiting { continuation.resume() }
+        waiting = []
     }
 }
