@@ -62,6 +62,10 @@ default. When enabled, icons appear as tabs are selected in listed windows. Unvi
 addresses, and failed downloads use the browser's app icon. Safari tabs get their icons from
 the [WinMux Tabs extension](#safari-extension) instead; this setting doesn't affect them.
 
+A browser window with one tab isn't a group, so its row and pinned tile show that tab's
+website icon in place of the browser's, at the same size, once the icon is known. A window
+with more tabs keeps the browser's icon on its row, above its tabs' own icons.
+
 WinMux reads the window's document address and keeps only its HTTPS
 origin, after two consistent observations. It requests `/favicon.ico`, then
 `/apple-touch-icon.png`, directly from that origin. It never requests the page URL

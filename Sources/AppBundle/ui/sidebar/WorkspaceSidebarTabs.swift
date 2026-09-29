@@ -161,9 +161,7 @@ struct WorkspaceSidebarTabRowView: View {
                 Group {
                     if let emojiOverride { Text(emojiOverride).frame(width: iconSize) }
                     else {
-                        WorkspaceSidebarTabIcon(bundleId: window.appBundleId, bundlePath: window.appBundlePath,
-                            size: iconSize,
-                            isOnLightBackground: isActive)
+                        WorkspaceSidebarWindowIcon(window: window, size: iconSize, isOnLightBackground: isActive)
                     }
                 }.overlay(alignment: .topTrailing) {
                     if iconOnly {

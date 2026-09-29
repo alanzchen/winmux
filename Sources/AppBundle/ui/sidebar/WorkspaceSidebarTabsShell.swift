@@ -326,7 +326,7 @@ struct WorkspaceSidebarTabCollectionHeader: View {
                 if disclosure.isCollapsed {
                     HStack(spacing: 3) {
                         ForEach(Array(workspaces.flatMap(workspaceSidebarPinnedTabWindows).prefix(3))) { window in
-                            WorkspaceSidebarTabIcon(bundleId: window.appBundleId, bundlePath: window.appBundlePath, size: 13)
+                            WorkspaceSidebarWindowIcon(window: window, size: 13)
                                 .accessibilityHidden(true)
                         }
                     }

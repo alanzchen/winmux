@@ -207,7 +207,7 @@ final class MacApp: AbstractApp {
             }
             var snapshot = window.browserTabScanner?.scan(until: budgetEnd, cancelled: { job.isCancelled })
             try job.checkCancellation()
-            if readIcons, adapter == .chromium, let value = snapshot, value.isGroup,
+            if readIcons, adapter == .chromium, let value = snapshot,
                ProcessInfo.processInfo.systemUptime < budgetEnd,
                let candidate = NativeBrowserTabNode(element: window.ax).iconCandidate(for: value) {
                 if window.browserTabScanner?.confirmsSelection(in: value, until: budgetEnd, cancelled: { job.isCancelled }) == true {

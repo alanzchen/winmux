@@ -208,8 +208,7 @@ struct WorkspaceSidebarPinnedTab: View {
         if windowCount <= 1, let emoji = workspace.appearance.emoji {
             Text(emoji).font(.system(size: compact ? 19 : 23))
         } else if let window {
-            WorkspaceSidebarTabIcon(bundleId: window.appBundleId, bundlePath: window.appBundlePath,
-                size: compact ? min(20, 26 / CGFloat(max(windowCount, 1))) : 22)
+            WorkspaceSidebarWindowIcon(window: window, size: compact ? min(20, 26 / CGFloat(max(windowCount, 1))) : 22)
         } else { Image(systemName: "macwindow").font(.system(size: compact ? 19 : 22)) }
     }
 }
