@@ -19,9 +19,17 @@ struct AppleMusicNowPlaying: Equatable {
     /// track is assumed to start at zero while Music answers.
     var position: TimeInterval?
     var positionDate: Date
+    /// Music's own identifier for the track, alike in its notifications and its replies.
+    var persistentId: String?
 
-    /// Changes with the track, so its artwork is fetched once.
     var trackKey: String { [title, artist, album].joined(separator: "\u{1F}") }
+
+    /// Whether this is the same track, by Music's identifier when both have it: a notification
+    /// and a reply needn't spell a track's name, artist, and album alike.
+    func isSameTrack(as other: AppleMusicNowPlaying) -> Bool {
+        if let persistentId, let otherId = other.persistentId { return persistentId == otherId }
+        return trackKey == other.trackKey
+    }
 
     /// Playback position now, counting on while playing.
     func elapsed(at date: Date) -> TimeInterval? {
@@ -53,6 +61,8 @@ func appleMusicNowPlaying(playerInfo info: [AnyHashable: Any], date: Date = Date
         duration: totalTime.flatMap { $0 > 0 ? $0 / 1000 : nil },
         position: nil,
         positionDate: date,
+        // The notification's number is the reply's hexadecimal identifier.
+        persistentId: (info["PersistentID"] as? NSNumber).map { String(format: "%016llX", UInt64(bitPattern: $0.int64Value)) },
     )
 }
 
@@ -66,7 +76,11 @@ let appleMusicStatusScript = """
         if s is "stopped" then return s
         set sep to character id 31
         set t to current track
-        return s & sep & (name of t) & sep & (artist of t) & sep & (album of t) & sep & ((duration of t) as string) & sep & ((player position) as string)
+        set trackId to ""
+        try
+            set trackId to persistent ID of t
+        end try
+        return s & sep & (name of t) & sep & (artist of t) & sep & (album of t) & sep & ((duration of t) as string) & sep & ((player position) as string) & sep & trackId
     end tell
     """
 
@@ -88,7 +102,7 @@ func appleMusicNowPlaying(statusOutput output: String, date: Date = Date()) -> A
     }
     // A stream or an untagged track has no duration, artist, or album; AppleScript spells that out.
     let fields = text.components(separatedBy: appleMusicFieldSeparator).map { $0 == "missing value" ? "" : $0 }
-    guard fields.count == 6 else { return nil }
+    guard fields.count == 7 else { return nil }
     let state: AppleMusicNowPlaying.State
     switch fields[0] {
         case "playing", "fast forwarding", "rewinding": state = .playing
@@ -99,7 +113,8 @@ func appleMusicNowPlaying(statusOutput output: String, date: Date = Date()) -> A
         TimeInterval(field.replacingOccurrences(of: ",", with: ".")).flatMap { $0.isFinite && $0 >= 0 ? $0 : nil }
     }
     return AppleMusicNowPlaying(state: state, title: fields[1], artist: fields[2], album: fields[3],
-        duration: seconds(fields[4]).flatMap { $0 > 0 ? $0 : nil }, position: seconds(fields[5]), positionDate: date)
+        duration: seconds(fields[4]).flatMap { $0 > 0 ? $0 : nil }, position: seconds(fields[5]), positionDate: date,
+        persistentId: fields[6].isEmpty ? nil : fields[6].uppercased())
 }
 
 /// Decodes osascript's `«data XXXX0123…»` rendering of raw data.
@@ -233,6 +248,8 @@ final class AppleMusicNowPlayingModel: ObservableObject {
     private var musicAnswers = false
     /// The position is that assumption, which Music hasn't confirmed yet.
     private var positionIsGuess = false
+    /// What Music's latest notification said, as it said it.
+    private var lastNotified: AppleMusicNowPlaying?
     private let isMusicRunning: @MainActor () -> Bool
     /// Music's status, or nil when WinMux may not ask it without prompting.
     private let requestStatus: @Sendable (_ askingMusic: Bool) async -> AppleMusicScriptOutput?
@@ -319,11 +336,28 @@ final class AppleMusicNowPlayingModel: ObservableObject {
     func receive(_ next: AppleMusicNowPlaying) {
         var next = next
         var guessed = false
+        // Music repeats what it last said about a track each time it plays or pauses; different
+        // details for it are news, as a stream's next song under one identifier is.
+        let isNews = lastNotified.map { $0.isSameTrack(as: next) && $0.trackKey != next.trackKey } ?? false
+        lastNotified = next
         // The notification has no position; keep counting from the last one Music gave. While
-        // Music answers, a new track starts from its beginning until its reply says otherwise,
-        // so the progress bar doesn't drop out and back in meanwhile.
-        if next.state != .stopped, let current = nowPlaying, current.trackKey == next.trackKey {
-            next.position = current.elapsed(at: next.positionDate)
+        // Music answers, its replies say what the track is, so a notification for the track shown
+        // only says whether it plays and pausing redraws nothing else. Otherwise the notification's
+        // details show, keeping a length it leaves out. While Music answers, a new track starts
+        // from its beginning until its reply says otherwise, so the progress bar doesn't drop out.
+        if next.state != .stopped, let current = nowPlaying, current.isSameTrack(as: next) {
+            let position = current.elapsed(at: next.positionDate)
+            if musicAnswers, !isNews {
+                let (state, date, id) = (next.state, next.positionDate, next.persistentId)
+                next = current
+                next.state = state
+                next.positionDate = date
+                next.persistentId = current.persistentId ?? id
+            } else {
+                next.duration = next.duration ?? current.duration
+                next.persistentId = next.persistentId ?? current.persistentId
+            }
+            next.position = position
             guessed = positionIsGuess
         } else if next.state != .stopped, musicAnswers {
             next.position = 0
@@ -355,7 +389,11 @@ final class AppleMusicNowPlayingModel: ObservableObject {
         guard case .success(let output) = result else { return statusFailed() }
         needsAutomationPermission = false
         if output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return clear() }
-        if let next = appleMusicNowPlaying(statusOutput: output) {
+        if var next = appleMusicNowPlaying(statusOutput: output) {
+            // A reply that can't name the track keeps the identifier its notification gave.
+            if next.persistentId == nil, let current = nowPlaying, current.isSameTrack(as: next) {
+                next.persistentId = current.persistentId
+            }
             musicAnswers = true
             positionIsGuess = false
             apply(next)
@@ -431,6 +469,7 @@ final class AppleMusicNowPlayingModel: ObservableObject {
         stateSequence += 1
         musicAnswers = false
         positionIsGuess = false
+        lastNotified = nil
         resetArtwork()
         if nowPlaying != nil { nowPlaying = nil }
         if isRunning { isRunning = false }

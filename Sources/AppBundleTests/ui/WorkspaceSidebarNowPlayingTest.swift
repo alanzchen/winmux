@@ -32,13 +32,19 @@ final class WorkspaceSidebarNowPlayingTest: XCTestCase {
             duration: 245, position: nil, positionDate: date))
         XCTAssertEqual(appleMusicNowPlaying(playerInfo: ["Player State": "Stopped"])?.state, .stopped)
         XCTAssertNil(appleMusicNowPlaying(playerInfo: ["Name": "Song"]))
+        // Music's numbers, as its replies spell them.
+        XCTAssertEqual(appleMusicNowPlaying(playerInfo: ["Player State": "Paused",
+            "PersistentID": NSNumber(value: Int64(8_650_430_949_386_142_921))])?.persistentId, "780C811DD434C4C9")
+        XCTAssertEqual(appleMusicNowPlaying(playerInfo: ["Player State": "Paused",
+            "PersistentID": NSNumber(value: Int64(-417_670_289_165_452_579))])?.persistentId, "FA342315BD0EFADD")
     }
 
     func testMusicStatusOutputParsesEvenWithADecimalComma() throws {
         let date = Date(timeIntervalSince1970: 1000)
         let sep = "\u{1F}"
-        let output = ["paused", "Song", "Artist", "", "245,5", "12,25"].joined(separator: sep) + "\n"
+        let output = ["paused", "Song", "Artist", "", "245,5", "12,25", "780c811dd434c4c9"].joined(separator: sep) + "\n"
         let paused = try XCTUnwrap(appleMusicNowPlaying(statusOutput: output, date: date))
+        XCTAssertEqual(paused.persistentId, "780C811DD434C4C9")
         XCTAssertEqual(paused.state, .paused)
         XCTAssertEqual(paused.duration, 245.5)
         XCTAssertEqual(paused.position, 12.25)
@@ -46,7 +52,8 @@ final class WorkspaceSidebarNowPlayingTest: XCTestCase {
         XCTAssertEqual(appleMusicNowPlaying(statusOutput: "stopped\n")?.state, .stopped)
         XCTAssertNil(appleMusicNowPlaying(statusOutput: "playing\(sep)Song"))
         let stream = try XCTUnwrap(appleMusicNowPlaying(statusOutput: ["playing", "Radio", "missing value", "missing value",
-            "missing value", "30"].joined(separator: sep)))
+            "missing value", "30", ""].joined(separator: sep)))
+        XCTAssertNil(stream.persistentId, "A track Music gives no identifier is told apart by its name")
         XCTAssertEqual(stream.artist, "", "A stream's missing tags aren't shown as text")
         XCTAssertNil(stream.duration)
     }
@@ -163,7 +170,7 @@ final class WorkspaceSidebarNowPlayingTest: XCTestCase {
         let model = AppleMusicNowPlayingModel(isMusicRunning: { music.isRunning }, requestStatus: { _ in
             try? await Task.sleep(for: .milliseconds(100))
             _ = await replies.next()
-            return .success(["playing", "Song", "Artist", "Album", "200", "10"].joined(separator: "\u{1F}"))
+            return .success(["playing", "Song", "Artist", "Album", "200", "10", ""].joined(separator: "\u{1F}"))
         }, requestArtwork: { .success("") })
         defer { model.setEnabled(false) }
         model.setEnabled(true)
@@ -190,7 +197,7 @@ final class WorkspaceSidebarNowPlayingTest: XCTestCase {
     }
 
     private func status(_ state: String, title: String = "Song", position: String = "10") -> AppleMusicScriptOutput {
-        .success([state, title, "Artist", "Album", "200", position].joined(separator: "\u{1F}"))
+        .success([state, title, "Artist", "Album", "200", position, ""].joined(separator: "\u{1F}"))
     }
 
     func testAnOlderReplyFromMusicNeverOverwritesANewerPause() {
@@ -255,7 +262,7 @@ final class WorkspaceSidebarNowPlayingTest: XCTestCase {
     func testAnAssumedStartGoesOnceMusicMayNoLongerBeAsked() async throws {
         let attempts = AttemptCounter()
         let model = AppleMusicNowPlayingModel(isMusicRunning: { true }, requestStatus: { _ in
-            await attempts.next() == 1 ? .success(["playing", "Song", "Artist", "Album", "200", "30"].joined(separator: "\u{1F}")) : nil
+            await attempts.next() == 1 ? .success(["playing", "Song", "Artist", "Album", "200", "30", ""].joined(separator: "\u{1F}")) : nil
         }, requestArtwork: { .success("") })
         model.receive(track(.playing))
         try await waitUntil { model.nowPlaying?.position == 30 }
@@ -294,6 +301,141 @@ final class WorkspaceSidebarNowPlayingTest: XCTestCase {
         }
         XCTAssertEqual(model.nowPlaying?.title, "Next")
         XCTAssertEqual(lowest, withProgress, accuracy: 0.5)
+    }
+
+    /// Music's notifications for the track already shown say only whether it plays; they may
+    /// leave out its length or spell it differently from Music's replies.
+    func testPausingChangesOnlyWhetherMusicPlays() async throws {
+        let replies = HeldReplies()
+        defer { Task { await replies.release() } }
+        let artworkRequests = AttemptCounter()
+        let hex = try redSquareHex()
+        let model = AppleMusicNowPlayingModel(isMusicRunning: { true }, requestStatus: { _ in
+            await replies.wait()
+            return nil
+        }, requestArtwork: {
+            _ = await artworkRequests.next()
+            return .success("«data tdta\(hex)»")
+        })
+        model.receive(statusResult: .success(["playing", "Song", "Artist", "Album", "200", "30", "780C811DD434C4C9"]
+            .joined(separator: "\u{1F}")), sequence: model.stateSequence)
+        try await waitUntil { model.artwork != nil }
+        let id = NSNumber(value: Int64(bitPattern: 0x780C_811D_D434_C4C9))
+        func notify(_ info: [AnyHashable: Any]) throws {
+            model.receive(try XCTUnwrap(appleMusicNowPlaying(playerInfo: info.merging(["PersistentID": id]) { $1 })))
+        }
+        // Music's notifications spell the track their own way, and this pause leaves out its length.
+        try notify(["Player State": "Playing", "Name": "Song (Live)", "Artist": "Artist"])
+        try notify(["Player State": "Paused", "Name": "Song (Live)", "Artist": "Artist"])
+        XCTAssertEqual(model.nowPlaying?.state, .paused)
+        XCTAssertEqual(model.nowPlaying?.duration, 200, "A notification without the length keeps it")
+        XCTAssertEqual(model.nowPlaying?.title, "Song", "The track keeps what Music's reply said")
+        XCTAssertEqual(model.nowPlaying?.album, "Album")
+        XCTAssertEqual(model.nowPlaying?.position ?? 0, 30, accuracy: 1, "Nor does it start over")
+        try notify(["Player State": "Playing", "Name": "Song (Live)", "Artist": "Artist",
+            "Total Time": NSNumber(value: 200_000)])
+        XCTAssertEqual(model.nowPlaying?.state, .playing)
+        XCTAssertEqual(model.nowPlaying?.title, "Song")
+        XCTAssertNotNil(model.artwork)
+        try await Task.sleep(for: .milliseconds(50))
+        let requests = await artworkRequests.count
+        XCTAssertEqual(requests, 1, "The artwork isn't fetched again")
+        try notify(["Player State": "Playing", "Name": "Next Song", "Artist": "Radio"])
+        XCTAssertEqual(model.nowPlaying?.title, "Next Song", "A stream's next song under one identifier shows")
+        XCTAssertNil(model.artwork, "and gets its own artwork")
+        model.receive(try XCTUnwrap(appleMusicNowPlaying(playerInfo: ["Player State": "Playing", "Name": "Song",
+            "Artist": "Artist", "Album": "Album", "PersistentID": NSNumber(value: 7), "Total Time": NSNumber(value: 100_000)])))
+        XCTAssertEqual(model.nowPlaying?.duration, 100, "Another track, however it's spelled, is new")
+        XCTAssertEqual(model.nowPlaying?.position, 0)
+    }
+
+    func testAReplyWithoutAnIdentifierTakesTheNotificationsOne() throws {
+        let model = AppleMusicNowPlayingModel(isMusicRunning: { true }, requestStatus: { _ in nil },
+            requestArtwork: { .failed })
+        model.receive(statusResult: status("playing"), sequence: model.stateSequence)
+        model.receive(try XCTUnwrap(appleMusicNowPlaying(playerInfo: ["Player State": "Paused", "Name": "Song",
+            "Artist": "Artist", "Album": "Album", "PersistentID": NSNumber(value: 42)])))
+        XCTAssertEqual(model.nowPlaying?.state, .paused)
+        XCTAssertEqual(model.nowPlaying?.persistentId, "000000000000002A")
+        model.receive(statusResult: status("paused"), sequence: model.stateSequence)
+        XCTAssertEqual(model.nowPlaying?.persistentId, "000000000000002A", "Nor does the next reply lose it")
+        model.receive(statusResult: status("playing", title: "Other Song"), sequence: model.stateSequence)
+        XCTAssertNil(model.nowPlaying?.persistentId, "Another track doesn't take it")
+    }
+
+    /// A stream's songs can share one identifier; Music's reply naming the next one brings its artwork.
+    func testANewSongUnderOneIdentifierGetsItsOwnArtwork() async throws {
+        let artworkRequests = AttemptCounter()
+        let hex = try redSquareHex()
+        let model = AppleMusicNowPlayingModel(isMusicRunning: { true }, requestStatus: { _ in nil }, requestArtwork: {
+            _ = await artworkRequests.next()
+            return .success("«data tdta\(hex)»")
+        })
+        func reply(_ title: String) {
+            model.receive(statusResult: .success(["playing", title, "Radio", "", "missing value", "30", "000000000000002A"]
+                .joined(separator: "\u{1F}")), sequence: model.stateSequence)
+        }
+        reply("First Song")
+        try await waitUntil { model.artwork != nil }
+        reply("Second Song")
+        XCTAssertEqual(model.nowPlaying?.title, "Second Song")
+        try await waitUntil { await artworkRequests.count == 2 }
+        try await waitUntil { model.artwork != nil }
+    }
+
+    func testWithoutMusicsRepliesNotificationsSayWhatsPlaying() throws {
+        let model = AppleMusicNowPlayingModel(isMusicRunning: { true }, requestStatus: { _ in nil },
+            requestArtwork: { .failed })
+        func notify(_ info: [AnyHashable: Any]) throws {
+            model.receive(try XCTUnwrap(appleMusicNowPlaying(playerInfo: info.merging(["PersistentID": NSNumber(value: 42)])
+                { $1 })))
+        }
+        try notify(["Player State": "Playing", "Name": "Song", "Total Time": NSNumber(value: 200_000)])
+        try notify(["Player State": "Paused", "Name": "Song"])
+        XCTAssertEqual(model.nowPlaying?.state, .paused)
+        XCTAssertEqual(model.nowPlaying?.duration, 200, "A pause announced without the length keeps it")
+        try notify(["Player State": "Playing", "Name": "Next Song"])
+        XCTAssertEqual(model.nowPlaying?.title, "Next Song", "A stream's next song under one identifier still shows")
+    }
+
+    /// The player keeps its progress bar through a pause that Music announces without the length.
+    func testPausingKeepsTheProgressBar() async throws {
+        let replies = HeldReplies()
+        defer { Task { await replies.release() } }
+        let model = AppleMusicNowPlayingModel(isMusicRunning: { true }, requestStatus: { _ in
+            await replies.wait()
+            return nil
+        }, requestArtwork: { .success("") })
+        let host = NSHostingView(rootView: WorkspaceSidebarMusicNowPlayingView(onSelect: {}, model: model)
+            .frame(width: 280))
+        func height() -> CGFloat {
+            host.layoutSubtreeIfNeeded()
+            return host.fittingSize.height
+        }
+        model.receive(statusResult: .success(["playing", "Song", "Artist", "Album", "200", "30", "000000000000002A"]
+            .joined(separator: "\u{1F}")), sequence: model.stateSequence)
+        try await waitUntil { height() > 60 }
+        let withProgress = height()
+        // Music says the old state first, then the new one, spelling the track its own way.
+        for state in ["Playing", "Paused"] {
+            model.receive(try XCTUnwrap(appleMusicNowPlaying(playerInfo: ["Player State": state, "Name": "Song (Live)",
+                "Artist": "Artist", "PersistentID": NSNumber(value: 42)])))
+        }
+        var lowest = withProgress
+        for _ in 0..<30 {
+            lowest = min(lowest, height())
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(model.nowPlaying?.state, .paused)
+        XCTAssertEqual(model.nowPlaying?.title, "Song")
+        XCTAssertEqual(lowest, withProgress, accuracy: 0.5)
+    }
+
+    private func redSquareHex() throws -> String {
+        let image = try XCTUnwrap(NSImage(size: NSSize(width: 2, height: 2), flipped: false) { _ in
+            NSColor.red.setFill(); NSRect(x: 0, y: 0, width: 2, height: 2).fill(); return true
+        }.tiffRepresentation)
+        return image.map { String(format: "%02X", $0) }.joined()
     }
 
     func testArtworkThatFailsToLoadIsRetriedOnTheNextUpdate() async throws {
