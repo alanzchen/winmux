@@ -98,6 +98,7 @@ private var activeSidebarPinnedTabDrag: (name: String, tab: Workspace)?
 
 @MainActor
 func updateSidebarPinnedTabDrag(_ name: String, pointer: CGPoint) {
+    guard WorkspaceSidebarDragSessions.shared.acceptUpdate() else { return }
     MousePointerTracker.shared.note(point: pointer)
     if activeSidebarPinnedTabDrag?.name != name {
         guard let tab = Workspace.existing(byName: name) else { return }
@@ -121,10 +122,12 @@ func finishSidebarPinnedTabDrag(_ name: String, pointer: CGPoint) {
     guard let drag = activeSidebarPinnedTabDrag, drag.name == name else { return }
     activeSidebarPinnedTabDrag = nil
     MousePointerTracker.shared.note(point: pointer)
+    let released = WorkspaceSidebarDragSessions.shared.consumeRelease() != nil
     let tab = Workspace.existing(byName: name) === drag.tab ? drag.tab : nil
-    let drop = tab.flatMap { workspaceSidebarPinnedTabDropUnderPointer($0, point: pointer) }
+    let drop = released ? tab.flatMap { workspaceSidebarPinnedTabDropUnderPointer($0, point: pointer) } : nil
     clearSidebarPinnedTabDragFeedback()
     guard let tab, let drop else { return }
+    noteWorkspaceSidebarConsumedRelease()
     runWorkspaceSidebarSession(undoTitle: workspaceSidebarPinnedTabDropUndoTitle(drop)) {
         try applyWorkspaceSidebarPinnedTabDrop(tab, drop)
         await updateWorkspaceSidebarModel()
@@ -136,6 +139,14 @@ func finishActiveSidebarPinnedTabDrag() {
     guard let name = activeSidebarPinnedTabDrag?.name else { return }
     noteCurrentMousePointerSample()
     finishSidebarPinnedTabDrag(name, pointer: MousePointerTracker.shared.currentSample.point)
+}
+
+/// Drops the pinned tile being dragged without a drop: its payload goes, with its feedback.
+@MainActor
+func cancelActiveSidebarPinnedTabDrag() {
+    guard activeSidebarPinnedTabDrag != nil else { return }
+    activeSidebarPinnedTabDrag = nil
+    clearSidebarPinnedTabDragFeedback()
 }
 
 @MainActor

@@ -937,6 +937,8 @@ func workspaceSidebarFallbackWorkspaceName(for windowId: UInt32) -> String? {
 
 @MainActor
 func updateSidebarWindowDrag(_ windowId: UInt32, subject: WindowDragSubject = .window, pointer: CGPoint? = nil, previewStyle: WorkspaceSidebarDragPreviewStyle = .row) {
+    // A cancelled or released gesture's late updates do nothing, before any side effect.
+    guard WorkspaceSidebarDragSessions.shared.acceptUpdate() else { return }
     if let pointer {
         MousePointerTracker.shared.note(point: pointer)
         postWorkspaceSidebarDragPointerNotification(workspaceSidebarDragPointerChangedNotification, pointer: pointer)
@@ -982,7 +984,10 @@ func finishSidebarWindowDrag(pointer: CGPoint? = nil) {
         MousePointerTracker.shared.note(point: pointer)
         postWorkspaceSidebarDragPointerNotification(workspaceSidebarDragPointerEndedNotification, pointer: pointer)
     }
-    let didCommitSidebarDrop = commitActiveWorkspaceSidebarDragIfPossible()
+    // The release is consumed once: the gesture's end and the mouse-up cleanup both get here.
+    let release = WorkspaceSidebarDragSessions.shared.consumeRelease()
+    let didCommitSidebarDrop = release != nil && commitActiveWorkspaceSidebarDragIfPossible()
+    if didCommitSidebarDrop { noteWorkspaceSidebarConsumedRelease() }
     // Released over the Tabs sidebar where it showed no drop: nothing moves. The window
     // drag's last frame must not find a target of its own there.
     let releasedWithoutSidebarDrop = !didCommitSidebarDrop && workspaceSidebarOwnsTabDrag(
@@ -1020,6 +1025,7 @@ func workspaceSidebarCrossDisplayDragDescription(event: String, point: CGPoint) 
 
 @MainActor
 func finishWorkspaceSidebarDragAfterMouseUp() {
+    defer { WorkspaceSidebarDragSessions.shared.noteLeftMouseUp() }
     finishActiveSidebarPinnedTabDrag()
     let hasSidebarDragState = currentActiveWorkspaceSidebarDrag() != nil || isWorkspaceSidebarItemDragActive()
     let hasCursorProxy = WindowDragCursorProxyPanel.shared.currentContent != nil || WindowDragCursorProxyPanel.shared.isVisible

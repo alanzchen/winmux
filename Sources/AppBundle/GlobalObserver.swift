@@ -67,6 +67,8 @@ enum GlobalObserver {
         let keyCode = event.keyCode
         let modifierFlags = event.modifierFlags
         runOnMainActor {
+            // Another app's Escape can't be taken, but still cancels a sidebar drag.
+            _ = workspaceSidebarHandleEscapeDuringDrag(keyCode: Int64(keyCode))
             noteTapBindingKeyDown()
             SystemDockCoordinator.shared.noteKeyboardActivity(keyCode: keyCode, modifierFlags: modifierFlags)
         }
@@ -88,6 +90,7 @@ enum GlobalObserver {
         let screenPoint = NSEvent.mouseLocation
         let point = normalizeAppKitScreenPoint(screenPoint)
         runOnMainActor {
+            if isLeftMouseDownEvent { WorkspaceSidebarDragSessions.shared.noteLeftMouseDown() }
             MousePointerTracker.shared.note(point: point, timestamp: timestamp)
             WorkspaceSidebarPanel.trapCursorForVisiblePanelsIfNeeded()
             // Edge hold may have warped the cursor back onto this display.
@@ -139,9 +142,11 @@ enum GlobalObserver {
                 WorkspaceSidebarPanel.scheduleHoverRecheckForVisiblePanels()
                 let mouseLocation = mouseLocation
                 let clickedMonitor = mouseLocation.monitorApproximation
+                // A sidebar drop already decided where focus goes, whichever display the pointer is on.
+                let wasSidebarDrop = takeWorkspaceSidebarConsumedRelease()
                 switch true {
                     // Detect clicks on desktop of different monitors
-                    case clickedMonitor.activeWorkspace != focus.workspace:
+                    case !wasSidebarDrop && clickedMonitor.activeWorkspace != focus.workspace:
                         _ = try await runLightSession(.globalObserverLeftMouseUp, token) {
                             clickedMonitor.activeWorkspace.focusWorkspace()
                         }
@@ -195,6 +200,11 @@ enum GlobalObserver {
 
         retainEventMonitor(NSEvent.addGlobalMonitorForEvents(matching: .keyDown, handler: onKeyDown))
         retainEventMonitor(NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            // Before sequence bindings, whose prefix keys include Escape.
+            if event.keyCode == 53, isWorkspaceSidebarDragSessionActive() {
+                _ = workspaceSidebarHandleEscapeDuringDrag(keyCode: 53)
+                return nil
+            }
             onKeyDown(event)
             // Check if this key matches a recently-pressed prefix (sequence binding)
             if handleSequenceKeyDown(event: event) {

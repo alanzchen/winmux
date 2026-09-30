@@ -388,6 +388,9 @@ func workspaceSidebarIsUndoShortcut(_ event: CGEvent) -> Bool {
 
 private let workspaceSidebarInlineTextEventTapCallback: CGEventTapCallBack = { _, type, event, _ in
     guard type == .keyDown else { return Unmanaged.passUnretained(event) }
+    // Escape cancels a sidebar drag before it can cancel the edit.
+    let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
+    if keyCode == 53, MainActor.assumeIsolated({ workspaceSidebarHandleEscapeDuringDrag(keyCode: keyCode) }) { return nil }
     if workspaceSidebarIsUndoShortcut(event) {
         let handled = MainActor.assumeIsolated {
             guard config.usesBrowserTabs,
