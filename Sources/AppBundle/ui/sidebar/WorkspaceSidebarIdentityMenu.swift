@@ -21,8 +21,8 @@ enum WorkspaceSidebarIdentityTarget: Equatable {
     }
 }
 
-/// The editable identity section is shared by every mode and item type. Actions below
-/// it remain specific to the item; choosing a swatch never dismisses the editor.
+/// An item's name, color and icon, and its menu. Right-clicking shows `entries` as a native menu;
+/// Rename… and Change Icon… there open the editor for the same item.
 @MainActor
 final class WorkspaceSidebarIdentityMenuModel: ObservableObject {
     @Published var name: String
@@ -30,23 +30,57 @@ final class WorkspaceSidebarIdentityMenuModel: ObservableObject {
     @Published var emoji: String?
     @Published var showsIcons = false
     @Published var query = ""
+    /// What an unnamed tab is called in the list, shown in the empty name field. Never saved.
+    let placeholder: String
     var committedName: String
     let rename: (String) -> Void
     let setColor: (String?) -> Void
     let setEmoji: (String?) -> Void
-    let entries: [WorkspaceSidebarAppMenuEntry]
+    /// The item's own actions, before the appearance items and after them.
+    let leadingEntries: [WorkspaceSidebarAppMenuEntry]
+    let trailingEntries: [WorkspaceSidebarAppMenuEntry]
+    /// Opens the editor for this item, with the icons showing or the name selected. Set by
+    /// whoever shows the menu, so the editor opens where the menu was.
+    var openEditor: (_ showsIcons: Bool) -> Void = { _ in }
 
-    init(name: String, color: String?, emoji: String?, rename: @escaping (String) -> Void,
+    init(name: String, placeholder: String = "", color: String?, emoji: String?, rename: @escaping (String) -> Void,
          setColor: @escaping (String?) -> Void, setEmoji: @escaping (String?) -> Void,
-         entries: [WorkspaceSidebarAppMenuEntry]) {
+         entries: [WorkspaceSidebarAppMenuEntry], trailingEntries: [WorkspaceSidebarAppMenuEntry] = []) {
         self.name = name
+        self.placeholder = placeholder
         committedName = name
         self.color = color
         self.emoji = emoji
         self.rename = rename
         self.setColor = setColor
         self.setEmoji = setEmoji
-        self.entries = entries
+        leadingEntries = entries
+        self.trailingEntries = trailingEntries
+    }
+
+    /// The whole menu: the item's actions, with its appearance just above its last group.
+    var entries: [WorkspaceSidebarAppMenuEntry] {
+        workspaceSidebarMenuWithoutStraySeparators(leadingEntries + [.separator] + appearanceEntries + [.separator] + trailingEntries)
+    }
+
+    var appearanceEntries: [WorkspaceSidebarAppMenuEntry] {
+        [
+            .init(title: "Rename…", perform: { self.openEditor(false) }),
+            .init(title: "Color", children: colorChoices, kind: .palette),
+            .init(title: "Change Icon…", perform: { self.openEditor(true) }),
+        ]
+    }
+
+    /// Default and the presets. A custom color from the config checks none of them, and stays
+    /// until one is chosen; choosing the current one changes nothing.
+    var colorChoices: [WorkspaceSidebarAppMenuEntry] {
+        let current = color.flatMap(normalizedWorkspaceSidebarColorHex)
+        let choices: [(name: String, hex: String?)] = [("Default", nil)] + workspaceSidebarIdentityColors.map { ($0.name, $0.hex) }
+        return choices.map { choice in
+            let isCurrent = choice.hex.map { current == normalizedWorkspaceSidebarColorHex($0) } ?? (color == nil)
+            return .init(title: choice.name, checked: isCurrent,
+                perform: isCurrent ? nil : { self.chooseColor(choice.hex) }, swatch: choice.hex)
+        }
     }
 
     func commitName() {
@@ -68,9 +102,13 @@ func workspaceSidebarIdentityMenuModel(_ target: WorkspaceSidebarIdentityTarget,
                                        }) -> WorkspaceSidebarIdentityMenuModel? {
     let actionScope = target.monitorScopeId ?? targetMonitorScopeId
     let send: @MainActor (WorkspaceSidebarAction) -> Void = { sendAction($0, actionScope) }
+    let projects = TrayMenuModel.shared.workspaceSidebarProjects
     switch target {
         case .project(let id):
-            guard let project = TrayMenuModel.shared.workspaceSidebarProjects.first(where: { $0.id == id }) else { return nil }
+            guard let project = projects.first(where: { $0.id == id }) else { return nil }
+            let canDelete = canDeleteWorkspaceProject(id)
+            // Deleting a project with windows asks first.
+            let asks = canDelete && !windowsInWorkspaceProject(id).isEmpty
             return .init(name: project.displayName, color: project.colorHex, emoji: project.emoji,
                 rename: { send(.renameProject(id, displayName: $0)) },
                 setColor: { send(.setProjectColor(id, colorHex: $0)) },
@@ -78,9 +116,11 @@ func workspaceSidebarIdentityMenuModel(_ target: WorkspaceSidebarIdentityTarget,
                 entries: [
                     .init(title: "Switch to Project", perform: { send(.selectProject(id)) }),
                     .init(title: "New Project", perform: { send(.createProject) }),
-                    .separator,
-                    .init(title: "Delete Project", enabled: canDeleteWorkspaceProject(id), isDestructive: true,
-                        perform: { send(.deleteProject(id)) }),
+                ],
+                trailingEntries: [
+                    .init(title: asks ? "Delete Project…" : "Delete Project", enabled: canDelete, isDestructive: true,
+                        perform: { send(.deleteProject(id)) },
+                        help: canDelete ? nil : "The default project can't be deleted."),
                 ])
         case .workspace(let name):
             guard let workspace = TrayMenuModel.shared.workspaceSidebarWorkspaces.first(where: { $0.name == name }) else { return nil }
@@ -99,18 +139,42 @@ func workspaceSidebarIdentityMenuModel(_ target: WorkspaceSidebarIdentityTarget,
                 setColor: { send(.setTabCollectionColor(id, $0)) }, setEmoji: { send(.setTabCollectionEmoji(id, $0)) },
                 entries: [
                     .init(title: disclosure.isCollapsed ? "Expand Group" : "Collapse Group", enabled: disclosure.canToggle,
-                        perform: { send(.toggleTabCollection(id)) }),
-                    .init(title: "Move Group to", enabled: TrayMenuModel.shared.workspaceSidebarProjects.count > 1,
-                        children: TrayMenuModel.shared.workspaceSidebarProjects.filter { $0.id != group.projectId }.map { project in
-                            .init(title: project.displayName, perform: { send(.moveTabCollection(id, project.id)) })
-                        }),
-                    .init(title: "Ungroup Tabs", perform: { send(.ungroupTabCollection(id)) }),
-                    .separator,
+                        perform: { send(.toggleTabCollection(id)) },
+                        help: disclosure.canToggle ? nil
+                            : isSearching ? "Groups stay open while searching." : "The group holds the tab that's showing."),
                     .init(title: "New Tab in Group", perform: {
                         send(.createTabInCollection(id, monitorScopeId: createMonitorScopeId ?? scope))
                     }),
+                    workspaceSidebarProjectDestinations(projects, excluding: group.projectId) { project in
+                        send(.moveTabCollection(id, project))
+                    },
+                ].compactMap { $0 },
+                trailingEntries: [
+                    // Keeps its tabs, so it's the group's last item but not a destructive one.
+                    .init(title: "Ungroup Tabs", perform: { send(.ungroupTabCollection(id)) }),
                 ])
     }
+}
+
+/// Move to Project, listing the other projects; none when there's nowhere else to go.
+@MainActor
+func workspaceSidebarProjectDestinations(_ projects: [WorkspaceSidebarProjectViewModel], excluding projectId: WorkspaceProjectId,
+                                         move: @escaping (WorkspaceProjectId) -> Void) -> WorkspaceSidebarAppMenuEntry? {
+    let destinations = projects.filter { $0.id != projectId }
+    guard !destinations.isEmpty else { return nil }
+    return .init(title: "Move to Project", children: destinations.map { project in
+        .named((project.emoji.map { $0 + " " } ?? "") + project.displayName, perform: { move(project.id) })
+    })
+}
+
+/// What an unnamed tab shows in the list: its windows' titles, or its saved apps.
+@MainActor
+func workspaceSidebarTabListTitle(_ tab: WorkspaceSidebarWorkspaceViewModel) -> String {
+    guard tab.sidebarLabel.isEmpty else { return tab.displayName }
+    let windows = workspaceSidebarPinnedTabWindows(tab)
+    if !windows.isEmpty { return windows.map { $0.title?.takeIf { !$0.isEmpty } ?? $0.appName }.joined(separator: " · ") }
+    let savedApps = tab.savedState?.apps ?? []
+    return savedApps.isEmpty ? "Empty Tab" : workspaceSidebarSavedAppNames(savedApps)
 }
 
 @MainActor
@@ -118,69 +182,76 @@ func workspaceSidebarWorkspaceIdentityMenuModel(_ workspace: WorkspaceSidebarWor
     windowId: UInt32? = nil,
     send: @escaping @MainActor (WorkspaceSidebarAction) -> Void) -> WorkspaceSidebarIdentityMenuModel {
     let name = workspace.name
-    var entries = workspaceSidebarWorkspaceMenu(workspace, rename: {}, send: send)
-        .filter { $0.title != "Rename Workspace" && $0.title != "Rename Tab" }
-    if config.usesBrowserTabs {
-        let separate = entries.first { $0.title == "Separate into Tabs" }
-        let keepEntries = entries.filter { $0.title != "Separate into Tabs" }
+    let context = workspaceSidebarWorkspaceMenuContext(workspaceName: name)
+    let sections = workspaceSidebarWorkspaceMenuSections(workspace, context: context)
+    func entries(_ group: [WorkspaceSidebarWorkspaceMenuEntry]) -> [WorkspaceSidebarAppMenuEntry] {
+        group.map { workspaceSidebarAppMenuEntry($0, send: send) }
+    }
+    var leading: [WorkspaceSidebarAppMenuEntry] = []
+    var trailing: [WorkspaceSidebarAppMenuEntry] = []
+    // A generated name like "Workspace 3" isn't what an unnamed tab shows, so its field starts empty.
+    let isUnnamedTab = context.separatesIntoTabs && workspace.isGeneratedName && workspace.sidebarLabel.isEmpty
+    if context.separatesIntoTabs {
+        let projects = TrayMenuModel.shared.workspaceSidebarProjects
         let groups = workspaceSidebarOrganizationStore.state.collections.filter { $0.projectId == workspace.projectId }
         var destinations: [WorkspaceSidebarAppMenuEntry] = [
             .init(title: "New Group…", perform: { send(.createTabCollection(name)) }),
+            .separator,
         ]
-        if !groups.isEmpty { destinations.append(.separator) }
         destinations += groups.map { group in
-            .init(title: (group.emoji.map { $0 + " " } ?? "") + group.name,
+            .named((group.emoji.map { $0 + " " } ?? "") + group.name,
                 checked: group.workspaceNames.contains(name), perform: { send(.assignTabCollection(name, group.id)) })
         }
         if workspaceSidebarOrganizationStore.collection(containing: name) != nil {
             destinations += [.separator, .init(title: "Remove from Group", perform: { send(.assignTabCollection(name, nil)) })]
         }
-        entries = [
+        leading = [
             .init(title: workspace.appearance.isFavorite ? "Unpin Tab" : "Pin Tab",
                 perform: { send(.setWorkspaceFavorite(name, !workspace.appearance.isFavorite)) }),
             .init(title: "Add to Group", children: destinations),
-            .init(title: "Move to Project", enabled: TrayMenuModel.shared.workspaceSidebarProjects.count > 1,
-                children: TrayMenuModel.shared.workspaceSidebarProjects.filter { $0.id != workspace.projectId }.map { project in
-                    .init(title: project.displayName, perform: { send(.moveWorkspace(name, toProject: project.id)) })
-                }),
         ]
+        if let move = workspaceSidebarProjectDestinations(projects, excluding: workspace.projectId, move: { project in
+            send(.moveWorkspace(name, toProject: project))
+        }) { leading.append(move) }
+        leading.append(.separator)
         let windows = workspaceSidebarPinnedTabWindows(workspace)
         let clickedWindow = windows.first(where: { $0.windowId == windowId }) ?? (windows.count == 1 ? windows.first : nil)
         if let window = clickedWindow, let sourceId = Workspace.existing(byName: name)?.id {
             let splitTargets = workspaceSidebarSplitDestinations(windowId: window.windowId)
-            entries.append(.init(title: "Split with", enabled: !splitTargets.isEmpty, children: splitTargets.map { target in
-                let snapshot = TrayMenuModel.shared.workspaceSidebarWorkspaces.first { $0.name == target.name }
-                let label = snapshot.map { tab in
-                    tab.sidebarLabel.isEmpty
-                        ? workspaceSidebarPinnedTabWindows(tab).map { $0.title ?? $0.appName }.joined(separator: " · ")
-                        : tab.displayName
-                }?.takeIf { !$0.isEmpty } ?? workspaceDisplayName(target.name)
-                let emoji = snapshot?.appearance.emoji.map { $0 + " " } ?? ""
-                return .init(title: emoji + label,
-                    perform: { send(.splitTabWindow(window.windowId, fromWorkspace: sourceId, withWorkspace: target.id)) })
-            }))
+            if !splitTargets.isEmpty {
+                leading.append(.init(title: "Split with", children: splitTargets.map { target in
+                    let snapshot = TrayMenuModel.shared.workspaceSidebarWorkspaces.first { $0.name == target.name }
+                    let label = snapshot.map(workspaceSidebarTabListTitle)?.takeIf { !$0.isEmpty } ?? workspaceDisplayName(target.name)
+                    let emoji = snapshot?.appearance.emoji.map { $0 + " " } ?? ""
+                    return .named(emoji + label,
+                        perform: { send(.splitTabWindow(window.windowId, fromWorkspace: sourceId, withWorkspace: target.id)) })
+                }))
+            }
         }
-        entries.append(.separator)
         if let window = clickedWindow, windows.count > 1 {
-            entries.append(.init(title: "Move \(window.appName) to New Tab", perform: { send(.detachTabWindow(window.windowId)) }))
+            leading.append(.named(window.title?.takeIf { !$0.isEmpty } ?? window.appName, { "Move “\($0)” to New Tab" },
+                perform: { send(.detachTabWindow(window.windowId)) }))
         }
-        if let separate { entries.append(separate) }
-        entries += [.separator] + keepEntries + [.separator]
+        leading += entries(sections.layout) + [.separator] + entries(sections.keep)
+        trailing = entries(sections.remove) + [.separator]
         if let window = clickedWindow {
-            entries.append(.init(title: "Close Window", isDestructive: true, perform: { send(.closeWindow(window.windowId)) }))
+            trailing.append(.init(title: "Close Window", isDestructive: true, perform: { send(.closeWindow(window.windowId)) }))
         }
         if windows.count > 1 {
-            entries.append(.init(title: "Close All Windows in Split…", isDestructive: true, perform: { send(.closeTabWindows(name)) }))
+            let whole = workspaceSidebarTabPresentation(workspace) == .folder ? "Tab" : "Split"
+            trailing.append(.init(title: "Close All Windows in \(whole)…", isDestructive: true, perform: { send(.closeTabWindows(name)) }))
         } else if windows.isEmpty {
-            entries.append(.init(title: "Close Empty Tab", isDestructive: true, perform: { send(.closeEmptyTab(name)) }))
+            trailing.append(.init(title: "Close Empty Tab", isDestructive: true, perform: { send(.closeEmptyTab(name)) }))
         }
+    } else {
+        leading = entries(sections.keep)
+        trailing = entries(sections.panel) + [.separator] + entries(sections.remove)
     }
-    var clean: [WorkspaceSidebarAppMenuEntry] = []
-    for entry in entries where !entry.title.isEmpty || clean.last?.title.isEmpty == false { clean.append(entry) }
-    if clean.last?.title.isEmpty == true { clean.removeLast() }
-    return .init(name: workspace.displayName, color: workspace.appearance.colorHex, emoji: workspace.appearance.emoji,
+    return .init(name: isUnnamedTab ? "" : workspace.displayName, placeholder: workspaceSidebarTabListTitle(workspace),
+        color: workspace.appearance.colorHex, emoji: workspace.appearance.emoji,
         rename: { send(.renameWorkspace(name, displayName: $0)) },
-        setColor: { send(.setWorkspaceColor(name, $0)) }, setEmoji: { send(.setWorkspaceEmoji(name, $0)) }, entries: clean)
+        setColor: { send(.setWorkspaceColor(name, $0)) }, setEmoji: { send(.setWorkspaceEmoji(name, $0)) },
+        entries: leading, trailingEntries: trailing)
 }
 
 @MainActor
@@ -194,18 +265,96 @@ final class WorkspaceSidebarIdentityMenu: NSObject, NSWindowDelegate {
     private var anchor = NSPoint.zero
     private var menuObservers: [NSObjectProtocol] = []
     private var menuTrackingDepth = 0
+    private(set) var menuRequest = 0
     static var isVisible: Bool { shared.panel?.isVisible == true }
 
+    /// The item's menu, or its editor with the name selected or the icons showing.
     static func show(_ target: WorkspaceSidebarIdentityTarget, at point: NSPoint = NSEvent.mouseLocation,
                      selectName: Bool = false, showsIcons: Bool = false) {
-        let scope = workspaceSidebarMonitorScopeId(for: normalizeAppKitScreenPoint(point).monitorApproximation)
-        guard let model = workspaceSidebarIdentityMenuModel(target, targetMonitorScopeId: scope) else { return }
+        guard selectName || showsIcons else { return shared.showMenu(target, at: point) }
+        guard let model = model(for: target, at: point) else { return }
         model.showsIcons = showsIcons
-        shared.open(model, at: point, selectName: selectName)
+        shared.openEditor(model, at: point, selectName: selectName)
     }
 
+    /// A right-click or Control-click. On one of several chosen tabs it opens their shared menu.
+    static func showMenu(_ target: WorkspaceSidebarIdentityTarget, with event: NSEvent, in view: NSView) {
+        if let name = target.tabName, let selection = workspaceSidebarTabSelectionMenu(containing: name) {
+            shared.close(commit: true)
+            shared.menuRequest += 1
+            return shared.presentNativeMenu(selection, .click(event, view))
+        }
+        let point = NSEvent.mouseLocation
+        guard let model = model(for: target, at: point) else { return }
+        shared.presentMenu(model, at: point, click: (event, view))
+    }
+
+    /// The same menu without a click, such as VoiceOver's Show Menu, at the pointer.
+    func showMenu(_ target: WorkspaceSidebarIdentityTarget, at point: NSPoint) {
+        if let name = target.tabName, let selection = workspaceSidebarTabSelectionMenu(containing: name) {
+            close(commit: true)
+            return popUpLater(selection, at: point)
+        }
+        guard let model = Self.model(for: target, at: point) else { return }
+        presentMenu(model, at: point)
+    }
+
+    enum Origin {
+        case click(NSEvent, NSView)
+        case point(NSPoint)
+    }
+
+    /// Puts a menu on screen and tracks it. Tests replace it to read the menu instead.
+    var presentNativeMenu: (NSMenu, Origin) -> Void = { menu, origin in
+        switch origin {
+            case .click(let event, let view): NSMenu.popUpContextMenu(menu, with: event, for: view)
+            case .point(let point): menu.popUp(positioning: nil, at: point, in: nil)
+        }
+    }
+
+    /// The Dock's entry: the editor while choosing a name or an icon, otherwise the item's menu.
     func open(_ model: WorkspaceSidebarIdentityMenuModel, at point: NSPoint, selectName: Bool) {
+        if selectName || model.showsIcons { openEditor(model, at: point, selectName: selectName) }
+        else { presentMenu(model, at: point) }
+    }
+
+    private static func model(for target: WorkspaceSidebarIdentityTarget, at point: NSPoint) -> WorkspaceSidebarIdentityMenuModel? {
+        let scope = workspaceSidebarMonitorScopeId(for: normalizeAppKitScreenPoint(point).monitorApproximation)
+        return workspaceSidebarIdentityMenuModel(target, targetMonitorScopeId: scope)
+    }
+
+    /// Shows the item's native menu, with the click that asked for it, or on the next turn otherwise.
+    func presentMenu(_ model: WorkspaceSidebarIdentityMenuModel, at point: NSPoint, click: (NSEvent, NSView)? = nil) {
         close(commit: true)
+        WorkspaceSidebarPanel.inputSession.owner?.cancelInlineTextEditing()
+        model.openEditor = { [weak self, weak model] showsIcons in
+            // After the menu has gone, so the editor gets keyboard focus.
+            DispatchQueue.main.async {
+                guard let self, let model else { return }
+                model.showsIcons = showsIcons
+                self.openEditor(model, at: point, selectName: !showsIcons)
+            }
+        }
+        let menu = workspaceSidebarNativeAppMenu(model.entries)
+        guard let click else { return popUpLater(menu, at: point) }
+        menuRequest += 1
+        presentNativeMenu(menu, .click(click.0, click.1))
+    }
+
+    /// Accessibility and Dock callers must not wait out menu tracking. A newer menu, or the
+    /// editor opening meanwhile, wins.
+    private func popUpLater(_ menu: NSMenu, at point: NSPoint) {
+        menuRequest += 1
+        let request = menuRequest
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.menuRequest == request else { return }
+            self.presentNativeMenu(menu, .point(point))
+        }
+    }
+
+    func openEditor(_ model: WorkspaceSidebarIdentityMenuModel, at point: NSPoint, selectName: Bool) {
+        close(commit: true)
+        menuRequest += 1
         WorkspaceSidebarPanel.inputSession.owner?.cancelInlineTextEditing()
         self.model = model
         anchor = point
@@ -219,6 +368,7 @@ final class WorkspaceSidebarIdentityMenu: NSObject, NSWindowDelegate {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
         panel.delegate = self
         panel.contentView = NSHostingView(rootView: WorkspaceSidebarIdentityMenuView(model: model, selectName: selectName,
+            usesMaterial: true,
             resized: { [weak self] in self?.resize() },
             dismiss: { [weak self] commit in self?.close(commit: commit) }))
         self.panel = panel
@@ -308,18 +458,38 @@ private final class WorkspaceSidebarIdentityPanel: NSPanel {
     override var canBecomeMain: Bool { false }
 }
 
+let workspaceSidebarIdentityEditorCornerRadius: CGFloat = 12
+
+/// Popover material behind the editor, which the system makes opaque with Reduce Transparency.
+private struct WorkspaceSidebarIdentityEditorMaterial: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.material = .popover
+        view.blendingMode = .behindWindow
+        view.state = .active
+        return view
+    }
+
+    func updateNSView(_ view: NSVisualEffectView, context: Context) {}
+}
+
+/// The name, color and icon editor, opened by Rename… or Change Icon… in the item's menu.
 struct WorkspaceSidebarIdentityMenuView: View {
     @ObservedObject var model: WorkspaceSidebarIdentityMenuModel
     var selectName = false
+    /// In its panel the editor sits on popover material; a render without a window gets a plain card.
+    var usesMaterial = false
     var resized: () -> Void = {}
     var dismiss: (Bool) -> Void = { _ in }
     @FocusState private var nameFocused: Bool
     @FocusState private var searchFocused: Bool
+    @Environment(\.colorSchemeContrast) private var contrast
 
     var body: some View {
+        let shape = RoundedRectangle(cornerRadius: workspaceSidebarIdentityEditorCornerRadius)
         HStack(alignment: .top, spacing: 8) {
             VStack(alignment: .leading, spacing: 8) {
-                TextField("Name", text: $model.name)
+                TextField(model.placeholder.isEmpty ? "Name" : model.placeholder, text: $model.name)
                     .textFieldStyle(.plain)
                     .font(.system(size: 14, weight: .medium))
                     .padding(8)
@@ -344,19 +514,25 @@ struct WorkspaceSidebarIdentityMenuView: View {
                     }.frame(maxWidth: .infinity).padding(7).contentShape(Rectangle())
                 }.buttonStyle(WorkspaceSidebarIdentityButtonStyle())
                 Divider()
-                ForEach(model.entries.indices, id: \.self) { index in entry(model.entries[index]) }
-                Divider()
-                Button("Reset Appearance") {
+                Button {
                     model.chooseColor(nil)
                     model.chooseEmoji(nil)
-                }.buttonStyle(WorkspaceSidebarIdentityButtonStyle()).padding(.horizontal, 7)
+                } label: {
+                    Text("Reset Appearance").frame(maxWidth: .infinity, alignment: .leading).padding(7).contentShape(Rectangle())
+                }
+                .buttonStyle(WorkspaceSidebarIdentityButtonStyle())
+                .disabled(model.color == nil && model.emoji == nil)
             }
             .frame(width: 252)
             if model.showsIcons { iconPicker.frame(width: 218) }
         }
         .padding(10)
-        .background(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.primary.opacity(0.12), lineWidth: 0.5))
+        .background {
+            if usesMaterial { WorkspaceSidebarIdentityEditorMaterial().clipShape(shape) }
+            else { shape.fill(Color(nsColor: .windowBackgroundColor)) }
+        }
+        // Increase Contrast gets a border that reads against any background.
+        .overlay(shape.strokeBorder(.primary.opacity(contrast == .increased ? 0.55 : 0.12), lineWidth: contrast == .increased ? 1 : 0.5))
         .font(.system(size: 13))
         .fixedSize()
         .onAppear { nameFocused = selectName; searchFocused = model.showsIcons }
@@ -375,32 +551,6 @@ struct WorkspaceSidebarIdentityMenuView: View {
         .help(name)
         .accessibilityLabel(name + " color")
         .accessibilityAddTraits(model.color == hex ? .isSelected : [])
-    }
-
-    @ViewBuilder private func entry(_ entry: WorkspaceSidebarAppMenuEntry) -> some View {
-        if entry.title.isEmpty { Divider() }
-        else if !entry.children.isEmpty {
-            Menu {
-                WorkspaceSidebarAppContextMenu(entries: entry.children.map { child in
-                    var value = child
-                    value.perform = { dismiss(true); child.perform?() }
-                    return value
-                })
-            } label: { Text(entry.title).frame(maxWidth: .infinity, alignment: .leading).padding(6) }
-            .menuStyle(.borderlessButton)
-            .disabled(!entry.enabled)
-        } else {
-            Button { dismiss(true); entry.perform?() } label: {
-                HStack {
-                    Text(entry.title)
-                    Spacer()
-                    if entry.checked { Image(systemName: "checkmark") }
-                }.padding(7).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
-            }
-            .buttonStyle(WorkspaceSidebarIdentityButtonStyle())
-            .foregroundStyle(entry.isDestructive ? Color.red : Color.primary)
-            .disabled(!entry.enabled)
-        }
     }
 
     private var iconPicker: some View {
@@ -473,8 +623,8 @@ func workspaceSidebarEmojiMatches(_ query: String) -> [WorkspaceSidebarEmojiChoi
     return choices.filter { text.isEmpty || $0.1.contains(text) }.map { .init(emoji: $0.0, keywords: $0.1) }
 }
 
-/// Right clicks are intercepted while ordinary clicks and drags pass through to the
-/// original control. A keyboard accessibility action opens the identical editor.
+/// Right clicks and Control-clicks are intercepted to open the item's native menu, while
+/// ordinary clicks and drags pass through to the original control.
 struct WorkspaceSidebarIdentityMenuTrigger: NSViewRepresentable {
     let target: WorkspaceSidebarIdentityTarget
     func makeNSView(context: Context) -> Trigger { Trigger(target: target) }
@@ -486,7 +636,7 @@ struct WorkspaceSidebarIdentityMenuTrigger: NSViewRepresentable {
         required init?(coder: NSCoder) { nil }
         override func hitTest(_ point: NSPoint) -> NSView? {
             guard bounds.contains(convert(point, from: superview)), let event = NSApp.currentEvent,
-                  event.type == .rightMouseDown || (event.type == .leftMouseDown && event.modifierFlags.contains(.control))
+                  workspaceSidebarOpensContextMenu(event)
             else { return nil }
             return self
         }
@@ -494,15 +644,49 @@ struct WorkspaceSidebarIdentityMenuTrigger: NSViewRepresentable {
         override func mouseDown(with event: NSEvent) { show(event) }
 
         private func show(_ event: NSEvent) {
-            if let name = target.tabName, showWorkspaceSidebarTabSelectionMenu(containing: name, with: event, in: self) { return }
-            WorkspaceSidebarIdentityMenu.show(target)
+            WorkspaceSidebarIdentityMenu.showMenu(target, with: event, in: self)
         }
     }
 }
 
+/// Only these reach the trigger; every other event goes to the row underneath.
+func workspaceSidebarOpensContextMenu(_ event: NSEvent) -> Bool {
+    event.type == .rightMouseDown || (event.type == .leftMouseDown && event.modifierFlags.contains(.control))
+}
+
 extension View {
+    /// The item's native menu on right-click, Control-click and VoiceOver's Show Menu, and its
+    /// editor through the named action.
     func sidebarIdentityMenu(_ target: WorkspaceSidebarIdentityTarget) -> some View {
         overlay { WorkspaceSidebarIdentityMenuTrigger(target: target) }
+            .accessibilityAction(.showMenu) { WorkspaceSidebarIdentityMenu.show(target) }
             .accessibilityAction(named: "Edit Name, Color and Icon") { WorkspaceSidebarIdentityMenu.show(target, selectName: true) }
+    }
+}
+
+/// `sidebarIdentityMenu`, for a control that offers it only sometimes.
+struct WorkspaceSidebarOptionalIdentityMenu: ViewModifier {
+    let target: WorkspaceSidebarIdentityTarget?
+
+    func body(content: Content) -> some View {
+        if let target { content.sidebarIdentityMenu(target) } else { content }
+    }
+}
+
+/// A Tabs row's menu: the tab's own for a tab's row, or only Close Window for a window listed
+/// inside a folder.
+struct WorkspaceSidebarTabRowMenu: ViewModifier {
+    let target: WorkspaceSidebarIdentityTarget?
+    let close: () -> Void
+
+    func body(content: Content) -> some View {
+        if let target {
+            content
+                .overlay { WorkspaceSidebarIdentityMenuTrigger(target: target) }
+                .accessibilityAction(.showMenu) { WorkspaceSidebarIdentityMenu.show(target) }
+                .accessibilityAction(named: "Tab Actions") { WorkspaceSidebarIdentityMenu.show(target) }
+        } else {
+            content.contextMenu { Button("Close Window", action: close) }
+        }
     }
 }

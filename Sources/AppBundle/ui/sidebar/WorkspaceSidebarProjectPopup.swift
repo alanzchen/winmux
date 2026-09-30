@@ -72,7 +72,7 @@ struct WorkspaceSidebarProjectPopup: View {
         .buttonStyle(.plain)
         .disabled(disabledProjectIds.contains(project.id))
         .frame(maxWidth: .infinity, alignment: .leading)
-        .overlay { if allowsContextMenu { WorkspaceSidebarIdentityMenuTrigger(target: .project(project.id)) } }
+        .modifier(WorkspaceSidebarOptionalIdentityMenu(target: allowsContextMenu ? .project(project.id) : nil))
     }
 
     private var divider: some View {

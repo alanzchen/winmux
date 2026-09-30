@@ -529,7 +529,7 @@ final class WorkspaceSidebarTabUXTest: XCTestCase {
         let menu = workspaceSidebarWorkspaceIdentityMenuModel(workspace, windowId: 62, send: { sent.append($0) })
         XCTAssertFalse(menu.entries.contains { $0.title.contains("Workspace") && !$0.title.hasPrefix("Customize") })
         try XCTUnwrap(menu.entries.first { $0.title == "Close Window" }?.perform)()
-        try XCTUnwrap(menu.entries.first { $0.title == "Move Notes to New Tab" }?.perform)()
+        try XCTUnwrap(menu.entries.first { $0.title == "Move “Notes 62” to New Tab" }?.perform)()
         try XCTUnwrap(menu.entries.first { $0.title == "Move to Project" }?.children.first?.perform)()
         XCTAssertEqual(sent, [.closeWindow(62), .detachTabWindow(62), .moveWorkspace("pair", toProject: "design")])
         XCTAssertTrue(menu.entries.contains { $0.title == "Close All Windows in Split…" })

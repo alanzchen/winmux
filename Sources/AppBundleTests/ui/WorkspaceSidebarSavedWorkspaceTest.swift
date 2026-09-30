@@ -212,21 +212,24 @@ final class WorkspaceSidebarSavedWorkspaceTest: XCTestCase {
     func testUnsavedMenuOffersSaveAndKeepOnCurrentDisplay() throws {
         let menu = entries(nil)
 
+        // The workspace's own items first, then naming, the panel's settings, and removal last.
         XCTAssertEqual(menu.map(\.title), [
-            "Customize Dock…",
-            "",
-            "Rename Workspace",
             "Save Workspace",
             "Keep on “DELL U2723QE”",
+            "",
+            "Rename Workspace",
+            "",
+            "Customize Dock…",
             "",
             "Delete Workspace",
         ])
         XCTAssertEqual(menu.map(\.command), [
-            .customizeDock,
-            nil,
-            .rename,
             .send(.saveWorkspace("code")),
             .send(.setSavedWorkspacePinned("code", true)),
+            nil,
+            .rename,
+            nil,
+            .customizeDock,
             nil,
             .send(.deleteWorkspace("code")),
         ])
@@ -241,11 +244,12 @@ final class WorkspaceSidebarSavedWorkspaceTest: XCTestCase {
         let menu = entries(saved(missing: ["Editor", "Chat"]))
 
         XCTAssertEqual(menu.map(\.title), [
-            "Customize Dock…",
-            "",
-            "Rename Workspace",
             "Keep on “DELL U2723QE”",
             "Open Missing Apps (2)",
+            "",
+            "Rename Workspace",
+            "",
+            "Customize Dock…",
             "",
             "Forget Saved Workspace",
             "Delete Workspace",
@@ -375,11 +379,13 @@ final class WorkspaceSidebarSavedWorkspaceTest: XCTestCase {
         view.presentIdentityMenu = { model, _ in identity = model }
         XCTAssertNil(view.menu(for: event))
         let model = try XCTUnwrap(identity)
+        // The same items as the plain menu, with Rename… opening the editor, the colors, and Change Icon….
         let expected = workspaceSidebarWorkspaceMenuEntries(workspace, context: workspaceSidebarWorkspaceMenuContext(workspaceName: "code"))
-            .filter { $0.title != "Rename Workspace" }
-        XCTAssertEqual(model.entries.map(\.title), expected.map(\.title))
-        XCTAssertEqual(model.entries.map(\.enabled), expected.map(\.enabled))
-        XCTAssertEqual(model.entries.map(\.checked), expected.map(\.checked))
+            .flatMap { $0.command == .rename ? ["Rename…", "Color", "Change Icon…"] : [$0.title] }
+        XCTAssertEqual(model.entries.map(\.title), expected)
+        XCTAssertEqual(model.entries.first { $0.title == "Color" }?.kind, .palette)
+        XCTAssertEqual(model.entries.filter { !$0.enabled }.map(\.title), [])
+        XCTAssertEqual(model.entries.filter(\.checked).map(\.title), ["Keep on “DELL U2723QE”"])
         XCTAssertEqual(model.name, "Code")
         XCTAssertEqual(model.entries.first { $0.title.hasPrefix("Keep on") }?.title, "Keep on “DELL U2723QE”")
         try XCTUnwrap(model.entries.first { $0.title == "Forget Saved Workspace" }?.perform)()

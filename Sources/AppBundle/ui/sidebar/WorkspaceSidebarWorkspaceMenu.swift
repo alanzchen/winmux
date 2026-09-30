@@ -49,41 +49,64 @@ func workspaceSidebarWorkspaceMenuContext(workspaceName: String) -> WorkspaceSid
     )
 }
 
-func workspaceSidebarWorkspaceMenuEntries(
+/// A workspace's own menu items by group. The identity menu puts the appearance items between
+/// `keep` and `panel`; the plain menu puts Rename there.
+struct WorkspaceSidebarWorkspaceMenuSections: Equatable {
+    /// Tabs mode: splitting a multi-window tab back into tabs.
+    var layout: [WorkspaceSidebarWorkspaceMenuEntry] = []
+    var keep: [WorkspaceSidebarWorkspaceMenuEntry] = []
+    var panel: [WorkspaceSidebarWorkspaceMenuEntry] = []
+    /// Last: forgetting what's saved and deleting.
+    var remove: [WorkspaceSidebarWorkspaceMenuEntry] = []
+}
+
+func workspaceSidebarWorkspaceMenuSections(
     _ workspace: WorkspaceSidebarWorkspaceViewModel,
     context: WorkspaceSidebarWorkspaceMenuContext,
-) -> [WorkspaceSidebarWorkspaceMenuEntry] {
+) -> WorkspaceSidebarWorkspaceMenuSections {
     let saved = workspace.savedState
-    var entries: [WorkspaceSidebarWorkspaceMenuEntry] = context.separatesIntoTabs ? [] : [
-        .init(title: "Customize \(context.panelMode.settingsTitle)…", command: .customizeDock),
-        .separator,
-    ]
-    entries.append(.init(title: context.separatesIntoTabs ? "Rename Tab" : "Rename Workspace", command: .rename))
-    if context.separatesIntoTabs, workspaceSidebarTabWindowCount(workspace) > 1 {
-        entries += [.separator, .init(title: "Separate into Tabs", command: .send(.separateWorkspaceIntoTabs(workspace.name))), .separator]
+    let tabs = context.separatesIntoTabs
+    var sections = WorkspaceSidebarWorkspaceMenuSections()
+    if tabs, workspaceSidebarTabWindowCount(workspace) > 1 {
+        sections.layout.append(.init(title: "Separate into Tabs", command: .send(.separateWorkspaceIntoTabs(workspace.name))))
     }
     if saved == nil || saved?.keepWhenEmpty == false {
-        let title = context.separatesIntoTabs ? "Keep Tab When Empty"
-            : saved == nil ? "Save Workspace" : "Keep Workspace When Empty"
-        entries.append(.init(title: title, command: .send(.saveWorkspace(workspace.name))))
+        let title = tabs ? "Keep Tab When Empty" : saved == nil ? "Save Workspace" : "Keep Workspace When Empty"
+        sections.keep.append(.init(title: title, command: .send(.saveWorkspace(workspace.name))))
     }
     if let keepOn = workspaceSidebarKeepOnDisplayEntry(workspace, context: context) {
-        entries.append(keepOn)
+        sections.keep.append(keepOn)
     }
     if let saved, !saved.missingAppNames.isEmpty, context.canOpenApps {
-        entries.append(.init(
+        sections.keep.append(.init(
             title: "Open Missing Apps (\(saved.missingAppNames.count))",
             command: .send(.openSavedWorkspaceApps(workspace.name)),
         ))
     }
-    entries.append(.separator)
-    if saved != nil && (!context.separatesIntoTabs || saved?.keepWhenEmpty == true) {
-        entries.append(.init(title: context.separatesIntoTabs ? "Stop Keeping Empty Tab" : "Forget Saved Workspace", command: .send(.forgetSavedWorkspace(workspace.name))))
+    if !tabs {
+        sections.panel.append(.init(title: "Customize \(context.panelMode.settingsTitle)…", command: .customizeDock))
     }
-    if !context.separatesIntoTabs {
-        entries.append(.init(title: "Delete Workspace", isDestructive: true, command: .send(.deleteWorkspace(workspace.name))))
+    // Forgetting drops the saved name, layout, pin and group, so it isn't a checkbox beside Keep.
+    if saved != nil && (!tabs || saved?.keepWhenEmpty == true) {
+        sections.remove.append(.init(title: tabs ? "Stop Keeping Empty Tab" : "Forget Saved Workspace",
+            command: .send(.forgetSavedWorkspace(workspace.name))))
     }
-    return workspaceSidebarMenuWithoutStraySeparators(entries)
+    if !tabs {
+        sections.remove.append(.init(title: "Delete Workspace", isDestructive: true, command: .send(.deleteWorkspace(workspace.name))))
+    }
+    return sections
+}
+
+/// The plain menu, with Rename editing the name in place.
+func workspaceSidebarWorkspaceMenuEntries(
+    _ workspace: WorkspaceSidebarWorkspaceViewModel,
+    context: WorkspaceSidebarWorkspaceMenuContext,
+) -> [WorkspaceSidebarWorkspaceMenuEntry] {
+    let sections = workspaceSidebarWorkspaceMenuSections(workspace, context: context)
+    let rename = WorkspaceSidebarWorkspaceMenuEntry(title: context.separatesIntoTabs ? "Rename Tab" : "Rename Workspace",
+        command: .rename)
+    let groups = [sections.layout, sections.keep, [rename], sections.panel, sections.remove]
+    return workspaceSidebarMenuWithoutStraySeparators(Array(groups.joined(separator: [.separator])))
 }
 
 /// Optional entries can leave separators next to each other or at an end; keep single ones.
@@ -139,44 +162,34 @@ func workspaceSidebarWorkspaceMenu(
     _ workspace: WorkspaceSidebarWorkspaceViewModel,
     rename: @escaping () -> Void,
     send: @escaping @MainActor (WorkspaceSidebarAction) -> Void,
-    excludingDelete: Bool = false,
 ) -> [WorkspaceSidebarAppMenuEntry] {
     let context = workspaceSidebarWorkspaceMenuContext(workspaceName: workspace.name)
-    var entries = workspaceSidebarWorkspaceMenuEntries(workspace, context: context)
-    if excludingDelete {
-        entries = workspaceSidebarMenuWithoutStraySeparators(entries.filter { $0.command != .send(.deleteWorkspace(workspace.name)) })
-    }
-    return entries.map { entry in
-        WorkspaceSidebarAppMenuEntry(
-            title: entry.title,
-            checked: entry.checked,
-            enabled: entry.enabled,
-            isDestructive: entry.isDestructive,
-            perform: entry.command.map { command in
-                {
-                    switch command {
-                        case .customizeDock: ShortcutSettingsModel.shared.requestPanelSettings()
-                        case .rename: rename()
-                        case .send(let action): send(action)
-                    }
-                }
-            },
-        )
+    return workspaceSidebarWorkspaceMenuEntries(workspace, context: context).map {
+        workspaceSidebarAppMenuEntry($0, rename: rename, send: send)
     }
 }
 
-/// Builds the menu when it opens, not on every section body evaluation.
-struct WorkspaceSidebarWorkspaceMenuContent: View {
-    let workspace: WorkspaceSidebarWorkspaceViewModel
-    let rename: () -> Void
-    let send: @MainActor (WorkspaceSidebarAction) -> Void
-    /// For a menu that already closes the workspace another way.
-    var excludingDelete = false
-
-    var body: some View {
-        WorkspaceSidebarAppContextMenu(entries: workspaceSidebarWorkspaceMenu(workspace, rename: rename, send: send,
-            excludingDelete: excludingDelete))
-    }
+@MainActor
+func workspaceSidebarAppMenuEntry(
+    _ entry: WorkspaceSidebarWorkspaceMenuEntry,
+    rename: @escaping () -> Void = {},
+    send: @escaping @MainActor (WorkspaceSidebarAction) -> Void,
+) -> WorkspaceSidebarAppMenuEntry {
+    WorkspaceSidebarAppMenuEntry(
+        title: entry.title,
+        checked: entry.checked,
+        enabled: entry.enabled,
+        isDestructive: entry.isDestructive,
+        perform: entry.command.map { command in
+            {
+                switch command {
+                    case .customizeDock: ShortcutSettingsModel.shared.requestPanelSettings()
+                    case .rename: rename()
+                    case .send(let action): send(action)
+                }
+            }
+        },
+    )
 }
 
 func workspaceSidebarSavedWorkspaceDescription(_ saved: WorkspaceSidebarSavedState) -> String {

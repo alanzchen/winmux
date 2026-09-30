@@ -426,13 +426,6 @@ struct WorkspaceSidebarEmptyTabRowView: View {
             WindowMiddleClickCatcher(windowId: 0) { close() }
         }
         .onHover { hovering in withAnimation(WorkspaceSidebarTabMotion.hover) { isHovered = hovering } }
-        .contextMenu {
-            Button("Close Tab") { close() }
-            Divider()
-            // Rename or save it to keep it; Close Tab above already removes it.
-            WorkspaceSidebarWorkspaceMenuContent(workspace: workspace, rename: onBeginRename, send: actions.send,
-                excludingDelete: true)
-        }
         .sidebarIdentityMenu(.workspace(workspace.name))
     }
 

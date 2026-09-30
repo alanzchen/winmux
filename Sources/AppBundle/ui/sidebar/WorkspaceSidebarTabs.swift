@@ -251,22 +251,8 @@ struct WorkspaceSidebarTabRowView: View {
             onEnded: { actions.windowDragEnded(window.windowId, $0) },
         ))
         .onHover { hovering in withAnimation(WorkspaceSidebarTabMotion.hover) { isHovered = hovering } }
-        .contextMenu {
-            Button("Close Window") { close() }
-            if let workspaceMenu {
-                Divider()
-                WorkspaceSidebarWorkspaceMenuContent(workspace: workspaceMenu.workspace, rename: workspaceMenu.rename,
-                    send: actions.send)
-            }
-        }
-        .overlay {
-            if let workspaceMenu {
-                WorkspaceSidebarIdentityMenuTrigger(target: .tab(workspaceMenu.workspace.name, windowId: window.windowId))
-            }
-        }
-        .accessibilityAction(named: "Tab Actions") {
-            if let workspaceMenu { WorkspaceSidebarIdentityMenu.show(.tab(workspaceMenu.workspace.name, windowId: window.windowId)) }
-        }
+        .modifier(WorkspaceSidebarTabRowMenu(
+            target: workspaceMenu.map { .tab($0.workspace.name, windowId: window.windowId) }, close: close))
     }
 
     private func close() {
@@ -509,9 +495,7 @@ struct WorkspaceSidebarTabFolderView: View {
                     .accessibilityHint(isCollapsed ? "Shows the folder's windows" : "Hides the folder's windows")
             }
         }
-        .contextMenu {
-            WorkspaceSidebarWorkspaceMenuContent(workspace: workspace, rename: onBeginRename, send: actions.send)
-        }
+        .sidebarIdentityMenu(.tab(workspace.name, windowId: nil))
     }
 
     @ViewBuilder

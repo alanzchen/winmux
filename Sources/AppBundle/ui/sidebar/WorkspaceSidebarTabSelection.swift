@@ -76,7 +76,7 @@ func workspaceSidebarTabSelectionMenuEntries(_ names: [String], workspaces: [Wor
     let act = { (action: WorkspaceSidebarAction) in { clear(); send(action) } }
     let groups = collections.filter { $0.projectId == projectId }
     var destinations: [WorkspaceSidebarAppMenuEntry] = groups.map { group in
-        .init(title: (group.emoji.map { $0 + " " } ?? "") + group.name,
+        .named((group.emoji.map { $0 + " " } ?? "") + group.name,
             checked: names.allSatisfy(group.workspaceNames.contains),
             perform: act(.assignTabsToCollection(names, group.id)))
     }
@@ -85,33 +85,33 @@ func workspaceSidebarTabSelectionMenuEntries(_ names: [String], workspaces: [Wor
     }
     let allPinned = tabs.allSatisfy(\.appearance.isFavorite)
     let windowCount = tabs.reduce(0) { $0 + workspaceSidebarPinnedTabWindows($1).count }
-    return [
-        .init(title: "\(tabs.count) Tabs", enabled: false),
-        .separator,
-        .init(title: "New Group with \(tabs.count) Tabs", perform: act(.createTabCollectionFromTabs(names))),
-        .init(title: "Add to Group", enabled: !destinations.isEmpty, children: destinations),
+    var entries: [WorkspaceSidebarAppMenuEntry] = [
+        .header("\(tabs.count) Tabs"),
         .init(title: allPinned ? "Unpin \(tabs.count) Tabs" : "Pin \(tabs.count) Tabs",
             perform: act(.setTabsFavorite(names, !allPinned))),
-        .separator,
-        .init(title: windowCount > tabs.count ? "Close \(tabs.count) Tabs…" : "Close \(tabs.count) Tabs",
-            isDestructive: true, perform: act(.closeTabs(names))),
+        .init(title: "New Group with \(tabs.count) Tabs", perform: act(.createTabCollectionFromTabs(names))),
+    ]
+    if !destinations.isEmpty { entries.append(.init(title: "Add to Group", children: destinations)) }
+    return entries + [
         .separator,
         .init(title: "Deselect Tabs", perform: { clear() }),
+        .separator,
+        // Asks first when that closes more windows than tabs.
+        .init(title: windowCount > tabs.count ? "Close \(tabs.count) Tabs…" : "Close \(tabs.count) Tabs",
+            isDestructive: true, perform: act(.closeTabs(names))),
     ]
 }
 
-/// Right-clicking one of several chosen tabs opens the menu for all of them.
+/// The menu for several chosen tabs, when `name` is one of them.
 @MainActor
-func showWorkspaceSidebarTabSelectionMenu(containing name: String, with event: NSEvent, in view: NSView) -> Bool {
+func workspaceSidebarTabSelectionMenu(containing name: String) -> NSMenu? {
     let selection = WorkspaceSidebarTabSelection.shared
-    guard config.usesBrowserTabs, selection.isMultiple, selection.contains(name) else { return false }
+    guard config.usesBrowserTabs, selection.isMultiple, selection.contains(name) else { return nil }
     let entries = workspaceSidebarTabSelectionMenuEntries(selection.names,
         workspaces: TrayMenuModel.shared.workspaceSidebarWorkspaces,
         collections: workspaceSidebarOrganizationStore.state.collections,
         send: { handleWorkspaceSidebarAction($0) }, clear: { selection.clear() })
-    guard !entries.isEmpty else { return false }
-    NSMenu.popUpContextMenu(workspaceSidebarNativeAppMenu(entries), with: event, for: view)
-    return true
+    return entries.isEmpty ? nil : workspaceSidebarNativeAppMenu(entries)
 }
 
 /// Closes every window of several tabs, asking first when that's more than one per tab.

@@ -404,7 +404,8 @@ final class WorkspaceSidebarTabIdentityTest: XCTestCase {
         XCTAssertNotEqual(titles.first, "")
         XCTAssertNotEqual(titles.last, "")
         XCTAssertFalse(zip(titles, titles.dropFirst()).contains { $0.isEmpty && $1.isEmpty })
-        let detach = try XCTUnwrap(titles.firstIndex(of: "Move Notes to New Tab"))
+        // Named after the clicked window, not only its app.
+        let detach = try XCTUnwrap(titles.firstIndex(of: "Move “Notes 202” to New Tab"), "\(titles)")
         XCTAssertEqual(titles[detach + 1], "Separate into Tabs")
         XCTAssertLessThan(detach, try XCTUnwrap(titles.firstIndex(of: "Keep Tab When Empty")))
         XCTAssertEqual(menu.entries.first { $0.title == "Split with" }?.children.first?.title, "📮 Inbox")

@@ -481,7 +481,11 @@ final class WorkspaceSidebarNativeDockTest: XCTestCase {
             let appMenu = try XCTUnwrap(view.menu(for: mouseEvent(.rightMouseDown, in: view,
                 at: CGPoint(x: appFrame.midX, y: appFrame.midY))))
             XCTAssertFalse(appMenu.items.contains { $0.title == "Delete Workspace" })
-            XCTAssertTrue(appMenu.items.contains { $0.title.hasPrefix("Window:") })
+            // The window the controls act on heads its own section, instead of a submenu.
+            let heading = try XCTUnwrap(appMenu.items.firstIndex { $0.title.hasPrefix("Window · ") })
+            XCTAssertTrue(appMenu.items[heading].isSectionHeader)
+            XCTAssertNil(appMenu.items[heading].submenu)
+            XCTAssertTrue(appMenu.items[heading...].prefix { !$0.isSeparatorItem }.contains { $0.title == "Close Window" })
             let workspaceFrame = try XCTUnwrap(view.buttonFrame(workspaceName: owner.name, appId: nil))
             var identity: WorkspaceSidebarIdentityMenuModel?
             view.presentIdentityMenu = { model, _ in identity = model }

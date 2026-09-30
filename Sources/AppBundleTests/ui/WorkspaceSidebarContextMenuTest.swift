@@ -1,0 +1,373 @@
+import AppKit
+@testable import AppBundle
+import Common
+import SwiftUI
+import XCTest
+
+/// Every right-click in the sidebar opens one native menu family; the editor only edits.
+@MainActor
+final class WorkspaceSidebarContextMenuTest: XCTestCase {
+    private var previousWorkspaces: [WorkspaceSidebarWorkspaceViewModel] = []
+    private var previousProjects: [WorkspaceSidebarProjectViewModel] = []
+    private var previousPresent: ((NSMenu, WorkspaceSidebarIdentityMenu.Origin) -> Void)?
+    private var presented: [(menu: NSMenu, origin: WorkspaceSidebarIdentityMenu.Origin)] = []
+
+    override func setUp() async throws {
+        setUpWorkspacesForTests()
+        workspaceSidebarOrganizationStore = .init()
+        config.workspaceSidebar = .init(enabled: true, mode: .tabs)
+        previousWorkspaces = TrayMenuModel.shared.workspaceSidebarWorkspaces
+        previousProjects = TrayMenuModel.shared.workspaceSidebarProjects
+        previousPresent = WorkspaceSidebarIdentityMenu.shared.presentNativeMenu
+        TrayMenuModel.shared.workspaceSidebarProjects = [.init(id: workspaceProjectDefaultId, displayName: "Research", colorHex: nil)]
+        presented = []
+        // Record menus instead of tracking them, which would wait for a person.
+        WorkspaceSidebarIdentityMenu.shared.presentNativeMenu = { [weak self] menu, origin in self?.presented.append((menu, origin)) }
+    }
+
+    override func tearDown() async throws {
+        WorkspaceSidebarIdentityMenu.shared.close(commit: false)
+        if let previousPresent { WorkspaceSidebarIdentityMenu.shared.presentNativeMenu = previousPresent }
+        TrayMenuModel.shared.workspaceSidebarWorkspaces = previousWorkspaces
+        TrayMenuModel.shared.workspaceSidebarProjects = previousProjects
+        WorkspaceSidebarTabSelection.shared.clear()
+        workspaceSidebarOrganizationStore = .init()
+        config = defaultConfig
+        try await super.tearDown()
+    }
+
+    private func tab(_ name: String, ids: [UInt32], label: String = "", generated: Bool = false,
+                     pinned: Bool = false, color: String? = nil, titles: [String]? = nil) -> WorkspaceSidebarWorkspaceViewModel {
+        .init(name: name, projectId: workspaceProjectDefaultId, displayName: label.isEmpty ? "Workspace \(name)" : label,
+            sidebarLabel: label, isGeneratedName: generated, monitorScopeId: "monitor:0,0", monitorName: "Main",
+            isFocused: false, isVisible: false, items: ids.enumerated().map { index, id in
+                .init(kind: .window(.init(windowId: id, workspaceName: name, appName: "TextEdit", appBundleId: nil,
+                    appBundlePath: "/System/Applications/TextEdit.app", title: titles?[index] ?? "Doc \(id).txt", isFocused: false)))
+            }, appearance: .init(colorHex: color, isFavorite: pinned))
+    }
+
+    /// Titles by group, without separators, so a test reads like the menu.
+    private func groups(_ entries: [WorkspaceSidebarAppMenuEntry]) -> [[String]] {
+        workspaceSidebarMenuWithoutStraySeparators(entries).split(whereSeparator: \.isSeparator).map { $0.map(\.title) }
+    }
+
+    private func items(_ menu: NSMenu) -> [NSMenuItem] {
+        menu.items + menu.items.compactMap(\.submenu).flatMap(items)
+    }
+
+    // MARK: Structure
+
+    func testTabMenuGroupsItsItemsAndEndsWithWhatRemovesThem() {
+        let single = workspaceSidebarWorkspaceIdentityMenuModel(tab("one", ids: [1]), windowId: 1, send: { _ in })
+        XCTAssertEqual(groups(single.entries), [
+            ["Pin Tab", "Add to Group"],
+            ["Keep Tab When Empty"],
+            ["Rename…", "Color", "Change Icon…"],
+            ["Close Window"],
+        ], "One project and no other tab: no empty Move to Project or Split with")
+
+        let member = workspaceSidebarWorkspaceIdentityMenuModel(tab("pair", ids: [1, 2]), windowId: 2, send: { _ in })
+        XCTAssertEqual(groups(member.entries), [
+            ["Pin Tab", "Add to Group"],
+            ["Move “Doc 2.txt” to New Tab", "Separate into Tabs"],
+            ["Keep Tab When Empty"],
+            ["Rename…", "Color", "Change Icon…"],
+            ["Close Window", "Close All Windows in Split…"],
+        ])
+
+        let whole = workspaceSidebarWorkspaceIdentityMenuModel(tab("pair", ids: [1, 2]), send: { _ in })
+        XCTAssertEqual(groups(whole.entries).last, ["Close All Windows in Split…"],
+            "The split's own label acts on the whole tab, never on one of its windows")
+        XCTAssertFalse(whole.entries.contains { $0.title.hasPrefix("Move “") })
+
+        let empty = workspaceSidebarWorkspaceIdentityMenuModel(tab("empty", ids: []), send: { _ in })
+        XCTAssertEqual(groups(empty.entries).last, ["Close Empty Tab"])
+        XCTAssertTrue(empty.entries.filter(\.isDestructive).allSatisfy { entry in
+            groups(empty.entries).last?.contains(entry.title) == true
+        })
+    }
+
+    func testAddToGroupAlwaysOffersANewGroupAndMoveToProjectOnlyWithSomewhereToGo() throws {
+        let one = workspaceSidebarWorkspaceIdentityMenuModel(tab("one", ids: [1]), windowId: 1, send: { _ in })
+        XCTAssertEqual(one.entries.first { $0.title == "Add to Group" }?.children.map(\.title), ["New Group…", ""])
+        XCTAssertFalse(one.entries.contains { $0.title == "Move to Project" })
+
+        TrayMenuModel.shared.workspaceSidebarProjects.append(.init(id: "design", displayName: "Design", colorHex: nil, emoji: "🎨"))
+        var sent: [WorkspaceSidebarAction] = []
+        let two = workspaceSidebarWorkspaceIdentityMenuModel(tab("one", ids: [1]), windowId: 1, send: { sent.append($0) })
+        let move = try XCTUnwrap(two.entries.first { $0.title == "Move to Project" })
+        XCTAssertEqual(move.children.map(\.title), ["🎨 Design"])
+        move.children.first?.perform?()
+        XCTAssertEqual(sent, [.moveWorkspace("one", toProject: "design")])
+    }
+
+    func testProjectAndGroupMenusKeepTheirOwnActionsAroundTheAppearance() throws {
+        let project = try XCTUnwrap(workspaceSidebarIdentityMenuModel(.project(workspaceProjectDefaultId)))
+        XCTAssertEqual(groups(project.entries), [
+            ["Switch to Project", "New Project"],
+            ["Rename…", "Color", "Change Icon…"],
+            ["Delete Project"],
+        ])
+        let group = try workspaceSidebarOrganizationStore.create(projectId: workspaceProjectDefaultId, workspaceNames: [])
+        let menu = try XCTUnwrap(workspaceSidebarIdentityMenuModel(.collection(group.id)))
+        XCTAssertEqual(groups(menu.entries), [
+            ["Collapse Group", "New Tab in Group"],
+            ["Rename…", "Color", "Change Icon…"],
+            ["Ungroup Tabs"],
+        ])
+        XCTAssertFalse(menu.entries.contains { $0.isDestructive }, "Ungrouping keeps the tabs")
+    }
+
+    func testAppMenuNamesTheWindowItsControlsActOnAndQuitsLast() throws {
+        let owner = Workspace.get(byName: "one")
+        _ = TestWindow.new(id: 1, parent: owner.rootTilingContainer)
+        let app = try XCTUnwrap(buildWorkspaceSidebarAppSummaries(for: owner).first)
+        let entries = workspaceSidebarAppMenu(workspaceName: owner.name, app: app)
+        XCTAssertEqual(entries.first?.kind, .header)
+        let heading = try XCTUnwrap(entries.firstIndex { $0.title.hasPrefix("Window · ") })
+        XCTAssertEqual(entries[heading].kind, .header)
+        let section = entries[(heading + 1)...].prefix { !$0.isSeparator }.map(\.title)
+        XCTAssertEqual(section.last, "Close Window", "Close stays with the window it closes")
+        XCTAssertFalse(entries.contains { $0.title.hasPrefix("Window:") }, "No submenu just for the current window")
+    }
+
+    // MARK: Native rendering
+
+    func testNativeMenusShowDisabledItemsDisabledAndHaveNoShortcuts() throws {
+        // Before, an explicit text color made disabled rows, such as the default project's Delete,
+        // look enabled.
+        let project = try XCTUnwrap(workspaceSidebarIdentityMenuModel(.project(workspaceProjectDefaultId)))
+        let delete = try XCTUnwrap(project.entries.first { $0.title == "Delete Project" })
+        XCTAssertFalse(delete.enabled)
+        XCTAssertNotNil(delete.help)
+        let menu = workspaceSidebarNativeAppMenu(project.entries + [
+            .init(title: "Move", enabled: false, children: [.init(title: "Somewhere")]),
+        ])
+        XCTAssertEqual(menu.items.first { $0.title == "Delete Project" }?.isEnabled, false)
+        XCTAssertEqual(menu.items.first { $0.title == "Delete Project" }?.toolTip, delete.help)
+        XCTAssertEqual(menu.items.first { $0.title == "Move" }?.isEnabled, false, "Disabled submenus too")
+        XCTAssertFalse(menu.autoenablesItems)
+        XCTAssertTrue(items(menu).allSatisfy { $0.keyEquivalent.isEmpty }, "Context menus show no shortcuts")
+        XCTAssertFalse(menu.items.first!.isSeparatorItem)
+        XCTAssertFalse(menu.items.last!.isSeparatorItem)
+    }
+
+    func testHeadersAreSectionHeadersAndNotChoices() {
+        let menu = workspaceSidebarNativeAppMenu([.header("2 Tabs"), .init(title: "Pin 2 Tabs")])
+        // A section header can't be chosen; before macOS 14 a disabled item stands in for it.
+        if #available(macOS 14, *) { XCTAssertTrue(menu.items[0].isSectionHeader) }
+        else { XCTAssertFalse(menu.items[0].isEnabled) }
+        XCTAssertNil(menu.items[0].action)
+    }
+
+    func testLongNamesKeepTheirEndsAndTheirFullNameForTooltipsAndVoiceOver() {
+        let long = "Quarterly planning notes for the Northwind migration project (final draft v3).txt"
+        let short = workspaceSidebarMenuName(long)
+        XCTAssertEqual(short.count, 40)
+        XCTAssertTrue(short.hasPrefix("Quarterly planning notes"))
+        XCTAssertTrue(short.hasSuffix("draft v3).txt"), "Keeps the end, where a file's type is")
+        XCTAssertEqual(workspaceSidebarMenuName("Alpha.txt"), "Alpha.txt")
+        XCTAssertEqual(workspaceSidebarMenuName(String(repeating: "👩🏽‍💻", count: 50)).count, 40, "Whole emoji only")
+
+        let entry = WorkspaceSidebarAppMenuEntry.named(long) { "Move “\($0)” to New Tab" }
+        XCTAssertEqual(entry.title, "Move “\(short)” to New Tab", "Only the name is shortened, never the command")
+        XCTAssertEqual(entry.fullTitle, "Move “\(long)” to New Tab")
+        let item = workspaceSidebarNativeAppMenu([entry]).items[0]
+        XCTAssertEqual(item.toolTip, entry.fullTitle)
+        XCTAssertEqual(item.accessibilityLabel(), entry.fullTitle)
+
+        // Two names that shorten alike show in full, so choosing between them stays safe.
+        let twin = long.replacingOccurrences(of: "Northwind", with: "Southwind")
+        let menu = workspaceSidebarNativeAppMenu([.named(long), .named(twin), .named("Alpha.txt")])
+        XCTAssertEqual(menu.items.map(\.title), [long, twin, "Alpha.txt"])
+    }
+
+    // MARK: Colors
+
+    private func model(color: String?, colors: @escaping (String?) -> Void) -> WorkspaceSidebarIdentityMenuModel {
+        WorkspaceSidebarIdentityMenuModel(name: "Work", color: color, emoji: nil, rename: { _ in }, setColor: colors,
+            setEmoji: { _ in }, entries: [.init(title: "Pin Tab")])
+    }
+
+    func testThePaletteIsOneChoiceAndOnlyANewColorIsWritten() throws {
+        var written: [String?] = []
+        let model = model(color: "#009AD0") { written.append($0) }
+        let menu = workspaceSidebarNativeAppMenu(model.entries)
+        let carrier = try XCTUnwrap(menu.items.first { $0.title == "Color" })
+        let palette = try XCTUnwrap(carrier.submenu)
+        if #available(macOS 14, *) {
+            XCTAssertEqual(palette.presentationStyle, .palette)
+            XCTAssertEqual(palette.selectionMode, .selectOne)
+        }
+        XCTAssertEqual(palette.items.map(\.title), ["Default"] + workspaceSidebarIdentityColors.map(\.name))
+        XCTAssertEqual(Set(palette.items.compactMap { $0.target.map(ObjectIdentifier.init) }).count, 1,
+            "AppKit groups a selection by its target and action")
+        XCTAssertEqual(Set(palette.items.compactMap(\.action)).count, 1)
+        XCTAssertEqual(palette.items.filter { $0.state == .on }.map(\.title), ["Blue"])
+        XCTAssertTrue(palette.items.allSatisfy { $0.image != nil && $0.toolTip == $0.title })
+        XCTAssertTrue(written.isEmpty, "Opening the menu writes nothing")
+
+        palette.performActionForItem(at: palette.items.firstIndex { $0.title == "Blue" }!)
+        XCTAssertTrue(written.isEmpty, "Choosing the current color again changes nothing")
+        palette.performActionForItem(at: palette.items.firstIndex { $0.title == "Red" }!)
+        palette.performActionForItem(at: 0)
+        XCTAssertEqual(written, ["#D75A6B", nil], "One write per choice; Default means no color")
+    }
+
+    func testACustomColorChecksNoPresetAndStaysUntilOneIsChosen() {
+        var written: [String?] = []
+        let custom = model(color: "#123456") { written.append($0) }
+        XCTAssertEqual(custom.colorChoices.filter(\.checked).map(\.title), [])
+        XCTAssertEqual(model(color: nil) { _ in }.colorChoices.filter(\.checked).map(\.title), ["Default"])
+        XCTAssertEqual(model(color: "#00b894") { _ in }.colorChoices.filter(\.checked).map(\.title), ["Green"],
+            "Compared as colors, not as text")
+        _ = workspaceSidebarNativeAppMenu(custom.entries)
+        XCTAssertTrue(written.isEmpty)
+        XCTAssertEqual(custom.color, "#123456")
+    }
+
+    // MARK: Names
+
+    func testAnUnnamedTabStartsWithAnEmptyNameShowingWhatTheListCallsIt() {
+        var renamed: [String] = []
+        let unnamed = workspaceSidebarWorkspaceIdentityMenuModel(tab("3", ids: [5], generated: true), send: {
+            if case .renameWorkspace(_, let name) = $0 { renamed.append(name) }
+        })
+        XCTAssertEqual(unnamed.name, "", "Not the internal “Workspace 3”")
+        XCTAssertEqual(unnamed.placeholder, "Doc 5.txt")
+        unnamed.chooseColor("#009AD0")
+        unnamed.commitName()
+        XCTAssertTrue(renamed.isEmpty, "The placeholder is never saved as a name")
+        unnamed.name = "  Notes  "
+        unnamed.commitName()
+        XCTAssertEqual(renamed, ["Notes"])
+
+        let split = workspaceSidebarWorkspaceIdentityMenuModel(tab("4", ids: [6, 7], generated: true), send: { _ in })
+        XCTAssertEqual(split.placeholder, "Doc 6.txt · Doc 7.txt")
+        XCTAssertEqual(workspaceSidebarWorkspaceIdentityMenuModel(tab("5", ids: [8], label: "Mail", generated: true),
+            send: { _ in }).name, "Mail")
+        XCTAssertEqual(workspaceSidebarWorkspaceIdentityMenuModel(tab("inbox", ids: [9]), send: { _ in }).name,
+            "Workspace inbox", "A name someone chose stays in the field")
+        config.workspaceSidebar = .init(enabled: true, mode: .sidebar)
+        XCTAssertEqual(workspaceSidebarWorkspaceIdentityMenuModel(tab("3", ids: [5], generated: true), send: { _ in }).name,
+            "Workspace 3", "The sidebar shows workspace names")
+    }
+
+    // MARK: Routes
+
+    func testTheDockRouteShowsTheMenuLaterAndRenameOpensTheEditor() throws {
+        let menu = WorkspaceSidebarIdentityMenu()
+        var shown: [NSMenu] = []
+        menu.presentNativeMenu = { menu, origin in
+            guard case .point = origin else { return XCTFail("No click to track") }
+            shown.append(menu)
+        }
+        defer { menu.close(commit: false) }
+        let model = WorkspaceSidebarIdentityMenuModel(name: "Work", color: nil, emoji: nil, rename: { _ in },
+            setColor: { _ in }, setEmoji: { _ in }, entries: [.init(title: "Pin Tab")])
+        menu.open(model, at: CGPoint(x: 300, y: 500), selectName: false)
+        XCTAssertNil(menu.panel, "Right-clicking no longer opens the editor")
+        XCTAssertTrue(shown.isEmpty, "Accessibility and Dock callers return before the menu tracks")
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        let native = try XCTUnwrap(shown.first)
+        XCTAssertEqual(native.items.map(\.title), ["Pin Tab", "", "Rename…", "Color", "Change Icon…"])
+
+        native.performActionForItem(at: native.items.firstIndex { $0.title == "Rename…" }!)
+        XCTAssertNil(menu.panel, "The editor waits for the menu to go")
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.2))
+        let panel = try XCTUnwrap(menu.panel)
+        XCTAssertTrue(panel.firstResponder is NSTextView, "Rename… opens the editor with the name ready to type")
+        XCTAssertFalse(model.showsIcons)
+
+        menu.close(commit: false)
+        model.showsIcons = true
+        menu.open(model, at: CGPoint(x: 300, y: 500), selectName: false)
+        XCTAssertNotNil(menu.panel, "Choosing an icon still opens the editor directly")
+    }
+
+    func testANewerMenuOrTheEditorCancelsAMenuStillWaitingToOpen() {
+        let menu = WorkspaceSidebarIdentityMenu()
+        var shown = 0
+        menu.presentNativeMenu = { _, _ in shown += 1 }
+        defer { menu.close(commit: false) }
+        let model = WorkspaceSidebarIdentityMenuModel(name: "Work", color: nil, emoji: nil, rename: { _ in },
+            setColor: { _ in }, setEmoji: { _ in }, entries: [])
+        menu.open(model, at: .zero, selectName: false)
+        menu.open(model, at: .zero, selectName: false)
+        menu.openEditor(model, at: CGPoint(x: 300, y: 500), selectName: true)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        XCTAssertEqual(shown, 0)
+        menu.close(commit: false)
+        menu.open(model, at: .zero, selectName: false)
+        menu.open(model, at: .zero, selectName: false)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        XCTAssertEqual(shown, 1, "Only the latest request opens")
+    }
+
+    func testOnlyARightClickOrControlClickOpensTheMenu() throws {
+        func event(_ type: NSEvent.EventType, _ flags: NSEvent.ModifierFlags = []) throws -> NSEvent {
+            try XCTUnwrap(NSEvent.mouseEvent(with: type, location: .zero, modifierFlags: flags, timestamp: 0,
+                windowNumber: 0, context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+        }
+        XCTAssertTrue(workspaceSidebarOpensContextMenu(try event(.rightMouseDown)))
+        XCTAssertTrue(workspaceSidebarOpensContextMenu(try event(.leftMouseDown, .control)))
+        for type in [NSEvent.EventType.leftMouseDown, .leftMouseDragged, .leftMouseUp, .rightMouseUp, .otherMouseDown] {
+            XCTAssertFalse(workspaceSidebarOpensContextMenu(try event(type)), "\(type) reaches the row")
+        }
+        XCTAssertFalse(workspaceSidebarOpensContextMenu(try event(.leftMouseDown, .command)))
+    }
+
+    func testClicksReachTheRowWhileARightClickOpensItsOwnMenu() throws {
+        _ = NSApplication.shared
+        try XCTSkipIf(NSScreen.screens.isEmpty, "Requires a native macOS window server")
+        TrayMenuModel.shared.workspaceSidebarWorkspaces = [tab("one", ids: [7]), tab("two", ids: [8])]
+        var clicks = 0
+        let size = CGSize(width: 240, height: 40)
+        let row = Button { clicks += 1 } label: { Color.gray.frame(width: size.width, height: size.height) }
+            .buttonStyle(.plain)
+            .modifier(WorkspaceSidebarTabRowMenu(target: .tab("one", windowId: 7), close: {}))
+        let host = NSHostingView(rootView: row.frame(width: size.width, height: size.height))
+        let window = NSWindow(contentRect: CGRect(origin: CGPoint(x: 300, y: 200), size: size),
+            styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        window.orderFrontRegardless()
+        defer { window.orderOut(nil) }
+        host.layoutSubtreeIfNeeded()
+        window.displayIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        let location = host.convert(CGPoint(x: 120, y: 20), to: nil)
+        func send(_ types: [NSEvent.EventType], _ flags: NSEvent.ModifierFlags = []) throws {
+            for type in types {
+                NSApp.postEvent(try XCTUnwrap(NSEvent.mouseEvent(with: type, location: location, modifierFlags: flags,
+                    timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil,
+                    eventNumber: 0, clickCount: 1, pressure: type == .leftMouseUp || type == .rightMouseUp ? 0 : 1)), atStart: false)
+            }
+            let deadline = Date().addingTimeInterval(0.2)
+            while let event = NSApp.nextEvent(matching: [.leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp],
+                until: deadline, inMode: .default, dequeue: true) { NSApp.sendEvent(event) }
+        }
+
+        try send([.leftMouseDown, .leftMouseUp])
+        XCTAssertEqual(clicks, 1, "A click goes to the row, which selects the tab")
+        XCTAssertTrue(presented.isEmpty)
+
+        try send([.rightMouseDown, .rightMouseUp])
+        XCTAssertEqual(clicks, 1, "A right-click doesn't select")
+        let menu = try XCTUnwrap(presented.last)
+        guard case .click = menu.origin else { return XCTFail("Tracks with the right-click") }
+        XCTAssertEqual(menu.menu.items.first?.title, "Pin Tab")
+        XCTAssertEqual(menu.menu.items.last?.title, "Close Window")
+
+        try send([.leftMouseDown, .leftMouseUp], .control)
+        XCTAssertEqual(clicks, 1)
+        XCTAssertEqual(presented.count, 2, "Control-click is a right-click")
+
+        // One of several chosen tabs opens the menu for all of them.
+        let selection = WorkspaceSidebarTabSelection.shared
+        _ = selection.handleClick(on: "one", modifiers: .command, order: ["one", "two"], active: "two")
+        XCTAssertTrue(selection.isMultiple)
+        try send([.rightMouseDown, .rightMouseUp])
+        XCTAssertEqual(presented.last?.menu.items.first?.title, "2 Tabs")
+    }
+}
