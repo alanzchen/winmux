@@ -113,6 +113,20 @@ func shouldDelayWorkspaceSidebarExpansion(
     !isExpanded && !isExpansionLocked && !isMouseWindowDragInProgress
 }
 
+/// Pointer rechecks ask an open sidebar to expand about 30 times a second. Once it is open at
+/// full width and the view has heard no collapse since, announcing again would only
+/// invalidate the whole SwiftUI tree. A search-starting expansion always reaches the view.
+func shouldAnnounceWorkspaceSidebarExpansion(
+    isExpanded: Bool,
+    isCollapseAnnounced: Bool,
+    isShown: Bool,
+    visibleWidth: CGFloat,
+    expandedWidth: CGFloat,
+    startsSearch: Bool,
+) -> Bool {
+    startsSearch || !isExpanded || isCollapseAnnounced || !isShown || visibleWidth < expandedWidth
+}
+
 func shouldSuppressWorkspaceSidebarHoverExpansionForDrag(
     isSidebarItemDragActive: Bool,
     isSidebarOriginatedDrag: Bool,

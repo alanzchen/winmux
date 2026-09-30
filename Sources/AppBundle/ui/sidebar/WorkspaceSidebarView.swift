@@ -299,7 +299,8 @@ struct WorkspaceSidebarView: View {
         .onReceive(NotificationCenter.default.publisher(for: workspaceSidebarWillExpandNotification)) { notification in
             guard notificationPanel(from: notification)?.monitorScopeId == snapshot.targetMonitorScopeId else { return }
             isSidebarCollapsing = false
-            isSidebarExpanding = true
+            // At full width this only cancels a collapse. No width change would clear the flag.
+            isSidebarExpanding = snapshot.visibleWidth < expandedWidth - 0.5
             if notification.userInfo?[workspaceSidebarExpansionStartsSearchKey] as? Bool == true,
                let panel = notificationPanel(from: notification) {
                 beginSidebarSearchIfNeeded(panel: panel)

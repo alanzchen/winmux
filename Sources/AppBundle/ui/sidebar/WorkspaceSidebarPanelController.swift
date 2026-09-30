@@ -28,6 +28,9 @@ final class WorkspaceSidebarPanel: NSPanelHud, WorkspaceSidebarInputOwner {
     var pendingExpand: DispatchWorkItem?
     var pendingCollapse: DispatchWorkItem?
     var pendingCollapseFinalize: DispatchWorkItem?
+    /// A collapse was announced to the view and no expansion has been announced since. Kept
+    /// through a reset: the view may never render the zero width in between.
+    var isCollapseAnnounced = false
     var lastHoverMonitorTimestamp: CFTimeInterval = 0
     var hasPendingHoverRecheck = false
     var menuTrackingDepth = 0

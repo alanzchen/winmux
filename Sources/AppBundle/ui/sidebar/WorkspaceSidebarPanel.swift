@@ -120,16 +120,27 @@ extension WorkspaceSidebarPanel {
         debugWorkspaceSidebarHoverLog("expandSidebar panel=\(monitorScopeId) target=\(expandedWidth) visible=\(viewModel.workspaceSidebarVisibleWidth) frame=\(frame) mouse=\(NSEvent.mouseLocation)")
         pendingExpand?.cancel()
         pendingExpand = nil
-        NotificationCenter.default.post(
-            name: workspaceSidebarWillExpandNotification,
-            object: self,
-            userInfo: [workspaceSidebarExpansionStartsSearchKey: reason.startsSearch(
-                alwaysExpanded: config.workspaceSidebar.pinsSidebarOpen,
-                isDragging: isMouseWindowDragInProgress() || isWorkspaceSidebarItemDragActive(),
-                isTrackingMenu: menuTrackingDepth > 0 || Date() < menuTrackingGraceUntil,
-            )],
+        let startsSearch = reason.startsSearch(
+            alwaysExpanded: config.workspaceSidebar.pinsSidebarOpen,
+            isDragging: isMouseWindowDragInProgress() || isWorkspaceSidebarItemDragActive(),
+            isTrackingMenu: menuTrackingDepth > 0 || Date() < menuTrackingGraceUntil,
         )
-        viewModel.isWorkspaceSidebarExpanded = true
+        if shouldAnnounceWorkspaceSidebarExpansion(
+            isExpanded: viewModel.isWorkspaceSidebarExpanded,
+            isCollapseAnnounced: isCollapseAnnounced,
+            isShown: isVisible && autoHideReason == nil,
+            visibleWidth: viewModel.workspaceSidebarVisibleWidth,
+            expandedWidth: expandedWidth,
+            startsSearch: startsSearch,
+        ) {
+            isCollapseAnnounced = false
+            NotificationCenter.default.post(
+                name: workspaceSidebarWillExpandNotification,
+                object: self,
+                userInfo: [workspaceSidebarExpansionStartsSearchKey: startsSearch],
+            )
+        }
+        viewModel.setIfChanged(\.isWorkspaceSidebarExpanded, true)
         // Opened for use, the panel comes back above System Settings or a prompt it yielded to.
         if !systemFrontWindows.isEmpty, !isAtRest {
             applyWorkspaceSidebarLayer(stayOnTop: config.workspaceSidebar.stayOnTop, yieldsToSystemWindows: false)
@@ -909,7 +920,7 @@ extension WorkspaceSidebarPanel {
     func scheduleCollapse(collapsedWidth: CGFloat) {
         guard !config.workspaceSidebar.pinsSidebarOpen else { return }
         debugWorkspaceSidebarHoverLog("scheduleCollapse panel=\(monitorScopeId) visible=\(viewModel.workspaceSidebarVisibleWidth) collapsed=\(collapsedWidth) mouse=\(NSEvent.mouseLocation)")
-        NotificationCenter.default.post(name: workspaceSidebarWillCollapseNotification, object: self)
+        announceCollapse()
         let collapse = DispatchWorkItem { [weak self] in
             guard let self else { return }
             self.pendingCollapse = nil
@@ -932,6 +943,13 @@ extension WorkspaceSidebarPanel {
         pendingCollapse = collapse
         let collapseDelay: TimeInterval = viewModel.isWorkspaceSidebarExpanded ? 0.08 : 0
         DispatchQueue.main.asyncAfter(deadline: .now() + collapseDelay, execute: collapse)
+    }
+
+    /// The view keeps its collapsing presentation until it hears the next expansion, even when
+    /// the collapse is cancelled before the width changes. Record that it needs to hear one.
+    func announceCollapse() {
+        isCollapseAnnounced = true
+        NotificationCenter.default.post(name: workspaceSidebarWillCollapseNotification, object: self)
     }
 
     func scheduleCollapseFinalize() {
@@ -1200,7 +1218,8 @@ extension WorkspaceSidebarPanel {
                 isBrowsingSecondProject: isBrowsingSecondProject,
             )
             persistentExpansionWidth = layout.expandedWidth
-            viewModel.isWorkspaceSidebarExpanded = true
+            // Every global mouse-drag event refreshes the panels. Publish only a change.
+            viewModel.setIfChanged(\.isWorkspaceSidebarExpanded, true)
             if viewModel.workspaceSidebarVisibleWidth != targetWidth {
                 viewModel.workspaceSidebarVisibleWidth = targetWidth
             }

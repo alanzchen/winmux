@@ -68,7 +68,7 @@ func closeWorkspaceSidebarFromCommand(_ panel: WorkspaceSidebarPanel, restorePre
     panel.pendingCollapseFinalize?.cancel()
     panel.pendingCollapseFinalize = nil
     if !config.workspaceSidebar.pinsSidebarOpen {
-        NotificationCenter.default.post(name: workspaceSidebarWillCollapseNotification, object: panel)
+        panel.announceCollapse()
     }
     clearWorkspaceSidebarCommandInputState(panel)
     let configuredRestingWidth = workspaceSidebarRestingWidth(panel.sidebarSettings)
@@ -76,7 +76,7 @@ func closeWorkspaceSidebarFromCommand(_ panel: WorkspaceSidebarPanel, restorePre
         ? max(configuredRestingWidth, panel.viewModel.workspaceSidebarVisibleWidth)
         : configuredRestingWidth
     panel.animateVisibleSidebarWidth(restingWidth, animation: .easeInOut(duration: panel.animationDuration))
-    if restingWidth > 0 { panel.viewModel.isWorkspaceSidebarExpanded = config.workspaceSidebar.pinsSidebarOpen }
+    if restingWidth > 0 { panel.viewModel.setIfChanged(\.isWorkspaceSidebarExpanded, config.workspaceSidebar.pinsSidebarOpen) }
     panel.updateMousePassthrough()
     if restorePreviousApplication, NSApp.isActive {
         previousApp?.activate(options: .activateIgnoringOtherApps)
