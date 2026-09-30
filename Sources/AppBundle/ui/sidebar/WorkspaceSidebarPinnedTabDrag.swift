@@ -140,6 +140,8 @@ func finishSidebarPinnedTabDrag(_ name: String, pointer: CGPoint) {
     noteWorkspaceSidebarConsumedRelease()
     runWorkspaceSidebarSession(undoTitle: workspaceSidebarPinnedTabDropUndoTitle(drop)) {
         try intent.checkDestination()
+        // The tab it went beside may have gone, or another tab may have taken its name.
+        guard intent.targetIsUnchanged else { return }
         try applyWorkspaceSidebarPinnedTabDrop(tab, drop)
         await updateWorkspaceSidebarModel()
     }

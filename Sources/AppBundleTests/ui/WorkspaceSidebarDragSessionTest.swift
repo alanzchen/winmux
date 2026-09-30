@@ -16,49 +16,34 @@ final class WorkspaceSidebarDragSessionTest: XCTestCase {
         XCTAssertNil(sessions.active)
     }
 
-    func testTheNextDragAfterAReleaseStartsANewSession() {
+    func testTheNextDragAfterAReleaseStartsWithTheNextPress() {
         let sessions = WorkspaceSidebarDragSessions()
+        sessions.noteLeftMouseDown()
         XCTAssertTrue(sessions.acceptUpdate())
         let first = sessions.consumeRelease()?.generation
+        XCTAssertFalse(sessions.acceptUpdate(), "A late update of the released press, after its mouse-up")
+        XCTAssertTrue(sessions.hasEndedThisPress)
+        sessions.noteLeftMouseDown()
+        XCTAssertFalse(sessions.hasEndedThisPress)
         XCTAssertTrue(sessions.acceptUpdate())
         XCTAssertNotEqual(sessions.active?.generation, first)
     }
 
-    /// Escape mid-drag, with the button still down: the rest of that gesture is refused, whichever
-    /// comes first of its own end and the mouse-up cleanup, and the next press drags again.
-    func testACancelRefusesTheRestOfItsGestureButNotTheNextOne() {
-        for upFirst in [true, false] {
-            let sessions = WorkspaceSidebarDragSessions()
-            sessions.noteLeftMouseDown()
-            XCTAssertTrue(sessions.acceptUpdate())
-            XCTAssertTrue(sessions.cancel())
-            sessions.markCancelledWhilePressedForTests()
-            XCTAssertFalse(sessions.cancel(), "Only an active drag cancels")
-            XCTAssertFalse(sessions.acceptUpdate(), "A late update of the cancelled gesture")
-            if upFirst {
-                sessions.noteLeftMouseUp()
-                XCTAssertNil(sessions.consumeRelease(), "Its end commits nothing")
-            } else {
-                XCTAssertNil(sessions.consumeRelease(), "Its end commits nothing")
-                sessions.noteLeftMouseUp()
-            }
-            XCTAssertTrue(sessions.acceptUpdate(), "The next drag, upFirst=\(upFirst)")
-            XCTAssertNotNil(sessions.active)
-        }
-    }
-
-    /// If the release was never seen, a new press still starts a new drag.
-    func testANewPressStartsADragEvenWithoutASeenRelease() {
+    /// Escape mid-drag: the rest of that press is refused, before and after the button goes up,
+    /// whichever comes first of the gesture's end and the mouse-up cleanup. The next press drags.
+    func testACancelRefusesTheRestOfItsPressButNotTheNextOne() {
         let sessions = WorkspaceSidebarDragSessions()
         sessions.noteLeftMouseDown()
         XCTAssertTrue(sessions.acceptUpdate())
-        sessions.cancel()
-        // The test process holds no mouse button, so a cancel here already counts as released;
-        // force the pressed case the gesture sees in use.
-        sessions.markCancelledWhilePressedForTests()
-        XCTAssertFalse(sessions.acceptUpdate())
+        XCTAssertTrue(sessions.cancel())
+        XCTAssertFalse(sessions.cancel(), "Only an active drag cancels")
+        XCTAssertFalse(sessions.acceptUpdate(), "A late update of the cancelled gesture")
+        XCTAssertNil(sessions.consumeRelease(), "Its end commits nothing")
+        XCTAssertFalse(sessions.acceptUpdate(), "Nor does an update after the mouse-up revive it")
+        XCTAssertNil(sessions.consumeRelease())
         sessions.noteLeftMouseDown()
-        XCTAssertTrue(sessions.acceptUpdate())
+        XCTAssertTrue(sessions.acceptUpdate(), "The next drag")
+        XCTAssertNotNil(sessions.active)
     }
 
     /// Escape during a pinned tile's drag, through the real update and release: the drag's feedback
@@ -85,7 +70,6 @@ final class WorkspaceSidebarDragSessionTest: XCTestCase {
         updateSidebarPinnedTabDrag(tab.name, pointer: .zero)
         XCTAssertTrue(WorkspaceSidebarTabDragState.shared.isDragging)
         XCTAssertTrue(workspaceSidebarHandleEscapeDuringDrag(keyCode: 53))
-        sessions.markCancelledWhilePressedForTests()
         XCTAssertFalse(WorkspaceSidebarTabDragState.shared.isDragging, "Its feedback goes at once")
         XCTAssertFalse(workspaceSidebarHandleEscapeDuringDrag(keyCode: 53), "Nothing left to cancel")
         updateSidebarPinnedTabDrag(tab.name, pointer: .zero)

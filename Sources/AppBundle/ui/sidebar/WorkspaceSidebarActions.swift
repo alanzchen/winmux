@@ -319,11 +319,12 @@ private func moveSidebarSource(
     let task = runWorkspaceSidebarSession(undoTitle: tabPlacement == nil ? "Move Tab" : "Split Tabs") {
         defer { if let settlingId { finishWorkspaceSidebarDockLift(id: settlingId) } }
         try intent.checkDestination()
-        // A tab another display's list showed takes the drop only while it's still on that display.
-        guard validation(), let sourceWindow = Window.get(byId: windowId),
+        // What was released, onto the tab it was released on: a tab another display's list showed
+        // takes the drop only while it's still on that display.
+        guard validation(), intent.targetIsUnchanged, let source = intent.resolveSource(windowId: windowId, subject: subject),
               let targetWorkspace = Workspace.existing(byName: workspaceName), intent.accepts(targetWorkspace)
         else { return }
-        let sourceNode = dragSubjectNode(for: sourceWindow, subject: subject)
+        let (sourceWindow, sourceNode) = (source.window, source.node)
         syncClosedWindowsCacheToCurrentWorld()
         suppressPostDragAxObserverEvents(for: sourceNode.allLeafWindowsRecursive.map(\.windowId))
         if let tabPlacement {
@@ -348,8 +349,8 @@ private func moveSidebarSourceToTabGap(
     let task = runWorkspaceSidebarSession(undoTitle: unpins ? "Unpin Tab" : "Move Tab") {
         defer { if let settlingId { finishWorkspaceSidebarDockLift(id: settlingId) } }
         try intent.checkDestination()
-        guard let sourceWindow = Window.get(byId: windowId) else { return }
-        let sourceNode = dragSubjectNode(for: sourceWindow, subject: subject)
+        guard intent.targetIsUnchanged, let source = intent.resolveSource(windowId: windowId, subject: subject) else { return }
+        let (sourceWindow, sourceNode) = (source.window, source.node)
         // The list's display, or none: a display that went away takes nothing.
         guard let monitor = workspaceSidebarDropTargetMonitor(scopeId: monitorScopeId, fallbackWindow: sourceWindow,
             fallbackPoint: mouseLocation) else { throw WorkspaceMutationError.displayUnavailable }
@@ -386,6 +387,7 @@ private func pinSidebarSource(_ windowId: UInt32, subject: WindowDragSubject, ga
     let task = runWorkspaceSidebarSession(undoTitle: movesPin ? "Move Tab" : "Pin Tab") {
         defer { if let settlingId { finishWorkspaceSidebarDockLift(id: settlingId) } }
         try intent.checkDestination()
+        guard intent.targetIsUnchanged, intent.resolveSource(windowId: windowId, subject: subject) != nil else { return }
         try applySidebarPinDrop(windowId, subject: subject, gap: gap, monitorScopeId: monitorScopeId)
         await updateWorkspaceSidebarModel()
     }
@@ -446,7 +448,7 @@ private func groupSidebarSource(_ windowId: UInt32, collectionId: String, monito
     let task = runWorkspaceSidebarSession(undoTitle: "Move to Group") {
         defer { if let settlingId { finishWorkspaceSidebarDockLift(id: settlingId) } }
         try intent.checkDestination()
-        guard let tab else { return }
+        guard let tab, intent.resolveSource(windowId: windowId, subject: .window) != nil else { return }
         try applySidebarGroupDrop(windowId, tab: tab, collectionId: collectionId, monitorScopeId: monitorScopeId)
         await updateWorkspaceSidebarModel()
     }
@@ -487,8 +489,8 @@ private func moveSidebarSourceToNewWorkspace(
     let task = runWorkspaceSidebarSession(undoTitle: "Move to New Tab") {
         defer { if let settlingId { finishWorkspaceSidebarDockLift(id: settlingId) } }
         try intent.checkDestination()
-        guard let sourceWindow = Window.get(byId: windowId) else { return }
-        let sourceNode = dragSubjectNode(for: sourceWindow, subject: subject)
+        guard let source = intent.resolveSource(windowId: windowId, subject: subject) else { return }
+        let (sourceWindow, sourceNode) = (source.window, source.node)
         // The list's display, or none: a display that went away takes nothing.
         guard let targetMonitor = workspaceSidebarDropTargetMonitor(
             scopeId: monitorScopeId,
@@ -1010,8 +1012,11 @@ func finishSidebarWindowDrag(pointer: CGPoint? = nil) {
         MousePointerTracker.shared.note(point: pointer)
         postWorkspaceSidebarDragPointerNotification(workspaceSidebarDragPointerEndedNotification, pointer: pointer)
     }
-    // The release is consumed once: the gesture's end and the mouse-up cleanup both get here.
+    // The release is consumed once: the gesture's end and the mouse-up cleanup both get here. The
+    // second finds its press's drag over, released or cancelled, and has nothing left to do.
+    let endedBefore = WorkspaceSidebarDragSessions.shared.hasEndedThisPress
     let release = WorkspaceSidebarDragSessions.shared.consumeRelease()
+    if release == nil, endedBefore { return }
     let didCommitSidebarDrop = release != nil && commitActiveWorkspaceSidebarDragIfPossible()
     if didCommitSidebarDrop { noteWorkspaceSidebarConsumedRelease() }
     // Released over the Tabs sidebar, or over temporary drop UI, where it showed no drop: nothing
@@ -1056,7 +1061,6 @@ func workspaceSidebarCrossDisplayDragDescription(event: String, point: CGPoint) 
 
 @MainActor
 func finishWorkspaceSidebarDragAfterMouseUp() {
-    defer { WorkspaceSidebarDragSessions.shared.noteLeftMouseUp() }
     finishActiveSidebarPinnedTabDrag()
     let hasSidebarDragState = currentActiveWorkspaceSidebarDrag() != nil || isWorkspaceSidebarItemDragActive()
     let hasCursorProxy = WindowDragCursorProxyPanel.shared.currentContent != nil || WindowDragCursorProxyPanel.shared.isVisible
@@ -1159,7 +1163,8 @@ private func commitActiveWorkspaceSidebarDragIfPossible() -> Bool {
         return false
     }
     // A list that closed before the release takes nothing: its drop can't be checked any more.
-    guard let intent = WorkspaceSidebarDropIntent.captured(for: target) else {
+    guard let intent = WorkspaceSidebarDropIntent.captured(for: target,
+        source: .init(window: sourceWindow, subject: activeDrag.subject)) else {
         clearWorkspaceSidebarDropPreview()
         WindowDragCursorProxyPanel.shared.hide()
         return false

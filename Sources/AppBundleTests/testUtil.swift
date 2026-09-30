@@ -26,6 +26,7 @@ let projectRoot: URL = {
 
 @MainActor
 func setUpWorkspacesForTests() {
+    WorkspaceSidebarDragSessions.shared.resetForTests()
     WorkspaceSidebarTabUndo.shared.clear()
     WorkspaceSidebarTabSplitHoverController.shared.reset()
     config = defaultConfig

@@ -12,8 +12,6 @@ struct WorkspaceSidebarDragSession: Equatable {
     /// The left mouse-down the drag began under.
     let mouseDownSerial: UInt64
     var state: State
-    /// The mouse button has gone up since the session ended, so the next update is a new drag.
-    var releaseObserved = false
 }
 
 @MainActor
@@ -28,23 +26,22 @@ final class WorkspaceSidebarDragSessions {
 
     var active: WorkspaceSidebarDragSession? { current?.state == .active ? current : nil }
 
+    /// Every left mouse-down, the gesture's own included: local monitors see a press before
+    /// SwiftUI does.
     func noteLeftMouseDown() { mouseDownSerial &+= 1 }
 
-    /// The button went up: whatever ended the last session, the next update starts a new one.
-    func noteLeftMouseUp() {
-        if current?.state != .active { current?.releaseObserved = true }
+    /// A drag of this press has ended, released or cancelled. Its late callbacks belong to it.
+    var hasEndedThisPress: Bool {
+        guard let current else { return false }
+        return current.state != .active && current.mouseDownSerial == mouseDownSerial
     }
 
-    /// An update of a custom drag: continues the active session, or starts one. After a cancel,
-    /// updates of the same press are refused until the button is released or pressed again.
+    /// An update of a custom drag: continues the active session, or starts one. Once a drag ends,
+    /// by release or cancel, every later update of the same press is refused, even after the
+    /// button went up; only a new press starts a new drag.
     func acceptUpdate() -> Bool {
-        if let current {
-            switch current.state {
-                case .active: return true
-                case .cancelled, .finished:
-                    guard current.releaseObserved || mouseDownSerial != current.mouseDownSerial else { return false }
-            }
-        }
+        if current?.state == .active { return true }
+        guard !hasEndedThisPress else { return false }
         current = WorkspaceSidebarDragSession(generation: nextGeneration, mouseDownSerial: mouseDownSerial, state: .active)
         nextGeneration &+= 1
         return true
@@ -55,7 +52,6 @@ final class WorkspaceSidebarDragSessions {
     func consumeRelease() -> WorkspaceSidebarDragSession? {
         guard var session = active else { return nil }
         session.state = .finished
-        session.releaseObserved = true
         current = session
         return session
     }
@@ -65,15 +61,7 @@ final class WorkspaceSidebarDragSessions {
     func cancel() -> Bool {
         guard active != nil else { return false }
         current?.state = .cancelled
-        current?.releaseObserved = !isLeftMouseButtonDown
         return true
-    }
-
-    /// Tests hold no mouse button, so a cancel always counts as released. The gesture in use
-    /// cancels with the button down.
-    func markCancelledWhilePressedForTests() {
-        guard current?.state == .cancelled else { return }
-        current?.releaseObserved = false
     }
 
     func resetForTests() {

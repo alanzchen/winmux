@@ -136,6 +136,34 @@ final class WorkspaceSidebarDropIntentTest: XCTestCase {
         }
     }
 
+    /// Review round 1: what was released is what moves. A window that went to another tab before
+    /// the session, or a tab another took the name of, takes no drop.
+    func testADropWhoseSourceOrTargetChangedBeforeTheSessionDoesNothing() async throws {
+        let (_, right, window) = try twoDisplaysWithTabs()
+        let target = WorkspaceSidebarDropTarget(kind: .workspace("r"), rect: Rect(topLeftX: 0, topLeftY: 0, width: 10, height: 10))
+        let moved = try XCTUnwrap(WorkspaceSidebarDropIntent.captured(for: target,
+            source: .init(window: window, subject: .window)))
+        window.bind(to: Workspace.get(byName: "elsewhere").rootTilingContainer, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
+        var task = try XCTUnwrap(queueWorkspaceSidebarDrop(window.windowId, subject: .window, target: .workspace("r"),
+            placement: nil, intent: moved))
+        await task.value
+        XCTAssertEqual(window.nodeWorkspace?.name, "elsewhere", "It left the tab it was dragged from")
+
+        let a = Workspace.get(byName: "a")
+        window.bind(to: a.rootTilingContainer, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
+        let intent = try XCTUnwrap(WorkspaceSidebarDropIntent.captured(for: target, source: .init(window: window, subject: .window)))
+        let r = Workspace.get(byName: "r")
+        for window in r.allLeafWindowsRecursive { window.bind(to: a.rootTilingContainer, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST) }
+        removeWorkspaceFromRegistry(r, reason: .deleted)
+        let replacement = Workspace.get(byName: "r")
+        _ = TestWindow.new(id: 8, parent: replacement.rootTilingContainer)
+        XCTAssertTrue(right.setActiveWorkspace(replacement))
+        task = try XCTUnwrap(queueWorkspaceSidebarDrop(window.windowId, subject: .window, target: .workspace("r"),
+            placement: nil, intent: intent))
+        await task.value
+        XCTAssertEqual(window.nodeWorkspace?.name, "a", "Another tab that took the name isn't the one it was dropped on")
+    }
+
     /// The display changes after the release and before the session: the drop is refused, and says so.
     func testADisplayChangeBeforeTheSessionRefusesTheDrop() async throws {
         let (_, right, window) = try twoDisplaysWithTabs()

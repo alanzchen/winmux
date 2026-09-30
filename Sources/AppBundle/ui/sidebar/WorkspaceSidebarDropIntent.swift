@@ -42,19 +42,45 @@ struct WorkspaceSidebarDropIntent {
     let destination: WorkspaceSidebarDropDestinationIdentity?
     /// The list showed its project's pins from every display, as it did at the release.
     var listsSharedPins = false
+    /// What was dragged, as it was at the release.
+    var source: WorkspaceSidebarDropSource? = nil
+    /// The tab the drop was on or beside, as it was at the release.
+    var targetWorkspace: Workspace? = nil
 
-    static let physical = WorkspaceSidebarDropIntent(surface: nil, destination: nil)
+    @MainActor static var physical: WorkspaceSidebarDropIntent { .init(surface: nil, destination: nil) }
 
     /// The intent for a target found at release. A target on temporary drop UI whose list is gone
-    /// has no intent: nothing may be dropped there.
+    /// has no intent: nothing may be dropped there. Nor has one naming another display than the
+    /// list's, as a list that just switched displays could still report.
     @MainActor
-    static func captured(for target: WorkspaceSidebarDropTarget) -> WorkspaceSidebarDropIntent? {
+    static func captured(for target: WorkspaceSidebarDropTarget,
+                         source: WorkspaceSidebarDropSource? = nil) -> WorkspaceSidebarDropIntent? {
+        let tab = target.kind.aimedWorkspaceName.flatMap { Workspace.existing(byName: $0) }
         guard let surface = target.surface, surface.isTemporary else {
-            return WorkspaceSidebarDropIntent(surface: target.surface, destination: nil)
+            return WorkspaceSidebarDropIntent(surface: target.surface, destination: nil, source: source, targetWorkspace: tab)
         }
-        guard let destination = WorkspaceSidebarTemporaryDropSurfaces.shared.destination(for: surface) else { return nil }
+        guard let destination = WorkspaceSidebarTemporaryDropSurfaces.shared.destination(for: surface),
+              target.kind.monitorScopeId.map({ $0 == destination.monitorScopeId }) ?? true,
+              target.tabReorderDestination.map({ $0.monitorScopeId == destination.monitorScopeId }) ?? true
+        else { return nil }
         return WorkspaceSidebarDropIntent(surface: surface, destination: destination,
-            listsSharedPins: config.workspaceSidebar.sharesPinnedTabs)
+            listsSharedPins: config.workspaceSidebar.sharesPinnedTabs, source: source, targetWorkspace: tab)
+    }
+
+    /// Whether the tab the drop was aimed at is still the one it was, not gone or another tab
+    /// that took its name.
+    @MainActor
+    var targetIsUnchanged: Bool {
+        targetWorkspace.map { Workspace.existing(byName: $0.name) === $0 } ?? true
+    }
+
+    /// What was dragged, if it's still what was released: the same window, and the same windows
+    /// with it, in the same tab. Without a captured source, as the window id finds it.
+    @MainActor
+    func resolveSource(windowId: UInt32, subject: WindowDragSubject) -> (window: Window, node: TreeNode)? {
+        if let source { return source.resolve() }
+        guard let window = Window.get(byId: windowId) else { return nil }
+        return (window, dragSubjectNode(for: window, subject: subject))
     }
 
     /// Whether the drop may still go where it was aimed. Throws, before anything changes, when a
@@ -74,6 +100,54 @@ struct WorkspaceSidebarDropIntent {
         if workspace.workspaceMonitor.rect == monitor.rect { return true }
         return listsSharedPins && workspace.projectId == activeWorkspaceProjectId(for: monitor)
             && workspaceSidebarOrganizationStore.state.workspaces[workspace.name]?.isFavorite == true
+    }
+}
+
+/// A dragged window or group, as the release found it.
+struct WorkspaceSidebarDropSource {
+    let window: Window
+    let subject: WindowDragSubject
+    let windowIds: Set<UInt32>
+    let workspace: Workspace?
+
+    @MainActor
+    init(window: Window, subject: WindowDragSubject) {
+        let node = dragSubjectNode(for: window, subject: subject)
+        self.window = window
+        self.subject = subject
+        windowIds = Set(node.allLeafWindowsRecursive.map(\.windowId))
+        workspace = node.nodeWorkspace
+    }
+
+    /// The dragged node, unless something changed it since: a group that gained or lost windows
+    /// isn't what the user dragged.
+    @MainActor
+    func resolve() -> (window: Window, node: TreeNode)? {
+        guard Window.get(byId: window.windowId) === window else { return nil }
+        let node = dragSubjectNode(for: window, subject: subject)
+        guard node.nodeWorkspace === workspace, Set(node.allLeafWindowsRecursive.map(\.windowId)) == windowIds else { return nil }
+        return (window, node)
+    }
+}
+
+extension WorkspaceSidebarDropTargetKind {
+    /// The display a target names, if it names one.
+    var monitorScopeId: String? {
+        switch self {
+            case .tabGap(_, let scope, _), .newWorkspace(_, let scope): scope
+            case .pinnedTabs(_, _, let scope), .tabCollection(_, let scope): scope
+            case .workspace, .monitor: nil
+        }
+    }
+
+    /// The tab a drop is on, or goes beside.
+    var aimedWorkspaceName: String? {
+        switch self {
+            case .workspace(let name): name
+            case .tabGap(_, _, let gap): gap.workspaceName
+            case .pinnedTabs(_, let gap, _): gap?.workspaceName
+            case .newWorkspace, .tabCollection, .monitor: nil
+        }
     }
 }
 
