@@ -89,3 +89,126 @@ final class WorkspaceSidebarDropDestinationStateTest: XCTestCase {
         XCTAssertNil(step(state, CGPoint(x: 300, y: 500), at: 40.3, hints: []).openId)
     }
 }
+
+/// Rails side by side, a list open to their side: the rails crossed on the way into it are
+/// passed, however slowly, while a real stop on any rail still switches to its display.
+final class WorkspaceSidebarDropDestinationTransitTest: XCTestCase {
+    private let rails: [(id: String, frame: CGRect)] = [
+        ("a", CGRect(x: 300, y: 0, width: 30, height: 900)),
+        ("b", CGRect(x: 332, y: 0, width: 30, height: 900)),
+        ("c", CGRect(x: 364, y: 0, width: 30, height: 900)),
+    ]
+    private let list = CGRect(x: 400, y: 0, width: 280, height: 900)
+    private let frame: TimeInterval = 1.0 / 60
+
+    private func step(_ state: WorkspaceSidebarDropDestinationState, x: CGFloat, y: CGFloat = 450, at now: TimeInterval,
+                      rails: [(id: String, frame: CGRect)]? = nil, list: CGRect? = nil, side: CGFloat = 1)
+        -> WorkspaceSidebarDropDestinationState {
+        let rails = rails ?? self.rails
+        let area = rails.map(\.frame).reduce(rails[0].frame) { $0.union($1) }
+        return workspaceSidebarDropDestinationStep(state, pointer: CGPoint(x: x, y: y), now: now, hints: rails,
+            keepOpen: area.union(list ?? self.list), listSide: side)
+    }
+
+    /// From the open rail into its list at `speed` pt/s, a sample a frame.
+    private func cross(from open: String, fromX: CGFloat, toX: CGFloat, speed: CGFloat,
+                       rails: [(id: String, frame: CGRect)]? = nil, list: CGRect? = nil, side: CGFloat = 1) {
+        var state = WorkspaceSidebarDropDestinationState(openId: open)
+        var x = fromX
+        var now: TimeInterval = 100
+        while (toX - x) * side > 0 {
+            state = step(state, x: x, at: now, rails: rails, list: list, side: side)
+            XCTAssertEqual(state.openId, open, "At \(speed) pt/s, x=\(x)")
+            x += side * speed * CGFloat(frame)
+            now += frame
+        }
+    }
+
+    func testCrossingRailsIntoTheListNeverSwitchesAtAnySpeed() {
+        for speed: CGFloat in [4, 5, 20, 100, 400] {
+            cross(from: "a", fromX: 315, toX: 420, speed: speed)
+        }
+        // From the middle rail, and from the last, which has none to cross.
+        cross(from: "b", fromX: 347, toX: 420, speed: 4)
+        cross(from: "c", fromX: 379, toX: 420, speed: 4)
+    }
+
+    /// A right sidebar mirrors it: the list is to the left, and the rails crossed have lower indices.
+    func testCrossingIsMirroredForARightSidebar() {
+        let mirroredList = CGRect(x: 10, y: 0, width: 280, height: 900)
+        for speed: CGFloat in [4, 100] {
+            cross(from: "c", fromX: 379, toX: 280, speed: speed, list: mirroredList, side: -1)
+        }
+    }
+
+    /// A hesitation with the smallest nudge on towards the list starts its pause over.
+    func testANudgeOnDuringAHesitationRestartsThePause() {
+        var state = WorkspaceSidebarDropDestinationState(openId: "a")
+        var now: TimeInterval = 200
+        // Stopped on b for most of a pause, then 0.4 pt on.
+        for _ in 0 ..< 12 { state = step(state, x: 345, at: now); now += frame }
+        state = step(state, x: 345.4, at: now)
+        let nudged = now
+        now += frame
+        while now < nudged + workspaceSidebarDropDestinationDwell - 0.01 {
+            state = step(state, x: 345.4, at: now)
+            XCTAssertEqual(state.openId, "a", "The pause starts again at the nudge")
+            now += frame
+        }
+        state = step(state, x: 345.4, at: nudged + workspaceSidebarDropDestinationDwell)
+        XCTAssertEqual(state.openId, "b", "Then held still for a whole pause: a deliberate switch")
+    }
+
+    func testHoldingStillOnACrossedRailSwitchesToIt() {
+        var state = WorkspaceSidebarDropDestinationState(openId: "a")
+        state = step(state, x: 350, at: 300)
+        XCTAssertEqual(state.arming?.id, "b")
+        state = step(state, x: 350, at: 300 + workspaceSidebarDropDestinationDwell)
+        XCTAssertEqual(state.openId, "b")
+    }
+
+    /// Coming back from the list onto a rail, and stopping there, chooses it.
+    func testReturningFromTheListAndStoppingSwitches() {
+        var state = WorkspaceSidebarDropDestinationState(openId: "a")
+        var now: TimeInterval = 400
+        var x: CGFloat = 450
+        while x > 380 {
+            state = step(state, x: x, at: now)
+            XCTAssertEqual(state.openId, "a")
+            x -= 2
+            now += frame
+        }
+        state = step(state, x: 380, at: now)
+        state = step(state, x: 380, at: now + workspaceSidebarDropDestinationDwell)
+        XCTAssertEqual(state.openId, "c")
+    }
+
+    func testEveryRailCanBeChosenDeliberately() {
+        var state = WorkspaceSidebarDropDestinationState(openId: "a")
+        var now: TimeInterval = 500
+        for (id, x) in [("c", 379.0), ("a", 315), ("b", 347), ("a", 305), ("c", 390)] as [(String, CGFloat)] {
+            state = step(state, x: x, at: now)
+            state = step(state, x: x, at: now + workspaceSidebarDropDestinationDwell)
+            XCTAssertEqual(state.openId, id)
+            now += 1
+        }
+    }
+
+    /// The rails have no tolerance: each is exactly its frame. The gap between two is neither's,
+    /// so crossing it starts any pause over.
+    func testRailSeamsAndGaps() {
+        let hovered: (CGFloat) -> String? = { x in
+            self.step(.init(), x: x, at: 600).arming?.id
+        }
+        XCTAssertEqual(hovered(329.9), "a")
+        XCTAssertNil(hovered(331), "The 2 pt gap is no rail's")
+        XCTAssertEqual(hovered(332), "b")
+        XCTAssertEqual(hovered(361.9), "b")
+        XCTAssertNil(hovered(299), "Outside the first")
+        var state = step(.init(), x: 320, at: 700)
+        state = step(state, x: 331, at: 700.1)
+        XCTAssertNil(state.arming)
+        state = step(state, x: 320, at: 700.2)
+        XCTAssertEqual(state.arming?.since, 700.2, "Back on it, a fresh pause")
+    }
+}

@@ -57,44 +57,42 @@ func workspaceSidebarDropDestinationHints(source: Monitor, monitors: [Monitor]) 
 
 let workspaceSidebarDropDestinationGap: CGFloat = 6
 let workspaceSidebarDropDestinationMargin: CGFloat = 8
-let workspaceSidebarDropDestinationHintWidth: CGFloat = 128
-/// A bottom Dock's row of hints narrows them this far before it scrolls.
-let workspaceSidebarDropDestinationMinHintWidth: CGFloat = 72
-let workspaceSidebarDropDestinationSingleHintHeight: CGFloat = 60
-let workspaceSidebarDropDestinationHintHeight: CGFloat = 36
-/// A short sidebar shrinks its hints this far before they scroll.
-let workspaceSidebarDropDestinationMinHintHeight: CGFloat = 28
-let workspaceSidebarDropDestinationHintSpacing: CGFloat = 4
+/// Each other display's rail, beside the sidebar: as tall as the sidebar, this wide.
+let workspaceSidebarDropDestinationRailWidth: CGFloat = 30
+/// Short of room beside the sidebar, rails narrow this far before they move over its inner edge.
+let workspaceSidebarDropDestinationMinRailWidth: CGFloat = 20
+let workspaceSidebarDropDestinationRailSpacing: CGFloat = 2
+/// A bottom Dock's rails are one strip above it, this tall, in segments at least this wide.
+let workspaceSidebarDropDestinationRailThickness: CGFloat = 30
+let workspaceSidebarDropDestinationMinSegmentWidth: CGFloat = 100
 let workspaceSidebarDropDestinationMinColumnWidth: CGFloat = 220
 let workspaceSidebarDropDestinationMaxColumnWidth: CGFloat = 360
-/// A list shorter than this isn't offered: only the hints show.
+/// A list shorter than this isn't offered: only the rails show.
 let workspaceSidebarDropDestinationMinColumnHeight: CGFloat = 240
-/// Past this many other displays the hints scroll.
-let workspaceSidebarDropDestinationMaxVisibleHints = 6
 
-/// Where the hints and the other display's list go, in AppKit screen coordinates, on the display
+/// Where the rails and the other display's list go, in AppKit screen coordinates, on the display
 /// the drag started on.
 struct WorkspaceSidebarDropDestinationLayout: Equatable {
-    /// One per hint, in order, where it is with the hints unscrolled. Hints past the end of
-    /// `hintArea` are scrolled to; only the part inside it shows or takes the pointer.
+    /// One rail per other display, in order, side by side: each the whole height of the sidebar
+    /// beside it, or, above a bottom Dock, a segment of the strip along it.
     let hints: [CGRect]
-    /// The hints' visible strip.
+    /// All the rails together.
     let hintArea: CGRect
     /// The other display's list, when one is open.
     let column: CGRect?
     /// There was no room beside the sidebar, so the list covers part of it.
     let isInward: Bool
-    /// There's room for a list at all. Without it only the hints show, and none opens.
+    /// There's room for a list at all. Without it only the rails show, and none opens.
     var columnFits = true
-
-    /// The hints run past their strip, so it scrolls.
-    var hintsOverflow: Bool { hints.contains { !hintArea.insetBy(dx: -0.5, dy: -0.5).contains($0) } }
 }
 
 /// Beside the source surface, on its inner side: to the right of a left sidebar, to the left of a
-/// right Dock, above a bottom Dock. The list follows the hints. Without room for its narrowest width
-/// there, it goes against the display's far edge, over the sidebar. Everything stays within
-/// `visibleFrame`.
+/// right one, above a bottom Dock. The rails run the sidebar's whole visible height, side by side,
+/// and the list follows them. The rails, the gap and the list are fitted together, so they never
+/// overlap: the list narrows first, then the rails. Without room beside the sidebar, the list goes
+/// against the display's far edge, over the sidebar, with the rails beside it. The rails are where
+/// they'd be with the list open, so opening it never moves them from under the pointer. A short
+/// sidebar still gets a usable list, taller than it. Everything stays within `visibleFrame`.
 func workspaceSidebarDropDestinationLayout(
     sourceSurface: CGRect,
     visibleFrame: CGRect,
@@ -103,92 +101,94 @@ func workspaceSidebarDropDestinationLayout(
     preferredColumnWidth: CGFloat,
     opensColumn: Bool,
 ) -> WorkspaceSidebarDropDestinationLayout {
+    if position == .right {
+        // A right sidebar is a left one seen in a mirror; the rails keep the displays' order.
+        func mirror(_ rect: CGRect) -> CGRect {
+            CGRect(x: visibleFrame.minX + visibleFrame.maxX - rect.maxX, y: rect.minY, width: rect.width, height: rect.height)
+        }
+        let mirrored = workspaceSidebarDropDestinationLayout(sourceSurface: mirror(sourceSurface), visibleFrame: visibleFrame,
+            position: .left, hintCount: hintCount, preferredColumnWidth: preferredColumnWidth, opensColumn: opensColumn)
+        let area = mirror(mirrored.hintArea)
+        return .init(hints: workspaceSidebarDropDestinationRails(in: area, count: hintCount), hintArea: area,
+            column: mirrored.column.map(mirror), isInward: mirrored.isInward, columnFits: mirrored.columnFits)
+    }
     let gap = workspaceSidebarDropDestinationGap
-    let margin = workspaceSidebarDropDestinationMargin
-    let spacing = workspaceSidebarDropDestinationHintSpacing
-    let bounds = visibleFrame.insetBy(dx: margin, dy: margin)
+    let bounds = visibleFrame.insetBy(dx: workspaceSidebarDropDestinationMargin, dy: workspaceSidebarDropDestinationMargin)
     let count = max(hintCount, 1)
-    let shown = min(count, workspaceSidebarDropDestinationMaxVisibleHints)
+    let totalSpacing = CGFloat(count - 1) * workspaceSidebarDropDestinationRailSpacing
     let columnWidth = min(max(preferredColumnWidth, workspaceSidebarDropDestinationMinColumnWidth),
         workspaceSidebarDropDestinationMaxColumnWidth)
+    let minColumnWidth = workspaceSidebarDropDestinationMinColumnWidth
     let minHeight = workspaceSidebarDropDestinationMinColumnHeight
 
     if position == .bottom {
-        // Above the Dock: hints in a row, narrowed to fit and then scrolling, with the list above them.
-        let fitted = (bounds.width - CGFloat(shown - 1) * spacing) / CGFloat(shown)
-        let hintWidth = min(workspaceSidebarDropDestinationHintWidth, max(fitted, workspaceSidebarDropDestinationMinHintWidth))
-        let rowWidth = min(CGFloat(shown) * hintWidth + CGFloat(shown - 1) * spacing, bounds.width)
-        let area = CGRect(x: (sourceSurface.midX - rowWidth / 2).coerce(in: bounds.minX ... max(bounds.minX, bounds.maxX - rowWidth)),
-            y: min(sourceSurface.maxY + gap, bounds.maxY - workspaceSidebarDropDestinationHintHeight),
-            width: rowWidth, height: workspaceSidebarDropDestinationHintHeight)
-        let hints = (0 ..< count).map { index in
-            CGRect(x: area.minX + CGFloat(index) * (hintWidth + spacing), y: area.minY, width: hintWidth, height: area.height)
-        }
+        // Above the Dock: one strip along it, in segments wide enough to read, with the list above.
+        let thickness = workspaceSidebarDropDestinationRailThickness
+        let width = min(max(sourceSurface.width, CGFloat(count) * workspaceSidebarDropDestinationMinSegmentWidth + totalSpacing),
+            visibleFrame.width)
+        let area = CGRect(x: (sourceSurface.midX - width / 2).coerce(in: visibleFrame.minX ... max(visibleFrame.minX, visibleFrame.maxX - width)),
+            y: min(sourceSurface.maxY + gap, visibleFrame.maxY - thickness), width: width, height: thickness)
         let height = max(min(bounds.maxY - (area.maxY + gap), 520), 0)
         let fits = height >= minHeight
-        guard opensColumn, fits else {
-            return .init(hints: hints, hintArea: area, column: nil, isInward: false, columnFits: fits)
-        }
-        let width = min(columnWidth, bounds.width)
-        let column = CGRect(x: (area.midX - width / 2).coerce(in: bounds.minX ... max(bounds.minX, bounds.maxX - width)),
-            y: area.maxY + gap, width: width, height: height)
-        return .init(hints: hints, hintArea: area, column: column, isInward: false)
+        let rails = workspaceSidebarDropDestinationRails(in: area, count: count)
+        guard opensColumn, fits else { return .init(hints: rails, hintArea: area, column: nil, isInward: false, columnFits: fits) }
+        let listWidth = min(columnWidth, bounds.width)
+        let column = CGRect(x: (area.midX - listWidth / 2).coerce(in: bounds.minX ... max(bounds.minX, bounds.maxX - listWidth)),
+            y: area.maxY + gap, width: listWidth, height: height)
+        return .init(hints: rails, hintArea: area, column: column, isInward: false)
     }
 
-    let isRight = position == .right
-    let top = min(sourceSurface.maxY, bounds.maxY)
-    let bottom = max(sourceSurface.minY, bounds.minY)
-    let available = max(top - bottom, 0)
-    // Six hints show at most; on a short sidebar they shrink before they scroll.
-    let preferred = count == 1 ? workspaceSidebarDropDestinationSingleHintHeight : workspaceSidebarDropDestinationHintHeight
-    let fitted = (available - CGFloat(shown - 1) * spacing) / CGFloat(shown)
-    let hintHeight = min(preferred, max(fitted, workspaceSidebarDropDestinationMinHintHeight))
-    let areaHeight = min(CGFloat(shown) * hintHeight + CGFloat(shown - 1) * spacing, available)
-    let areaY = (sourceSurface.midY - areaHeight / 2).coerce(in: bottom ... max(bottom, top - areaHeight))
-    // Beside the surface, or, without room, against the display's inner edge over it.
-    let besideX = isRight ? sourceSurface.minX - gap - workspaceSidebarDropDestinationHintWidth : sourceSurface.maxX + gap
-    let hintX = besideX.coerce(in: bounds.minX ... max(bounds.minX, bounds.maxX - workspaceSidebarDropDestinationHintWidth))
-    let area = CGRect(x: hintX, y: areaY, width: workspaceSidebarDropDestinationHintWidth, height: areaHeight)
-    let hints = (0 ..< count).map { index in
-        let row = CGFloat(index)
-        return CGRect(x: area.minX, y: area.maxY - (row + 1) * hintHeight - row * spacing, width: area.width, height: hintHeight)
-    }
-    let fits = available >= minHeight
-    guard opensColumn, fits else { return .init(hints: hints, hintArea: area, column: nil, isInward: false, columnFits: fits) }
+    // The rails are exactly the sidebar's visible height.
+    let railBottom = max(sourceSurface.minY, visibleFrame.minY)
+    let railHeight = max(min(sourceSurface.maxY, visibleFrame.maxY) - railBottom, 0)
+    // The list spans the sidebar's height, or, beside a short one, a usable height centred on it.
+    let spanBottom = max(sourceSurface.minY, bounds.minY)
+    let span = max(min(sourceSurface.maxY, bounds.maxY) - spanBottom, 0)
+    let listHeight = min(max(span, minHeight), bounds.height)
+    let listY = span >= minHeight ? spanBottom
+        : (sourceSurface.midY - listHeight / 2).coerce(in: bounds.minY ... max(bounds.minY, bounds.maxY - listHeight))
+    let fits = listHeight >= minHeight
 
-    let columnHeight = available
-    let room = isRight ? area.minX - gap - bounds.minX : bounds.maxX - (area.maxX + gap)
-    if room >= workspaceSidebarDropDestinationMinColumnWidth {
-        let width = min(columnWidth, room)
-        let x = isRight ? area.minX - gap - width : area.maxX + gap
-        return .init(hints: hints, hintArea: area, column: CGRect(x: x, y: bottom, width: width, height: columnHeight),
-            isInward: false)
+    let preferredRails = CGFloat(count) * workspaceSidebarDropDestinationRailWidth + totalSpacing
+    let narrowestRails = CGFloat(count) * workspaceSidebarDropDestinationMinRailWidth + totalSpacing
+    /// Rails and list widths sharing `room`: the list narrows first, then the rails; nil if even
+    /// their narrowest don't fit.
+    func allocate(_ room: CGFloat) -> (rails: CGFloat, list: CGFloat)? {
+        let list = min(columnWidth, max(room - gap - preferredRails, minColumnWidth))
+        let rails = min(preferredRails, room - gap - list)
+        return rails >= narrowestRails - 0.01 ? (rails, list) : nil
     }
-    // No room beside: over the sidebar, against the far edge, as wide as the display allows, with
-    // the hints moved to the list's near side so neither covers the other.
-    let width = min(columnWidth, bounds.width)
-    let x = isRight ? bounds.minX : bounds.maxX - width
-    let column = CGRect(x: x, y: bottom, width: width, height: columnHeight)
-    let inwardHintX = (isRight ? column.maxX + gap : column.minX - gap - area.width)
-        .coerce(in: bounds.minX ... max(bounds.minX, bounds.maxX - area.width))
-    let shift = inwardHintX - area.minX
-    return .init(hints: hints.map { $0.offsetBy(dx: shift, dy: 0) }, hintArea: area.offsetBy(dx: shift, dy: 0),
-        column: column, isInward: true)
+    let edge = sourceSurface.maxX + gap
+    func railsArea(x: CGFloat, width: CGFloat) -> CGRect { CGRect(x: x, y: railBottom, width: width, height: railHeight) }
+
+    if fits, let beside = allocate(bounds.maxX - edge) {
+        // Beside the sidebar: the rails, then the list.
+        let area = railsArea(x: edge, width: beside.rails)
+        let column = CGRect(x: area.maxX + gap, y: listY, width: beside.list, height: listHeight)
+        return .init(hints: workspaceSidebarDropDestinationRails(in: area, count: count), hintArea: area,
+            column: opensColumn ? column : nil, isInward: false)
+    }
+    if fits, let inward = allocate(bounds.maxX - visibleFrame.minX) {
+        // Over the sidebar: the list against the far edge, the rails just before it.
+        let column = CGRect(x: bounds.maxX - inward.list, y: listY, width: inward.list, height: listHeight)
+        let area = railsArea(x: column.minX - gap - inward.rails, width: inward.rails)
+        return .init(hints: workspaceSidebarDropDestinationRails(in: area, count: count), hintArea: area,
+            column: opensColumn ? column : nil, isInward: opensColumn)
+    }
+    // No room for a list: every rail still shows, beside the sidebar as far as the display allows,
+    // narrower than usual if it must be.
+    let width = min(max(min(preferredRails, visibleFrame.maxX - edge), narrowestRails), visibleFrame.width)
+    let area = railsArea(x: edge.coerce(in: visibleFrame.minX ... max(visibleFrame.minX, visibleFrame.maxX - width)), width: width)
+    return .init(hints: workspaceSidebarDropDestinationRails(in: area, count: count), hintArea: area, column: nil,
+        isInward: false, columnFits: false)
 }
 
-/// The hints' frames as they show, scrolled by `offset` along their strip, clipped to it. A hint
-/// scrolled out of view takes no pointer.
-func workspaceSidebarDropDestinationVisibleHints(_ layout: WorkspaceSidebarDropDestinationLayout, ids: [String],
-                                                 offset: CGFloat, isRow: Bool) -> [(id: String, frame: CGRect)] {
-    zip(ids, layout.hints).compactMap { id, frame in
-        let scrolled = isRow ? frame.offsetBy(dx: -offset, dy: 0) : frame.offsetBy(dx: 0, dy: offset)
-        let visible = scrolled.intersection(layout.hintArea)
-        return visible.isNull || visible.width < 1 || visible.height < 1 ? nil : (id, visible)
+/// `count` rails side by side across `area`, in order, the same width each.
+func workspaceSidebarDropDestinationRails(in area: CGRect, count: Int) -> [CGRect] {
+    let count = max(count, 1)
+    let spacing = workspaceSidebarDropDestinationRailSpacing
+    let width = max((area.width - CGFloat(count - 1) * spacing) / CGFloat(count), 0)
+    return (0 ..< count).map { index in
+        CGRect(x: area.minX + CGFloat(index) * (width + spacing), y: area.minY, width: width, height: area.height)
     }
-}
-
-/// How far the hints can scroll along their strip.
-func workspaceSidebarDropDestinationHintScrollRange(_ layout: WorkspaceSidebarDropDestinationLayout, isRow: Bool) -> CGFloat {
-    guard let last = layout.hints.last else { return 0 }
-    return isRow ? max(last.maxX - layout.hintArea.maxX, 0) : max(layout.hintArea.minY - last.minY, 0)
 }

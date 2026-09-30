@@ -15,17 +15,6 @@ func workspaceSidebarDropDestinationAutoscrollVelocity(pointY: CGFloat, top: CGF
     return 0
 }
 
-/// How fast a drag at `pointer` scrolls hints that overflow `area`: a column along its height, a
-/// Dock's row along its width, back near its start and on near its end.
-func workspaceSidebarDropDestinationHintAutoscrollVelocity(pointer: CGPoint, area: CGRect, isRow: Bool) -> CGFloat {
-    if isRow {
-        guard pointer.y >= area.minY, pointer.y <= area.maxY else { return 0 }
-        return -workspaceSidebarDropDestinationAutoscrollVelocity(pointY: pointer.x, top: area.maxX, bottom: area.minX)
-    }
-    guard pointer.x >= area.minX, pointer.x <= area.maxX else { return 0 }
-    return workspaceSidebarDropDestinationAutoscrollVelocity(pointY: pointer.y, top: area.maxY, bottom: area.minY)
-}
-
 /// One sidebar drag's hints and other-display list: from the drag's first update with two or more
 /// displays to its release or cancellation. A display refresh subscription for the whole drag
 /// samples the real pointer, so a pause, a close or an edge scroll happens with the pointer still,
@@ -70,7 +59,6 @@ final class WorkspaceSidebarDropDestinationController {
     private var lastTimestamp: CFTimeInterval?
     private(set) var modelRevision: UInt64 = 0
     private var surfaceGeneration: UInt64 = 0
-    private var hintOffset: CGFloat = 0
     /// Frames that ran past the gate, for tests.
     private(set) var processedFrames = 0
 
@@ -101,9 +89,10 @@ final class WorkspaceSidebarDropDestinationController {
         sourceScopeId = panel.monitorScopeId
         self.hints = hints
         self.settings = settings
+        columnWidth = hints.map { CGFloat(config.workspaceSidebar.width(onDisplayNamed: $0.name)) }.max()
+            ?? CGFloat(config.workspaceSidebar.width)
         topologyGeneration = MonitorConfigurationObserver.shared.topologyGeneration
         state = .init()
-        hintOffset = 0
         surfaceGeneration &+= 1
         hintPanel.surfaceRef = .dropDestination(generation: surfaceGeneration)
         hintPanel.mount()
@@ -141,7 +130,6 @@ final class WorkspaceSidebarDropDestinationController {
         settings = nil
         lastSignature = nil
         lastTimestamp = nil
-        hintOffset = 0
     }
 
     /// Something made the destinations meaningless mid-drag: a display change, the source sidebar
@@ -203,12 +191,15 @@ final class WorkspaceSidebarDropDestinationController {
         if geometryChanged { relayout() }
         guard let layout else { return }
 
-        let visible = workspaceSidebarDropDestinationVisibleHints(layout, ids: hints.map(\.id), offset: hintOffset, isRow: isRow)
+        // Each rail's whole length is its display's.
+        let rails = zip(hints, layout.hints).map { (id: $0.id, frame: $1) }
         let keepOpen = state.openId == nil ? nil : layout.column.map { layout.hintArea.union($0) }
+        // Beside the sidebar, the rails crossed on the way into the open list are passed, not paused on.
+        let listSide = isRow ? nil : layout.column.map { $0.midX > layout.hintArea.midX ? CGFloat(1) : -1 }
         let previous = state.openId
         // With no room for a list, a pause opens nothing.
         state = workspaceSidebarDropDestinationStep(state, pointer: pointer, now: now,
-            hints: layout.columnFits ? visible : [], keepOpen: keepOpen)
+            hints: layout.columnFits ? rails : [], keepOpen: keepOpen, listSide: listSide)
         if state.openId != previous { openColumn() }
         autoscroll(pointer: pointer, elapsed: elapsed)
         publishHints()
@@ -230,20 +221,33 @@ final class WorkspaceSidebarDropDestinationController {
         let surface = sourcePanel.visibleSurfaceFrameOnScreen
         let visibleFrame = NSScreen.screens.first { $0.frame.intersects(surface) }?.visibleFrame
             ?? sourcePanel.screen?.visibleFrame ?? surface
-        let width = openHint.map { CGFloat(config.workspaceSidebar.width(onDisplayNamed: $0.name)) }
-            ?? CGFloat(config.workspaceSidebar.width)
         let next = workspaceSidebarDropDestinationLayout(sourceSurface: surface, visibleFrame: visibleFrame,
-            position: settings?.position ?? .left, hintCount: hints.count, preferredColumnWidth: width,
+            position: settings?.position ?? .left, hintCount: hints.count, preferredColumnWidth: columnWidth,
             opensColumn: state.openId != nil)
         layout = next
-        hintOffset = min(hintOffset, workspaceSidebarDropDestinationHintScrollRange(next, isRow: isRow))
+        hintPanel.railFrames = next.hints
         if let column = next.column, state.openId != nil {
             columnPanel.show(frame: column, above: sourcePanel)
             hintPanel.show(frame: next.hintArea, above: columnPanel)
         } else {
             hintPanel.show(frame: next.hintArea, above: sourcePanel)
+            // The sidebar changed and left no room for the open list: it closes now.
+            if state.openId != nil { closeColumn() }
         }
         publishHints()
+    }
+
+    /// The list's width for the whole drag: the widest of the displays' own sidebars. Rails are
+    /// placed around it, so switching lists never moves them.
+    private var columnWidth: CGFloat = 0
+
+    private func closeColumn() {
+        state.openId = nil
+        state.arming = nil
+        state.outsideSince = nil
+        WorkspaceSidebarTemporaryDropSurfaces.shared.unregister(columnPanel)
+        columnPanel.tearDown()
+        columnPanel.dropDestination = nil
     }
 
     /// Opens, switches or closes the list to match the state. Each opening is a new surface, so a
@@ -258,16 +262,14 @@ final class WorkspaceSidebarDropDestinationController {
         columnPanel.clearTargets()
         columnPanel.scroll.offset = 0
         func close() {
-            state.openId = nil
-            columnPanel.tearDown()
-            columnPanel.dropDestination = nil
+            closeColumn()
             relayout()
         }
         guard let hint = openHint, let destination = WorkspaceSidebarDropDestinationIdentity(monitorScopeId: hint.id)
         else { return close() }
-        // Placed first: the list is drawn at the width it gets.
+        // Placed first: the list is drawn at the width it gets, if there's room for it at all.
         relayout()
-        guard let snapshot = snapshot(for: hint) else { return close() }
+        guard state.openId == hint.id, let snapshot = snapshot(for: hint) else { return close() }
         columnPanel.dropDestination = destination
         if columnPanel.model.snapshot == nil { columnPanel.mount() }
         columnPanel.model.set(snapshot)
@@ -284,38 +286,24 @@ final class WorkspaceSidebarDropDestinationController {
         let area = layout.hintArea
         hintPanel.model.set(.init(hints: hints,
             frames: layout.hints.map { CGRect(x: $0.minX - area.minX, y: area.maxY - $0.maxY, width: $0.width, height: $0.height) },
-            armingId: state.arming?.id, openId: state.openId, columnFits: layout.columnFits, isRow: isRow,
-            offset: hintOffset))
+            armingId: state.arming?.id, openId: state.openId, columnFits: layout.columnFits, isRow: isRow))
     }
 
-    /// The scroll the pointer is asking for: the list's, or the hints' when they overflow.
-    private func scrollVelocity(at pointer: CGPoint) -> (list: Bool, velocity: CGFloat)? {
-        guard let layout else { return nil }
-        if let column = layout.column, state.openId != nil, pointer.x >= column.minX, pointer.x <= column.maxX {
-            let velocity = workspaceSidebarDropDestinationAutoscrollVelocity(pointY: pointer.y,
-                top: column.maxY - workspaceSidebarDropDestinationHeaderHeight, bottom: column.minY)
-            let offset = columnPanel.scroll.offset
-            if velocity < 0 && offset > 0 || velocity > 0 && offset < columnPanel.scroll.maxOffset { return (true, velocity) }
-        }
-        if layout.hintsOverflow {
-            let velocity = workspaceSidebarDropDestinationHintAutoscrollVelocity(pointer: pointer, area: layout.hintArea,
-                isRow: isRow)
-            let range = workspaceSidebarDropDestinationHintScrollRange(layout, isRow: isRow)
-            if velocity < 0 && hintOffset > 0 || velocity > 0 && hintOffset < range { return (false, velocity) }
-        }
-        return nil
+    /// How fast the pointer is scrolling the open list, near its top or bottom edge.
+    private func scrollVelocity(at pointer: CGPoint) -> CGFloat? {
+        guard let column = layout?.column, state.openId != nil, pointer.x >= column.minX, pointer.x <= column.maxX
+        else { return nil }
+        let velocity = workspaceSidebarDropDestinationAutoscrollVelocity(pointY: pointer.y,
+            top: column.maxY - workspaceSidebarDropDestinationHeaderHeight, bottom: column.minY)
+        let offset = columnPanel.scroll.offset
+        return velocity < 0 && offset > 0 || velocity > 0 && offset < columnPanel.scroll.maxOffset ? velocity : nil
     }
 
     private func autoscroll(pointer: CGPoint, elapsed: TimeInterval) {
-        guard let scrolling = scrollVelocity(at: pointer), let layout else { return }
-        let step = scrolling.velocity * CGFloat(min(elapsed, 0.1))
-        if scrolling.list {
-            let scroll = columnPanel.scroll
-            let next = min(max(scroll.offset + step, 0), scroll.maxOffset)
-            if next != scroll.offset { scroll.offset = next }
-        } else {
-            hintOffset = min(max(hintOffset + step, 0), workspaceSidebarDropDestinationHintScrollRange(layout, isRow: isRow))
-        }
+        guard let velocity = scrollVelocity(at: pointer) else { return }
+        let scroll = columnPanel.scroll
+        let next = min(max(scroll.offset + velocity * CGFloat(min(elapsed, 0.1)), 0), scroll.maxOffset)
+        if next != scroll.offset { scroll.offset = next }
     }
 
     /// Over the list or another display's sidebar, only this keeps the drag's preview live; over

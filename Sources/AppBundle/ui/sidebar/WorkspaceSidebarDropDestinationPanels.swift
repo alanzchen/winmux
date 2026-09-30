@@ -53,12 +53,20 @@ class WorkspaceSidebarDropDestinationPanel: NSPanelHud {
     }
 }
 
-/// The other displays' hints. They take no drops: pausing on one opens its list.
+/// The other displays' rails. They take no drops: pausing on one opens its list.
 @MainActor
 final class WorkspaceSidebarDropDestinationHintPanel: WorkspaceSidebarDropDestinationPanel, WorkspaceSidebarTemporaryDropSurface {
     let model = WorkspaceSidebarDropDestinationHintsModel()
     let stackingOrder = 2
     var dropDestination: WorkspaceSidebarDropDestinationIdentity? { nil }
+    /// The rails, in AppKit screen coordinates. Only they are the surface: the gaps between them
+    /// cover nothing, so what's under a gap still takes drops.
+    var railFrames: [CGRect] = []
+
+    override func surfaceRectNormalized(containing point: CGPoint) -> Rect? {
+        guard isVisible else { return nil }
+        return railFrames.lazy.map { $0.monitorFrameNormalized() }.first { $0.contains(point) }
+    }
 
     func mount() {
         hostingView.rootView = AnyView(WorkspaceSidebarDropDestinationHintsView(model: model))

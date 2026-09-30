@@ -300,18 +300,6 @@ final class WorkspaceSidebarDropDestinationControllerTest: XCTestCase {
         XCTAssertNil(TrayMenuModel.shared.workspaceSidebarDropPreview)
     }
 
-    func testADocksRowOfHintsScrollsAlongIt() {
-        let area = CGRect(x: 100, y: 100, width: 500, height: 36)
-        XCTAssertGreaterThan(workspaceSidebarDropDestinationHintAutoscrollVelocity(pointer: CGPoint(x: 595, y: 118),
-            area: area, isRow: true), 0, "On, near its trailing end")
-        XCTAssertLessThan(workspaceSidebarDropDestinationHintAutoscrollVelocity(pointer: CGPoint(x: 105, y: 118),
-            area: area, isRow: true), 0, "Back, near its leading end")
-        XCTAssertEqual(workspaceSidebarDropDestinationHintAutoscrollVelocity(pointer: CGPoint(x: 350, y: 118),
-            area: area, isRow: true), 0)
-        XCTAssertEqual(workspaceSidebarDropDestinationHintAutoscrollVelocity(pointer: CGPoint(x: 595, y: 300),
-            area: area, isRow: true), 0, "Off the row")
-    }
-
     /// §7.2: with shared pins, a pin rearranged on another display's list stays on its display, and
     /// Undo puts the order back. The list shows the drop; no physical panel does.
     func testASharedPinRearrangedOnTheListStaysWhereItIs() async throws {
@@ -401,6 +389,173 @@ final class WorkspaceSidebarDropDestinationControllerTest: XCTestCase {
         XCTAssertNil(hover.displayedPinGridIsShared(source: 4), "Another drag's")
         hover.clearDisplayed()
         XCTAssertNil(hover.displayedPinGridIsShared(source: 3))
+    }
+
+    /// Rails: a pause anywhere along a rail, its top, middle or bottom, opens that display's list.
+    /// The rail is the drag's own surface there: nothing beneath it takes the drop.
+    func testAPauseAnywhereAlongARailOpensItsList() throws {
+        let tab = try fixture(displays: 2)
+        beginDrag(tab)
+        let rail = try XCTUnwrap(controller.layout?.hints.first)
+        let surface = try XCTUnwrap(WorkspaceSidebarPanel.panel(for: left)).visibleSurfaceFrameOnScreen
+        // The sidebar as it shows: within the display's visible frame, below the menu bar.
+        let sidebar = NSScreen.screens.first { $0.frame.intersects(surface) }.map { surface.intersection($0.visibleFrame) } ?? surface
+        XCTAssertEqual(rail.minY, sidebar.minY, accuracy: 0.5, "The sidebar's whole height")
+        XCTAssertEqual(rail.maxY, sidebar.maxY, accuracy: 0.5)
+        var now: TimeInterval = 500
+        for (label, y) in [("top", rail.maxY - 1), ("middle", rail.midY), ("bottom", rail.minY + 1)] {
+            let point = CGPoint(x: rail.midX, y: y)
+            let hit = workspaceSidebarSurfaceHit(at: normalizeAppKitScreenPoint(point))
+            XCTAssertEqual(hit.surface?.isTemporary, true, label)
+            XCTAssertNil(hit.target, "\(label): a rail takes no drop")
+            controller.tick(pointer: point, now: now, elapsed: 0.016)
+            controller.tick(pointer: point, now: now + workspaceSidebarDropDestinationDwell, elapsed: 0.22)
+            XCTAssertEqual(controller.openId, right, label)
+            // Away long enough to close, for the next.
+            controller.tick(pointer: CGPoint(x: 7000, y: 7000), now: now + 1, elapsed: 0.016)
+            controller.tick(pointer: CGPoint(x: 7000, y: 7000), now: now + 2, elapsed: 0.016)
+            XCTAssertNil(controller.openId, label)
+            now += 10
+        }
+    }
+
+    /// Rails: from the first rail across the second into the list, at a steady pace, the first
+    /// display's list stays open; nothing switches or closes on the way.
+    func testCrossingAnotherRailIntoTheListKeepsItsList() throws {
+        let tab = try fixture(displays: 3)
+        beginDrag(tab)
+        try open()
+        let rails = try XCTUnwrap(controller.layout?.hints)
+        XCTAssertEqual(rails.count, 2)
+        let column = try XCTUnwrap(controller.layout?.column)
+        XCTAssertGreaterThan(column.minX, rails[1].maxX, "The list is past the second rail")
+        var x = rails[0].midX
+        var now: TimeInterval = 600
+        while x < column.midX {
+            controller.tick(pointer: CGPoint(x: x, y: rails[0].midY), now: now, elapsed: 0.016)
+            XCTAssertEqual(controller.openId, right, "At x=\(x)")
+            x += 3
+            now += 0.016
+        }
+        // Every rail is still reachable with the list open.
+        XCTAssertTrue(controller.hintPanel.isVisible)
+        XCTAssertEqual(workspaceSidebarSurface(at: normalizeAppKitScreenPoint(CGPoint(x: rails[1].midX, y: rails[1].midY)))?
+            .surface.isTemporary, true)
+    }
+
+    func testPausingOnAnotherRailSwitchesToItsList() throws {
+        let tab = try fixture(displays: 3)
+        beginDrag(tab)
+        try open()
+        let second = try XCTUnwrap(controller.layout?.hints.last)
+        let point = CGPoint(x: second.midX, y: second.minY + 40)
+        controller.tick(pointer: point, now: 700, elapsed: 0.016)
+        XCTAssertEqual(controller.openId, right, "Not yet")
+        controller.tick(pointer: point, now: 700 + workspaceSidebarDropDestinationDwell, elapsed: 0.22)
+        XCTAssertEqual(controller.openId, far)
+        XCTAssertEqual(controller.columnPanel.dropDestination?.monitorScopeId, far)
+    }
+
+    /// Rails: moving up and down a rail, its list open, changes nothing on the rails: nothing publishes.
+    func testMovingAlongARailPublishesNothing() throws {
+        let tab = try fixture(displays: 2)
+        beginDrag(tab)
+        try open()
+        let rail = try XCTUnwrap(controller.layout?.hints.first)
+        var publications = 0
+        let subscriptions = [controller.hintPanel.model.$content.dropFirst().sink { _ in publications += 1 },
+                             controller.columnPanel.model.$snapshot.dropFirst().sink { _ in publications += 1 }]
+        defer { subscriptions.forEach { $0.cancel() } }
+        for (index, y) in stride(from: rail.minY + 2, to: rail.maxY - 2, by: 7).enumerated() {
+            controller.tick(pointer: CGPoint(x: rail.midX, y: y), now: 800 + Double(index) * 0.016, elapsed: 0.016)
+        }
+        XCTAssertEqual(publications, 0)
+        XCTAssertEqual(controller.openId, right)
+    }
+
+    /// Astra R1.1: a pointer resting on a rail stays with that rail's display through the list
+    /// opening and every later deadline: opening moves no rail.
+    func testAStillPointerStaysWithItsRail() throws {
+        let tab = try fixture(displays: 3)
+        beginDrag(tab)
+        let before = try XCTUnwrap(controller.layout?.hints)
+        let point = CGPoint(x: before[0].midX, y: before[0].midY)
+        controller.tick(pointer: point, now: 900, elapsed: 0.016)
+        controller.tick(pointer: point, now: 900 + workspaceSidebarDropDestinationDwell, elapsed: 0.22)
+        XCTAssertEqual(controller.openId, right)
+        XCTAssertEqual(controller.layout?.hints, before, "Opening the list moved no rail")
+        for later in [0.5, 1.0, 2.0, 5.0] {
+            controller.tick(pointer: point, now: 900 + later, elapsed: 0.016)
+            XCTAssertEqual(controller.openId, right, "Still, at +\(later) s")
+        }
+    }
+
+    /// The 2 pt between rails is no rail's: it covers nothing, and a pause there arms nothing.
+    func testTheGapBetweenRailsCoversNothing() throws {
+        let tab = try fixture(displays: 3)
+        beginDrag(tab)
+        let rails = try XCTUnwrap(controller.layout?.hints)
+        let gap = CGPoint(x: (rails[0].maxX + rails[1].minX) / 2, y: rails[0].midY)
+        XCTAssertNotEqual(workspaceSidebarSurface(at: normalizeAppKitScreenPoint(gap))?.surface, controller.hintPanel.surfaceRef)
+        controller.tick(pointer: gap, now: 950, elapsed: 0.016)
+        controller.tick(pointer: gap, now: 951, elapsed: 0.016)
+        XCTAssertNil(controller.openId)
+    }
+
+    /// The sidebar getting shorter mid-drag: its rails follow it, and the list keeps a usable height.
+    func testASidebarGettingShorterKeepsItsListUsable() throws {
+        let tab = try fixture(displays: 2)
+        beginDrag(tab)
+        try open()
+        let panel = try XCTUnwrap(WorkspaceSidebarPanel.panel(for: left))
+        panel.visibleSurfaceFrame = CGRect(x: 0, y: 300, width: 280, height: 150)
+        controller.tick(pointer: CGPoint(x: 7000, y: 7000), now: 1000, elapsed: 0.016)
+        let rail = try XCTUnwrap(controller.layout?.hints.first)
+        XCTAssertEqual(rail.height, 150, accuracy: 0.5)
+        XCTAssertGreaterThanOrEqual(controller.layout?.column?.height ?? 0, workspaceSidebarDropDestinationMinColumnHeight)
+        XCTAssertEqual(controller.openId, right)
+        XCTAssertTrue(controller.columnPanel.isVisible)
+    }
+
+    /// Crossing rails and gaps publishes only when a rail's look changes, a few times, not per sample.
+    func testCrossingRailsPublishesOnlyWhenARailsLookChanges() throws {
+        let tab = try fixture(displays: 3)
+        beginDrag(tab)
+        try open()
+        let rails = try XCTUnwrap(controller.layout?.hints)
+        let column = try XCTUnwrap(controller.layout?.column)
+        var publications = 0
+        let subscription = controller.hintPanel.model.$content.dropFirst().sink { _ in publications += 1 }
+        defer { subscription.cancel() }
+        var samples = 0
+        var x = rails[0].midX
+        var now: TimeInterval = 1100
+        while x < column.midX {
+            controller.tick(pointer: CGPoint(x: x, y: rails[0].midY), now: now, elapsed: 0.016)
+            samples += 1
+            x += 2
+            now += 0.016
+        }
+        XCTAssertGreaterThan(samples, 60)
+        XCTAssertLessThanOrEqual(publications, 4, "Entering and leaving the one rail crossed, at most")
+        XCTAssertEqual(controller.openId, right)
+    }
+
+    /// A display that went away has no rail: the next drag shows only the displays still there.
+    func testAnUnpluggedDisplayHasNoRailOnTheNextDrag() throws {
+        let tab = try fixture(displays: 3)
+        beginDrag(tab)
+        XCTAssertEqual(controller.hints.map(\.id), [right, far])
+        finishSidebarPinnedTabDrag(tab.name, pointer: .zero)
+        setMonitorsForTests(Array(sortedMonitors.prefix(2)))
+        MonitorConfigurationObserver.shared.noteDisplayChangeForTests()
+        WorkspaceSidebarPanel.refreshAll()
+        let panel = try XCTUnwrap(WorkspaceSidebarPanel.panel(for: left))
+        panel.orderFront(nil)
+        panel.visibleSurfaceFrame = CGRect(x: 0, y: 0, width: 280, height: 600)
+        beginDrag(tab)
+        XCTAssertEqual(controller.hints.map(\.id), [right])
+        XCTAssertEqual(controller.layout?.hints.count, 1)
     }
 
     func testAnEdgeScrollsTheListFasterNearerIt() {

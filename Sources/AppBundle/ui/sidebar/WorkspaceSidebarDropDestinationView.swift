@@ -1,20 +1,20 @@
 import AppKit
 import SwiftUI
 
-// The hints and the other display's list, as a drag shows them. Both only ever take a drag's
-// pointer: their panels ignore the mouse, and nothing in them selects, edits or watches anything.
+// The other displays' rails and the list one opens, as a drag shows them. Both only ever take a
+// drag's pointer: their panels ignore the mouse, and nothing in them selects, edits or watches anything.
 
-/// The hints' state, published only when a hint's look changes.
+/// The rails' state, published only when a rail's look changes.
 struct WorkspaceSidebarDropDestinationHintsContent: Equatable {
     var hints: [WorkspaceSidebarDropDestinationHint] = []
-    /// Each hint's frame in the strip, unscrolled, top-left origin.
+    /// Each rail's frame in the strip, top-left origin.
     var frames: [CGRect] = []
     var armingId: String?
     var openId: String?
-    /// With no room for a list, the hints say so and none opens.
+    /// With no room for a list, the rails say so and none opens.
     var columnFits = true
+    /// A bottom Dock's rails are one horizontal strip; elsewhere each rail stands the sidebar's height.
     var isRow = false
-    var offset: CGFloat = 0
 }
 
 @MainActor
@@ -33,11 +33,10 @@ struct WorkspaceSidebarDropDestinationHintsView: View {
         let content = model.content
         ZStack(alignment: .topLeading) {
             ForEach(Array(zip(content.hints, content.frames)), id: \.0.id) { hint, frame in
-                WorkspaceSidebarDropDestinationHintCard(hint: hint, isArming: content.armingId == hint.id,
-                    isOpen: content.openId == hint.id, columnFits: content.columnFits)
+                WorkspaceSidebarDropDestinationRail(hint: hint, isArming: content.armingId == hint.id,
+                    isOpen: content.openId == hint.id, columnFits: content.columnFits, isRow: content.isRow)
                     .frame(width: frame.width, height: frame.height)
-                    .offset(x: frame.minX - (content.isRow ? content.offset : 0),
-                        y: frame.minY - (content.isRow ? 0 : content.offset))
+                    .offset(x: frame.minX, y: frame.minY)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -45,38 +44,61 @@ struct WorkspaceSidebarDropDestinationHintsView: View {
     }
 }
 
-struct WorkspaceSidebarDropDestinationHintCard: View {
+/// Another display's rail: its whole length is the place to pause, with the display's name
+/// along it. Hovering it arms it; its list open, it's marked as the one showing.
+struct WorkspaceSidebarDropDestinationRail: View {
     let hint: WorkspaceSidebarDropDestinationHint
     let isArming: Bool
     let isOpen: Bool
     let columnFits: Bool
+    let isRow: Bool
 
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius: workspaceSidebarTabCornerRadius, style: .continuous)
+        let shape = RoundedRectangle(cornerRadius: 8, style: .continuous)
         let isLit = isArming || isOpen
-        HStack(spacing: 6) {
-            Text(hint.direction.arrow).font(.system(size: 13, weight: .semibold))
-            VStack(alignment: .leading, spacing: 1) {
-                Text(hint.name).font(.system(size: 12, weight: .medium)).lineLimit(1).truncationMode(.middle)
-                if !columnFits {
-                    Text("Not enough room").font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
+        // Open is filled with the accent; a rail being paused on is tinted; the others are outlined.
+        let tint = isOpen ? Color.white : isArming ? Color.accentColor : Color.primary.opacity(0.7)
+        Group {
+            if isRow {
+                HStack(spacing: 5) {
+                    Text(hint.direction.arrow).font(.system(size: 12, weight: .semibold))
+                    label.lineLimit(1).truncationMode(.middle)
+                }
+                .padding(.horizontal, 6)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                VStack(spacing: 6) {
+                    Text(hint.direction.arrow).font(.system(size: 12, weight: .semibold)).padding(.top, 8)
+                    // The name reads up the rail, as long as the rail allows.
+                    GeometryReader { geometry in
+                        label.lineLimit(1).truncationMode(.middle)
+                            .frame(width: max(geometry.size.height - 4, 0))
+                            .rotationEffect(.degrees(-90))
+                            .frame(width: geometry.size.width, height: geometry.size.height)
+                    }
+                    .padding(.bottom, 8)
                 }
             }
-            Spacer(minLength: 0)
         }
-        .padding(.horizontal, 8)
-        .foregroundStyle(isLit ? Color.accentColor : Color.primary.opacity(0.75))
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        .foregroundStyle(tint)
         .background {
-            shape.fill(.regularMaterial)
-                .overlay { shape.fill(Color.accentColor.opacity(isOpen ? 0.18 : isArming ? 0.1 : 0)) }
+            // Opaque, so a rail over the sidebar hides what it covers rather than mixing with it.
+            shape.fill(Color(nsColor: .windowBackgroundColor))
+                .overlay { shape.fill(.regularMaterial) }
+                .overlay { shape.fill(Color.accentColor.opacity(isOpen ? 0.9 : isArming ? 0.16 : 0)) }
         }
         .overlay {
-            shape.strokeBorder(isLit ? Color.accentColor.opacity(0.65) : Color.primary.opacity(0.25),
-                style: StrokeStyle(lineWidth: 1, dash: isLit ? [] : [4, 3]))
+            shape.strokeBorder(isLit ? Color.accentColor : Color.primary.opacity(0.25),
+                style: StrokeStyle(lineWidth: isLit ? 1.5 : 1, dash: isLit ? [] : [4, 3]))
         }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Drop on \(hint.name)")
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(hint.name), pause to show destinations")
+        .accessibilityValue(isOpen ? "Open" : columnFits ? "" : "Not enough room")
+    }
+
+    private var label: some View {
+        Text(columnFits ? hint.name : "\(hint.name) · Not enough room")
+            .font(.system(size: 12, weight: isOpen ? .semibold : .medium))
     }
 }
 
@@ -146,7 +168,8 @@ struct WorkspaceSidebarDropDestinationView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background { shape.fill(.regularMaterial) }
+        // Opaque enough to read over the sidebar it may cover.
+        .background { shape.fill(Color(nsColor: .windowBackgroundColor).opacity(0.85)).overlay { shape.fill(.regularMaterial) } }
         .overlay { shape.strokeBorder(Color.primary.opacity(0.18), lineWidth: 1) }
         .clipShape(shape)
         .coordinateSpace(name: "workspaceSidebarContent")
