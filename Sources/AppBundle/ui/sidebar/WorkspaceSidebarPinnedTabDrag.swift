@@ -5,8 +5,8 @@ import Common
 /// drop targets and feedback, but no window drag, since a pin needn't have a window. Each drop
 /// names the display whose list it lands on; a pin from another display moves there.
 enum WorkspaceSidebarPinnedTabDrop: Equatable {
-    /// Beside another pin.
-    case rearrange(WorkspaceSidebarTabGap, monitorScopeId: String? = nil)
+    /// Beside another pin, or, with no gap, onto another display's pins, which may have none yet.
+    case rearrange(WorkspaceSidebarTabGap?, monitorScopeId: String? = nil)
     /// Between the list's tabs, unpinned.
     case list(projectId: WorkspaceProjectId, monitorScopeId: String, gap: WorkspaceSidebarTabGap)
     /// Into a group, which unpins it.
@@ -30,14 +30,16 @@ func workspaceSidebarPinnedTabDrop(_ tab: Workspace, target: WorkspaceSidebarDro
     else { return nil }
     switch target.kind {
         case .pinnedTabs(let projectId, let gap, let monitorScopeId):
-            guard projectId == tab.projectId, let gap,
-                  workspaceSidebarDropCanReachDisplay(tab, monitorScopeId: monitorScopeId),
-                  workspacePinnedTabOrder(moving: tab, beside: gap) != nil
+            // On this display it goes beside another pin; onto another display's pins it moves
+            // there, even where that display has no pins yet.
+            guard projectId == tab.projectId, workspaceSidebarDropCanReachDisplay(tab, monitorScopeId: monitorScopeId),
+                  gap.flatMap({ workspacePinnedTabOrder(moving: tab, beside: $0) }) != nil
                     || workspaceSidebarDropDisplayChange(for: tab, monitorScopeId: monitorScopeId) != nil
             else { return nil }
             return .rearrange(gap, monitorScopeId: monitorScopeId)
         case .tabGap(let projectId, let monitorScopeId, let gap):
-            guard Workspace.existing(byName: gap.workspaceName)?.projectId == projectId else { return nil }
+            guard Workspace.existing(byName: gap.workspaceName)?.projectId == projectId,
+                  workspaceSidebarDropCanReachDisplay(tab, monitorScopeId: monitorScopeId) else { return nil }
             return .list(projectId: projectId, monitorScopeId: monitorScopeId, gap: gap)
         case .workspace(let name):
             // Over a tab or a pin, it goes by the nearer edge or side, as a moving tab does before a split

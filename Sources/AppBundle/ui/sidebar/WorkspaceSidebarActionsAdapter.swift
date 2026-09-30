@@ -48,21 +48,25 @@ func makeWorkspaceSidebarActionsAdapter(
             return workspaceSidebarAppWindow(in: workspace, appId: appId)?.windowId
         },
         windowDragChanged: { windowId, pointer in
+            noteWorkspaceSidebarDragReported(byPanel: targetMonitorScopeId)
             updateSidebarWindowDrag(windowId, subject: .window, pointer: pointer, previewStyle: workspaceSidebarRowDragPreviewStyle())
         },
         windowDragEnded: { _, pointer in
             finishSidebarWindowDrag(pointer: pointer)
         },
         tabGroupDragChanged: { windowId, pointer in
+            noteWorkspaceSidebarDragReported(byPanel: targetMonitorScopeId)
             updateSidebarWindowDrag(windowId, subject: .group, pointer: pointer, previewStyle: workspaceSidebarRowDragPreviewStyle())
         },
         tabGroupDragEnded: { _, pointer in
             finishSidebarWindowDrag(pointer: pointer)
         },
         appIconDragChanged: { windowId, pointer, size in
+            noteWorkspaceSidebarDragReported(byPanel: targetMonitorScopeId)
             updateSidebarWindowDrag(windowId, pointer: pointer, previewStyle: .appIcon(size: size))
         },
         pinnedTabDragChanged: { name, pointer in
+            noteWorkspaceSidebarDragReported(byPanel: targetMonitorScopeId)
             updateSidebarPinnedTabDrag(name, pointer: pointer)
         },
         pinnedTabDragEnded: { name, pointer in

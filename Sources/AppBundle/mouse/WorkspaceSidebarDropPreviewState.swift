@@ -5,9 +5,11 @@ private var workspaceSidebarDropPreviewOwnerScopeId: String?
 
 @MainActor
 func setWorkspaceSidebarDropPreviewIfChanged(_ preview: WorkspaceSidebarDropPreviewViewModel?) {
+    // An equal preview can move between panels that list the same tab, so the owner follows the
+    // pointer on every assignment. Only a changed preview reaches the panels' models.
+    workspaceSidebarDropPreviewOwnerScopeId = preview == nil ? nil
+        : WorkspaceSidebarPanel.panel(containing: MousePointerTracker.shared.currentSample.point)?.monitorScopeId
     if TrayMenuModel.shared.setIfChanged(\.workspaceSidebarDropPreview, preview) {
-        workspaceSidebarDropPreviewOwnerScopeId = preview == nil ? nil
-            : WorkspaceSidebarPanel.panel(containing: MousePointerTracker.shared.currentSample.point)?.monitorScopeId
         WorkspaceSidebarPanel.syncVisiblePanelModelsFromShared()
     }
 }

@@ -54,6 +54,15 @@ func setWorkspaceSidebarDragSourceScopeIdForTests(_ scopeId: String?) {
     workspaceSidebarDragSourceScopeId = scopeId
 }
 
+/// A panel's view reported a drag update. Its actions adapter belongs to that panel, so the panel
+/// is the source, whatever the event window or the pointer suggested when the drag began.
+@MainActor
+func noteWorkspaceSidebarDragReported(byPanel scopeId: String?) {
+    guard let scopeId, workspaceSidebarItemDragActiveCount > 0 || workspaceSidebarNativeWorkspaceDragActiveCount > 0,
+          workspaceSidebarDragSourceScopeId != scopeId else { return }
+    workspaceSidebarDragSourceScopeId = scopeId
+}
+
 /// The first drag to begin names the source; nested begins of the same gesture keep it.
 @MainActor
 private func noteWorkspaceSidebarDragSource(_ sourceWindow: NSWindow?) {

@@ -56,6 +56,22 @@ final class WorkspaceSidebarCrossDisplayExpansionTest: XCTestCase {
         XCTAssertNil(currentWorkspaceSidebarDragSourceScopeId(), "The mouse-up cleanup forgets it too")
     }
 
+    /// Review follow-up: the panel whose view reports the drag is its source, whatever the event
+    /// window suggested. Outside a drag, a report changes nothing.
+    func testThePanelReportingTheDragIsItsSource() {
+        resetWorkspaceSidebarItemDrag()
+        noteWorkspaceSidebarDragReported(byPanel: otherDisplay)
+        XCTAssertNil(currentWorkspaceSidebarDragSourceScopeId(), "No drag, no source")
+        beginWorkspaceSidebarItemDrag(sourceWindow: nil)
+        setWorkspaceSidebarDragSourceScopeIdForTests("monitor:0.0,0.0")
+        noteWorkspaceSidebarDragReported(byPanel: otherDisplay)
+        XCTAssertEqual(currentWorkspaceSidebarDragSourceScopeId(), otherDisplay)
+        noteWorkspaceSidebarDragReported(byPanel: nil)
+        XCTAssertEqual(currentWorkspaceSidebarDragSourceScopeId(), otherDisplay, "A view outside a panel reports nothing")
+        resetWorkspaceSidebarItemDrag()
+        XCTAssertNil(currentWorkspaceSidebarDragSourceScopeId())
+    }
+
     func testAnotherDisplaysCompactSidebarOpensForASidebarDrag() throws {
         try withPanel(mode: .sidebar) { panel in
             dragFromAnotherDisplay()

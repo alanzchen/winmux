@@ -28,6 +28,7 @@ enum WorkspaceMutationError: LocalizedError {
     case displayHasNoIdentity(String)
     case tabAssignedToAnotherDisplay
     case tabCannotShowOnDisplay
+    case displayUnavailable
 
     var errorDescription: String? {
         switch self {
@@ -61,6 +62,8 @@ enum WorkspaceMutationError: LocalizedError {
                 "This tab is assigned to another display."
             case .tabCannotShowOnDisplay:
                 "This tab can't be shown on that display."
+            case .displayUnavailable:
+                "That display is no longer connected."
         }
     }
 }

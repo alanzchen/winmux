@@ -34,6 +34,21 @@ final class WorkspaceSidebarCrossDisplayPreviewTest: XCTestCase {
         XCTAssertFalse(workspaceSidebarDropPreviewBelongs(toPanel: "monitor:0.0,0.0", preview: scoped, ownerScopeId: nil))
     }
 
+    /// Review follow-up: an equal preview can move from one panel to another that lists the same
+    /// tab, so every assignment takes the owner from the pointer, not only a changed preview.
+    func testEveryPreviewAssignmentTakesItsOwnerFromThePointer() {
+        let preview = WorkspaceSidebarDropPreviewViewModel(sourceWindowId: 1, label: "a", appName: "App",
+            targetWorkspaceName: "one", targetsNewWorkspace: false, isTabGroup: false, windowCount: 1)
+        MousePointerTracker.shared.note(point: CGPoint(x: -100_000, y: -100_000))
+        defer { MousePointerTracker.shared.reset() }
+        setWorkspaceSidebarDropPreviewIfChanged(preview)
+        setWorkspaceSidebarDropPreviewOwnerScopeIdForTests(otherDisplay)
+        setWorkspaceSidebarDropPreviewIfChanged(preview)
+        XCTAssertNil(currentWorkspaceSidebarDropPreviewOwnerScopeId(), "No panel is under the pointer now")
+        setWorkspaceSidebarDropPreviewIfChanged(nil)
+        XCTAssertNil(currentWorkspaceSidebarDropPreviewOwnerScopeId())
+    }
+
     func testADisconnectedDisplaysPanelRetiresWithoutTakingTheOtherPreview() throws {
         _ = NSApplication.shared
         try XCTSkipIf(NSScreen.screens.isEmpty, "Requires a native macOS window server")

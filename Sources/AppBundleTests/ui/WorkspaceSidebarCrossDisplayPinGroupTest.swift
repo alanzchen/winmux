@@ -59,7 +59,7 @@ final class WorkspaceSidebarCrossDisplayPinGroupTest: XCTestCase {
         XCTAssertEqual(TrayMenuModel.shared.workspaceSidebarDropPreview?.targetCollectionId, group.id)
         XCTAssertEqual(TrayMenuModel.shared.workspaceSidebarDropPreview?.targetMonitorScopeId, rightList)
 
-        try applySidebarGroupDrop(4, collectionId: group.id, monitorScopeId: rightList)
+        try applySidebarGroupDrop(4, tab: tabs.d, collectionId: group.id, monitorScopeId: rightList)
         XCTAssertEqual(tabs.d.workspaceMonitor.rect, right.rect)
         XCTAssertEqual(workspaceSidebarOrganizationStore.collection(containing: tabs.d.name)?.id, group.id)
 
@@ -110,6 +110,109 @@ final class WorkspaceSidebarCrossDisplayPinGroupTest: XCTestCase {
         try applyWorkspaceSidebarPinnedTabDrop(tabs.a, .unpin(monitorScopeId: leftList))
         XCTAssertEqual(tabs.a.workspaceMonitor.rect, sortedMonitors[0].rect)
         XCTAssertFalse(workspacePinnedTabs(in: tabs.a.projectId).contains(tabs.a))
+    }
+
+    /// Review follow-up: a pin dragged onto another display's list where nothing is pinned yet.
+    func testAPinMovesOntoAnotherDisplaysEmptyPins() throws {
+        let (_, right, tabs) = try twoDisplaysOfTabs()
+        try setWorkspaceSidebarTabFavorite(tabs.r, false)
+        let rightList = workspaceSidebarMonitorScopeId(for: right)
+        let zone = WorkspaceSidebarDropTarget(kind: .pinnedTabs(projectId: tabs.a.projectId, monitorScopeId: rightList),
+            rect: Rect(topLeftX: 0, topLeftY: 0, width: 200, height: 28))
+        let drop = try XCTUnwrap(workspaceSidebarPinnedTabDrop(tabs.a, target: zone, point: .zero), "Drop to Pin takes it")
+        XCTAssertEqual(drop, .rearrange(nil, monitorScopeId: rightList))
+        XCTAssertTrue(workspaceSidebarPinnedTabDropPreview(tabs.a, drop: drop).targetsPinned)
+        try applyWorkspaceSidebarPinnedTabDrop(tabs.a, drop)
+        XCTAssertEqual(tabs.a.workspaceMonitor.rect, right.rect)
+        XCTAssertTrue(workspacePinnedTabs(in: tabs.a.projectId).contains(tabs.a), "Still pinned")
+        let sameZone = WorkspaceSidebarDropTarget(kind: .pinnedTabs(projectId: tabs.a.projectId, monitorScopeId: rightList),
+            rect: zone.rect)
+        XCTAssertNil(workspaceSidebarPinnedTabDrop(tabs.a, target: sameZone, point: .zero), "Already there: nothing to do")
+    }
+
+    /// Review follow-up: the display the drop was for is unplugged or rearranged before its session runs.
+    func testADropForADisplayThatWentAwayChangesNothing() throws {
+        let (left, right, tabs) = try twoDisplaysOfTabs()
+        let rightList = workspaceSidebarMonitorScopeId(for: right)
+        let group = try workspaceSidebarOrganizationStore.create(projectId: tabs.d.projectId, workspaceNames: [tabs.s.name])
+        let pinsBefore = workspacePinnedTabs(in: tabs.d.projectId).map(\.name)
+        setMonitorsForTests([left])
+        let beside = WorkspaceSidebarTabGap(workspaceName: tabs.a.name, isAfter: true)
+        previewWorkspaceSidebarDrop(4, subject: .window, target: .pinnedTabs(projectId: tabs.d.projectId, gap: beside,
+            monitorScopeId: rightList))
+        XCTAssertNil(TrayMenuModel.shared.workspaceSidebarDropPreview, "A gone display's list promises nothing")
+        XCTAssertThrowsError(try applySidebarPinDrop(4, subject: .window, gap: beside, monitorScopeId: rightList))
+        XCTAssertThrowsError(try applySidebarGroupDrop(4, tab: tabs.d, collectionId: group.id, monitorScopeId: rightList))
+        XCTAssertThrowsError(try applyWorkspaceSidebarPinnedTabDrop(tabs.a, .group(group.id, monitorScopeId: rightList)))
+        XCTAssertThrowsError(try applyWorkspaceSidebarPinnedTabDrop(tabs.a, .unpin(monitorScopeId: rightList)))
+        XCTAssertEqual(workspacePinnedTabs(in: tabs.d.projectId).map(\.name), pinsBefore, "Nothing was pinned or unpinned")
+        XCTAssertNil(workspaceSidebarOrganizationStore.collection(containing: tabs.d.name))
+        XCTAssertNil(workspaceSidebarOrganizationStore.collection(containing: tabs.a.name))
+    }
+
+    /// Review follow-up: the tab was already on the list's display at the release, and something
+    /// moved it before the session ran. The drop still brings it back to that display.
+    func testAGroupDropKeepsItsDisplayUntilItsSessionRuns() throws {
+        let (left, right, tabs) = try twoDisplaysOfTabs()
+        let rightList = workspaceSidebarMonitorScopeId(for: right)
+        let group = try workspaceSidebarOrganizationStore.create(projectId: tabs.s.projectId, workspaceNames: [tabs.d.name])
+        XCTAssertTrue(left.setActiveWorkspace(tabs.s), "Moved to the left display meanwhile")
+        try applySidebarGroupDrop(6, tab: tabs.s, collectionId: group.id, monitorScopeId: rightList)
+        XCTAssertEqual(tabs.s.workspaceMonitor.rect, right.rect)
+        XCTAssertEqual(workspaceSidebarOrganizationStore.collection(containing: tabs.s.name)?.id, group.id)
+
+        // A window that left the tab since the release takes no tab with it.
+        let other = Workspace.get(byName: "other")
+        let window = try XCTUnwrap(Window.get(byId: 5))
+        window.bind(to: other.rootTilingContainer, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
+        try applySidebarGroupDrop(5, tab: tabs.r, collectionId: group.id, monitorScopeId: rightList)
+        XCTAssertNil(workspaceSidebarOrganizationStore.collection(containing: tabs.r.name))
+    }
+
+    /// Review follow-up: when the edit after the move fails, the move is undone too.
+    func testAFailedEditUndoesTheMoveToAnotherDisplay() throws {
+        let (left, right, tabs) = try twoDisplaysOfTabs()
+        let rightList = workspaceSidebarMonitorScopeId(for: right)
+        let rightActive = right.activeWorkspace
+        XCTAssertThrowsError(try applyWorkspaceSidebarPinnedTabDrop(tabs.a, .group("gone", monitorScopeId: rightList)),
+            "The group went away before the session")
+        XCTAssertEqual(tabs.a.workspaceMonitor.rect, left.rect, "Back on its own display")
+        XCTAssertTrue(right.activeWorkspace === rightActive, "The other display shows what it did")
+        XCTAssertTrue(workspacePinnedTabs(in: tabs.a.projectId).contains(tabs.a))
+    }
+
+    /// Review follow-up: one window pulled out of a split and pinned on another display's list
+    /// gets a tab of its own there; the rest of the split stays.
+    func testAWindowPulledOutOfASplitIsPinnedOnAnotherDisplay() throws {
+        let (left, right, tabs) = try twoDisplaysOfTabs()
+        _ = TestWindow.new(id: 7, parent: tabs.d.rootTilingContainer)
+        let rightList = workspaceSidebarMonitorScopeId(for: right)
+        let beside = WorkspaceSidebarTabGap(workspaceName: tabs.r.name, isAfter: true)
+        previewWorkspaceSidebarDrop(7, subject: .window, target: .pinnedTabs(projectId: tabs.d.projectId, gap: beside,
+            monitorScopeId: rightList))
+        XCTAssertNotNil(TrayMenuModel.shared.workspaceSidebarDropPreview)
+        try applySidebarPinDrop(7, subject: .window, gap: beside, monitorScopeId: rightList)
+        let moved = try XCTUnwrap(Window.get(byId: 7)?.nodeWorkspace)
+        XCTAssertFalse(moved === tabs.d)
+        XCTAssertEqual(moved.workspaceMonitor.rect, right.rect)
+        XCTAssertTrue(workspacePinnedTabs(in: moved.projectId).contains(moved))
+        XCTAssertEqual(tabs.d.allLeafWindowsRecursive.map(\.windowId), [4])
+        XCTAssertEqual(tabs.d.workspaceMonitor.rect, left.rect)
+    }
+
+    /// agy follow-up: between tabs, as among pins, a tab held to its display isn't offered another's list.
+    func testATabHeldToItsDisplayIsOfferedNoGapOnAnother() throws {
+        let (_, right, tabs) = try twoDisplaysOfTabs()
+        config.workspaceToMonitorForceAssignment[tabs.d.name] = [.main]
+        config.workspaceToMonitorForceAssignment[tabs.a.name] = [.main]
+        let rightList = workspaceSidebarMonitorScopeId(for: right)
+        let gap = WorkspaceSidebarTabGap(workspaceName: tabs.s.name, isAfter: true)
+        previewWorkspaceSidebarDrop(4, subject: .window, target: .tabGap(projectId: tabs.d.projectId,
+            monitorScopeId: rightList, gap: gap))
+        XCTAssertNil(TrayMenuModel.shared.workspaceSidebarDropPreview)
+        let target = WorkspaceSidebarDropTarget(kind: .tabGap(projectId: tabs.a.projectId, monitorScopeId: rightList, gap: gap),
+            rect: Rect(topLeftX: 0, topLeftY: 0, width: 200, height: 10))
+        XCTAssertNil(workspaceSidebarPinnedTabDrop(tabs.a, target: target, point: .zero))
     }
 
     func testOnlyTheListADropGoesToShowsIt() {
