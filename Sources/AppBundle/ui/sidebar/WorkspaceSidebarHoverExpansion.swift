@@ -127,11 +127,27 @@ func shouldAnnounceWorkspaceSidebarExpansion(
     startsSearch || !isExpanded || isCollapseAnnounced || !isShown || visibleWidth < expandedWidth
 }
 
+/// A sidebar drag holds back only its own panel's hover expansion: the rows it started from
+/// stay where they are. Another display's panel opens so the drag can land there.
 func shouldSuppressWorkspaceSidebarHoverExpansionForDrag(
     isSidebarItemDragActive: Bool,
     isSidebarOriginatedDrag: Bool,
+    isDragSourcePanel: Bool = true,
 ) -> Bool {
-    isSidebarItemDragActive || isSidebarOriginatedDrag
+    (isSidebarItemDragActive || isSidebarOriginatedDrag) && isDragSourcePanel
+}
+
+/// Whether a drag arriving from elsewhere opens a panel on hover: a window from the screen, or
+/// a sidebar drag from another display's panel. At the display's edge it shows the compact rail
+/// first, so a drag passing along the edge doesn't open the whole sidebar.
+func isWorkspaceSidebarIncomingDrag(
+    isMouseWindowDragInProgress: Bool,
+    isSidebarItemDragActive: Bool,
+    isSidebarOriginatedDrag: Bool,
+    isDragSourcePanel: Bool,
+) -> Bool {
+    (isMouseWindowDragInProgress && !isSidebarOriginatedDrag)
+        || ((isSidebarItemDragActive || isSidebarOriginatedDrag) && !isDragSourcePanel)
 }
 
 func workspaceSidebarHoverRegion(surface: CGRect, displayFrame: CGRect,

@@ -25,3 +25,8 @@ func isMousePushedAgainstDisplayEdge() -> Bool {
         mouseLocation.y <= screenFrame.minY + workspaceSidebarDisplayEdgeCompactionMargin ||
         mouseLocation.y >= screenFrame.maxY - workspaceSidebarDisplayEdgeCompactionMargin
 }
+
+/// The edge check hover makes for an incoming drag. Tests replace it: the real one reads the
+/// desktop pointer.
+@MainActor
+var workspaceSidebarIsPointerPushedAgainstDisplayEdge: @MainActor () -> Bool = { isMousePushedAgainstDisplayEdge() }

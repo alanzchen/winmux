@@ -818,7 +818,7 @@ final class WorkspaceSidebarNativeDockView: NSView {
         if !dragging {
             guard hypot(point.x - pressed.point.x, point.y - pressed.point.y) >= 4 else { return }
             dragging = true
-            beginWorkspaceSidebarItemDrag()
+            beginWorkspaceSidebarItemDrag(sourceWindow: event.window)
             driver.reset()
         }
         noteCurrentMousePointerSample()

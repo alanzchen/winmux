@@ -6,6 +6,8 @@ private var workspaceSidebarItemDragActiveCount = 0
 private var workspaceSidebarNativeWorkspaceDragActiveCount = 0
 @MainActor
 private var activeWorkspaceSidebarDrag: ActiveWorkspaceSidebarDrag?
+@MainActor
+private var workspaceSidebarDragSourceScopeId: String?
 
 struct ActiveWorkspaceSidebarDrag: Equatable {
     let windowId: UInt32
@@ -13,19 +15,63 @@ struct ActiveWorkspaceSidebarDrag: Equatable {
     let previewStyle: WorkspaceSidebarDragPreviewStyle
 }
 
+/// `sourceWindow` is the window the drag started in. Without one, it's the window the current
+/// event went to: a drag's events all go to the panel its mouse-down went to.
 @MainActor
-func beginWorkspaceSidebarItemDrag() {
+func beginWorkspaceSidebarItemDrag(sourceWindow: NSWindow? = nil) {
     workspaceSidebarItemDragActiveCount += 1
+    noteWorkspaceSidebarDragSource(sourceWindow)
 }
 
 @MainActor
 func endWorkspaceSidebarItemDrag() {
     workspaceSidebarItemDragActiveCount = max(workspaceSidebarItemDragActiveCount - 1, 0)
+    clearWorkspaceSidebarDragSourceIfIdle()
 }
 
 @MainActor
 func resetWorkspaceSidebarItemDrag() {
     workspaceSidebarItemDragActiveCount = 0
+    clearWorkspaceSidebarDragSourceIfIdle()
+}
+
+/// Whether the panel for `scopeId` is the one the current sidebar drag started in. Only that
+/// panel holds back hover expansion: another display's panel opens for the drag, as it does for
+/// a window dragged from the screen. While no drag's source is known, every panel counts as the
+/// source, so a sidebar drag holds back expansion everywhere, as it did before sources were kept.
+@MainActor
+func isWorkspaceSidebarDragSource(_ scopeId: String) -> Bool {
+    workspaceSidebarDragSourceScopeId.map { $0 == scopeId } ?? true
+}
+
+@MainActor
+func currentWorkspaceSidebarDragSourceScopeId() -> String? {
+    workspaceSidebarDragSourceScopeId
+}
+
+@MainActor
+func setWorkspaceSidebarDragSourceScopeIdForTests(_ scopeId: String?) {
+    workspaceSidebarDragSourceScopeId = scopeId
+}
+
+/// The first drag to begin names the source; nested begins of the same gesture keep it.
+@MainActor
+private func noteWorkspaceSidebarDragSource(_ sourceWindow: NSWindow?) {
+    guard workspaceSidebarDragSourceScopeId == nil else { return }
+    let window = sourceWindow ?? (NSApp as NSApplication?)?.currentEvent?.window
+    let panel = (window as? WorkspaceSidebarPanel)
+        ?? WorkspaceSidebarPanel.panel(containing: MousePointerTracker.shared.currentSample.point)
+    workspaceSidebarDragSourceScopeId = panel?.monitorScopeId
+}
+
+@MainActor
+private func clearWorkspaceSidebarDragSourceIfIdle() {
+    guard workspaceSidebarItemDragActiveCount == 0, workspaceSidebarNativeWorkspaceDragActiveCount == 0,
+          workspaceSidebarDragSourceScopeId != nil else { return }
+    workspaceSidebarDragSourceScopeId = nil
+    // Another display's panel may have opened for the drag. The drag no longer holds it open,
+    // and a pointer at rest sends no event to let it close.
+    WorkspaceSidebarPanel.scheduleHoverRecheckForVisiblePanels()
 }
 
 @MainActor
@@ -58,12 +104,14 @@ func setWorkspaceSidebarDraggedProjectId(_ projectId: WorkspaceProjectId?) {
 func beginWorkspaceSidebarNativeWorkspaceDrag() {
     workspaceSidebarNativeWorkspaceDragActiveCount += 1
     WorkspaceSidebarNativeDragState.shared.isActive = true
+    noteWorkspaceSidebarDragSource(nil)
 }
 
 @MainActor
 func endWorkspaceSidebarNativeWorkspaceDrag() {
     workspaceSidebarNativeWorkspaceDragActiveCount = max(workspaceSidebarNativeWorkspaceDragActiveCount - 1, 0)
     WorkspaceSidebarNativeDragState.shared.isActive = workspaceSidebarNativeWorkspaceDragActiveCount > 0
+    clearWorkspaceSidebarDragSourceIfIdle()
 }
 
 /// A click can only reach the drop overlay when no drag session is running. Clear any claim
@@ -73,6 +121,7 @@ func recoverStaleWorkspaceSidebarNativeWorkspaceDrag() {
     workspaceSidebarNativeWorkspaceDragActiveCount = 0
     workspaceSidebarDraggedProject = nil
     WorkspaceSidebarNativeDragState.shared.isActive = false
+    clearWorkspaceSidebarDragSourceIfIdle()
     WorkspaceSidebarPanel.scheduleHoverRecheckForVisiblePanels()
 }
 

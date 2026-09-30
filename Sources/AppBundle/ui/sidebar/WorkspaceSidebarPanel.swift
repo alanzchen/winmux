@@ -837,9 +837,18 @@ extension WorkspaceSidebarPanel {
         let isExpansionLocked = shouldLockExpansionForSidebarDrag()
         let isExternalWindowDrag = isMouseWindowDragInProgress()
         let isSidebarOriginatedDrag = getCurrentMouseDragStartedInSidebar()
+        let isSidebarItemDragActive = isWorkspaceSidebarItemDragActive()
+        let isDragSourcePanel = isWorkspaceSidebarDragSource(monitorScopeId)
         let shouldSuppressDragExpansion = shouldSuppressWorkspaceSidebarHoverExpansionForDrag(
-            isSidebarItemDragActive: isWorkspaceSidebarItemDragActive(),
+            isSidebarItemDragActive: isSidebarItemDragActive,
             isSidebarOriginatedDrag: isSidebarOriginatedDrag,
+            isDragSourcePanel: isDragSourcePanel,
+        )
+        let isIncomingDrag = isWorkspaceSidebarIncomingDrag(
+            isMouseWindowDragInProgress: isExternalWindowDrag,
+            isSidebarItemDragActive: isSidebarItemDragActive,
+            isSidebarOriginatedDrag: isSidebarOriginatedDrag,
+            isDragSourcePanel: isDragSourcePanel,
         )
         pendingCollapse?.cancel()
         pendingCollapse = nil
@@ -858,7 +867,7 @@ extension WorkspaceSidebarPanel {
             return
         }
 
-        if isExternalWindowDrag && !isSidebarOriginatedDrag && isMousePushedAgainstDisplayEdge() {
+        if isIncomingDrag && workspaceSidebarIsPointerPushedAgainstDisplayEdge() {
             showCollapsedSidebarDuringExternalDrag(
                 collapsedWidth: workspaceSidebarHoverActivationWidth(sidebarSettings)
             )
@@ -867,7 +876,7 @@ extension WorkspaceSidebarPanel {
         if !shouldDelayWorkspaceSidebarExpansion(
             isExpanded: viewModel.isWorkspaceSidebarExpanded,
             isExpansionLocked: isExpansionLocked,
-            isMouseWindowDragInProgress: isExternalWindowDrag,
+            isMouseWindowDragInProgress: isExternalWindowDrag || isIncomingDrag,
         ) {
             expandSidebar(to: expandedWidth)
             return
