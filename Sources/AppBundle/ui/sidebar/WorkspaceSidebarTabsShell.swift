@@ -84,9 +84,11 @@ extension WorkspaceSidebarView {
                         // With nothing pinned, dragging a tab offers pinning over the search row,
                         // so the list doesn't move under the pointer.
                         let pinned = (visible[snapshot.activeProjectId] ?? []).contains { $0.appearance.isFavorite }
-                        WorkspaceSidebarTabsPinDropZone(projectId: snapshot.activeProjectId, hasPins: pinned,
+                        WorkspaceSidebarTabsPinDropZone(projectId: snapshot.activeProjectId, monitorScopeId: tabsListScopeId,
+                            hasPins: pinned,
                             isDropTarget: snapshot.dropPreview?.targetsPinned == true
-                                && snapshot.dropPreview?.targetProjectId == snapshot.activeProjectId)
+                                && snapshot.dropPreview?.targetProjectId == snapshot.activeProjectId
+                                && workspaceSidebarDropPreview(snapshot.dropPreview, targetsList: tabsListScopeId))
                     }
                     .padding(.horizontal, workspaceSidebarTabsListInset).padding(.bottom, 4)
                     .opacity(reveal)
@@ -172,6 +174,13 @@ extension WorkspaceSidebarView {
             windows: snapshot.workspaces.flatMap(workspaceSidebarPinnedTabWindows)))
     }
 
+    /// The display whose tabs the list shows, where a tab dropped on it goes: this panel's own,
+    /// or the one chosen in its display menu.
+    var tabsListScopeId: String {
+        workspaceSidebarWorkspaceCreateScope(selectedScopeId: snapshot.selectedMonitorScopeId,
+            targetMonitorScopeId: snapshot.targetMonitorScopeId, focusedScopeId: snapshot.focusedMonitorScopeId)
+    }
+
     private func tabsFavorites(_ workspaces: [WorkspaceSidebarWorkspaceViewModel]) -> some View {
         let favorites = workspaces.filter { $0.appearance.isFavorite }
         let grid = WorkspaceSidebarPinnedGridLayout(workspaces: favorites, width: snapshot.visibleWidth - 20)
@@ -191,7 +200,8 @@ extension WorkspaceSidebarView {
                         WorkspaceSidebarPinnedTab(workspace: workspace, badgeModel: dockBadgeModel,
                             targetMonitorScopeId: snapshot.targetMonitorScopeId, actions: actions,
                             insertionEdge: workspaceSidebarPinnedInsertionEdge(snapshot.dropPreview,
-                                workspaceName: workspace.name, projectId: snapshot.activeProjectId),
+                                workspaceName: workspace.name, projectId: snapshot.activeProjectId,
+                                monitorScopeId: tabsListScopeId),
                             isDropTarget: snapshot.dropPreview?.targetWorkspaceName == workspace.name,
                             dropPlacement: snapshot.dropPreview?.targetPlacement,
                             dropLabelSlot: snapshot.dropPreview?.targetLabelSlot,
@@ -206,7 +216,7 @@ extension WorkspaceSidebarView {
                     GeometryReader { content in
                         Color.clear.preference(key: WorkspaceSidebarDropTargetPreferenceKey.self,
                             value: favorites.isEmpty ? [] : workspaceSidebarPinnedDropTargets(names: favorites.map(\.name),
-                                projectId: snapshot.activeProjectId, monitorScopeId: snapshot.targetMonitorScopeId,
+                                projectId: snapshot.activeProjectId, monitorScopeId: tabsListScopeId,
                                 frame: content.frame(in: .named("workspaceSidebarContent")), columns: grid.columns))
                     }
                 }
@@ -265,6 +275,7 @@ extension WorkspaceSidebarView {
         let color = group.colorHex.flatMap(workspaceSidebarColor)
         let disclosure = tabCollectionDisclosure(group, isSearching: isSearching)
         let isDropTarget = snapshot.dropPreview?.targetCollectionId == group.id
+            && workspaceSidebarDropPreview(snapshot.dropPreview, targetsList: monitorScopeId)
         return WorkspaceSidebarTabGroupCard(tint: color, isExpanded: !disclosure.isCollapsed, isDropTarget: isDropTarget) {
             WorkspaceSidebarTabCollectionHeader(group: group, workspaces: workspaces, tint: color, disclosure: disclosure,
                 badgeModel: dockBadgeModel) {
@@ -279,7 +290,8 @@ extension WorkspaceSidebarView {
             .background {
                 GeometryReader { geometry in
                     Color.clear.preference(key: WorkspaceSidebarDropTargetPreferenceKey.self,
-                        value: [.init(kind: .tabCollection(group.id), frame: geometry.frame(in: .named("workspaceSidebarContent")))])
+                        value: [.init(kind: .tabCollection(group.id, monitorScopeId: monitorScopeId),
+                            frame: geometry.frame(in: .named("workspaceSidebarContent")))])
                 }
             }
         } content: {
@@ -423,11 +435,12 @@ struct WorkspaceSidebarTabsSearchRow: View {
 /// The pinned tiles' drop target: a tab dropped anywhere on them is pinned.
 struct WorkspaceSidebarTabsPinDropTarget: View {
     let projectId: WorkspaceProjectId
+    let monitorScopeId: String
 
     var body: some View {
         GeometryReader { geometry in
             Color.clear.preference(key: WorkspaceSidebarDropTargetPreferenceKey.self,
-                value: [WorkspaceSidebarDropTargetFrame(kind: .pinnedTabs(projectId: projectId),
+                value: [WorkspaceSidebarDropTargetFrame(kind: .pinnedTabs(projectId: projectId, monitorScopeId: monitorScopeId),
                     frame: geometry.frame(in: .named("workspaceSidebarContent")).insetBy(dx: -4, dy: -4))])
         }
     }
@@ -436,6 +449,7 @@ struct WorkspaceSidebarTabsPinDropTarget: View {
 /// With nothing pinned, a place to drop a tab to pin it, shown only while a tab is dragged.
 struct WorkspaceSidebarTabsPinDropZone: View {
     let projectId: WorkspaceProjectId
+    let monitorScopeId: String
     let hasPins: Bool
     let isDropTarget: Bool
     @ObservedObject private var drag = WorkspaceSidebarTabDragState.shared
@@ -457,7 +471,7 @@ struct WorkspaceSidebarTabsPinDropZone: View {
                         shape.strokeBorder(isDropTarget ? Color.accentColor.opacity(0.65) : Color.primary.opacity(0.3),
                             style: StrokeStyle(lineWidth: 1, dash: isDropTarget ? [] : [4, 3]))
                     }
-                    .background { WorkspaceSidebarTabsPinDropTarget(projectId: projectId) }
+                    .background { WorkspaceSidebarTabsPinDropTarget(projectId: projectId, monitorScopeId: monitorScopeId) }
                     .transition(.opacity)
                     .accessibilityHidden(true)
             }

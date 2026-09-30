@@ -265,8 +265,9 @@ struct WorkspaceSidebarPinnedInsertionLine: View {
 
 /// The side of this pin a dragged tab would go, while one is beside it.
 func workspaceSidebarPinnedInsertionEdge(_ preview: WorkspaceSidebarDropPreviewViewModel?, workspaceName: String,
-                                         projectId: WorkspaceProjectId) -> HorizontalEdge? {
+                                         projectId: WorkspaceProjectId, monitorScopeId: String? = nil) -> HorizontalEdge? {
     guard let preview, preview.targetsPinned, preview.targetProjectId == projectId,
+          monitorScopeId.map({ workspaceSidebarDropPreview(preview, targetsList: $0) }) ?? true,
           let gap = preview.targetPinnedGap, gap.workspaceName == workspaceName else { return nil }
     return gap.isAfter ? .trailing : .leading
 }

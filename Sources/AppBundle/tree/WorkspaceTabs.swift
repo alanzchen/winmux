@@ -284,7 +284,7 @@ func applyTabGapDrop(sourceNode: TreeNode, sourceWindow: Window, projectId: Work
 func moveWholeTabToGap(_ tab: Workspace, projectId: WorkspaceProjectId, monitor: Monitor, gap: WorkspaceSidebarTabGap,
                        focusing window: Window?) {
     guard let anchor = Workspace.existing(byName: gap.workspaceName), anchor.projectId == projectId else { return }
-    guard isValidAssignment(workspace: tab, screen: monitor.rect.topLeftCorner), !savedPinBlocks(tab, on: monitor) else {
+    guard workspaceTabCanMove(tab, to: monitor) else {
         showWorkspaceSidebarError("This tab is assigned to another display.")
         return
     }
@@ -313,4 +313,24 @@ func moveWholeTabToGap(_ tab: Workspace, projectId: WorkspaceProjectId, monitor:
         if let window { _ = window.focusWindow() } else { _ = tab.focusWorkspace() }
     }
     winMuxWorkspaceState.moveWorkspace(tab.id, relativeTo: anchor.id, after: gap.isAfter)
+}
+
+/// Whether a tab may be shown on `monitor`: neither `workspace-to-monitor-force-assignment` nor a
+/// saved workspace kept on its display holds it to another one.
+@MainActor
+func workspaceTabCanMove(_ tab: Workspace, to monitor: Monitor) -> Bool {
+    isValidAssignment(workspace: tab, screen: monitor.rect.topLeftCorner) && !savedPinBlocks(tab, on: monitor)
+}
+
+/// Brings a tab onto the display whose list it was dropped on, before it's pinned or grouped
+/// there, as a drop between tabs does. `window` comes forward; an empty tab comes forward itself.
+@MainActor
+func moveWorkspaceTabToDisplay(_ tab: Workspace, _ monitor: Monitor, focusing window: Window?) throws {
+    guard tab.workspaceMonitor.rect != monitor.rect else { return }
+    guard workspaceTabCanMove(tab, to: monitor) else { throw WorkspaceMutationError.tabAssignedToAnotherDisplay }
+    guard activateWorkspaceOnMonitorPreservingSourceViewport(tab, targetMonitor: monitor) else {
+        throw WorkspaceMutationError.tabCannotShowOnDisplay
+    }
+    noteSavedWorkspacePlacedByUser(tab, on: monitor)
+    if let window { _ = window.focusWindow() } else { _ = tab.focusWorkspace() }
 }

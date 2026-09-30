@@ -2,16 +2,24 @@ import AppKit
 import Common
 
 /// Tabs mode: a pinned tile drags as its whole tab, split or empty alike. It uses the sidebar's
-/// drop targets and feedback, but no window drag, since a pin needn't have a window.
+/// drop targets and feedback, but no window drag, since a pin needn't have a window. Each drop
+/// names the display whose list it lands on; a pin from another display moves there.
 enum WorkspaceSidebarPinnedTabDrop: Equatable {
     /// Beside another pin.
-    case rearrange(WorkspaceSidebarTabGap)
+    case rearrange(WorkspaceSidebarTabGap, monitorScopeId: String? = nil)
     /// Between the list's tabs, unpinned.
     case list(projectId: WorkspaceProjectId, monitorScopeId: String, gap: WorkspaceSidebarTabGap)
     /// Into a group, which unpins it.
-    case group(String)
-    /// On New Tab: unpinned where it is.
-    case unpin
+    case group(String, monitorScopeId: String? = nil)
+    /// On New Tab: unpinned there.
+    case unpin(monitorScopeId: String? = nil)
+
+    var monitorScopeId: String? {
+        switch self {
+            case .rearrange(_, let scope), .group(_, let scope), .unpin(let scope): scope
+            case .list(_, let scope, _): scope
+        }
+    }
 }
 
 /// What dropping the pinned tab on this target does, or nil where it does nothing.
@@ -21,9 +29,13 @@ func workspaceSidebarPinnedTabDrop(_ tab: Workspace, target: WorkspaceSidebarDro
     guard config.usesBrowserTabs, workspaceSidebarOrganizationStore.state.workspaces[tab.name]?.isFavorite == true
     else { return nil }
     switch target.kind {
-        case .pinnedTabs(let projectId, let gap):
-            guard projectId == tab.projectId, let gap, workspacePinnedTabOrder(moving: tab, beside: gap) != nil else { return nil }
-            return .rearrange(gap)
+        case .pinnedTabs(let projectId, let gap, let monitorScopeId):
+            guard projectId == tab.projectId, let gap,
+                  workspaceSidebarDropCanReachDisplay(tab, monitorScopeId: monitorScopeId),
+                  workspacePinnedTabOrder(moving: tab, beside: gap) != nil
+                    || workspaceSidebarDropDisplayChange(for: tab, monitorScopeId: monitorScopeId) != nil
+            else { return nil }
+            return .rearrange(gap, monitorScopeId: monitorScopeId)
         case .tabGap(let projectId, let monitorScopeId, let gap):
             guard Workspace.existing(byName: gap.workspaceName)?.projectId == projectId else { return nil }
             return .list(projectId: projectId, monitorScopeId: monitorScopeId, gap: gap)
@@ -33,12 +45,15 @@ func workspaceSidebarPinnedTabDrop(_ tab: Workspace, target: WorkspaceSidebarDro
             guard let destination = target.tabReorderDestination, Workspace.existing(byName: name) != nil else { return nil }
             return workspaceSidebarPinnedTabDrop(tab, target: .init(kind: destination.reorderTarget(beside: name,
                 rect: target.rect, point: point), rect: target.rect), point: point)
-        case .tabCollection(let id):
-            guard workspaceSidebarOrganizationStore.state.collections.contains(where: { $0.id == id && $0.projectId == tab.projectId })
+        case .tabCollection(let id, let monitorScopeId):
+            guard workspaceSidebarOrganizationStore.state.collections.contains(where: { $0.id == id && $0.projectId == tab.projectId }),
+                  workspaceSidebarDropCanReachDisplay(tab, monitorScopeId: monitorScopeId)
             else { return nil }
-            return .group(id)
-        case .newWorkspace(let projectId, _):
-            return projectId == tab.projectId ? .unpin : nil
+            return .group(id, monitorScopeId: monitorScopeId)
+        case .newWorkspace(let projectId, let monitorScopeId):
+            guard projectId == tab.projectId, workspaceSidebarDropCanReachDisplay(tab, monitorScopeId: monitorScopeId)
+            else { return nil }
+            return .unpin(monitorScopeId: monitorScopeId)
         case .monitor:
             return nil
     }
@@ -57,22 +72,19 @@ func workspaceSidebarPinnedTabDropPreview(_ tab: Workspace, drop: WorkspaceSideb
     let window = tab.mostRecentWindowRecursive ?? windows.first
     let appName = window.map { $0.app.name ?? $0.app.rawAppBundleId ?? "Window" } ?? "Tab"
     var projectId = tab.projectId
-    var monitorScopeId: String?
-    if case .list(let listProjectId, let listMonitorScopeId, _) = drop {
-        projectId = listProjectId
-        monitorScopeId = listMonitorScopeId
-    }
+    if case .list(let listProjectId, _, _) = drop { projectId = listProjectId }
+    let targetsNewTab = if case .unpin = drop { true } else { false }
     var preview = WorkspaceSidebarDropPreviewViewModel(sourceWindowId: window?.windowId ?? 0,
         label: windows.count > 1 ? "\(windows.count) windows" : window.flatMap { cachedWindowTitle(for: $0) } ?? appName,
         appName: appName, appBundleIdentifier: window?.app.rawAppBundleId, appBundlePath: window?.app.bundlePath,
-        targetWorkspaceName: nil, targetsNewWorkspace: drop == .unpin, targetProjectId: projectId,
-        targetMonitorScopeId: monitorScopeId, isTabGroup: false, windowCount: max(windows.count, 1))
+        targetWorkspaceName: nil, targetsNewWorkspace: targetsNewTab, targetProjectId: projectId,
+        targetMonitorScopeId: drop?.monitorScopeId, isTabGroup: false, windowCount: max(windows.count, 1))
     switch drop {
-        case .rearrange(let gap):
+        case .rearrange(let gap, _):
             preview.targetsPinned = true
             preview.targetPinnedGap = gap
         case .list(_, _, let gap): preview.targetGap = gap
-        case .group(let id): preview.targetCollectionId = id
+        case .group(let id, _): preview.targetCollectionId = id
         case .unpin, nil: break
     }
     return preview
@@ -145,19 +157,25 @@ func workspaceSidebarPinnedTabDropUndoTitle(_ drop: WorkspaceSidebarPinnedTabDro
 func applyWorkspaceSidebarPinnedTabDrop(_ tab: Workspace, _ drop: WorkspaceSidebarPinnedTabDrop) throws {
     guard Workspace.existing(byName: tab.name) === tab,
           workspaceSidebarOrganizationStore.state.workspaces[tab.name]?.isFavorite == true else { return }
+    let window = tab.mostRecentWindowRecursive ?? tab.anyLeafWindowRecursive
     switch drop {
-        case .rearrange(let gap):
-            try pinWorkspaceSidebarTab(tab, beside: gap)
+        case .rearrange(let gap, let monitorScopeId):
+            try withWorkspaceTabOnDropDisplay(tab, monitorScopeId: monitorScopeId, focusing: window) {
+                try pinWorkspaceSidebarTab(tab, beside: gap)
+            }
         case .list(let projectId, let monitorScopeId, let gap):
-            let window = tab.mostRecentWindowRecursive ?? tab.anyLeafWindowRecursive
             let monitor = workspaceSidebarTargetMonitor(scopeId: monitorScopeId, fallbackWindow: window,
                 fallbackPoint: mouseLocation)
             syncClosedWindowsCacheToCurrentWorld()
             suppressPostDragAxObserverEvents(for: tab.allLeafWindowsRecursive.map(\.windowId))
             moveWholeTabToGap(tab, projectId: projectId, monitor: monitor, gap: gap, focusing: window)
-        case .group(let id):
-            try assignWorkspaceToSidebarCollection(tab, collectionId: id)
-        case .unpin:
-            try setWorkspaceSidebarTabFavorite(tab, false)
+        case .group(let id, let monitorScopeId):
+            try withWorkspaceTabOnDropDisplay(tab, monitorScopeId: monitorScopeId, focusing: window) {
+                try assignWorkspaceToSidebarCollection(tab, collectionId: id)
+            }
+        case .unpin(let monitorScopeId):
+            try withWorkspaceTabOnDropDisplay(tab, monitorScopeId: monitorScopeId, focusing: window) {
+                try setWorkspaceSidebarTabFavorite(tab, false)
+            }
     }
 }

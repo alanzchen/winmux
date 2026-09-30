@@ -616,7 +616,8 @@ extension WorkspaceSidebarView {
                                     projectId: projectId,
                                     monitorScopeId: createMonitorScopeId,
                                     isDropTarget: snapshot.dropPreview?.targetsNewWorkspace == true
-                                        && snapshot.dropPreview?.targetProjectId == projectId,
+                                        && snapshot.dropPreview?.targetProjectId == projectId
+                                        && workspaceSidebarDropPreview(snapshot.dropPreview, targetsList: createMonitorScopeId),
                                     onCreate: {
                                         actions.send(.createWorkspace(projectId: projectId, monitorScopeId: createMonitorScopeId))
                                     },

@@ -3,15 +3,18 @@ import SwiftUI
 
 enum WorkspaceSidebarDropTargetKind: Equatable {
     case workspace(String)
-    case tabCollection(String)
+    /// Tabs mode: a group's header. `monitorScopeId` is the display whose list shows it: a tab
+    /// from another display moves there as it joins the group, as it does between tabs.
+    case tabCollection(String, monitorScopeId: String? = nil)
     case newWorkspace(projectId: WorkspaceProjectId, monitorScopeId: String)
     case monitor(String)
     /// Tabs mode: the edge between two tabs, where a dropped tab moves, or a dropped window
     /// opens in a tab of its own.
     case tabGap(projectId: WorkspaceProjectId, monitorScopeId: String, gap: WorkspaceSidebarTabGap)
     /// Tabs mode: the pinned tiles at the top, where a dropped tab is pinned: beside the pin in
-    /// `gap`, or, with nothing pinned yet, in the place that offers pinning.
-    case pinnedTabs(projectId: WorkspaceProjectId, gap: WorkspaceSidebarTabGap? = nil)
+    /// `gap`, or, with nothing pinned yet, in the place that offers pinning. `monitorScopeId` is
+    /// the display whose list shows the tiles: a tab from another display moves there.
+    case pinnedTabs(projectId: WorkspaceProjectId, gap: WorkspaceSidebarTabGap? = nil, monitorScopeId: String? = nil)
 }
 
 /// A place between tabs: just before or just after a workspace.
@@ -131,11 +134,18 @@ func workspaceSidebarPinnedDropTargets(names: [String], projectId: WorkspaceProj
             tabReorderDestination: destination))
         if index == names.count - 1, index % columns < columns - 1 {
             targets.append(WorkspaceSidebarDropTargetFrame(kind: .pinnedTabs(projectId: projectId,
-                gap: WorkspaceSidebarTabGap(workspaceName: name, isAfter: true)),
+                gap: WorkspaceSidebarTabGap(workspaceName: name, isAfter: true), monitorScopeId: monitorScopeId),
                 frame: CGRect(x: tile.maxX, y: tile.minY, width: frame.maxX + slop - tile.maxX, height: tile.height)))
         }
     }
     return targets
+}
+
+/// Whether a drop preview is for the list of the display `scopeId` names. Two displays can list
+/// the same project's New Tab, pins and groups; only the list the tab goes to shows the drop.
+func workspaceSidebarDropPreview(_ preview: WorkspaceSidebarDropPreviewViewModel?, targetsList scopeId: String) -> Bool {
+    guard let target = preview?.targetMonitorScopeId else { return true }
+    return target == scopeId
 }
 
 struct WorkspaceSidebarTabReorderDestination: Equatable {
@@ -149,7 +159,8 @@ struct WorkspaceSidebarTabReorderDestination: Equatable {
     /// nearer edge, or among the pins by the tile's nearer side.
     func reorderTarget(beside name: String, rect: Rect, point: CGPoint) -> WorkspaceSidebarDropTargetKind {
         arrangesPins
-            ? .pinnedTabs(projectId: projectId, gap: .init(workspaceName: name, isAfter: point.x >= rect.center.x))
+            ? .pinnedTabs(projectId: projectId, gap: .init(workspaceName: name, isAfter: point.x >= rect.center.x),
+                monitorScopeId: monitorScopeId)
             : .tabGap(projectId: projectId, monitorScopeId: monitorScopeId,
                 gap: .init(workspaceName: name, isAfter: point.y >= rect.center.y, collectionId: collectionId))
     }
@@ -223,7 +234,7 @@ extension WorkspaceSidebarDropTargetKind {
     var isGap: Bool {
         switch self {
             case .tabGap: true
-            case .pinnedTabs(_, let gap): gap != nil
+            case .pinnedTabs(_, let gap, _): gap != nil
             default: false
         }
     }

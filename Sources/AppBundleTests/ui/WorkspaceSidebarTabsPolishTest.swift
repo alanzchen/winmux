@@ -236,7 +236,9 @@ final class WorkspaceSidebarTabsPolishTest: XCTestCase {
             host.frame = CGRect(x: 0, y: 0, width: 280, height: 620)
             host.layoutSubtreeIfNeeded()
             for _ in 0..<200 where targets.isEmpty { try await Task.sleep(for: .milliseconds(5)) }
-            XCTAssertTrue(targets.contains { $0.kind == .tabCollection(snapshot.configuration.tabCollections[0].id) })
+            XCTAssertTrue(targets.contains {
+                if case .tabCollection(let id, _) = $0.kind { id == snapshot.configuration.tabCollections[0].id } else { false }
+            })
             for name in ["Single", "Split"] {
                 XCTAssertEqual(targets.contains { $0.kind == .workspace(name) }, active && !otherDisplay,
                     "An active group stays fully open; an inactive collapsed group hides every member")

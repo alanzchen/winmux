@@ -26,6 +26,8 @@ enum WorkspaceMutationError: LocalizedError {
     case unreadableProjectOrder
     case savedWorkspacesReadOnly(String)
     case displayHasNoIdentity(String)
+    case tabAssignedToAnotherDisplay
+    case tabCannotShowOnDisplay
 
     var errorDescription: String? {
         switch self {
@@ -55,6 +57,10 @@ enum WorkspaceMutationError: LocalizedError {
                 "Saved workspaces are read-only: \(reason)"
             case .displayHasNoIdentity(let name):
                 "Display '\(name)' can't be identified, so a workspace can't be kept on it."
+            case .tabAssignedToAnotherDisplay:
+                "This tab is assigned to another display."
+            case .tabCannotShowOnDisplay:
+                "This tab can't be shown on that display."
         }
     }
 }

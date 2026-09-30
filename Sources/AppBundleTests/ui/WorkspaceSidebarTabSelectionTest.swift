@@ -142,7 +142,8 @@ final class WorkspaceSidebarTabSelectionTest: XCTestCase {
         fixture.workspaces = [.init(name: "1", projectId: workspaceProjectDefaultId, displayName: "1", sidebarLabel: "",
             isGeneratedName: true, monitorScopeId: "monitor:0,0", monitorName: nil, isFocused: true, isVisible: true,
             items: [.init(kind: .window(window))])]
-        let pins = WorkspaceSidebarDropTargetKind.pinnedTabs(projectId: workspaceProjectDefaultId)
+        // The place to pin belongs to this display's list, so a tab from another display moves here.
+        let pins = WorkspaceSidebarDropTargetKind.pinnedTabs(projectId: workspaceProjectDefaultId, monitorScopeId: "monitor:0,0")
         XCTAssertFalse(try renderedDropTargets(fixture).contains { $0.kind == pins }, "Not while nothing is dragged")
         WorkspaceSidebarTabDragState.shared.set(true)
         XCTAssertTrue(try renderedDropTargets(fixture).contains { $0.kind == pins })
