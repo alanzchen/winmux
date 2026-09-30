@@ -149,9 +149,23 @@ final class WorkspaceSidebarPanel: NSPanelHud, WorkspaceSidebarInputOwner {
             panel.syncModelFromShared()
             panel.refresh(on: monitor)
         }
+        // A display that went away, or that a new arrangement moved, leaves its panel behind.
+        // Retire it rather than reset it on every refresh: hidden and dropped, it no longer
+        // syncs the shared model or touches the drop preview another panel is showing.
         for (scopeId, panel) in panelsByMonitorScopeId where !activeMonitorScopeIds.contains(scopeId) {
-            panel.resetHiddenSidebarState()
+            panel.retire()
+            panelsByMonitorScopeId.removeValue(forKey: scopeId)
+            // The current event may belong to it; let AppKit finish with it before it goes.
+            DispatchQueue.main.async { withExtendedLifetime(panel) {} }
         }
+    }
+
+    /// Hides a panel whose display is gone and releases what it registered.
+    func retire() {
+        resetHiddenSidebarState()
+        for observer in menuTrackingObservers { NotificationCenter.default.removeObserver(observer) }
+        menuTrackingObservers = []
+        menuTrackingDepth = 0
     }
 
     static func syncVisiblePanelModelsFromShared() {

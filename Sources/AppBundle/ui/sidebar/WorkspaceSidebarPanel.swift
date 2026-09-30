@@ -1314,7 +1314,8 @@ extension WorkspaceSidebarPanel {
         if !preserveSurface { visibleSurfaceFrame = nil }
         dockIconFrames = []
         if let preview = TrayMenuModel.shared.workspaceSidebarDropPreview,
-           preview.targetMonitorScopeId == nil || preview.targetMonitorScopeId == monitorScopeId {
+           workspaceSidebarDropPreviewBelongs(toPanel: monitorScopeId, preview: preview,
+               ownerScopeId: currentWorkspaceSidebarDropPreviewOwnerScopeId()) {
             setWorkspaceSidebarDropPreviewIfChanged(nil)
         }
         if !WorkspaceSidebarPanel.visiblePanels.contains(where: { $0 !== self && $0.isMouseInsideVisibleRegion() }) {
