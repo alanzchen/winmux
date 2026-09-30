@@ -9,6 +9,8 @@ final class MonitorConfigurationObserver {
     /// True between a display change and the settled refresh. Saved workspaces don't record
     /// display affinity while displays are still reconfiguring.
     private(set) var isSettling = false
+    /// Bumped on every display change, so something captured before one can tell.
+    private(set) var topologyGeneration: UInt64 = 0
 
     private init() {}
 
@@ -30,10 +32,13 @@ final class MonitorConfigurationObserver {
     }
 
     private func handleScreenParametersChanged() {
+        topologyGeneration &+= 1
         isSettling = true
         refreshMonitorPolicy(refreshReason: NSApplication.didChangeScreenParametersNotification.rawValue)
         scheduleSettledRefresh()
     }
+
+    func noteDisplayChangeForTests() { topologyGeneration &+= 1 }
 
     private func refreshMonitorPolicy(refreshReason: String) {
         WorkspaceSidebarPanel.refreshAll()

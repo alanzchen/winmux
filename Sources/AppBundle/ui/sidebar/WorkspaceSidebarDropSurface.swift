@@ -56,6 +56,8 @@ protocol WorkspaceSidebarTemporaryDropSurface: AnyObject {
     var surfaceRef: WorkspaceSidebarSurfaceRef { get }
     /// Higher is above: the hints are above the list they open.
     var stackingOrder: Int { get }
+    /// The display the surface lists, for a list; nil for the hints, which take no drops.
+    var dropDestination: WorkspaceSidebarDropDestinationIdentity? { get }
     /// The part of the surface containing `point`, if any.
     func surfaceRectNormalized(containing point: CGPoint) -> Rect?
     func dropTarget(atNormalizedPoint point: CGPoint, hitSlop: NSEdgeInsets, includesTabGaps: Bool) -> WorkspaceSidebarDropTarget?

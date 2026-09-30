@@ -186,6 +186,7 @@ final class WorkspaceSidebarDropSurfaceTest: XCTestCase {
 private final class FakeDropSurface: WorkspaceSidebarTemporaryDropSurface {
     let surfaceRef: WorkspaceSidebarSurfaceRef
     let stackingOrder: Int
+    var dropDestination: WorkspaceSidebarDropDestinationIdentity?
     let rect: Rect
     let targets: [(WorkspaceSidebarDropTargetKind, Rect)]
     private(set) var lookups = 0

@@ -63,10 +63,10 @@ func workspaceSidebarPinnedTabDrop(_ tab: Workspace, target: WorkspaceSidebarDro
 
 @MainActor
 private func workspaceSidebarPinnedTabDropUnderPointer(_ tab: Workspace, point: CGPoint)
-    -> (drop: WorkspaceSidebarPinnedTabDrop?, surface: WorkspaceSidebarSurfaceRef?)
+    -> (drop: WorkspaceSidebarPinnedTabDrop?, hit: WorkspaceSidebarSurfaceHit)
 {
     let hit = workspaceSidebarSurfaceHit(at: point)
-    return (hit.target.flatMap { workspaceSidebarPinnedTabDrop(tab, target: $0, point: point) }, hit.surface)
+    return (hit.target.flatMap { workspaceSidebarPinnedTabDrop(tab, target: $0, point: point) }, hit)
 }
 
 /// The dragged pin, as the pointer carries it, and with where it would go.
@@ -111,11 +111,11 @@ func updateSidebarPinnedTabDrag(_ name: String, pointer: CGPoint) {
         return
     }
     WorkspaceSidebarTabDragState.shared.set(true, pinnedTab: name)
-    let (drop, surface) = workspaceSidebarPinnedTabDropUnderPointer(tab, point: pointer)
+    let (drop, hit) = workspaceSidebarPinnedTabDropUnderPointer(tab, point: pointer)
     WindowDragCursorProxyPanel.shared.show(preview: workspaceSidebarPinnedTabDropPreview(tab, drop: nil),
         mouseScreenPoint: denormalizedAppKitScreenPoint(pointer), style: .appIcon(size: 22))
     setWorkspaceSidebarDropPreviewIfChanged(drop.map { workspaceSidebarPinnedTabDropPreview(tab, drop: $0) },
-        owner: surface)
+        owner: hit.surface)
 }
 
 /// The drop happens once, from whichever sees the release first: the gesture's end, or the
@@ -127,11 +127,16 @@ func finishSidebarPinnedTabDrag(_ name: String, pointer: CGPoint) {
     MousePointerTracker.shared.note(point: pointer)
     let released = WorkspaceSidebarDragSessions.shared.consumeRelease() != nil
     let tab = Workspace.existing(byName: name) === drag.tab ? drag.tab : nil
-    let drop = released ? tab.flatMap { workspaceSidebarPinnedTabDropUnderPointer($0, point: pointer).drop } : nil
+    let underPointer = released ? tab.map { workspaceSidebarPinnedTabDropUnderPointer($0, point: pointer) } : nil
     clearSidebarPinnedTabDragFeedback()
-    guard let tab, let drop else { return }
+    // Released on temporary drop UI, with or without a drop: that release was the sidebar's.
+    if underPointer?.hit.isOnTemporarySurface == true { noteWorkspaceSidebarConsumedRelease() }
+    // A list that closed before the release takes nothing: its drop can't be checked any more.
+    guard let tab, let drop = underPointer?.drop,
+          let intent = underPointer?.hit.target.flatMap({ WorkspaceSidebarDropIntent.captured(for: $0) }) else { return }
     noteWorkspaceSidebarConsumedRelease()
     runWorkspaceSidebarSession(undoTitle: workspaceSidebarPinnedTabDropUndoTitle(drop)) {
+        try intent.checkDestination()
         try applyWorkspaceSidebarPinnedTabDrop(tab, drop)
         await updateWorkspaceSidebarModel()
     }
@@ -180,11 +185,15 @@ func applyWorkspaceSidebarPinnedTabDrop(_ tab: Workspace, _ drop: WorkspaceSideb
                 try pinWorkspaceSidebarTab(tab, beside: gap)
             }
         case .list(let projectId, let monitorScopeId, let gap):
-            let monitor = workspaceSidebarTargetMonitor(scopeId: monitorScopeId, fallbackWindow: window,
-                fallbackPoint: mouseLocation)
+            // The list's display, or none: a display that went away takes nothing.
+            guard let monitor = workspaceSidebarDropTargetMonitor(scopeId: monitorScopeId, fallbackWindow: window,
+                fallbackPoint: mouseLocation) else { throw WorkspaceMutationError.displayUnavailable }
             syncClosedWindowsCacheToCurrentWorld()
             suppressPostDragAxObserverEvents(for: tab.allLeafWindowsRecursive.map(\.windowId))
-            moveWholeTabToGap(tab, projectId: projectId, monitor: monitor, gap: gap, focusing: window)
+            // Unpinning, regrouping and moving go together: a drop that stops partway undoes the rest.
+            try withWorkspaceSidebarDropTransaction {
+                moveWholeTabToGap(tab, projectId: projectId, monitor: monitor, gap: gap, focusing: window)
+            }
         case .group(let id, let monitorScopeId):
             try withWorkspaceTabOnDropDisplay(tab, monitorScopeId: monitorScopeId, focusing: window) {
                 try assignWorkspaceToSidebarCollection(tab, collectionId: id)

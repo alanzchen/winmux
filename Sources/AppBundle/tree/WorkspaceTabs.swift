@@ -254,64 +254,69 @@ func workspaceTabGapKeepsTabInPlace(_ tab: Workspace, projectId: WorkspaceProjec
 }
 
 /// A tab dropped between tabs. A whole tab moves there, leaving the pins if it was pinned; a
-/// window from a tab with others gets a new tab there, and comes forward.
+/// window from a tab with others gets a new tab there, and comes forward. Returns false if it
+/// didn't happen, perhaps partly: a caller that must undo a partial drop rolls it back.
 @MainActor
+@discardableResult
 func applyTabGapDrop(sourceNode: TreeNode, sourceWindow: Window, projectId: WorkspaceProjectId, monitor: Monitor,
-                     gap: WorkspaceSidebarTabGap) {
+                     gap: WorkspaceSidebarTabGap) -> Bool {
     let anchor = Workspace.existing(byName: gap.workspaceName).flatMap { $0.projectId == projectId ? $0 : nil }
     let sourceWorkspace = sourceNode.nodeWorkspace
     let isWholeTab = !workspaceTabDragLeavesWindowsBehind(sourceNode)
     // The tab it was dropped next to has gone meanwhile: leave the tab where it is.
-    if isWholeTab, anchor == nil { return }
+    if isWholeTab, anchor == nil { return false }
     if isWholeTab, let sourceWorkspace {
-        moveWholeTabToGap(sourceWorkspace, projectId: projectId, monitor: monitor, gap: gap, focusing: sourceWindow)
-        return
+        return moveWholeTabToGap(sourceWorkspace, projectId: projectId, monitor: monitor, gap: gap, focusing: sourceWindow)
     }
     // One window pulled out of a split gets a new tab. A whole tab keeps its identity above.
     let tab = createBlankWorkspace(projectId: projectId, monitor: monitor)
     do { try assignWorkspaceToSidebarCollection(tab, collectionId: gap.collectionId, keepWhenEmpty: false) }
-    catch { removeWorkspaceFromRegistry(tab, reason: .pruned); showWorkspaceSidebarError(error.localizedDescription); return }
+    catch { removeWorkspaceFromRegistry(tab, reason: .pruned); showWorkspaceSidebarError(error.localizedDescription); return false }
     if let anchor { winMuxWorkspaceState.moveWorkspace(tab.id, relativeTo: anchor.id, after: gap.isAfter) }
     let isFloatingWindow = sourceNode === sourceWindow && sourceWindow.isFloating
     sourceNode.bind(to: isFloatingWindow ? tab : tab.rootTilingContainer, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
     captureNewAutomaticWorkspaceIdentity(tab)
     _ = sourceWindow.focusWindow()
+    return true
 }
 
 /// A whole tab dropped between tabs moves there, into that group, project and display, and out
 /// of the pins. `window` comes forward when it changes display; an empty tab comes forward itself.
+/// Returns false if it didn't happen, perhaps after unpinning or regrouping it.
 @MainActor
+@discardableResult
 func moveWholeTabToGap(_ tab: Workspace, projectId: WorkspaceProjectId, monitor: Monitor, gap: WorkspaceSidebarTabGap,
-                       focusing window: Window?) {
-    guard let anchor = Workspace.existing(byName: gap.workspaceName), anchor.projectId == projectId else { return }
+                       focusing window: Window?) -> Bool {
+    guard let anchor = Workspace.existing(byName: gap.workspaceName), anchor.projectId == projectId else { return false }
     guard workspaceTabCanMove(tab, to: monitor) else {
         showWorkspaceSidebarError("This tab is assigned to another display.")
-        return
+        return false
     }
     let store = workspaceSidebarOrganizationStore
     // The group it was dropped in has gone meanwhile: leave the tab where it is.
     if let collectionId = gap.collectionId,
-       !store.state.collections.contains(where: { $0.id == collectionId && $0.projectId == projectId }) { return }
+       !store.state.collections.contains(where: { $0.id == collectionId && $0.projectId == projectId }) { return false }
     let isPinned = store.state.workspaces[tab.name]?.isFavorite == true
     let changesGroup = store.collection(containing: tab.name)?.id != gap.collectionId
     // Nothing moves unless its pin and group can be saved too; joining a group also saves the tab.
     if isPinned || changesGroup,
        let reason = store.readOnlyReason ?? (gap.collectionId == nil ? nil : savedWorkspaceStore.readOnlyReason) {
         showWorkspaceSidebarError(reason)
-        return
+        return false
     }
     // Unpinning doesn't depend on the project, so it goes first: if it can't be saved, the tab stays put.
     do { if isPinned { try setWorkspaceSidebarTabFavorite(tab, false) } }
-    catch { showWorkspaceSidebarError(error.localizedDescription); return }
+    catch { showWorkspaceSidebarError(error.localizedDescription); return false }
     let changesScope = tab.projectId != projectId || tab.workspaceMonitor.rect != monitor.rect
-    if tab.projectId != projectId, !moveWorkspaceToProject(workspaceName: tab.name, projectId: projectId) { return }
+    if tab.projectId != projectId, !moveWorkspaceToProject(workspaceName: tab.name, projectId: projectId) { return false }
     do { if changesGroup { try assignWorkspaceToSidebarCollection(tab, collectionId: gap.collectionId) } }
-    catch { showWorkspaceSidebarError(error.localizedDescription); return }
+    catch { showWorkspaceSidebarError(error.localizedDescription); return false }
     if changesScope {
-        guard placeWorkspaceTabOnDisplay(tab, monitor) else { return }
+        guard placeWorkspaceTabOnDisplay(tab, monitor) else { return false }
         if let window { _ = window.focusWindow() } else { _ = tab.focusWorkspace() }
     }
     winMuxWorkspaceState.moveWorkspace(tab.id, relativeTo: anchor.id, after: gap.isAfter)
+    return true
 }
 
 /// Whether a tab may be shown on `monitor`: neither `workspace-to-monitor-force-assignment` nor a
