@@ -4,7 +4,7 @@ import Foundation
 // display (`workspacePinnedTabs(in:)`). Each display's list shows the tabs on that display, its
 // pins among them. With shared pins it shows its project's pins from every display too, so every
 // display has the same tiles in the same order. Nothing is kept per display: sharing changes only
-// what a list shows, and each pin stays on the display it's on.
+// what a list shows. Showing a pin moves nothing; clicking one brings it to the display clicked.
 
 /// Whether a list of `selectedScopeId`'s tabs shows `workspace`: the tabs the scope selects, and,
 /// with shared pins, every pinned tab when the scope is a display. All Displays already shows

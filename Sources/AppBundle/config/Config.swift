@@ -138,7 +138,7 @@ struct WorkspaceSidebarConfig: ConvenienceCopyable, Equatable, Sendable {
     /// instead of under Music's tab.
     var musicPlayerAtBottom: Bool = false
     /// Tabs mode: every display's sidebar shows its project's pinned tabs from every display,
-    /// instead of only the ones on its own display. The pins stay on their displays.
+    /// instead of only the ones on its own display. A pin clicked on a display comes to it.
     var sharePinnedTabs: Bool = false
     var sharesPinnedTabs: Bool { usesTabsList && sharePinnedTabs }
     var pinsSidebarOpen: Bool { mode == .tabs ? tabsAlwaysExpanded : alwaysExpanded }

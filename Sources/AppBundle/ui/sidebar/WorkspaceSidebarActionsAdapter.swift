@@ -101,7 +101,11 @@ func handleWorkspaceSidebarAction(
             handleWorkspaceSidebarOrganizationAction(action,
                 targetMonitorScopeId: targetMonitorScopeId ?? viewModel.workspaceSidebarTargetMonitorScopeId)
         case .selectWorkspace(let name):
-            focusWorkspaceFromSidebar(name, targetMonitorScopeId: targetMonitorScopeId)
+            if let pin = workspaceSidebarSharedPinClicked(name, targetMonitorScopeId: targetMonitorScopeId) {
+                showSharedPinnedTabFromSidebar(pin, targetMonitorScopeId: targetMonitorScopeId)
+            } else {
+                focusWorkspaceFromSidebar(name, targetMonitorScopeId: targetMonitorScopeId)
+            }
         case .overrideWorkspaceInUse(let name):
             overrideWorkspaceInUseFromSidebar(name, targetMonitorScopeId: targetMonitorScopeId)
         case .expandForWorkspaceOverride, .expandSidebar:
@@ -110,7 +114,11 @@ func handleWorkspaceSidebarAction(
                 panel.expandSidebar(to: CGFloat(panel.sidebarSettings.width))
             }
         case .selectWindow(let windowId):
-            focusWindowFromSidebar(windowId, targetMonitorScopeId: targetMonitorScopeId)
+            if let pin = workspaceSidebarSharedPinClicked(windowId: windowId, targetMonitorScopeId: targetMonitorScopeId) {
+                showSharedPinnedTabFromSidebar(pin, windowId: windowId, targetMonitorScopeId: targetMonitorScopeId)
+            } else {
+                focusWindowFromSidebar(windowId, targetMonitorScopeId: targetMonitorScopeId)
+            }
         case .focusWindowInPlace(let windowId):
             focusWindowFromSidebar(windowId)
         case .closeWindow(let windowId):
@@ -195,7 +203,11 @@ func handleWorkspaceSidebarAction(
         case .openSavedWorkspaceApps(let name):
             openSavedWorkspaceAppsFromSidebar(name)
         case .openSavedTab(let name):
-            openSavedTabFromSidebar(name, targetMonitorScopeId: targetMonitorScopeId)
+            if let pin = workspaceSidebarSharedPinClicked(name, targetMonitorScopeId: targetMonitorScopeId) {
+                showSharedPinnedTabFromSidebar(pin, opensSavedApps: true, targetMonitorScopeId: targetMonitorScopeId)
+            } else {
+                openSavedTabFromSidebar(name, targetMonitorScopeId: targetMonitorScopeId)
+            }
         case .moveProject(let projectId, let targetId, let after):
             moveWorkspaceSidebarProject(projectId, relativeTo: targetId, after: after)
         case .moveWorkspace(let workspaceName, let projectId):

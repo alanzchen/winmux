@@ -757,8 +757,10 @@ extension WorkspaceSidebarView {
     ) -> (WorkspaceSidebarTabActivation, isShowingOverride: Bool) {
         // The pinned active workspace is already in use: its header does nothing, as in the Sidebar.
         let allowsActivation = pageAllowsActivation && !isPinned
+        // A shared pin comes to the display it's clicked on, without asking.
         let isInUseOnOtherDisplay = allowsActivation &&
-            workspaceSidebarWorkspaceIsInUseOnOtherDisplay(workspace, selectedScopeId: snapshot.targetMonitorScopeId)
+            workspaceSidebarWorkspaceIsInUseOnOtherDisplay(workspace, selectedScopeId: snapshot.targetMonitorScopeId) &&
+            !workspaceSidebarSharedPinComesToClick(workspace, sharesPinnedTabs: snapshot.configuration.sharesPinnedTabs)
         let activation = WorkspaceSidebarTabActivation(
             allowsActivation: allowsActivation,
             isInUseOnOtherDisplay: isInUseOnOtherDisplay,
