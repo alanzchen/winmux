@@ -16,24 +16,33 @@ func workspaceSidebarSharedPinComesToClick(_ workspace: WorkspaceSidebarWorkspac
 }
 
 /// The display a click in the panel for `targetMonitorScopeId` brings `tab` to: a shared pin on
-/// another display, which may go there. Nil when the click activates it as any tab.
+/// another display, which may go there. Nil when the click activates it where it is.
 @MainActor
 func workspaceSidebarSharedPinClickDestination(_ tab: Workspace, targetMonitorScopeId: String?) -> Monitor? {
+    guard let monitor = workspaceSidebarSharedPinClickMonitor(tab, targetMonitorScopeId: targetMonitorScopeId),
+          tab.workspaceMonitor.rect != monitor.rect else { return nil }
+    return monitor
+}
+
+/// The clicked panel's display, for a shared pin that may be shown there, wherever it is now.
+@MainActor
+private func workspaceSidebarSharedPinClickMonitor(_ tab: Workspace, targetMonitorScopeId: String?) -> Monitor? {
     guard config.usesBrowserTabs, config.workspaceSidebar.sharesPinnedTabs,
           workspaceSidebarOrganizationStore.state.workspaces[tab.name]?.isFavorite == true,
           let targetMonitorScopeId, let monitor = workspaceSidebarMonitor(forScopeId: targetMonitorScopeId),
-          tab.workspaceMonitor.rect != monitor.rect, workspaceTabCanMove(tab, to: monitor)
+          workspaceTabCanMove(tab, to: monitor)
     else { return nil }
     return monitor
 }
 
 /// Brings `tab` to `monitor` and focuses it there, or `window` in it. The display it leaves shows
-/// another tab. If it can't be shown there, everything goes back as it was.
+/// another tab. If it can't be shown there, everything goes back as it was. `move` is for tests.
 @MainActor
-func showSharedPinnedTab(_ tab: Workspace, on monitor: Monitor, focusing window: Window?) throws {
+func showSharedPinnedTab(_ tab: Workspace, on monitor: Monitor, focusing window: Window?,
+                         move: @MainActor (Workspace, Monitor, Window?) throws -> Void = moveWorkspaceTabToDisplay) throws {
     let before = WorkspaceSidebarTabUndoSnapshot()
     do {
-        try moveWorkspaceTabToDisplay(tab, monitor, focusing: window)
+        try move(tab, monitor, window)
     } catch {
         before.restore(replacing: WorkspaceSidebarTabUndoSnapshot())
         throw error
@@ -41,29 +50,34 @@ func showSharedPinnedTab(_ tab: Workspace, on monitor: Monitor, focusing window:
 }
 
 /// The shared pin a click on `name`, or on the window `windowId`, in the panel for
-/// `targetMonitorScopeId` brings there. Nil when the click activates it as any tab.
+/// `targetMonitorScopeId` goes to: every one that may be shown on that display, wherever it is
+/// when the click comes, since it may move before the click's session runs. Nil for a pin held
+/// to another display, and without shared pins: the click activates it as any tab.
 @MainActor
 func workspaceSidebarSharedPinClicked(_ name: String? = nil, windowId: UInt32? = nil,
                                       targetMonitorScopeId: String?) -> Workspace? {
     let tab = name.flatMap { Workspace.existing(byName: $0) } ?? windowId.flatMap { Window.get(byId: $0)?.nodeWorkspace }
-    guard let tab, workspaceSidebarSharedPinClickDestination(tab, targetMonitorScopeId: targetMonitorScopeId) != nil
+    guard let tab, workspaceSidebarSharedPinClickMonitor(tab, targetMonitorScopeId: targetMonitorScopeId) != nil
     else { return nil }
     return tab
 }
 
-/// Brings the shared pin `tab` to the display of the panel it was clicked in, focusing it or the
-/// clicked `windowId` there. A saved pin whose windows are gone opens its apps once it's there.
+/// A click on the shared pin `tab`, or on its window `windowId`, in the panel for
+/// `targetMonitorScopeId`. The session decides where the pin is: on another display, it comes to
+/// this one; here, it's focused as any tab. `afterShown` runs after the layout, once it's here.
 @MainActor
 @discardableResult
-func showSharedPinnedTabFromSidebar(_ tab: Workspace, windowId: UInt32? = nil, opensSavedApps: Bool = false,
-                                    targetMonitorScopeId: String?) -> Task<Void, Never>? {
+func showSharedPinnedTabFromSidebar(_ tab: Workspace, windowId: UInt32? = nil, targetMonitorScopeId: String?,
+                                    afterShown: (@MainActor (Workspace) -> Void)? = nil) -> Task<Void, Never>? {
     WorkspaceSidebarPanel.suppressEdgeTrapForWorkspaceActivation()
+    if windowId == nil, workspaceSidebarSharedPinClickDestination(tab, targetMonitorScopeId: targetMonitorScopeId) == nil {
+        optimisticallyMarkWorkspaceFocusedInSidebar(tab.name)
+    }
     let name = tab.name
     var shown: Workspace?
     return runWorkspaceSidebarSession(afterLayout: {
-        guard opensSavedApps, let shown, winMuxWorkspaceState.workspaceById[shown.id] === shown,
-              !workspaceHasLifecycleWindows(shown) else { return }
-        openSavedTabApps(shown)
+        guard let shown, winMuxWorkspaceState.workspaceById[shown.id] === shown else { return }
+        afterShown?(shown)
     }) {
         // The session runs after other events: the tab may have closed, moved, or given its name
         // away, and the display it was clicked on may have gone, which leaves everything as it is.

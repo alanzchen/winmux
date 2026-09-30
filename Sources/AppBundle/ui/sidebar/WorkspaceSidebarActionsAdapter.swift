@@ -90,8 +90,16 @@ func handleWorkspaceSidebarAction(
 ) {
     switch action {
         case .selectBrowserTab(let target):
-            BrowserTabsModel.shared.select(target,
-                monitorScopeId: targetMonitorScopeId ?? viewModel.workspaceSidebarTargetMonitorScopeId)
+            let monitorScopeId = targetMonitorScopeId ?? viewModel.workspaceSidebarTargetMonitorScopeId
+            // A browser tab of a shared pin on another display: the pin comes here, then the tab is chosen.
+            if let pin = workspaceSidebarSharedPinClicked(windowId: target.windowId, targetMonitorScopeId: targetMonitorScopeId),
+               workspaceSidebarSharedPinClickDestination(pin, targetMonitorScopeId: targetMonitorScopeId) != nil {
+                showSharedPinnedTabFromSidebar(pin, windowId: target.windowId, targetMonitorScopeId: targetMonitorScopeId) { _ in
+                    BrowserTabsModel.shared.select(target, monitorScopeId: monitorScopeId)
+                }
+            } else {
+                BrowserTabsModel.shared.select(target, monitorScopeId: monitorScopeId)
+            }
         case .closeBrowserTab(let target):
             BrowserTabsModel.shared.close(target)
         case .setWorkspaceColor, .setWorkspaceEmoji, .setWorkspaceFavorite, .createTabCollection,
@@ -204,7 +212,10 @@ func handleWorkspaceSidebarAction(
             openSavedWorkspaceAppsFromSidebar(name)
         case .openSavedTab(let name):
             if let pin = workspaceSidebarSharedPinClicked(name, targetMonitorScopeId: targetMonitorScopeId) {
-                showSharedPinnedTabFromSidebar(pin, opensSavedApps: true, targetMonitorScopeId: targetMonitorScopeId)
+                // Its apps open once it's here, if its windows are still gone.
+                showSharedPinnedTabFromSidebar(pin, targetMonitorScopeId: targetMonitorScopeId) { shown in
+                    if !workspaceHasLifecycleWindows(shown) { openSavedTabApps(shown) }
+                }
             } else {
                 openSavedTabFromSidebar(name, targetMonitorScopeId: targetMonitorScopeId)
             }

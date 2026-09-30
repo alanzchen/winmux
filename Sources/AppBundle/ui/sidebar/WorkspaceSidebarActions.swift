@@ -16,7 +16,7 @@ func focusWorkspaceFromSidebar(_ workspaceName: String, targetMonitorScopeId: St
 /// workspace on the same frame as the click. The session that follows rebuilds the real model
 /// (after an AX round-trip and title fetches) and corrects any difference.
 @MainActor
-private func optimisticallyMarkWorkspaceFocusedInSidebar(_ workspaceName: String) {
+func optimisticallyMarkWorkspaceFocusedInSidebar(_ workspaceName: String) {
     guard let workspaces = workspaceSidebarWorkspacesMarkingFocused(
         workspaceName,
         in: TrayMenuModel.shared.workspaceSidebarWorkspaces,

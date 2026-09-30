@@ -50,7 +50,8 @@ private func makeWorkspaceSidebarWorkspaceViewModel(
         savedState: runningApps.flatMap { workspaceSidebarSavedState(for: workspace, runningApps: $0) },
         appearance: workspaceSidebarOrganizationStore.state.workspaces[workspace.name] ?? .init(),
         isLeftEmpty: workspaceTabWasLeftEmpty(workspace),
-        knownDisplay: availableMonitors.count > 1 && workspaceSidebarOrganizationStore.state.workspaces[workspace.name]?.isFavorite == true
+        knownDisplay: availableMonitors.count > 1 && config.workspaceSidebar.sharesPinnedTabs
+            && workspaceSidebarOrganizationStore.state.workspaces[workspace.name]?.isFavorite == true
             ? workspaceSidebarTabKnownDisplay(workspace, among: availableMonitors) : nil,
     )
 }
@@ -58,10 +59,12 @@ private func makeWorkspaceSidebarWorkspaceViewModel(
 /// The connected display `workspace` is on screen on, is held to, is saved on, or was last placed
 /// on, in the order its listing uses them. Nil when it's none of these, or that display is gone:
 /// then it's only listed on the focused or main display, which says nothing about where it is.
+/// A saved home that's gone isn't replaced by the display now at its old coordinates.
 @MainActor
 func workspaceSidebarTabKnownDisplay(_ workspace: Workspace, among monitors: [Monitor]) -> WorkspaceSidebarTabDisplay? {
+    let hasSavedHome = savedWorkspaceStore.record(named: workspace.name)?.display != nil
     let placed = workspace.visibleMonitor ?? workspace.forceAssignedMonitor ?? savedHomeMonitor(of: workspace)
-        ?? workspace.preferredMonitorPoint.flatMap { point in monitors.first { $0.rect.topLeftCorner == point } }
+        ?? (hasSavedHome ? nil : workspace.preferredMonitorPoint.flatMap { point in monitors.first { $0.rect.topLeftCorner == point } })
     guard let placed, let monitor = monitors.first(where: { $0.rect.topLeftCorner == placed.rect.topLeftCorner }) else { return nil }
     // As `workspaceTabCanMove` decides: a force assignment, else a saved Keep on display.
     let held = workspace.forceAssignedMonitor
