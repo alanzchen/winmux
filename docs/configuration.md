@@ -83,6 +83,17 @@ tabs-always-expanded = true
   Saved Workspace** clears its saved identity, pin, appearance and group membership.
   A pinned split shows all its windows in one joined tile; click a segment to focus
   that window.
+- Each display's sidebar shows the pins of the tabs on that display. To show every pin
+  on every display, set `share-pinned-tabs = true` (**Share pinned tabs across
+  displays** in Settings). Each display's sidebar then has the same tiles, in the same
+  order, for the project it's showing. Each project keeps its own pins, and each
+  display keeps its own tab list, groups and **New Tab**. Pinning, unpinning or
+  reordering pins on one display changes every display, and turning the setting off
+  gives each display its own pins back. Clicking a pin brings its tab to the display
+  you clicked it on, whether it was hidden or on screen on another display, without
+  asking; that display then shows another of the project's tabs. A tab held to its
+  display by `workspace-to-monitor-force-assignment`, or a saved tab
+  [kept on its display](#multiple-displays), opens as it always has.
 - **New Tab** opens an empty workspace after the current one with the
   [launcher](#open-a-new-window-from-new-workspace). A new window normally gets its own
   tab; [`open-new-windows-in-new-workspace`](#open-each-new-window-in-its-own-workspace)
@@ -131,7 +142,7 @@ tabs-always-expanded = true
 
 The header's sidebar button toggles `tabs-always-expanded`. Tabs mode retains
 Sidebar placement, edge resizing and display controls. A tab on another display
-asks before moving to this one.
+asks before moving to this one, except a pin shared with `share-pinned-tabs`.
 The sidebar's bottom edge follows the same display reservation and outer gap as
 the tiled windows. Enable `show-app-badges` to mirror native Dock labels at the
 right of tabs and on pinned icons; compact icons show small red dots.
@@ -151,7 +162,8 @@ A panel's display menu lists This Display, All Displays, Focused (with
 panel only and lasts until WinMux quits, the chosen display disconnects, or
 `display-filter` changes. With This Display or All Displays, workspaces open
 from their rows in every mode. When `monitor` leaves a display without a panel,
-panels list every display so that display's workspaces stay reachable.
+panels list every display so that display's workspaces stay reachable. In Tabs
+mode, [`share-pinned-tabs`](#tabs) shares just the pinned tabs across displays.
 
 ## Hide the rail or keep it expanded
 

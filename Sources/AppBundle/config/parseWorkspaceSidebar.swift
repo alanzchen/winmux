@@ -11,6 +11,7 @@ private let workspaceSidebarParser: [String: any ParserProtocol<WorkspaceSidebar
     "browser-tabs": Parser(\.browserTabs, parseBool),
     "browser-tab-icons": Parser(\.browserTabIcons, parseBool),
     "music-player-at-bottom": Parser(\.musicPlayerAtBottom, parseBool),
+    "share-pinned-tabs": Parser(\.sharePinnedTabs, parseBool),
     "mode": Parser(\.mode, parseWorkspaceSidebarMode),
     "show-app-icons": Parser(\.showAppIcons, parseBool),
     "show-workspace-tooltips": Parser(\.showWorkspaceTooltips, parseBool),

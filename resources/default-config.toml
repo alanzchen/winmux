@@ -61,6 +61,9 @@ on-mode-changed = []
     # Keep Apple Music's player at the bottom of the expanded Tabs sidebar while Music is open,
     # instead of under Music's tab.
     music-player-at-bottom = false
+    # Show each project's pinned tabs on every display's Tabs sidebar, in one order.
+    # Clicking a pin brings its tab to the display you clicked it on.
+    share-pinned-tabs = false
     # Dock is the default: it shows icons and opens a floating view of every project beside itself.
     # 'sidebar' is a compact rail that expands into window details; 'tabs' lists windows as vertical tabs.
     mode = 'dock'

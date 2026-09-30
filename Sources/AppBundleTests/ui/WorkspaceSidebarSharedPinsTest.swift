@@ -23,6 +23,38 @@ final class WorkspaceSidebarSharedPinsTest: XCTestCase {
         try await super.tearDown()
     }
 
+    // MARK: The setting
+
+    func testSharePinnedTabsIsATabsSettingThatDefaultsOff() {
+        let (parsed, errors) = parseConfig("""
+            [workspace-sidebar]
+            mode = 'tabs'
+            share-pinned-tabs = true
+            """)
+        XCTAssertEqual(errors.descriptions, [])
+        XCTAssertTrue(parsed.workspaceSidebar.sharePinnedTabs)
+        XCTAssertTrue(workspaceSidebarConfiguration(parsed).sharesPinnedTabs)
+        var dock = parsed
+        dock.workspaceSidebar.mode = .dock
+        XCTAssertFalse(workspaceSidebarConfiguration(dock).sharesPinnedTabs, "Pins are Tabs mode's")
+        XCTAssertFalse(defaultConfig.workspaceSidebar.sharePinnedTabs)
+        XCTAssertFalse(workspaceSidebarConfiguration(defaultConfig).sharesPinnedTabs)
+
+        let field = SettingsCatalog.field("workspace-sidebar.share-pinned-tabs")
+        XCTAssertEqual(field.modes, [.tabs])
+        XCTAssertEqual(SettingsPanelLayout.sections(.tabs).first { $0.id == SettingsPanelLayout.tabsContentSection }?.fields.first,
+            field.id)
+        XCTAssertTrue(SettingsCatalog.results("pinned tabs").contains { $0.id == field.id })
+        var configuration = defaultConfig
+        field.project?(&configuration, .bool(true))
+        XCTAssertTrue(configuration.workspaceSidebar.sharePinnedTabs)
+
+        // Saved from Settings, the key reads back from the file.
+        let text = updateSettingsScalarConfig(in: "[workspace-sidebar]\nmode = 'tabs'\n", section: "workspace-sidebar",
+            key: "share-pinned-tabs", renderedValue: "true")
+        XCTAssertTrue(parseConfig(text).config.workspaceSidebar.sharePinnedTabs, text)
+    }
+
     // MARK: What each display lists
 
     func testEachDisplayShowsOnlyItsOwnPinsWhenSharingIsOff() async throws {
