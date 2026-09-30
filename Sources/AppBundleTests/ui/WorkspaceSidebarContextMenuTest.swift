@@ -312,6 +312,19 @@ final class WorkspaceSidebarContextMenuTest: XCTestCase {
         XCTAssertEqual(opened.first?.showsIcons, true)
     }
 
+    func testChangeIconOpensTheEditorReadyToSearchIcons() throws {
+        let menu = WorkspaceSidebarIdentityMenu()
+        defer { menu.close(commit: false) }
+        let model = WorkspaceSidebarIdentityMenuModel(name: "Work", color: nil, emoji: nil, rename: { _ in },
+            setColor: { _ in }, setEmoji: { _ in }, entries: [])
+        model.showsIcons = true
+        menu.openEditor(model, at: CGPoint(x: 300, y: 500), selectName: false)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.2))
+        let editor = try XCTUnwrap(try XCTUnwrap(menu.panel).firstResponder as? NSTextView)
+        XCTAssertEqual((editor.delegate as? NSTextField)?.placeholderString, "Search emoji or paste one",
+            "Typing searches icons, not the name")
+    }
+
     func testANewerMenuOrTheEditorCancelsAMenuStillWaitingToOpen() {
         let menu = WorkspaceSidebarIdentityMenu()
         var shown = 0

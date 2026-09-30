@@ -576,7 +576,13 @@ struct WorkspaceSidebarIdentityMenuView: View {
         .overlay(shape.strokeBorder(.primary.opacity(contrast == .increased ? 0.55 : 0.12), lineWidth: contrast == .increased ? 1 : 0.5))
         .font(.system(size: 13))
         .fixedSize()
-        .onAppear { nameFocused = selectName; searchFocused = model.showsIcons }
+        .onAppear {
+            // Only once the panel is key can a field take focus; before that the first one gets it.
+            DispatchQueue.main.async {
+                searchFocused = model.showsIcons
+                nameFocused = selectName && !model.showsIcons
+            }
+        }
         .onChange(of: model.showsIcons) { _ in resized() }
         .onChange(of: model.query) { _ in resized() }
     }
@@ -812,7 +818,9 @@ struct WorkspaceSidebarTabRowMenu: ViewModifier {
         if let target {
             content.modifier(WorkspaceSidebarIdentityMenuModifier(target: target, tabActions: true))
         } else {
-            content.contextMenu { Button("Close Window", action: close) }
+            content.modifier(WorkspaceSidebarNativeContextMenu { [close] in
+                [.init(title: "Close Window", isDestructive: true, perform: close)]
+            })
         }
     }
 }
