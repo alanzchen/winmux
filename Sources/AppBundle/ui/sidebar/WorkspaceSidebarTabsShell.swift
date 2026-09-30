@@ -126,7 +126,8 @@ extension WorkspaceSidebarView {
                                         .frame(width: 3, height: 23).offset(x: -4).allowsHitTesting(false)
                                 }
                             }
-                            .help(workspace.displayName)
+                            .help(snapshot.sharedPinLocation(of: workspace).map { "\(workspace.displayName)\n\($0.help())" }
+                                ?? workspace.displayName)
                         }
                     }.frame(maxWidth: .infinity)
                 }

@@ -31,6 +31,9 @@ struct WorkspaceSidebarTabDisplay: Hashable {
     let monitorScopeId: String
     /// As the display menu names it, identical displays numbered.
     let displayName: String
+    /// The display `workspace-to-monitor-force-assignment` or a saved Keep on display holds it to,
+    /// the only one it may be shown on; nil when nothing holds it.
+    var heldMonitorScopeId: String? = nil
 }
 
 /// An app a saved tab opens in, for showing that tab while the app isn't open.

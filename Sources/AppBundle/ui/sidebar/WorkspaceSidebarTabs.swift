@@ -760,7 +760,8 @@ extension WorkspaceSidebarView {
         // A shared pin comes to the display it's clicked on, without asking.
         let isInUseOnOtherDisplay = allowsActivation &&
             workspaceSidebarWorkspaceIsInUseOnOtherDisplay(workspace, selectedScopeId: snapshot.targetMonitorScopeId) &&
-            !workspaceSidebarSharedPinComesToClick(workspace, sharesPinnedTabs: snapshot.configuration.sharesPinnedTabs)
+            !workspaceSidebarSharedPinComesToClick(workspace, representedMonitorScopeId: snapshot.targetMonitorScopeId,
+                sharesPinnedTabs: snapshot.configuration.sharesPinnedTabs)
         let activation = WorkspaceSidebarTabActivation(
             allowsActivation: allowsActivation,
             isInUseOnOtherDisplay: isInUseOnOtherDisplay,

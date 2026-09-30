@@ -82,6 +82,8 @@ extension WorkspaceSidebarSnapshot {
 struct WorkspaceSidebarSharedPinLocation: Equatable {
     let displayName: String
     let isOnScreen: Bool
+    /// False for one held to its display, which a click doesn't bring.
+    var comesToClick = true
 
     /// "On" only for a pin on screen there; a hidden one is assigned there.
     var description: String {
@@ -89,7 +91,7 @@ struct WorkspaceSidebarSharedPinLocation: Equatable {
     }
 
     func help(clickMovesHere: Bool = true) -> String {
-        clickMovesHere ? "\(description) · Click to move to this display" : description
+        clickMovesHere && comesToClick ? "\(description) · Click to move to this display" : description
     }
 }
 
@@ -104,7 +106,8 @@ func workspaceSidebarSharedPinLocation(_ workspace: WorkspaceSidebarWorkspaceVie
           display.monitorScopeId != representedMonitorScopeId,
           workspace.isVisible || !workspaceSidebarPinnedTabWindows(workspace).isEmpty
     else { return nil }
-    return .init(displayName: display.displayName, isOnScreen: workspace.isVisible)
+    return .init(displayName: display.displayName, isOnScreen: workspace.isVisible,
+        comesToClick: display.heldMonitorScopeId.map { $0 == representedMonitorScopeId } ?? true)
 }
 
 extension WorkspaceSidebarSnapshot {

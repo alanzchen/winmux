@@ -63,8 +63,12 @@ func workspaceSidebarTabKnownDisplay(_ workspace: Workspace, among monitors: [Mo
     let placed = workspace.visibleMonitor ?? workspace.forceAssignedMonitor ?? savedHomeMonitor(of: workspace)
         ?? workspace.preferredMonitorPoint.flatMap { point in monitors.first { $0.rect.topLeftCorner == point } }
     guard let placed, let monitor = monitors.first(where: { $0.rect.topLeftCorner == placed.rect.topLeftCorner }) else { return nil }
+    // As `workspaceTabCanMove` decides: a force assignment, else a saved Keep on display.
+    let held = workspace.forceAssignedMonitor
+        ?? (savedWorkspaceStore.record(named: workspace.name)?.isPinnedToDisplay == true ? savedHomeMonitor(of: workspace) : nil)
     return .init(monitorScopeId: workspaceSidebarMonitorScopeId(for: monitor),
-        displayName: workspaceSidebarMonitorDisplayName(monitor, among: monitors))
+        displayName: workspaceSidebarMonitorDisplayName(monitor, among: monitors),
+        heldMonitorScopeId: held.map { workspaceSidebarMonitorScopeId(for: $0) })
 }
 
 @MainActor

@@ -422,9 +422,19 @@ final class WorkspaceSidebarSharedPinsTest: XCTestCase {
         let vm = try XCTUnwrap(TrayMenuModel.shared.workspaceSidebarWorkspaces.first { $0.name == shown.name })
         XCTAssertTrue(WorkspaceSidebarView(snapshot: snapshot(on: monitors[0], sharing: true))
             .tabActivation(vm, isPinned: false, pageAllowsActivation: true).0.isInUseOnOtherDisplay, "It asks, as before")
+        XCTAssertEqual(vm.knownDisplay?.heldMonitorScopeId, scope(monitors[1]))
+        let location = try XCTUnwrap(snapshot(on: monitors[0], sharing: true).sharedPinLocation(of: vm))
+        XCTAssertEqual(location.help(), "On “Right”", "No promise of a move it won't make")
         XCTAssertThrowsError(try showSharedPinnedTab(shown, on: monitors[0], focusing: nil))
         XCTAssertTrue(monitors[1].activeWorkspace === shown, "Nothing moved")
         XCTAssertTrue(monitors[0].activeWorkspace === tabs["shown0"])
+
+        // Held without a saved record, which gives no saved state: it still asks.
+        var unsaved = vm
+        unsaved.savedState = nil
+        XCTAssertFalse(workspaceSidebarSharedPinComesToClick(unsaved, representedMonitorScopeId: here, sharesPinnedTabs: true))
+        XCTAssertTrue(workspaceSidebarSharedPinComesToClick(unsaved, representedMonitorScopeId: scope(monitors[1]),
+            sharesPinnedTabs: true), "Where it's held, it may come")
 
         // Hidden and held elsewhere: refused, as before (an open question).
         XCTAssertNil(workspaceSidebarSharedPinClicked("pin1", targetMonitorScopeId: here))
@@ -587,6 +597,21 @@ final class WorkspaceSidebarSharedPinsTest: XCTestCase {
         try await Task.sleep(for: .milliseconds(50))
         XCTAssertEqual(drags.first, "pin", "A drag from the badge drags the pin")
         XCTAssertEqual(drags.last, "end pin")
+    }
+
+    func testShiftClickRangesFollowTheSharedPinsShown() async throws {
+        let (monitors, tabs) = try resetDisplaysOfTabs(3)
+        try pinWorkspaceSidebarTab(tabs["pin2"]!, beside: .init(workspaceName: "pin0", isAfter: false))
+        await updateWorkspaceSidebarModel()
+        for (index, monitor) in monitors.enumerated() {
+            let shared = snapshot(on: monitor, sharing: true)
+            let order = WorkspaceSidebarView(snapshot: shared).workspaceSidebarTabSelectionContext(projectId: shared.activeProjectId).order
+            XCTAssertEqual(Array(order.prefix(3)), ["pin2", "pin0", "pin1"], "The tiles as shown, then the list")
+            XCTAssertTrue(order.contains("shown\(index)"))
+            let unshared = snapshot(on: monitor, sharing: false)
+            XCTAssertEqual(WorkspaceSidebarView(snapshot: unshared).workspaceSidebarTabSelectionContext(projectId: unshared.activeProjectId)
+                .order.filter { $0.hasPrefix("pin") }, ["pin\(index)"])
+        }
     }
 
     // MARK: Search and browser reads

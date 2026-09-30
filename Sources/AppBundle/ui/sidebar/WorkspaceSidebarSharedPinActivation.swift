@@ -6,12 +6,13 @@ import AppKit
 // `workspace-to-monitor-force-assignment` or a saved tab kept on its display, isn't brought:
 // clicking it does what clicking another display's tab always has.
 
-/// Whether a click on this shared pin comes to the panel's display instead of asking first. Held
-/// tabs ask, as other displays' tabs do. The click itself checks again before anything moves.
-func workspaceSidebarSharedPinComesToClick(_ workspace: WorkspaceSidebarWorkspaceViewModel, sharesPinnedTabs: Bool) -> Bool {
+/// Whether a click on this shared pin in a list representing `representedMonitorScopeId` brings
+/// it there instead of asking first. One held to another display asks, as other displays' tabs
+/// do. The click itself checks again before anything moves.
+func workspaceSidebarSharedPinComesToClick(_ workspace: WorkspaceSidebarWorkspaceViewModel, representedMonitorScopeId: String,
+                                           sharesPinnedTabs: Bool) -> Bool {
     guard sharesPinnedTabs, workspace.appearance.isFavorite else { return false }
-    guard let saved = workspace.savedState else { return true }
-    return !saved.isForceAssignedByConfig && !(saved.isPinnedToDisplay && saved.isHomeConnected)
+    return workspace.knownDisplay?.heldMonitorScopeId.map { $0 == representedMonitorScopeId } ?? true
 }
 
 /// The display a click in the panel for `targetMonitorScopeId` brings `tab` to: a shared pin on
