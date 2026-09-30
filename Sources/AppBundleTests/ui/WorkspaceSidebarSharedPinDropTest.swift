@@ -161,6 +161,23 @@ final class WorkspaceSidebarSharedPinDropTest: XCTestCase {
         XCTAssertEqual(tabs.r.workspaceMonitor.rect, right.rect)
     }
 
+    /// A window pulled out of a split onto shared pins, whose pin then can't be written: the split
+    /// comes back as it was, and nothing is pinned.
+    func testASplitWindowWhosePinFailsGoesBackIntoItsTab() throws {
+        let (_, right, tabs) = try twoDisplaysOfTabs(sharing: true)
+        _ = TestWindow.new(id: 7, parent: tabs.s.rootTilingContainer)
+        let pins = workspacePinnedTabs(in: tabs.s.projectId).map(\.name)
+        // Writable as far as anyone can tell, but the write itself fails.
+        workspaceSidebarOrganizationStore = .init(state: workspaceSidebarOrganizationStore.state,
+            url: URL(fileURLWithPath: "/dev/null/sidebar-organization.json"))
+        XCTAssertThrowsError(try applySidebarPinDrop(7, subject: .window, gap: nil, monitorScopeId: workspaceSidebarMonitorScopeId(
+            for: sortedMonitors[0]), pinGridIsShared: true))
+        XCTAssertTrue(Window.get(byId: 7)?.nodeWorkspace === tabs.s, "Back in the tab it was pulled out of")
+        XCTAssertEqual(Set(tabs.s.allLeafWindowsRecursive.map(\.windowId)), [6, 7])
+        XCTAssertEqual(tabs.s.workspaceMonitor.rect, right.rect)
+        XCTAssertEqual(workspacePinnedTabs(in: tabs.s.projectId).map(\.name), pins)
+    }
+
     // MARK: Helpers
 
     private let tile = Rect(topLeftX: 0, topLeftY: 0, width: 100, height: 54)

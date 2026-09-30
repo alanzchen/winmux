@@ -370,6 +370,27 @@ final class WorkspaceSidebarDropDestinationControllerTest: XCTestCase {
         XCTAssertNotEqual(tab.workspaceMonitor.rect, rightMonitor.rect, "Nothing was dropped")
     }
 
+    /// §7.2, a window: pinned among shared pins on another display's list, its tab stays where it
+    /// is, under the rule it was shown with, even if the setting changes before its session runs.
+    func testAWindowPinnedOnTheListKeepsTheRuleShownAfterTheRelease() async throws {
+        let (window, source, point) = try windowOverSharedPins()
+        finishSidebarWindowDrag(pointer: point)
+        config.workspaceSidebar.sharePinnedTabs = false
+        try await waitUntil { workspacePinnedTabs(in: source.projectId).contains(source) }
+        XCTAssertEqual(source.workspaceMonitor.rect, sortedMonitors[0].rect, "Pinned where it is")
+        XCTAssertTrue(window.nodeWorkspace === source)
+    }
+
+    /// §7.2, a window: a drop on shared pins shown under one rule isn't made once the setting changed.
+    func testAWindowPinDropShownUnderAnotherRuleIsntMade() async throws {
+        let (_, source, point) = try windowOverSharedPins()
+        config.workspaceSidebar.sharePinnedTabs = false
+        finishSidebarWindowDrag(pointer: point)
+        try await Task.sleep(for: .milliseconds(200))
+        XCTAssertFalse(workspacePinnedTabs(in: source.projectId).contains(source), "Nothing was dropped")
+        XCTAssertEqual(source.workspaceMonitor.rect, sortedMonitors[0].rect)
+    }
+
     func testTheSplitHoverRemembersThePinRuleShown() {
         let hover = WorkspaceSidebarTabSplitHoverController.shared
         defer { hover.reset() }
@@ -448,6 +469,37 @@ final class WorkspaceSidebarDropDestinationControllerTest: XCTestCase {
         XCTAssertEqual(workspacePinnedTabs(in: tab.projectId).map(\.name), [tab.name, other.name])
         beginDrag(tab)
         return (tab, other, rightMonitor)
+    }
+
+    /// Tabs mode with shared pins: window 7, alone in tab "a" on the left, dragged over the right
+    /// display's list with the place after its pin "r" shown, as the preview would record it.
+    private func windowOverSharedPins() throws -> (window: Window, source: Workspace, point: CGPoint) {
+        _ = try fixture(displays: 2)
+        config.workspaceSidebar.sharePinnedTabs = true
+        let source = Workspace.get(byName: "a")
+        let window = TestWindow.new(id: 7, parent: source.rootTilingContainer)
+        source.preferredMonitorPoint = sortedMonitors[0].rect.topLeftCorner
+        XCTAssertTrue(sortedMonitors[0].setActiveWorkspace(source))
+        let other = Workspace.get(byName: "r")
+        _ = TestWindow.new(id: 5, parent: other.rootTilingContainer)
+        let rightMonitor = try XCTUnwrap(sortedMonitors.first { workspaceSidebarMonitorScopeId(for: $0) == right })
+        other.preferredMonitorPoint = rightMonitor.rect.topLeftCorner
+        XCTAssertTrue(rightMonitor.setActiveWorkspace(other))
+        try setWorkspaceSidebarTabFavorite(other, true)
+        addTeardownBlock { @MainActor in
+            clearActiveWorkspaceSidebarDrag()
+            clearPendingWindowDragIntent()
+            cancelManipulatedWithMouseState()
+        }
+        sessions.noteLeftMouseDown()
+        setWorkspaceSidebarDragSourceScopeIdForTests(left)
+        updateSidebarWindowDrag(window.windowId, subject: .window, pointer: CGPoint(x: -9000, y: -9000))
+        let point = try openListWithPinTarget(after: other)
+        // The preview reads the real pointer in Tabs mode; record what it would have shown here.
+        let hit = try XCTUnwrap(workspaceSidebarSurfaceHit(at: point).target)
+        WorkspaceSidebarTabSplitHoverController.shared.noteDisplayed(source: window.windowId, hitKind: hit.kind, target: hit,
+            placement: nil, pinGridIsShared: true)
+        return (window, source, point)
     }
 
     /// Opens the right display's list and puts the place after `pin` among its pins under the
