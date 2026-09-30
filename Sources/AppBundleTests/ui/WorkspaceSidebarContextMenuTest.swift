@@ -504,4 +504,73 @@ final class WorkspaceSidebarContextMenuTest: XCTestCase {
         try send([.rightMouseDown, .rightMouseUp])
         XCTAssertEqual(presented.last?.menu.items.first?.title, "2 Tabs")
     }
+
+    /// The sidebar panel isn't key until something in it needs the keyboard, so a click there
+    /// is its "first mouse", which AppKit gives only to views that accept it. Its hosting view
+    /// does; the menu's trigger has to as well, or a Control-click opens nothing.
+    func testControlClickOnARowOfTheNonKeySidebarOpensTheSameMenuAsARightClick() throws {
+        _ = NSApplication.shared
+        try XCTSkipIf(NSScreen.screens.isEmpty, "Requires a native macOS window server")
+        TrayMenuModel.shared.workspaceSidebarWorkspaces = [tab("one", ids: [7])]
+        var clicks = 0
+        var dragChanges = 0
+        var dragEnds = 0
+        let size = CGSize(width: 240, height: 40)
+        let row = Button { clicks += 1 } label: { Color.gray.frame(width: size.width, height: size.height) }
+            .buttonStyle(.plain)
+            .highPriorityGesture(DragGesture(minimumDistance: 4)
+                .onChanged { _ in dragChanges += 1 }
+                .onEnded { _ in dragEnds += 1 })
+            .modifier(WorkspaceSidebarTabRowMenu(target: .tab("one", windowId: 7), close: {}))
+        let panel = SidebarLikePanel(contentRect: CGRect(origin: CGPoint(x: 300, y: 200), size: size),
+            styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        panel.isReleasedWhenClosed = false
+        let host = FirstMouseHostingView(rootView: AnyView(row.frame(width: size.width, height: size.height)))
+        panel.contentView = host
+        panel.orderFrontRegardless()
+        defer { panel.orderOut(nil) }
+        host.layoutSubtreeIfNeeded()
+        panel.displayIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertFalse(panel.isKeyWindow)
+        func send(_ steps: [(NSEvent.EventType, CGFloat)], _ flags: NSEvent.ModifierFlags = []) throws {
+            for (type, x) in steps {
+                NSApp.postEvent(try XCTUnwrap(NSEvent.mouseEvent(with: type, location: host.convert(CGPoint(x: x, y: 20), to: nil),
+                    modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: panel.windowNumber,
+                    context: nil, eventNumber: 0, clickCount: 1,
+                    pressure: type == .leftMouseUp || type == .rightMouseUp ? 0 : 1)), atStart: false)
+            }
+            let deadline = Date().addingTimeInterval(0.25)
+            while let event = NSApp.nextEvent(matching: [.leftMouseDown, .leftMouseDragged, .leftMouseUp, .rightMouseDown, .rightMouseUp],
+                until: deadline, inMode: .default, dequeue: true) { NSApp.sendEvent(event) }
+        }
+
+        try send([(.leftMouseDown, 120), (.leftMouseUp, 120)], .control)
+        let control = try XCTUnwrap(presented.last, "A Control-click opens the row's menu while the sidebar isn't key")
+        guard case .click = control.origin else { return XCTFail("It tracks with the click") }
+        XCTAssertEqual(clicks, 0, "and doesn't select the tab")
+
+        try send([(.rightMouseDown, 120), (.rightMouseUp, 120)])
+        XCTAssertEqual(presented.count, 2)
+        XCTAssertEqual(presented.map { $0.menu.items.map(\.title) }.first, presented.map { $0.menu.items.map(\.title) }.last,
+            "The same menu, for the same tab, as a right-click")
+
+        panel.orderOut(nil)
+        panel.orderFrontRegardless()
+        try send([(.leftMouseDown, 120), (.leftMouseUp, 120)])
+        XCTAssertEqual(clicks, 1, "A plain click still reaches the row")
+        try send([(.leftMouseDown, 60), (.leftMouseDragged, 90), (.leftMouseDragged, 140), (.leftMouseUp, 140)])
+        XCTAssertGreaterThan(dragChanges, 0, "and so does a drag")
+        XCTAssertEqual(dragEnds, 1)
+        XCTAssertEqual(presented.count, 2, "Neither opens a menu")
+    }
+}
+
+/// Like the sidebar: a panel that can become key, without activating the app.
+private final class SidebarLikePanel: NSPanel {
+    override var canBecomeKey: Bool { true }
+}
+
+private final class FirstMouseHostingView: NSHostingView<AnyView> {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }

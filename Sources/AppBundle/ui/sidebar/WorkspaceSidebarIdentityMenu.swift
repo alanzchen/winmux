@@ -733,6 +733,10 @@ struct WorkspaceSidebarMenuTrigger: NSViewRepresentable {
             else { return nil }
             return self
         }
+        // The sidebar isn't key until something in it needs the keyboard, so a Control-click
+        // there is its first mouse. Without this, AppKit spends it on the panel and it opens
+        // nothing. Only right-clicks and Control-clicks get here.
+        override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
         override func rightMouseDown(with event: NSEvent) { open(event, self) }
         override func mouseDown(with event: NSEvent) { open(event, self) }
     }
