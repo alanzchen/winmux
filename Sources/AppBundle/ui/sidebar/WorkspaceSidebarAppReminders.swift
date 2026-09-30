@@ -103,8 +103,8 @@ struct WorkspaceSidebarAppReminderButton: View {
         // Native Dock footer is hosted separately from the root SwiftUI environment.
         .environment(\.workspaceSidebarTooltipVisibility, WorkspaceSidebarTooltipVisibility(
             workspace: layout.showWorkspaceTooltips, app: layout.showAppTooltips))
-        .contextMenu {
-            WorkspaceSidebarAppMenuContent(workspaceName: reminder.workspace.name, app: reminder.app)
-        }
+        .modifier(WorkspaceSidebarNativeContextMenu { [reminder] in
+            workspaceSidebarAppMenu(workspaceName: reminder.workspace.name, app: reminder.app)
+        })
     }
 }

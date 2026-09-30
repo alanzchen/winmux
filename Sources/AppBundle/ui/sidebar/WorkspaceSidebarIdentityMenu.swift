@@ -41,7 +41,7 @@ final class WorkspaceSidebarIdentityMenuModel: ObservableObject {
     let trailingEntries: [WorkspaceSidebarAppMenuEntry]
     /// Opens the editor for this item, with the icons showing or the name selected. Set by
     /// whoever shows the menu, so the editor opens where the menu was.
-    var openEditor: (_ showsIcons: Bool) -> Void = { _ in }
+    var openEditor: (_ model: WorkspaceSidebarIdentityMenuModel, _ showsIcons: Bool) -> Void = { _, _ in }
 
     init(name: String, placeholder: String = "", color: String?, emoji: String?, rename: @escaping (String) -> Void,
          setColor: @escaping (String?) -> Void, setEmoji: @escaping (String?) -> Void,
@@ -65,22 +65,33 @@ final class WorkspaceSidebarIdentityMenuModel: ObservableObject {
 
     var appearanceEntries: [WorkspaceSidebarAppMenuEntry] {
         [
-            .init(title: "Rename…", perform: { self.openEditor(false) }),
+            .init(title: "Rename…", perform: { self.openEditorAfterMenu(showsIcons: false) }),
             .init(title: "Color", children: colorChoices, kind: .palette),
-            .init(title: "Change Icon…", perform: { self.openEditor(true) }),
+            .init(title: "Change Icon…", perform: { self.openEditorAfterMenu(showsIcons: true) }),
         ]
     }
 
     /// Default and the presets. A custom color from the config checks none of them, and stays
     /// until one is chosen; choosing the current one changes nothing.
     var colorChoices: [WorkspaceSidebarAppMenuEntry] {
-        let current = color.flatMap(normalizedWorkspaceSidebarColorHex)
         let choices: [(name: String, hex: String?)] = [("Default", nil)] + workspaceSidebarIdentityColors.map { ($0.name, $0.hex) }
         return choices.map { choice in
-            let isCurrent = choice.hex.map { current == normalizedWorkspaceSidebarColorHex($0) } ?? (color == nil)
+            let isCurrent = isCurrentColor(choice.hex)
             return .init(title: choice.name, checked: isCurrent,
                 perform: isCurrent ? nil : { self.chooseColor(choice.hex) }, swatch: choice.hex)
         }
+    }
+
+    /// After the menu has gone, so the editor gets keyboard focus. The menu, which is all that
+    /// holds this model, is released by then, so the pending editor holds it instead.
+    private func openEditorAfterMenu(showsIcons: Bool) {
+        DispatchQueue.main.async { self.openEditor(self, showsIcons) }
+    }
+
+    /// Compared as colors, so "#00b894" is Green; nil is Default.
+    func isCurrentColor(_ hex: String?) -> Bool {
+        guard let hex else { return color == nil }
+        return color.flatMap(normalizedWorkspaceSidebarColorHex) == normalizedWorkspaceSidebarColorHex(hex)
     }
 
     func commitName() {
@@ -266,37 +277,58 @@ final class WorkspaceSidebarIdentityMenu: NSObject, NSWindowDelegate {
     private var menuObservers: [NSObjectProtocol] = []
     private var menuTrackingDepth = 0
     private(set) var menuRequest = 0
-    static var isVisible: Bool { shared.panel?.isVisible == true }
+    /// One of these menus is tracking, which keeps the sidebar open under it like the editor does,
+    /// even when the pointer isn't over the sidebar (a menu opened from VoiceOver).
+    private(set) var isShowingMenu = false
+    static var isVisible: Bool { shared.panel?.isVisible == true || shared.isShowingMenu }
 
-    /// The item's menu, or its editor with the name selected or the icons showing.
+    /// The item's menu, or its editor with the name selected or the icons showing. `scope` is the
+    /// display whose sidebar asked, when known; otherwise it's the display at `point`.
     static func show(_ target: WorkspaceSidebarIdentityTarget, at point: NSPoint = NSEvent.mouseLocation,
-                     selectName: Bool = false, showsIcons: Bool = false) {
-        guard selectName || showsIcons else { return shared.showMenu(target, at: point) }
-        guard let model = model(for: target, at: point) else { return }
+                     scope: String? = nil, selectName: Bool = false, showsIcons: Bool = false) {
+        guard selectName || showsIcons else { return shared.showMenu(target, at: point, scope: scope) }
+        guard let model = model(for: target, at: point, scope: scope) else { return }
         model.showsIcons = showsIcons
         shared.openEditor(model, at: point, selectName: selectName)
+    }
+
+    /// Without a click: at the control, for its own sidebar's display.
+    static func show(_ target: WorkspaceSidebarIdentityTarget, from anchor: WorkspaceSidebarMenuAnchor,
+                     selectName: Bool = false, showsIcons: Bool = false) {
+        show(target, at: anchor.point ?? NSEvent.mouseLocation, scope: anchor.monitorScopeId,
+            selectName: selectName, showsIcons: showsIcons)
     }
 
     /// A right-click or Control-click. On one of several chosen tabs it opens their shared menu.
     static func showMenu(_ target: WorkspaceSidebarIdentityTarget, with event: NSEvent, in view: NSView) {
         if let name = target.tabName, let selection = workspaceSidebarTabSelectionMenu(containing: name) {
-            shared.close(commit: true)
-            shared.menuRequest += 1
-            return shared.presentNativeMenu(selection, .click(event, view))
+            return shared.show(selection, click: (event, view))
         }
         let point = NSEvent.mouseLocation
-        guard let model = model(for: target, at: point) else { return }
+        guard let model = model(for: target, at: point, scope: workspaceSidebarMenuScope(of: view)) else { return }
         shared.presentMenu(model, at: point, click: (event, view))
     }
 
-    /// The same menu without a click, such as VoiceOver's Show Menu, at the pointer.
-    func showMenu(_ target: WorkspaceSidebarIdentityTarget, at point: NSPoint) {
+    /// The same menu without a click, such as VoiceOver's Show Menu.
+    func showMenu(_ target: WorkspaceSidebarIdentityTarget, at point: NSPoint, scope: String? = nil) {
         if let name = target.tabName, let selection = workspaceSidebarTabSelectionMenu(containing: name) {
-            close(commit: true)
-            return popUpLater(selection, at: point)
+            return show(selection, at: point)
         }
-        guard let model = Self.model(for: target, at: point) else { return }
+        guard let model = Self.model(for: target, at: point, scope: scope) else { return }
         presentMenu(model, at: point)
+    }
+
+    /// A menu that isn't an item's identity menu, such as an app's: with its click, or at a point.
+    func show(_ menu: NSMenu, click: (NSEvent, NSView)) {
+        close(commit: true)
+        menuRequest += 1
+        track(menu, .click(click.0, click.1))
+    }
+
+    func show(_ menu: NSMenu, at point: NSPoint) {
+        close(commit: true)
+        menuRequest += 1
+        popUpLater(menu, at: point, request: menuRequest)
     }
 
     enum Origin {
@@ -304,12 +336,21 @@ final class WorkspaceSidebarIdentityMenu: NSObject, NSWindowDelegate {
         case point(NSPoint)
     }
 
-    /// Puts a menu on screen and tracks it. Tests replace it to read the menu instead.
+    /// Puts a menu on screen and tracks it until it closes. Tests replace it to read the menu instead.
     var presentNativeMenu: (NSMenu, Origin) -> Void = { menu, origin in
         switch origin {
             case .click(let event, let view): NSMenu.popUpContextMenu(menu, with: event, for: view)
             case .point(let point): menu.popUp(positioning: nil, at: point, in: nil)
         }
+    }
+
+    private func track(_ menu: NSMenu, _ origin: Origin) {
+        isShowingMenu = true
+        defer {
+            isShowingMenu = false
+            WorkspaceSidebarPanel.scheduleHoverRecheckForVisiblePanels()
+        }
+        presentNativeMenu(menu, origin)
     }
 
     /// The Dock's entry: the editor while choosing a name or an icon, otherwise the item's menu.
@@ -318,37 +359,37 @@ final class WorkspaceSidebarIdentityMenu: NSObject, NSWindowDelegate {
         else { presentMenu(model, at: point) }
     }
 
-    private static func model(for target: WorkspaceSidebarIdentityTarget, at point: NSPoint) -> WorkspaceSidebarIdentityMenuModel? {
-        let scope = workspaceSidebarMonitorScopeId(for: normalizeAppKitScreenPoint(point).monitorApproximation)
-        return workspaceSidebarIdentityMenuModel(target, targetMonitorScopeId: scope)
+    static func model(for target: WorkspaceSidebarIdentityTarget, at point: NSPoint, scope: String? = nil,
+                      sendAction: @escaping @MainActor (WorkspaceSidebarAction, String?) -> Void = {
+                          handleWorkspaceSidebarAction($0, targetMonitorScopeId: $1)
+                      }) -> WorkspaceSidebarIdentityMenuModel? {
+        let scope = scope ?? workspaceSidebarMonitorScopeId(for: normalizeAppKitScreenPoint(point).monitorApproximation)
+        return workspaceSidebarIdentityMenuModel(target, targetMonitorScopeId: scope, sendAction: sendAction)
     }
 
     /// Shows the item's native menu, with the click that asked for it, or on the next turn otherwise.
     func presentMenu(_ model: WorkspaceSidebarIdentityMenuModel, at point: NSPoint, click: (NSEvent, NSView)? = nil) {
         close(commit: true)
         WorkspaceSidebarPanel.inputSession.owner?.cancelInlineTextEditing()
-        model.openEditor = { [weak self, weak model] showsIcons in
-            // After the menu has gone, so the editor gets keyboard focus.
-            DispatchQueue.main.async {
-                guard let self, let model else { return }
-                model.showsIcons = showsIcons
-                self.openEditor(model, at: point, selectName: !showsIcons)
-            }
+        menuRequest += 1
+        let request = menuRequest
+        model.openEditor = { [weak self] model, showsIcons in
+            // Unless another menu or editor has opened since.
+            guard let self, self.menuRequest == request else { return }
+            model.showsIcons = showsIcons
+            self.openEditor(model, at: point, selectName: !showsIcons)
         }
         let menu = workspaceSidebarNativeAppMenu(model.entries)
-        guard let click else { return popUpLater(menu, at: point) }
-        menuRequest += 1
-        presentNativeMenu(menu, .click(click.0, click.1))
+        guard let click else { return popUpLater(menu, at: point, request: request) }
+        track(menu, .click(click.0, click.1))
     }
 
     /// Accessibility and Dock callers must not wait out menu tracking. A newer menu, or the
     /// editor opening meanwhile, wins.
-    private func popUpLater(_ menu: NSMenu, at point: NSPoint) {
-        menuRequest += 1
-        let request = menuRequest
+    private func popUpLater(_ menu: NSMenu, at point: NSPoint, request: Int) {
         DispatchQueue.main.async { [weak self] in
             guard let self, self.menuRequest == request else { return }
-            self.presentNativeMenu(menu, .point(point))
+            self.track(menu, .point(point))
         }
     }
 
@@ -541,16 +582,25 @@ struct WorkspaceSidebarIdentityMenuView: View {
     }
 
     private func swatch(_ hex: String?, name: String) -> some View {
-        Button { model.chooseColor(hex) } label: {
-            Circle().fill(hex.flatMap(workspaceSidebarColor) ?? Color(nsColor: .secondaryLabelColor))
-                .frame(width: 21, height: 21)
-                .padding(2)
-                .overlay(Circle().strokeBorder(model.color == hex ? Color.primary.opacity(0.65) : .clear, lineWidth: 2))
+        let isCurrent = model.isCurrentColor(hex)
+        return Button { model.chooseColor(hex) } label: {
+            Group {
+                if let color = hex.flatMap(workspaceSidebarColor) { Circle().fill(color) }
+                else {
+                    // Default is no color: a slashed ring, as in the menu's palette.
+                    let stroke = Color(nsColor: .secondaryLabelColor)
+                    Circle().strokeBorder(stroke, lineWidth: 1.5)
+                        .overlay(Capsule().fill(stroke).frame(width: 1.5).padding(3).rotationEffect(.degrees(45)))
+                }
+            }
+            .frame(width: 21, height: 21)
+            .padding(2)
+            .overlay(Circle().strokeBorder(isCurrent ? Color.primary.opacity(0.65) : .clear, lineWidth: 2))
         }
         .buttonStyle(.plain)
         .help(name)
         .accessibilityLabel(name + " color")
-        .accessibilityAddTraits(model.color == hex ? .isSelected : [])
+        .accessibilityAddTraits(isCurrent ? .isSelected : [])
     }
 
     private var iconPicker: some View {
@@ -623,16 +673,49 @@ func workspaceSidebarEmojiMatches(_ query: String) -> [WorkspaceSidebarEmojiChoi
     return choices.filter { text.isEmpty || $0.1.contains(text) }.map { .init(emoji: $0.0, keywords: $0.1) }
 }
 
-/// Right clicks and Control-clicks are intercepted to open the item's native menu, while
-/// ordinary clicks and drags pass through to the original control.
-struct WorkspaceSidebarIdentityMenuTrigger: NSViewRepresentable {
-    let target: WorkspaceSidebarIdentityTarget
-    func makeNSView(context: Context) -> Trigger { Trigger(target: target) }
-    func updateNSView(_ view: Trigger, context: Context) { view.target = target }
+/// Where a control is on screen, for opening its menu without a click. Each control holds its
+/// own, so the same tab drawn in two places, such as its list and another display's drop
+/// column, keeps two.
+@MainActor
+final class WorkspaceSidebarMenuAnchor {
+    weak var view: NSView?
+
+    /// The control's bottom-left corner on screen, where a menu opened without a click appears.
+    var point: NSPoint? {
+        guard let view, let window = view.window else { return nil }
+        let frame = window.convertToScreen(view.convert(view.bounds, to: nil))
+        return NSPoint(x: frame.minX, y: frame.minY)
+    }
+
+    var monitorScopeId: String? { view.flatMap(workspaceSidebarMenuScope(of:)) }
+}
+
+/// The display of the sidebar that a control is in, which its menu's actions are for.
+@MainActor
+func workspaceSidebarMenuScope(of view: NSView) -> String? {
+    (view.window as? WorkspaceSidebarPanel)?.monitorScopeId
+}
+
+/// Right clicks and Control-clicks go to `open`, while ordinary clicks and drags pass through
+/// to the control underneath.
+struct WorkspaceSidebarMenuTrigger: NSViewRepresentable {
+    let anchor: WorkspaceSidebarMenuAnchor
+    let open: @MainActor (NSEvent, NSView) -> Void
+
+    func makeNSView(context: Context) -> Trigger {
+        let view = Trigger(open: open)
+        anchor.view = view
+        return view
+    }
+
+    func updateNSView(_ view: Trigger, context: Context) {
+        view.open = open
+        anchor.view = view
+    }
 
     final class Trigger: NSView {
-        var target: WorkspaceSidebarIdentityTarget
-        init(target: WorkspaceSidebarIdentityTarget) { self.target = target; super.init(frame: .zero) }
+        var open: @MainActor (NSEvent, NSView) -> Void
+        init(open: @escaping @MainActor (NSEvent, NSView) -> Void) { self.open = open; super.init(frame: .zero) }
         required init?(coder: NSCoder) { nil }
         override func hitTest(_ point: NSPoint) -> NSView? {
             guard bounds.contains(convert(point, from: superview)), let event = NSApp.currentEvent,
@@ -640,12 +723,8 @@ struct WorkspaceSidebarIdentityMenuTrigger: NSViewRepresentable {
             else { return nil }
             return self
         }
-        override func rightMouseDown(with event: NSEvent) { show(event) }
-        override func mouseDown(with event: NSEvent) { show(event) }
-
-        private func show(_ event: NSEvent) {
-            WorkspaceSidebarIdentityMenu.showMenu(target, with: event, in: self)
-        }
+        override func rightMouseDown(with event: NSEvent) { open(event, self) }
+        override func mouseDown(with event: NSEvent) { open(event, self) }
     }
 }
 
@@ -654,13 +733,59 @@ func workspaceSidebarOpensContextMenu(_ event: NSEvent) -> Bool {
     event.type == .rightMouseDown || (event.type == .leftMouseDown && event.modifierFlags.contains(.control))
 }
 
+/// An item's native menu on right-click, Control-click and VoiceOver's Show Menu, and its
+/// editor through the named action. `tabActions` also names the menu for a Tabs row.
+struct WorkspaceSidebarIdentityMenuModifier: ViewModifier {
+    let target: WorkspaceSidebarIdentityTarget
+    var tabActions = false
+    @State private var anchor = WorkspaceSidebarMenuAnchor()
+
+    func body(content: Content) -> some View {
+        let target = target
+        let anchor = anchor
+        content
+            .overlay { WorkspaceSidebarMenuTrigger(anchor: anchor) { WorkspaceSidebarIdentityMenu.showMenu(target, with: $0, in: $1) } }
+            .accessibilityAction(.showMenu) { WorkspaceSidebarIdentityMenu.show(target, from: anchor) }
+            .modifier(WorkspaceSidebarNamedMenuAction(name: tabActions ? "Tab Actions" : nil) {
+                WorkspaceSidebarIdentityMenu.show(target, from: anchor)
+            })
+            .accessibilityAction(named: "Edit Name, Color and Icon") { WorkspaceSidebarIdentityMenu.show(target, from: anchor, selectName: true) }
+    }
+}
+
+private struct WorkspaceSidebarNamedMenuAction: ViewModifier {
+    let name: String?
+    let action: () -> Void
+
+    func body(content: Content) -> some View {
+        if let name { content.accessibilityAction(named: name, action) } else { content }
+    }
+}
+
+/// A menu built from entries when it opens, such as an app's, shown by the same native renderer.
+struct WorkspaceSidebarNativeContextMenu: ViewModifier {
+    let entries: @MainActor () -> [WorkspaceSidebarAppMenuEntry]
+    @State private var anchor = WorkspaceSidebarMenuAnchor()
+
+    func body(content: Content) -> some View {
+        let entries = entries
+        let anchor = anchor
+        content
+            .overlay {
+                WorkspaceSidebarMenuTrigger(anchor: anchor) { event, view in
+                    WorkspaceSidebarIdentityMenu.shared.show(workspaceSidebarNativeAppMenu(entries()), click: (event, view))
+                }
+            }
+            .accessibilityAction(.showMenu) {
+                WorkspaceSidebarIdentityMenu.shared.show(workspaceSidebarNativeAppMenu(entries()),
+                    at: anchor.point ?? NSEvent.mouseLocation)
+            }
+    }
+}
+
 extension View {
-    /// The item's native menu on right-click, Control-click and VoiceOver's Show Menu, and its
-    /// editor through the named action.
     func sidebarIdentityMenu(_ target: WorkspaceSidebarIdentityTarget) -> some View {
-        overlay { WorkspaceSidebarIdentityMenuTrigger(target: target) }
-            .accessibilityAction(.showMenu) { WorkspaceSidebarIdentityMenu.show(target) }
-            .accessibilityAction(named: "Edit Name, Color and Icon") { WorkspaceSidebarIdentityMenu.show(target, selectName: true) }
+        modifier(WorkspaceSidebarIdentityMenuModifier(target: target))
     }
 }
 
@@ -681,10 +806,7 @@ struct WorkspaceSidebarTabRowMenu: ViewModifier {
 
     func body(content: Content) -> some View {
         if let target {
-            content
-                .overlay { WorkspaceSidebarIdentityMenuTrigger(target: target) }
-                .accessibilityAction(.showMenu) { WorkspaceSidebarIdentityMenu.show(target) }
-                .accessibilityAction(named: "Tab Actions") { WorkspaceSidebarIdentityMenu.show(target) }
+            content.modifier(WorkspaceSidebarIdentityMenuModifier(target: target, tabActions: true))
         } else {
             content.contextMenu { Button("Close Window", action: close) }
         }

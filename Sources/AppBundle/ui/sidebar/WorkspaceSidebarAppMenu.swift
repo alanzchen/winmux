@@ -1,7 +1,6 @@
 import AppKit
-import SwiftUI
 
-/// The same menu description feeds AppKit's menus and SwiftUI's context menus.
+/// A menu item in the sidebar, Tabs list or Dock. Every such menu is shown by `workspaceSidebarNativeAppMenu`.
 @MainActor
 struct WorkspaceSidebarAppMenuEntry {
     enum Kind: Equatable {
@@ -71,7 +70,7 @@ func workspaceSidebarMenuWithoutStraySeparators(_ entries: [WorkspaceSidebarAppM
 func workspaceSidebarAppMenu(workspaceName: String, app: WorkspaceSidebarAppViewModel) -> [WorkspaceSidebarAppMenuEntry] {
     guard let workspace = Workspace.existing(byName: workspaceName) else { return [] }
     let windows = workspaceSidebarWindowsForAppSummary(workspace).filter { workspaceSidebarAppIdentity($0) == app.id }
-    var entries: [WorkspaceSidebarAppMenuEntry] = [.header("\(app.name) · \(workspaceDisplayName(workspaceName))")]
+    var entries: [WorkspaceSidebarAppMenuEntry] = [.header(named: workspaceDisplayName(workspaceName)) { "\(app.name) · \($0)" }]
     func title(_ window: Window) -> String { cachedWindowTitle(for: window)?.takeIf { !$0.isEmpty } ?? app.name }
     func windowEntry(_ window: Window, owner: Workspace, _ format: @escaping (String) -> String = { $0 }) -> WorkspaceSidebarAppMenuEntry {
         .named(title(window), format, checked: focus.windowOrNil === window,
@@ -81,8 +80,12 @@ func workspaceSidebarAppMenu(workspaceName: String, app: WorkspaceSidebarAppView
     let otherWindows = orderedWorkspacesForPresentation().filter { $0 !== workspace }.flatMap { other in
         workspaceSidebarWindowsForAppSummary(other).filter { workspaceSidebarAppIdentity($0) == app.id }
             .sorted { $0.windowId < $1.windowId }.map { window in
+                // Both names are shortened, and given in full to the tooltip.
+                var entry = windowEntry(window, owner: other)
                 let owner = workspaceDisplayName(other.name)
-                return windowEntry(window, owner: other) { "\($0) — \(owner)" }
+                entry.fullTitle = entry.fullTitle.map { "\($0) — \(owner)" } ?? (owner.count > 24 ? "\(entry.title) — \(owner)" : nil)
+                entry.title += " — \(workspaceSidebarMenuName(owner, limit: 24))"
+                return entry
             }
     }
     if !otherWindows.isEmpty { entries.append(.init(title: "Other Workspaces", children: otherWindows)) }
@@ -350,40 +353,4 @@ func workspaceSidebarMenuSwatchImage(hex: String?, isSelected: Bool) -> NSImage 
         return true
     }
     return image
-}
-
-/// Keep live tree traversal out of the animated icon button's body evaluation.
-struct WorkspaceSidebarAppMenuContent: View {
-    let workspaceName: String
-    let app: WorkspaceSidebarAppViewModel
-
-    var body: some View {
-        WorkspaceSidebarAppContextMenu(entries: workspaceSidebarAppMenu(workspaceName: workspaceName, app: app))
-    }
-}
-
-/// SwiftUI's rendering of the same entries, for `.contextMenu`: native check marks, disabled
-/// submenus, headers as captions, and a palette as a Color submenu.
-struct WorkspaceSidebarAppContextMenu: View {
-    let entries: [WorkspaceSidebarAppMenuEntry]
-    var body: some View {
-        let entries = workspaceSidebarMenuWithoutStraySeparators(entries)
-        let titles = workspaceSidebarMenuTitles(entries)
-        ForEach(entries.indices, id: \.self) { index in
-            let entry = entries[index]
-            let title = titles[index]
-            if entry.isSeparator { Divider() }
-            else if entry.kind == .header { Text(title) }
-            else if !entry.children.isEmpty {
-                Menu(title) { AnyView(WorkspaceSidebarAppContextMenu(entries: entry.children)) }
-                    .disabled(!entry.enabled)
-            } else if entry.checked {
-                Toggle(title, isOn: Binding(get: { true }, set: { _ in entry.perform?() }))
-                    .disabled(!entry.enabled)
-            } else {
-                Button(title) { entry.perform?() }
-                    .disabled(!entry.enabled)
-            }
-        }
-    }
 }

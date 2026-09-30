@@ -82,9 +82,10 @@ struct WorkspaceSidebarDockAppButton: View {
             onEnded: { point in drag.finish(pointer: point, actions: actions) }
         ))
         .accessibilityLabel("Focus \(workspaceSidebarAppContextDescription(app, workspaceDisplayName: workspaceDisplayName))")
-        .contextMenu {
-            WorkspaceSidebarAppMenuContent(workspaceName: workspaceName, app: app)
-        }
+        // Built when it opens, keeping the tree walk out of the animated button's body.
+        .modifier(WorkspaceSidebarNativeContextMenu { [workspaceName, app] in
+            workspaceSidebarAppMenu(workspaceName: workspaceName, app: app)
+        })
         .modifier(WorkspaceSidebarIconTooltip(text: workspaceSidebarAppTooltip(app), kind: .app))
     }
 }

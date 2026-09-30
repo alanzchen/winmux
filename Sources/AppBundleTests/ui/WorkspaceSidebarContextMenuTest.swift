@@ -263,26 +263,53 @@ final class WorkspaceSidebarContextMenuTest: XCTestCase {
             shown.append(menu)
         }
         defer { menu.close(commit: false) }
-        let model = WorkspaceSidebarIdentityMenuModel(name: "Work", color: nil, emoji: nil, rename: { _ in },
-            setColor: { _ in }, setEmoji: { _ in }, entries: [.init(title: "Pin Tab")])
-        menu.open(model, at: CGPoint(x: 300, y: 500), selectName: false)
+        // As in the app, only the menu holds the model once it's shown, and the menu is gone
+        // once it closes: the event loop drains its autorelease pool before the editor opens.
+        weak var released: WorkspaceSidebarIdentityMenuModel?
+        autoreleasepool {
+            let model = WorkspaceSidebarIdentityMenuModel(name: "Work", color: nil, emoji: nil, rename: { _ in },
+                setColor: { _ in }, setEmoji: { _ in }, entries: [.init(title: "Pin Tab")])
+            released = model
+            menu.open(model, at: CGPoint(x: 300, y: 500), selectName: false)
+        }
         XCTAssertNil(menu.panel, "Right-clicking no longer opens the editor")
         XCTAssertTrue(shown.isEmpty, "Accessibility and Dock callers return before the menu tracks")
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
-        let native = try XCTUnwrap(shown.first)
-        XCTAssertEqual(native.items.map(\.title), ["Pin Tab", "", "Rename…", "Color", "Change Icon…"])
-
-        native.performActionForItem(at: native.items.firstIndex { $0.title == "Rename…" }!)
+        XCTAssertEqual(shown.first?.items.map(\.title), ["Pin Tab", "", "Rename…", "Color", "Change Icon…"])
+        autoreleasepool {
+            guard let native = shown.first, let rename = native.items.firstIndex(where: { $0.title == "Rename…" }) else { return }
+            native.performActionForItem(at: rename)
+            shown = []
+        }
         XCTAssertNil(menu.panel, "The editor waits for the menu to go")
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.2))
-        let panel = try XCTUnwrap(menu.panel)
+        let panel = try XCTUnwrap(menu.panel, "Rename… still opens the editor after the menu is released")
         XCTAssertTrue(panel.firstResponder is NSTextView, "Rename… opens the editor with the name ready to type")
+        let model = try XCTUnwrap(released)
         XCTAssertFalse(model.showsIcons)
 
         menu.close(commit: false)
         model.showsIcons = true
         menu.open(model, at: CGPoint(x: 300, y: 500), selectName: false)
         XCTAssertNotNil(menu.panel, "Choosing an icon still opens the editor directly")
+    }
+
+    func testRenameAndChangeIconStillOpenTheEditorOnceTheMenuIsGone() {
+        var opened: [(model: WorkspaceSidebarIdentityMenuModel, showsIcons: Bool)] = []
+        weak var released: WorkspaceSidebarIdentityMenuModel?
+        autoreleasepool {
+            // In the app, the menu's items are all that hold the model, and they go when it closes.
+            let model = WorkspaceSidebarIdentityMenuModel(name: "Work", color: nil, emoji: nil, rename: { _ in },
+                setColor: { _ in }, setEmoji: { _ in }, entries: [])
+            model.openEditor = { opened.append(($0, $1)) }
+            released = model
+            model.entries.first { $0.title == "Change Icon…" }?.perform?()
+        }
+        XCTAssertTrue(opened.isEmpty, "Only after the menu has closed")
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        XCTAssertEqual(opened.count, 1)
+        XCTAssertTrue(opened.first?.model === released)
+        XCTAssertEqual(opened.first?.showsIcons, true)
     }
 
     func testANewerMenuOrTheEditorCancelsAMenuStillWaitingToOpen() {
@@ -302,6 +329,84 @@ final class WorkspaceSidebarContextMenuTest: XCTestCase {
         menu.open(model, at: .zero, selectName: false)
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
         XCTAssertEqual(shown, 1, "Only the latest request opens")
+    }
+
+    func testAQueuedEditorGivesWayToANewerMenu() {
+        let menu = WorkspaceSidebarIdentityMenu()
+        var shown: [NSMenu] = []
+        menu.presentNativeMenu = { menu, _ in shown.append(menu) }
+        defer { menu.close(commit: false) }
+        let first = WorkspaceSidebarIdentityMenuModel(name: "First", color: nil, emoji: nil, rename: { _ in },
+            setColor: { _ in }, setEmoji: { _ in }, entries: [])
+        let second = WorkspaceSidebarIdentityMenuModel(name: "Second", color: nil, emoji: nil, rename: { _ in },
+            setColor: { _ in }, setEmoji: { _ in }, entries: [])
+        menu.open(first, at: .zero, selectName: false)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        first.entries.first { $0.title == "Rename…" }?.perform?()
+        // Before the queued editor opens, another item's menu is asked for.
+        menu.open(second, at: .zero, selectName: false)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.1))
+        XCTAssertNil(menu.panel, "The older item's editor doesn't replace the newer menu")
+        XCTAssertEqual(shown.count, 2)
+        second.entries.first { $0.title == "Rename…" }?.perform?()
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.2))
+        XCTAssertNotNil(menu.panel)
+        XCTAssertEqual(menu.panel.flatMap { ($0.contentView as? NSHostingView<WorkspaceSidebarIdentityMenuView>)?.rootView.model.name }, "Second")
+    }
+
+    func testTheSidebarStaysOpenWhileOneOfTheseMenusTracks() {
+        var visibleWhileTracking: Bool?
+        WorkspaceSidebarIdentityMenu.shared.presentNativeMenu = { _, _ in visibleWhileTracking = WorkspaceSidebarIdentityMenu.isVisible }
+        WorkspaceSidebarIdentityMenu.shared.show(NSMenu(), at: .zero)
+        XCTAssertNil(visibleWhileTracking)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        XCTAssertEqual(visibleWhileTracking, true, "Even with the pointer elsewhere, as from VoiceOver")
+        XCTAssertFalse(WorkspaceSidebarIdentityMenu.isVisible)
+    }
+
+    func testShowMenuWithoutAClickOpensAtTheControlForItsSidebar() throws {
+        let window = NSWindow(contentRect: CGRect(x: 200, y: 300, width: 240, height: 100), styleMask: [.borderless],
+            backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let control = NSView(frame: CGRect(x: 20, y: 30, width: 200, height: 36))
+        window.contentView?.addSubview(control)
+        let anchor = WorkspaceSidebarMenuAnchor()
+        XCTAssertNil(anchor.point)
+        anchor.view = control
+        XCTAssertEqual(anchor.point, CGPoint(x: 220, y: 330), "Its bottom-left corner on screen, not the pointer")
+        XCTAssertNil(anchor.monitorScopeId, "Outside a sidebar there's no sidebar display to act for")
+
+        TrayMenuModel.shared.workspaceSidebarWorkspaces = [tab("one", ids: [7])]
+        WorkspaceSidebarIdentityMenu.show(.tab("one", windowId: 7), from: anchor)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        guard case .point(let point) = try XCTUnwrap(presented.last).origin else { return XCTFail("No click") }
+        XCTAssertEqual(point, CGPoint(x: 220, y: 330))
+
+        // A sidebar's own display, not the pointer's, is what its menu's actions are for.
+        var scopes: [String?] = []
+        let model = try XCTUnwrap(WorkspaceSidebarIdentityMenu.model(for: .project(workspaceProjectDefaultId),
+            at: CGPoint(x: 5000, y: 5000), scope: "monitor:1728,0", sendAction: { _, scope in scopes.append(scope) }))
+        model.entries.first { $0.title == "Switch to Project" }?.perform?()
+        XCTAssertEqual(scopes, ["monitor:1728,0"])
+    }
+
+    func testLongDisplayAndWorkspaceNamesAreShortenedButKeepWhatTheySay() {
+        let display = "Studio Display (Conference Room B, 3rd floor, east wing)"
+        var workspace = tab("code", ids: [1])
+        workspace.savedState = nil
+        let tabs = workspaceSidebarWorkspaceMenuEntries(workspace, context: .init(monitorCount: 2,
+            currentDisplayName: display, currentDisplayHasIdentity: false, separatesIntoTabs: true))
+        let keepOn = tabs.first { $0.title.hasPrefix("Keep on") }
+        XCTAssertEqual(keepOn?.title, "Keep on “\(workspaceSidebarMenuName(display))” (Display Not Recognized)")
+        XCTAssertEqual(keepOn?.fullTitle, "Keep on “\(display)” (Display Not Recognized)")
+        XCTAssertEqual(keepOn?.enabled, false)
+        let item = workspaceSidebarNativeAppMenu(tabs.map { workspaceSidebarAppMenuEntry($0, send: { _ in }) })
+            .items.first { $0.title.hasPrefix("Keep on") }
+        XCTAssertEqual(item?.toolTip, keepOn?.fullTitle)
+        let header = WorkspaceSidebarAppMenuEntry.header(named: "A workspace with a rather long display name here") { "TextEdit · \($0)" }
+        XCTAssertEqual(header.kind, .header)
+        XCTAssertEqual(header.fullTitle, "TextEdit · A workspace with a rather long display name here")
+        XCTAssertLessThan(header.title.count, header.fullTitle?.count ?? 0)
     }
 
     func testOnlyARightClickOrControlClickOpensTheMenu() throws {
@@ -362,6 +467,22 @@ final class WorkspaceSidebarContextMenuTest: XCTestCase {
         try send([.leftMouseDown, .leftMouseUp], .control)
         XCTAssertEqual(clicks, 1)
         XCTAssertEqual(presented.count, 2, "Control-click is a right-click")
+
+        // An app's menu, too, is built when it opens and shown the same way.
+        var built = 0
+        let app = NSHostingView(rootView: Color.gray.frame(width: size.width, height: size.height)
+            .modifier(WorkspaceSidebarNativeContextMenu { built += 1; return [.header("TextEdit · Code"), .init(title: "Quit TextEdit")] }))
+        window.contentView = app
+        app.layoutSubtreeIfNeeded()
+        window.displayIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertEqual(built, 0, "Not while drawing")
+        try send([.rightMouseDown, .rightMouseUp])
+        XCTAssertEqual(built, 1)
+        XCTAssertEqual(presented.last?.menu.items.map(\.title), ["TextEdit · Code", "Quit TextEdit"])
+        window.contentView = host
+        host.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
 
         // One of several chosen tabs opens the menu for all of them.
         let selection = WorkspaceSidebarTabSelection.shared

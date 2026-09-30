@@ -13,6 +13,8 @@ struct WorkspaceSidebarWorkspaceMenuEntry: Equatable {
     var enabled = true
     var isDestructive = false
     var command: WorkspaceSidebarWorkspaceMenuCommand? = nil
+    /// The title with its display name in full, when `title` shortens it.
+    var fullTitle: String? = nil
 
     static var separator: Self { Self() }
     var isSeparator: Bool { title.isEmpty }
@@ -132,29 +134,27 @@ private func workspaceSidebarKeepOnDisplayEntry(
     let displayName = (isPinned && !isForceAssigned ? saved?.homeDisplayName : nil)
         ?? context.currentDisplayName
         ?? saved?.homeDisplayName
-    let title = "Keep on " + (displayName.map { "“\($0)”" } ?? "This Display")
+    // Only the display's name is shortened; what's said about it stays whole.
+    func keepOn(_ name: String?, fallback: String = "This Display", _ suffix: String = "", checked: Bool,
+                enabled: Bool = true, command: WorkspaceSidebarWorkspaceMenuCommand? = nil) -> WorkspaceSidebarWorkspaceMenuEntry {
+        let full = "Keep on " + (name.map { "“\($0)”" } ?? fallback) + suffix
+        let title = "Keep on " + (name.map { "“\(workspaceSidebarMenuName($0))”" } ?? fallback) + suffix
+        return .init(title: title, checked: checked, enabled: enabled, command: command, fullTitle: title == full ? nil : full)
+    }
     if isForceAssigned {
         // workspace-to-monitor-force-assignment wins over the saved home. An older pin can
         // still be removed, so it doesn't come back when the config entry goes away.
         if isPinned {
-            let home = saved?.homeDisplayName.map { "“\($0)”" } ?? "Its Display"
-            return .init(
-                title: "Keep on \(home) (Overridden by Config)",
-                checked: true,
-                command: .send(.setSavedWorkspacePinned(workspace.name, false)),
-            )
+            return keepOn(saved?.homeDisplayName, fallback: "Its Display", " (Overridden by Config)", checked: true,
+                command: .send(.setSavedWorkspacePinned(workspace.name, false)))
         }
-        return .init(title: title + " (Set in Config)", checked: true, enabled: false)
+        return keepOn(displayName, " (Set in Config)", checked: true, enabled: false)
     }
     if !isPinned, !context.currentDisplayHasIdentity {
-        return .init(title: title + " (Display Not Recognized)", enabled: false)
+        return keepOn(displayName, " (Display Not Recognized)", checked: false, enabled: false)
     }
     let suffix = isPinned && saved?.isHomeConnected == false ? " (Disconnected)" : ""
-    return .init(
-        title: title + suffix,
-        checked: isPinned,
-        command: .send(.setSavedWorkspacePinned(workspace.name, !isPinned)),
-    )
+    return keepOn(displayName, suffix, checked: isPinned, command: .send(.setSavedWorkspacePinned(workspace.name, !isPinned)))
 }
 
 @MainActor
@@ -189,6 +189,7 @@ func workspaceSidebarAppMenuEntry(
                 }
             }
         },
+        fullTitle: entry.fullTitle,
     )
 }
 
