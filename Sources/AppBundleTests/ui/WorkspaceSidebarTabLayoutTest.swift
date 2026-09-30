@@ -248,14 +248,18 @@ final class WorkspaceSidebarTabLayoutTest: XCTestCase {
     }
 
     func testOnlyTheSidebarPreviewsAndDropsATabsModeDragOverIt() {
-        XCTAssertTrue(workspaceSidebarOwnsTabDrag(usesBrowserTabs: true, startedInSidebar: true, hasActiveSidebarDrag: true,
+        XCTAssertTrue(workspaceSidebarOwnsDrag(usesBrowserTabs: true, startedInSidebar: true, hasActiveSidebarDrag: true,
             isPointerInSidebar: true))
-        XCTAssertFalse(workspaceSidebarOwnsTabDrag(usesBrowserTabs: true, startedInSidebar: true, hasActiveSidebarDrag: true,
+        XCTAssertFalse(workspaceSidebarOwnsDrag(usesBrowserTabs: true, startedInSidebar: true, hasActiveSidebarDrag: true,
             isPointerInSidebar: false), "Over the screen, the window drag's own targets apply")
-        XCTAssertFalse(workspaceSidebarOwnsTabDrag(usesBrowserTabs: true, startedInSidebar: false, hasActiveSidebarDrag: false,
+        XCTAssertFalse(workspaceSidebarOwnsDrag(usesBrowserTabs: true, startedInSidebar: false, hasActiveSidebarDrag: false,
             isPointerInSidebar: true), "A window dragged in from the screen joins a tab as before")
-        XCTAssertFalse(workspaceSidebarOwnsTabDrag(usesBrowserTabs: false, startedInSidebar: true, hasActiveSidebarDrag: true,
+        XCTAssertFalse(workspaceSidebarOwnsDrag(usesBrowserTabs: false, startedInSidebar: true, hasActiveSidebarDrag: true,
             isPointerInSidebar: true), "Dock and Sidebar modes are unchanged")
+        XCTAssertTrue(workspaceSidebarOwnsDrag(usesBrowserTabs: false, startedInSidebar: true, hasActiveSidebarDrag: true,
+            isPointerInSidebar: true, isPointerOnTemporarySurface: true), "Temporary drop UI owns it in every mode")
+        XCTAssertFalse(workspaceSidebarOwnsDrag(usesBrowserTabs: false, startedInSidebar: false, hasActiveSidebarDrag: false,
+            isPointerInSidebar: true, isPointerOnTemporarySurface: true), "Only the sidebar's own drags")
     }
 
     private func renderFixture() -> WorkspaceSidebarSnapshot {

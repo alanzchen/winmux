@@ -1,16 +1,39 @@
-/// The panel under the pointer when the shared drop preview last changed: the panel showing
-/// the drop. Hiding another panel must not take it away.
+/// The surface showing the shared drop preview: a display's panel, or the temporary drop UI
+/// (`WorkspaceSidebarSurfaceRef.ownerId`). Hiding another panel must not take it away.
 @MainActor
 private var workspaceSidebarDropPreviewOwnerScopeId: String?
 
+/// `owner` is the surface of the hit the preview was made from. Without one, it's the surface
+/// under the pointer.
 @MainActor
-func setWorkspaceSidebarDropPreviewIfChanged(_ preview: WorkspaceSidebarDropPreviewViewModel?) {
-    // An equal preview can move between panels that list the same tab, so the owner follows the
-    // pointer on every assignment. Only a changed preview reaches the panels' models.
-    workspaceSidebarDropPreviewOwnerScopeId = preview == nil ? nil
-        : WorkspaceSidebarPanel.panel(containing: MousePointerTracker.shared.currentSample.point)?.monitorScopeId
-    if TrayMenuModel.shared.setIfChanged(\.workspaceSidebarDropPreview, preview) {
+func setWorkspaceSidebarDropPreviewIfChanged(_ preview: WorkspaceSidebarDropPreviewViewModel?,
+                                             owner: WorkspaceSidebarSurfaceRef?? = .none) {
+    // An equal preview can move between surfaces that list the same tab, so the owner follows on
+    // every assignment. Only a changed preview, or owner, reaches the panels' models.
+    let ownerId = preview == nil ? nil
+        : (owner ?? workspaceSidebarSurface(at: MousePointerTracker.shared.currentSample.point)?.surface)?.ownerId
+    let ownerChanged = ownerId != workspaceSidebarDropPreviewOwnerScopeId
+    workspaceSidebarDropPreviewOwnerScopeId = ownerId
+    if TrayMenuModel.shared.setIfChanged(\.workspaceSidebarDropPreview, preview) || ownerChanged && preview != nil {
         WorkspaceSidebarPanel.syncVisiblePanelModelsFromShared()
+    }
+}
+
+/// The drop preview a display's panel shows. A drop aimed at temporary drop UI lights up nothing
+/// on any panel: they keep only what's dragged, so its row still dims.
+func workspaceSidebarPanelDropPreview(_ preview: WorkspaceSidebarDropPreviewViewModel?,
+                                      ownerId: String?) -> WorkspaceSidebarDropPreviewViewModel? {
+    guard let preview else { return nil }
+    return workspaceSidebarDropPreviewOwnerIsTemporary(ownerId) ? preview.sourceOnly : preview
+}
+
+extension WorkspaceSidebarDropPreviewViewModel {
+    /// What's dragged, without where it goes.
+    var sourceOnly: WorkspaceSidebarDropPreviewViewModel {
+        .init(sourceWindowId: sourceWindowId, label: label, appName: appName, appBundleIdentifier: appBundleIdentifier,
+            appBundlePath: appBundlePath, targetWorkspaceName: nil, targetsNewWorkspace: false,
+            targetProjectId: targetProjectId, targetMonitorScopeId: targetMonitorScopeId, isTabGroup: isTabGroup,
+            windowCount: windowCount, tabItems: tabItems)
     }
 }
 

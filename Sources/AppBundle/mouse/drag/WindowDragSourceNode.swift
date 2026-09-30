@@ -109,7 +109,7 @@ func updateSidebarDragFeedback(sourceWindow: Window, subject: WindowDragSubject,
         let point = MousePointerTracker.shared.currentSample.point
         if getCurrentMouseDragStartedInSidebar() ||
             getCurrentMouseTabDetachOrigin() == .tabStrip ||
-            WorkspaceSidebarPanel.panel(containing: point) != nil
+            workspaceSidebarSurface(at: point) != nil
         {
             showWorkspaceSidebarDragCursorPreview(
                 sourceWindow: sourceWindow,

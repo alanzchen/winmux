@@ -213,7 +213,7 @@ extension WindowMouseInteractionDriver {
         let mouse = MousePointerTracker.shared.currentSample.point
         detectShakeIfNeeded(sourceWindow: sourceWindow, session: session)
         updateCompositedMovePreview(sourceWindow: sourceWindow, mouseLocation: mouse)
-        let isPointerInsideSidebar = WorkspaceSidebarPanel.panel(containing: mouse) != nil
+        let isPointerInsideSidebar = workspaceSidebarSurface(at: mouse) != nil
         let shouldProcess = session.startedInSidebar || isPointerInsideSidebar || WindowDragFrameGate.shared.shouldProcess(
             windowId: sourceWindow.windowId,
             point: mouse,
@@ -237,7 +237,7 @@ extension WindowMouseInteractionDriver {
             }
             return
         }
-        if WorkspaceSidebarPanel.panel(containing: mouseLocation) != nil {
+        if workspaceSidebarSurface(at: mouseLocation) != nil {
             _ = updatePendingWindowDragIntent(
                 sourceWindow: sourceWindow,
                 mouseLocation: mouseLocation,

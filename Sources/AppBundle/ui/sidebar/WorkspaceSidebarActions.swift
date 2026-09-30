@@ -487,7 +487,8 @@ private func moveSidebarSourceToNewWorkspace(
 @MainActor
 func previewWorkspaceSidebarDrop(_ windowId: UInt32, subject: WindowDragSubject, target: WorkspaceSidebarDropTargetKind,
                                  placement: WorkspaceSidebarTabDropPlacement? = nil,
-                                 labelSlot: WorkspaceSidebarTabDropLabelSlot? = nil) {
+                                 labelSlot: WorkspaceSidebarTabDropLabelSlot? = nil,
+                                 owner: WorkspaceSidebarSurfaceRef?? = .none) {
     guard let sourceWindow = Window.get(byId: windowId) else {
         clearWorkspaceSidebarDropPreview()
         return
@@ -502,7 +503,7 @@ func previewWorkspaceSidebarDrop(_ windowId: UInt32, subject: WindowDragSubject,
             targetMonitorScopeId: monitorScopeId)
         preview.targetsPinned = true
         preview.targetPinnedGap = gap
-        setWorkspaceSidebarDropPreviewIfChanged(preview)
+        setWorkspaceSidebarDropPreviewIfChanged(preview, owner: owner)
         return
     }
     if case .tabCollection(let id, let monitorScopeId) = target {
@@ -510,7 +511,7 @@ func previewWorkspaceSidebarDrop(_ windowId: UInt32, subject: WindowDragSubject,
             targetWorkspaceName: nil, targetsNewWorkspace: false, targetProjectId: sourceWindow.nodeWorkspace?.projectId,
             targetMonitorScopeId: monitorScopeId)
         preview.targetCollectionId = id
-        setWorkspaceSidebarDropPreviewIfChanged(preview)
+        setWorkspaceSidebarDropPreviewIfChanged(preview, owner: owner)
         return
     }
     if case .tabGap(let projectId, let monitorScopeId, let gap) = target {
@@ -518,7 +519,7 @@ func previewWorkspaceSidebarDrop(_ windowId: UInt32, subject: WindowDragSubject,
             targetsNewWorkspace: false, targetProjectId: projectId, targetMonitorScopeId: monitorScopeId)
         preview.targetGap = gap
         preview.separatesFromTab = workspaceTabDragLeavesWindowsBehind(dragSubjectNode(for: sourceWindow, subject: subject))
-        setWorkspaceSidebarDropPreviewIfChanged(preview)
+        setWorkspaceSidebarDropPreviewIfChanged(preview, owner: owner)
         return
     }
     guard case .workspace(let workspaceName) = target else {
@@ -530,7 +531,7 @@ func previewWorkspaceSidebarDrop(_ windowId: UInt32, subject: WindowDragSubject,
                 targetsNewWorkspace: true,
                 targetProjectId: projectId,
                 targetMonitorScopeId: monitorScopeId,
-            ))
+            ), owner: owner)
         } else {
             clearWorkspaceSidebarDropPreview()
         }
@@ -545,7 +546,7 @@ func previewWorkspaceSidebarDrop(_ windowId: UInt32, subject: WindowDragSubject,
     )
     preview.targetPlacement = placement
     preview.targetLabelSlot = placement == nil ? nil : labelSlot
-    setWorkspaceSidebarDropPreviewIfChanged(preview)
+    setWorkspaceSidebarDropPreviewIfChanged(preview, owner: owner)
 }
 
 @MainActor
@@ -988,13 +989,15 @@ func finishSidebarWindowDrag(pointer: CGPoint? = nil) {
     let release = WorkspaceSidebarDragSessions.shared.consumeRelease()
     let didCommitSidebarDrop = release != nil && commitActiveWorkspaceSidebarDragIfPossible()
     if didCommitSidebarDrop { noteWorkspaceSidebarConsumedRelease() }
-    // Released over the Tabs sidebar where it showed no drop: nothing moves. The window
-    // drag's last frame must not find a target of its own there.
-    let releasedWithoutSidebarDrop = !didCommitSidebarDrop && workspaceSidebarOwnsTabDrag(
+    // Released over the Tabs sidebar, or over temporary drop UI, where it showed no drop: nothing
+    // moves. The window drag's last frame must not find a target of its own there.
+    let surface = workspaceSidebarSurface(at: MousePointerTracker.shared.currentSample.point)?.surface
+    let releasedWithoutSidebarDrop = !didCommitSidebarDrop && workspaceSidebarOwnsDrag(
         usesBrowserTabs: config.usesBrowserTabs,
         startedInSidebar: getCurrentMouseDragStartedInSidebar(),
         hasActiveSidebarDrag: currentActiveWorkspaceSidebarDrag() != nil,
-        isPointerInSidebar: WorkspaceSidebarPanel.panel(containing: MousePointerTracker.shared.currentSample.point) != nil)
+        isPointerInSidebar: surface != nil, isPointerOnTemporarySurface: surface?.isTemporary == true)
+    if release != nil, releasedWithoutSidebarDrop, surface?.isTemporary == true { noteWorkspaceSidebarConsumedRelease() }
     clearActiveWorkspaceSidebarDrag()
     if didCommitSidebarDrop || releasedWithoutSidebarDrop {
         clearPendingWindowDragIntent()
@@ -1018,7 +1021,7 @@ func finishSidebarWindowDrag(pointer: CGPoint? = nil) {
 func workspaceSidebarCrossDisplayDragDescription(event: String, point: CGPoint) -> String {
     let source = currentWorkspaceSidebarDragSourceScopeId()
     let sourcePanel = source.flatMap { WorkspaceSidebarPanel.panel(for: $0) }
-    let under = WorkspaceSidebarPanel.panel(containing: point)?.monitorScopeId
+    let under = workspaceSidebarSurface(at: point)?.surface.ownerId
     return "\(event) point=\(point) source=\(source ?? "nil") sourceIgnoresMouse=\(sourcePanel?.ignoresMouseEvents.description ?? "nil")"
         + " underPointer=\(under ?? "nil") crossesDisplay=\(under != nil && source != nil && under != source)"
 }
@@ -1051,8 +1054,7 @@ private func workspaceSidebarDragTarget(for sourceWindow: Window, subject: Windo
     // where the pointer really is, for the target, the pause, and the side alike.
     if !committing { MousePointerTracker.shared.note(point: mouseLocation) }
     let point = MousePointerTracker.shared.currentSample.point
-    guard WorkspaceSidebarPanel.panel(containing: point) != nil,
-          let target = workspaceSidebarDropTarget(at: point) else {
+    guard let target = workspaceSidebarSurfaceHit(at: point).target else {
         WorkspaceSidebarTabSplitHoverController.shared.reset()
         return nil
     }
@@ -1110,7 +1112,7 @@ private func updateActiveWorkspaceSidebarDragPreview(sourceWindow: Window, subje
                 ? current?.targetLabelSlot : nil)
     } ?? nil
     previewWorkspaceSidebarDrop(sourceWindow.windowId, subject: subject, target: target.kind, placement: placement,
-        labelSlot: labelSlot)
+        labelSlot: labelSlot, owner: target.surface)
     if config.usesBrowserTabs, TrayMenuModel.shared.workspaceSidebarDropPreview != nil,
        let hit = workspaceSidebarDropTarget(at: MousePointerTracker.shared.currentSample.point) {
         WorkspaceSidebarTabSplitHoverController.shared.noteDisplayed(source: sourceWindow.windowId, hitKind: hit.kind,
@@ -1129,7 +1131,8 @@ private func commitActiveWorkspaceSidebarDragIfPossible() -> Bool {
         return false
     }
     let placement = workspaceSidebarTabDropPlacement(for: target, sourceWindow: sourceWindow, subject: activeDrag.subject)
-    previewWorkspaceSidebarDrop(sourceWindow.windowId, subject: activeDrag.subject, target: target.kind, placement: placement)
+    previewWorkspaceSidebarDrop(sourceWindow.windowId, subject: activeDrag.subject, target: target.kind, placement: placement,
+        owner: target.surface)
     let settlingId = settleWorkspaceSidebarDockLift()
     clearWorkspaceSidebarDropPreview()
     WindowDragCursorProxyPanel.shared.hide()

@@ -33,8 +33,10 @@ func currentSidebarWorkspaceDropDestination(sourceWindow: Window, mouseLocation:
     let sourceLabel = sidebarDragSourceTitle(for: sourceWindow, subject: subject)
     let isGroup = subject == .group
     let sourceWorkspaceName = dragSubjectNode(for: sourceWindow, subject: subject).nodeWorkspace?.name
-    if let target = workspaceSidebarDropTarget(at: mouseLocation, hitSlop: sidebarWorkspaceDropTargetHitSlop,
-           includesTabGaps: false),
+    let hit = workspaceSidebarSurfaceHit(at: mouseLocation, hitSlop: sidebarWorkspaceDropTargetHitSlop, includesTabGaps: false)
+    // Temporary drop UI takes only the sidebar's own drops, never a window drag's intent.
+    guard !hit.isOnTemporarySurface else { return nil }
+    if let target = hit.target,
        isActionableSidebarWorkspaceDropTarget(sourceWorkspaceName: sourceWorkspaceName, targetKind: target.kind)
     {
         switch target.kind {

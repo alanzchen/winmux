@@ -76,7 +76,7 @@ final class WorkspaceSidebarTabSplitHoverController {
 
     func commitTarget(source: UInt32, hitTarget: WorkspaceSidebarDropTarget, point: CGPoint) -> WorkspaceSidebarDropTarget? {
         guard let displayed, displayed.source == source, displayed.hitKind == hitTarget.kind,
-              displayed.target.rect == hitTarget.rect else {
+              displayed.target.rect == hitTarget.rect, displayed.target.surface == hitTarget.surface else {
             // Audit F3: a release refused because the last preview shown isn't for this target.
             debugWorkspaceSidebarCrossDisplayDragLog("commitRefused hit=\(hitTarget.kind) hitRect=\(hitTarget.rect)"
                 + " displayed=\(String(describing: displayed?.hitKind)) displayedRect=\(String(describing: displayed?.target.rect))"
@@ -123,5 +123,6 @@ func workspaceSidebarDeliberateTabDropTarget(_ target: WorkspaceSidebarDropTarge
         return armed
     }
     guard let destination = target.tabReorderDestination else { return nil }
-    return .init(kind: destination.reorderTarget(beside: name, rect: target.rect, point: point), rect: target.rect)
+    return .init(kind: destination.reorderTarget(beside: name, rect: target.rect, point: point), rect: target.rect,
+        surface: target.surface)
 }

@@ -193,7 +193,8 @@ final class WorkspaceSidebarPanel: NSPanelHud, WorkspaceSidebarInputOwner {
         viewModel.refreshWorkspaceSidebarMonitorScope()
         viewModel.setIfChanged(\.workspaceSidebarFocusedMonitorScopeId, TrayMenuModel.shared.workspaceSidebarFocusedMonitorScopeId)
         viewModel.setIfChanged(\.workspaceSidebarShowsMonitorSelector, TrayMenuModel.shared.workspaceSidebarShowsMonitorSelector)
-        viewModel.setIfChanged(\.workspaceSidebarDropPreview, TrayMenuModel.shared.workspaceSidebarDropPreview)
+        viewModel.setIfChanged(\.workspaceSidebarDropPreview, workspaceSidebarPanelDropPreview(
+            TrayMenuModel.shared.workspaceSidebarDropPreview, ownerId: currentWorkspaceSidebarDropPreviewOwnerScopeId()))
         viewModel.setIfChanged(\.workspaceSidebarDockDrag, TrayMenuModel.shared.workspaceSidebarDockDrag)
         viewModel.setIfChanged(\.windowTabStrips, TrayMenuModel.shared.windowTabStrips)
         viewModel.setIfChanged(\.workspaceSidebarTopPadding, TrayMenuModel.shared.workspaceSidebarTopPadding)

@@ -17,10 +17,11 @@ func updatePendingWindowDragIntent(
         WindowDragCursorProxyPanel.shared.hide()
     }
 
-    if workspaceSidebarOwnsTabDrag(usesBrowserTabs: config.usesBrowserTabs,
+    let surface = workspaceSidebarSurface(at: mouseLocation)?.surface
+    if workspaceSidebarOwnsDrag(usesBrowserTabs: config.usesBrowserTabs,
         startedInSidebar: getCurrentMouseDragStartedInSidebar(),
         hasActiveSidebarDrag: currentActiveWorkspaceSidebarDrag() != nil,
-        isPointerInSidebar: WorkspaceSidebarPanel.panel(containing: mouseLocation) != nil)
+        isPointerInSidebar: surface != nil, isPointerOnTemporarySurface: surface?.isTemporary == true)
     {
         // The sidebar already previewed this drag and will drop it where the preview shows;
         // a window-drag destination here would replace its gap line with a whole-row highlight.
@@ -62,12 +63,12 @@ func updatePendingWindowDragIntent(
     )
 }
 
-/// Tabs mode: while a drag that started in the sidebar is over a sidebar, the sidebar alone
-/// previews and drops it, with the gaps between tabs and the halves of a tab. Elsewhere,
-/// and in the other modes, the window drag's own destinations apply.
-func workspaceSidebarOwnsTabDrag(usesBrowserTabs: Bool, startedInSidebar: Bool, hasActiveSidebarDrag: Bool,
-                                 isPointerInSidebar: Bool) -> Bool {
-    usesBrowserTabs && startedInSidebar && hasActiveSidebarDrag && isPointerInSidebar
+/// While a drag that started in the sidebar is over a sidebar in Tabs mode, the sidebar alone
+/// previews and drops it, with the gaps between tabs and the halves of a tab. Over temporary drop
+/// UI it does so in every mode. Elsewhere, the window drag's own destinations apply.
+func workspaceSidebarOwnsDrag(usesBrowserTabs: Bool, startedInSidebar: Bool, hasActiveSidebarDrag: Bool,
+                              isPointerInSidebar: Bool, isPointerOnTemporarySurface: Bool = false) -> Bool {
+    startedInSidebar && hasActiveSidebarDrag && (usesBrowserTabs && isPointerInSidebar || isPointerOnTemporarySurface)
 }
 
 @MainActor

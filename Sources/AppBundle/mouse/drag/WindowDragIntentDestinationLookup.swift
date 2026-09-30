@@ -58,7 +58,7 @@ func currentWindowDragIntentDestination(
 
 @MainActor
 private func isMouseInsideWorkspaceSidebar(_ mouseLocation: CGPoint) -> Bool {
-    WorkspaceSidebarPanel.panel(containing: mouseLocation) != nil
+    workspaceSidebarSurface(at: mouseLocation) != nil
 }
 
 @MainActor

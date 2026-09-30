@@ -172,6 +172,8 @@ struct WorkspaceSidebarDropTarget {
     /// A Tabs-mode tab, drawn as one: a dropped tab joins it on the half it was dropped on.
     var acceptsSides = false
     var tabReorderDestination: WorkspaceSidebarTabReorderDestination? = nil
+    /// The surface it was found on. A target rebuilt from another keeps it.
+    var surface: WorkspaceSidebarSurfaceRef? = nil
 }
 
 struct WorkspaceSidebarDropTargetFrame: Equatable {
@@ -189,16 +191,11 @@ struct WorkspaceSidebarDropTargetPreferenceKey: PreferenceKey {
     }
 }
 
-/// `includesTabGaps` is false for a window dragged in from the screen: it joins a tab or gets
-/// a new one, and the gaps' thin bands would otherwise swallow the tabs under its hit slop.
+/// The target under a normalized point, on whichever surface is topmost there.
 @MainActor
 func workspaceSidebarDropTarget(at mouseLocation: CGPoint, hitSlop: NSEdgeInsets = NSEdgeInsets(),
                                 includesTabGaps: Bool = true) -> WorkspaceSidebarDropTarget? {
-    let screenPoint = CGPoint(x: mouseLocation.x, y: mainMonitor.height - mouseLocation.y)
-    return WorkspaceSidebarPanel.visiblePanels.first {
-        $0.visibleSurfaceFrameOnScreen.contains(screenPoint) || $0.isScreenPointInsideExpandedSurface(screenPoint)
-    }?
-        .dropTarget(atScreenPoint: screenPoint, hitSlop: hitSlop, includesTabGaps: includesTabGaps)
+    workspaceSidebarSurfaceHit(at: mouseLocation, hitSlop: hitSlop, includesTabGaps: includesTabGaps).target
 }
 
 /// SwiftUI/hosting coordinates have their origin at the top left. Keep targets local

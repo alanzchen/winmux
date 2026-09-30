@@ -46,7 +46,7 @@ func workspaceSidebarPinnedTabDrop(_ tab: Workspace, target: WorkspaceSidebarDro
             // arms. A pinned tab doesn't split.
             guard let destination = target.tabReorderDestination, Workspace.existing(byName: name) != nil else { return nil }
             return workspaceSidebarPinnedTabDrop(tab, target: .init(kind: destination.reorderTarget(beside: name,
-                rect: target.rect, point: point), rect: target.rect), point: point)
+                rect: target.rect, point: point), rect: target.rect, surface: target.surface), point: point)
         case .tabCollection(let id, let monitorScopeId):
             guard workspaceSidebarOrganizationStore.state.collections.contains(where: { $0.id == id && $0.projectId == tab.projectId }),
                   workspaceSidebarDropCanReachDisplay(tab, monitorScopeId: monitorScopeId)
@@ -62,9 +62,11 @@ func workspaceSidebarPinnedTabDrop(_ tab: Workspace, target: WorkspaceSidebarDro
 }
 
 @MainActor
-private func workspaceSidebarPinnedTabDropUnderPointer(_ tab: Workspace, point: CGPoint) -> WorkspaceSidebarPinnedTabDrop? {
-    guard WorkspaceSidebarPanel.panel(containing: point) != nil, let target = workspaceSidebarDropTarget(at: point) else { return nil }
-    return workspaceSidebarPinnedTabDrop(tab, target: target, point: point)
+private func workspaceSidebarPinnedTabDropUnderPointer(_ tab: Workspace, point: CGPoint)
+    -> (drop: WorkspaceSidebarPinnedTabDrop?, surface: WorkspaceSidebarSurfaceRef?)
+{
+    let hit = workspaceSidebarSurfaceHit(at: point)
+    return (hit.target.flatMap { workspaceSidebarPinnedTabDrop(tab, target: $0, point: point) }, hit.surface)
 }
 
 /// The dragged pin, as the pointer carries it, and with where it would go.
@@ -109,10 +111,11 @@ func updateSidebarPinnedTabDrag(_ name: String, pointer: CGPoint) {
         return
     }
     WorkspaceSidebarTabDragState.shared.set(true, pinnedTab: name)
-    let drop = workspaceSidebarPinnedTabDropUnderPointer(tab, point: pointer)
+    let (drop, surface) = workspaceSidebarPinnedTabDropUnderPointer(tab, point: pointer)
     WindowDragCursorProxyPanel.shared.show(preview: workspaceSidebarPinnedTabDropPreview(tab, drop: nil),
         mouseScreenPoint: denormalizedAppKitScreenPoint(pointer), style: .appIcon(size: 22))
-    setWorkspaceSidebarDropPreviewIfChanged(drop.map { workspaceSidebarPinnedTabDropPreview(tab, drop: $0) })
+    setWorkspaceSidebarDropPreviewIfChanged(drop.map { workspaceSidebarPinnedTabDropPreview(tab, drop: $0) },
+        owner: surface)
 }
 
 /// The drop happens once, from whichever sees the release first: the gesture's end, or the
@@ -124,7 +127,7 @@ func finishSidebarPinnedTabDrag(_ name: String, pointer: CGPoint) {
     MousePointerTracker.shared.note(point: pointer)
     let released = WorkspaceSidebarDragSessions.shared.consumeRelease() != nil
     let tab = Workspace.existing(byName: name) === drag.tab ? drag.tab : nil
-    let drop = released ? tab.flatMap { workspaceSidebarPinnedTabDropUnderPointer($0, point: pointer) } : nil
+    let drop = released ? tab.flatMap { workspaceSidebarPinnedTabDropUnderPointer($0, point: pointer).drop } : nil
     clearSidebarPinnedTabDragFeedback()
     guard let tab, let drop else { return }
     noteWorkspaceSidebarConsumedRelease()
