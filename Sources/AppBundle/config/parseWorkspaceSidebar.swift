@@ -120,6 +120,8 @@ func parseWorkspaceSidebar(
             )]
         }
     }
+    // Checked as written above; a narrower width than the mode fits is then widened, not rejected.
+    parsed.widenToMinimumWidth()
     return parsed
 }
 

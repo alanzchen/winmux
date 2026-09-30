@@ -77,6 +77,8 @@ struct SettingsField: Identifiable {
     var contextualHelp: ((Config) -> String)?
     /// Other labels search finds this setting by.
     var searchAliases: [String] = []
+    /// An integer setting whose allowed values depend on other settings.
+    var contextualRange: ((Config) -> ClosedRange<Int>)?
     nonisolated var id: String { [section, key].compactMap { $0 }.joined(separator: ".") }
     var defaultValue: SettingsValue { preferenceDefault ?? read(defaultConfig) }
     func defaultValue(for configuration: Config) -> SettingsValue { unsetValue?(configuration) ?? defaultValue }
@@ -86,6 +88,11 @@ struct SettingsField: Identifiable {
     }
     func title(in configuration: Config) -> String { contextualTitle?(configuration) ?? title }
     func help(in configuration: Config) -> String { contextualHelp?(configuration) ?? help }
+    func range(in configuration: Config) -> ClosedRange<Int>? {
+        if let contextualRange { return contextualRange(configuration) }
+        if case .integer(let range) = control { return range }
+        return nil
+    }
 }
 
 extension SettingsField {
@@ -113,6 +120,13 @@ extension SettingsField {
         field.contextualTitle = { $0.workspaceSidebar.mode == .dock ? ($0.workspaceSidebar.pinsSidebarOpen ? panel.0 : column.0) : title?($0) ?? field.title }
         field.contextualHelp = { $0.workspaceSidebar.mode == .dock ? ($0.workspaceSidebar.pinsSidebarOpen ? panel.1 : column.1) : help?($0) ?? field.help }
         field.searchAliases += [column.0, panel.0]
+        return field
+    }
+
+    /// Allowed values that follow other settings, such as the panel's mode.
+    func ranged(_ range: @escaping (Config) -> ClosedRange<Int>) -> SettingsField {
+        var field = self
+        field.contextualRange = range
         return field
     }
 
@@ -267,8 +281,9 @@ enum SettingsCatalog {
             int(.sidebarAppearance, "width", "Expanded width", "Width in points of the expanded panel, or of each project column in the Dock's floating view. When the panel is kept expanded, you can also drag its inner edge.", section: sidebar, range: workspaceSidebarResizableWidthRange, path: \.workspaceSidebar.width)
                 .used(in: .allModes)
                 .titled(by: [.sidebar: ("Expanded width", "Width of the expanded Sidebar, in points. While it's kept expanded, you can also drag its inner edge. With Remember width for each display, a display you've resized keeps its own width."),
-                             .tabs: ("Sidebar width", "Width of the open tab sidebar, in points. While it's kept open, you can also drag its inner edge. With Remember width for each display, a display you've resized keeps its own width.")])
-                .dockWidthTitle(),
+                             .tabs: ("Sidebar width", "Width of the open tab sidebar, in points, at least 160 so its tabs stay readable. While it's kept open, you can also drag its inner edge. With Remember width for each display, a display you've resized keeps its own width.")])
+                .dockWidthTitle()
+                .ranged { workspaceSidebarSettingsWidthRange($0.workspaceSidebar) },
             bool(.sidebarAppearance, "width-per-display", "Remember width for each display", "Dragging the panel's inner edge changes only that display's width, and the display keeps it. Displays you haven't resized use the width above. Double-click the edge to put a display back on it.", section: sidebar, path: \.workspaceSidebar.widthPerDisplay)
                 .used(in: [.sidebar, .tabs]),
             int(.sidebarAppearance, "collapsed-width", "Collapsed width", "Compact rail width in Sidebar and Tabs modes. Dock thickness follows icon size.", section: sidebar, range: 28...120, path: \.workspaceSidebar.collapsedWidth)

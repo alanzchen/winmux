@@ -6,6 +6,13 @@ let workspaceSidebarResizeHandleWidth: CGFloat = 4
 /// Shared with the Expanded width setting, so a dragged width always fits its slider.
 let workspaceSidebarResizableWidthRange: ClosedRange<Int> = 120...480
 
+/// The Expanded width setting's slider: from the mode's minimum, so it offers only widths the
+/// panel keeps.
+func workspaceSidebarSettingsWidthRange(_ sidebarConfig: WorkspaceSidebarConfig) -> ClosedRange<Int> {
+    let lower = max(workspaceSidebarResizableWidthRange.lowerBound, sidebarConfig.mode.minimumExpandedWidth ?? 0)
+    return lower...max(lower, workspaceSidebarResizableWidthRange.upperBound)
+}
+
 /// Only an always-expanded panel beside the tiled windows has an inner edge to drag.
 /// A bottom panel's height follows the display, and a collapsible rail opens over windows.
 func workspaceSidebarAllowsResize(_ sidebarConfig: WorkspaceSidebarConfig) -> Bool {
@@ -13,8 +20,10 @@ func workspaceSidebarAllowsResize(_ sidebarConfig: WorkspaceSidebarConfig) -> Bo
 }
 
 func workspaceSidebarResizeWidthBounds(_ sidebarConfig: WorkspaceSidebarConfig) -> ClosedRange<Int> {
-    // always-expanded rejects a width that does not exceed collapsed-width.
-    let lower = max(workspaceSidebarResizableWidthRange.lowerBound, sidebarConfig.collapsedWidth + 1)
+    // The edge stops where the mode's content would stop fitting. always-expanded rejects a
+    // width that does not exceed collapsed-width.
+    let lower = max(workspaceSidebarResizableWidthRange.lowerBound, sidebarConfig.mode.minimumExpandedWidth ?? 0,
+        sidebarConfig.collapsedWidth + 1)
     return lower...max(lower, workspaceSidebarResizableWidthRange.upperBound)
 }
 

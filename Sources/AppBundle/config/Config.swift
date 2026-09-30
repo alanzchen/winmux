@@ -95,6 +95,18 @@ enum WorkspaceSidebarMode: String, CaseIterable, Identifiable, Sendable {
     case tabs
 
     var id: String { rawValue }
+
+    /// The narrowest expanded panel the mode's content fits, in points. At 160, Tabs still shows
+    /// its display menu and search prompt in full, about 12 characters of a tab's title and 8 of
+    /// a grouped tab's. Sidebar keeps its long-standing 120. The Dock's width sizes its floating
+    /// project columns, which keep any width.
+    var minimumExpandedWidth: Int? {
+        switch self {
+            case .tabs: 160
+            case .sidebar: 120
+            case .dock: nil
+        }
+    }
 }
 
 enum DockIdentityLabels: String, Sendable {
@@ -351,6 +363,14 @@ extension WorkspaceSidebarConfig {
 
     func width(onDisplayNamed name: String?) -> Int {
         savedWidth(widthTarget(forDisplayNamed: name)) ?? width
+    }
+
+    /// Widens a width, or a display's, that's narrower than the mode's content fits. Loading
+    /// applies it to the configuration in memory; the file keeps the value it has.
+    mutating func widenToMinimumWidth() {
+        guard let minimum = mode.minimumExpandedWidth else { return }
+        width = max(width, minimum)
+        displayWidths = displayWidths.mapValues { max($0, minimum) }
     }
 
     /// A copy whose `width` is the display's, for code that sizes that display's panel.

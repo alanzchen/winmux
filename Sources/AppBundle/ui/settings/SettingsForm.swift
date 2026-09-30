@@ -173,7 +173,9 @@ struct SettingsFieldRow: View {
                         }
                         .labelsHidden().frame(maxWidth: 185, alignment: .trailing).accessibilityLabel(title)
                     }
-                case .integer(let range): numberControl(range: Double(range.lowerBound)...Double(range.upperBound), integer: true)
+                case .integer(let range):
+                    let range = field.range(in: editor.projection) ?? range
+                    numberControl(range: Double(range.lowerBound)...Double(range.upperBound), integer: true)
                 case .percentage, .magnification: numberControl(range: 0...1, integer: false)
                 case .text:
                     Text(title)

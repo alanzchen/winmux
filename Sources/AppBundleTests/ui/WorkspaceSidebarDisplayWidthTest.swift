@@ -48,6 +48,34 @@ final class WorkspaceSidebarDisplayWidthTest: XCTestCase {
             ["workspace-sidebar.display-widths: Expected type is 'table'. But actual type is 'integer'"])
     }
 
+    func testWidthsNarrowerThanTheModeFitsAreWidenedAtLoad() {
+        let table = """
+            width = 130
+            [workspace-sidebar.display-widths]
+            "Narrow" = 100
+            "Wide" = 300
+            """
+        let tabs = parseConfig("[workspace-sidebar]\nmode = 'tabs'\n" + table)
+        XCTAssertEqual(tabs.errors.descriptions, [], "A narrow width still loads")
+        XCTAssertEqual(tabs.config.workspaceSidebar.width, 160)
+        XCTAssertEqual(tabs.config.workspaceSidebar.displayWidths, ["Narrow": 160, "Wide": 300])
+        XCTAssertEqual(tabs.config.workspaceSidebar.width(onDisplayNamed: "Narrow"), 160)
+        XCTAssertEqual(tabs.config.workspaceSidebar.width(onDisplayNamed: "Other"), 160)
+
+        let sidebar = parseConfig("[workspace-sidebar]\nmode = 'sidebar'\n" + table).config.workspaceSidebar
+        XCTAssertEqual(sidebar.width, 130, "Sidebar mode fits from 120")
+        XCTAssertEqual(sidebar.displayWidths, ["Narrow": 120, "Wide": 300])
+
+        let dock = parseConfig("[workspace-sidebar]\nmode = 'dock'\n" + table).config.workspaceSidebar
+        XCTAssertEqual(dock.width, 130)
+        XCTAssertEqual(dock.displayWidths, ["Narrow": 100, "Wide": 300], "The Dock's column width is used as written")
+
+        // Checks still read the file as written.
+        let rejected = parseConfig("[workspace-sidebar]\nmode = 'sidebar'\nalways-expanded = true\ncollapsed-width = 110\nwidth = 100")
+        XCTAssertEqual(rejected.errors.descriptions,
+            ["workspace-sidebar.width: Must be greater than collapsed-width when always-expanded is true"])
+    }
+
     func testOnlySidebarAndTabsPanelsUseADisplaysOwnWidth() {
         var settings = WorkspaceSidebarConfig(mode: .tabs)
         settings.width = 240

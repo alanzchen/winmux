@@ -95,6 +95,15 @@ final class WorkspaceSidebarNarrowWidthTest: XCTestCase {
             "Seconds take room from the time")
     }
 
+    func testTheWidthSettingStartsAtTheModesMinimum() throws {
+        let field = try XCTUnwrap(SettingsCatalog.fields.first { $0.section == "workspace-sidebar" && $0.key == "width" })
+        var configuration = defaultConfig
+        for (mode, range) in [(WorkspaceSidebarMode.tabs, 160...480), (.sidebar, 120...480), (.dock, 120...480)] {
+            configuration.workspaceSidebar.mode = mode
+            XCTAssertEqual(field.range(in: configuration), range, "\(mode)")
+        }
+    }
+
     // MARK: - Fixtures
 
     private func pager(width: CGFloat, projectCount: Int, tabs: Bool) -> WorkspaceSidebarProjectPager {

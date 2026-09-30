@@ -46,6 +46,47 @@ final class WorkspaceSidebarResizeTest: XCTestCase {
         XCTAssertEqual(errors.descriptions, [])
     }
 
+    func testTheEdgeStopsAtTheModesMinimumWidth() {
+        var tabs = WorkspaceSidebarConfig(mode: .tabs)
+        XCTAssertEqual(workspaceSidebarResizeWidthBounds(tabs), 160...480)
+        tabs.collapsedWidth = 170
+        XCTAssertEqual(workspaceSidebarResizeWidthBounds(tabs), 171...480)
+        XCTAssertEqual(workspaceSidebarResizeWidthBounds(WorkspaceSidebarConfig(mode: .sidebar)), 120...480)
+        XCTAssertEqual(workspaceSidebarResizeWidthBounds(WorkspaceSidebarConfig(mode: .dock)), 120...480)
+        XCTAssertEqual(workspaceSidebarResizedWidth(startWidth: 200, pointerDeltaX: -300, position: .left, paneCount: 1,
+            bounds: workspaceSidebarResizeWidthBounds(WorkspaceSidebarConfig(mode: .tabs))), 160)
+    }
+
+    func testANarrowConfiguredTabsWidthIsWidenedWithoutRewritingTheFile() async throws {
+        try await withAlwaysExpandedPanel(mode: .tabs) { panel in
+            let disk = SidebarWidthTestDisk(width: 130, extra: "    width-per-display = false\n# Keep this comment\n")
+            let original = disk.text
+            workspaceSidebarWidthPersistenceForTests = disk.persistence
+            config.workspaceSidebar = parseConfig(disk.text).config.workspaceSidebar
+            WorkspaceSidebarPanel.refreshAll()
+            XCTAssertEqual(config.workspaceSidebar.width, 160)
+            XCTAssertEqual(panel.viewModel.workspaceSidebarVisibleWidth, 160)
+            XCTAssertEqual(mainMonitor.workspaceSidebarInset, 160, "Tiled windows make room for the wider panel")
+
+            XCTAssertTrue(panel.beginSidebarResize(atScreenX: 500))
+            XCTAssertNil(panel.endSidebarResize(), "A click on the edge saves nothing")
+            XCTAssertTrue(panel.beginSidebarResize(atScreenX: 500))
+            panel.updateSidebarResize(toScreenX: 300)
+            XCTAssertEqual(config.workspaceSidebar.width, 160, "The edge stops at the minimum")
+            XCTAssertNil(panel.endSidebarResize())
+            XCTAssertEqual(disk.writes, [], "Loading, clicking and dragging past the minimum leave the file alone")
+            XCTAssertEqual(disk.text, original)
+
+            XCTAssertTrue(panel.beginSidebarResize(atScreenX: 500))
+            panel.updateSidebarResize(toScreenX: 540)
+            await panel.endSidebarResize()?.value
+            XCTAssertEqual(disk.writes.count, 1)
+            XCTAssertEqual(disk.text, original.replacingOccurrences(of: "width = 130", with: "width = 200"),
+                "A drag writes only the width it set")
+            XCTAssertEqual(config.workspaceSidebar.width, 200)
+        }
+    }
+
     func testHandleSitsInsideThePanelAlongItsInnerEdge() {
         let surface = CGRect(x: 10, y: 20, width: 240, height: 700)
         XCTAssertEqual(workspaceSidebarResizeHandleFrame(surface: surface, position: .left),
@@ -98,7 +139,7 @@ final class WorkspaceSidebarResizeTest: XCTestCase {
 
     func testTabsSidebarRenderedEdgeFollowsRepeatedWidthDrags() async throws {
         try await withAlwaysExpandedPanel(mode: .tabs) { panel in
-            for width in [360, 180, 320, 120, 480, 240] {
+            for width in [360, 180, 320, 160, 480, 240] {
                 XCTAssertTrue(panel.beginSidebarResize(atScreenX: 500))
                 let startWidth = config.workspaceSidebar.width
                 panel.updateSidebarResize(toScreenX: 500 + CGFloat(width - startWidth))
@@ -603,8 +644,8 @@ private final class SidebarWidthTestDisk {
     var text: String
     var writes: [String] = []
 
-    init(extra: String = "") {
-        text = "[workspace-sidebar]\n    enabled = true\n    mode = 'tabs'\n    always-expanded = true\n    width = 240\n" + extra
+    init(width: Int = 240, extra: String = "") {
+        text = "[workspace-sidebar]\n    enabled = true\n    mode = 'tabs'\n    always-expanded = true\n    width = \(width)\n" + extra
     }
 
     var persistence: SettingsPersistence {

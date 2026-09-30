@@ -192,6 +192,12 @@ pointer. Tiled windows follow as you drag. When you let go, WinMux saves the new
 `width`, from 120 to 480 points and always greater than `collapsed-width`. A bottom
 Dock keeps its fitted height.
 
+Each mode has a minimum width that its content fits: 160 points in Tabs mode and 120 in
+Sidebar mode. The edge stops there, and so does the width slider in Settings. A smaller
+`width` or display width in your file still loads, but the panel uses the minimum
+instead. WinMux doesn't change the file. In Dock mode, WinMux uses `width` as written,
+because it also sets the width of each project column in the floating view.
+
 In Sidebar and Tabs modes, each display remembers its own width. Dragging the edge
 on one display resizes only that display's panel and saves its width under the
 display's name. Displays you haven't resized use `width`. Double-click the edge to
