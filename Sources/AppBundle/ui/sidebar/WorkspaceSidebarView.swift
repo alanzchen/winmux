@@ -13,6 +13,7 @@ struct WorkspaceSidebarView: View {
     let musicPlayerModel: AppleMusicNowPlayingModel
     @State private var browserWatchScope: String?
     var browserTabs: [UInt32: BrowserWindowTabs] { snapshot.configuration.usesTabsList ? browserTabsModel.snapshots : [:] }
+    /// Pinned tiles are read too: they show no browser tabs, but their window's sound and website icon.
     private var watchedBrowserWindowIds: Set<UInt32> {
         guard snapshot.configuration.usesTabsList,
               snapshot.visibleWidth > snapshot.configuration.expansionStartWidth else { return [] }
@@ -20,8 +21,7 @@ struct WorkspaceSidebarView: View {
             workspaceSidebarTabPresentation($0) != .folder &&
                 (!searchText.isEmpty || $0.projectId == snapshot.activeProjectId || $0.projectId == browsedProjectId) &&
                 (!$0.isVisible || workspaceSidebarMonitorScopeIsSentinel(snapshot.targetMonitorScopeId) ||
-                    $0.monitorScopeId == snapshot.targetMonitorScopeId) &&
-                (isSearchEditing || !searchText.isEmpty || !$0.appearance.isFavorite)
+                    $0.monitorScopeId == snapshot.targetMonitorScopeId)
         }
             .flatMap(workspaceSidebarPinnedTabWindows).map(\.windowId))
     }

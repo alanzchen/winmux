@@ -1,20 +1,24 @@
 import AppKit
 import SwiftUI
 
-/// A speaker on a tab whose app is playing sound. Core Audio reports sound per app, so every
-/// tab of that app shows it.
+/// A speaker on a tab whose window is playing sound, or a muted one on a window with a muted
+/// browser tab. Core Audio reports sound per app; a browser's tabs say which window it comes
+/// from, and without them every window of the app shows it.
 struct WorkspaceSidebarTabAudioIndicator: View {
-    let bundleId: String?
+    let window: WorkspaceSidebarWindowViewModel
     var size: CGFloat = 10
     @ObservedObject var model: AudioActivityModel = .shared
+    @Environment(\.workspaceSidebarBrowserWindows) private var browserWindows
 
     var body: some View {
-        if model.isPlaying(bundleId: bundleId) {
-            Image(systemName: "speaker.wave.2.fill")
+        if let audio = browserWindows.audio(windowId: window.windowId, bundleId: window.appBundleId,
+            appIsPlaying: model.isPlaying(bundleId: window.appBundleId)) {
+            let label = audio == .muted ? "Muted" : "Playing sound"
+            Image(systemName: audio == .muted ? "speaker.slash.fill" : "speaker.wave.2.fill")
                 .font(.system(size: size, weight: .semibold))
                 .foregroundStyle(Color.primary.opacity(0.55))
-                .help("Playing sound")
-                .accessibilityLabel("Playing sound")
+                .help(label)
+                .accessibilityLabel(label)
                 .allowsHitTesting(false)
                 .transition(.opacity)
         }

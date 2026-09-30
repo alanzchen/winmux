@@ -184,7 +184,10 @@ final class MacApp: AbstractApp {
         }
     }
 
-    func readBrowserTabs(_ windowId: UInt32, readIcons: Bool = false) async throws -> BrowserTabRead {
+    /// `rediscover` walks a window without a tab strip in full, rather than reading only its title;
+    /// `loneRediscovery` is how long such a window whose title stays goes between walks.
+    func readBrowserTabs(_ windowId: UInt32, readIcons: Bool = false, rediscover: Bool = false,
+                         loneRediscovery: TimeInterval = browserLoneTabRediscovery) async throws -> BrowserTabRead {
         guard let adapter = BrowserTabAdapter(bundleId: rawAppBundleId) else { return .init() }
         return try await thread?.runInLoop { [windows, pid] job in
             guard let window = windows.threadGuarded[windowId] else { return BrowserTabRead() }
@@ -198,6 +201,10 @@ final class MacApp: AbstractApp {
             }
             try job.checkCancellation()
             let budgetEnd = ProcessInfo.processInfo.systemUptime + 0.15
+            if !rediscover, let lone = window.browserTabScanner?.loneTab(until: budgetEnd, rediscoverAfter: loneRediscovery,
+                cancelled: { job.isCancelled }) {
+                return BrowserTabRead(loneTab: lone)
+            }
             var snapshot = window.browserTabScanner?.scan(until: budgetEnd, cancelled: { job.isCancelled })
             try job.checkCancellation()
             if readIcons, adapter == .chromium, let value = snapshot, value.isGroup,
@@ -209,7 +216,9 @@ final class MacApp: AbstractApp {
             }
             try job.checkCancellation()
             if let nodes = window.browserTabScanner?.observedNodes { window.browserTabObservation?.update(nodes) }
-            return BrowserTabRead(tabs: snapshot, hasNoTabStrip: snapshot == nil && window.browserTabScanner?.foundNoTabStrip == true)
+            let hasNoTabStrip = snapshot == nil && window.browserTabScanner?.foundNoTabStrip == true
+            return BrowserTabRead(tabs: snapshot,
+                loneTab: hasNoTabStrip ? window.browserTabScanner?.loneTab(until: budgetEnd, cancelled: { job.isCancelled }) : nil)
         } ?? .init()
     }
 

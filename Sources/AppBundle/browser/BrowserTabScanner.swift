@@ -3,6 +3,10 @@ import Foundation
 struct BrowserTabAXStructure {
     let role: String
     let subrole: String
+    /// Safari's own name for a control, the same in every language.
+    var identifier: String? = nil
+    var title: String? = nil
+    var description: String? = nil
     var isTab: Bool { role == "AXRadioButton" && subrole == "AXTabButton" }
 }
 
@@ -32,11 +36,49 @@ struct BrowserTabAXRecord<Node> {
     let info: BrowserTabAXInfo
     let parent: BrowserTabAXLink<Node>
     let window: BrowserTabAXLink<Node>
+    /// A Safari tab's own controls, read with it.
+    var children: [Node]? = nil
 }
 
 /// The selector in Safari's "Name:…\nTarget:…\nSelector:…" close action. Names are localized;
 /// the selector isn't.
 let browserTabCloseSelector = "Selector:_closeButtonClicked:"
+
+/// The speaker in Safari's address field. It shows while the tab it's in plays sound or is muted,
+/// and also while another tab plays, to mute that one.
+let safariAudioIndicatorIdentifier = "UnifiedField._audioIndicator"
+
+/// What a control on a Safari tab says about its sound: a tab playing sound shows a mute button,
+/// and a muted one an unmute button. The words are localized, so a muted tab shows as playing in
+/// another language. A close button, should one show under the pointer, is told apart by its
+/// subrole or by the name of the tab's close action, `closeName`; without that name, only
+/// English words can say a button is the sound.
+func safariTabControlAudio(_ control: BrowserTabAXStructure, closeName: String?) -> BrowserTabAudio? {
+    guard control.role == "AXButton", control.subrole != "AXCloseButton" else { return nil }
+    let words = [control.title, control.description].compactMap { $0?.lowercased() }.filter { !$0.isEmpty }
+    guard !words.isEmpty, !words.contains(where: { $0.contains("close") }) else { return nil }
+    if let closeName {
+        guard !words.contains(closeName.lowercased()) else { return nil }
+    } else {
+        guard words.contains(where: { $0.contains("mute") }) else { return nil }
+    }
+    return words.contains { $0.contains("unmute") } ? .muted : .playing
+}
+
+/// What the address field's speaker says about its own tab. Only its English words tell "this
+/// tab" from the others it can mute, so in another language it says nothing.
+func safariAddressFieldAudio(_ control: BrowserTabAXStructure) -> BrowserTabAudio? {
+    let words = [control.title, control.description].compactMap { $0?.lowercased() }
+    guard words.contains(where: { $0.contains("mute this tab") }) else { return nil }
+    return words.contains { $0.contains("unmute this tab") } ? .muted : .playing
+}
+
+/// The localized name of a Safari tab's close action, from its "Name:…\nTarget:…\nSelector:…" action.
+func safariCloseActionName(_ actions: [String]) -> String? {
+    actions.first { $0.contains(browserTabCloseSelector) }.flatMap { action in
+        action.split(separator: "\n").first.flatMap { $0.hasPrefix("Name:") ? String($0.dropFirst(5)) : nil }
+    }
+}
 
 /// Small native boundary allows behavioral tests without reading live browsing data.
 protocol BrowserTabAXNode: Equatable {
@@ -45,22 +87,27 @@ protocol BrowserTabAXNode: Equatable {
     func parent() -> Self?
     func window() -> Self?
     func tabInfo() -> BrowserTabAXInfo?
-    func tabRecord() -> BrowserTabAXRecord<Self>?
+    func tabRecord(withChildren: Bool) -> BrowserTabAXRecord<Self>?
     func press() -> Bool
     /// The element's actions, including an app's own named ("Name:…") actions.
     func actionNames() -> [String]
     func perform(_ action: String) -> Bool
+    /// The element's own title, read from a window.
+    func windowTitle() -> String?
 }
 
 extension BrowserTabAXNode {
-    func tabRecord() -> BrowserTabAXRecord<Self>? {
+    func tabRecord(withChildren: Bool) -> BrowserTabAXRecord<Self>? {
         guard let structure = structure(), let info = tabInfo() else { return nil }
         return .init(structure: structure, info: info, parent: parent().map { .element($0) } ?? .unreadable,
-            window: window().map { .element($0) } ?? .unreadable)
+            window: window().map { .element($0) } ?? .unreadable, children: withChildren ? children() : nil)
     }
+
+    func tabRecord() -> BrowserTabAXRecord<Self>? { tabRecord(withChildren: false) }
 
     func actionNames() -> [String] { [] }
     func perform(_ action: String) -> Bool { false }
+    func windowTitle() -> String? { nil }
 
     /// Closes this tab with its own control, found without localized text. Safari's tabs offer
     /// a named action for the method their close button calls, even while the button is hidden
@@ -72,6 +119,11 @@ extension BrowserTabAXNode {
         return close?.press() ?? false
     }
 }
+
+/// How long a window found to have no tab strip, whose title stays the same, has only its title
+/// read before it is walked again: less while its browser plays sound.
+let browserLoneTabRediscovery: TimeInterval = 30
+let browserLoneTabRediscoveryWhilePlaying: TimeInterval = 5
 
 /// Confined to the owning MacApp AX thread. No AX references escape in snapshots.
 final class BrowserTabScanner<Node: BrowserTabAXNode> {
@@ -91,6 +143,17 @@ final class BrowserTabScanner<Node: BrowserTabAXNode> {
     /// Whether the last discovery read the whole window and found no tab at all, as in Safari's
     /// Settings or a window whose one tab hides the tab bar. A failed or partial read never says so.
     private(set) var foundNoTabStrip = false
+    /// When a discovery last found no tab strip, until one finds a strip or fails.
+    private var foundNoTabStripAt: TimeInterval?
+    /// The one tab of a window without a tab strip, while it stays that way.
+    private var loneTabId = UUID()
+    /// Whether the last discovery's window, if it has no tab strip, plays sound or is muted.
+    private var loneTabAudio: BrowserTabAudio?
+    /// The window's title since its last walk found no tab strip. A new title may be a new tab.
+    private var walkedTitle: String?
+    /// How many controls a Safari tab has with nothing playing: its icon, while tabs show website
+    /// icons, and its title. Learned once per walk.
+    private var quietTabControls: Int?
 
     init(root: Node, adapter: BrowserTabAdapter, windowId: UInt32, pid: Int32,
          now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
@@ -116,7 +179,16 @@ final class BrowserTabScanner<Node: BrowserTabAXNode> {
             candidate = container
         } else {
             container = nil
-            guard let found = discover(deadline: discoveryDeadline, cancelled: cancelled) else { return nil }
+            walkedTitle = nil
+            quietTabControls = nil
+            guard let found = discover(deadline: discoveryDeadline, cancelled: cancelled) else {
+                foundNoTabStripAt = foundNoTabStrip ? started : nil
+                return nil
+            }
+            if foundNoTabStripAt != nil {
+                foundNoTabStripAt = nil
+                loneTabId = UUID()
+            }
             candidate = found
             discovered = true
             lastDiscovery = started
@@ -133,9 +205,10 @@ final class BrowserTabScanner<Node: BrowserTabAXNode> {
         let deadline = min(budgetEnd, started + (discovered ? 0.15 : min(0.15, max(0.075, 0.05 + Double(children.count) * 0.001))))
         var next: [(node: Node, id: UUID)] = []
         var tabs: [BrowserTab] = []
+        var records: [(node: Node, record: BrowserTabAXRecord<Node>)] = []
         for child in children {
             guard !isCancelled(), !cancelled(), now() < deadline,
-                  let record = child.tabRecord(), isTab(record, of: candidate)
+                  let record = child.tabRecord(withChildren: adapter == .safari), isTab(record, of: candidate)
             else {
                 // A replaced container or a collapsed native tab group is not a
                 // complete list. Don't retire identities or publish a partial scan.
@@ -143,12 +216,22 @@ final class BrowserTabScanner<Node: BrowserTabAXNode> {
             }
             let id = handles.first { $0.node == child }?.id ?? UUID()
             next.append((child, id))
-            tabs.append(.init(target: .init(windowId: windowId, pid: pid,
-                windowSession: windowSession, tabId: id), title: browserTabDisplayTitle(record.info.title), isSelected: record.info.selected))
+            let label = browserTabLabel(record.info.title, adapter: adapter)
+            tabs.append(.init(target: .init(windowId: windowId, pid: pid, windowSession: windowSession, tabId: id),
+                title: label.title, isSelected: record.info.selected, audio: label.audio))
+            records.append((child, record))
         }
         guard tabs.filter(\.isSelected).count == 1, now() < deadline, !isCancelled(), !cancelled() else { return nil }
+        var quietControls = quietTabControls
+        if adapter == .safari {
+            guard let sound = safariTabAudio(records, until: deadline, cancelled: cancelled),
+                  now() < deadline, !isCancelled(), !cancelled() else { return nil }
+            for index in tabs.indices { tabs[index].audio = sound.audio[index] }
+            quietControls = sound.quietControls
+        }
         container = candidate
         handles = next
+        quietTabControls = quietControls
         anchor = zip(next, tabs).first { $0.1.isSelected }?.0.node
         // The selected control plus window/container notifications cover common
         // changes. Keep subscriptions bounded; polling reconciles background tabs.
@@ -193,7 +276,63 @@ final class BrowserTabScanner<Node: BrowserTabAXNode> {
         guard snapshot.tabs.filter(\.isSelected).count == 1, let selected = snapshot.tabs.first(where: \.isSelected),
               let (_, record) = validatedTab(selected.target, until: deadline, cancelled: cancelled)
         else { return false }
-        return record.info.selected && browserTabDisplayTitle(record.info.title) == selected.title
+        return record.info.selected && browserTabLabel(record.info.title, adapter: adapter).title == selected.title
+    }
+
+    /// A Safari window whose one tab hides the tab bar, as that tab, named by the window's title:
+    /// what the Safari extension can pair it by. After a full scan found no tab strip, only the
+    /// title is read, so a window that stays that way isn't walked at every read. A new tab
+    /// changes the title, and a new title, or `interval`, has the window walked again: nil asks
+    /// for the full scan.
+    func loneTab(until budgetEnd: TimeInterval = .infinity, rediscoverAfter interval: TimeInterval = browserLoneTabRediscovery,
+                 cancelled: () -> Bool = { false }) -> BrowserWindowTabs? {
+        guard adapter == .safari, let found = foundNoTabStripAt, now() - found < interval,
+              now() < budgetEnd, !isCancelled(), !cancelled(), let title = root.windowTitle(),
+              now() < budgetEnd, !isCancelled(), !cancelled(), walkedTitle.map({ $0 == title }) ?? true else { return nil }
+        walkedTitle = title
+        return .init(windowId: windowId, pid: pid, windowSession: windowSession, tabs: [
+            .init(target: .init(windowId: windowId, pid: pid, windowSession: windowSession, tabId: loneTabId),
+                title: browserTabLabel(title, adapter: adapter).title, isSelected: true, audio: loneTabAudio),
+        ])
+    }
+
+    /// A Safari tab playing sound shows a mute button after its icon and title, and keeps it, to
+    /// unmute, while muted; a pinned tab shows only its icon, and without website icons a tab
+    /// shows only its title. So only a tab with more controls than a quiet one has its extra ones
+    /// read: a strip with nothing playing costs no more than its tabs. How many a quiet tab has is
+    /// learned once per walk from the last control of the unpinned tab with the most, which is
+    /// shown in full (tabs piled up in a crowded tab bar show fewer): a button there is one more
+    /// than a quiet tab's, as when every tab is playing. It's returned to keep only with a
+    /// complete scan. Nil when a read failed or ran out of time, as a partial scan says nothing.
+    private func safariTabAudio(_ records: [(node: Node, record: BrowserTabAXRecord<Node>)], until deadline: TimeInterval,
+                                cancelled: () -> Bool) -> (audio: [BrowserTabAudio?], quietControls: Int?)? {
+        let pinned = records.map { $0.record.structure.identifier?.contains("isPinned=true") == true }
+        let counts = records.map { $0.record.children?.count ?? 0 }
+        var quiet = quietTabControls
+        if quiet == nil, let widest = records.indices.filter({ !pinned[$0] }).max(by: { counts[$0] < counts[$1] }), counts[widest] > 0 {
+            guard now() < deadline, !isCancelled(), !cancelled(),
+                  let last = records[widest].record.children?.last?.structure() else { return nil }
+            quiet = last.role == "AXButton" ? counts[widest] - 1 : counts[widest]
+        }
+        let usualCount = (pinned: min(1, records.indices.filter { pinned[$0] }.map { counts[$0] }.min() ?? 1),
+                          unpinned: quiet ?? 2)
+        var audio: [BrowserTabAudio?] = []
+        for (index, (node, record)) in records.enumerated() {
+            let usual = pinned[index] ? usualCount.pinned : usualCount.unpinned
+            guard let children = record.children, children.count > usual else {
+                audio.append(nil)
+                continue
+            }
+            guard now() < deadline, !isCancelled(), !cancelled() else { return nil }
+            let closeName = safariCloseActionName(node.actionNames())
+            var found: BrowserTabAudio?
+            for control in children.suffix(children.count - usual).reversed() where found == nil {
+                guard now() < deadline, !isCancelled(), !cancelled(), let structure = control.structure() else { return nil }
+                found = safariTabControlAudio(structure, closeName: closeName)
+            }
+            audio.append(found)
+        }
+        return (audio, quiet)
     }
 
     private func validatedTab(_ target: BrowserTabTarget, until deadline: TimeInterval,
@@ -235,6 +374,7 @@ final class BrowserTabScanner<Node: BrowserTabAXNode> {
 
     private func discover(deadline: TimeInterval, cancelled: () -> Bool) -> Node? {
         foundNoTabStrip = false
+        var audio: BrowserTabAudio?
         // Each node with the one whose children listed it.
         var queue: [(node: Node, depth: Int, lister: Node?)] = [(root, 0, nil)]
         var visited: [Node] = []
@@ -255,6 +395,11 @@ final class BrowserTabScanner<Node: BrowserTabAXNode> {
                 if !candidates.contains(parent) { candidates.append(parent) }
                 continue
             }
+            // Read with the walk: the speaker for a window without a tab strip's one tab.
+            if adapter == .safari, structure.identifier == safariAudioIndicatorIdentifier {
+                audio = safariAddressFieldAudio(structure)
+                continue
+            }
             // Leaf controls cannot contain a tab strip. Never inspect web content
             // or tab descendants (including Safari's custom close action strings).
             guard ["AXWindow", "AXGroup", "AXOpaqueProviderGroup", "AXSplitGroup", "AXToolbar", "AXScrollArea", "AXTabGroup"]
@@ -263,6 +408,7 @@ final class BrowserTabScanner<Node: BrowserTabAXNode> {
             queue += children.map { ($0, depth + 1, node) }
         }
         foundNoTabStrip = candidates.isEmpty
+        loneTabAudio = foundNoTabStrip ? audio : nil
         guard candidates.count == 1, candidates[0].window() == root, now() < deadline else { return nil }
         return candidates[0]
     }

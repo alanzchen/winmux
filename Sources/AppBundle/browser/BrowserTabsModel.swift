@@ -19,8 +19,8 @@ final class BrowserTabsModel: ObservableObject {
     private let safariExtension: SafariExtensionBridge
     private var safariAssociations = SafariExtensionAssociations()
     private var safariEvidence: SafariExtensionEvidence?
-    /// When a window's last read found no tab strip at all.
-    private var withoutTabStrips: [UInt32: TimeInterval] = [:]
+    /// Safari windows to walk in full at their next read: a lone tab's speaker shows only there.
+    private var rediscover: Set<UInt32> = []
 
     init(snapshots: [UInt32: BrowserWindowTabs] = [:], safariExtension: SafariExtensionBridge = .shared) {
         self.snapshots = snapshots
@@ -41,7 +41,7 @@ final class BrowserTabsModel: ObservableObject {
             pendingSelections = .init()
             safariAssociations = .init()
             safariEvidence = nil
-            withoutTabStrips = [:]
+            rediscover = []
         }
         let icons = enabled && config.workspaceSidebar.browserTabIcons
         BrowserTabIconModel.shared.setEnabled(icons)
@@ -77,11 +77,19 @@ final class BrowserTabsModel: ObservableObject {
         }
     }
 
+    /// A browser's tabs say they're playing sound only from the next read, so when a browser
+    /// starts or stops playing, the windows of it the sidebar shows are read now, not in turn.
+    func rereadWindows(of bundleIds: Set<String>) {
+        guard task != nil else { return }
+        let rereads = browserTabRereads(MacWindow.allWindowsMap.values.map { ($0.windowId, $0.app.rawAppBundleId) },
+            changed: bundleIds, watched: schedule.watched)
+        rediscover.formUnion(rereads.rediscover)
+        for id in rereads.now { schedule.reset(id) }
+    }
+
     func markDirty(_ windowId: UInt32, pid: Int32) {
         guard task != nil, Window.get(byId: windowId)?.app.pid == pid else { return }
         schedule.markDirty(windowId)
-        // The window may have just shown its tab strip, as when a second tab opens.
-        withoutTabStrips[windowId] = nil
     }
 
     private func reconcile(generation token: Int) async {
@@ -94,7 +102,7 @@ final class BrowserTabsModel: ObservableObject {
         iconAssociations.retain(Set(cache.snapshots.values.flatMap { $0.tabs.map(\.target) }))
         publish()
         schedule.retain(Set(ownerPids.keys))
-        withoutTabStrips = withoutTabStrips.filter { ownerPids[$0.key] != nil }
+        rediscover = rediscover.filter { ownerPids[$0] != nil }
         schedule.focus(focus.windowOrNil?.windowId)
         // Hidden rails retain their cache but do no browser work. Revealing them
         // resumes reads without creating a window-layout refresh session.
@@ -113,11 +121,15 @@ final class BrowserTabsModel: ObservableObject {
             guard schedule.isDue(window.windowId, now: now),
                   let app = window.app as? MacApp, app.browserTabsMayRead else { continue }
             let readStarted = ProcessInfo.processInfo.systemUptime
-            let read = try? await app.readBrowserTabs(window.windowId, readIcons: iconsEnabled)
-            let result = read?.tabs
+            // While a browser plays, a window without a tab strip can start or stop playing with
+            // no change Core Audio would report, so it's walked more often.
+            let read = try? await app.readBrowserTabs(window.windowId, readIcons: iconsEnabled,
+                rediscover: rediscover.remove(window.windowId) != nil,
+                loneRediscovery: AudioActivityModel.shared.isPlaying(bundleId: app.rawAppBundleId)
+                    ? browserLoneTabRediscoveryWhilePlaying : browserLoneTabRediscovery)
+            let result = read?.tabs ?? read?.loneTab
             reads += 1
             guard generation == token, !Task.isCancelled else { return }
-            withoutTabStrips[window.windowId] = read?.hasNoTabStrip == true ? ProcessInfo.processInfo.systemUptime : nil
             schedule.didRead(window.windowId, now: ProcessInfo.processInfo.systemUptime, succeeded: result != nil)
             if var result, Window.get(byId: window.windowId)?.app === app {
                 if !iconsEnabled { result.iconCandidate = nil }
@@ -133,15 +145,11 @@ final class BrowserTabsModel: ObservableObject {
 
     private func publish() {
         updateSafariAssociations()
-        pendingSelections.expire(now: ProcessInfo.processInfo.systemUptime)
+        let now = ProcessInfo.processInfo.systemUptime
+        pendingSelections.expire(now: now)
         let next = cache.snapshots.mapValues { value in
-            var value = pendingSelections.apply(value)
-            value.tabs = value.tabs.map { tab in
-                var tab = safariAssociations.described(tab)
-                tab.iconOrigin = iconsEnabled ? iconAssociations.origins[tab.target] : nil
-                return tab
-            }
-            return value
+            browserTabsShown(pendingSelections.apply(value), read: cache.observed[value.windowId], now: now,
+                safari: safariAssociations, iconOrigins: iconsEnabled ? iconAssociations.origins : [:])
         }
         if snapshots != next { snapshots = next }
     }
@@ -156,8 +164,7 @@ final class BrowserTabsModel: ObservableObject {
                 ?? windowServerFrame(id)
         }
         let live = MacWindow.allWindowsMap.values.filter { $0.app.rawAppBundleId == safariBundleId }.map(\.windowId)
-        let unread = safariExtensionUnreadWindows(live: live, read: read, withoutTabStrips: safariExtensionStriplessWindows(
-            withoutTabStrips, watched: schedule.watched, now: ProcessInfo.processInfo.systemUptime)).map(frame)
+        let unread = safariExtensionUnreadWindows(live: live, read: read).map(frame)
         let evidence = SafariExtensionEvidence(observed: Dictionary(uniqueKeysWithValues: safari.map { ($0.windowId, cache.observed[$0.windowId] ?? 0) }),
             reports: safariExtension.generation, unreadFrames: unread)
         guard evidence != safariEvidence else { return }
@@ -238,6 +245,42 @@ final class BrowserTabsModel: ObservableObject {
             focusWindowFromSidebar(target.windowId, targetMonitorScopeId: monitorScopeId)
         }
     }
+}
+
+/// Which windows to read again when `changed` apps start or stop playing: the sidebar's browser
+/// windows now. Safari's windows without a tab strip, which read only their title in between,
+/// are walked at their next read, even ones the sidebar shows later, which would otherwise keep
+/// the sound they had when it stopped showing them.
+func browserTabRereads(_ windows: [(id: UInt32, bundleId: String?)], changed: Set<String>,
+                       watched: Set<UInt32>) -> (now: Set<UInt32>, rediscover: Set<UInt32>) {
+    var result: (now: Set<UInt32>, rediscover: Set<UInt32>) = ([], [])
+    for window in windows {
+        guard let bundleId = window.bundleId, changed.contains(bundleId), let adapter = BrowserTabAdapter(bundleId: bundleId) else { continue }
+        if adapter == .safari { result.rediscover.insert(window.id) }
+        if watched.contains(window.id) { result.now.insert(window.id) }
+    }
+    return result
+}
+
+/// How long the sound a read found in a tab's name counts. The sidebar's windows are read every
+/// few seconds; one it stopped showing keeps its tabs, but not their sound.
+let browserTabSoundLifetime: TimeInterval = 10
+
+/// A window's tabs as the sidebar shows them: with what the Safari extension says about them,
+/// and their icons, and the sound a read found only while that read is recent.
+func browserTabsShown(_ snapshot: BrowserWindowTabs, read: TimeInterval?, now: TimeInterval,
+                      safari: SafariExtensionAssociations, iconOrigins: [BrowserTabTarget: URL]) -> BrowserWindowTabs {
+    var snapshot = snapshot
+    let heard = read.map { now - $0 < browserTabSoundLifetime } ?? false
+    snapshot.tabs = snapshot.tabs.map { tab in
+        var tab = tab
+        if !heard { tab.audio = nil }
+        tab = safari.described(tab)
+        tab.iconOrigin = iconOrigins[tab.target]
+        return tab
+    }
+    snapshot.knowsSound = safari.agreeing.contains(snapshot.windowId)
+    return snapshot
 }
 
 /// Where the window server has a window WinMux hasn't measured yet, such as one that just opened,

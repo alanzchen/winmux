@@ -152,16 +152,11 @@ private func safariExtensionTabsAgree(_ candidate: SafariExtensionCandidate, _ w
 }
 
 /// Safari windows WinMux has no tabs for, any of which could be a read window's twin: ones the
-/// sidebar doesn't list, and ones whose read failed or hasn't finished. Only a window a full read
-/// found no tab strip in (Safari's Settings, a lone tab with the tab bar hidden) can't be.
-func safariExtensionUnreadWindows(live: [UInt32], read: Set<UInt32>, withoutTabStrips: Set<UInt32>) -> [UInt32] {
-    live.filter { !read.contains($0) && !withoutTabStrips.contains($0) }.sorted()
-}
-
-/// Windows WinMux can still trust to have no tab strip: read that way within ten seconds and still
-/// read regularly. A window WinMux stopped reading may have opened a second tab since.
-func safariExtensionStriplessWindows(_ withoutTabStrips: [UInt32: TimeInterval], watched: Set<UInt32>, now: TimeInterval) -> Set<UInt32> {
-    Set(withoutTabStrips.filter { watched.contains($0.key) && now - $0.value < 10 }.keys)
+/// sidebar doesn't list, and ones whose read failed or hasn't finished. A window without a tab
+/// strip is read as its one tab, so until then it could be a one-tab twin too; Safari's Settings,
+/// read that way, is a candidate that pairs with nothing.
+func safariExtensionUnreadWindows(live: [UInt32], read: Set<UInt32>) -> [UInt32] {
+    live.filter { !read.contains($0) }.sorted()
 }
 
 /// What the pairings were last worked out from.
@@ -287,14 +282,16 @@ struct SafariExtensionAssociations {
     }
 
     /// The tab with what the extension says about it. Sound shows only while the window agrees
-    /// with the extension, as it goes stale fastest.
+    /// with the extension, as it goes stale fastest; a window the extension doesn't describe
+    /// keeps the sound its read found.
     func described(_ tab: BrowserTab) -> BrowserTab {
         var tab = tab
         let described = tabs[tab.target]
         tab.siteIcon = described?.icon
         tab.host = described?.host
-        tab.audio = agreeing.contains(tab.target.windowId)
-            ? described.flatMap { $0.isMuted ? .muted : $0.isAudible ? .playing : nil } : nil
+        if agreeing.contains(tab.target.windowId) {
+            tab.audio = described.flatMap { $0.isMuted ? .muted : $0.isAudible ? .playing : nil }
+        }
         return tab
     }
 

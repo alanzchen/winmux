@@ -291,13 +291,25 @@ final class SafariExtensionTest: XCTestCase {
         XCTAssertTrue(associations.tabs.isEmpty, "Closed windows' tabs are forgotten")
     }
 
-    func testEverySafariWindowWithoutTabsIsAPossibleTwinUnlessAFullReadFoundNoTabStrip() {
-        // 1 was read; 2 isn't listed; 3's read failed or hasn't finished; 4 is Safari's Settings.
-        XCTAssertEqual(safariExtensionUnreadWindows(live: [4, 3, 2, 1], read: [1], withoutTabStrips: [4]), [2, 3])
-        XCTAssertEqual(safariExtensionUnreadWindows(live: [1], read: [1], withoutTabStrips: []), [])
-        // A window found without a tab strip stays trusted only while it's read, and briefly.
-        XCTAssertEqual(safariExtensionStriplessWindows([4: 100, 5: 100, 6: 91], watched: [4, 6], now: 101), [4],
-            "5 isn't read any more, so it may have opened a second tab; 6's read is too old")
+    func testEverySafariWindowWithoutTabsIsAPossibleTwin() {
+        // 1 was read; 2 isn't listed; 3's read failed or hasn't finished; 4 has no tab strip and
+        // was read as its one tab (as is Safari's Settings, which pairs with nothing).
+        XCTAssertEqual(safariExtensionUnreadWindows(live: [4, 3, 2, 1], read: [1, 4]), [2, 3])
+        XCTAssertEqual(safariExtensionUnreadWindows(live: [1], read: [1]), [])
+    }
+
+    /// Two profiles each have a one-tab "Docs" window, and only one reports. If the other's read
+    /// fails, it's unread, so the one read can't take the report without the frames settling it.
+    func testAOneTabWindowWhoseReadFailedStillKeepsAnotherFromTakingItsReport() {
+        let read = tabs(["Docs"], selected: 0, window: 1)
+        let frame = CGRect(x: 0, y: 25, width: 900, height: 700)
+        let elsewhere = frame.offsetBy(dx: 950, dy: 0)
+        let report = described(["Docs"], selected: 0, id: 10, bounds: elsewhere, icon: String(repeating: "e", count: 64))
+        var associations = SafariExtensionAssociations()
+        for time in [0.0, 1, 2] {
+            associations.update([.init(snapshot: read, frame: frame, observed: time)], windows: [report], unreadFrames: [elsewhere], now: time)
+        }
+        XCTAssertNil(associations.described(read.tabs[0]).siteIcon, "The unread window is where the report says")
     }
 
     func testWhileASafariWindowIsUnreadANewPairingAlsoNeedsTheFramesToSettleItButAnEstablishedOneDoesNot() {

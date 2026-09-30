@@ -531,7 +531,8 @@ final class BrowserTabsTest: XCTestCase {
             host.frame = CGRect(x: 0, y: 0, width: 280, height: 480)
         }
 
-        func show(_ windows: [WorkspaceSidebarWindowViewModel], width: CGFloat = 280, scope: String = "monitor:0.0,0.0") {
+        func show(_ windows: [WorkspaceSidebarWindowViewModel], width: CGFloat = 280, scope: String = "monitor:0.0,0.0",
+                  pinned: Set<UInt32> = []) {
             var snapshot = WorkspaceSidebarSnapshot.empty
             snapshot.configuration.usesTabsList = true
             snapshot.configuration.expandedWidth = 280
@@ -542,7 +543,8 @@ final class BrowserTabsTest: XCTestCase {
             snapshot.workspaces = windows.map { window in
                 WorkspaceSidebarWorkspaceViewModel(name: window.workspaceName, projectId: workspaceProjectDefaultId,
                     displayName: window.workspaceName, sidebarLabel: "", isGeneratedName: true, monitorScopeId: scope,
-                    monitorName: nil, isFocused: window.isFocused, isVisible: window.isFocused, items: [.init(kind: .window(window))])
+                    monitorName: nil, isFocused: window.isFocused, isVisible: window.isFocused, items: [.init(kind: .window(window))],
+                    appearance: .init(isFavorite: pinned.contains(window.windowId)))
             }
             host.rootView = AnyView(WorkspaceSidebarView(snapshot: snapshot, reduceMotionOverride: true,
                 reduceTransparencyOverride: true, browserTabsModel: model).frame(width: 280, height: 480))
@@ -598,6 +600,8 @@ final class BrowserTabsTest: XCTestCase {
         assertWatch(model, [], "A sidebar that goes away stops its reads")
         sidebar.show([a])
         assertWatch(model, [83], "One that appears with windows reads them at once")
+        sidebar.show([a, b], pinned: [67])
+        assertWatch(model, [83, 67], "A pinned tile shows its window's sound and website icon, so it's read too")
     }
 
     @MainActor
@@ -730,12 +734,339 @@ final class BrowserTabsTest: XCTestCase {
     }
 
     func testTitlesOnlyRemoveKnownDiagnosticSuffixes() {
-        XCTAssertEqual(browserTabDisplayTitle("Design - API - Memory usage - 64 MB"), "Design - API")
-        XCTAssertEqual(browserTabDisplayTitle("项目 - 内存用量 - 64 MB"), "项目")
-        XCTAssertEqual(browserTabDisplayTitle("Design - API"), "Design - API")
-        XCTAssertEqual(browserTabDisplayTitle(""), "Untitled tab")
+        func title(_ label: String) -> String { browserTabLabel(label, adapter: .chromium).title }
+        XCTAssertEqual(title("Design - API - Memory usage - 64 MB"), "Design - API")
+        XCTAssertEqual(title("Design - API - High memory usage - 1.2 GB"), "Design - API")
+        XCTAssertEqual(title("项目 - 内存用量 - 64 MB"), "项目")
+        XCTAssertEqual(title("Entwurf\u{a0}– Arbeitsspeichernutzung\u{a0}– 64 MB"), "Entwurf", "Chrome 154's German")
+        XCTAssertEqual(title("Entwurf - Speichernutzung - 64 MB"), "Entwurf", "An older Chrome's German")
+        XCTAssertEqual(title("Design - API"), "Design - API")
+        XCTAssertEqual(title("Tips - Memory usage - "), "Tips - Memory usage - ", "A marker must be followed by the size")
+        XCTAssertEqual(title(""), "Untitled tab")
+        XCTAssertEqual(browserTabLabel("", adapter: .safari).title, "Untitled tab")
         XCTAssertNil(BrowserTabAdapter(bundleId: "company.thebrowser.Browser"))
         XCTAssertNotNil(BrowserTabAdapter(bundleId: "com.microsoft.edgemac"))
+    }
+
+    func testChromiumTabNamesSayWhetherTheTabPlaysSoundInTheBrowsersLanguage() {
+        func label(_ text: String, _ adapter: BrowserTabAdapter = .chromium) -> String {
+            let label = browserTabLabel(text, adapter: adapter)
+            return "\(label.title)|\(label.audio.map { "\($0)" } ?? "silent")"
+        }
+        XCTAssertEqual(label("Lo-fi radio - YouTube - Audio playing"), "Lo-fi radio - YouTube|playing")
+        XCTAssertEqual(label("Lo-fi radio - YouTube - Audio muted"), "Lo-fi radio - YouTube|muted")
+        XCTAssertEqual(label("Lo-fi radio - Audio playing - Memory usage - 180 MB"), "Lo-fi radio|playing",
+            "Memory use comes after the sound")
+        XCTAssertEqual(label("Lo-fi radio – Audio playing"), "Lo-fi radio|playing", "British English uses a dash")
+        XCTAssertEqual(label("Lo-fi 电台 - 正在播放音频"), "Lo-fi 电台|playing")
+        XCTAssertEqual(label("Lo-fi 電台 - 靜音"), "Lo-fi 電台|muted")
+        XCTAssertEqual(label("Radio – Audiowiedergabe"), "Radio|playing")
+        XCTAssertEqual(label("Radio\u{a0}–\u{a0}Lecture audio"), "Radio|playing")
+        XCTAssertEqual(label("Radio: reproducción de audio"), "Radio|playing")
+        XCTAssertEqual(label("„Radijas“ – garso įrašo paleidimas"), "Radijas|playing", "Lithuanian quotes the title")
+        XCTAssertEqual(label("Radio - オーディオ再生中です"), "Radio|playing")
+        XCTAssertEqual(label("Uso de memoria de Radio: live: reproducción de audio: 64 MB"), "Radio: live|playing",
+            "Spanish wraps the title in its memory label")
+        XCTAssertEqual(label("Uso da memória em Rádio - Reprodução de áudio: 64 MB"), "Rádio|playing")
+        XCTAssertEqual(label("Вкладка \"Радио: воспроизводится аудио\" использует 64 МБ памяти"), "Радио|playing")
+        XCTAssertEqual(label("\"Radio - تشغيل الصوت\" - استخدام الذاكرة - 64 MB"), "Radio|playing")
+        XCTAssertEqual(label("Audio playing guide - Docs"), "Audio playing guide - Docs|silent")
+        XCTAssertEqual(label(" - Audio playing"), " - Audio playing|silent", "Chromium never names a tab by its sound alone")
+        XCTAssertEqual(label("Radio - Camera recording"), "Radio - Camera recording|silent",
+            "Another alert takes the sound's place, so it says nothing")
+        XCTAssertEqual(label("Lo-fi radio - Audio playing", .safari), "Lo-fi radio - Audio playing|silent",
+            "Safari names tabs by their titles alone")
+        XCTAssertFalse(chromiumTabPlayingLabels.isEmpty || chromiumTabMutedLabels.isEmpty)
+    }
+
+    /// Every language's sound label, inside every language's memory label, still gives the title.
+    func testEveryLanguagesSoundLabelIsFoundInsideAnyMemoryLabel() {
+        for memory in chromiumTabMemoryLabels {
+            for (labels, audio) in [(chromiumTabPlayingLabels, BrowserTabAudio.playing), (chromiumTabMutedLabels, .muted)] {
+                for sound in labels {
+                    let name = memory.prefix + sound.prefix + "Radio" + sound.suffix + memory.marker + "64 MB" + memory.suffix
+                    let parsed = browserTabLabel(name, adapter: .chromium)
+                    XCTAssertEqual(parsed.title, "Radio", name)
+                    XCTAssertEqual(parsed.audio, audio, name)
+                }
+            }
+        }
+    }
+
+    func testAChromiumReadGivesEachTabItsSoundAndStillConfirmsTheSelection() throws {
+        let tree = fixture(.chromium)
+        tree.tabs[0].title = "Alpha - Audio playing - Memory usage - 64 MB"
+        tree.tabs[1].title = "Beta - Audio muted"
+        let snapshot = try XCTUnwrap(tree.scanner.scan())
+        XCTAssertEqual(snapshot.tabs.map(\.title), ["Alpha", "Beta"])
+        XCTAssertEqual(snapshot.tabs.map(\.audio), [.playing, .muted])
+        XCTAssertTrue(tree.scanner.confirmsSelection(in: snapshot, until: .infinity), "The selected tab's title is the one shown")
+        let safari = fixture(.safari)
+        safari.tabs[0].title = "Alpha - Audio playing"
+        XCTAssertEqual(try XCTUnwrap(safari.scanner.scan()).tabs.map(\.audio), [nil, nil])
+    }
+
+    func testASafariTabPlayingSoundIsReadFromItsMuteButtonAndOnlySuchATabsControlsAreRead() throws {
+        let tree = fixture(.safari)
+        for tab in tree.tabs {
+            tab.append(BrowserTestNode("AXImage"))
+            tab.append(BrowserTestNode("AXStaticText"))
+        }
+        let mute = BrowserTestNode("AXButton")
+        mute.title = "mute tab"
+        mute.axDescription = "volume high"
+        tree.tabs[1].append(mute)
+        let first = try XCTUnwrap(tree.scanner.scan())
+        XCTAssertEqual(first.tabs.map(\.audio), [nil, .playing])
+        XCTAssertEqual(tree.tabs[0].nodes.map(\.structureReads), [0, 0], "A tab with only its icon and title has none read")
+        XCTAssertEqual(tree.tabs[1].nodes.map(\.structureReads), [0, 0, 2],
+            "The widest tab's last control also says, once per walk, how many a quiet tab has")
+        XCTAssertEqual(try XCTUnwrap(tree.scanner.scan()), first, "An unchanged strip reads the same, so nothing new is published")
+        XCTAssertEqual(tree.tabs[1].nodes.map(\.structureReads), [0, 0, 3])
+        mute.title = "unmute tab"
+        mute.axDescription = "Volume Lower"
+        XCTAssertEqual(try XCTUnwrap(tree.scanner.scan()).tabs.map(\.audio), [nil, .muted], "Muted, it offers to unmute")
+        tree.tabs[1].nodes.removeLast()
+        XCTAssertEqual(try XCTUnwrap(tree.scanner.scan()).tabs.map(\.audio), [nil, nil], "Stopped, the button goes")
+        tree.tabs[1].append(BrowserTestNode("AXButton", subrole: "AXCloseButton"))
+        XCTAssertEqual(try XCTUnwrap(tree.scanner.scan()).tabs.map(\.audio), [nil, nil], "A close button isn't a sound")
+        tree.tabs[1].nodes.removeLast()
+
+        tree.tabs[0].identifier = "TabBarTab?isNarrow=false&isExpanded=false&tabCount=&isPinned=true&isCluster=false&clusterID=&isActive=true"
+        tree.tabs[0].nodes.removeLast()
+        XCTAssertEqual(try XCTUnwrap(tree.scanner.scan()).tabs.map(\.audio), [nil, nil], "A pinned tab shows only its icon")
+        let pinnedMute = BrowserTestNode("AXButton")
+        pinnedMute.title = "mute tab"
+        tree.tabs[0].append(pinnedMute)
+        XCTAssertEqual(try XCTUnwrap(tree.scanner.scan()).tabs.map(\.audio), [.playing, nil])
+
+        let chrome = fixture(.chromium)
+        let chromeMute = BrowserTestNode("AXButton")
+        chromeMute.title = "Mute tab"
+        chrome.tabs[0].append(chromeMute)
+        XCTAssertEqual(try XCTUnwrap(chrome.scanner.scan()).tabs.map(\.audio), [nil, nil], "Chromium says it in the tab's name")
+        XCTAssertEqual(chrome.tabs.map(\.childReads), [0, 0], "and its tabs' controls are never read")
+    }
+
+    func testASafariTabsSoundControlIsToldApartFromItsCloseButtonInAnyLanguageAndWithoutIcons() throws {
+        let tree = fixture(.safari)
+        for tab in tree.tabs {
+            tab.append(BrowserTestNode("AXImage"))
+            tab.append(BrowserTestNode("AXStaticText"))
+        }
+        let close = "Tab schließen"
+        tree.tabs[1].actions = ["AXPress", "Name:\(close)\nTarget:0x1\nSelector:_closeButtonClicked:"]
+        let control = BrowserTestNode("AXButton")
+        control.title = "Tab stummschalten"
+        control.axDescription = "Lautstärke hoch"
+        tree.tabs[1].append(control)
+        XCTAssertEqual(try XCTUnwrap(tree.scanner.scan()).tabs.map(\.audio), [nil, .playing], "A German Safari's mute button")
+        control.title = close
+        control.axDescription = nil
+        XCTAssertEqual(try XCTUnwrap(tree.scanner.scan()).tabs.map(\.audio), [nil, nil],
+            "A close button under the pointer has the close action's name")
+        XCTAssertEqual(safariCloseActionName(tree.tabs[1].actions), close)
+
+        // Without the close action's name, only English words say a button is the sound.
+        tree.tabs[1].actions = []
+        control.title = "Tab schließen"
+        XCTAssertEqual(try XCTUnwrap(tree.scanner.scan()).tabs.map(\.audio), [nil, nil])
+        control.title = "mute tab"
+        XCTAssertEqual(try XCTUnwrap(tree.scanner.scan()).tabs.map(\.audio), [nil, .playing])
+
+        // Without website icons, a tab shows only its title.
+        let plain = fixture(.safari)
+        for tab in plain.tabs { tab.append(BrowserTestNode("AXStaticText")) }
+        let mute = BrowserTestNode("AXButton")
+        mute.title = "mute tab"
+        plain.tabs[0].append(mute)
+        XCTAssertEqual(try XCTUnwrap(plain.scanner.scan()).tabs.map(\.audio), [.playing, nil])
+        XCTAssertEqual(mute.structureReads, 2, "The widest tab's last control says how many a quiet tab has, once per walk")
+        XCTAssertEqual(try XCTUnwrap(plain.scanner.scan()).tabs.map(\.audio), [.playing, nil])
+        XCTAssertEqual(mute.structureReads, 3)
+        XCTAssertEqual(plain.tabs[1].nodes.map(\.structureReads), [0])
+    }
+
+    /// When every tab has a sound control, the fewest a tab has still includes one.
+    func testSafarisTabsAllPlayingOrMutedStillShowTheirSound() throws {
+        for icons in [true, false] {
+            let tree = fixture(.safari)
+            for tab in tree.tabs {
+                if icons { tab.append(BrowserTestNode("AXImage")) }
+                tab.append(BrowserTestNode("AXStaticText"))
+                let unmute = BrowserTestNode("AXButton")
+                unmute.title = "unmute tab"
+                tab.append(unmute)
+            }
+            XCTAssertEqual(try XCTUnwrap(tree.scanner.scan()).tabs.map(\.audio), [.muted, .muted], "icons: \(icons)")
+        }
+        // A window's one unpinned tab, playing, beside the selected pinned tab, with and without icons.
+        for icons in [true, false] {
+            let tree = fixture(.safari)
+            tree.tabs[0].identifier = "TabBarTab?isPinned=true&isActive=true"
+            tree.tabs[0].append(BrowserTestNode("AXImage"))
+            if icons { tree.tabs[1].append(BrowserTestNode("AXImage")) }
+            tree.tabs[1].append(BrowserTestNode("AXStaticText"))
+            let mute = BrowserTestNode("AXButton")
+            mute.title = "mute tab"
+            tree.tabs[1].append(mute)
+            XCTAssertEqual(try XCTUnwrap(tree.scanner.scan()).tabs.map(\.audio), [nil, .playing], "icons: \(icons)")
+        }
+    }
+
+    /// A failed read never teaches how many controls a quiet tab has: the scan says nothing, and
+    /// the next one learns it.
+    func testAFailedControlReadLeavesTheLastCompleteScanAndIsReadAgain() throws {
+        let tree = fixture(.safari)
+        for tab in tree.tabs {
+            tab.append(BrowserTestNode("AXImage"))
+            tab.append(BrowserTestNode("AXStaticText"))
+        }
+        let mute = BrowserTestNode("AXButton")
+        mute.title = "mute tab"
+        tree.tabs[0].append(mute)
+        tree.tabs[1].append(BrowserTestNode("AXButton"))
+        tree.tabs[1].nodes[2].title = "mute tab"
+        mute.unreadable = true
+        XCTAssertNil(tree.scanner.scan())
+        mute.unreadable = false
+        XCTAssertEqual(try XCTUnwrap(tree.scanner.scan()).tabs.map(\.audio), [.playing, .playing],
+            "Both tabs' buttons count, as the failed read left nothing learned")
+        tree.tabs[1].nodes[2].unreadable = true
+        XCTAssertNil(tree.scanner.scan(), "Nor does a sound control that can't be read say the tab is quiet")
+    }
+
+    func testASafariScanWhoseSoundReadsRunOutOfTimeSaysNothing() {
+        let tree = fixture(.safari)
+        var time = 0.0
+        let scanner = BrowserTabScanner(root: tree.root, adapter: .safari, windowId: 123, pid: 45, now: { time })
+        for tab in tree.tabs {
+            tab.append(BrowserTestNode("AXImage"))
+            tab.append(BrowserTestNode("AXStaticText"))
+        }
+        XCTAssertNotNil(scanner.scan())
+        let mute = BrowserTestNode("AXButton")
+        mute.title = "mute tab"
+        mute.onStructureRead = { time += 1 }
+        tree.tabs[1].append(mute)
+        XCTAssertNil(scanner.scan(), "A sound control read past the deadline leaves the last complete read in place")
+    }
+
+    func testABrowserStartingOrStoppingPlayingRereadsItsWindowsAndWalksSafarisLaterToo() {
+        let windows: [(id: UInt32, bundleId: String?)] = [(1, safariBundleId), (2, safariBundleId), (3, "com.google.Chrome"),
+            (4, "com.google.Chrome"), (5, appleMusicBundleId), (6, nil)]
+        let rereads = browserTabRereads(windows, changed: [safariBundleId, "com.google.Chrome", appleMusicBundleId], watched: [1, 3, 5])
+        XCTAssertEqual(rereads.now, [1, 3], "The sidebar's browser windows are read now")
+        XCTAssertEqual(rereads.rediscover, [1, 2],
+            "Safari's are walked at their next read, even one the sidebar shows only later, so it can't keep the sound it had")
+        XCTAssertEqual(browserTabRereads(windows, changed: [], watched: [1, 3]).now, [])
+    }
+
+    func testAOneTabSafariWindowsSoundComesFromTheSpeakerInItsAddressField() throws {
+        let root = BrowserTestNode("AXWindow")
+        root.ownTitle = "Lo-fi radio"
+        let toolbar = BrowserTestNode("AXToolbar")
+        root.append(toolbar)
+        let field = BrowserTestNode("AXGroup")
+        toolbar.append(field)
+        let reload = BrowserTestNode("AXButton")
+        reload.identifier = "ReloadButton"
+        field.append(reload)
+        let speaker = BrowserTestNode("AXButton")
+        speaker.identifier = safariAudioIndicatorIdentifier
+        speaker.axDescription = "Mute This Tab"
+        field.append(speaker)
+        var time = 0.0
+        let scanner = BrowserTabScanner(root: root, adapter: .safari, windowId: 1, pid: 2, now: { time })
+        XCTAssertNil(scanner.scan())
+        XCTAssertEqual(try XCTUnwrap(scanner.loneTab()).tabs.map(\.audio), [.playing])
+        XCTAssertEqual(speaker.structureReads, 1, "Read with the walk, not on its own")
+        speaker.axDescription = "Unmute This Tab"
+        time = 2
+        XCTAssertEqual(try XCTUnwrap(scanner.loneTab()).tabs.map(\.audio), [.playing], "Between walks, only the title is read")
+        XCTAssertEqual(speaker.structureReads, 1)
+        // Muting stops the sound, so WinMux walks the window again (MacApp's `rediscover`).
+        XCTAssertNil(scanner.scan())
+        XCTAssertEqual(try XCTUnwrap(scanner.loneTab()).tabs.map(\.audio), [.muted])
+        // On a silent page it offers to mute the tab playing elsewhere: that's no sound here.
+        speaker.axDescription = "Mute Other Tabs"
+        XCTAssertNil(scanner.scan())
+        XCTAssertEqual(try XCTUnwrap(scanner.loneTab()).tabs.map(\.audio), [nil])
+        speaker.axDescription = "Diesen Tab stummschalten"
+        XCTAssertNil(scanner.scan())
+        XCTAssertEqual(try XCTUnwrap(scanner.loneTab()).tabs.map(\.audio), [nil], "Only English words say which tab")
+        field.nodes.removeLast()
+        XCTAssertNil(scanner.scan())
+        XCTAssertEqual(try XCTUnwrap(scanner.loneTab()).tabs.map(\.audio), [nil])
+        // While Safari plays, a window whose title stays is walked sooner.
+        time = 2 + browserLoneTabRediscoveryWhilePlaying
+        XCTAssertNotNil(scanner.loneTab())
+        XCTAssertNil(scanner.loneTab(rediscoverAfter: browserLoneTabRediscoveryWhilePlaying))
+
+        // With a tab strip, the tabs say which one plays; the field's speaker is only the shown tab's.
+        let tree = fixture(.safari)
+        let other = BrowserTestNode("AXToolbar")
+        tree.root.append(other)
+        let playing = BrowserTestNode("AXButton")
+        playing.identifier = safariAudioIndicatorIdentifier
+        other.append(playing)
+        XCTAssertEqual(try XCTUnwrap(tree.scanner.scan()).tabs.map(\.audio), [nil, nil])
+        XCTAssertNil(tree.scanner.loneTab())
+    }
+
+    func testASafariWindowWithoutATabBarIsReadAsItsOneTabNamedByTheWindow() throws {
+        let root = BrowserTestNode("AXWindow")
+        root.ownTitle = "Lo-fi radio"
+        root.append(BrowserTestNode("AXToolbar"))
+        var time = 0.0
+        let scanner = BrowserTabScanner(root: root, adapter: .safari, windowId: 1, pid: 2, now: { time })
+        XCTAssertNil(scanner.loneTab(), "Only once a full read found no tab strip")
+        XCTAssertNil(scanner.scan())
+        let lone = try XCTUnwrap(scanner.loneTab())
+        XCTAssertEqual(lone.tabs.map(\.title), ["Lo-fi radio"])
+        XCTAssertEqual(lone.tabs.map(\.isSelected), [true])
+        XCTAssertFalse(lone.isGroup)
+        XCTAssertEqual(lone.windowSession, scanner.windowSession)
+        let walked = root.structureReads
+        time = 29
+        XCTAssertEqual(try XCTUnwrap(scanner.loneTab()), lone, "While its title stays, the same tab")
+        XCTAssertEqual(root.structureReads, walked, "and only the title is read")
+        XCTAssertFalse(scanner.select(lone.tabs[0].target), "There's no tab control to press")
+        root.ownTitle = "Jazz radio"
+        XCTAssertNil(scanner.loneTab(), "A new title may be a new tab, so the window is walked again")
+        XCTAssertNil(scanner.scan())
+        XCTAssertGreaterThan(root.structureReads, walked)
+        let renamed = try XCTUnwrap(scanner.loneTab())
+        XCTAssertEqual(renamed.tabs.map(\.title), ["Jazz radio"])
+        XCTAssertEqual(renamed.tabs.map(\.id), lone.tabs.map(\.id), "The same tab while the window stays alone")
+        time = 29 + browserLoneTabRediscovery
+        XCTAssertNil(scanner.loneTab(), "And every half minute")
+        XCTAssertNil(scanner.scan())
+        XCTAssertEqual(try XCTUnwrap(scanner.loneTab()).tabs.map(\.id), lone.tabs.map(\.id))
+
+        let strip = BrowserTestNode("AXOpaqueProviderGroup")
+        root.append(strip)
+        strip.append(tab("Jazz radio", selected: true))
+        strip.append(tab("Start Page", selected: false))
+        time = 70
+        XCTAssertEqual(try XCTUnwrap(scanner.scan()).tabs.count, 2, "A second tab shows the tab bar")
+        XCTAssertNil(scanner.loneTab())
+        // Closing the second tab hides the tab bar again, and its elements go.
+        root.nodes.removeLast()
+        strip.owner = nil
+        time = 80
+        XCTAssertNil(scanner.scan())
+        XCTAssertNotEqual(try XCTUnwrap(scanner.loneTab()).tabs.map(\.id), lone.tabs.map(\.id), "Alone again, it's a new tab")
+
+        let unknown = BrowserTestNode("AXGroup")
+        unknown.unreadable = true
+        root.append(unknown)
+        time = 90
+        XCTAssertNil(scanner.scan())
+        XCTAssertNil(scanner.loneTab(), "A read that couldn't see everything says nothing")
+        let chrome = BrowserTabScanner(root: BrowserTestNode("AXWindow"), adapter: .chromium, windowId: 3, pid: 2)
+        XCTAssertNil(chrome.scan())
+        XCTAssertNil(chrome.loneTab(), "Chromium windows without a strip aren't browser windows")
     }
 
     @MainActor
@@ -967,18 +1298,23 @@ private final class BrowserTestNode: BrowserTabAXNode {
         child.owner = role == "AXWindow" ? self : owner
         nodes.append(child)
     }
+    var identifier: String?
+    var axDescription: String?
+    var onStructureRead: () -> Void = {}
     func structure() -> BrowserTabAXStructure? {
         structureReads += 1
-        return unreadable ? nil : .init(role: role, subrole: subrole)
+        onStructureRead()
+        return unreadable ? nil : .init(role: role, subrole: subrole, identifier: identifier, title: title.isEmpty ? nil : title,
+            description: axDescription)
     }
     func children() -> [BrowserTestNode]? { childReads += 1; return unreadable ? nil : nodes }
     func parent() -> BrowserTestNode? { reportsNoParent ? nil : ancestor }
-    func tabRecord() -> BrowserTabAXRecord<BrowserTestNode>? {
+    func tabRecord(withChildren: Bool) -> BrowserTabAXRecord<BrowserTestNode>? {
         guard let structure = structure(), let info = tabInfo() else { return nil }
         let parent: BrowserTabAXLink<BrowserTestNode> = reportsNoParent ? .none : ancestor.map { .element($0) } ?? .unreadable
         let window: BrowserTabAXLink<BrowserTestNode> = windowUnreadable ? .unreadable
             : reportsNoWindow ? .none : owner.map { .element($0) } ?? .unreadable
-        return .init(structure: structure, info: info, parent: parent, window: window)
+        return .init(structure: structure, info: info, parent: parent, window: window, children: withChildren ? children() : nil)
     }
     func window() -> BrowserTestNode? { reportsNoWindow || windowUnreadable ? nil : owner }
     func tabInfo() -> BrowserTabAXInfo? {
@@ -1000,4 +1336,6 @@ private final class BrowserTestNode: BrowserTabAXNode {
         onPerform(action)
         return true
     }
+    var ownTitle: String?
+    func windowTitle() -> String? { ownTitle }
 }

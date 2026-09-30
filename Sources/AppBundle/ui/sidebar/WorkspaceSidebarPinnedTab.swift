@@ -142,7 +142,7 @@ struct WorkspaceSidebarPinnedTab: View {
                                         .fixedSize().padding(compact ? 2 : 3)
                                 }
                                 .overlay(alignment: .bottomTrailing) {
-                                    WorkspaceSidebarTabAudioIndicator(bundleId: window.appBundleId, size: compact ? 7 : 9)
+                                    WorkspaceSidebarTabAudioIndicator(window: window, size: compact ? 7 : 9)
                                         .padding(compact ? 3 : 6)
                                 }
                         }

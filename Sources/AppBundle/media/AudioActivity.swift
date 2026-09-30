@@ -55,15 +55,18 @@ nonisolated func readAudioProcessSamples() -> [AudioProcessSample] {
 /// Which apps are playing sound, by bundle identifier, so a tab can show a speaker.
 @MainActor
 final class AudioActivityModel: ObservableObject {
-    static let shared = AudioActivityModel()
+    static let shared = AudioActivityModel(changed: { BrowserTabsModel.shared.rereadWindows(of: $0) })
     @Published private(set) var playingBundleIds: Set<String> = []
     private var pollingTask: Task<Void, Never>?
     private let read: @Sendable () async -> Set<pid_t>
+    /// Told the apps that just started or stopped playing.
+    private let changed: @MainActor (Set<String>) -> Void
 
     init(read: @escaping @Sendable () async -> Set<pid_t> = {
         await Task.detached(priority: .utility) { audioPlayingAppPids(readAudioProcessSamples()) }.value
-    }) {
+    }, changed: @escaping @MainActor (Set<String>) -> Void = { _ in }) {
         self.read = read
+        self.changed = changed
     }
 
     func isPlaying(bundleId: String?) -> Bool {
@@ -71,7 +74,10 @@ final class AudioActivityModel: ObservableObject {
     }
 
     func setPlaying(_ bundleIds: Set<String>) {
-        if playingBundleIds != bundleIds { playingBundleIds = bundleIds }
+        guard playingBundleIds != bundleIds else { return }
+        let difference = playingBundleIds.symmetricDifference(bundleIds)
+        playingBundleIds = bundleIds
+        changed(difference)
     }
 
     func setEnabled(_ enabled: Bool) {

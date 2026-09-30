@@ -36,10 +36,11 @@ struct BrowserTab: Hashable, Identifiable, Sendable {
     var title: String
     var isSelected: Bool
     var iconOrigin: URL? = nil
-    /// From the WinMux Tabs Safari extension: the tab's website icon, by key, its host name,
-    /// and whether it's playing sound or muted.
+    /// From the WinMux Tabs Safari extension: the tab's website icon, by key, and its host name.
     var siteIcon: String? = nil
     var host: String? = nil
+    /// Whether it's playing sound or muted, as the Safari extension or a Chromium tab's
+    /// accessible name says.
     var audio: BrowserTabAudio? = nil
     var id: UUID { target.tabId }
 }
@@ -50,14 +51,19 @@ struct BrowserWindowTabs: Equatable, Sendable {
     let windowSession: UUID
     var tabs: [BrowserTab]
     var iconCandidate: BrowserTabIconCandidate? = nil
+    /// Whether every tab's sound is known, so a window with none playing is silent. Only the
+    /// Safari extension says that. A Chromium tab's name says it plays sound, but one without
+    /// that may still play: another alert, such as a camera recording, takes its place.
+    var knowsSound = false
 
     var isGroup: Bool { tabs.count > 1 }
 }
 
-/// One read of a window's tab strip: its tabs, or none, and then whether it has no strip at all.
+/// One read of a window's tab strip: its tabs, or none. A Safari window whose one tab hides the
+/// tab bar is read as that tab, named by the window.
 struct BrowserTabRead: Sendable {
     var tabs: BrowserWindowTabs?
-    var hasNoTabStrip = false
+    var loneTab: BrowserWindowTabs? = nil
 }
 
 /// Last complete reads survive short browser transitions, but not indefinite failures.
@@ -208,14 +214,43 @@ struct BrowserTabReadSchedule {
     }
 }
 
-func browserTabDisplayTitle(_ label: String) -> String {
-    // Chrome adds localized resource diagnostics to the accessible name. Limit
-    // cleanup to known suffix markers; punctuation in the actual title is kept.
-    let markers = [" - Memory usage - ", " - 内存用量 - ", " - 記憶體用量 - ", " - Speichernutzung - "]
-    for marker in markers {
-        if let range = label.range(of: marker, options: .backwards), !label[range.upperBound...].isEmpty {
-            return String(label[..<range.lowerBound])
-        }
+/// A tab's title from the name the browser's tab strip gives it. Chromium adds the tab's sound to
+/// the name, which this returns, and after that sometimes its memory use, in the browser's own
+/// language; both come off. Safari names a tab by its title alone.
+func browserTabLabel(_ label: String, adapter: BrowserTabAdapter) -> (title: String, audio: BrowserTabAudio?) {
+    guard adapter == .chromium else { return (label.isEmpty ? "Untitled tab" : label, nil) }
+    // Compared byte for byte: Chromium builds the name from exactly these strings, and this runs
+    // for every tab at every read.
+    var bytes = Array(label.utf8)[...]
+    // The memory label wraps everything before it, so its marker is the last in the name.
+    var memory: Range<Int>?
+    for (prefix, marker, suffix) in chromiumMemoryLabelBytes where bytes.count > prefix.count + marker.count + suffix.count &&
+        bytes.starts(with: prefix) && bytes.reversed().starts(with: suffix.reversed()) {
+        let body = bytes[(bytes.startIndex + prefix.count)..<(bytes.endIndex - suffix.count)]
+        guard let found = lastRange(of: marker, in: body), found.lowerBound > body.startIndex, found.upperBound < body.endIndex,
+              found.lowerBound > memory?.upperBound ?? -1 else { continue }
+        memory = body.startIndex..<found.lowerBound
     }
-    return label.isEmpty ? "Untitled tab" : label
+    if let memory { bytes = bytes[memory] }
+    for (prefix, suffix, audio) in chromiumSoundLabelBytes where bytes.count > prefix.count + suffix.count &&
+        bytes.reversed().starts(with: suffix.reversed()) && bytes.starts(with: prefix) {
+        return (String(decoding: bytes.dropFirst(prefix.count).dropLast(suffix.count), as: UTF8.self), audio)
+    }
+    return (bytes.isEmpty ? "Untitled tab" : String(decoding: bytes, as: UTF8.self), nil)
+}
+
+private let chromiumSoundLabelBytes = chromiumTabMutedLabels.map { (Array($0.prefix.utf8), Array($0.suffix.utf8), BrowserTabAudio.muted) } +
+    chromiumTabPlayingLabels.map { (Array($0.prefix.utf8), Array($0.suffix.utf8), BrowserTabAudio.playing) }
+/// Also an older Chrome's German marker.
+private let chromiumMemoryLabelBytes = (chromiumTabMemoryLabels + [.init(prefix: "", marker: " - Speichernutzung - ", suffix: "")])
+    .map { (Array($0.prefix.utf8), Array($0.marker.utf8), Array($0.suffix.utf8)) }
+
+private func lastRange(of needle: [UInt8], in haystack: ArraySlice<UInt8>) -> Range<Int>? {
+    guard let first = needle.first, haystack.count >= needle.count else { return nil }
+    var start = haystack.endIndex - needle.count
+    while start >= haystack.startIndex {
+        if haystack[start] == first, haystack[start..<start + needle.count].elementsEqual(needle) { return start..<start + needle.count }
+        start -= 1
+    }
+    return nil
 }

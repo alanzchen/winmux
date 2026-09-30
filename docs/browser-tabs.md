@@ -24,6 +24,37 @@ WinMux already needs; it does not request Automation or require an extension. Th
 optional [WinMux Tabs Safari extension](#safari-extension) adds website icons and
 sound to Safari's tabs.
 
+## Sound
+
+A speaker on a tab's row or pinned tile shows that its window is playing sound. macOS reports
+sound only per app, so WinMux asks the browser's tabs which window it comes from:
+
+- **Safari:** a tab playing sound shows a mute button, and a window without a tab bar shows a
+  speaker in its address field. WinMux reads both along with the tabs it already reads. Only a
+  window with such a tab shows the speaker. The address field's speaker also appears on a silent
+  page, to mute a tab playing elsewhere, and only its English words say which, so in another
+  language a window without a tab bar says nothing about its sound. With the [WinMux Tabs extension](#safari-extension),
+  what the extension says about a tab wins while it describes the window, and windows it describes
+  as silent show none, even while Safari plays elsewhere, such as in a Private Browsing window.
+  Safari's words tell a muted tab from a playing one only in English; in other languages a muted
+  tab shows the plain speaker.
+- **Chrome, Chromium, Brave, and Edge:** a tab playing sound has "Audio playing" (or "Audio
+  muted") at the end of its accessible name, in the browser's language. WinMux knows the
+  wording in every language Chrome 154 ships, and takes it off the title it shows.
+- **Other apps**, including Firefox and Arc, show their sound on every window, as before. For an
+  app with one window, that's already exact.
+
+When a tab says it plays, only its window shows the speaker; the app's other windows show none.
+A tab that doesn't may still be playing: a camera recording or picture in picture replaces
+Chromium's label, and a window WinMux hasn't read says nothing. So while no tab says it plays,
+every window of the app shows its sound, except windows the Safari extension describes as silent.
+When a browser starts or stops playing, WinMux reads its listed windows again right away.
+
+A muted tab, and its window, show a speaker with a slash. Chrome labels a tab muted only while
+it's trying to play; the extension reports every muted Safari tab. Pinned tiles are read like
+listed windows so they can show this too. A window the sidebar stops listing keeps its tabs'
+sound for ten seconds at most.
+
 ## Website icons
 
 **Website icons for Chrome-family tabs** (`workspace-sidebar.browser-tab-icons`) is off by
@@ -67,13 +98,17 @@ agrees with the tab strip it read:
 - While some Safari window hasn't been read (one the sidebar doesn't show, or one whose tab
   strip couldn't be read yet), a new match also needs the window's frame to agree with where
   Safari says it is, and no unread window may be there too, since the unread window could be
-  the real twin. A listed window whose last full read, within ten seconds, found no tab strip
-  at all, such as Safari's Settings, doesn't count. Once made, a match holds on its tabs alone: Safari's reported
-  frame is stale after WinMux moves a window, until its next report.
+  the real twin. Once made, a match holds on its tabs alone: Safari's reported frame is stale
+  after WinMux moves a window, until its next report.
 - A window that briefly stops matching, such as while a title changes, keeps its icons for up
   to ten seconds. It hides sound at once.
 - A tab whose title Safari withholds from the extension (a start page, or a site without
   access) can differ, as long as the window has at least as many matching titles.
+- Safari hides the tab bar of a window with one tab. WinMux reads such a window as that one
+  tab, named by the window's title, and matches it with the extension's one-tab window of that
+  title, by the rules above. To keep reads light, it reads just the window's title, and walks
+  its controls again only when the title changes (as it does when a tab opens), when Safari
+  starts or stops playing sound, and at least every 30 seconds.
 
 What leaves Safari: for each tab in a normal window, its title, host name (never the path or
 query), whether it's active, pinned, playing sound or muted, and its icon as a 32-pixel PNG.

@@ -33,10 +33,13 @@ struct NativeBrowserTabNode: BrowserTabAXNode {
         return result as? [Any]
     }
 
+    /// One round trip, whatever it reads: a control's name comes with its role.
     func structure() -> BrowserTabAXStructure? {
-        guard let values = values([kAXRoleAttribute, kAXSubroleAttribute]), values.count == 2,
+        guard let values = values([kAXRoleAttribute, kAXSubroleAttribute, kAXIdentifierAttribute, kAXTitleAttribute,
+                                   kAXDescriptionAttribute]), values.count == 5,
               let role = values[0] as? String else { return nil }
-        return .init(role: role, subrole: values[1] as? String ?? "")
+        return .init(role: role, subrole: values[1] as? String ?? "", identifier: values[2] as? String,
+            title: values[3] as? String, description: values[4] as? String)
     }
 
     func children() -> [Self]? {
@@ -61,6 +64,7 @@ struct NativeBrowserTabNode: BrowserTabAXNode {
 
     func parent() -> Self? { reference(kAXParentAttribute) }
     func window() -> Self? { reference(kAXWindowAttribute) }
+    func windowTitle() -> String? { values([kAXTitleAttribute])?.first as? String }
 
     func tabInfo() -> BrowserTabAXInfo? {
         guard let values = values([kAXTitleAttribute, kAXSelectedAttribute, kAXValueAttribute, kAXDescriptionAttribute]),
@@ -69,15 +73,19 @@ struct NativeBrowserTabNode: BrowserTabAXNode {
         return .init(title: title, selected: selected)
     }
 
-    func tabRecord() -> BrowserTabAXRecord<Self>? {
-        guard let values = values([kAXRoleAttribute, kAXSubroleAttribute, kAXTitleAttribute, kAXSelectedAttribute,
-                                   kAXValueAttribute, kAXParentAttribute, kAXWindowAttribute, kAXDescriptionAttribute]),
-              values.count == 8, let role = values[0] as? String, let subrole = values[1] as? String,
+    /// A Safari tab's controls come in the same round trip as the tab.
+    func tabRecord(withChildren: Bool) -> BrowserTabAXRecord<Self>? {
+        let names = [kAXRoleAttribute, kAXSubroleAttribute, kAXTitleAttribute, kAXSelectedAttribute, kAXValueAttribute,
+                     kAXParentAttribute, kAXWindowAttribute, kAXDescriptionAttribute]
+            + (withChildren ? [kAXIdentifierAttribute, kAXChildrenAttribute] : [])
+        guard let values = values(names), values.count == names.count,
+              let role = values[0] as? String, let subrole = values[1] as? String,
               let title = browserTabTitle(values[2], description: values[7]),
               let selected = browserTabSelectedValue(value: values[4] as? NSNumber, selected: values[3] as? NSNumber)
         else { return nil }
-        return .init(structure: .init(role: role, subrole: subrole), info: .init(title: title, selected: selected),
-            parent: link(values[5]), window: link(values[6]))
+        return .init(structure: .init(role: role, subrole: subrole, identifier: withChildren ? values[8] as? String : nil),
+            info: .init(title: title, selected: selected), parent: link(values[5]), window: link(values[6]),
+            children: withChildren ? ((values[9] as? [AXUIElement]) ?? []).map { .init(element: $0) } : nil)
     }
 
     private func link(_ value: Any) -> BrowserTabAXLink<Self> {

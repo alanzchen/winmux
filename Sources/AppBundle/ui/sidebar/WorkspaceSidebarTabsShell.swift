@@ -168,6 +168,8 @@ extension WorkspaceSidebarView {
                     .flatMap { filtered[$0.id] ?? [] }
                 : visible[snapshot.activeProjectId] ?? [],
             collections: snapshot.configuration.tabCollections, collapsedCollectionIds: collapsedGroups))
+        .environment(\.workspaceSidebarBrowserWindows, WorkspaceSidebarBrowserWindows(browserTabs,
+            windows: snapshot.workspaces.flatMap(workspaceSidebarPinnedTabWindows)))
     }
 
     private func tabsFavorites(_ workspaces: [WorkspaceSidebarWorkspaceViewModel]) -> some View {
