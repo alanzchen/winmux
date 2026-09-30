@@ -143,6 +143,18 @@ final class WorkspaceSidebarWorkspaceDragSourceView: NSView, NSDraggingSource {
         context == .withinApplication ? .move : []
     }
 
+    /// Audit F4, instrumentation only: whether the panel under the pointer can take the drop,
+    /// since a click-through panel isn't offered one by AppKit.
+    func draggingSession(_ session: NSDraggingSession, movedTo screenPoint: NSPoint) {
+        debugWorkspaceSidebarCrossDisplayDragLog({
+            let point = normalizeAppKitScreenPoint(screenPoint)
+            let panel = WorkspaceSidebarPanel.panel(containing: point)
+            return "nativeMoved panelUnderPointer=\(panel?.monitorScopeId ?? "nil")"
+                + " ignoresMouse=\(panel?.ignoresMouseEvents.description ?? "nil") "
+                + workspaceSidebarCrossDisplayDragDescription(event: "native", point: point)
+        }())
+    }
+
     func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
         finishDrag()
     }

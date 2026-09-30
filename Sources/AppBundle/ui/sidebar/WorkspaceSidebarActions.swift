@@ -935,6 +935,8 @@ func updateSidebarWindowDrag(_ windowId: UInt32, subject: WindowDragSubject = .w
         clearActiveWorkspaceSidebarDrag()
         return
     }
+    debugWorkspaceSidebarCrossDisplayDragLog(workspaceSidebarCrossDisplayDragDescription(
+        event: "gesture", point: MousePointerTracker.shared.currentSample.point))
     beginActiveWorkspaceSidebarDrag(windowId: window.windowId, subject: subject, previewStyle: previewStyle)
     beginWorkspaceSidebarDockLift(source: window)
     let point = MousePointerTracker.shared.currentSample.point
@@ -991,6 +993,16 @@ func finishSidebarWindowDrag(pointer: CGPoint? = nil) {
     }
     clearWorkspaceSidebarDropPreview()
     WindowDragCursorProxyPanel.shared.hide()
+}
+
+/// Where a drag event was and which panels it involved, for the cross-display drag log.
+@MainActor
+func workspaceSidebarCrossDisplayDragDescription(event: String, point: CGPoint) -> String {
+    let source = currentWorkspaceSidebarDragSourceScopeId()
+    let sourcePanel = source.flatMap { WorkspaceSidebarPanel.panel(for: $0) }
+    let under = WorkspaceSidebarPanel.panel(containing: point)?.monitorScopeId
+    return "\(event) point=\(point) source=\(source ?? "nil") sourceIgnoresMouse=\(sourcePanel?.ignoresMouseEvents.description ?? "nil")"
+        + " underPointer=\(under ?? "nil") crossesDisplay=\(under != nil && source != nil && under != source)"
 }
 
 @MainActor

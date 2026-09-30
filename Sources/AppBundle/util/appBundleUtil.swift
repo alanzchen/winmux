@@ -155,6 +155,13 @@ func debugWorkspaceSidebarHoverLog(_ message: @autoclosure () -> String) {
     fputs("[sidebar-hover-debug] \(Date()) \(message())\n", stderr)
 }
 
+/// Cross-display sidebar drags (audit F3/F4): which panel each drag event reaches, and why a
+/// release dropped nothing. Debug builds only, with WINMUX_DEBUG_SIDEBAR_CROSS_DISPLAY_DRAG=1.
+func debugWorkspaceSidebarCrossDisplayDragLog(_ message: @autoclosure () -> String) {
+    guard isDebug, ProcessInfo.processInfo.environment["WINMUX_DEBUG_SIDEBAR_CROSS_DISPLAY_DRAG"] == "1" else { return }
+    fputs("[sidebar-cross-display-drag] \(ProcessInfo.processInfo.systemUptime) \(message())\n", stderr)
+}
+
 func debugWorkspaceSidebarEdgeTrapLog(_ message: @autoclosure () -> String) {
     guard isDebug, ProcessInfo.processInfo.environment["WINMUX_DEBUG_SIDEBAR_EDGE_TRAP"] == "1" else { return }
     fputs("[sidebar-edge-trap-debug] \(Date()) \(message())\n", stderr)
