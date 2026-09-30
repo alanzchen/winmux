@@ -621,6 +621,7 @@ struct WorkspaceSidebarIdentityMenuView: View {
             }.frame(height: min(252, CGFloat((workspaceSidebarEmojiMatches(model.query).count + 4) / 5) * 42))
             if workspaceSidebarEmojiMatches(model.query).isEmpty { Text("No matching emoji").foregroundStyle(.secondary) }
             Button("Remove Icon") { model.chooseEmoji(nil) }.buttonStyle(WorkspaceSidebarIdentityButtonStyle())
+                .disabled(model.emoji == nil)
             Text("You can also paste any emoji.").font(.system(size: 11)).foregroundStyle(.secondary)
         }.padding(8)
     }
@@ -634,9 +635,12 @@ struct WorkspaceSidebarIdentityButtonStyle: ButtonStyle {
     private struct HoverLabel: View {
         let configuration: ButtonStyle.Configuration
         @State private var isHovered = false
+        // A custom style has to dim itself when disabled.
+        @Environment(\.isEnabled) private var isEnabled
         var body: some View {
             configuration.label
-                .background(Color.primary.opacity(configuration.isPressed ? 0.16 : (isHovered ? 0.09 : 0)),
+                .foregroundStyle(isEnabled ? .primary : .tertiary)
+                .background(Color.primary.opacity(!isEnabled ? 0 : configuration.isPressed ? 0.16 : (isHovered ? 0.09 : 0)),
                     in: RoundedRectangle(cornerRadius: 5))
                 .onHover { isHovered = $0 }
         }

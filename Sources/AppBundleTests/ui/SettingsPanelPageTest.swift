@@ -378,10 +378,12 @@ final class SettingsPanelPageTest: XCTestCase {
     }
 
     func testEntryPointsNameTheActiveMode() {
-        XCTAssertEqual(workspaceSidebarWorkspaceMenuEntries(testWorkspace, context: .init(monitorCount: 1, panelMode: .dock)).first?.title,
-            "Customize Dock…")
-        XCTAssertEqual(workspaceSidebarWorkspaceMenuEntries(testWorkspace, context: .init(monitorCount: 1, panelMode: .sidebar)).first?.title,
-            "Customize Sidebar…")
+        func customize(_ mode: WorkspaceSidebarMode) -> String? {
+            workspaceSidebarWorkspaceMenuEntries(testWorkspace, context: .init(monitorCount: 1, panelMode: mode))
+                .first { $0.command == .customizeDock }?.title
+        }
+        XCTAssertEqual(customize(.dock), "Customize Dock…")
+        XCTAssertEqual(customize(.sidebar), "Customize Sidebar…")
         let saved = ShortcutSettingsModel.shared.requestedSettingsPage
         defer { ShortcutSettingsModel.shared.requestedSettingsPage = saved }
         ShortcutSettingsModel.shared.requestPanelSettings()
