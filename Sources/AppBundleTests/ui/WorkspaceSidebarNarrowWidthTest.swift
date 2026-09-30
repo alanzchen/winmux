@@ -42,6 +42,58 @@ final class WorkspaceSidebarNarrowWidthTest: XCTestCase {
         }
     }
 
+    func testNothingInTheSidebarRunsPastItsEdgeFromItsMinimum() async throws {
+        for width: CGFloat in [120, 140, 160, 240] {
+            var snapshot = tabsFixture(width: width)
+            snapshot.configuration.usesTabsList = false
+            snapshot.configuration.musicPlayerAtBottom = false
+            snapshot.configuration.showMonitorSelector = true
+            snapshot.configuration.showsClock = true
+            snapshot.configuration.showsSeconds = true
+            snapshot.configuration.solidChromeColor = .midnight
+            let probe = NarrowWidthProbe()
+            let host = NSHostingView(rootView: WorkspaceSidebarView(snapshot: snapshot,
+                actions: .init(setDropTargets: { probe.targets = $0 }), reduceMotionOverride: true,
+                reduceTransparencyOverride: true, browserTabsModel: BrowserTabsModel(snapshots: [:]))
+                .transaction { $0.animation = nil })
+            host.frame = CGRect(x: 0, y: 0, width: width, height: 900)
+            host.layoutSubtreeIfNeeded()
+            for _ in 0..<3 {
+                try await Task.sleep(for: .milliseconds(50))
+                host.layoutSubtreeIfNeeded()
+            }
+            XCTAssertTrue(probe.targets.contains { $0.kind == .workspace("t2") }, "\(width): a workspace card")
+            for target in probe.targets {
+                XCTAssertGreaterThanOrEqual(target.frame.minX, -0.5, "\(width): \(target.kind)")
+                XCTAssertLessThanOrEqual(target.frame.maxX, width + 0.5, "\(width): \(target.kind) at \(target.frame)")
+            }
+        }
+    }
+
+    func testTheSidebarsFilterRowFoldsItsDisplayPillsIntoTheMenuWhenNarrow() {
+        let here = WorkspaceSidebarMonitorScopeViewModel(id: "monitor:0,0", displayName: "Built-in Retina Display",
+            subtitle: nil, systemImageName: "display", isFocusedMonitor: true)
+        let there = WorkspaceSidebarMonitorScopeViewModel(id: "monitor:1512,0", displayName: "DELL U3224KB",
+            subtitle: nil, systemImageName: "display", isFocusedMonitor: false)
+        let focus = WorkspaceSidebarMonitorScopeViewModel(id: workspaceSidebarFocusedScopeId, displayName: "Focused",
+            subtitle: nil, systemImageName: "scope", isFocusedMonitor: false)
+        let projects = [WorkspaceSidebarProjectViewModel(id: workspaceProjectDefaultId, displayName: "Work", colorHex: nil),
+                        WorkspaceSidebarProjectViewModel(id: WorkspaceProjectId(rawValue: "home"), displayName: "Home", colorHex: nil)]
+        func folds(_ scopes: [WorkspaceSidebarMonitorScopeViewModel], section: CGFloat, projects: [WorkspaceSidebarProjectViewModel] = projects) -> Bool {
+            WorkspaceSidebarMonitorSelector(scopes: scopes, projects: projects, selectedScopeId: here.id,
+                activeProjectId: workspaceProjectDefaultId, browsedProjectId: nil, expansionProgress: 1, sectionWidth: section,
+                targetScopeId: here.id, automaticScopeId: here.id, renamingProjectId: .constant(nil),
+                renamingProjectText: .constant("")).foldsScopePillsIntoMenu
+        }
+        // A 120-point Sidebar leaves 96 points; This Display and Focus alone need more.
+        XCTAssertTrue(folds([here, focus], section: 96))
+        XCTAssertTrue(folds([here], section: 96), "This Display beside Other Projects")
+        XCTAssertFalse(folds([here], section: 96, projects: [projects[0]]), "Alone, This Display fits")
+        XCTAssertFalse(folds([here, focus], section: 216), "The default width keeps both pills")
+        XCTAssertFalse(folds([here, there], section: 96), "Several displays already use the menu's icon")
+        XCTAssertTrue(folds([here, there, focus], section: 96), "Focus folds into the menu too")
+    }
+
     func testTheMusicPlayerPutsItsControlsUnderTheTrackWhenNarrow() {
         let music = runningMusic()
         func size(_ width: CGFloat) -> CGSize {

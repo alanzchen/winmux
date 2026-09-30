@@ -4,6 +4,9 @@ import SwiftUI
 
 // MARK: - Monitor Selector
 
+/// The least of Other Projects' label that the filter row keeps beside the display pills.
+let workspaceSidebarMonitorSelectorMinimumProjectWidth: CGFloat = 64
+
 struct WorkspaceSidebarMonitorSelector: View {
     let scopes: [WorkspaceSidebarMonitorScopeViewModel]
     let projects: [WorkspaceSidebarProjectViewModel]
@@ -67,23 +70,39 @@ struct WorkspaceSidebarMonitorSelector: View {
         projects.filter { $0.id != activeProjectId }
     }
 
+    /// Beside Other Projects, the display pills keep their full names. A sidebar too narrow for
+    /// both folds the pills into the display menu's icon, which offers the same choices.
+    var foldsScopePillsIntoMenu: Bool {
+        func pillWidth(_ scope: WorkspaceSidebarMonitorScopeViewModel) -> CGFloat {
+            let title = scope.id == workspaceSidebarFocusedScopeId ? "Focus" : scope.displayName
+            return ceil((title as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 12.5, weight: .semibold)]).width)
+                + workspaceSidebarDropdownPadding * 2
+        }
+        let pills = quickScopes.enumerated().map { index, scope in
+            hasMultipleMonitors && index == 0 ? workspaceSidebarDropdownHeight : pillWidth(scope)
+        }
+        guard pills.count > 1 || !hasMultipleMonitors else { return false }
+        let selector = showsProjectSelector && !browsableProjects.isEmpty
+            ? [workspaceSidebarMonitorSelectorMinimumProjectWidth] : []
+        let widths = pills + selector
+        return widths.reduce(0, +) + CGFloat(widths.count - 1) * 3 > sectionWidth
+    }
+
     var body: some View {
         HStack(spacing: 3) {
-            ForEach(Array(quickScopes.enumerated()), id: \.element.id) { index, scope in
-                if hasMultipleMonitors && index == 0 {
-                    WorkspaceSidebarCompactMonitorSelector(
-                        scopes: scopes,
-                        selectedScopeId: selectedScopeId,
-                        sectionWidth: workspaceSidebarDropdownHeight,
-                        targetScopeId: targetScopeId,
-                        onSelectScope: onSelectScope,
-                    )
-                } else {
-                    monitorScopePill(scope)
-                }
-                if showsProjectSelector, index == quickScopes.count - 1, !browsableProjects.isEmpty {
+            if foldsScopePillsIntoMenu {
+                WorkspaceSidebarCompactMonitorSelector(
+                    scopes: scopes,
+                    selectedScopeId: selectedScopeId,
+                    sectionWidth: workspaceSidebarDropdownHeight,
+                    targetScopeId: targetScopeId,
+                    onSelectScope: onSelectScope,
+                )
+                if showsProjectSelector, !browsableProjects.isEmpty {
                     projectSelector
                 }
+            } else {
+                scopePills
             }
             Spacer(minLength: 0)
         }
@@ -104,6 +123,25 @@ struct WorkspaceSidebarMonitorSelector: View {
                 withAnimation(.easeOut(duration: 0.10)) {
                     isProjectMenuOpen = false
                 }
+            }
+        }
+    }
+
+    private var scopePills: some View {
+        ForEach(Array(quickScopes.enumerated()), id: \.element.id) { index, scope in
+            if hasMultipleMonitors && index == 0 {
+                WorkspaceSidebarCompactMonitorSelector(
+                    scopes: scopes,
+                    selectedScopeId: selectedScopeId,
+                    sectionWidth: workspaceSidebarDropdownHeight,
+                    targetScopeId: targetScopeId,
+                    onSelectScope: onSelectScope,
+                )
+            } else {
+                monitorScopePill(scope)
+            }
+            if showsProjectSelector, index == quickScopes.count - 1, !browsableProjects.isEmpty {
+                projectSelector
             }
         }
     }
