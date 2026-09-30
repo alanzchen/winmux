@@ -521,7 +521,8 @@ final class WorkspaceSidebarSharedPinsTest: XCTestCase {
 
         // Clicked on a display that goes before the click runs: it doesn't come, and opens nothing.
         opened = []
-        let task = showSharedPinnedTabFromSidebar(empty, targetMonitorScopeId: scope(monitors[2])) { openSharedPinnedTabApps($0) }
+        let task = showSharedPinnedTabFromSidebar(empty, targetMonitorScopeId: scope(monitors[2]),
+            afterShown: { openSharedPinnedTabApps($0) })
         setMonitorsForTests(Array(monitors.prefix(2)))
         await task?.value
         XCTAssertTrue(opened.isEmpty)
@@ -576,6 +577,33 @@ final class WorkspaceSidebarSharedPinsTest: XCTestCase {
         // The setting on, the tabs not rebuilt yet.
         let shared = WorkspaceSidebarView(snapshot: snapshot(on: monitors[0], sharing: true))
         XCTAssertTrue(shared.tabActivation(vm, isPinned: false, pageAllowsActivation: true).0.isInUseOnOtherDisplay)
+    }
+
+    /// Review follow-up: a browser tab of a remote shared pin, chosen, then overtaken before its
+    /// session runs, moves nothing: by a newer choice, by browser tabs going off, or by its window
+    /// giving its id to another.
+    func testABrowserTabChoiceOvertakenBeforeItsSessionMovesNothing() async throws {
+        let cases: [(String, @MainActor (Workspace, AppBundle.Window) -> Void)] = [
+            ("a newer choice", { _, _ in _ = noteWorkspaceSidebarBrowserTabChoice() }),
+            ("browser tabs off", { _, _ in config.workspaceSidebar.browserTabs = false }),
+            ("another window with its id", { pin, window in
+                window.unbindFromParent()
+                _ = TestWindow.new(id: window.windowId, parent: pin.rootTilingContainer)
+            }),
+        ]
+        for (name, overtake) in cases {
+            let (monitors, tabs) = try resetDisplaysOfTabs(2)
+            config.workspaceSidebar.sharePinnedTabs = true
+            let shown = tabs["shown1"]!
+            try setWorkspaceSidebarTabFavorite(shown, true)
+            let window = try XCTUnwrap(shown.anyLeafWindowRecursive)
+            let target = BrowserTabTarget(windowId: window.windowId, pid: window.app.pid, windowSession: UUID(), tabId: UUID())
+            handleWorkspaceSidebarAction(.selectBrowserTab(target), targetMonitorScopeId: scope(monitors[0]))
+            overtake(shown, window)
+            try await Task.sleep(for: .milliseconds(200))
+            XCTAssertTrue(monitors[1].activeWorkspace === shown, "\(name): nothing moved")
+            XCTAssertTrue(monitors[0].activeWorkspace === tabs["shown0"], name)
+        }
     }
 
     func testOnlyTheLatestBrowserTabChoiceIsMadeLate() {

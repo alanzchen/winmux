@@ -93,15 +93,19 @@ func handleWorkspaceSidebarAction(
             let monitorScopeId = targetMonitorScopeId ?? viewModel.workspaceSidebarTargetMonitorScopeId
             let choice = noteWorkspaceSidebarBrowserTabChoice()
             // A browser tab of a shared pin on another display: the pin comes here, then the tab is
-            // chosen, unless another has been chosen since.
-            if workspaceSidebarBrowserTabCanBeChosen(target),
+            // chosen. Both wait for the session, so both check again that nothing has been chosen
+            // since, that the tab may still be chosen, and that its window is the same one, in the pin.
+            if workspaceSidebarBrowserTabCanBeChosen(target), let window = Window.get(byId: target.windowId),
                let pin = workspaceSidebarSharedPinClicked(windowId: target.windowId, targetMonitorScopeId: monitorScopeId),
                workspaceSidebarSharedPinClickDestination(pin, targetMonitorScopeId: monitorScopeId) != nil {
-                showSharedPinnedTabFromSidebar(pin, windowId: target.windowId, requiresWindow: true,
-                    targetMonitorScopeId: monitorScopeId) { _ in
-                    guard workspaceSidebarBrowserTabChoiceIsLatest(choice) else { return }
-                    BrowserTabsModel.shared.select(target, monitorScopeId: monitorScopeId)
+                let stillChosen: @MainActor () -> Bool = {
+                    workspaceSidebarBrowserTabChoiceIsLatest(choice) && workspaceSidebarBrowserTabCanBeChosen(target)
+                        && Window.get(byId: target.windowId) === window && window.nodeWorkspace === pin
                 }
+                showSharedPinnedTabFromSidebar(pin, windowId: target.windowId, targetMonitorScopeId: monitorScopeId,
+                    proceeds: stillChosen, afterShown: { _ in
+                        if stillChosen() { BrowserTabsModel.shared.select(target, monitorScopeId: monitorScopeId) }
+                    })
             } else {
                 BrowserTabsModel.shared.select(target, monitorScopeId: monitorScopeId)
             }
@@ -217,7 +221,8 @@ func handleWorkspaceSidebarAction(
             openSavedWorkspaceAppsFromSidebar(name)
         case .openSavedTab(let name):
             if let pin = workspaceSidebarSharedPinClicked(name, targetMonitorScopeId: targetMonitorScopeId) {
-                showSharedPinnedTabFromSidebar(pin, targetMonitorScopeId: targetMonitorScopeId) { openSharedPinnedTabApps($0) }
+                showSharedPinnedTabFromSidebar(pin, targetMonitorScopeId: targetMonitorScopeId,
+                    afterShown: { openSharedPinnedTabApps($0) })
             } else {
                 openSavedTabFromSidebar(name, targetMonitorScopeId: targetMonitorScopeId)
             }

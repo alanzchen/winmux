@@ -67,11 +67,12 @@ func workspaceSidebarSharedPinClicked(_ name: String? = nil, windowId: UInt32? =
 
 /// A click on the shared pin `tab`, or on its window `windowId`, in the panel for
 /// `targetMonitorScopeId`. The session decides where the pin is: on another display, it comes to
-/// this one; here, it's focused as any tab. `afterShown` runs after the layout, once it's here.
+/// this one; here, it's focused as any tab. `proceeds`, checked when the session runs, before
+/// anything moves, can call it off. `afterShown` runs after the layout, once it's here.
 @MainActor
 @discardableResult
-func showSharedPinnedTabFromSidebar(_ tab: Workspace, windowId: UInt32? = nil, requiresWindow: Bool = false,
-                                    targetMonitorScopeId: String?,
+func showSharedPinnedTabFromSidebar(_ tab: Workspace, windowId: UInt32? = nil, targetMonitorScopeId: String?,
+                                    proceeds: (@MainActor () -> Bool)? = nil,
                                     afterShown: (@MainActor (Workspace) -> Void)? = nil) -> Task<Void, Never>? {
     WorkspaceSidebarPanel.suppressEdgeTrapForWorkspaceActivation()
     if windowId == nil, workspaceSidebarSharedPinClickDestination(tab, targetMonitorScopeId: targetMonitorScopeId) == nil {
@@ -86,10 +87,8 @@ func showSharedPinnedTabFromSidebar(_ tab: Workspace, windowId: UInt32? = nil, r
         // The session runs after other events: the tab may have closed, moved, or given its name
         // away, and the display it was clicked on may have gone, which leaves everything as it is.
         guard Workspace.existing(byName: name) === tab, let targetMonitorScopeId,
-              workspaceSidebarMonitor(forScopeId: targetMonitorScopeId) != nil else { return }
+              workspaceSidebarMonitor(forScopeId: targetMonitorScopeId) != nil, proceeds?() ?? true else { return }
         let window = windowId.flatMap { Window.get(byId: $0) }.flatMap { $0.nodeWorkspace === tab ? $0 : nil }
-        // A browser tab's window that has left the pin, or closed, takes nothing anywhere.
-        if requiresWindow, window == nil { return }
         if let monitor = workspaceSidebarSharedPinClickDestination(tab, targetMonitorScopeId: targetMonitorScopeId) {
             try showSharedPinnedTab(tab, on: monitor, focusing: window)
         } else if let window {
