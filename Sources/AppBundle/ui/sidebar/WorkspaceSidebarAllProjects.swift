@@ -105,22 +105,6 @@ extension WorkspaceSidebarView {
     }
 
     @ViewBuilder
-    func projectContextMenu(_ project: WorkspaceSidebarProjectViewModel) -> some View {
-        Button("Switch to Project") { actions.send(.selectProject(project.id)) }
-        Button("Rename Project") { beginProjectRename(project) }
-        Menu("Color") {
-            Button("Auto") { actions.send(.setProjectColor(project.id, colorHex: nil)) }
-            ForEach(workspaceSidebarProjectColorPresets) { preset in
-                Button(preset.name) { actions.send(.setProjectColor(project.id, colorHex: preset.hex)) }
-            }
-        }
-        Button("Edit Emoji…") { actions.send(.editProjectEmoji(project.id)) }
-        Button("Reset Emoji") { actions.send(.setProjectEmoji(project.id, emoji: nil)) }
-        Button("Delete Project", role: .destructive) { actions.send(.deleteProject(project.id)) }
-            .disabled(!canDeleteWorkspaceProject(project.id))
-    }
-
-    @ViewBuilder
     func projectCreateWorkspaceSection(projectId: WorkspaceProjectId, layout: WorkspaceSidebarConfiguration) -> some View {
         if workspaceSidebarShowsCreateWorkspace(selectedScopeId: snapshot.selectedMonitorScopeId) {
             let scopeId = workspaceSidebarWorkspaceCreateScope(selectedScopeId: snapshot.selectedMonitorScopeId,
