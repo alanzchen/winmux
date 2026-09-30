@@ -334,17 +334,27 @@ struct WorkspaceSidebarTabCollectionHeader: View {
                     Circle().fill(tint ?? Color.secondary).frame(width: 8, height: 8)
                 }
             } title: {
-                WorkspaceSidebarTabGroupTitle(text: group.name, tint: tint)
-            } accessory: {
-                // A closed group previews what it holds after its name, keeping names aligned.
-                if disclosure.isCollapsed {
-                    HStack(spacing: 3) {
-                        ForEach(Array(workspaces.flatMap(workspaceSidebarPinnedTabWindows).prefix(3))) { window in
-                            WorkspaceSidebarWindowIcon(window: window, size: 13)
-                                .accessibilityHidden(true)
+                // A closed group previews what it holds after its name, keeping names aligned. A narrow
+                // sidebar leaves the preview out rather than squeezing the name away.
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 9) {
+                        WorkspaceSidebarTabGroupTitle(text: group.name, tint: tint)
+                            .frame(idealWidth: workspaceSidebarTabGroupPreviewMinimumTitleWidth, maxWidth: .infinity,
+                                alignment: .leading)
+                        if disclosure.isCollapsed {
+                            HStack(spacing: 3) {
+                                ForEach(Array(workspaces.flatMap(workspaceSidebarPinnedTabWindows).prefix(3))) { window in
+                                    WorkspaceSidebarWindowIcon(window: window, size: 13)
+                                        .accessibilityHidden(true)
+                                }
+                            }
+                            .transition(.opacity)
                         }
                     }
-                    .transition(.opacity)
+                    WorkspaceSidebarTabGroupTitle(text: group.name, tint: tint)
+                }
+            } accessory: {
+                if disclosure.isCollapsed {
                     WorkspaceSidebarGroupActivity(workspaces: workspaces, model: badgeModel)
                 }
             }
@@ -357,6 +367,9 @@ struct WorkspaceSidebarTabCollectionHeader: View {
         .onHover { hovering in withAnimation(WorkspaceSidebarTabMotion.hover) { isHovered = hovering } }
     }
 }
+
+/// A closed group's preview shows only while its name keeps at least this much room.
+let workspaceSidebarTabGroupPreviewMinimumTitleWidth: CGFloat = 48
 
 /// An empty group's hint, on its rows' title column.
 struct WorkspaceSidebarTabsGroupPlaceholder: View {
@@ -397,9 +410,11 @@ struct WorkspaceSidebarTabsSearchRow: View {
                 Text(text.isEmpty ? "Search tabs" : text)
                     .font(.system(size: 13, weight: text.isEmpty ? .regular : .medium))
                     .foregroundStyle(Color.primary.opacity(text.isEmpty ? (isEditing ? 0.35 : 0.45) : 0.9))
-                    .lineLimit(1).truncationMode(.head)
+                    // A long query keeps its end in view; a narrow sidebar shortens the prompt's end.
+                    .lineLimit(1).truncationMode(text.isEmpty ? .tail : .head)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                Color.clear.frame(width: workspaceSidebarTabTrailingSlotWidth, height: 1)
+                // Room for the clear button, which only an active search shows.
+                if isActive { Color.clear.frame(width: workspaceSidebarTabTrailingSlotWidth, height: 1) }
             }
             .padding(.leading, workspaceSidebarTabLeadingPadding)
             .frame(maxWidth: .infinity, minHeight: 32, maxHeight: 32, alignment: .leading)

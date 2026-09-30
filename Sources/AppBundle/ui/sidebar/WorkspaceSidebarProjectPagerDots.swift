@@ -4,16 +4,69 @@ let workspaceSidebarCurrentProjectPillMaxWidth: CGFloat = 132
 /// Below this, a narrow sidebar shows the current project's emoji or bar without its name.
 let workspaceSidebarCurrentProjectPillMinWidthForName: CGFloat = 72
 
+/// How the expanded switcher fits its unnamed projects into its track before it has to scroll:
+/// full-width chips, chips squeezed toward their tiles, or the current project's chip among dots.
+enum WorkspaceSidebarProjectTrackDensity: Equatable {
+    case regular
+    case tight(buttonWidth: CGFloat)
+    /// `dotWidth` is each dot's button, which narrows before the track scrolls.
+    case dots(dotWidth: CGFloat)
+
+    static let regularButtonWidth: CGFloat = 36
+    /// A 24-point emoji tile with a little room beside it.
+    static let tightMinimumButtonWidth: CGFloat = 26
+    static let dotsCurrentButtonWidth: CGFloat = 28
+    static let dotMaximumButtonWidth: CGFloat = 12
+    static let dotMinimumButtonWidth: CGFloat = 6
+    /// The track's content padding, on both sides together.
+    static let contentPadding: CGFloat = 8
+
+    var spacing: CGFloat { self == .regular ? 4 : 2 }
+
+    func buttonWidth(isCurrent: Bool) -> CGFloat {
+        switch self {
+            case .regular: Self.regularButtonWidth
+            case .tight(let width): width
+            case .dots(let width): isCurrent ? Self.dotsCurrentButtonWidth : width
+        }
+    }
+
+    func contentWidth(projectCount: Int) -> CGFloat {
+        guard projectCount > 0 else { return Self.contentPadding }
+        let others = CGFloat(projectCount - 1)
+        return buttonWidth(isCurrent: true) + others * buttonWidth(isCurrent: false) + others * spacing + Self.contentPadding
+    }
+}
+
+func workspaceSidebarProjectTrackDensity(projectCount: Int, trackWidth: CGFloat) -> WorkspaceSidebarProjectTrackDensity {
+    typealias Density = WorkspaceSidebarProjectTrackDensity
+    guard projectCount > 1, Density.regular.contentWidth(projectCount: projectCount) > trackWidth else { return .regular }
+    let count = CGFloat(projectCount)
+    let spacing = Density.tight(buttonWidth: 0).spacing
+    let squeezed = floor((trackWidth - Density.contentPadding - (count - 1) * spacing) / count)
+    if squeezed >= Density.tightMinimumButtonWidth { return .tight(buttonWidth: min(squeezed, Density.regularButtonWidth)) }
+    let dot = floor((trackWidth - Density.contentPadding - Density.dotsCurrentButtonWidth) / (count - 1) - spacing)
+    return .dots(dotWidth: min(max(dot, Density.dotMinimumButtonWidth), Density.dotMaximumButtonWidth))
+}
+
 extension WorkspaceSidebarProjectPager {
     /// Every expanded project shows its emoji. The collapsed Sidebar rail keeps its bars.
     func showsProjectEmoji(_ project: WorkspaceSidebarProjectViewModel) -> Bool {
         project.emoji != nil && (layout.showAppIcons || layout.usesTabsList || !isCompact)
     }
 
-    /// The pill never outgrows the track, so a narrow sidebar keeps the switcher usable.
+    /// The pill never outgrows the track, so a narrow sidebar keeps the switcher usable. In
+    /// Sidebar and Tabs modes it also leaves room for the projects on either side.
     var currentProjectPillMaxWidth: CGFloat {
-        let neighbors = layout.usesTabsList ? CGFloat(min(max(projects.count - 1, 0), 2)) * 40 : 0
+        let neighbors = layout.showAppIcons ? 0 : CGFloat(min(max(projects.count - 1, 0), 2)) * 40
         return max(0, min(workspaceSidebarCurrentProjectPillMaxWidth, projectTrackWidth - 8 - neighbors))
+    }
+
+    /// In Sidebar and Tabs modes, unnamed projects squeeze, then become dots, so the track shows
+    /// all of them without scrolling a chip half out of view. Only a great many still scroll.
+    var trackDensity: WorkspaceSidebarProjectTrackDensity {
+        isCompact || usesProjectChips || layout.showAppIcons ? .regular
+            : workspaceSidebarProjectTrackDensity(projectCount: projects.count, trackWidth: projectTrackWidth)
     }
 
     /// The expanded switcher names the current project in place of a separate menu.
@@ -38,7 +91,8 @@ extension WorkspaceSidebarProjectPager {
         // The scrolling track follows the fitted Dock width. Keep its pills and
         // hover outlines inside that track while retaining the vertical click target.
         let scale = isCompact && layout.showAppIcons ? layout.compactDockScale : 1
-        let buttonWidth = isCompact && layout.showAppIcons ? min(36, sectionWidth) : 36
+        let density = trackDensity
+        let buttonWidth = isCompact ? (layout.showAppIcons ? min(36, sectionWidth) : 36) : density.buttonWidth(isCurrent: isCurrent)
         // Beside the current project's named pill, expanded emoji match its smaller type.
         let emojiSize = isCompact ? min(28, buttonWidth, horizontalCompact ? max(layout.compactRailWidth - 4, 12) : 28) : 24
         let emojiFontSize = isCompact ? emojiSize - 4 : 17
@@ -52,6 +106,11 @@ extension WorkspaceSidebarProjectPager {
             Group {
                 if usesProjectChips {
                     projectChip(project, isCurrent: isCurrent, projectColor: projectColor, isDotHovered: isDotHovered)
+                } else if case .dots = density, !isCurrent {
+                    Circle()
+                        .fill(projectColor.opacity(isDotHovered ? 0.95 : (isHovered ? 0.75 : 0.6)))
+                        .frame(width: min(7, buttonWidth - 1), height: min(7, buttonWidth - 1))
+                        .frame(width: buttonWidth)
                 } else if showsProjectEmoji(project), let emoji = project.emoji {
                     Text(emoji)
                         .font(.system(size: emojiFontSize))
@@ -66,7 +125,8 @@ extension WorkspaceSidebarProjectPager {
                         }
                         .frame(width: buttonWidth)
                 } else {
-                    projectBar(projectColor: projectColor, isCurrent: isCurrent, isDotHovered: isDotHovered, scale: scale)
+                    projectBar(projectColor: projectColor, isCurrent: isCurrent, isDotHovered: isDotHovered, scale: scale,
+                        maxWidth: buttonWidth)
                         .frame(width: buttonWidth)
                 }
             }
@@ -141,14 +201,16 @@ extension WorkspaceSidebarProjectPager {
         .frame(minWidth: 36)
     }
 
-    private func projectBar(projectColor: Color, isCurrent: Bool, isDotHovered: Bool, scale: CGFloat) -> some View {
+    /// `maxWidth` keeps a squeezed chip's bar and hover outline inside its button.
+    private func projectBar(projectColor: Color, isCurrent: Bool, isDotHovered: Bool, scale: CGFloat,
+                            maxWidth: CGFloat = .infinity) -> some View {
         ZStack {
             RoundedRectangle(cornerRadius: 9 * scale, style: .continuous)
                 .fill(isDotHovered ? projectColor.opacity(0.14) : Color.clear)
-                .frame(width: 34 * scale, height: 22 * scale)
+                .frame(width: min(34 * scale, maxWidth), height: 22 * scale)
             Capsule(style: .continuous)
                 .fill(isCurrent ? Color.white.opacity(0.17) : projectColor.opacity(isDotHovered ? 0.58 : (isHovered ? 0.44 : 0.32)))
-                .frame(width: (isCurrent ? 28 : 13) * scale, height: (isCompact ? 10 : 9) * scale)
+                .frame(width: min((isCurrent ? 28 : 13) * scale, maxWidth - 4), height: (isCompact ? 10 : 9) * scale)
                 .overlay {
                     Capsule(style: .continuous)
                         .strokeBorder(

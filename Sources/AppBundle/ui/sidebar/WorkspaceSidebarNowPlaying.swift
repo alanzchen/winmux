@@ -74,7 +74,7 @@ struct WorkspaceSidebarMusicNowPlayingView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 9) {
+            WorkspaceSidebarNowPlayingHeaderLayout {
                 Button(action: onSelect) {
                     HStack(spacing: 9) {
                         artwork
@@ -146,7 +146,7 @@ struct WorkspaceSidebarMusicNowPlayingView: View {
                     }
             }
         }
-        .frame(width: 40, height: 40)
+        .frame(width: workspaceSidebarNowPlayingArtworkSize, height: workspaceSidebarNowPlayingArtworkSize)
         .clipShape(shape)
         .overlay { shape.strokeBorder(Color.primary.opacity(0.1), lineWidth: 0.5) }
         .accessibilityHidden(true)
@@ -173,6 +173,51 @@ struct WorkspaceSidebarMusicNowPlayingView: View {
         .buttonStyle(WorkspaceSidebarNowPlayingControlStyle())
         .help(label)
         .accessibilityLabel(label)
+    }
+}
+
+let workspaceSidebarNowPlayingArtworkSize: CGFloat = 40
+/// The least of the track's title the player shows beside its controls.
+let workspaceSidebarNowPlayingMinimumTitleWidth: CGFloat = 56
+
+/// The track, then the playback controls: side by side while the title keeps room to be read,
+/// otherwise the controls go under the track, centered, so a narrow sidebar never cuts them off.
+struct WorkspaceSidebarNowPlayingHeaderLayout: SwiftUI.Layout {
+    private let spacing: CGFloat = 9
+    private let stackedSpacing: CGFloat = 4
+
+    static func placesControlsBeside(width: CGFloat, controlsWidth: CGFloat) -> Bool {
+        width >= workspaceSidebarNowPlayingArtworkSize + 9 + workspaceSidebarNowPlayingMinimumTitleWidth + 9 + controlsWidth
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard subviews.count == 2 else { return .zero }
+        let controls = subviews[1].sizeThatFits(.unspecified)
+        guard let width = proposal.width, width.isFinite else {
+            let track = subviews[0].sizeThatFits(.unspecified)
+            return CGSize(width: track.width + spacing + controls.width, height: max(track.height, controls.height))
+        }
+        if Self.placesControlsBeside(width: width, controlsWidth: controls.width) {
+            let track = subviews[0].sizeThatFits(ProposedViewSize(width: width - spacing - controls.width, height: nil))
+            return CGSize(width: width, height: max(track.height, controls.height))
+        }
+        let track = subviews[0].sizeThatFits(ProposedViewSize(width: width, height: nil))
+        return CGSize(width: width, height: track.height + stackedSpacing + controls.height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard subviews.count == 2 else { return }
+        let controls = subviews[1].sizeThatFits(.unspecified)
+        if Self.placesControlsBeside(width: bounds.width, controlsWidth: controls.width) {
+            subviews[0].place(at: CGPoint(x: bounds.minX, y: bounds.midY), anchor: .leading,
+                proposal: ProposedViewSize(width: bounds.width - spacing - controls.width, height: nil))
+            subviews[1].place(at: CGPoint(x: bounds.maxX, y: bounds.midY), anchor: .trailing, proposal: .unspecified)
+            return
+        }
+        let track = subviews[0].sizeThatFits(ProposedViewSize(width: bounds.width, height: nil))
+        subviews[0].place(at: bounds.origin, anchor: .topLeading, proposal: ProposedViewSize(width: bounds.width, height: nil))
+        subviews[1].place(at: CGPoint(x: bounds.midX, y: bounds.minY + track.height + stackedSpacing), anchor: .top,
+            proposal: .unspecified)
     }
 }
 
@@ -229,7 +274,7 @@ struct WorkspaceSidebarNowPlayingProgress: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            Text(workspaceSidebarNowPlayingTime(elapsed))
+            Text(workspaceSidebarNowPlayingTime(elapsed)).fixedSize()
             GeometryReader { geometry in
                 ZStack(alignment: .leading) {
                     Capsule(style: .continuous).fill(Color.primary.opacity(0.12))
@@ -238,7 +283,7 @@ struct WorkspaceSidebarNowPlayingProgress: View {
                 }
             }
             .frame(height: 3)
-            Text("-" + workspaceSidebarNowPlayingTime(max(0, duration - elapsed)))
+            Text("-" + workspaceSidebarNowPlayingTime(max(0, duration - elapsed))).fixedSize()
         }
         .font(.system(size: 9, weight: .medium).monospacedDigit())
         .foregroundStyle(Color.primary.opacity(0.5))

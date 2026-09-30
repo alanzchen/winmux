@@ -148,7 +148,10 @@ struct WorkspaceSidebarMonitorSelector: View {
                     onCommit: onCommitRenameProject,
                     onCancel: onCancelRenameProject,
                 )
-                .frame(width: projectPopupWidth, height: workspaceSidebarDropdownHeight)
+                // Beside the display pills, a narrow sidebar narrows it instead of pushing it past the edge.
+                .frame(maxWidth: projectPopupWidth)
+                .frame(height: workspaceSidebarDropdownHeight)
+                .layoutPriority(1)
             )
         }
         return AnyView(Button {
@@ -169,7 +172,8 @@ struct WorkspaceSidebarMonitorSelector: View {
             .modifier(WorkspaceSidebarDropdownControlStyle(isActive: isActive))
         }
         .buttonStyle(.plain)
-        .fixedSize(horizontal: true, vertical: false)
+        // Its natural width where there's room; a narrow sidebar shortens the name instead.
+        .layoutPriority(1)
         .overlay(alignment: .topTrailing) {
             projectPopup
                 .offset(y: workspaceSidebarDropdownHeight + workspaceSidebarSectionGap)
@@ -204,7 +208,7 @@ struct WorkspaceSidebarMonitorSelector: View {
                         isProjectMenuOpen = false
                     },
                     showsCreateAction: false,
-                    menuWidth: projectPopupWidth
+                    menuWidth: min(projectPopupWidth, sectionWidth)
                 )
                 .transition(.asymmetric(
                     insertion: .opacity.combined(with: .scale(scale: 0.98, anchor: .topTrailing)),

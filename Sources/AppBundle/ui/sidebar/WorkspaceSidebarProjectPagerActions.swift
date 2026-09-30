@@ -33,7 +33,7 @@ extension WorkspaceSidebarProjectPager {
     var projectDotTrack: some View {
         ScrollViewReader { proxy in
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(alignment: .center, spacing: 4) {
+                HStack(alignment: .center, spacing: trackDensity.spacing) {
                     ForEach(Array(projects.enumerated()), id: \.element.id) { index, project in
                         projectDot(project, index: index)
                             .id(project.id)
