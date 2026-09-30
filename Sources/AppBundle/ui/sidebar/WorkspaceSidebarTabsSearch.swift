@@ -1,11 +1,6 @@
 import SwiftUI
 
 extension WorkspaceSidebarView {
-    /// The tabs Tabs mode lists: not one left empty, which only stays while it's all its display has.
-    var tabsListedWorkspaces: [WorkspaceSidebarWorkspaceViewModel] {
-        snapshot.workspaces.filter { !$0.isLeftEmpty }
-    }
-
     var tabsSearchProjectOrder: [WorkspaceSidebarProjectViewModel] {
         let current = snapshot.projects.filter { $0.id == snapshot.activeProjectId }
         return current + snapshot.projects.filter { $0.id != snapshot.activeProjectId }
@@ -13,11 +8,8 @@ extension WorkspaceSidebarView {
 
     /// Rendering, arrow keys, and Enter consume exactly the same ordered matches.
     func tabsSearchWorkspacesByProject() -> [WorkspaceProjectId: [WorkspaceSidebarWorkspaceViewModel]] {
-        let visible = workspaceSidebarVisibleWorkspacesByProject(workspaces: tabsListedWorkspaces,
-            selectedScopeId: snapshot.selectedMonitorScopeId, focusedMonitorScopeId: snapshot.focusedMonitorScopeId)
-        let ordered = visible.mapValues { workspaceSidebarOrderedTabs($0, collections: snapshot.configuration.tabCollections) }
-        return workspaceSidebarFilteredWorkspacesByProject(ordered, projects: snapshot.projects, query: searchText,
-            collections: snapshot.configuration.tabCollections, browserTabs: browserTabs)
+        workspaceSidebarFilteredWorkspacesByProject(snapshot.tabsListedWorkspacesByProject, projects: snapshot.projects,
+            query: searchText, collections: snapshot.configuration.tabCollections, browserTabs: browserTabs)
     }
 
     var tabsSearchResults: some View {

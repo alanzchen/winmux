@@ -43,5 +43,6 @@ func workspaceSidebarConfiguration(_ source: Config = config, displayName: Strin
         displayFilter: source.workspaceSidebar.displayFilter,
         panelsCoverEveryDisplay: workspaceSidebarPanelsCoverEveryDisplay(),
         musicPlayerAtBottom: source.workspaceSidebar.musicPlayerAtBottom,
+        sharesPinnedTabs: source.workspaceSidebar.sharesPinnedTabs,
     )
 }

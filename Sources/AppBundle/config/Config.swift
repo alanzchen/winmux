@@ -137,6 +137,10 @@ struct WorkspaceSidebarConfig: ConvenienceCopyable, Equatable, Sendable {
     /// Tabs mode: Music's player sits at the bottom of the expanded sidebar while Music is open,
     /// instead of under Music's tab.
     var musicPlayerAtBottom: Bool = false
+    /// Tabs mode: every display's sidebar shows its project's pinned tabs from every display,
+    /// instead of only the ones on its own display. The pins stay on their displays.
+    var sharePinnedTabs: Bool = false
+    var sharesPinnedTabs: Bool { usesTabsList && sharePinnedTabs }
     var pinsSidebarOpen: Bool { mode == .tabs ? tabsAlwaysExpanded : alwaysExpanded }
     var mode: WorkspaceSidebarMode = .dock
     // Compatibility alias for existing TOML and internal callers.

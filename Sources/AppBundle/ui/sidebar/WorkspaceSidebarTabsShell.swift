@@ -9,9 +9,8 @@ extension WorkspaceSidebarView {
         let pagerInset = layout.compactHorizontalInset +
             (workspaceSidebarContentLeadingInset - layout.compactHorizontalInset) * expansionProgress
         let project = snapshot.projects.first { $0.id == snapshot.activeProjectId }
-        let visible = workspaceSidebarVisibleWorkspacesByProject(workspaces: tabsListedWorkspaces,
-            selectedScopeId: snapshot.selectedMonitorScopeId, focusedMonitorScopeId: snapshot.focusedMonitorScopeId,
-            browsedProjectId: nil).mapValues { workspaceSidebarOrderedTabs($0, collections: snapshot.configuration.tabCollections) }
+        // Pins first; with shared pins, the project's from every display.
+        let visible = snapshot.tabsListedWorkspacesByProject
         let filtered = workspaceSidebarFilteredWorkspacesByProject(visible, projects: snapshot.projects, query: searchText,
             collections: snapshot.configuration.tabCollections, browserTabs: browserTabs)
         let collapsedGroups = Set(snapshot.configuration.tabCollections.filter {

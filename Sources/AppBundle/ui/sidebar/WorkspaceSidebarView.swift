@@ -14,14 +14,16 @@ struct WorkspaceSidebarView: View {
     @State private var browserWatchScope: String?
     var browserTabs: [UInt32: BrowserWindowTabs] { snapshot.configuration.usesTabsList ? browserTabsModel.snapshots : [:] }
     /// Pinned tiles are read too: they show no browser tabs, but their window's sound and website icon.
-    private var watchedBrowserWindowIds: Set<UInt32> {
+    /// Shared pins show here even while another display shows them.
+    var watchedBrowserWindowIds: Set<UInt32> {
         guard snapshot.configuration.usesTabsList,
               snapshot.visibleWidth > snapshot.configuration.expansionStartWidth else { return [] }
         return Set(snapshot.workspaces.filter {
             workspaceSidebarTabPresentation($0) != .folder &&
                 (!searchText.isEmpty || $0.projectId == snapshot.activeProjectId || $0.projectId == browsedProjectId) &&
                 (!$0.isVisible || workspaceSidebarMonitorScopeIsSentinel(snapshot.targetMonitorScopeId) ||
-                    $0.monitorScopeId == snapshot.targetMonitorScopeId)
+                    $0.monitorScopeId == snapshot.targetMonitorScopeId ||
+                    snapshot.configuration.sharesPinnedTabs && $0.appearance.isFavorite)
         }
             .flatMap(workspaceSidebarPinnedTabWindows).map(\.windowId))
     }
@@ -470,7 +472,8 @@ struct WorkspaceSidebarView: View {
         current.refreshSidebarSearchKeyHandler()
         let listingChanged = newSnapshot.selectedMonitorScopeId != snapshot.selectedMonitorScopeId ||
             newSnapshot.focusedMonitorScopeId != snapshot.focusedMonitorScopeId ||
-            newSnapshot.activeProjectId != snapshot.activeProjectId || newSnapshot.workspaces != snapshot.workspaces
+            newSnapshot.activeProjectId != snapshot.activeProjectId || newSnapshot.workspaces != snapshot.workspaces ||
+            newSnapshot.configuration.sharesPinnedTabs != snapshot.configuration.sharesPinnedTabs
         guard current.selectedSearchTarget != nil, listingChanged,
               workspaceSidebarListedSearchTarget(current.selectedSearchTarget, in: current.currentSearchSelections()) == nil
         else { return }

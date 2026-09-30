@@ -65,6 +65,8 @@ struct WorkspaceSidebarConfiguration: Equatable {
     var panelsCoverEveryDisplay: Bool = true
     /// Tabs mode: Music's player sits at the bottom of the expanded sidebar, not under its tab.
     var musicPlayerAtBottom: Bool = false
+    /// Tabs mode: a display's list shows its project's pins from every display.
+    var sharesPinnedTabs: Bool = false
 
     var defaultsToOwnDisplay: Bool { displayFilter == .thisDisplay && panelsCoverEveryDisplay }
     var compactRailWidth: CGFloat {

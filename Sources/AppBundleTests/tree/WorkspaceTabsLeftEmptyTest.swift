@@ -95,7 +95,7 @@ final class WorkspaceTabsLeftEmptyTest: XCTestCase {
         XCTAssertEqual(listed?.isLeftEmpty, true)
         var snapshot = WorkspaceSidebarSnapshot.empty
         snapshot.workspaces = TrayMenuModel.shared.workspaceSidebarWorkspaces
-        XCTAssertFalse(WorkspaceSidebarView(snapshot: snapshot).tabsListedWorkspaces.contains { $0.name == a.name })
+        XCTAssertFalse(snapshot.tabsListedWorkspacesByProject.values.joined().contains { $0.name == a.name })
 
         let newTab = newTabWorkspace(projectId: a.projectId, monitor: a.workspaceMonitor)
         XCTAssertTrue(newTab.workspace === a, "New Tab reuses it; the launcher lists it while it's open for it")
