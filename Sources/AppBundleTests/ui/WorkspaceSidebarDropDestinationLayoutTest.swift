@@ -136,10 +136,11 @@ final class WorkspaceSidebarDropDestinationLayoutTest: XCTestCase {
             XCTAssertGreaterThanOrEqual(column?.width ?? 0, workspaceSidebarDropDestinationMinColumnWidth)
             XCTAssertEqual(position == .left ? open.hintArea.minX : screen.maxX - open.hintArea.maxX, 386, accuracy: 0.5,
                 "The bank's edge is beside the sidebar")
-            // Another destination's own width doesn't move them either: the width is the drag's.
+            // Beside the sidebar, the list's width comes out of its own share: whatever it prefers,
+            // the rails are the same.
             for width in [220.0, 300, 360] {
                 XCTAssertEqual(workspaceSidebarDropDestinationLayout(sourceSurface: source, visibleFrame: screen, position: position,
-                    hintCount: 3, preferredColumnWidth: width, opensColumn: true).hints.count, 3)
+                    hintCount: 3, preferredColumnWidth: width, opensColumn: true).hints, open.hints, "\(position) \(width)")
             }
         }
     }

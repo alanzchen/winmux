@@ -159,6 +159,26 @@ final class WorkspaceSidebarDropDestinationTransitTest: XCTestCase {
         XCTAssertEqual(state.openId, "b", "Then held still for a whole pause: a deliberate switch")
     }
 
+    /// On the way in: a step back, then on again. Moving back pauses as anywhere; moving on again
+    /// passes. Only stopping for a whole pause switches.
+    func testAReversalThenResumingOnStillPasses() {
+        var state = WorkspaceSidebarDropDestinationState(openId: "a")
+        var now: TimeInterval = 250
+        var x: CGFloat = 334
+        for _ in 0 ..< 6 { state = step(state, x: x, at: now); x += 1; now += frame }
+        for _ in 0 ..< 3 { state = step(state, x: x, at: now); x -= 0.5; now += frame }
+        while x < 420 {
+            state = step(state, x: x, at: now)
+            XCTAssertEqual(state.openId, "a", "x=\(x)")
+            x += 0.07 // 4 pt/s
+            now += frame
+        }
+        // Back onto b, and staying there: a deliberate switch.
+        state = step(state, x: 350, at: now)
+        state = step(state, x: 350, at: now + workspaceSidebarDropDestinationDwell)
+        XCTAssertEqual(state.openId, "b")
+    }
+
     func testHoldingStillOnACrossedRailSwitchesToIt() {
         var state = WorkspaceSidebarDropDestinationState(openId: "a")
         state = step(state, x: 350, at: 300)
@@ -191,6 +211,31 @@ final class WorkspaceSidebarDropDestinationTransitTest: XCTestCase {
             state = step(state, x: x, at: now + workspaceSidebarDropDestinationDwell)
             XCTAssertEqual(state.openId, id)
             now += 1
+        }
+    }
+
+    /// A bottom Dock's strip: from a segment at either end into the list above it, the path leaves
+    /// the strip at once, crosses no other segment, and the list stays open.
+    func testFromABottomStripsEndIntoItsListStaysOpen() {
+        let layout = workspaceSidebarDropDestinationLayout(sourceSurface: CGRect(x: 600, y: 4, width: 700, height: 72),
+            visibleFrame: CGRect(x: 0, y: 0, width: 1920, height: 1055), position: .bottom, hintCount: 5,
+            preferredColumnWidth: 280, opensColumn: true)
+        let column = try? XCTUnwrap(layout.column)
+        let ids = ["a", "b", "c", "d", "e"]
+        let segments = Array(zip(ids, layout.hints)).map { (id: $0.0, frame: $0.1) }
+        for end in [0, ids.count - 1] {
+            var state = WorkspaceSidebarDropDestinationState(openId: ids[end])
+            let from = CGPoint(x: layout.hints[end].midX, y: layout.hints[end].midY)
+            let to = CGPoint(x: column?.midX ?? 0, y: column?.midY ?? 0)
+            for step in 0 ... 120 {
+                let t = CGFloat(step) / 120
+                let point = CGPoint(x: from.x + (to.x - from.x) * t, y: from.y + (to.y - from.y) * t)
+                state = workspaceSidebarDropDestinationStep(state, pointer: point, now: 800 + Double(step) * frame,
+                    hints: segments, keepOpen: layout.hintArea.union(column ?? .zero), listSide: nil)
+                XCTAssertEqual(state.openId, ids[end], "From segment \(end), step \(step)")
+                XCTAssertFalse(segments.enumerated().contains { $0.offset != end && $0.element.frame.contains(point) },
+                    "No other segment is crossed")
+            }
         }
     }
 

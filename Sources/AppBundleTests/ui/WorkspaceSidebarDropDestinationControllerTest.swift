@@ -447,6 +447,7 @@ final class WorkspaceSidebarDropDestinationControllerTest: XCTestCase {
         let tab = try fixture(displays: 3)
         beginDrag(tab)
         try open()
+        let rails = controller.layout?.hints
         let second = try XCTUnwrap(controller.layout?.hints.last)
         let point = CGPoint(x: second.midX, y: second.minY + 40)
         controller.tick(pointer: point, now: 700, elapsed: 0.016)
@@ -454,6 +455,7 @@ final class WorkspaceSidebarDropDestinationControllerTest: XCTestCase {
         controller.tick(pointer: point, now: 700 + workspaceSidebarDropDestinationDwell, elapsed: 0.22)
         XCTAssertEqual(controller.openId, far)
         XCTAssertEqual(controller.columnPanel.dropDestination?.monitorScopeId, far)
+        XCTAssertEqual(controller.layout?.hints, rails, "Switching lists moved no rail: the list's width is the drag's")
     }
 
     /// Rails: moving up and down a rail, its list open, changes nothing on the rails: nothing publishes.
