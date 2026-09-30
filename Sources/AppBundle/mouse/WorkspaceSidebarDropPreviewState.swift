@@ -19,20 +19,25 @@ func setWorkspaceSidebarDropPreviewIfChanged(_ preview: WorkspaceSidebarDropPrev
     }
 }
 
-/// The drop preview a display's panel shows. A drop aimed at temporary drop UI lights up nothing
-/// on any panel: they keep only what's dragged, so its row still dims.
-func workspaceSidebarPanelDropPreview(_ preview: WorkspaceSidebarDropPreviewViewModel?,
-                                      ownerId: String?) -> WorkspaceSidebarDropPreviewViewModel? {
+/// The drop preview the panel for `panelScopeId` shows. Panels that don't show the drop keep only
+/// what's dragged, so its row still dims:
+/// - a drop aimed at temporary drop UI lights up no panel;
+/// - with shared pins, one pin is drawn on several panels, so only the owner lights it. Without a
+///   known owner, only the panel whose list the preview names does; one naming no list lights none.
+func workspaceSidebarPanelDropPreview(_ preview: WorkspaceSidebarDropPreviewViewModel?, panelScopeId: String,
+                                      ownerId: String?, sharesPinnedTabs: Bool) -> WorkspaceSidebarDropPreviewViewModel? {
     guard let preview else { return nil }
-    return workspaceSidebarDropPreviewOwnerIsTemporary(ownerId) ? preview.sourceOnly : preview
+    if workspaceSidebarDropPreviewOwnerIsTemporary(ownerId) { return preview.sourceOnly }
+    guard sharesPinnedTabs else { return preview }
+    let shows = ownerId.map { $0 == panelScopeId } ?? (preview.targetMonitorScopeId == panelScopeId)
+    return shows ? preview : preview.sourceOnly
 }
 
 extension WorkspaceSidebarDropPreviewViewModel {
     /// What's dragged, without where it goes.
     var sourceOnly: WorkspaceSidebarDropPreviewViewModel {
         .init(sourceWindowId: sourceWindowId, label: label, appName: appName, appBundleIdentifier: appBundleIdentifier,
-            appBundlePath: appBundlePath, targetWorkspaceName: nil, targetsNewWorkspace: false,
-            targetProjectId: targetProjectId, targetMonitorScopeId: targetMonitorScopeId, isTabGroup: isTabGroup,
+            appBundlePath: appBundlePath, targetWorkspaceName: nil, targetsNewWorkspace: false, isTabGroup: isTabGroup,
             windowCount: windowCount, tabItems: tabItems)
     }
 }

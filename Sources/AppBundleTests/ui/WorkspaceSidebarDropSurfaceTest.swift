@@ -107,7 +107,7 @@ final class WorkspaceSidebarDropSurfaceTest: XCTestCase {
         setWorkspaceSidebarDropPreviewIfChanged(preview, owner: .dropDestination(generation: 4))
         XCTAssertEqual(currentWorkspaceSidebarDropPreviewOwnerScopeId(), "drop-destination:4")
         let shown = workspaceSidebarPanelDropPreview(TrayMenuModel.shared.workspaceSidebarDropPreview,
-            ownerId: currentWorkspaceSidebarDropPreviewOwnerScopeId())
+            panelScopeId: "monitor:0.0,0.0", ownerId: currentWorkspaceSidebarDropPreviewOwnerScopeId(), sharesPinnedTabs: false)
         XCTAssertEqual(shown, preview.sourceOnly, "The panels keep only what's dragged")
         XCTAssertFalse(workspaceSidebarDropPreviewBelongs(toPanel: "monitor:0.0,0.0", preview: preview,
             ownerScopeId: currentWorkspaceSidebarDropPreviewOwnerScopeId()), "No panel going away takes it")
@@ -115,8 +115,10 @@ final class WorkspaceSidebarDropSurfaceTest: XCTestCase {
         setWorkspaceSidebarDropPreviewIfChanged(preview, owner: .panel(monitorScopeId: "monitor:0.0,0.0"))
         XCTAssertEqual(currentWorkspaceSidebarDropPreviewOwnerScopeId(), "monitor:0.0,0.0",
             "An equal preview moving to a panel takes that owner")
-        XCTAssertEqual(workspaceSidebarPanelDropPreview(preview, ownerId: "monitor:0.0,0.0"), preview)
-        XCTAssertNil(workspaceSidebarPanelDropPreview(nil, ownerId: "drop-destination:4"))
+        XCTAssertEqual(workspaceSidebarPanelDropPreview(preview, panelScopeId: "monitor:1920.0,0.0",
+            ownerId: "monitor:0.0,0.0", sharesPinnedTabs: false), preview, "Without shared pins, as before")
+        XCTAssertNil(workspaceSidebarPanelDropPreview(nil, panelScopeId: "monitor:0.0,0.0", ownerId: "drop-destination:4",
+            sharesPinnedTabs: false))
         setWorkspaceSidebarDropPreviewIfChanged(nil, owner: .dropDestination(generation: 4))
         XCTAssertNil(currentWorkspaceSidebarDropPreviewOwnerScopeId(), "No preview, no owner")
     }
@@ -158,6 +160,8 @@ final class WorkspaceSidebarDropSurfaceTest: XCTestCase {
         XCTAssertFalse(source.separatesFromTab)
         XCTAssertFalse(source.targetsPinned)
         XCTAssertNil(source.targetPinnedGap)
+        XCTAssertNil(source.targetProjectId, "Nor which list: an unchanged source publishes nothing")
+        XCTAssertNil(source.targetMonitorScopeId)
     }
 
     /// Tabs mode commits only what the last preview showed; the same kind and rect on another
