@@ -89,7 +89,10 @@ tabs-always-expanded = true
   order, for the project it's showing. Each project keeps its own pins, and each
   display keeps its own tab list, groups and **New Tab**. Pinning, unpinning or
   reordering pins on one display changes every display, and turning the setting off
-  gives each display its own pins back. A pin whose tab is on another display, on
+  gives each display its own pins back. Dragging a tab onto the pins, or rearranging
+  them, never moves it to another display; dropping it on a display's tabs, groups,
+  list or **New Tab** still brings it there. Without the setting, dropping a tab on
+  another display's pins brings it to that display. A pin whose tab is on another display, on
   screen there or kept there while hidden, shows a faint display outline in its
   corner, and its tooltip names that display. Clicking a pin brings its tab to the
   display you clicked it on, whether it was hidden or on screen on another display,
