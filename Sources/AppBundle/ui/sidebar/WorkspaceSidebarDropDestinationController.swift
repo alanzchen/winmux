@@ -169,7 +169,9 @@ final class WorkspaceSidebarDropDestinationController {
             disable()
             return
         }
-        MousePointerTracker.shared.note(point: normalizeAppKitScreenPoint(pointer))
+        // Only a move is news: the pointer's samples keep their time while it rests.
+        let point = normalizeAppKitScreenPoint(pointer)
+        if MousePointerTracker.shared.currentSample.point != point { MousePointerTracker.shared.note(point: point) }
         process(pointer: pointer, now: now, elapsed: elapsed)
     }
 
