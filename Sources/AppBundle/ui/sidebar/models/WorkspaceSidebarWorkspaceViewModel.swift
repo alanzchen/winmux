@@ -19,8 +19,11 @@ struct WorkspaceSidebarWorkspaceViewModel: Hashable, Identifiable {
     /// Tabs mode: its windows have all gone and it isn't saved. It closes off screen, and the
     /// sidebar doesn't list it while it can't, as the only tab on its display.
     var isLeftEmpty = false
-    /// A pinned tab's display, where that's known, with more than one display connected.
+    /// A pinned tab's display, where that's known, while pins are shared across displays.
     var knownDisplay: WorkspaceSidebarTabDisplay? = nil
+    /// With more than one display, the one a pinned tab is held to, the only one it may be shown
+    /// on: by `workspace-to-monitor-force-assignment`, else a saved Keep on display.
+    var heldMonitorScopeId: String? = nil
 
     var id: String { name }
 }
@@ -31,9 +34,6 @@ struct WorkspaceSidebarTabDisplay: Hashable {
     let monitorScopeId: String
     /// As the display menu names it, identical displays numbered.
     let displayName: String
-    /// The display `workspace-to-monitor-force-assignment` or a saved Keep on display holds it to,
-    /// the only one it may be shown on; nil when nothing holds it.
-    var heldMonitorScopeId: String? = nil
 }
 
 /// An app a saved tab opens in, for showing that tab while the app isn't open.

@@ -91,10 +91,15 @@ func handleWorkspaceSidebarAction(
     switch action {
         case .selectBrowserTab(let target):
             let monitorScopeId = targetMonitorScopeId ?? viewModel.workspaceSidebarTargetMonitorScopeId
-            // A browser tab of a shared pin on another display: the pin comes here, then the tab is chosen.
-            if let pin = workspaceSidebarSharedPinClicked(windowId: target.windowId, targetMonitorScopeId: targetMonitorScopeId),
-               workspaceSidebarSharedPinClickDestination(pin, targetMonitorScopeId: targetMonitorScopeId) != nil {
-                showSharedPinnedTabFromSidebar(pin, windowId: target.windowId, targetMonitorScopeId: targetMonitorScopeId) { _ in
+            let choice = noteWorkspaceSidebarBrowserTabChoice()
+            // A browser tab of a shared pin on another display: the pin comes here, then the tab is
+            // chosen, unless another has been chosen since.
+            if workspaceSidebarBrowserTabCanBeChosen(target),
+               let pin = workspaceSidebarSharedPinClicked(windowId: target.windowId, targetMonitorScopeId: monitorScopeId),
+               workspaceSidebarSharedPinClickDestination(pin, targetMonitorScopeId: monitorScopeId) != nil {
+                showSharedPinnedTabFromSidebar(pin, windowId: target.windowId, requiresWindow: true,
+                    targetMonitorScopeId: monitorScopeId) { _ in
+                    guard workspaceSidebarBrowserTabChoiceIsLatest(choice) else { return }
                     BrowserTabsModel.shared.select(target, monitorScopeId: monitorScopeId)
                 }
             } else {
@@ -212,10 +217,7 @@ func handleWorkspaceSidebarAction(
             openSavedWorkspaceAppsFromSidebar(name)
         case .openSavedTab(let name):
             if let pin = workspaceSidebarSharedPinClicked(name, targetMonitorScopeId: targetMonitorScopeId) {
-                // Its apps open once it's here, if its windows are still gone.
-                showSharedPinnedTabFromSidebar(pin, targetMonitorScopeId: targetMonitorScopeId) { shown in
-                    if !workspaceHasLifecycleWindows(shown) { openSavedTabApps(shown) }
-                }
+                showSharedPinnedTabFromSidebar(pin, targetMonitorScopeId: targetMonitorScopeId) { openSharedPinnedTabApps($0) }
             } else {
                 openSavedTabFromSidebar(name, targetMonitorScopeId: targetMonitorScopeId)
             }

@@ -12,7 +12,7 @@ import AppKit
 func workspaceSidebarSharedPinComesToClick(_ workspace: WorkspaceSidebarWorkspaceViewModel, representedMonitorScopeId: String,
                                            sharesPinnedTabs: Bool) -> Bool {
     guard sharesPinnedTabs, workspace.appearance.isFavorite else { return false }
-    return workspace.knownDisplay?.heldMonitorScopeId.map { $0 == representedMonitorScopeId } ?? true
+    return workspace.heldMonitorScopeId.map { $0 == representedMonitorScopeId } ?? true
 }
 
 /// The display a click in the panel for `targetMonitorScopeId` brings `tab` to: a shared pin on
@@ -56,7 +56,10 @@ func showSharedPinnedTab(_ tab: Workspace, on monitor: Monitor, focusing window:
 @MainActor
 func workspaceSidebarSharedPinClicked(_ name: String? = nil, windowId: UInt32? = nil,
                                       targetMonitorScopeId: String?) -> Workspace? {
-    let tab = name.flatMap { Workspace.existing(byName: $0) } ?? windowId.flatMap { Window.get(byId: $0)?.nodeWorkspace }
+    // A window that closed just now is found in the sidebar's last list, as any click finds it.
+    let tab = name.flatMap { Workspace.existing(byName: $0) } ?? windowId.flatMap {
+        Window.get(byId: $0)?.nodeWorkspace ?? workspaceSidebarFallbackWorkspaceName(for: $0).flatMap(Workspace.existing(byName:))
+    }
     guard let tab, workspaceSidebarSharedPinClickMonitor(tab, targetMonitorScopeId: targetMonitorScopeId) != nil
     else { return nil }
     return tab
@@ -67,7 +70,8 @@ func workspaceSidebarSharedPinClicked(_ name: String? = nil, windowId: UInt32? =
 /// this one; here, it's focused as any tab. `afterShown` runs after the layout, once it's here.
 @MainActor
 @discardableResult
-func showSharedPinnedTabFromSidebar(_ tab: Workspace, windowId: UInt32? = nil, targetMonitorScopeId: String?,
+func showSharedPinnedTabFromSidebar(_ tab: Workspace, windowId: UInt32? = nil, requiresWindow: Bool = false,
+                                    targetMonitorScopeId: String?,
                                     afterShown: (@MainActor (Workspace) -> Void)? = nil) -> Task<Void, Never>? {
     WorkspaceSidebarPanel.suppressEdgeTrapForWorkspaceActivation()
     if windowId == nil, workspaceSidebarSharedPinClickDestination(tab, targetMonitorScopeId: targetMonitorScopeId) == nil {
@@ -84,6 +88,8 @@ func showSharedPinnedTabFromSidebar(_ tab: Workspace, windowId: UInt32? = nil, t
         guard Workspace.existing(byName: name) === tab, let targetMonitorScopeId,
               workspaceSidebarMonitor(forScopeId: targetMonitorScopeId) != nil else { return }
         let window = windowId.flatMap { Window.get(byId: $0) }.flatMap { $0.nodeWorkspace === tab ? $0 : nil }
+        // A browser tab's window that has left the pin, or closed, takes nothing anywhere.
+        if requiresWindow, window == nil { return }
         if let monitor = workspaceSidebarSharedPinClickDestination(tab, targetMonitorScopeId: targetMonitorScopeId) {
             try showSharedPinnedTab(tab, on: monitor, focusing: window)
         } else if let window {
@@ -93,4 +99,35 @@ func showSharedPinnedTabFromSidebar(_ tab: Workspace, windowId: UInt32? = nil, t
         }
         shown = tab
     }
+}
+
+/// A saved shared pin whose windows are gone opens its apps once it's here, if they're still
+/// gone. Replaceable for tests.
+@MainActor
+var openSharedPinnedTabApps: @MainActor (Workspace) -> Void = { shown in
+    if !workspaceHasLifecycleWindows(shown) { openSavedTabApps(shown) }
+}
+
+/// Each browser tab chosen from the sidebar, in order. Choosing one of a pin on another display
+/// waits for the pin to come; if another is chosen meanwhile, the first isn't chosen after it.
+@MainActor
+private var workspaceSidebarBrowserTabChoices = 0
+
+@MainActor
+func noteWorkspaceSidebarBrowserTabChoice() -> Int {
+    workspaceSidebarBrowserTabChoices &+= 1
+    return workspaceSidebarBrowserTabChoices
+}
+
+@MainActor
+func workspaceSidebarBrowserTabChoiceIsLatest(_ choice: Int) -> Bool {
+    choice == workspaceSidebarBrowserTabChoices
+}
+
+/// Whether choosing `target` may go ahead, as choosing it checks: browser tabs shown, WinMux on and
+/// writable, and its window still the one the browser listed it in.
+@MainActor
+func workspaceSidebarBrowserTabCanBeChosen(_ target: BrowserTabTarget) -> Bool {
+    config.workspaceSidebar.usesTabsList && config.workspaceSidebar.browserTabs && TrayMenuModel.shared.isEnabled
+        && !serverArgs.isReadOnly && Window.get(byId: target.windowId)?.app.pid == target.pid
 }

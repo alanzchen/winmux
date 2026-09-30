@@ -35,6 +35,7 @@ private func makeWorkspaceSidebarWorkspaceViewModel(
     runningApps: [String: [SavedRunningApp]]?,
 ) async -> WorkspaceSidebarWorkspaceViewModel {
     let workspaceMonitor = workspace.workspaceMonitor
+    let isPinned = workspaceSidebarOrganizationStore.state.workspaces[workspace.name]?.isFavorite == true
     return WorkspaceSidebarWorkspaceViewModel(
         name: workspace.name,
         projectId: workspace.projectId,
@@ -50,9 +51,11 @@ private func makeWorkspaceSidebarWorkspaceViewModel(
         savedState: runningApps.flatMap { workspaceSidebarSavedState(for: workspace, runningApps: $0) },
         appearance: workspaceSidebarOrganizationStore.state.workspaces[workspace.name] ?? .init(),
         isLeftEmpty: workspaceTabWasLeftEmpty(workspace),
-        knownDisplay: availableMonitors.count > 1 && config.workspaceSidebar.sharesPinnedTabs
-            && workspaceSidebarOrganizationStore.state.workspaces[workspace.name]?.isFavorite == true
+        knownDisplay: availableMonitors.count > 1 && config.workspaceSidebar.sharesPinnedTabs && isPinned
             ? workspaceSidebarTabKnownDisplay(workspace, among: availableMonitors) : nil,
+        // Kept whether or not pins are shared: turning sharing on shows the pins before their
+        // tabs are listed again, and a click must still tell a held one.
+        heldMonitorScopeId: availableMonitors.count > 1 && isPinned ? workspaceSidebarTabHeldMonitorScopeId(workspace) : nil,
     )
 }
 
@@ -66,12 +69,17 @@ func workspaceSidebarTabKnownDisplay(_ workspace: Workspace, among monitors: [Mo
     let placed = workspace.visibleMonitor ?? workspace.forceAssignedMonitor ?? savedHomeMonitor(of: workspace)
         ?? (hasSavedHome ? nil : workspace.preferredMonitorPoint.flatMap { point in monitors.first { $0.rect.topLeftCorner == point } })
     guard let placed, let monitor = monitors.first(where: { $0.rect.topLeftCorner == placed.rect.topLeftCorner }) else { return nil }
-    // As `workspaceTabCanMove` decides: a force assignment, else a saved Keep on display.
+    return .init(monitorScopeId: workspaceSidebarMonitorScopeId(for: monitor),
+        displayName: workspaceSidebarMonitorDisplayName(monitor, among: monitors))
+}
+
+/// The display `workspace` is held to, as `workspaceTabCanMove` decides: its force assignment,
+/// else a saved Keep on display whose display is connected.
+@MainActor
+func workspaceSidebarTabHeldMonitorScopeId(_ workspace: Workspace) -> String? {
     let held = workspace.forceAssignedMonitor
         ?? (savedWorkspaceStore.record(named: workspace.name)?.isPinnedToDisplay == true ? savedHomeMonitor(of: workspace) : nil)
-    return .init(monitorScopeId: workspaceSidebarMonitorScopeId(for: monitor),
-        displayName: workspaceSidebarMonitorDisplayName(monitor, among: monitors),
-        heldMonitorScopeId: held.map { workspaceSidebarMonitorScopeId(for: $0) })
+    return held.map { workspaceSidebarMonitorScopeId(for: $0) }
 }
 
 @MainActor

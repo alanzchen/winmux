@@ -424,7 +424,7 @@ final class WorkspaceSidebarSharedPinsTest: XCTestCase {
         let vm = try XCTUnwrap(TrayMenuModel.shared.workspaceSidebarWorkspaces.first { $0.name == shown.name })
         XCTAssertTrue(WorkspaceSidebarView(snapshot: snapshot(on: monitors[0], sharing: true))
             .tabActivation(vm, isPinned: false, pageAllowsActivation: true).0.isInUseOnOtherDisplay, "It asks, as before")
-        XCTAssertEqual(vm.knownDisplay?.heldMonitorScopeId, scope(monitors[1]))
+        XCTAssertEqual(vm.heldMonitorScopeId, scope(monitors[1]))
         let location = try XCTUnwrap(snapshot(on: monitors[0], sharing: true).sharedPinLocation(of: vm))
         XCTAssertEqual(location.help(), "On “Right”", "No promise of a move it won't make")
         XCTAssertThrowsError(try showSharedPinnedTab(shown, on: monitors[0], focusing: nil))
@@ -481,7 +481,13 @@ final class WorkspaceSidebarSharedPinsTest: XCTestCase {
         let shown = tabs["shown1"]!
         try setWorkspaceSidebarTabFavorite(shown, true)
         let window = try XCTUnwrap(shown.anyLeafWindowRecursive)
-        let target = BrowserTabTarget(windowId: window.windowId, pid: 1, windowSession: UUID(), tabId: UUID())
+        // A result the browser listed for another process isn't this window's: nothing moves.
+        let stale = BrowserTabTarget(windowId: window.windowId, pid: window.app.pid + 1, windowSession: UUID(), tabId: UUID())
+        handleWorkspaceSidebarAction(.selectBrowserTab(stale), targetMonitorScopeId: scope(monitors[0]))
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertTrue(monitors[1].activeWorkspace === shown, "A stale result moves nothing")
+
+        let target = BrowserTabTarget(windowId: window.windowId, pid: window.app.pid, windowSession: UUID(), tabId: UUID())
         handleWorkspaceSidebarAction(.selectBrowserTab(target), targetMonitorScopeId: scope(monitors[0]))
         try await waitUntil { monitors[0].activeWorkspace === shown }
         XCTAssertTrue(focus.windowOrNil === window)
@@ -492,22 +498,33 @@ final class WorkspaceSidebarSharedPinsTest: XCTestCase {
         XCTAssertTrue(monitors[0].activeWorkspace === shown, "Unshared, as before: nothing comes")
     }
 
-    /// Review follow-up: a saved pin whose windows are gone opens its apps after it's here.
+    /// Review follow-up: a saved pin whose windows are gone, chosen from the sidebar, opens its apps
+    /// once it's here, and not when it couldn't come.
     func testAnEmptySavedPinOpensItsAppsOnceItsHere() async throws {
-        let (monitors, _) = try resetDisplaysOfTabs(2)
+        let (monitors, _) = try resetDisplaysOfTabs(3)
         config.workspaceSidebar.sharePinnedTabs = true
+        let saved = openSharedPinnedTabApps
+        defer { openSharedPinnedTabApps = saved }
+        var opened: [(name: String, here: Bool, empty: Bool)] = []
+        openSharedPinnedTabApps = { shown in
+            opened.append((shown.name, shown.workspaceMonitor.rect == monitors[0].rect, !workspaceHasLifecycleWindows(shown)))
+        }
         let empty = Workspace.get(byName: "empty")
         empty.preferredMonitorPoint = monitors[1].rect.topLeftCorner
         try setWorkspaceSidebarTabFavorite(empty, true)
         XCTAssertEqual(empty.workspaceMonitor.rect, monitors[1].rect)
-        var opened: [(Workspace, Bool)] = []
-        await showSharedPinnedTabFromSidebar(empty, targetMonitorScopeId: scope(monitors[0])) { shown in
-            opened.append((shown, shown.workspaceMonitor.rect == monitors[0].rect))
-        }?.value
-        XCTAssertEqual(opened.count, 1)
-        XCTAssertTrue(opened.first?.0 === empty)
-        XCTAssertEqual(opened.first?.1, true, "Its apps open once it's on the display clicked")
-        XCTAssertFalse(workspaceHasLifecycleWindows(empty))
+        handleWorkspaceSidebarAction(.openSavedTab("empty"), targetMonitorScopeId: scope(monitors[0]))
+        try await waitUntil { !opened.isEmpty }
+        XCTAssertEqual(opened.map(\.name), ["empty"])
+        XCTAssertEqual(opened.first?.here, true, "Its apps open once it's on the display clicked")
+        XCTAssertEqual(opened.first?.empty, true)
+
+        // Clicked on a display that goes before the click runs: it doesn't come, and opens nothing.
+        opened = []
+        let task = showSharedPinnedTabFromSidebar(empty, targetMonitorScopeId: scope(monitors[2])) { openSharedPinnedTabApps($0) }
+        setMonitorsForTests(Array(monitors.prefix(2)))
+        await task?.value
+        XCTAssertTrue(opened.isEmpty)
     }
 
     /// Review follow-up: a failure after the other display already switched puts everything back.
@@ -527,6 +544,46 @@ final class WorkspaceSidebarSharedPinsTest: XCTestCase {
         XCTAssertTrue(monitors[1].activeWorkspace === shown, "Back on its display")
         XCTAssertTrue(monitors[0].activeWorkspace === tabs["shown0"], "And this display shows what it did")
         XCTAssertEqual(shown.preferredMonitorPoint, point)
+    }
+
+    /// Review follow-up: a click on a window that closed just before it's handled still finds its
+    /// shared pin, from the sidebar's last list, and brings it.
+    func testAClickOnAJustClosedWindowStillBringsItsPin() async throws {
+        let (monitors, tabs) = try resetDisplaysOfTabs(2)
+        config.workspaceSidebar.sharePinnedTabs = true
+        let shown = tabs["shown1"]!
+        try setWorkspaceSidebarTabFavorite(shown, true)
+        let closing = TestWindow.new(id: 61, parent: shown.rootTilingContainer)
+        await updateWorkspaceSidebarModel()
+        closing.unbindFromParent()
+        XCTAssertNil(Window.get(byId: 61))
+        XCTAssertTrue(workspaceSidebarSharedPinClicked(windowId: 61, targetMonitorScopeId: scope(monitors[0])) === shown)
+        handleWorkspaceSidebarAction(.selectWindow(61), targetMonitorScopeId: scope(monitors[0]))
+        try await waitUntil { monitors[0].activeWorkspace === shown }
+    }
+
+    /// Review follow-up: turning sharing on shows pins before their tabs are listed again; a held one
+    /// still asks, from what's known whether or not pins are shared.
+    func testAHeldPinAsksWhileSharingIsJustTurnedOn() async throws {
+        let (monitors, tabs) = try resetDisplaysOfTabs(2)
+        let shown = tabs["shown1"]!
+        try setWorkspaceSidebarTabFavorite(shown, true)
+        config.workspaceToMonitorForceAssignment[shown.name] = [.secondary]
+        await updateWorkspaceSidebarModel()
+        let vm = try vm(shown.name)
+        XCTAssertNil(vm.knownDisplay, "Unshared, no badge data")
+        XCTAssertEqual(vm.heldMonitorScopeId, scope(monitors[1]))
+        // The setting on, the tabs not rebuilt yet.
+        let shared = WorkspaceSidebarView(snapshot: snapshot(on: monitors[0], sharing: true))
+        XCTAssertTrue(shared.tabActivation(vm, isPinned: false, pageAllowsActivation: true).0.isInUseOnOtherDisplay)
+    }
+
+    func testOnlyTheLatestBrowserTabChoiceIsMadeLate() {
+        let first = noteWorkspaceSidebarBrowserTabChoice()
+        XCTAssertTrue(workspaceSidebarBrowserTabChoiceIsLatest(first))
+        let second = noteWorkspaceSidebarBrowserTabChoice()
+        XCTAssertFalse(workspaceSidebarBrowserTabChoiceIsLatest(first), "A pin still coming doesn't choose its tab after this")
+        XCTAssertTrue(workspaceSidebarBrowserTabChoiceIsLatest(second))
     }
 
     // MARK: The badge on a pin that's on another display

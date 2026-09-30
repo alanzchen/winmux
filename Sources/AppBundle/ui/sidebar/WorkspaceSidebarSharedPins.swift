@@ -107,7 +107,7 @@ func workspaceSidebarSharedPinLocation(_ workspace: WorkspaceSidebarWorkspaceVie
           workspace.isVisible || !workspaceSidebarPinnedTabWindows(workspace).isEmpty
     else { return nil }
     return .init(displayName: display.displayName, isOnScreen: workspace.isVisible,
-        comesToClick: display.heldMonitorScopeId.map { $0 == representedMonitorScopeId } ?? true)
+        comesToClick: workspace.heldMonitorScopeId.map { $0 == representedMonitorScopeId } ?? true)
 }
 
 extension WorkspaceSidebarSnapshot {
