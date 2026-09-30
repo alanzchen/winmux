@@ -19,8 +19,18 @@ struct WorkspaceSidebarWorkspaceViewModel: Hashable, Identifiable {
     /// Tabs mode: its windows have all gone and it isn't saved. It closes off screen, and the
     /// sidebar doesn't list it while it can't, as the only tab on its display.
     var isLeftEmpty = false
+    /// A pinned tab's display, where that's known, with more than one display connected.
+    var knownDisplay: WorkspaceSidebarTabDisplay? = nil
 
     var id: String { name }
+}
+
+/// The display a tab is on: on screen there, or held, saved or last placed there. Unlike the
+/// display a hidden tab is listed on, never a guess: not the focused or main display.
+struct WorkspaceSidebarTabDisplay: Hashable {
+    let monitorScopeId: String
+    /// As the display menu names it, identical displays numbered.
+    let displayName: String
 }
 
 /// An app a saved tab opens in, for showing that tab while the app isn't open.

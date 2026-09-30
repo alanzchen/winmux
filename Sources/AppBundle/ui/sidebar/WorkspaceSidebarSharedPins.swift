@@ -76,3 +76,41 @@ extension WorkspaceSidebarSnapshot {
         tabsListedWorkspaces(for: projectId).filter(\.appearance.isFavorite)
     }
 }
+
+/// Where a shared pin is, for a badge on its tile, when that's another display than the one the
+/// list shows: on screen there, or kept there while hidden.
+struct WorkspaceSidebarSharedPinLocation: Equatable {
+    let displayName: String
+    let isOnScreen: Bool
+
+    /// "On" only for a pin on screen there; a hidden one is assigned there.
+    var description: String {
+        "\(isOnScreen ? "On" : "Assigned to") “\(displayName)”"
+    }
+
+    func help(clickMovesHere: Bool = true) -> String {
+        clickMovesHere ? "\(description) · Click to move to this display" : description
+    }
+}
+
+/// The badge a shared pin's tile shows in a list representing `representedMonitorScopeId`'s
+/// display: its own panel's display, or the display a destination panel stands for. Nil for a pin
+/// on that display, or whose display isn't known or is gone, and for one with no windows open,
+/// which isn't anywhere yet.
+func workspaceSidebarSharedPinLocation(_ workspace: WorkspaceSidebarWorkspaceViewModel, representedMonitorScopeId: String,
+                                       sharesPinnedTabs: Bool) -> WorkspaceSidebarSharedPinLocation? {
+    guard sharesPinnedTabs, workspace.appearance.isFavorite, let display = workspace.knownDisplay,
+          workspaceSidebarMonitorScopePoint(representedMonitorScopeId) != nil,
+          display.monitorScopeId != representedMonitorScopeId,
+          workspace.isVisible || !workspaceSidebarPinnedTabWindows(workspace).isEmpty
+    else { return nil }
+    return .init(displayName: display.displayName, isOnScreen: workspace.isVisible)
+}
+
+extension WorkspaceSidebarSnapshot {
+    /// The badge a shared pin's tile shows in this list, which represents its target display.
+    func sharedPinLocation(of workspace: WorkspaceSidebarWorkspaceViewModel) -> WorkspaceSidebarSharedPinLocation? {
+        workspaceSidebarSharedPinLocation(workspace, representedMonitorScopeId: targetMonitorScopeId,
+            sharesPinnedTabs: configuration.sharesPinnedTabs)
+    }
+}

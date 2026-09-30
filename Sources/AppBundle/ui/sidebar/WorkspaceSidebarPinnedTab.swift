@@ -79,6 +79,10 @@ struct WorkspaceSidebarPinnedTab: View {
     /// Selects a saved pin whose windows are gone and opens its apps in it, as a click that
     /// activates it does; one that only chooses it, with Shift or Command, opens nothing.
     var onOpenSavedApps: (() -> Void)? = nil
+    /// A shared pin on another display: a faint display badge in its corner, and where it is in
+    /// its help. `sharedPinClickMovesHere` says a click brings it to this list's display.
+    var sharedPinLocation: WorkspaceSidebarSharedPinLocation? = nil
+    var sharedPinClickMovesHere = true
     let onSelect: (UInt32?) -> Void
     @State private var isHovered = false
     @Environment(\.workspaceSidebarReducesMotion) private var reducesMotion
@@ -99,8 +103,9 @@ struct WorkspaceSidebarPinnedTab: View {
                         .frame(maxWidth: .infinity, minHeight: 20, maxHeight: 20, alignment: .leading)
                         .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain).help(workspace.displayName)
+                .buttonStyle(.plain).help(helpWithLocation(workspace.displayName))
                 .accessibilityLabel(workspace.displayName)
+                .accessibilityHint(locationHelp ?? "")
                 .sidebarIdentityMenu(.tab(workspace.name, windowId: nil))
             }
             HStack(spacing: 0) {
@@ -153,8 +158,10 @@ struct WorkspaceSidebarPinnedTab: View {
                                     .fill(Color(nsColor: .controlBackgroundColor)).padding(compact ? 1 : 3)
                             }
                         }
-                        .help(summarizesWorkspace ? workspace.displayName : (window.title.map { "\(window.appName) — \($0)" } ?? window.appName))
+                        .help(helpWithLocation(summarizesWorkspace ? workspace.displayName
+                            : (window.title.map { "\(window.appName) — \($0)" } ?? window.appName)))
                         .accessibilityLabel(summarizesWorkspace ? workspace.displayName : (window.title ?? window.appName))
+                        .accessibilityHint(locationHelp ?? "")
                         .accessibilityAddTraits(isActiveHere && (summarizesWorkspace ? workspace.isFocused : window.isFocused) ? .isSelected : [])
                         .sidebarIdentityMenu(.tab(workspace.name, windowId: summarizesWorkspace ? nil : window.windowId))
                     }
@@ -167,6 +174,14 @@ struct WorkspaceSidebarPinnedTab: View {
         .overlay(RoundedRectangle(cornerRadius: 13).strokeBorder(.primary.opacity(compact ? 0 : 0.10), lineWidth: 0.5))
         .overlay {
             WorkspaceSidebarTabSelectionHighlight(isSelected: selection.contains(workspace.name), cornerRadius: compact ? 8 : 13)
+        }
+        // The corner no window's badge or sound takes, below the centered icons: in a compact
+        // tile, a 20-point icon leaves 7 points around it.
+        .overlay(alignment: .bottomLeading) {
+            if sharedPinLocation != nil {
+                WorkspaceSidebarSharedPinBadge(compact: compact, isEmphasized: isHovered && !drag.isDragging)
+                    .padding(compact ? 1 : 6)
+            }
         }
         .opacity(drag.draggedPinnedTab == workspace.name ? 0.45 : 1)
         .animation(WorkspaceSidebarTabMotion.feedback, value: drag.draggedPinnedTab == workspace.name)
@@ -203,6 +218,16 @@ struct WorkspaceSidebarPinnedTab: View {
         workspaceSidebarTabIsActive(workspace, on: targetMonitorScopeId)
     }
 
+    private var locationHelp: String? {
+        sharedPinLocation?.help(clickMovesHere: sharedPinClickMovesHere)
+    }
+
+    /// A tile's help names where a shared pin from another display is, except during a drag.
+    private func helpWithLocation(_ help: String) -> String {
+        guard let locationHelp, !drag.isDragging else { return help }
+        return "\(help)\n\(locationHelp)"
+    }
+
     @ViewBuilder
     private func icon(_ window: WorkspaceSidebarWindowViewModel?, windowCount: Int) -> some View {
         if windowCount <= 1, let emoji = workspace.appearance.emoji {
@@ -210,6 +235,22 @@ struct WorkspaceSidebarPinnedTab: View {
         } else if let window {
             WorkspaceSidebarWindowIcon(window: window, size: compact ? min(20, 26 / CGFloat(max(windowCount, 1))) : 22)
         } else { Image(systemName: "macwindow").font(.system(size: compact ? 19 : 22)) }
+    }
+}
+
+/// A shared pin that's on another display: a faint display outline, a little stronger on hover.
+/// Only a cue: the tile beneath takes the clicks and drags, and says where the pin is.
+struct WorkspaceSidebarSharedPinBadge: View {
+    let compact: Bool
+    let isEmphasized: Bool
+
+    var body: some View {
+        Image(systemName: "display")
+            .font(.system(size: compact ? 6 : 9, weight: .medium))
+            .foregroundStyle(Color.primary.opacity(isEmphasized ? 0.7 : 0.38))
+            .animation(WorkspaceSidebarTabMotion.hover, value: isEmphasized)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
     }
 }
 

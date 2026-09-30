@@ -89,11 +89,13 @@ tabs-always-expanded = true
   order, for the project it's showing. Each project keeps its own pins, and each
   display keeps its own tab list, groups and **New Tab**. Pinning, unpinning or
   reordering pins on one display changes every display, and turning the setting off
-  gives each display its own pins back. Clicking a pin brings its tab to the display
-  you clicked it on, whether it was hidden or on screen on another display, without
-  asking; that display then shows another of the project's tabs. A tab held to its
-  display by `workspace-to-monitor-force-assignment`, or a saved tab
-  [kept on its display](#multiple-displays), opens as it always has.
+  gives each display its own pins back. A pin whose tab is on another display, on
+  screen there or kept there while hidden, shows a faint display outline in its
+  corner, and its tooltip names that display. Clicking a pin brings its tab to the
+  display you clicked it on, whether it was hidden or on screen on another display,
+  without asking; that display then shows another of the project's tabs. A tab held to
+  its display by `workspace-to-monitor-force-assignment`, or a saved tab [kept on its
+  display](#multiple-displays), opens as it always has.
 - **New Tab** opens an empty workspace after the current one with the
   [launcher](#open-a-new-window-from-new-workspace). A new window normally gets its own
   tab; [`open-new-windows-in-new-workspace`](#open-each-new-window-in-its-own-workspace)

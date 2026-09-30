@@ -50,7 +50,21 @@ private func makeWorkspaceSidebarWorkspaceViewModel(
         savedState: runningApps.flatMap { workspaceSidebarSavedState(for: workspace, runningApps: $0) },
         appearance: workspaceSidebarOrganizationStore.state.workspaces[workspace.name] ?? .init(),
         isLeftEmpty: workspaceTabWasLeftEmpty(workspace),
+        knownDisplay: availableMonitors.count > 1 && workspaceSidebarOrganizationStore.state.workspaces[workspace.name]?.isFavorite == true
+            ? workspaceSidebarTabKnownDisplay(workspace, among: availableMonitors) : nil,
     )
+}
+
+/// The connected display `workspace` is on screen on, is held to, is saved on, or was last placed
+/// on, in the order its listing uses them. Nil when it's none of these, or that display is gone:
+/// then it's only listed on the focused or main display, which says nothing about where it is.
+@MainActor
+func workspaceSidebarTabKnownDisplay(_ workspace: Workspace, among monitors: [Monitor]) -> WorkspaceSidebarTabDisplay? {
+    let placed = workspace.visibleMonitor ?? workspace.forceAssignedMonitor ?? savedHomeMonitor(of: workspace)
+        ?? workspace.preferredMonitorPoint.flatMap { point in monitors.first { $0.rect.topLeftCorner == point } }
+    guard let placed, let monitor = monitors.first(where: { $0.rect.topLeftCorner == placed.rect.topLeftCorner }) else { return nil }
+    return .init(monitorScopeId: workspaceSidebarMonitorScopeId(for: monitor),
+        displayName: workspaceSidebarMonitorDisplayName(monitor, among: monitors))
 }
 
 @MainActor

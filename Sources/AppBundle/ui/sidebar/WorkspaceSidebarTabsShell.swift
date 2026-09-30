@@ -115,7 +115,8 @@ extension WorkspaceSidebarView {
                             }
                             WorkspaceSidebarPinnedTab(workspace: workspace, badgeModel: dockBadgeModel, compact: true,
                                 targetMonitorScopeId: snapshot.targetMonitorScopeId,
-                                onOpenSavedApps: { selectTabWorkspace(workspace, action: .openSavedTab(workspace.name)) }) { windowId in
+                                onOpenSavedApps: { selectTabWorkspace(workspace, action: .openSavedTab(workspace.name)) },
+                                sharedPinLocation: snapshot.sharedPinLocation(of: workspace)) { windowId in
                                 selectTabWorkspace(workspace, windowId: windowId)
                             }
                             .frame(width: 34, height: 34)
@@ -204,7 +205,8 @@ extension WorkspaceSidebarView {
                             isDropTarget: snapshot.dropPreview?.targetWorkspaceName == workspace.name,
                             dropPlacement: snapshot.dropPreview?.targetPlacement,
                             dropLabelSlot: snapshot.dropPreview?.targetLabelSlot,
-                            onOpenSavedApps: { selectTabWorkspace(workspace, action: .openSavedTab(workspace.name)) }) { windowId in
+                            onOpenSavedApps: { selectTabWorkspace(workspace, action: .openSavedTab(workspace.name)) },
+                            sharedPinLocation: snapshot.sharedPinLocation(of: workspace)) { windowId in
                             selectTabWorkspace(workspace, windowId: windowId)
                         }
                     }

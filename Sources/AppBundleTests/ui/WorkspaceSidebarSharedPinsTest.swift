@@ -446,6 +446,149 @@ final class WorkspaceSidebarSharedPinsTest: XCTestCase {
         XCTAssertTrue(focus.workspace === focused, "Focus doesn't go to its old display")
     }
 
+    // MARK: The badge on a pin that's on another display
+
+    func testTheBadgeShowsOnlyOnPinsOnAnotherConnectedDisplay() async throws {
+        let (monitors, tabs) = try resetDisplaysOfTabs(3)
+        config.workspaceSidebar.sharePinnedTabs = true
+        try setWorkspaceSidebarTabFavorite(tabs["shown2"]!, true)
+        await updateWorkspaceSidebarModel()
+        let left = snapshot(on: monitors[0], sharing: true)
+        XCTAssertNil(location("pin0", in: left), "On this display: no badge")
+        XCTAssertEqual(location("pin1", in: left), .init(displayName: "Right", isOnScreen: false))
+        XCTAssertEqual(location("pin1", in: left)?.help(), "Assigned to “Right” · Click to move to this display",
+            "Hidden there, it's assigned there, not on screen")
+        XCTAssertEqual(location("shown2", in: left)?.help(), "On “Far” · Click to move to this display")
+        let far = snapshot(on: monitors[2], sharing: true)
+        XCTAssertNil(location("shown2", in: far))
+        XCTAssertEqual(location("pin0", in: far)?.description, "Assigned to “Left”")
+        for monitor in monitors {
+            for name in ["pin0", "pin1", "pin2", "shown2"] {
+                XCTAssertNil(location(name, in: snapshot(on: monitor, sharing: false)), "Unshared, no badge: \(name)")
+            }
+        }
+        XCTAssertNil(workspaceSidebarSharedPinLocation(try vm("shown0"), representedMonitorScopeId: scope(monitors[1]),
+            sharesPinnedTabs: true), "Only pins")
+    }
+
+    func testNoBadgeWhereAPinsDisplayIsntKnown() async throws {
+        let (monitors, tabs) = try resetDisplaysOfTabs(3)
+        config.workspaceSidebar.sharePinnedTabs = true
+        // Never placed: listed on the focused display, which says nothing about where it is.
+        tabs["pin1"]!.preferredMonitorPoint = nil
+        // Pinned but with no windows open: it isn't anywhere yet.
+        let unopened = Workspace.get(byName: "unopened")
+        unopened.preferredMonitorPoint = monitors[1].rect.topLeftCorner
+        try setWorkspaceSidebarTabFavorite(unopened, true)
+        await updateWorkspaceSidebarModel()
+        XCTAssertNil(try vm("pin1").knownDisplay)
+        for monitor in monitors {
+            XCTAssertNil(location("pin1", in: snapshot(on: monitor, sharing: true)))
+            XCTAssertNil(location("unopened", in: snapshot(on: monitor, sharing: true)))
+        }
+
+        // Its display gone, a hidden pin's display isn't known either.
+        setMonitorsForTests(Array(monitors.prefix(2)))
+        Workspace.reconcileWorkspaceState()
+        await updateWorkspaceSidebarModel()
+        XCTAssertNil(try vm("pin2").knownDisplay)
+        XCTAssertNil(location("pin2", in: snapshot(on: monitors[0], sharing: true)))
+        XCTAssertEqual(location("pin0", in: snapshot(on: monitors[1], sharing: true))?.displayName, "Left")
+
+        // One display: nothing to tell apart.
+        setMonitorsForTests([monitors[0]])
+        Workspace.reconcileWorkspaceState()
+        await updateWorkspaceSidebarModel()
+        XCTAssertTrue(TrayMenuModel.shared.workspaceSidebarWorkspaces.allSatisfy { $0.knownDisplay == nil })
+    }
+
+    func testTheBadgeFollowsAPinBroughtHereAndStaysOnAFailure() async throws {
+        try skipWithoutWindowServer()
+        let (monitors, tabs) = try resetDisplaysOfTabs(2)
+        config.workspaceSidebar.sharePinnedTabs = true
+        let panels = try await panelsForDisplays(monitors)
+        defer { retirePanels() }
+        func badge(_ name: String, on index: Int) throws -> String? {
+            let snapshot = workspaceSidebarSnapshot(from: panels[index].viewModel)
+            let workspace = try XCTUnwrap(snapshot.workspaces.first { $0.name == name })
+            return snapshot.sharedPinLocation(of: workspace)?.description
+        }
+        XCTAssertEqual(try badge("pin1", on: 0), "Assigned to “Right”")
+        XCTAssertNil(try badge("pin1", on: 1))
+
+        await showSharedPinnedTabFromSidebar(tabs["pin1"]!, targetMonitorScopeId: scope(monitors[0]))?.value
+        await updateWorkspaceSidebarModel()
+        WorkspaceSidebarPanel.syncVisiblePanelModelsFromShared()
+        XCTAssertNil(try badge("pin1", on: 0), "Here now: no badge")
+        XCTAssertEqual(try badge("pin1", on: 1), "On “Left”", "The display it left shows where it went")
+
+        // A pin that can't come keeps its badge, and says where it really is.
+        let held = tabs["shown1"]!
+        try setWorkspaceSidebarTabFavorite(held, true)
+        config.workspaceToMonitorForceAssignment[held.name] = [.secondary]
+        XCTAssertThrowsError(try showSharedPinnedTab(held, on: monitors[0], focusing: nil))
+        await updateWorkspaceSidebarModel()
+        WorkspaceSidebarPanel.syncVisiblePanelModelsFromShared()
+        XCTAssertEqual(try badge(held.name, on: 0), "On “Right”")
+        XCTAssertNil(try badge(held.name, on: 1))
+    }
+
+    func testADestinationPanelBadgesAgainstTheDisplayItStandsFor() async throws {
+        let (monitors, tabs) = try resetDisplaysOfTabs(3)
+        config.workspaceSidebar.sharePinnedTabs = true
+        try setWorkspaceSidebarTabFavorite(tabs["shown1"]!, true)
+        await updateWorkspaceSidebarModel()
+        // The far display's list, shown on the left one while a drag goes there.
+        var projection = snapshot(on: monitors[0], sharing: true)
+        projection.selectedMonitorScopeId = scope(monitors[2])
+        projection.targetMonitorScopeId = scope(monitors[2])
+        projection.activeProjectId = activeWorkspaceProjectId(for: monitors[2])
+        XCTAssertNil(location("pin2", in: projection), "The far display's own pin")
+        XCTAssertEqual(location("pin0", in: projection)?.description, "Assigned to “Left”", "Even on the left display's screen")
+        XCTAssertEqual(location("shown1", in: projection)?.description, "On “Right”")
+        XCTAssertEqual(workspaceSidebarSharedPinLocation(try vm("pin0"), representedMonitorScopeId: scope(monitors[2]),
+            sharesPinnedTabs: true)?.displayName, "Left", "The represented display is a parameter")
+    }
+
+    /// The badge is only a cue: clicks and drags on its corner still reach the pin.
+    func testClicksAndDragsOnTheBadgeReachThePin() async throws {
+        try skipWithoutWindowServer()
+        var clicks: [UInt32?] = []
+        var drags: [String] = []
+        let actions = WorkspaceSidebarActions(send: { _ in }, pinnedTabDragChanged: { name, _ in drags.append(name) },
+            pinnedTabDragEnded: { name, _ in drags.append("end " + name) })
+        var pin = viewModel("pin", on: "monitor:1920.0,0.0", windowId: 7, pinned: true)
+        pin.knownDisplay = .init(monitorScopeId: "monitor:1920.0,0.0", displayName: "Right")
+        let tile = WorkspaceSidebarPinnedTab(workspace: pin, badgeModel: WorkspaceSidebarDockBadgeModel(),
+            targetMonitorScopeId: "monitor:0.0,0.0", actions: actions,
+            sharedPinLocation: .init(displayName: "Right", isOnScreen: false)) { clicks.append($0) }
+            .frame(width: 90, height: 54)
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 90, height: 54), styleMask: [.borderless],
+            backing: .buffered, defer: false)
+        window.contentView = NSHostingView(rootView: tile)
+        window.orderFrontRegardless()
+        defer { window.orderOut(nil) }
+        window.contentView?.layoutSubtreeIfNeeded()
+        try await Task.sleep(for: .milliseconds(50))
+        func send(_ type: NSEvent.EventType, at point: CGPoint) throws {
+            window.sendEvent(try XCTUnwrap(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: 0,
+                windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)))
+        }
+        // The badge, in window coordinates (bottom-left origin).
+        let badge = CGPoint(x: 11, y: 10)
+        try send(.leftMouseDown, at: badge)
+        try send(.leftMouseUp, at: badge)
+        try await Task.sleep(for: .milliseconds(50))
+        XCTAssertEqual(clicks, [7], "A click on the badge selects the pin")
+
+        try send(.leftMouseDown, at: badge)
+        try send(.leftMouseDragged, at: CGPoint(x: 30, y: 30))
+        try send(.leftMouseUp, at: CGPoint(x: 30, y: 30))
+        try await Task.sleep(for: .milliseconds(50))
+        XCTAssertEqual(drags.first, "pin", "A drag from the badge drags the pin")
+        XCTAssertEqual(drags.last, "end pin")
+    }
+
     // MARK: Search and browser reads
 
     func testSharedPinsAreSearchedAndWatchedWhereTheyShow() {
@@ -608,6 +751,14 @@ final class WorkspaceSidebarSharedPinsTest: XCTestCase {
         workspaceSidebarVisibleWorkspacesByProject(workspaces: snapshot.workspaces.filter { !$0.isLeftEmpty },
             selectedScopeId: snapshot.selectedMonitorScopeId, focusedMonitorScopeId: snapshot.focusedMonitorScopeId,
             browsedProjectId: nil).mapValues { workspaceSidebarOrderedTabs($0, collections: snapshot.configuration.tabCollections).map(\.name) }
+    }
+
+    private func location(_ name: String, in snapshot: WorkspaceSidebarSnapshot) -> WorkspaceSidebarSharedPinLocation? {
+        snapshot.workspaces.first { $0.name == name }.flatMap(snapshot.sharedPinLocation(of:))
+    }
+
+    private func vm(_ name: String) throws -> WorkspaceSidebarWorkspaceViewModel {
+        try XCTUnwrap(TrayMenuModel.shared.workspaceSidebarWorkspaces.first { $0.name == name }, name)
     }
 
     private func pins(_ snapshot: WorkspaceSidebarSnapshot) -> [String] {
