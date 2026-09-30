@@ -103,6 +103,39 @@ final class WorkspaceSidebarDropIntentTest: XCTestCase {
         XCTAssertEqual(window.nodeWorkspace?.workspaceMonitor.rect, right.rect)
     }
 
+    /// With shared pins, B's list shows a pin that lives on C. A window joined to it goes to C,
+    /// where the pin's tab is; without shared pins the list never showed it and takes nothing.
+    func testAListJoinsASharedPinOnAThirdDisplayWhereverItIs() async throws {
+        for shares in [true, false] {
+            setUpWorkspacesForTests()
+            workspaceSidebarOrganizationStore = .init()
+            let (_, right, window) = try twoDisplaysWithTabs()
+            let third = IdentifiedMonitor(id: 3, rect: Rect(topLeftX: 3840, topLeftY: 0, width: 1920, height: 1080),
+                identity: "C")
+            setMonitorsForTests(monitors + [third])
+            let pin = Workspace.get(byName: "p")
+            _ = TestWindow.new(id: 9, parent: pin.rootTilingContainer)
+            pin.preferredMonitorPoint = third.rect.topLeftCorner
+            XCTAssertTrue(third.setActiveWorkspace(pin))
+            try setWorkspaceSidebarTabFavorite(pin, true)
+            config.workspaceSidebar.sharePinnedTabs = shares
+            let intent = try listIntent(for: right)
+            config.workspaceSidebar.sharePinnedTabs = !shares // Captured at the release; the session doesn't reread it.
+
+            let task = try XCTUnwrap(queueWorkspaceSidebarDrop(window.windowId, subject: .window, target: .workspace("p"),
+                placement: nil, intent: intent))
+            await task.value
+            if shares {
+                XCTAssertEqual(window.nodeWorkspace?.name, "p", "It joined the pin")
+                XCTAssertEqual(window.nodeWorkspace?.workspaceMonitor.rect, third.rect, "On the pin's display")
+            } else {
+                XCTAssertEqual(window.nodeWorkspace?.name, "a", "B's own list never showed it")
+            }
+            setMonitorsForTests(nil)
+            config = defaultConfig
+        }
+    }
+
     /// The display changes after the release and before the session: the drop is refused, and says so.
     func testADisplayChangeBeforeTheSessionRefusesTheDrop() async throws {
         let (_, right, window) = try twoDisplaysWithTabs()

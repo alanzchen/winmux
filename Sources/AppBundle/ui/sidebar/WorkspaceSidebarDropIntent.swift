@@ -40,6 +40,8 @@ struct WorkspaceSidebarDropIntent {
     let surface: WorkspaceSidebarSurfaceRef?
     /// For a drop on temporary drop UI, the display it listed.
     let destination: WorkspaceSidebarDropDestinationIdentity?
+    /// The list showed its project's pins from every display, as it did at the release.
+    var listsSharedPins = false
 
     static let physical = WorkspaceSidebarDropIntent(surface: nil, destination: nil)
 
@@ -51,7 +53,8 @@ struct WorkspaceSidebarDropIntent {
             return WorkspaceSidebarDropIntent(surface: target.surface, destination: nil)
         }
         guard let destination = WorkspaceSidebarTemporaryDropSurfaces.shared.destination(for: surface) else { return nil }
-        return WorkspaceSidebarDropIntent(surface: surface, destination: destination)
+        return WorkspaceSidebarDropIntent(surface: surface, destination: destination,
+            listsSharedPins: config.workspaceSidebar.sharesPinnedTabs)
     }
 
     /// Whether the drop may still go where it was aimed. Throws, before anything changes, when a
@@ -61,12 +64,16 @@ struct WorkspaceSidebarDropIntent {
         if let destination, destination.resolve() == nil { throw WorkspaceMutationError.displayUnavailable }
     }
 
-    /// Whether `workspace` may still take a drop aimed at it: on temporary drop UI, only while it's
-    /// on the display the list showed.
+    /// Whether `workspace` may still take a drop aimed at it. On temporary drop UI, the list must
+    /// still be of the same display, and the tab still one it lists: that display's, or, with
+    /// shared pins, one of its project's pins, which a window joins wherever that pin's tab is.
     @MainActor
     func accepts(_ workspace: Workspace) -> Bool {
         guard let destination else { return true }
-        return destination.resolve().map { workspace.workspaceMonitor.rect == $0.rect } == true
+        guard let monitor = destination.resolve() else { return false }
+        if workspace.workspaceMonitor.rect == monitor.rect { return true }
+        return listsSharedPins && workspace.projectId == activeWorkspaceProjectId(for: monitor)
+            && workspaceSidebarOrganizationStore.state.workspaces[workspace.name]?.isFavorite == true
     }
 }
 
