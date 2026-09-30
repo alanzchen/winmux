@@ -200,6 +200,20 @@ final class WorkspaceSidebarCrossDisplayPinGroupTest: XCTestCase {
         XCTAssertEqual(tabs.d.workspaceMonitor.rect, left.rect)
     }
 
+    /// Review round 2: a group on the tab's own display doesn't need the saved-workspace file to be
+    /// writable when the tab's saved record already exists.
+    func testAGroupDropOnItsOwnDisplayNeedsOnlyTheWritesGroupingDoes() throws {
+        let (left, _, tabs) = try twoDisplaysOfTabs()
+        let group = try workspaceSidebarOrganizationStore.create(projectId: tabs.d.projectId, workspaceNames: [tabs.a.name])
+        try saveWorkspaceSidebarIdentity(tabs.d)
+        let saved = savedWorkspaceStore
+        savedWorkspaceStore = SavedWorkspaceStore(file: saved.file, url: nil, readOnlyReason: "newer")
+        defer { savedWorkspaceStore = saved; MessageModel.shared.message = nil }
+        try applySidebarGroupDrop(4, tab: tabs.d, collectionId: group.id,
+            monitorScopeId: workspaceSidebarMonitorScopeId(for: left))
+        XCTAssertEqual(workspaceSidebarOrganizationStore.collection(containing: tabs.d.name)?.id, group.id)
+    }
+
     /// agy follow-up: between tabs, as among pins, a tab held to its display isn't offered another's list.
     func testATabHeldToItsDisplayIsOfferedNoGapOnAnother() throws {
         let (_, right, tabs) = try twoDisplaysOfTabs()

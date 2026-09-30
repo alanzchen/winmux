@@ -443,7 +443,10 @@ func applySidebarGroupDrop(_ windowId: UInt32, tab: Workspace, collectionId: Str
           Workspace.existing(byName: tab.name) === tab,
           workspaceSidebarOrganizationStore.state.collections.contains(where: { $0.id == collectionId && $0.projectId == tab.projectId })
     else { return }
-    if let reason = workspaceSidebarOrganizationStore.readOnlyReason ?? savedWorkspaceStore.readOnlyReason {
+    // Before a move, a group that can't be saved leaves the tab where it is rather than moving it
+    // and back. On its own display, grouping checks only the writes it needs, as it always has.
+    if workspaceSidebarDropDisplayChange(for: tab, monitorScopeId: monitorScopeId) != nil,
+       let reason = workspaceSidebarOrganizationStore.readOnlyReason {
         showWorkspaceSidebarError(reason)
         return
     }
