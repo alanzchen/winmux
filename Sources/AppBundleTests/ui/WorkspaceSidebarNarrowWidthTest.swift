@@ -43,8 +43,17 @@ final class WorkspaceSidebarNarrowWidthTest: XCTestCase {
     }
 
     func testNothingInTheSidebarRunsPastItsEdgeFromItsMinimum() async throws {
-        for width: CGFloat in [120, 140, 160, 240] {
+        let oneDisplayWithFocus: [WorkspaceSidebarMonitorScopeViewModel] = [
+            .init(id: "monitor:0,0", displayName: "Built-in Retina Display", subtitle: nil, systemImageName: "display",
+                isFocusedMonitor: true),
+            .init(id: workspaceSidebarFocusedScopeId, displayName: "Focused", subtitle: nil, systemImageName: "scope",
+                isFocusedMonitor: false),
+        ]
+        for (width, foldsPills) in [(CGFloat(120), false), (140, false), (160, false), (240, false),
+                                    (120, true), (160, true), (240, true)] {
             var snapshot = tabsFixture(width: width)
+            // One display with Focus folds its pills into the display menu below 240 points.
+            if foldsPills { snapshot.monitorScopes = oneDisplayWithFocus }
             snapshot.configuration.usesTabsList = false
             snapshot.configuration.musicPlayerAtBottom = false
             snapshot.configuration.showMonitorSelector = true
@@ -63,6 +72,10 @@ final class WorkspaceSidebarNarrowWidthTest: XCTestCase {
                 host.layoutSubtreeIfNeeded()
             }
             XCTAssertTrue(probe.targets.contains { $0.kind == .workspace("t2") }, "\(width): a workspace card")
+            if foldsPills {
+                XCTAssertEqual(probe.targets.contains { $0.kind == .monitor("monitor:0,0") }, width >= 240,
+                    "\(width): This Display is a pill only where it fits")
+            }
             for target in probe.targets {
                 XCTAssertGreaterThanOrEqual(target.frame.minX, -0.5, "\(width): \(target.kind)")
                 XCTAssertLessThanOrEqual(target.frame.maxX, width + 0.5, "\(width): \(target.kind) at \(target.frame)")
@@ -92,6 +105,14 @@ final class WorkspaceSidebarNarrowWidthTest: XCTestCase {
         XCTAssertFalse(folds([here, focus], section: 216), "The default width keeps both pills")
         XCTAssertFalse(folds([here, there], section: 96), "Several displays already use the menu's icon")
         XCTAssertTrue(folds([here, there, focus], section: 96), "Focus folds into the menu too")
+    }
+
+    func testTheProjectPopupStaysInsideTheRow() {
+        XCTAssertEqual(workspaceSidebarProjectPopupShift(buttonMaxX: 216, popupWidth: 176), 0,
+            "A button at the row's end leaves room for the popup")
+        XCTAssertEqual(workspaceSidebarProjectPopupShift(buttonMaxX: 158, popupWidth: 176), 18,
+            "A long name's popup moves right to start with the row")
+        XCTAssertEqual(workspaceSidebarProjectPopupShift(buttonMaxX: 96, popupWidth: 96), 0)
     }
 
     func testTheMusicPlayerPutsItsControlsUnderTheTrackWhenNarrow() {

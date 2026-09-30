@@ -7,6 +7,14 @@ import SwiftUI
 /// The least of Other Projects' label that the filter row keeps beside the display pills.
 let workspaceSidebarMonitorSelectorMinimumProjectWidth: CGFloat = 64
 
+/// How far the project popup, hanging from its button's trailing edge, moves right so it doesn't
+/// start before the row does. `buttonMaxX` is measured from the row's leading edge.
+func workspaceSidebarProjectPopupShift(buttonMaxX: CGFloat, popupWidth: CGFloat) -> CGFloat {
+    max(0, popupWidth - buttonMaxX)
+}
+
+private let workspaceSidebarMonitorSelectorRowSpace = "workspaceSidebarMonitorSelectorRow"
+
 struct WorkspaceSidebarMonitorSelector: View {
     let scopes: [WorkspaceSidebarMonitorScopeViewModel]
     let projects: [WorkspaceSidebarProjectViewModel]
@@ -37,6 +45,8 @@ struct WorkspaceSidebarMonitorSelector: View {
         }.max() ?? 0
         return max(ceil(maxTextWidth) + 50, 116)
     }
+    /// The popup fits the row, whose width the panel shows.
+    private var projectPopupMenuWidth: CGFloat { min(projectPopupWidth, sectionWidth) }
     private var hasMultipleMonitors: Bool {
         scopes.count { workspaceSidebarMonitorScopePoint($0.id) != nil } > 1
     }
@@ -91,13 +101,7 @@ struct WorkspaceSidebarMonitorSelector: View {
     var body: some View {
         HStack(spacing: 3) {
             if foldsScopePillsIntoMenu {
-                WorkspaceSidebarCompactMonitorSelector(
-                    scopes: scopes,
-                    selectedScopeId: selectedScopeId,
-                    sectionWidth: workspaceSidebarDropdownHeight,
-                    targetScopeId: targetScopeId,
-                    onSelectScope: onSelectScope,
-                )
+                scopeMenu
                 if showsProjectSelector, !browsableProjects.isEmpty {
                     projectSelector
                 }
@@ -106,6 +110,7 @@ struct WorkspaceSidebarMonitorSelector: View {
             }
             Spacer(minLength: 0)
         }
+        .coordinateSpace(name: workspaceSidebarMonitorSelectorRowSpace)
         .frame(width: sectionWidth, alignment: .leading)
         .frame(height: workspaceSidebarDropdownHeight)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -127,16 +132,24 @@ struct WorkspaceSidebarMonitorSelector: View {
         }
     }
 
+    /// The display menu's icon. Like a pill, choosing from it closes the project popup.
+    private var scopeMenu: some View {
+        WorkspaceSidebarCompactMonitorSelector(
+            scopes: scopes,
+            selectedScopeId: selectedScopeId,
+            sectionWidth: workspaceSidebarDropdownHeight,
+            targetScopeId: targetScopeId,
+            onSelectScope: { scopeId in
+                isProjectMenuOpen = false
+                onSelectScope(scopeId)
+            },
+        )
+    }
+
     private var scopePills: some View {
         ForEach(Array(quickScopes.enumerated()), id: \.element.id) { index, scope in
             if hasMultipleMonitors && index == 0 {
-                WorkspaceSidebarCompactMonitorSelector(
-                    scopes: scopes,
-                    selectedScopeId: selectedScopeId,
-                    sectionWidth: workspaceSidebarDropdownHeight,
-                    targetScopeId: targetScopeId,
-                    onSelectScope: onSelectScope,
-                )
+                scopeMenu
             } else {
                 monitorScopePill(scope)
             }
@@ -213,8 +226,16 @@ struct WorkspaceSidebarMonitorSelector: View {
         // Its natural width where there's room; a narrow sidebar shortens the name instead.
         .layoutPriority(1)
         .overlay(alignment: .topTrailing) {
-            projectPopup
-                .offset(y: workspaceSidebarDropdownHeight + workspaceSidebarSectionGap)
+            // Hung from the button's trailing edge, but never past the row's leading edge, where
+            // the panel would cut it off.
+            GeometryReader { button in
+                projectPopup
+                    .offset(x: workspaceSidebarProjectPopupShift(
+                        buttonMaxX: button.frame(in: .named(workspaceSidebarMonitorSelectorRowSpace)).maxX,
+                        popupWidth: projectPopupMenuWidth),
+                    y: workspaceSidebarDropdownHeight + workspaceSidebarSectionGap)
+                    .frame(width: button.size.width, height: button.size.height, alignment: .topTrailing)
+            }
         }
         .zIndex(isProjectMenuOpen ? 200 : 0)
         .help("Browse another project")
@@ -246,7 +267,7 @@ struct WorkspaceSidebarMonitorSelector: View {
                         isProjectMenuOpen = false
                     },
                     showsCreateAction: false,
-                    menuWidth: min(projectPopupWidth, sectionWidth)
+                    menuWidth: projectPopupMenuWidth
                 )
                 .transition(.asymmetric(
                     insertion: .opacity.combined(with: .scale(scale: 0.98, anchor: .topTrailing)),
