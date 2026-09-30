@@ -376,13 +376,44 @@ struct WorkspaceSidebarDropDestinationWorkspaceList: View {
                         }
                     }
             }
-            WorkspaceSidebarTabNewWorkspaceRow(projectId: snapshot.projectId, monitorScopeId: snapshot.monitorScopeId,
+            WorkspaceSidebarDropDestinationNewWorkspaceRow(projectId: snapshot.projectId,
+                monitorScopeId: snapshot.monitorScopeId,
                 isDropTarget: preview?.targetsNewWorkspace == true
-                    && (preview?.targetProjectId == nil || preview?.targetProjectId == snapshot.projectId),
-                onCreate: {})
+                    && (preview?.targetProjectId == nil || preview?.targetProjectId == snapshot.projectId))
         }
         .padding(.horizontal, 8)
         .padding(.bottom, 8)
+    }
+}
+
+/// Sidebar and Dock: a dropped window gets a new workspace on that display.
+struct WorkspaceSidebarDropDestinationNewWorkspaceRow: View {
+    let projectId: WorkspaceProjectId
+    let monitorScopeId: String
+    let isDropTarget: Bool
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: workspaceSidebarTabCornerRadius, style: .continuous)
+        HStack(spacing: 8) {
+            Image(systemName: "plus").font(.system(size: 12, weight: .semibold))
+            Text("New Workspace").font(.system(size: 13))
+            Spacer(minLength: 0)
+        }
+        .foregroundStyle(Color.primary.opacity(isDropTarget ? 0.8 : 0.45))
+        .padding(.horizontal, 10)
+        .frame(maxWidth: .infinity, minHeight: workspaceSidebarTabRowHeight, alignment: .leading)
+        .background {
+            shape.fill(isDropTarget ? Color.accentColor.opacity(0.14) : .clear)
+                .overlay { shape.strokeBorder(Color.accentColor.opacity(isDropTarget ? 0.65 : 0), lineWidth: 1) }
+        }
+        .background {
+            GeometryReader { geometry in
+                Color.clear.preference(key: WorkspaceSidebarDropTargetPreferenceKey.self,
+                    value: [.init(kind: .newWorkspace(projectId: projectId, monitorScopeId: monitorScopeId),
+                        frame: geometry.frame(in: .named("workspaceSidebarContent")))])
+            }
+        }
+        .accessibilityLabel("New Workspace")
     }
 }
 
