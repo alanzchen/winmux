@@ -149,6 +149,7 @@ final class WorkspaceSidebarPanel: NSPanelHud, WorkspaceSidebarInputOwner {
             panel.syncModelFromShared()
             panel.refresh(on: monitor)
         }
+        WorkspaceSidebarDropDestinationController.shared.syncFromShared()
         // A display that went away, or that a new arrangement moved, leaves its panel behind.
         // Retire it rather than reset it on every refresh: hidden and dropped, it no longer
         // syncs the shared model or touches the drop preview another panel is showing.
@@ -172,6 +173,7 @@ final class WorkspaceSidebarPanel: NSPanelHud, WorkspaceSidebarInputOwner {
         for panel in panelsByMonitorScopeId.values {
             panel.syncModelFromShared()
         }
+        WorkspaceSidebarDropDestinationController.shared.syncFromShared()
     }
 
     func syncModelFromShared() {

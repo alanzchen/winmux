@@ -1,0 +1,311 @@
+import AppKit
+@testable import AppBundle
+import Combine
+import Common
+import XCTest
+
+/// A sidebar drag with two displays offers the other one's hint beside the sidebar; pausing on it
+/// opens that display's list there. One display does nothing. A display change, Escape or the
+/// release tears it all down, and frames where nothing changed do nothing.
+@MainActor
+final class WorkspaceSidebarDropDestinationControllerTest: XCTestCase {
+    private let controller = WorkspaceSidebarDropDestinationController.shared
+    private let sessions = WorkspaceSidebarDragSessions.shared
+    private var wasEnabled = false
+
+    override func setUp() async throws {
+        setUpWorkspacesForTests()
+        workspaceSidebarOrganizationStore = .init()
+        wasEnabled = TrayMenuModel.shared.isEnabled
+        controller.resetForTests()
+        sessions.resetForTests()
+    }
+
+    override func tearDown() async throws {
+        controller.resetForTests()
+        sessions.resetForTests()
+        cancelActiveSidebarPinnedTabDrag()
+        WorkspaceSidebarTemporaryDropSurfaces.shared.removeAll()
+        setWorkspaceSidebarDragSourceScopeIdForTests(nil)
+        clearWorkspaceSidebarDropPreview()
+        MousePointerTracker.shared.reset()
+        TrayMenuModel.shared.isEnabled = wasEnabled
+        workspaceSidebarOrganizationStore = .init()
+        for panel in WorkspaceSidebarPanel.visiblePanels { panel.visibleSurfaceFrame = nil }
+        setMonitorsForTests(nil)
+        config = defaultConfig
+        WorkspaceSidebarPanel.refreshAll()
+        try await super.tearDown()
+    }
+
+    func testOneDisplayDoesNothing() throws {
+        let tab = try fixture(displays: 1)
+        beginDrag(tab)
+        XCTAssertFalse(controller.isActive)
+        XCTAssertTrue(WorkspaceSidebarTemporaryDropSurfaces.shared.isEmpty, "Nothing is made")
+    }
+
+    func testAPauseOnTheOtherDisplaysHintOpensItsListBesideTheSidebar() throws {
+        let tab = try fixture(displays: 2)
+        beginDrag(tab)
+        XCTAssertTrue(controller.isActive)
+        XCTAssertEqual(controller.hints.map(\.id), [right])
+        let hint = try XCTUnwrap(controller.layout?.hints.first)
+        XCTAssertEqual(workspaceSidebarSurface(at: normalizeAppKitScreenPoint(hint.center))?.surface.isTemporary, true)
+        XCTAssertNil(workspaceSidebarSurfaceHit(at: normalizeAppKitScreenPoint(hint.center)).target, "Hints take no drop")
+
+        controller.tick(pointer: hint.center, now: 10, elapsed: 0)
+        XCTAssertNil(controller.openId, "Passing over it opens nothing yet")
+        controller.tick(pointer: hint.center, now: 10 + workspaceSidebarDropDestinationDwell, elapsed: 0.22)
+        XCTAssertEqual(controller.openId, right)
+        let column = try XCTUnwrap(controller.layout?.column)
+        XCTAssertEqual(controller.columnPanel.dropDestination?.monitorScopeId, right)
+        XCTAssertTrue(controller.columnPanel.isVisible)
+        XCTAssertFalse(controller.columnPanel.canBecomeKey, "Opening it takes no focus")
+        XCTAssertTrue(controller.columnPanel.ignoresMouseEvents)
+        let snapshot = try XCTUnwrap(controller.columnPanel.model.snapshot)
+        XCTAssertEqual(snapshot.projection.selectedMonitorScopeId, right, "It lists the other display")
+        XCTAssertEqual(snapshot.projection.targetMonitorScopeId, right)
+        let onColumn = workspaceSidebarSurface(at: normalizeAppKitScreenPoint(CGPoint(x: column.midX, y: column.midY)))
+        XCTAssertEqual(onColumn?.surface, controller.columnPanel.surfaceRef)
+        XCTAssertEqual(WorkspaceSidebarTemporaryDropSurfaces.shared.destination(for: controller.columnPanel.surfaceRef)?
+            .monitorScopeId, right)
+    }
+
+    func testAFrameWhereNothingChangedDoesNothing() throws {
+        let tab = try fixture(displays: 2)
+        beginDrag(tab)
+        let away = CGPoint(x: 5000, y: 5000)
+        let before = controller.processedFrames
+        for index in 0 ..< 5 { controller.tick(pointer: away, now: 20 + Double(index) * 0.016, elapsed: 0.016) }
+        XCTAssertEqual(controller.processedFrames, before + 1, "Only the first frame at a new place")
+        controller.tick(pointer: CGPoint(x: 5001, y: 5000), now: 21, elapsed: 0.016)
+        XCTAssertEqual(controller.processedFrames, before + 2)
+
+        // Resting on a hint, the frames wait for the pause, then open it with the pointer still.
+        let hint = try XCTUnwrap(controller.layout?.hints.first)
+        controller.tick(pointer: hint.center, now: 30, elapsed: 0.016)
+        let armed = controller.processedFrames
+        controller.tick(pointer: hint.center, now: 30.05, elapsed: 0.016)
+        XCTAssertEqual(controller.processedFrames, armed, "Before its deadline a still pointer does nothing")
+        controller.tick(pointer: hint.center, now: 30 + workspaceSidebarDropDestinationDwell, elapsed: 0.016)
+        XCTAssertEqual(controller.openId, right)
+    }
+
+    func testTheHintsPublishOnlyWhenTheyLookDifferent() throws {
+        let tab = try fixture(displays: 2)
+        beginDrag(tab)
+        var publications = 0
+        let subscription = controller.hintPanel.model.$content.dropFirst().sink { _ in publications += 1 }
+        defer { subscription.cancel() }
+        for x in stride(from: 4000.0, to: 4100, by: 5) {
+            controller.tick(pointer: CGPoint(x: x, y: 4000), now: 40 + x / 1000, elapsed: 0.016)
+        }
+        XCTAssertEqual(publications, 0, "Moving about elsewhere changes nothing on them")
+        let hint = try XCTUnwrap(controller.layout?.hints.first)
+        controller.tick(pointer: hint.center, now: 50, elapsed: 0.016)
+        XCTAssertEqual(publications, 1, "Arming")
+        controller.tick(pointer: hint.center, now: 50 + workspaceSidebarDropDestinationDwell, elapsed: 0.016)
+        XCTAssertGreaterThanOrEqual(publications, 2, "Open")
+        let opened = publications
+        let column = try XCTUnwrap(controller.layout?.column)
+        for y in stride(from: column.midY - 40, to: column.midY + 40, by: 4) {
+            controller.tick(pointer: CGPoint(x: column.midX, y: y), now: 51 + y / 10000, elapsed: 0.016)
+        }
+        XCTAssertEqual(publications, opened, "Moving in the list doesn't touch the hints")
+    }
+
+    func testADisplayChangeEndsTheListForTheRestOfTheDrag() throws {
+        let tab = try fixture(displays: 2)
+        beginDrag(tab)
+        try open()
+        MonitorConfigurationObserver.shared.noteDisplayChangeForTests()
+        controller.tick(pointer: CGPoint(x: 5000, y: 5000), now: 60, elapsed: 0.016)
+        XCTAssertFalse(controller.isActive)
+        XCTAssertTrue(WorkspaceSidebarTemporaryDropSurfaces.shared.isEmpty)
+        XCTAssertFalse(controller.columnPanel.isVisible)
+        updateSidebarPinnedTabDrag(tab.name, pointer: .zero)
+        XCTAssertFalse(controller.isActive, "The same gesture can't bring it back")
+
+        // The next drag can.
+        finishSidebarPinnedTabDrag(tab.name, pointer: .zero)
+        beginDrag(tab)
+        XCTAssertTrue(controller.isActive)
+    }
+
+    func testEscapeTakesTheListAwayAndDropsNothing() throws {
+        let tab = try fixture(displays: 2)
+        beginDrag(tab)
+        try open()
+        XCTAssertTrue(workspaceSidebarHandleEscapeDuringDrag(keyCode: 53))
+        XCTAssertFalse(controller.isActive)
+        XCTAssertTrue(WorkspaceSidebarTemporaryDropSurfaces.shared.isEmpty)
+        XCTAssertFalse(controller.columnPanel.isVisible)
+        XCTAssertFalse(controller.hintPanel.isVisible)
+        XCTAssertNil(controller.columnPanel.model.snapshot, "Its content goes too")
+    }
+
+    func testTheReleaseTakesTheListAway() throws {
+        let tab = try fixture(displays: 2)
+        beginDrag(tab)
+        try open()
+        finishSidebarPinnedTabDrag(tab.name, pointer: CGPoint(x: -9000, y: -9000))
+        XCTAssertFalse(controller.isActive)
+        XCTAssertTrue(WorkspaceSidebarTemporaryDropSurfaces.shared.isEmpty)
+        XCTAssertTrue(workspacePinnedTabs(in: tab.projectId).contains(tab), "Released away from everything: nothing moved")
+    }
+
+    /// The list's blank space over the source sidebar is the list's: a release there drops nothing,
+    /// and the sidebar underneath takes nothing.
+    func testTheListCoversTheSidebarUnderIt() throws {
+        let tab = try fixture(displays: 2)
+        beginDrag(tab)
+        try open()
+        let source = try XCTUnwrap(WorkspaceSidebarPanel.panel(for: left))
+        let column = controller.columnPanel.frame
+        // Over both, whatever the list's placement: put the list on the sidebar.
+        controller.columnPanel.setFrame(source.visibleSurfaceFrameOnScreen.insetBy(dx: 20, dy: 20), display: false)
+        defer { controller.columnPanel.setFrame(column, display: false) }
+        let point = normalizeAppKitScreenPoint(CGPoint(x: controller.columnPanel.frame.midX, y: controller.columnPanel.frame.midY))
+        let hit = workspaceSidebarSurfaceHit(at: point)
+        XCTAssertEqual(hit.surface, controller.columnPanel.surfaceRef)
+        XCTAssertNil(hit.target)
+    }
+
+    /// Through the list: a pin dropped between the other display's tabs goes to that display, as
+    /// on its own sidebar, and the list goes as the release is taken.
+    func testAPinDroppedBetweenTheListsTabsMovesToThatDisplay() async throws {
+        let tab = try fixture(displays: 2)
+        let other = Workspace.get(byName: "r")
+        _ = TestWindow.new(id: 5, parent: other.rootTilingContainer)
+        let rightMonitor = try XCTUnwrap(sortedMonitors.first { workspaceSidebarMonitorScopeId(for: $0) == right })
+        other.preferredMonitorPoint = rightMonitor.rect.topLeftCorner
+        XCTAssertTrue(rightMonitor.setActiveWorkspace(other))
+        beginDrag(tab)
+        try open()
+        // The gap after "r", where the list would report it.
+        let gap = CGRect(x: 8, y: 80, width: 200, height: 14)
+        controller.columnPanel.setTargetsForTests([.init(kind: .tabGap(projectId: tab.projectId, monitorScopeId: right,
+            gap: .init(workspaceName: other.name, isAfter: true)), frame: gap)])
+        let panel = controller.columnPanel
+        let point = normalizeAppKitScreenPoint(CGPoint(x: panel.frame.minX + gap.midX,
+            y: panel.frame.minY + panel.hostingView.bounds.height - gap.midY))
+        XCTAssertEqual(workspaceSidebarSurfaceHit(at: point).target?.surface, panel.surfaceRef)
+
+        updateSidebarPinnedTabDrag(tab.name, pointer: point)
+        XCTAssertEqual(TrayMenuModel.shared.workspaceSidebarDropPreview?.targetMonitorScopeId, right)
+        XCTAssertEqual(currentWorkspaceSidebarDropPreviewOwnerScopeId(), panel.surfaceRef.ownerId, "The list shows it")
+        finishSidebarPinnedTabDrag(tab.name, pointer: point)
+        XCTAssertFalse(controller.isActive, "Gone with the release")
+        try await waitUntil { tab.workspaceMonitor.rect == rightMonitor.rect }
+        XCTAssertFalse(workspacePinnedTabs(in: tab.projectId).contains(tab), "Between tabs, it's unpinned")
+    }
+
+    /// Sidebar mode: a window row dropped on a workspace in the list goes into it on the other
+    /// display, and the release refocuses nothing on the display under the pointer. (The release
+    /// resolves its target where it lands; Tabs mode's preview reads the real pointer.)
+    func testAWindowDroppedOnTheListsWorkspaceGoesThere() async throws {
+        _ = try fixture(displays: 2)
+        config.workspaceSidebar.mode = .sidebar
+        let source = Workspace.get(byName: "a")
+        let window = TestWindow.new(id: 7, parent: source.rootTilingContainer)
+        let leftMonitor = sortedMonitors[0]
+        source.preferredMonitorPoint = leftMonitor.rect.topLeftCorner
+        XCTAssertTrue(leftMonitor.setActiveWorkspace(source))
+        let other = Workspace.get(byName: "r")
+        _ = TestWindow.new(id: 5, parent: other.rootTilingContainer)
+        let rightMonitor = try XCTUnwrap(sortedMonitors.first { workspaceSidebarMonitorScopeId(for: $0) == right })
+        other.preferredMonitorPoint = rightMonitor.rect.topLeftCorner
+        XCTAssertTrue(rightMonitor.setActiveWorkspace(other))
+        defer {
+            clearActiveWorkspaceSidebarDrag()
+            clearPendingWindowDragIntent()
+            cancelManipulatedWithMouseState()
+        }
+        sessions.noteLeftMouseDown()
+        setWorkspaceSidebarDragSourceScopeIdForTests(left)
+        updateSidebarWindowDrag(window.windowId, subject: .window, pointer: CGPoint(x: -9000, y: -9000))
+        XCTAssertTrue(controller.isActive)
+        try open()
+        let row = CGRect(x: 8, y: 60, width: 200, height: 36)
+        controller.columnPanel.setTargetsForTests([.init(kind: .workspace(other.name), frame: row)])
+        let panel = controller.columnPanel
+        let point = normalizeAppKitScreenPoint(CGPoint(x: panel.frame.minX + row.midX,
+            y: panel.frame.minY + panel.hostingView.bounds.height - row.midY))
+
+        XCTAssertEqual(workspaceSidebarSurfaceHit(at: point).target?.kind, .workspace(other.name))
+        finishSidebarWindowDrag(pointer: point)
+        XCTAssertFalse(controller.isActive)
+        XCTAssertTrue(takeWorkspaceSidebarConsumedRelease(), "The desktop click doesn't refocus the display under it")
+        try await waitUntil { window.nodeWorkspace === other }
+        XCTAssertEqual(window.nodeWorkspace?.workspaceMonitor.rect, rightMonitor.rect)
+    }
+
+    func testAnEdgeScrollsTheListFasterNearerIt() {
+        XCTAssertEqual(workspaceSidebarDropDestinationAutoscrollVelocity(pointY: 500, top: 1000, bottom: 0), 0)
+        let nearTop = workspaceSidebarDropDestinationAutoscrollVelocity(pointY: 990, top: 1000, bottom: 0)
+        let atTop = workspaceSidebarDropDestinationAutoscrollVelocity(pointY: 1000, top: 1000, bottom: 0)
+        XCTAssertLessThan(nearTop, 0, "Towards the top")
+        XCTAssertLessThan(atTop, nearTop)
+        XCTAssertEqual(atTop, -workspaceSidebarDropDestinationAutoscrollSpeed, accuracy: 0.01)
+        XCTAssertGreaterThan(workspaceSidebarDropDestinationAutoscrollVelocity(pointY: 10, top: 1000, bottom: 0), 0)
+        XCTAssertEqual(workspaceSidebarDropDestinationAutoscrollVelocity(pointY: 1100, top: 1000, bottom: 0), 0, "Outside")
+    }
+
+    // MARK: Helpers
+
+    private let left = "monitor:0.0,0.0"
+    private let right = "monitor:1920.0,0.0"
+
+    /// Tabs mode with a pinned tab "pin" on the left display, and the sidebar panels.
+    private func fixture(displays: Int) throws -> Workspace {
+        _ = NSApplication.shared
+        try XCTSkipIf(NSScreen.screens.isEmpty, "Requires a native macOS window server")
+        TrayMenuModel.shared.isEnabled = true
+        config.workspaceSidebar.enabled = true
+        config.workspaceSidebar.mode = .tabs
+        config.workspaceSidebar.tabsAlwaysExpanded = true
+        let leftMonitor = WorkspaceSidebarDragTestMonitor(monitorAppKitNsScreenScreensId: 1, name: "Left",
+            rect: Rect(topLeftX: 0, topLeftY: 0, width: 1920, height: 1080),
+            visibleRect: Rect(topLeftX: 0, topLeftY: 0, width: 1920, height: 1080), isMain: true)
+        let rightMonitor = WorkspaceSidebarDragTestMonitor(monitorAppKitNsScreenScreensId: 2, name: "Right",
+            rect: Rect(topLeftX: 1920, topLeftY: 0, width: 1920, height: 1080),
+            visibleRect: Rect(topLeftX: 1920, topLeftY: 0, width: 1920, height: 1080), isMain: false)
+        setMonitorsForTests(displays == 1 ? [leftMonitor] : [leftMonitor, rightMonitor])
+        Workspace.reconcileWorkspaceState()
+        let tab = Workspace.get(byName: "pin")
+        _ = TestWindow.new(id: 1, parent: tab.rootTilingContainer)
+        try setWorkspaceSidebarTabFavorite(tab, true)
+        WorkspaceSidebarPanel.refreshAll()
+        let panel = try XCTUnwrap(WorkspaceSidebarPanel.panel(for: left))
+        panel.orderFront(nil)
+        // The surface SwiftUI would report after its first layout.
+        panel.visibleSurfaceFrame = CGRect(x: 0, y: 0, width: 280, height: 600)
+        return tab
+    }
+
+    private func beginDrag(_ tab: Workspace) {
+        sessions.noteLeftMouseDown()
+        setWorkspaceSidebarDragSourceScopeIdForTests(left)
+        updateSidebarPinnedTabDrag(tab.name, pointer: CGPoint(x: -9000, y: -9000))
+    }
+
+    private func waitUntil(_ condition: () -> Bool, timeout: TimeInterval = 2) async throws {
+        let deadline = Date(timeIntervalSinceNow: timeout)
+        while !condition() {
+            guard Date() < deadline else { return XCTFail("Timed out") }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+    }
+
+    private func open() throws {
+        let hint = try XCTUnwrap(controller.layout?.hints.first)
+        controller.tick(pointer: hint.center, now: 100, elapsed: 0)
+        controller.tick(pointer: hint.center, now: 100 + workspaceSidebarDropDestinationDwell, elapsed: 0.22)
+        XCTAssertEqual(controller.openId, right)
+    }
+}
+
+private extension CGRect {
+    var center: CGPoint { CGPoint(x: midX, y: midY) }
+}

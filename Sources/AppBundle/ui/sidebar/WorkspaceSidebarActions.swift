@@ -1001,6 +1001,7 @@ func updateSidebarWindowDrag(_ windowId: UInt32, subject: WindowDragSubject = .w
         subject: subject,
         detachOrigin: .window,
     )
+    WorkspaceSidebarDropDestinationController.shared.noteDragUpdate()
 }
 
 @MainActor
@@ -1022,6 +1023,9 @@ func finishSidebarWindowDrag(pointer: CGPoint? = nil) {
         hasActiveSidebarDrag: currentActiveWorkspaceSidebarDrag() != nil,
         isPointerInSidebar: surface != nil, isPointerOnTemporarySurface: surface?.isTemporary == true)
     if release != nil, releasedWithoutSidebarDrop, surface?.isTemporary == true { noteWorkspaceSidebarConsumedRelease() }
+    // The release is captured: the other displays' hints and list go. A release outside them keeps
+    // the window drag's pending drop for the screen.
+    WorkspaceSidebarDropDestinationController.shared.end()
     clearActiveWorkspaceSidebarDrag()
     if didCommitSidebarDrop || releasedWithoutSidebarDrop {
         clearPendingWindowDragIntent()

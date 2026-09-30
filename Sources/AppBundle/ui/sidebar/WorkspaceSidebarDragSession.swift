@@ -89,6 +89,7 @@ final class WorkspaceSidebarDragSessions {
 @discardableResult
 func cancelWorkspaceSidebarDragSession() -> Bool {
     guard WorkspaceSidebarDragSessions.shared.cancel() else { return false }
+    WorkspaceSidebarDropDestinationController.shared.end()
     cancelActiveSidebarPinnedTabDrag()
     clearActiveWorkspaceSidebarDrag()
     clearPendingWindowDragIntent()

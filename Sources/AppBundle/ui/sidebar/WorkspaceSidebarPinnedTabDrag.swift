@@ -116,6 +116,7 @@ func updateSidebarPinnedTabDrag(_ name: String, pointer: CGPoint) {
         mouseScreenPoint: denormalizedAppKitScreenPoint(pointer), style: .appIcon(size: 22))
     setWorkspaceSidebarDropPreviewIfChanged(drop.map { workspaceSidebarPinnedTabDropPreview(tab, drop: $0) },
         owner: hit.surface)
+    WorkspaceSidebarDropDestinationController.shared.noteDragUpdate()
 }
 
 /// The drop happens once, from whichever sees the release first: the gesture's end, or the
@@ -132,8 +133,10 @@ func finishSidebarPinnedTabDrag(_ name: String, pointer: CGPoint) {
     // Released on temporary drop UI, with or without a drop: that release was the sidebar's.
     if underPointer?.hit.isOnTemporarySurface == true { noteWorkspaceSidebarConsumedRelease() }
     // A list that closed before the release takes nothing: its drop can't be checked any more.
-    guard let tab, let drop = underPointer?.drop,
-          let intent = underPointer?.hit.target.flatMap({ WorkspaceSidebarDropIntent.captured(for: $0) }) else { return }
+    let intent = underPointer?.hit.target.flatMap { WorkspaceSidebarDropIntent.captured(for: $0) }
+    // The release is captured: the other displays' hints and list go.
+    WorkspaceSidebarDropDestinationController.shared.end()
+    guard let tab, let drop = underPointer?.drop, let intent else { return }
     noteWorkspaceSidebarConsumedRelease()
     runWorkspaceSidebarSession(undoTitle: workspaceSidebarPinnedTabDropUndoTitle(drop)) {
         try intent.checkDestination()
@@ -147,6 +150,19 @@ func finishActiveSidebarPinnedTabDrag() {
     guard let name = activeSidebarPinnedTabDrag?.name else { return }
     noteCurrentMousePointerSample()
     finishSidebarPinnedTabDrag(name, pointer: MousePointerTracker.shared.currentSample.point)
+}
+
+@MainActor
+func isSidebarPinnedTabDragActive() -> Bool { activeSidebarPinnedTabDrag != nil }
+
+/// The dragged pin's preview where the pointer is now, between the gesture's own updates: over
+/// another display's list, only this keeps it live.
+@MainActor
+func refreshActiveSidebarPinnedTabDragPreview() {
+    guard let tab = activeSidebarPinnedTabDrag?.tab, Workspace.existing(byName: tab.name) === tab else { return }
+    let (drop, hit) = workspaceSidebarPinnedTabDropUnderPointer(tab, point: MousePointerTracker.shared.currentSample.point)
+    setWorkspaceSidebarDropPreviewIfChanged(drop.map { workspaceSidebarPinnedTabDropPreview(tab, drop: $0) },
+        owner: hit.surface)
 }
 
 /// Drops the pinned tile being dragged without a drop: its payload goes, with its feedback.
