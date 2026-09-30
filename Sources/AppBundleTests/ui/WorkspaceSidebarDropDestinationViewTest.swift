@@ -40,7 +40,7 @@ final class WorkspaceSidebarDropDestinationViewTest: XCTestCase {
         let scroll = WorkspaceSidebarDropDestinationScrollModel()
         model.set(fixture(sharesPins: true))
         var targets: [WorkspaceSidebarDropTargetFrame] = []
-        let host = NSHostingView(rootView: WorkspaceSidebarDropDestinationView(model: model, scroll: scroll) { targets = $0 }
+        let host = NSHostingView(rootView: WorkspaceSidebarDropDestinationView(model: model, scroll: scroll) { targets = $1 }
             .frame(width: 280, height: 420)
             .transaction { $0.animation = nil })
         host.frame = CGRect(x: 0, y: 0, width: 280, height: 420)
@@ -73,6 +73,17 @@ final class WorkspaceSidebarDropDestinationViewTest: XCTestCase {
         XCTAssertFalse(targets.map(\.kind).contains(.newWorkspace(projectId: workspaceProjectDefaultId, monitorScopeId: there)))
         let viewportTop = workspaceSidebarDropDestinationHeaderHeight
         XCTAssertTrue(targets.allSatisfy { $0.frame.minY >= viewportTop - 0.5 }, "Clipped below the header")
+    }
+
+    /// Review round 1: a list that got shorter doesn't stay scrolled past its end.
+    func testTheScrollStaysWithinTheList() {
+        let scroll = WorkspaceSidebarDropDestinationScrollModel()
+        scroll.measure(contentHeight: 1000, viewportHeight: 400)
+        scroll.offset = 600
+        scroll.measure(contentHeight: 500)
+        XCTAssertEqual(scroll.offset, 100)
+        scroll.measure(viewportHeight: 600)
+        XCTAssertEqual(scroll.offset, 0, "Nor a taller view")
     }
 
     // MARK: Helpers

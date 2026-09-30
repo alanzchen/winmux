@@ -76,23 +76,37 @@ final class WorkspaceSidebarDropDestinationColumnPanel: WorkspaceSidebarDropDest
     let scroll = WorkspaceSidebarDropDestinationScrollModel()
     let stackingOrder = 1
     var dropDestination: WorkspaceSidebarDropDestinationIdentity?
-    /// In the hosting view's coordinates, as the list reports them.
+    /// In the hosting view's coordinates, as the list reports them, for this opening only.
     private(set) var targets: [WorkspaceSidebarDropTargetFrame] = []
 
     func mount() {
         hostingView.rootView = AnyView(WorkspaceSidebarDropDestinationView(model: model, scroll: scroll) { [weak self] in
-            self?.targets = $0
+            self?.setTargets($1, reportedFor: $0)
         })
     }
 
-    override func tearDown() {
+    /// Only targets laid out for the list now open count: a list that just switched displays
+    /// takes no drops until its own targets arrive.
+    func setTargets(_ targets: [WorkspaceSidebarDropTargetFrame], reportedFor surface: WorkspaceSidebarSurfaceRef) {
+        guard surface == surfaceRef, targets != self.targets else { return }
+        self.targets = targets
+        WorkspaceSidebarDropTargetsRevision.bump()
+    }
+
+    func clearTargets() {
+        guard !targets.isEmpty else { return }
         targets = []
+        WorkspaceSidebarDropTargetsRevision.bump()
+    }
+
+    override func tearDown() {
+        clearTargets()
         model.set(nil)
         scroll.offset = 0
         super.tearDown()
     }
 
-    func setTargetsForTests(_ targets: [WorkspaceSidebarDropTargetFrame]) { self.targets = targets }
+    func setTargetsForTests(_ targets: [WorkspaceSidebarDropTargetFrame]) { setTargets(targets, reportedFor: surfaceRef) }
 
     func dropTarget(atNormalizedPoint point: CGPoint, hitSlop: NSEdgeInsets, includesTabGaps: Bool) -> WorkspaceSidebarDropTarget? {
         let screenPoint = CGPoint(x: point.x, y: mainMonitor.height - point.y)

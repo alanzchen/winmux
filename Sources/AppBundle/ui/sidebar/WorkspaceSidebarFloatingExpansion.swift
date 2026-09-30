@@ -79,6 +79,7 @@ extension WorkspaceSidebarPanel {
     func updateExpandedDropTargets(_ targets: [WorkspaceSidebarDropTargetFrame]) {
         guard targets != expandedDropTargetFrames else { return }
         expandedDropTargetFrames = targets
+        WorkspaceSidebarDropTargetsRevision.bump()
     }
 
     /// The floating view accepts input only while the Dock is fully expanded, matching its

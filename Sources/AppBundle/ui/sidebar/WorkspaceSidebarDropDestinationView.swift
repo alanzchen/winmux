@@ -97,10 +97,17 @@ final class WorkspaceSidebarDropDestinationColumnModel: ObservableObject {
 final class WorkspaceSidebarDropDestinationScrollModel: ObservableObject {
     @Published var offset: CGFloat = 0
     /// Measured by the list, not published.
-    var contentHeight: CGFloat = 0
-    var viewportHeight: CGFloat = 0
+    private(set) var contentHeight: CGFloat = 0
+    private(set) var viewportHeight: CGFloat = 0
 
     var maxOffset: CGFloat { max(contentHeight - viewportHeight, 0) }
+
+    /// A list that got shorter, or a view that got taller, doesn't stay scrolled past its end.
+    func measure(contentHeight: CGFloat? = nil, viewportHeight: CGFloat? = nil) {
+        if let contentHeight { self.contentHeight = contentHeight }
+        if let viewportHeight { self.viewportHeight = viewportHeight }
+        if offset > maxOffset { offset = maxOffset }
+    }
 }
 
 private struct WorkspaceSidebarDropDestinationContentHeightKey: PreferenceKey {
@@ -115,7 +122,8 @@ let workspaceSidebarDropDestinationHeaderHeight: CGFloat = 44
 struct WorkspaceSidebarDropDestinationView: View {
     @ObservedObject var model: WorkspaceSidebarDropDestinationColumnModel
     let scroll: WorkspaceSidebarDropDestinationScrollModel
-    let onTargets: @MainActor ([WorkspaceSidebarDropTargetFrame]) -> Void
+    /// The targets, with the surface of the list they were laid out for.
+    let onTargets: @MainActor (WorkspaceSidebarSurfaceRef, [WorkspaceSidebarDropTargetFrame]) -> Void
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
@@ -132,6 +140,9 @@ struct WorkspaceSidebarDropDestinationView: View {
                         }
                     }
                 }
+                .onPreferenceChange(WorkspaceSidebarDropTargetPreferenceKey.self) { [surface = snapshot.surface] in
+                    onTargets(surface, $0)
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -139,7 +150,6 @@ struct WorkspaceSidebarDropDestinationView: View {
         .overlay { shape.strokeBorder(Color.primary.opacity(0.18), lineWidth: 1) }
         .clipShape(shape)
         .coordinateSpace(name: "workspaceSidebarContent")
-        .onPreferenceChange(WorkspaceSidebarDropTargetPreferenceKey.self) { onTargets($0) }
     }
 }
 
@@ -189,10 +199,10 @@ struct WorkspaceSidebarDropDestinationScrollView<Content: View>: View {
                         to: viewport.frame(in: .named("workspaceSidebarContent")))
                 }
                 .onPreferenceChange(WorkspaceSidebarDropDestinationContentHeightKey.self) { height in
-                    scroll.contentHeight = height
-                    scroll.viewportHeight = viewport.size.height
+                    scroll.measure(contentHeight: height, viewportHeight: viewport.size.height)
                 }
-                .onAppear { scroll.viewportHeight = viewport.size.height }
+                .onAppear { scroll.measure(viewportHeight: viewport.size.height) }
+                .onChange(of: viewport.size.height) { scroll.measure(viewportHeight: $0) }
         }
     }
 }

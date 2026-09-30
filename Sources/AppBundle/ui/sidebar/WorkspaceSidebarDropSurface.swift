@@ -98,6 +98,15 @@ extension WorkspaceSidebarPanel {
     var surfaceRef: WorkspaceSidebarSurfaceRef { .panel(monitorScopeId: monitorScopeId) }
 }
 
+/// Bumped whenever a sidebar surface reports new drop targets or a new shape, so a drag whose
+/// pointer is still can tell that what's under it may have changed.
+@MainActor
+enum WorkspaceSidebarDropTargetsRevision {
+    private(set) static var current: UInt64 = 0
+
+    static func bump() { current &+= 1 }
+}
+
 /// The surface under a normalized point, with the part of it that contains the point.
 @MainActor
 func workspaceSidebarSurface(at point: CGPoint) -> (surface: WorkspaceSidebarSurfaceRef, rect: Rect)? {

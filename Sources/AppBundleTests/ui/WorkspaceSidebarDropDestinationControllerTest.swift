@@ -241,6 +241,77 @@ final class WorkspaceSidebarDropDestinationControllerTest: XCTestCase {
         XCTAssertEqual(window.nodeWorkspace?.workspaceMonitor.rect, rightMonitor.rect)
     }
 
+    /// Review round 1: going straight from one display's list to another's, the last list's targets
+    /// don't count for the new one, even reported late.
+    func testSwitchingListsDropsTheLastListsTargets() throws {
+        let tab = try fixture(displays: 3)
+        beginDrag(tab)
+        try open()
+        let first = controller.columnPanel.surfaceRef
+        let row = CGRect(x: 8, y: 60, width: 200, height: 36)
+        controller.columnPanel.setTargetsForTests([.init(kind: .tabGap(projectId: tab.projectId, monitorScopeId: right,
+            gap: .init(workspaceName: "r", isAfter: true)), frame: row)])
+        XCTAssertFalse(controller.columnPanel.targets.isEmpty)
+
+        let farHint = try XCTUnwrap(controller.layout?.hints.last)
+        XCTAssertEqual(controller.hints.last?.id, far)
+        controller.tick(pointer: farHint.center, now: 200, elapsed: 0.016)
+        controller.tick(pointer: farHint.center, now: 200 + workspaceSidebarDropDestinationDwell, elapsed: 0.22)
+        XCTAssertEqual(controller.openId, far)
+        XCTAssertNotEqual(controller.columnPanel.surfaceRef, first, "A new list, a new surface")
+        XCTAssertTrue(controller.columnPanel.targets.isEmpty, "None until its own are laid out")
+        controller.columnPanel.setTargets([.init(kind: .workspace("r"), frame: row)], reportedFor: first)
+        XCTAssertTrue(controller.columnPanel.targets.isEmpty, "The last list's layout, reported late")
+
+        // Even a target naming the last display, found on the new list, takes nothing.
+        let stale = WorkspaceSidebarDropTarget(kind: .tabGap(projectId: tab.projectId, monitorScopeId: right,
+            gap: .init(workspaceName: "r", isAfter: true)), rect: Rect(topLeftX: 0, topLeftY: 0, width: 10, height: 10),
+            surface: controller.columnPanel.surfaceRef)
+        XCTAssertNil(WorkspaceSidebarDropIntent.captured(for: stale))
+    }
+
+    /// Review round 1: with the pointer still, a frame looks again once any surface's targets change.
+    func testAStillPointerLooksAgainWhenTargetsChange() throws {
+        let tab = try fixture(displays: 2)
+        beginDrag(tab)
+        let still = CGPoint(x: 5000, y: 5000)
+        controller.tick(pointer: still, now: 300, elapsed: 0.016)
+        let before = controller.processedFrames
+        controller.tick(pointer: still, now: 300.02, elapsed: 0.016)
+        XCTAssertEqual(controller.processedFrames, before)
+        WorkspaceSidebarDropTargetsRevision.bump()
+        controller.tick(pointer: still, now: 300.04, elapsed: 0.016)
+        XCTAssertEqual(controller.processedFrames, before + 1)
+        controller.syncFromShared()
+        controller.tick(pointer: still, now: 300.06, elapsed: 0.016)
+        XCTAssertEqual(controller.processedFrames, before + 2, "A model change too")
+    }
+
+    /// Review round 1: a preview another display's sidebar made goes once the pointer leaves it,
+    /// with no gesture events to clear it.
+    func testAPreviewLeftByAnotherSidebarGoesWhenThePointerLeaves() throws {
+        let tab = try fixture(displays: 2)
+        beginDrag(tab)
+        let preview = WorkspaceSidebarDropPreviewViewModel(sourceWindowId: 1, label: "pin", appName: "Notes",
+            targetWorkspaceName: nil, targetsNewWorkspace: false, targetProjectId: tab.projectId,
+            targetMonitorScopeId: right, isTabGroup: false, windowCount: 1)
+        setWorkspaceSidebarDropPreviewIfChanged(preview, owner: .panel(monitorScopeId: right))
+        controller.tick(pointer: CGPoint(x: 7000, y: 7000), now: 400, elapsed: 0.016)
+        XCTAssertNil(TrayMenuModel.shared.workspaceSidebarDropPreview)
+    }
+
+    func testADocksRowOfHintsScrollsAlongIt() {
+        let area = CGRect(x: 100, y: 100, width: 500, height: 36)
+        XCTAssertGreaterThan(workspaceSidebarDropDestinationHintAutoscrollVelocity(pointer: CGPoint(x: 595, y: 118),
+            area: area, isRow: true), 0, "On, near its trailing end")
+        XCTAssertLessThan(workspaceSidebarDropDestinationHintAutoscrollVelocity(pointer: CGPoint(x: 105, y: 118),
+            area: area, isRow: true), 0, "Back, near its leading end")
+        XCTAssertEqual(workspaceSidebarDropDestinationHintAutoscrollVelocity(pointer: CGPoint(x: 350, y: 118),
+            area: area, isRow: true), 0)
+        XCTAssertEqual(workspaceSidebarDropDestinationHintAutoscrollVelocity(pointer: CGPoint(x: 595, y: 300),
+            area: area, isRow: true), 0, "Off the row")
+    }
+
     func testAnEdgeScrollsTheListFasterNearerIt() {
         XCTAssertEqual(workspaceSidebarDropDestinationAutoscrollVelocity(pointY: 500, top: 1000, bottom: 0), 0)
         let nearTop = workspaceSidebarDropDestinationAutoscrollVelocity(pointY: 990, top: 1000, bottom: 0)
@@ -256,6 +327,7 @@ final class WorkspaceSidebarDropDestinationControllerTest: XCTestCase {
 
     private let left = "monitor:0.0,0.0"
     private let right = "monitor:1920.0,0.0"
+    private let far = "monitor:3840.0,0.0"
 
     /// Tabs mode with a pinned tab "pin" on the left display, and the sidebar panels.
     private func fixture(displays: Int) throws -> Workspace {
@@ -271,7 +343,10 @@ final class WorkspaceSidebarDropDestinationControllerTest: XCTestCase {
         let rightMonitor = WorkspaceSidebarDragTestMonitor(monitorAppKitNsScreenScreensId: 2, name: "Right",
             rect: Rect(topLeftX: 1920, topLeftY: 0, width: 1920, height: 1080),
             visibleRect: Rect(topLeftX: 1920, topLeftY: 0, width: 1920, height: 1080), isMain: false)
-        setMonitorsForTests(displays == 1 ? [leftMonitor] : [leftMonitor, rightMonitor])
+        let farMonitor = WorkspaceSidebarDragTestMonitor(monitorAppKitNsScreenScreensId: 3, name: "Far",
+            rect: Rect(topLeftX: 3840, topLeftY: 0, width: 1920, height: 1080),
+            visibleRect: Rect(topLeftX: 3840, topLeftY: 0, width: 1920, height: 1080), isMain: false)
+        setMonitorsForTests(Array([leftMonitor, rightMonitor, farMonitor].prefix(displays)))
         Workspace.reconcileWorkspaceState()
         let tab = Workspace.get(byName: "pin")
         _ = TestWindow.new(id: 1, parent: tab.rootTilingContainer)

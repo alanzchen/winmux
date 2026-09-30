@@ -15,6 +15,17 @@ func workspaceSidebarDropDestinationAutoscrollVelocity(pointY: CGFloat, top: CGF
     return 0
 }
 
+/// How fast a drag at `pointer` scrolls hints that overflow `area`: a column along its height, a
+/// Dock's row along its width, back near its start and on near its end.
+func workspaceSidebarDropDestinationHintAutoscrollVelocity(pointer: CGPoint, area: CGRect, isRow: Bool) -> CGFloat {
+    if isRow {
+        guard pointer.y >= area.minY, pointer.y <= area.maxY else { return 0 }
+        return -workspaceSidebarDropDestinationAutoscrollVelocity(pointY: pointer.x, top: area.maxX, bottom: area.minX)
+    }
+    guard pointer.x >= area.minX, pointer.x <= area.maxX else { return 0 }
+    return workspaceSidebarDropDestinationAutoscrollVelocity(pointY: pointer.y, top: area.maxY, bottom: area.minY)
+}
+
 /// One sidebar drag's hints and other-display list: from the drag's first update with two or more
 /// displays to its release or cancellation. A display refresh subscription for the whole drag
 /// samples the real pointer, so a pause, a close or an edge scroll happens with the pointer still,
@@ -27,6 +38,8 @@ final class WorkspaceSidebarDropDestinationController {
     private struct FrameSignature: Equatable {
         let point: CGPoint
         let modelRevision: UInt64
+        /// Any surface's targets or shape: what's under a still pointer can change.
+        let targetsRevision: UInt64
         let modifiers: UInt
         let sourceSurface: CGRect
     }
@@ -140,10 +153,12 @@ final class WorkspaceSidebarDropDestinationController {
         refreshDragPreview()
     }
 
-    /// The shared model changed: the open list shows it, and its targets are checked again.
+    /// The shared model changed: the open list shows it, and the next frame looks again at
+    /// what's under the pointer, even a still one.
     func syncFromShared() {
-        guard isActive, let hint = openHint else { return }
-        if columnPanel.model.set(snapshot(for: hint)) { modelRevision &+= 1 }
+        guard isActive else { return }
+        modelRevision &+= 1
+        if let hint = openHint { columnPanel.model.set(snapshot(for: hint)) }
     }
 
     private var openHint: WorkspaceSidebarDropDestinationHint? {
@@ -178,7 +193,7 @@ final class WorkspaceSidebarDropDestinationController {
     private func process(pointer: CGPoint, now: TimeInterval, elapsed: TimeInterval) {
         guard let sourcePanel else { return }
         let signature = FrameSignature(point: pointer, modelRevision: modelRevision,
-            modifiers: NSEvent.modifierFlags.intersection(.deviceIndependentFlagsMask).rawValue,
+            targetsRevision: WorkspaceSidebarDropTargetsRevision.current, modifiers: NSEvent.modifierFlags.intersection(.deviceIndependentFlagsMask).rawValue,
             sourceSurface: sourcePanel.visibleSurfaceFrameOnScreen)
         let isTimed = state.nextWake.map { now >= $0 } == true || scrollVelocity(at: pointer) != nil
         guard signature != lastSignature || isTimed else { return }
@@ -239,6 +254,8 @@ final class WorkspaceSidebarDropDestinationController {
         let surface = WorkspaceSidebarSurfaceRef.dropDestination(generation: surfaceGeneration)
         hintPanel.surfaceRef = surface
         columnPanel.surfaceRef = surface
+        // The last list's targets aren't this one's: none until its own are laid out.
+        columnPanel.clearTargets()
         columnPanel.scroll.offset = 0
         func close() {
             state.openId = nil
@@ -280,10 +297,10 @@ final class WorkspaceSidebarDropDestinationController {
             let offset = columnPanel.scroll.offset
             if velocity < 0 && offset > 0 || velocity > 0 && offset < columnPanel.scroll.maxOffset { return (true, velocity) }
         }
-        if layout.hintsOverflow, !isRow, pointer.x >= layout.hintArea.minX, pointer.x <= layout.hintArea.maxX {
-            let velocity = workspaceSidebarDropDestinationAutoscrollVelocity(pointY: pointer.y,
-                top: layout.hintArea.maxY, bottom: layout.hintArea.minY)
-            let range = workspaceSidebarDropDestinationHintScrollRange(layout, isRow: false)
+        if layout.hintsOverflow {
+            let velocity = workspaceSidebarDropDestinationHintAutoscrollVelocity(pointer: pointer, area: layout.hintArea,
+                isRow: isRow)
+            let range = workspaceSidebarDropDestinationHintScrollRange(layout, isRow: isRow)
             if velocity < 0 && hintOffset > 0 || velocity > 0 && hintOffset < range { return (false, velocity) }
         }
         return nil
@@ -297,17 +314,19 @@ final class WorkspaceSidebarDropDestinationController {
             let next = min(max(scroll.offset + step, 0), scroll.maxOffset)
             if next != scroll.offset { scroll.offset = next }
         } else {
-            hintOffset = min(max(hintOffset + step, 0), workspaceSidebarDropDestinationHintScrollRange(layout, isRow: false))
+            hintOffset = min(max(hintOffset + step, 0), workspaceSidebarDropDestinationHintScrollRange(layout, isRow: isRow))
         }
     }
 
     /// Over the list or another display's sidebar, only this keeps the drag's preview live; over
-    /// its own sidebar, the gesture does.
+    /// its own sidebar, the gesture does. A preview left by a surface the pointer has left is
+    /// made again too: without gesture events, nothing else would clear it.
     private func refreshPreviewIfNeeded(pointer: CGPoint, force: Bool) {
         let surface = workspaceSidebarSurface(at: normalizeAppKitScreenPoint(pointer))?.surface
         let isOffSource = surface.map { $0 != .panel(monitorScopeId: sourceScopeId ?? "") } ?? false
-        let ownsPreview = workspaceSidebarDropPreviewOwnerIsTemporary(currentWorkspaceSidebarDropPreviewOwnerScopeId())
-        if force || isOffSource || ownsPreview { refreshDragPreview() }
+        let owner = currentWorkspaceSidebarDropPreviewOwnerScopeId()
+        let isLeftBehind = TrayMenuModel.shared.workspaceSidebarDropPreview != nil && owner != surface?.ownerId
+        if force || isOffSource || isLeftBehind { refreshDragPreview() }
     }
 
     private func refreshDragPreview() {

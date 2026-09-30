@@ -173,11 +173,13 @@ extension WorkspaceSidebarPanel {
     func updateDropTargets(_ targets: [WorkspaceSidebarDropTargetFrame]) {
         guard targets != localDropTargetFrames else { return }
         localDropTargetFrames = targets
+        WorkspaceSidebarDropTargetsRevision.bump()
     }
 
     func updateSurfaceFrame(_ nextFrame: CGRect) {
         guard nextFrame != visibleSurfaceFrame else { return }
         visibleSurfaceFrame = nextFrame
+        WorkspaceSidebarDropTargetsRevision.bump()
         updateResizeHandle()
         // This cache is native state, not an observed SwiftUI model. Updating hit regions
         // from the rendered frame therefore cannot create a layout measurement loop.
