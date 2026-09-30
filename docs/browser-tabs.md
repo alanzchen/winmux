@@ -169,7 +169,10 @@ team. See [Local development](development.md#build-an-app-and-matching-cli) to t
   WinMux still lists them from the tab bar that lists them, naming piled-up tabs by their
   description; the selected tab, which always shows, must name its tab bar. A tab is scrolled
   into view before it's selected or closed. Safari ignores both on a tab that still names no
-  parent, so WinMux then leaves it and brings its window forward as it is.
+  parent, so WinMux then leaves it and brings its window forward as it is. Such tabs work
+  again once any tab in the bar is selected, in Safari or from the sidebar. In Safari 27,
+  tabs created by script (AppleScript `make new tab`) end up in this state; tabs opened
+  with ⌘T didn't.
 - Transient Accessibility failures retain the last complete snapshot. Repeated
   failures fall back after ten seconds and retries back off to thirty seconds.
   Hidden sidebars do no browser reads and keep their last snapshot to preserve the
