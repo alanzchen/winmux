@@ -177,6 +177,7 @@ final class WorkspaceSidebarCrossDisplayPinGroupTest: XCTestCase {
         XCTAssertThrowsError(try applyWorkspaceSidebarPinnedTabDrop(tabs.a, .group("gone", monitorScopeId: rightList)),
             "The group went away before the session")
         XCTAssertEqual(tabs.a.workspaceMonitor.rect, left.rect, "Back on its own display")
+        XCTAssertEqual(tabs.a.preferredMonitorPoint, left.rect.topLeftCorner, "Its display is restored too")
         XCTAssertTrue(right.activeWorkspace === rightActive, "The other display shows what it did")
         XCTAssertTrue(workspacePinnedTabs(in: tabs.a.projectId).contains(tabs.a))
     }
@@ -198,6 +199,23 @@ final class WorkspaceSidebarCrossDisplayPinGroupTest: XCTestCase {
         XCTAssertTrue(workspacePinnedTabs(in: moved.projectId).contains(moved))
         XCTAssertEqual(tabs.d.allLeafWindowsRecursive.map(\.windowId), [4])
         XCTAssertEqual(tabs.d.workspaceMonitor.rect, left.rect)
+    }
+
+    /// A tab dropped on another display's list stays listed there once another tab takes its
+    /// place on screen, whether it was pinned, grouped, or dropped between tabs.
+    func testATabMovedToAnotherDisplayStaysOnItsListOnceHidden() throws {
+        let (left, right, tabs) = try twoDisplaysOfTabs()
+        let rightList = workspaceSidebarMonitorScopeId(for: right)
+        try applySidebarPinDrop(4, subject: .window, gap: .init(workspaceName: tabs.r.name, isAfter: true), monitorScopeId: rightList)
+        XCTAssertTrue(right.setActiveWorkspace(tabs.s), "Another tab takes its place on screen")
+        XCTAssertFalse(tabs.d.isVisible)
+        XCTAssertEqual(tabs.d.workspaceMonitor.rect, right.rect, "It's still listed on the display it was dropped on")
+
+        moveWholeTabToGap(tabs.s, projectId: tabs.s.projectId, monitor: left,
+            gap: .init(workspaceName: tabs.a.name, isAfter: true), focusing: Window.get(byId: 6))
+        XCTAssertTrue(left.setActiveWorkspace(tabs.a))
+        XCTAssertFalse(tabs.s.isVisible)
+        XCTAssertEqual(tabs.s.workspaceMonitor.rect, left.rect, "A tab moved between tabs stays too")
     }
 
     /// Review round 2: a group on the tab's own display doesn't need the saved-workspace file to be

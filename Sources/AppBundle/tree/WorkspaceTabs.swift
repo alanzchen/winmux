@@ -308,8 +308,7 @@ func moveWholeTabToGap(_ tab: Workspace, projectId: WorkspaceProjectId, monitor:
     do { if changesGroup { try assignWorkspaceToSidebarCollection(tab, collectionId: gap.collectionId) } }
     catch { showWorkspaceSidebarError(error.localizedDescription); return }
     if changesScope {
-        guard activateWorkspaceOnMonitorPreservingSourceViewport(tab, targetMonitor: monitor) else { return }
-        noteSavedWorkspacePlacedByUser(tab, on: monitor)
+        guard placeWorkspaceTabOnDisplay(tab, monitor) else { return }
         if let window { _ = window.focusWindow() } else { _ = tab.focusWorkspace() }
     }
     winMuxWorkspaceState.moveWorkspace(tab.id, relativeTo: anchor.id, after: gap.isAfter)
@@ -328,9 +327,18 @@ func workspaceTabCanMove(_ tab: Workspace, to monitor: Monitor) -> Bool {
 func moveWorkspaceTabToDisplay(_ tab: Workspace, _ monitor: Monitor, focusing window: Window?) throws {
     guard tab.workspaceMonitor.rect != monitor.rect else { return }
     guard workspaceTabCanMove(tab, to: monitor) else { throw WorkspaceMutationError.tabAssignedToAnotherDisplay }
-    guard activateWorkspaceOnMonitorPreservingSourceViewport(tab, targetMonitor: monitor) else {
-        throw WorkspaceMutationError.tabCannotShowOnDisplay
-    }
-    noteSavedWorkspacePlacedByUser(tab, on: monitor)
+    guard placeWorkspaceTabOnDisplay(tab, monitor) else { throw WorkspaceMutationError.tabCannotShowOnDisplay }
     if let window { _ = window.focusWindow() } else { _ = tab.focusWorkspace() }
+}
+
+/// Shows `tab` on `monitor` because it was dropped on that display's list, and keeps it there.
+/// A hidden tab is listed on the display it belongs to: its saved home, else the display it was
+/// first placed on. Without recording the new display, a moved tab went back to the old
+/// display's list as soon as another tab took its place on screen.
+@MainActor
+func placeWorkspaceTabOnDisplay(_ tab: Workspace, _ monitor: Monitor) -> Bool {
+    guard activateWorkspaceOnMonitorPreservingSourceViewport(tab, targetMonitor: monitor) else { return false }
+    tab.preferredMonitorPoint = monitor.rect.topLeftCorner
+    noteSavedWorkspacePlacedByUser(tab, on: monitor)
+    return true
 }
