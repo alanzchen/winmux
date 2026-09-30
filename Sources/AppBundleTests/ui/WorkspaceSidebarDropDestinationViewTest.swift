@@ -21,6 +21,19 @@ final class WorkspaceSidebarDropDestinationViewTest: XCTestCase {
         }
     }
 
+    /// A shared pin on another display than the one the list stands for is badged with where it
+    /// is, as on that display's own sidebar; the list's own pins aren't. The list takes no
+    /// clicks, so the help doesn't offer to bring it.
+    func testItBadgesSharedPinsAgainstTheDisplayItStandsFor() {
+        let snapshot = fixture(sharesPins: true)
+        let pins = Dictionary(uniqueKeysWithValues: snapshot.pins.map { ($0.name, $0) })
+        let away = snapshot.projection.sharedPinLocation(of: pins["pinHere"]!)
+        XCTAssertEqual(away?.displayName, "Left", "It lives on the display the drag started on")
+        XCTAssertEqual(away?.help(clickMovesHere: false), "Assigned to “Left”")
+        XCTAssertNil(snapshot.projection.sharedPinLocation(of: pins["pinThere"]!), "The list's own display")
+        XCTAssertNil(fixture(sharesPins: false).projection.sharedPinLocation(of: pins["pinHere"]!), "Not without sharing")
+    }
+
     func testItShowsOnlyTheDropItOwns() {
         let preview = WorkspaceSidebarDropPreviewViewModel(sourceWindowId: 9, label: "a", appName: "App",
             targetWorkspaceName: "t1", targetsNewWorkspace: false, isTabGroup: false, windowCount: 1)
@@ -125,6 +138,7 @@ final class WorkspaceSidebarDropDestinationViewTest: XCTestCase {
             isVisible: visible, items: [.init(kind: .window(.init(windowId: window, workspaceName: name, appName: "Notes",
                 appBundleId: nil, appBundlePath: "/System/Applications/Notes.app", title: name, isFocused: false)))])
         workspace.appearance.isFavorite = pinned
+        if pinned { workspace.knownDisplay = .init(monitorScopeId: scope, displayName: scope == here ? "Left" : "Right") }
         return workspace
     }
 }

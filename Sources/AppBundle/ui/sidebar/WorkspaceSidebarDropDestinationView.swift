@@ -257,11 +257,15 @@ struct WorkspaceSidebarDropDestinationTabsList: View {
         let grid = WorkspaceSidebarPinnedGridLayout(workspaces: pins, width: snapshot.width - 16)
         return WorkspaceSidebarPinnedGrid(columns: grid.columns) {
             ForEach(pins) { workspace in
+                // A shared pin on a display other than the one this list stands for shows where it
+                // is. The list takes no clicks, so its help doesn't offer to bring it.
                 WorkspaceSidebarPinnedTab(workspace: workspace, badgeModel: .shared, targetMonitorScopeId: scope,
                     insertionEdge: workspaceSidebarPinnedInsertionEdge(preview, workspaceName: workspace.name,
                         projectId: projectId, monitorScopeId: scope),
                     isDropTarget: preview?.targetWorkspaceName == workspace.name,
-                    dropPlacement: preview?.targetPlacement, dropLabelSlot: preview?.targetLabelSlot) { _ in }
+                    dropPlacement: preview?.targetPlacement, dropLabelSlot: preview?.targetLabelSlot,
+                    sharedPinLocation: snapshot.projection.sharedPinLocation(of: workspace),
+                    sharedPinClickMovesHere: false) { _ in }
             }
         }
         .background {
