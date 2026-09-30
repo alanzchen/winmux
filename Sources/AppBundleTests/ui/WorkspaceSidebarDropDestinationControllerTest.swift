@@ -312,6 +312,76 @@ final class WorkspaceSidebarDropDestinationControllerTest: XCTestCase {
             area: area, isRow: true), 0, "Off the row")
     }
 
+    /// §7.2: with shared pins, a pin rearranged on another display's list stays on its display, and
+    /// Undo puts the order back. The list shows the drop; no physical panel does.
+    func testASharedPinRearrangedOnTheListStaysWhereItIs() async throws {
+        let (tab, other, rightMonitor) = try sharedPinsFixture()
+        let point = try openListWithPinTarget(after: other)
+        updateSidebarPinnedTabDrag(tab.name, pointer: point)
+        XCTAssertEqual(currentWorkspaceSidebarDropPreviewOwnerScopeId(), controller.columnPanel.surfaceRef.ownerId)
+        XCTAssertEqual(workspaceSidebarPanelDropPreview(TrayMenuModel.shared.workspaceSidebarDropPreview, panelScopeId: right,
+            ownerId: currentWorkspaceSidebarDropPreviewOwnerScopeId(), sharesPinnedTabs: true)?.targetsPinned, false,
+            "Only the list lights it")
+        finishSidebarPinnedTabDrag(tab.name, pointer: point)
+        try await waitUntil { workspacePinnedTabs(in: tab.projectId).map(\.name) == [other.name, tab.name] }
+        XCTAssertNotEqual(tab.workspaceMonitor.rect, rightMonitor.rect, "Rearranged, not moved")
+        try WorkspaceSidebarTabUndo.shared.undo()
+        XCTAssertEqual(workspacePinnedTabs(in: tab.projectId).map(\.name), [tab.name, other.name])
+    }
+
+    /// §7.2: a drop on the pins shown with shared pins isn't made once the setting changed.
+    func testAPinRuleChangedAfterThePreviewDropsNothing() async throws {
+        let (tab, other, _) = try sharedPinsFixture()
+        let point = try openListWithPinTarget(after: other)
+        updateSidebarPinnedTabDrag(tab.name, pointer: point)
+        XCTAssertNotNil(TrayMenuModel.shared.workspaceSidebarDropPreview)
+        config.workspaceSidebar.sharePinnedTabs = false
+        finishSidebarPinnedTabDrag(tab.name, pointer: point)
+        try await Task.sleep(for: .milliseconds(200))
+        XCTAssertEqual(workspacePinnedTabs(in: tab.projectId).map(\.name), [tab.name, other.name], "Nothing was dropped")
+        XCTAssertEqual(tab.workspaceMonitor.rect, sortedMonitors[0].rect)
+    }
+
+    /// §7.2: the drop keeps the rule it was shown with, even if the setting changes before its
+    /// session runs.
+    func testAPinRuleChangedAfterTheReleaseKeepsTheRuleShown() async throws {
+        let (tab, other, _) = try sharedPinsFixture()
+        let point = try openListWithPinTarget(after: other)
+        updateSidebarPinnedTabDrag(tab.name, pointer: point)
+        finishSidebarPinnedTabDrag(tab.name, pointer: point)
+        config.workspaceSidebar.sharePinnedTabs = false
+        try await waitUntil { workspacePinnedTabs(in: tab.projectId).map(\.name) == [other.name, tab.name] }
+        XCTAssertEqual(tab.workspaceMonitor.rect, sortedMonitors[0].rect, "Shown as shared pins: it stays")
+    }
+
+    /// A pinned tile's release makes the drop its preview showed, or none: one the pointer only
+    /// found at the release, with no preview of it, isn't made.
+    func testAPinnedTileReleaseMakesOnlyTheDropShown() async throws {
+        let (tab, other, rightMonitor) = try sharedPinsFixture()
+        let point = try openListWithPinTarget(after: other)
+        updateSidebarPinnedTabDrag(tab.name, pointer: point)
+        // The list's layout changes under a still pointer: its place is now between the list's tabs.
+        let gap = CGRect(x: 8, y: 60, width: 60, height: 54)
+        controller.columnPanel.setTargetsForTests([.init(kind: .tabGap(projectId: tab.projectId, monitorScopeId: right,
+            gap: .init(workspaceName: other.name, isAfter: true)), frame: gap)])
+        finishSidebarPinnedTabDrag(tab.name, pointer: point)
+        try await Task.sleep(for: .milliseconds(200))
+        XCTAssertEqual(workspacePinnedTabs(in: tab.projectId).map(\.name), [tab.name, other.name])
+        XCTAssertNotEqual(tab.workspaceMonitor.rect, rightMonitor.rect, "Nothing was dropped")
+    }
+
+    func testTheSplitHoverRemembersThePinRuleShown() {
+        let hover = WorkspaceSidebarTabSplitHoverController.shared
+        defer { hover.reset() }
+        let target = WorkspaceSidebarDropTarget(kind: .pinnedTabs(projectId: workspaceProjectDefaultId, monitorScopeId: right),
+            rect: Rect(topLeftX: 0, topLeftY: 0, width: 10, height: 10))
+        hover.noteDisplayed(source: 3, hitKind: target.kind, target: target, placement: nil, pinGridIsShared: true)
+        XCTAssertEqual(hover.displayedPinGridIsShared(source: 3), true)
+        XCTAssertNil(hover.displayedPinGridIsShared(source: 4), "Another drag's")
+        hover.clearDisplayed()
+        XCTAssertNil(hover.displayedPinGridIsShared(source: 3))
+    }
+
     func testAnEdgeScrollsTheListFasterNearerIt() {
         XCTAssertEqual(workspaceSidebarDropDestinationAutoscrollVelocity(pointY: 500, top: 1000, bottom: 0), 0)
         let nearTop = workspaceSidebarDropDestinationAutoscrollVelocity(pointY: 990, top: 1000, bottom: 0)
@@ -363,6 +433,33 @@ final class WorkspaceSidebarDropDestinationControllerTest: XCTestCase {
         sessions.noteLeftMouseDown()
         setWorkspaceSidebarDragSourceScopeIdForTests(left)
         updateSidebarPinnedTabDrag(tab.name, pointer: CGPoint(x: -9000, y: -9000))
+    }
+
+    /// Shared pins "pin" (left, first) and "r" (right), with the drag of "pin" begun.
+    private func sharedPinsFixture() throws -> (tab: Workspace, other: Workspace, right: Monitor) {
+        let tab = try fixture(displays: 2)
+        config.workspaceSidebar.sharePinnedTabs = true
+        let other = Workspace.get(byName: "r")
+        _ = TestWindow.new(id: 5, parent: other.rootTilingContainer)
+        let rightMonitor = try XCTUnwrap(sortedMonitors.first { workspaceSidebarMonitorScopeId(for: $0) == right })
+        other.preferredMonitorPoint = rightMonitor.rect.topLeftCorner
+        XCTAssertTrue(rightMonitor.setActiveWorkspace(other))
+        try setWorkspaceSidebarTabFavorite(other, true)
+        XCTAssertEqual(workspacePinnedTabs(in: tab.projectId).map(\.name), [tab.name, other.name])
+        beginDrag(tab)
+        return (tab, other, rightMonitor)
+    }
+
+    /// Opens the right display's list and puts the place after `pin` among its pins under the
+    /// returned normalized point.
+    private func openListWithPinTarget(after pin: Workspace) throws -> CGPoint {
+        try open()
+        let gap = CGRect(x: 8, y: 60, width: 60, height: 54)
+        controller.columnPanel.setTargetsForTests([.init(kind: .pinnedTabs(projectId: pin.projectId,
+            gap: .init(workspaceName: pin.name, isAfter: true), monitorScopeId: right), frame: gap)])
+        let panel = controller.columnPanel
+        return normalizeAppKitScreenPoint(CGPoint(x: panel.frame.minX + gap.midX,
+            y: panel.frame.minY + panel.hostingView.bounds.height - gap.midY))
     }
 
     private func waitUntil(_ condition: () -> Bool, timeout: TimeInterval = 2) async throws {

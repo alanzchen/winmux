@@ -20,21 +20,30 @@ enum WorkspaceSidebarPinnedTabDrop: Equatable {
             case .list(_, let scope, _): scope
         }
     }
+
+    /// A drop on the pin tiles, as opposed to the list, a group or New Tab.
+    var isPinTiles: Bool {
+        if case .rearrange = self { true } else { false }
+    }
 }
 
 /// What dropping the pinned tab on this target does, or nil where it does nothing.
+/// `pinGridIsShared` is the pin rule the drop is shown, and made, with.
 @MainActor
-func workspaceSidebarPinnedTabDrop(_ tab: Workspace, target: WorkspaceSidebarDropTarget,
-                                   point: CGPoint) -> WorkspaceSidebarPinnedTabDrop? {
+func workspaceSidebarPinnedTabDrop(_ tab: Workspace, target: WorkspaceSidebarDropTarget, point: CGPoint,
+                                   pinGridIsShared: Bool = workspaceSidebarPinGridIsShared()) -> WorkspaceSidebarPinnedTabDrop? {
     guard config.usesBrowserTabs, workspaceSidebarOrganizationStore.state.workspaces[tab.name]?.isFavorite == true
     else { return nil }
     switch target.kind {
         case .pinnedTabs(let projectId, let gap, let monitorScopeId):
             // On this display it goes beside another pin; onto another display's pins it moves
-            // there, even where that display has no pins yet.
-            guard projectId == tab.projectId, workspaceSidebarDropCanReachDisplay(tab, monitorScopeId: monitorScopeId),
+            // there, even where that display has no pins yet. Shared pins only rearrange: the
+            // tab stays where it is, so a drop that wouldn't change their order does nothing.
+            guard projectId == tab.projectId,
+                  workspaceSidebarPinDropCanReachDisplay(tab, monitorScopeId: monitorScopeId, pinGridIsShared: pinGridIsShared),
                   gap.flatMap({ workspacePinnedTabOrder(moving: tab, beside: $0) }) != nil
-                    || workspaceSidebarDropDisplayChange(for: tab, monitorScopeId: monitorScopeId) != nil
+                    || workspaceSidebarPinDropDisplayChange(for: tab, monitorScopeId: monitorScopeId,
+                        pinGridIsShared: pinGridIsShared) != nil
             else { return nil }
             return .rearrange(gap, monitorScopeId: monitorScopeId)
         case .tabGap(let projectId, let monitorScopeId, let gap):
@@ -46,7 +55,8 @@ func workspaceSidebarPinnedTabDrop(_ tab: Workspace, target: WorkspaceSidebarDro
             // arms. A pinned tab doesn't split.
             guard let destination = target.tabReorderDestination, Workspace.existing(byName: name) != nil else { return nil }
             return workspaceSidebarPinnedTabDrop(tab, target: .init(kind: destination.reorderTarget(beside: name,
-                rect: target.rect, point: point), rect: target.rect, surface: target.surface), point: point)
+                rect: target.rect, point: point), rect: target.rect, surface: target.surface), point: point,
+                pinGridIsShared: pinGridIsShared)
         case .tabCollection(let id, let monitorScopeId):
             guard workspaceSidebarOrganizationStore.state.collections.contains(where: { $0.id == id && $0.projectId == tab.projectId }),
                   workspaceSidebarDropCanReachDisplay(tab, monitorScopeId: monitorScopeId)
@@ -62,11 +72,13 @@ func workspaceSidebarPinnedTabDrop(_ tab: Workspace, target: WorkspaceSidebarDro
 }
 
 @MainActor
-private func workspaceSidebarPinnedTabDropUnderPointer(_ tab: Workspace, point: CGPoint)
+private func workspaceSidebarPinnedTabDropUnderPointer(_ tab: Workspace, point: CGPoint,
+                                                       pinGridIsShared: Bool = workspaceSidebarPinGridIsShared())
     -> (drop: WorkspaceSidebarPinnedTabDrop?, hit: WorkspaceSidebarSurfaceHit)
 {
     let hit = workspaceSidebarSurfaceHit(at: point)
-    return (hit.target.flatMap { workspaceSidebarPinnedTabDrop(tab, target: $0, point: point) }, hit)
+    return (hit.target.flatMap { workspaceSidebarPinnedTabDrop(tab, target: $0, point: point, pinGridIsShared: pinGridIsShared) },
+        hit)
 }
 
 /// The dragged pin, as the pointer carries it, and with where it would go.
@@ -98,6 +110,21 @@ func workspaceSidebarPinnedTabDropPreview(_ tab: Workspace, drop: WorkspaceSideb
 @MainActor
 private var activeSidebarPinnedTabDrag: (name: String, tab: Workspace)?
 
+/// The drop the dragged pin's preview shows, with the pin rule it was worked out with. The release
+/// makes this drop, under this rule, or none.
+@MainActor
+private var displayedSidebarPinnedTabDrop: (drop: WorkspaceSidebarPinnedTabDrop?, pinGridIsShared: Bool)?
+
+/// Shows where the dragged pin would go with the pointer at `point`.
+@MainActor
+private func previewSidebarPinnedTabDrop(_ tab: Workspace, point: CGPoint) {
+    let pinGridIsShared = workspaceSidebarPinGridIsShared()
+    let (drop, hit) = workspaceSidebarPinnedTabDropUnderPointer(tab, point: point, pinGridIsShared: pinGridIsShared)
+    displayedSidebarPinnedTabDrop = (drop, pinGridIsShared)
+    setWorkspaceSidebarDropPreviewIfChanged(drop.map { workspaceSidebarPinnedTabDropPreview(tab, drop: $0) },
+        owner: hit.surface)
+}
+
 @MainActor
 func updateSidebarPinnedTabDrag(_ name: String, pointer: CGPoint) {
     guard WorkspaceSidebarDragSessions.shared.acceptUpdate() else { return }
@@ -111,11 +138,9 @@ func updateSidebarPinnedTabDrag(_ name: String, pointer: CGPoint) {
         return
     }
     WorkspaceSidebarTabDragState.shared.set(true, pinnedTab: name)
-    let (drop, hit) = workspaceSidebarPinnedTabDropUnderPointer(tab, point: pointer)
     WindowDragCursorProxyPanel.shared.show(preview: workspaceSidebarPinnedTabDropPreview(tab, drop: nil),
         mouseScreenPoint: denormalizedAppKitScreenPoint(pointer), style: .appIcon(size: 22))
-    setWorkspaceSidebarDropPreviewIfChanged(drop.map { workspaceSidebarPinnedTabDropPreview(tab, drop: $0) },
-        owner: hit.surface)
+    previewSidebarPinnedTabDrop(tab, point: pointer)
     WorkspaceSidebarDropDestinationController.shared.noteDragUpdate()
 }
 
@@ -125,24 +150,32 @@ func updateSidebarPinnedTabDrag(_ name: String, pointer: CGPoint) {
 func finishSidebarPinnedTabDrag(_ name: String, pointer: CGPoint) {
     guard let drag = activeSidebarPinnedTabDrag, drag.name == name else { return }
     activeSidebarPinnedTabDrag = nil
+    let displayed = displayedSidebarPinnedTabDrop
     MousePointerTracker.shared.note(point: pointer)
     let released = WorkspaceSidebarDragSessions.shared.consumeRelease() != nil
     let tab = Workspace.existing(byName: name) === drag.tab ? drag.tab : nil
-    let underPointer = released ? tab.map { workspaceSidebarPinnedTabDropUnderPointer($0, point: pointer) } : nil
+    // Worked out again under the rule the preview was shown with, which the drop keeps.
+    let pinGridIsShared = displayed?.pinGridIsShared ?? workspaceSidebarPinGridIsShared()
+    let underPointer = released
+        ? tab.map { workspaceSidebarPinnedTabDropUnderPointer($0, point: pointer, pinGridIsShared: pinGridIsShared) } : nil
     clearSidebarPinnedTabDragFeedback()
     // Released on temporary drop UI, with or without a drop: that release was the sidebar's.
     if underPointer?.hit.isOnTemporarySurface == true { noteWorkspaceSidebarConsumedRelease() }
     // A list that closed before the release takes nothing: its drop can't be checked any more.
-    let intent = underPointer?.hit.target.flatMap { WorkspaceSidebarDropIntent.captured(for: $0) }
+    var intent = underPointer?.hit.target.flatMap { WorkspaceSidebarDropIntent.captured(for: $0) }
+    intent?.pinGridIsShared = pinGridIsShared
     // The release is captured: the other displays' hints and list go.
     WorkspaceSidebarDropDestinationController.shared.end()
-    guard let tab, let drop = underPointer?.drop, let intent else { return }
+    // The drop made is the one shown. A drop on the pins shown under one pin rule isn't made under
+    // another: the setting changed since, and what it showed no longer holds.
+    guard let tab, let drop = underPointer?.drop, drop == displayed?.drop, let intent,
+          !drop.isPinTiles || pinGridIsShared == workspaceSidebarPinGridIsShared() else { return }
     noteWorkspaceSidebarConsumedRelease()
     runWorkspaceSidebarSession(undoTitle: workspaceSidebarPinnedTabDropUndoTitle(drop)) {
         try intent.checkDestination()
         // The tab it went beside may have gone, or another tab may have taken its name.
         guard intent.targetIsUnchanged else { return }
-        try applyWorkspaceSidebarPinnedTabDrop(tab, drop)
+        try applyWorkspaceSidebarPinnedTabDrop(tab, drop, pinGridIsShared: intent.pinGridIsShared)
         await updateWorkspaceSidebarModel()
     }
 }
@@ -162,9 +195,7 @@ func isSidebarPinnedTabDragActive() -> Bool { activeSidebarPinnedTabDrag != nil 
 @MainActor
 func refreshActiveSidebarPinnedTabDragPreview() {
     guard let tab = activeSidebarPinnedTabDrag?.tab, Workspace.existing(byName: tab.name) === tab else { return }
-    let (drop, hit) = workspaceSidebarPinnedTabDropUnderPointer(tab, point: MousePointerTracker.shared.currentSample.point)
-    setWorkspaceSidebarDropPreviewIfChanged(drop.map { workspaceSidebarPinnedTabDropPreview(tab, drop: $0) },
-        owner: hit.surface)
+    previewSidebarPinnedTabDrop(tab, point: MousePointerTracker.shared.currentSample.point)
 }
 
 /// Drops the pinned tile being dragged without a drop: its payload goes, with its feedback.
@@ -177,6 +208,7 @@ func cancelActiveSidebarPinnedTabDrag() {
 
 @MainActor
 private func clearSidebarPinnedTabDragFeedback() {
+    displayedSidebarPinnedTabDrop = nil
     WorkspaceSidebarTabDragState.shared.set(false)
     clearWorkspaceSidebarDropPreview()
     WindowDragCursorProxyPanel.shared.hide()
@@ -193,13 +225,16 @@ func workspaceSidebarPinnedTabDropUndoTitle(_ drop: WorkspaceSidebarPinnedTabDro
 /// Only the dragged tab itself, still pinned: the session can run after other events, which may
 /// have closed it or given its name to another tab.
 @MainActor
-func applyWorkspaceSidebarPinnedTabDrop(_ tab: Workspace, _ drop: WorkspaceSidebarPinnedTabDrop) throws {
+func applyWorkspaceSidebarPinnedTabDrop(_ tab: Workspace, _ drop: WorkspaceSidebarPinnedTabDrop,
+                                        pinGridIsShared: Bool = workspaceSidebarPinGridIsShared()) throws {
     guard Workspace.existing(byName: tab.name) === tab,
           workspaceSidebarOrganizationStore.state.workspaces[tab.name]?.isFavorite == true else { return }
     let window = tab.mostRecentWindowRecursive ?? tab.anyLeafWindowRecursive
     switch drop {
         case .rearrange(let gap, let monitorScopeId):
-            try withWorkspaceTabOnDropDisplay(tab, monitorScopeId: monitorScopeId, focusing: window) {
+            // Shared pins only rearrange; otherwise the tab comes to the list's display first.
+            try withWorkspaceTabOnPinDropDisplay(tab, monitorScopeId: monitorScopeId, pinGridIsShared: pinGridIsShared,
+                focusing: window) {
                 try pinWorkspaceSidebarTab(tab, beside: gap)
             }
         case .list(let projectId, let monitorScopeId, let gap):

@@ -46,6 +46,8 @@ struct WorkspaceSidebarDropIntent {
     var source: WorkspaceSidebarDropSource? = nil
     /// The tab the drop was on or beside, as it was at the release.
     var targetWorkspace: Workspace? = nil
+    /// Pins were shared when the drop was shown: a drop on them moves no tab.
+    var pinGridIsShared = false
 
     @MainActor static var physical: WorkspaceSidebarDropIntent { .init(surface: nil, destination: nil) }
 

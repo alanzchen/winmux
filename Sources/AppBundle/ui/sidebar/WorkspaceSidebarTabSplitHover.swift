@@ -58,7 +58,8 @@ final class WorkspaceSidebarTabSplitHoverController {
     private var state = WorkspaceSidebarTabSplitHover()
     private var wake: Task<Void, Never>?
     private var displayed: (source: UInt32, hitKind: WorkspaceSidebarDropTargetKind,
-                            target: WorkspaceSidebarDropTarget, placement: WorkspaceSidebarTabDropPlacement?)?
+                            target: WorkspaceSidebarDropTarget, placement: WorkspaceSidebarTabDropPlacement?,
+                            pinGridIsShared: Bool)?
 
     func reset() {
         wake?.cancel()
@@ -67,9 +68,15 @@ final class WorkspaceSidebarTabSplitHoverController {
         displayed = nil
     }
 
+    /// `pinGridIsShared` is the pin rule the preview was made with, which its drop keeps.
     func noteDisplayed(source: UInt32, hitKind: WorkspaceSidebarDropTargetKind, target: WorkspaceSidebarDropTarget,
-                       placement: WorkspaceSidebarTabDropPlacement?) {
-        displayed = (source, hitKind, target, placement)
+                       placement: WorkspaceSidebarTabDropPlacement?, pinGridIsShared: Bool = false) {
+        displayed = (source, hitKind, target, placement, pinGridIsShared)
+    }
+
+    /// The pin rule the preview now shown for `source` was made with.
+    func displayedPinGridIsShared(source: UInt32) -> Bool? {
+        displayed.flatMap { $0.source == source ? $0.pinGridIsShared : nil }
     }
 
     func clearDisplayed() { displayed = nil }
