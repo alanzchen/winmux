@@ -64,7 +64,12 @@ final class SafariExtensionBackgroundTest: XCTestCase {
             } },
             permissions: { contains: async () => true },
             runtime: {
-                sendNativeMessage: async (_, message) => { sent.push(copy(message)); return replies.length ? replies.shift() : { v: 2, ok: true, want: [] }; },
+                sendNativeMessage: async (_, message) => {
+                    sent.push(copy(message));
+                    const reply = replies.length ? replies.shift() : { v: 2, ok: true, want: [] };
+                    if (reply === "unreachable") throw new Error("WinMux isn't listening");
+                    return reply;
+                },
                 onMessage: event(), onInstalled: event(), onStartup: event(), connectNative: () => port,
             },
             alarms: { get: async () => ({}), create: () => {}, onAlarm: event() },
@@ -86,12 +91,12 @@ final class SafariExtensionBackgroundTest: XCTestCase {
         """
 
     /// The page as Safari loads it, with what session storage kept from a page before it.
-    private func page(storage: String = "{}", windows: String = windows) throws -> JSContext {
+    private func page(storage: String = "{}", windows: String = windows, replies: String = "[]") throws -> JSContext {
         let context = try XCTUnwrap(JSContext())
         var failure: String?
         context.exceptionHandler = { _, exception in failure = exception?.toString() }
         context.evaluateScript("var storage = \(storage);\n" + Self.stand)
-        context.evaluateScript("safariWindows = \(windows);")
+        context.evaluateScript("safariWindows = \(windows); replies = \(replies);")
         for file in ["shared.js", "background.js"] {
             context.evaluateScript(try String(contentsOf: Self.resources.appendingPathComponent(file), encoding: .utf8))
         }
@@ -188,12 +193,13 @@ final class SafariExtensionBackgroundTest: XCTestCase {
         try run(context, "replies.push({v: 2, ok: true, want: ['\(String(repeating: "a", count: 64))']}); browser.alarms.onAlarm.fire({name: 'winmux-heartbeat'});")
         try run(context, "browser.tabs.onUpdated.fire(7, {title: 'Demo Page'});")
         XCTAssertEqual(try reports(context).count, 6)
-        // WinMux turned browser tabs off: once it's back, it hears everything again.
+        // WinMux turned browser tabs off: it's asked again 5 s on, and once it's back, it hears
+        // the same report again.
         try run(context, "replies.push({v: 2, ok: false, reason: 'off'}); safariWindows[0].tabs[0].title = 'Demo'; browser.tabs.onUpdated.fire(7, {title: 'Demo'});")
         XCTAssertEqual(try reports(context).count, 7)
-        try run(context, "browser.tabs.onUpdated.fire(7, {title: 'Demo'});", seconds: 61)
-        XCTAssertEqual(try reports(context).count, 7, "While WinMux is away, only the heartbeat checks in")
-        try run(context, "browser.tabs.onUpdated.fire(7, {title: 'Demo'});")
+        try run(context, "browser.tabs.onUpdated.fire(7, {title: 'Demo'});", seconds: 3)
+        XCTAssertEqual(try reports(context).count, 7, "While WinMux is away, changes wait")
+        try settle(context, seconds: 2)
         XCTAssertEqual(try reports(context).count, 8, "and once it's back, it hears the same report again")
         try run(context, "browser.tabs.onUpdated.fire(7, {title: 'Demo'});")
         XCTAssertEqual(try reports(context).count, 8)
@@ -225,6 +231,27 @@ final class SafariExtensionBackgroundTest: XCTestCase {
         XCTAssertEqual(try reports(context).count, 10, "Not while WinMux may still be moving windows")
         try settle(context, seconds: 1)
         XCTAssertEqual(try reports(context).count, 11)
+    }
+
+    /// Safari reloads the extension as WinMux starts, so its first report can come before WinMux
+    /// listens. A report WinMux didn't take is tried again 5 s on, then 10, 20 and 40, then each
+    /// minute, and from 5 s again once WinMux answers.
+    func testAReportWinMuxDidntTakeIsTriedAgainSoonThenLessOften() throws {
+        let context = try page(replies: "['unreachable', 'unreachable', 'unreachable']")
+        XCTAssertEqual(try reports(context).count, 1, "The first, before WinMux listens")
+        var attempts: [Double] = []
+        for second in 1...40 {
+            let before = try reports(context).count
+            try settle(context, seconds: 1)
+            if try reports(context).count > before { attempts.append(Double(second)) }
+        }
+        XCTAssertEqual(attempts, [5, 15, 35], "5 s, then 10, then 20 later; the last one is taken")
+        try run(context, "replies.push('unreachable'); browser.alarms.onAlarm.fire({name: 'winmux-heartbeat'});")
+        let failed = try reports(context).count
+        try settle(context, seconds: 3)
+        XCTAssertEqual(try reports(context).count, failed, "The heartbeat's attempt was a second ago")
+        try settle(context, seconds: 1)
+        XCTAssertEqual(try reports(context).count, failed + 1, "From 5 s again after WinMux answered")
     }
 
     /// The count of tab moves, openings and closings: once per event, not for activations or

@@ -16,18 +16,23 @@ const pendingReports = 100;
 const concurrentFetches = 3;
 const failedAddressDelay = 10 * 60 * 1000;
 const unavailableDelay = 60 * 1000;
+// WinMux not answering is retried this soon, then twice as long each time, up to unavailableDelay:
+// Safari reloads this page as WinMux starts, so its first report can come before WinMux listens.
+const firstRetryDelay = 5 * 1000;
 
 let sendTimer = null;
 // WinMux asking, in its answer, for another report a moment later (`again`, in seconds).
 let againTimer = null;
+let retryDelay = firstRetryDelay;
+let retryTimer = null;
 let sending = false;
 let sendAgain = false;
 let forcedSend = false;
 // The protocol version WinMux speaks, until it says it's older. Learned again whenever Safari
 // reloads this page, so a WinMux updated meanwhile hears the current version.
 let peerVersion = WinMuxTabs.protocolVersion;
-// While WinMux isn't running, or has browser tabs off, only the heartbeat checks in, and no
-// icons are fetched.
+// While WinMux isn't running, or has browser tabs off, only the heartbeat and the retries
+// (`markUnavailable`) check in, and no icons are fetched.
 let unavailableUntil = 0;
 // What the last report WinMux took in full said (`WinMuxTabs.reportKey`). Only the heartbeat and
 // WinMux asking send the same again.
@@ -77,6 +82,14 @@ function isUnavailable() {
 function setUnavailableUntil(time) {
     unavailableUntil = time;
     sessionStorage?.set({ unavailableUntil: time }).catch(() => {});
+}
+
+/** WinMux didn't take a report: it's left alone for a while, and then asked again. */
+function markUnavailable() {
+    const delay = retryDelay;
+    retryDelay = Math.min(unavailableDelay, retryDelay * 2);
+    setUnavailableUntil(Date.now() + delay);
+    if (retryTimer === null) retryTimer = setTimeout(() => { retryTimer = null; scheduleSend(0, true); }, delay);
 }
 
 /** A forced send (the heartbeat, or WinMux asking) goes even while WinMux seemed away. */
@@ -155,9 +168,10 @@ async function send() {
             return;
         }
         if (reply?.ok !== true) {
-            setUnavailableUntil(Date.now() + unavailableDelay);
+            markUnavailable();
             return;
         }
+        retryDelay = firstRetryDelay;
         if (wasUnavailable) setUnavailableUntil(0);
         // WinMux can't yet tell some of its windows apart, and a report a moment later may.
         const again = reply.again;
@@ -182,7 +196,7 @@ async function send() {
         if (wanted.length > iconsPerMessage && Object.keys(icons).length > 0) sendAgain = true;
         showPending(data);
     } catch {
-        setUnavailableUntil(Date.now() + unavailableDelay);
+        markUnavailable();
     } finally {
         sending = false;
         if (sendAgain) {

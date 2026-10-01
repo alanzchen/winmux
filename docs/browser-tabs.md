@@ -208,7 +208,10 @@ take the socket's place while WinMux isn't running and receive the extension's r
 
 When WinMux updates, Safari reloads the extension, which starts with no icons. In testing
 (Safari 27.0, a Developer ID–signed build), Safari also reloaded it each time WinMux started,
-with a new session and new window and tab ids. Pages opened
+with a new session and new window and tab ids. The reloaded extension's first report can come
+before WinMux listens, so a report WinMux doesn't take is tried again five seconds later, then
+less often, up to once a minute: the extension reports, and titles its buttons, soon after
+WinMux starts. Icons of pages open since before still wait until those pages reload. Pages opened
 after that report theirs as usual, and a tab whose page hasn't reported shows the icon last
 made for its site. A page that was already open may keep Safari's icon until it reloads:
 the extension asks such pages to report again, but in testing Safari 27.0 didn't deliver their
