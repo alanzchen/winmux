@@ -165,9 +165,11 @@ final class BrowserTabScanner<Node: BrowserTabAXNode> {
             lastDiscovery = -.infinity
         }
     }
-    /// That button, as the last complete walk found it, and what it said then.
+    /// That button, as the last complete walk found it, and what it said then. A window without a
+    /// tab strip is read as its one tab right after the walk that found that: `walkedJustNow`.
     private var markerNode: Node?
     private var walkedMarker: SafariExtensionMarker?
+    private var walkedJustNow = false
 
     init(root: Node, adapter: BrowserTabAdapter, windowId: UInt32, pid: Int32, markerIdentifier: String? = nil,
          now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
@@ -185,6 +187,7 @@ final class BrowserTabScanner<Node: BrowserTabAXNode> {
     func scan(until budgetEnd: TimeInterval = .infinity, cancelled: () -> Bool = { false }) -> BrowserWindowTabs? {
         // Only this scan's own full discovery may say the window has no tab strip.
         foundNoTabStrip = false
+        walkedJustNow = false
         let started = now()
         guard started < budgetEnd, !isCancelled(), !cancelled() else { return nil }
         let discoveryDeadline = min(budgetEnd, started + 0.15)
@@ -255,6 +258,11 @@ final class BrowserTabScanner<Node: BrowserTabAXNode> {
             marker: marker(walked: discovered, until: deadline, cancelled: cancelled))
     }
 
+    private func walkedThisRead() -> Bool {
+        defer { walkedJustNow = false }
+        return walkedJustNow
+    }
+
     /// What the extension's toolbar button says now: read with the walk, or on its own, in one
     /// round trip, after. A button the walk didn't find, that's gone, or that a read ran out of
     /// time for, says nothing; the next walk looks again.
@@ -323,7 +331,7 @@ final class BrowserTabScanner<Node: BrowserTabAXNode> {
         return .init(windowId: windowId, pid: pid, windowSession: windowSession, tabs: [
             .init(target: .init(windowId: windowId, pid: pid, windowSession: windowSession, tabId: loneTabId),
                 title: browserTabLabel(title, adapter: adapter).title, isSelected: true, audio: loneTabAudio),
-        ], marker: marker(walked: false, until: budgetEnd, cancelled: cancelled))
+        ], marker: marker(walked: walkedThisRead(), until: budgetEnd, cancelled: cancelled))
     }
 
     /// A Safari tab playing sound shows a mute button after its icon and title, and keeps it, to
@@ -447,6 +455,7 @@ final class BrowserTabScanner<Node: BrowserTabAXNode> {
         loneTabAudio = foundNoTabStrip ? audio : nil
         markerNode = marker?.node
         walkedMarker = marker?.value
+        walkedJustNow = true
         guard candidates.count == 1, candidates[0].window() == root, now() < deadline else { return nil }
         return candidates[0]
     }

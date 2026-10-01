@@ -1115,6 +1115,7 @@ final class BrowserTabsTest: XCTestCase {
         let scanner = BrowserTabScanner(root: root, adapter: .safari, windowId: 1, pid: 2, markerIdentifier: identifier, now: { 0 })
         XCTAssertNil(scanner.scan())
         XCTAssertEqual(try XCTUnwrap(scanner.loneTab()).marker, .init(session: "3f2a9c1e", window: 7, tab: 8))
+        XCTAssertEqual(button.structureReads, 1, "Right after the walk that read it, the button isn't asked again")
         button.axDescription = "WinMux Tabs \u{00B7} 3f2a9c1e-7-9"
         let walked = root.childReads
         XCTAssertEqual(try XCTUnwrap(scanner.loneTab()).marker?.tab, 9, "Each title-only read asks the button too")
