@@ -96,14 +96,28 @@ as above. The extension only describes tabs, and WinMux trusts a description onl
 agrees with the tab strip it read:
 
 - A Safari window takes the extension's details only when it has the same tabs, in the same
-  order, with the same tab selected, and no other window matches as well. Two windows with
-  the same tabs are told apart by their frames; if the frames don't settle it, both keep
-  Safari's icon. A match must hold across two Accessibility reads 0.75 seconds apart.
+  order, with the same tab selected, and no other window matches as well. A match must hold
+  across two Accessibility reads 0.75 seconds apart.
+- Two windows with the same tabs, such as two one-tab windows on the same page, are told apart
+  by where they were when Safari reported. WinMux notes where Safari's windows are a few times
+  a second, and compares the bounds in each report only with where windows were when that
+  report arrived, never with where they are now: WinMux moves windows (switching tabs parks one
+  in a corner) and Safari doesn't report that. A window that moved just before Safari measured,
+  or while the report was on its way, counts as unknown. If the report doesn't settle which
+  twin is which, both keep Safari's icon and no sound, and WinMux asks Safari to report again
+  (at most every ten seconds) when a newer report could settle it. Twins that are in the same
+  place in every report stay that way.
 - While some Safari window hasn't been read (one the sidebar doesn't show, or one whose tab
-  strip couldn't be read yet), a new match also needs the window's frame to agree with where
-  Safari says it is, and no unread window may be there too, since the unread window could be
-  the real twin. Once made, a match holds on its tabs alone: Safari's reported frame is stale
-  after WinMux moves a window, until its next report.
+  strip couldn't be read yet), a new match also needs the window, and no unread window, to
+  have been where Safari says, since the unread window could be the real twin.
+- Once made, a match holds as long as its tabs agree and Safari still reports that window,
+  however WinMux moves it, and no other window can take its report. Only a later report that
+  pairs the window with another by where they were replaces it. A window that closes, and a
+  later one that gets its number, start over.
+- Within a matched window, each tab is matched with Safari's tab by Safari's id for it: a read
+  made after a report pairs them by position, and after that each keeps its tab while the tab
+  bar is reordered, so tabs with the same title never trade icons or sound. An extension from
+  before tab ids matches them by position.
 - A window that briefly stops matching, such as while a title changes, keeps its icons for up
   to ten seconds. It hides sound at once.
 - A tab whose title Safari withholds from the extension (a start page, or a site without
@@ -114,8 +128,9 @@ agrees with the tab strip it read:
   its controls again only when the title changes (as it does when a tab opens), when Safari
   starts or stops playing sound, and at least every 30 seconds.
 
-What leaves Safari: for each tab in a normal window, its title, host name (never the path or
-query), whether it's active, pinned, playing sound or muted, and its icon as a 32-pixel PNG.
+What leaves Safari: for each tab in a normal window, its id (a number Safari gives it until
+Safari quits), title, host name (never the path or query), whether it's active, pinned,
+playing sound or muted, and its icon as a 32-pixel PNG; and each window's id and place on screen.
 Private Browsing windows are left out entirely, even when the extension is allowed in them.
 The extension sends these reports to WinMux on this Mac when tabs change and once a minute,
 and WinMux keeps them in memory, with up to 512 icons; it never drops one a tab shows. It forgets a Safari profile that stops reporting after two

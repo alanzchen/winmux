@@ -71,22 +71,31 @@ final class SafariExtensionBridge {
     private(set) var generation = 0
     private let loadConfiguration: () -> SafariExtensionConfiguration?
     private var loadedConfiguration: SafariExtensionConfiguration??
-    private var states: [String: (state: SafariExtensionState, received: TimeInterval)] = [:]
+    private var states: [String: (state: SafariExtensionState, received: TimeInterval, sighting: [UInt32: CGRect])] = [:]
     private var failedIcons: [String: TimeInterval] = [:]
     private var enabled = false
     private var server: SafariExtensionServer?
     private var lastResync: TimeInterval = -.infinity
     private let now: () -> TimeInterval
+    private let clock: () -> TimeInterval
+    /// Where Safari's windows have been since before a moment (by system uptime), recorded as
+    /// each report arrives. Bounds in a report are compared only with that record.
+    var sightSafariWindows: (_ since: TimeInterval) -> [UInt32: CGRect] = { _ in [:] }
+    /// A report that took longer than this to arrive says too little about where windows are now.
+    static let maximumTransit: TimeInterval = 5
     /// A profile that hasn't reported for this long (the extension checks in each minute) is gone.
     static let stateLifetime: TimeInterval = 150
     /// More than the extension keeps, so every icon it reports fits.
     static let maximumImages = 512
 
+    /// `clock` is the wall clock the extension stamps its reports with, in seconds.
     init(configuration: @escaping () -> SafariExtensionConfiguration?, icons: SafariExtensionIcons = .shared,
-         now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) {
+         now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
+         clock: @escaping () -> TimeInterval = { Date().timeIntervalSince1970 }) {
         self.loadConfiguration = configuration
         self.icons = icons
         self.now = now
+        self.clock = clock
     }
 
     /// Looked up when first needed, so a WinMux that never shows browser tabs never touches the
@@ -107,10 +116,18 @@ final class SafariExtensionBridge {
         return !live.isEmpty && live.allSatisfy(\.state.allSites)
     }
 
+    /// Every live report's windows, each with when its report arrived and where Safari's windows were then.
     var windows: [SafariExtensionWindow] {
         let time = now()
         return states.values.filter { time - $0.received < Self.stateLifetime }
-            .sorted { $0.state.profile < $1.state.profile }.flatMap(\.state.windows)
+            .sorted { $0.state.profile < $1.state.profile }.flatMap { report in
+                report.state.windows.map { window in
+                    var window = window
+                    window.received = report.received
+                    window.sighting = report.sighting
+                    return window
+                }
+            }
     }
 
     func setEnabled(_ enabled: Bool) {
@@ -170,7 +187,11 @@ final class SafariExtensionBridge {
                 if let previous = states[state.profile]?.state, previous.session == state.session, previous.time > state.time {
                     return answer(["ok": true])
                 }
-                states[state.profile] = (state, time)
+                // Safari measured its windows just before it stamped the report. One that took too
+                // long, or comes from a clock that moved, says nothing about where they were.
+                let transit = clock() - state.time / 1000
+                let sighting = (-1...Self.maximumTransit).contains(transit) ? sightSafariWindows(time - max(0, transit)) : [:]
+                states[state.profile] = (state, time, sighting)
                 generation += 1
                 lastContact = time
                 let referenced = referencedIcons

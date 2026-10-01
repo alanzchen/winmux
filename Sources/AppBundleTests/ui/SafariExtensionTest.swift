@@ -93,8 +93,25 @@ final class SafariExtensionTest: XCTestCase {
         XCTAssertEqual(try evaluate(context, "WinMuxTabs.iconBytesAllowed(new Uint8Array([60]), 'image/svg+xml')") as? Bool, true)
     }
 
-    func testReportsLeaveOutPrivateWindowsAddressesAndTabIdsAndDecodeInWinMux() throws {
+    func testReportsLeaveOutPrivateWindowsAndAddressesNameEachTabAndDecodeInWinMux() throws {
         let context = try script()
+        let windows = """
+            [
+                {id: 7, type: 'normal', left: 10, top: 40, width: 800, height: 600, tabs: [
+                    {id: 2, index: 1, title: '  Docs\\n  home ', url: 'https://docs.example.com/private/path?q=1', active: true,
+                     audible: true, mutedInfo: {muted: false}},
+                    {id: 1, index: 0, title: 'Start Page', url: '', active: false, pinned: true},
+                ]},
+                {id: 8, type: 'normal', incognito: true, tabs: [{id: 3, index: 0, title: 'Secret', url: 'https://secret.example', active: true}]},
+                {id: 9, type: 'popup', tabs: []},
+            ]
+            """
+        let icon = "(tab) => tab.id === 2 ? '\(String(repeating: "a", count: 64))' : undefined"
+        let legacy = try XCTUnwrap(try evaluate(context, "WinMuxTabs.stateWindows(\(windows), \(icon), 1)") as? [[String: Any]])
+        XCTAssertNil((legacy[0]["tabs"] as? [[String: Any]])?[0]["id"], "Version 1 never names tabs: an older WinMux would refuse it")
+        guard case .state(let old) = try XCTUnwrap(SafariExtensionMessage.decode(try envelope(
+            ["v": 1, "type": "state", "session": "s", "time": 1, "windows": legacy]))) else { return XCTFail() }
+        XCTAssertEqual(old.windows[0].tabs.map(\.id), [nil, nil], "An older extension's report still counts, by position")
         let state = try XCTUnwrap(try evaluate(context, """
             ({v: WinMuxTabs.protocolVersion, type: 'state', session: 'session-1', time: 12, allSites: true,
               windows: WinMuxTabs.stateWindows([
@@ -120,9 +137,40 @@ final class SafariExtensionTest: XCTestCase {
         XCTAssertEqual(decoded.windows.count, 1)
         XCTAssertEqual(decoded.windows[0].bounds, CGRect(x: 10, y: 40, width: 800, height: 600))
         XCTAssertEqual(decoded.windows[0].tabs, [
-            .init(title: "Start Page", isActive: false, isPinned: true),
-            .init(title: "Docs home", host: "docs.example.com", isActive: true, isAudible: true, icon: String(repeating: "a", count: 64)),
+            .init(id: 1, title: "Start Page", isActive: false, isPinned: true),
+            .init(id: 2, title: "Docs home", host: "docs.example.com", isActive: true, isAudible: true, icon: String(repeating: "a", count: 64)),
         ])
+        XCTAssertEqual(decoded.windows[0].tabKey(decoded.windows[0].tabs[1]), .init(source: "\(profile.uuidString):session-1", id: 2))
+    }
+
+    /// The extension and WinMux update together, but Safari can run one with the other's older
+    /// self for a while: each understands the other.
+    @MainActor
+    func testAnExtensionAndAWinMuxOfDifferentProtocolVersionsStillUnderstandEachOther() throws {
+        let context = try script()
+        XCTAssertEqual(try evaluate(context, "WinMuxTabs.protocolVersion") as? Int, SafariExtensionMessage.protocolVersion)
+        // An older WinMux refuses a version 2 report as invalid, saying it speaks version 1.
+        XCTAssertEqual(try evaluate(context, "WinMuxTabs.negotiatedVersion({v: 1, ok: false, reason: 'invalid'}, 2)") as? Int, 1)
+        for reply in ["{v: 2, ok: true}", "{v: 1, ok: false, reason: 'off'}", "{v: 1, ok: true}", "undefined", "{v: 0, ok: false, reason: 'invalid'}",
+                      "{v: '1', ok: false, reason: 'invalid'}", "{v: 3, ok: false, reason: 'invalid'}"] {
+            XCTAssertEqual(try evaluate(context, "WinMuxTabs.negotiatedVersion(\(reply), 2)") as? Int, 2, reply)
+        }
+        XCTAssertEqual(try evaluate(context, "WinMuxTabs.negotiatedVersion({v: 1, ok: false, reason: 'invalid'}, 1)") as? Int, 1)
+        // This WinMux takes both, and answers in its own version.
+        let bridge = SafariExtensionBridge(configuration: { nil }, icons: SafariExtensionIcons())
+        bridge.setEnabled(true)
+        for version in [1, 2] {
+            let tab: [String: Any] = version == 2 ? ["id": 4, "title": "A", "active": true] : ["title": "A", "active": true]
+            let answer = try XCTUnwrap(JSONSerialization.jsonObject(with: bridge.receive(SafariExtensionMessage.decode(try envelope(
+                ["v": version, "type": "state", "session": "s\(version)", "time": 1, "windows": [["id": 1, "tabs": [tab]]]])))) as? [String: Any])
+            XCTAssertEqual(answer["ok"] as? Bool, true)
+            XCTAssertEqual(answer["v"] as? Int, 2)
+        }
+        let refused = try XCTUnwrap(JSONSerialization.jsonObject(with: bridge.receive(SafariExtensionMessage.decode(try envelope(
+            ["v": 3, "type": "state", "session": "s", "time": 1, "windows": [] as [Any]])))) as? [String: Any])
+        XCTAssertEqual(refused["reason"] as? String, "invalid")
+        XCTAssertEqual(try evaluate(context, "WinMuxTabs.negotiatedVersion(\(String(decoding: try JSONSerialization.data(withJSONObject: refused), as: UTF8.self)), 2)") as? Int, 2,
+            "A newer WinMux's refusal of a version it doesn't know never downgrades this one")
     }
 
     func testManifestListsItsFilesAndOnlyThePermissionsItUses() throws {
@@ -177,6 +225,15 @@ final class SafariExtensionTest: XCTestCase {
         XCTAssertEqual(unnamed.profile, "session:s", "Without Safari's profile, each session stands alone")
         var invalid: [[String: Any]] = []
         invalid.append(valid.merging(["v": 2]) { $1 })
+        invalid.append(valid.merging(["v": 3]) { $1 })
+        let named: [String: Any] = valid.merging(["v": 2, "windows": [["id": 1, "tabs": [tab.merging(["id": 5]) { $1 }]]]]) { $1 }
+        XCTAssertNotNil(SafariExtensionMessage.decode(try envelope(named)))
+        for id in [5.5, true, "5"] as [Any] {
+            invalid.append(named.merging(["windows": [["id": 1, "tabs": [tab.merging(["id": id]) { $1 }]]]]) { $1 })
+        }
+        invalid.append(named.merging(["windows": [["id": 1, "tabs": [tab.merging(["id": 5]) { $1 }, tab.merging(["id": 5, "active": false]) { $1 }]]]]) { $1 })
+        invalid.append(named.merging(["windows": [["id": 1, "tabs": [tab.merging(["id": 5]) { $1 }]],
+                                                  ["id": 2, "tabs": [tab.merging(["id": 5]) { $1 }]]]]) { $1 })
         invalid.append(valid.merging(["session": ""]) { $1 })
         invalid.append(valid.merging(["session": String(repeating: "s", count: 65)]) { $1 })
         invalid.append(valid.merging(["windows": [window, window]]) { $1 })
@@ -210,11 +267,11 @@ final class SafariExtensionTest: XCTestCase {
     }
 
     private func described(_ titles: [String], selected: Int, id: Int, source: String = "p:s", bounds: CGRect? = nil,
-                           icon: String? = nil, host: String? = nil, audible: Bool = false) -> SafariExtensionWindow {
+                           icon: String? = nil, host: String? = nil, audible: Bool = false, sighting: [UInt32: CGRect] = [:]) -> SafariExtensionWindow {
         .init(key: .init(source: source, id: id), bounds: bounds, tabs: titles.enumerated().map { index, title in
             .init(title: title, host: title.isEmpty ? nil : host, isActive: index == selected, isAudible: audible && index == selected,
                 icon: title.isEmpty ? nil : icon)
-        })
+        }, sighting: sighting)
     }
 
     func testWindowsPairOnlyWhenEachIsTheOthersOneCandidate() {
@@ -228,12 +285,21 @@ final class SafariExtensionTest: XCTestCase {
         XCTAssertEqual(safariExtensionPairs([.init(snapshot: first), .init(snapshot: second)], [inbox]), [:],
             "A Safari profile without the extension can't lend its twin window another profile's icons")
         let frame = CGRect(x: 0, y: 25, width: 900, height: 700)
-        let placed = described(["Inbox", "Docs"], selected: 0, id: 10, bounds: frame.offsetBy(dx: 2, dy: -3))
-        XCTAssertEqual(safariExtensionPairs([.init(snapshot: first, frame: frame), .init(snapshot: second, frame: frame.offsetBy(dx: 900, dy: 0))],
-            [placed]), [1: placed.key], "Frames settle which twin is which")
-        let elsewhere = described(["Inbox", "Docs"], selected: 0, id: 12, source: "q:s", bounds: frame.offsetBy(dx: 400, dy: 0))
-        XCTAssertEqual(safariExtensionPairs([.init(snapshot: first, frame: frame)], [placed, elsewhere]), [1: placed.key])
-        XCTAssertEqual(safariExtensionPairs([.init(snapshot: first)], [placed, elsewhere]), [:], "Without a frame, twins stay unpaired")
+        let placed = described(["Inbox", "Docs"], selected: 0, id: 10, bounds: frame.offsetBy(dx: 2, dy: -3),
+            sighting: [1: frame, 2: frame.offsetBy(dx: 900, dy: 0)])
+        XCTAssertEqual(safariExtensionPairs([.init(snapshot: first), .init(snapshot: second)], [placed]), [1: placed.key],
+            "Where the windows were when the report came settles which twin is which")
+        let elsewhere = described(["Inbox", "Docs"], selected: 0, id: 12, source: "q:s", bounds: frame.offsetBy(dx: 400, dy: 0), sighting: [1: frame])
+        XCTAssertEqual(safariExtensionPairs([.init(snapshot: first)], [placed, elsewhere]), [1: placed.key])
+        var unseen = placed
+        unseen.sighting = [:]
+        XCTAssertEqual(safariExtensionPairs([.init(snapshot: first)], [unseen, elsewhere]), [:],
+            "A window the report's arrival didn't see in place could be either twin")
+        XCTAssertEqual(safariExtensionMatches([.init(snapshot: first)], [unseen, elsewhere]).needsFrames, [1], "Safari's next report may settle it")
+        let together = safariExtensionMatches([.init(snapshot: first), .init(snapshot: second)], [placed, described(["Inbox", "Docs"], selected: 0, id: 11,
+            bounds: frame.offsetBy(dx: 2, dy: -3), sighting: [1: frame, 2: frame])])
+        XCTAssertEqual(together.pairs, [:], "Twins seen in the same place can't be told apart")
+        XCTAssertEqual(together.needsFrames, [], "and another report from the same places wouldn't settle it")
         XCTAssertEqual(safariExtensionPairs([.init(snapshot: first)], [described(["Inbox", "Docs"], selected: 1, id: 10)]), [:])
         XCTAssertEqual(safariExtensionPairs([.init(snapshot: first)], [described(["Docs", "Inbox"], selected: 1, id: 10)]), [:])
         XCTAssertEqual(safariExtensionPairs([.init(snapshot: first)], [described(["Inbox", "Docs", "More"], selected: 0, id: 10)]), [:])
@@ -304,51 +370,65 @@ final class SafariExtensionTest: XCTestCase {
         let read = tabs(["Docs"], selected: 0, window: 1)
         let frame = CGRect(x: 0, y: 25, width: 900, height: 700)
         let elsewhere = frame.offsetBy(dx: 950, dy: 0)
-        let report = described(["Docs"], selected: 0, id: 10, bounds: elsewhere, icon: String(repeating: "e", count: 64))
+        let report = described(["Docs"], selected: 0, id: 10, bounds: elsewhere, icon: String(repeating: "e", count: 64),
+            sighting: [1: frame, 2: elsewhere])
         var associations = SafariExtensionAssociations()
         for time in [0.0, 1, 2] {
-            associations.update([.init(snapshot: read, frame: frame, observed: time)], windows: [report], unreadFrames: [elsewhere], now: time)
+            associations.update([.init(snapshot: read, observed: time)], windows: [report], unread: [2], now: time)
         }
         XCTAssertNil(associations.described(read.tabs[0]).siteIcon, "The unread window is where the report says")
     }
 
     func testWhileASafariWindowIsUnreadANewPairingAlsoNeedsTheFramesToSettleItButAnEstablishedOneDoesNot() {
-        // The window WinMux shows could be another profile's twin of a window it hasn't read.
+        // The window WinMux shows could be another profile's twin of a window it hasn't read (2).
         let window = tabs(["Inbox", "Docs"], selected: 0, window: 1)
         let frame = CGRect(x: 0, y: 25, width: 900, height: 700)
         let hidden = frame.offsetBy(dx: 950, dy: 0)
-        let elsewhere = described(["Inbox", "Docs"], selected: 0, id: 10, bounds: hidden, icon: String(repeating: "e", count: 64))
+        let elsewhere = described(["Inbox", "Docs"], selected: 0, id: 10, bounds: hidden, icon: String(repeating: "e", count: 64),
+            sighting: [1: frame, 2: hidden])
         var associations = SafariExtensionAssociations()
         for time in [0.0, 1, 2] {
-            associations.update([.init(snapshot: window, frame: frame, observed: time)], windows: [elsewhere], unreadFrames: [hidden], now: time)
+            associations.update([.init(snapshot: window, observed: time)], windows: [elsewhere], unread: [2], now: time)
         }
         XCTAssertNil(associations.described(window.tabs[0]).siteIcon, "The unread window is where the extension's is")
         XCTAssertTrue(associations.awaitsFrames)
+        XCTAssertEqual(associations.resolution(of: 1), .unresolved)
         for time in [3.0, 4] {
-            associations.update([.init(snapshot: window, frame: frame, observed: time)], windows: [elsewhere], now: time)
+            associations.update([.init(snapshot: window, observed: time)], windows: [elsewhere], now: time)
         }
         XCTAssertNotNil(associations.described(window.tabs[0]).siteIcon, "With every Safari window read, the tabs alone settle it")
+        XCTAssertEqual(associations.resolution(of: 1), .resolved(elsewhere.key))
 
         var stacked = SafariExtensionAssociations()
-        let here = described(["Inbox", "Docs"], selected: 0, id: 10, bounds: frame.offsetBy(dx: 1, dy: 2), icon: String(repeating: "e", count: 64))
+        let here = described(["Inbox", "Docs"], selected: 0, id: 10, bounds: frame.offsetBy(dx: 1, dy: 2), icon: String(repeating: "e", count: 64),
+            sighting: [1: frame, 2: frame])
         for time in [0.0, 1, 2] {
-            stacked.update([.init(snapshot: window, frame: frame, observed: time)], windows: [here], unreadFrames: [frame], now: time)
+            stacked.update([.init(snapshot: window, observed: time)], windows: [here], unread: [2], now: time)
         }
         XCTAssertNil(stacked.described(window.tabs[0]).siteIcon, "An unread window in the same place, as in a stack, could be the one")
+        var unplaced = here
+        unplaced.sighting = [1: frame]
         for time in [3.0, 4] {
-            stacked.update([.init(snapshot: window, frame: frame, observed: time)], windows: [here], unreadFrames: [nil], now: time)
+            stacked.update([.init(snapshot: window, observed: time)], windows: [unplaced], unread: [2], now: time)
         }
-        XCTAssertNil(stacked.described(window.tabs[0]).siteIcon, "An unread window with no known frame could be anywhere")
+        XCTAssertNil(stacked.described(window.tabs[0]).siteIcon, "An unread window the report's arrival didn't see could be anywhere")
+        XCTAssertTrue(stacked.awaitsFrames)
 
         var fresh = SafariExtensionAssociations()
+        let placed = described(["Inbox", "Docs"], selected: 0, id: 10, bounds: frame.offsetBy(dx: 1, dy: 2), icon: String(repeating: "e", count: 64),
+            sighting: [1: frame, 2: hidden])
         for time in [0.0, 1] {
-            fresh.update([.init(snapshot: window, frame: frame, observed: time)], windows: [here], unreadFrames: [hidden], now: time)
+            fresh.update([.init(snapshot: window, observed: time)], windows: [placed], unread: [2], now: time)
         }
         XCTAssertNotNil(fresh.described(window.tabs[0]).siteIcon)
         XCTAssertFalse(fresh.awaitsFrames)
-        // WinMux then tiles the window; Safari reports no new frame until its next report.
-        fresh.update([.init(snapshot: window, frame: frame.offsetBy(dx: 300, dy: 0), observed: 2)], windows: [here], unreadFrames: [hidden], now: 2)
+        // Safari's next report finds the window moved, but the unread one wasn't seen in place.
+        var moved = placed
+        moved.sighting = [1: frame.offsetBy(dx: 300, dy: 0)]
+        moved.bounds = frame.offsetBy(dx: 300, dy: 0)
+        fresh.update([.init(snapshot: window, observed: 2)], windows: [moved], unread: [2], now: 2)
         XCTAssertNotNil(fresh.described(window.tabs[0]).siteIcon, "An established pairing holds on its tabs")
+        XCTAssertFalse(fresh.awaitsFrames)
     }
 
     @MainActor

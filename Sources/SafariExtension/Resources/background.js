@@ -20,6 +20,9 @@ let sendTimer = null;
 let sending = false;
 let sendAgain = false;
 let forcedSend = false;
+// The protocol version WinMux speaks, until it says it's older. Learned again whenever Safari
+// reloads this page, so a WinMux updated meanwhile hears the current version.
+let peerVersion = WinMuxTabs.protocolVersion;
 // While WinMux isn't running, or has browser tabs off, only the heartbeat checks in, and no
 // icons are fetched.
 let unavailableUntil = 0;
@@ -101,10 +104,18 @@ async function send() {
         const wasUnavailable = unavailableUntil !== 0;
         const windows = await browser.windows.getAll({ populate: true });
         const allSites = await browser.permissions.contains({ origins: ["*://*/*"] }).catch(() => false);
+        const version = peerVersion;
         const reply = await browser.runtime.sendNativeMessage(nativeApplication, {
-            v: WinMuxTabs.protocolVersion, type: "state", session: data.session, time: Date.now(), allSites,
-            windows: WinMuxTabs.stateWindows(windows, (tab) => iconFor(data, tab)),
+            v: version, type: "state", session: data.session, time: Date.now(), allSites,
+            windows: WinMuxTabs.stateWindows(windows, (tab) => iconFor(data, tab), version),
         });
+        const spoken = WinMuxTabs.negotiatedVersion(reply, version);
+        if (spoken !== version) {
+            // An older WinMux: say it again in its version, without tab ids.
+            peerVersion = spoken;
+            sendAgain = true;
+            return;
+        }
         if (reply?.ok !== true) {
             setUnavailableUntil(Date.now() + unavailableDelay);
             return;
@@ -118,7 +129,7 @@ async function send() {
         }
         if (Object.keys(icons).length > 0) {
             await browser.runtime.sendNativeMessage(nativeApplication, {
-                v: WinMuxTabs.protocolVersion, type: "icons", session: data.session, icons,
+                v: version, type: "icons", session: data.session, icons,
             });
         }
         // Ask again only after progress, so icons WinMux can't take or this page no longer has

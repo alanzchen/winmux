@@ -3,7 +3,8 @@
 // Pure helpers shared by the content and background scripts. They take plain values, never
 // browser objects, so WinMux's tests run them in JavaScriptCore.
 var WinMuxTabs = (() => {
-    const protocolVersion = 1;
+    // Version 2 names each tab by Safari's id. An older WinMux understands only version 1.
+    const protocolVersion = 2;
     const maximumWindows = 64;
     const maximumTabs = 500;
     const maximumTitleLength = 512;
@@ -177,10 +178,11 @@ var WinMuxTabs = (() => {
 
     /**
      * What WinMux receives for each normal window: its place on screen and its tabs in tab-bar
-     * order, each with only its title, host, sound and pin state, and icon key. Private Browsing
-     * windows are left out. `iconFor(tab)` returns the key of that tab's icon, if any.
+     * order, each with only its id (from version 2), title, host, sound and pin state, and icon
+     * key. Private Browsing windows are left out. `iconFor(tab)` returns the key of that tab's
+     * icon, if any.
      */
-    function stateWindows(windows, iconFor) {
+    function stateWindows(windows, iconFor, version = protocolVersion) {
         return (Array.isArray(windows) ? windows : [])
             .filter((window) => window && (window.type === undefined || window.type === "normal")
                 && window.incognito !== true && Array.isArray(window.tabs))
@@ -188,7 +190,9 @@ var WinMuxTabs = (() => {
             .map((window) => ({
                 id: window.id,
                 bounds: bounds(window),
-                tabs: window.tabs.slice().sort((left, right) => left.index - right.index).slice(0, maximumTabs).map((tab) => {
+                // Version 2 needs every tab's id; a tab without one (none should be) is left out.
+                tabs: window.tabs.filter((tab) => version < 2 || Number.isInteger(tab?.id))
+                    .sort((left, right) => left.index - right.index).slice(0, maximumTabs).map((tab) => {
                     const entry = {
                         title: title(tab.title),
                         active: tab.active === true,
@@ -196,6 +200,7 @@ var WinMuxTabs = (() => {
                         muted: tab.mutedInfo?.muted === true,
                         pinned: tab.pinned === true,
                     };
+                    if (version >= 2) entry.id = tab.id;
                     const name = host(tab.url ?? "");
                     if (name) entry.host = name;
                     const icon = iconFor(tab);
@@ -203,6 +208,16 @@ var WinMuxTabs = (() => {
                     return entry;
                 }),
             }));
+    }
+
+    /**
+     * The version to speak to WinMux after its `reply` to a message in `version`: an older WinMux
+     * refuses a newer message as invalid and names the version it speaks.
+     */
+    function negotiatedVersion(reply, version) {
+        const spoken = reply?.v;
+        return reply?.ok !== true && reply?.reason === "invalid" && Number.isInteger(spoken) && spoken >= 1 && spoken < version
+            ? spoken : version;
     }
 
     /** Keeps the `limit` most recently used entries of a `{key: {used, ...}}` map. */
@@ -229,6 +244,6 @@ var WinMuxTabs = (() => {
 
     return {
         protocolVersion, host, origin, iconAddressAllowed, iconCandidates, imageDimensions, iconBytesAllowed,
-        stateWindows, trimmed, hex, base64,
+        stateWindows, negotiatedVersion, trimmed, hex, base64,
     };
 })();

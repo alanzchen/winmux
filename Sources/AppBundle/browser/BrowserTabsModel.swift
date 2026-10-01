@@ -19,12 +19,14 @@ final class BrowserTabsModel: ObservableObject {
     private let safariExtension: SafariExtensionBridge
     private var safariAssociations = SafariExtensionAssociations()
     private var safariEvidence: SafariExtensionEvidence?
+    private var safariFrames = SafariExtensionFrameTrack()
     /// Safari windows to walk in full at their next read: a lone tab's speaker shows only there.
     private var rediscover: Set<UInt32> = []
 
     init(snapshots: [UInt32: BrowserWindowTabs] = [:], safariExtension: SafariExtensionBridge = .shared) {
         self.snapshots = snapshots
         self.safariExtension = safariExtension
+        safariExtension.sightSafariWindows = { [weak self] measured in self?.sightSafariWindows(measured: measured) ?? [:] }
     }
 
     /// The windows some sidebar shows, and so the ones read.
@@ -41,6 +43,7 @@ final class BrowserTabsModel: ObservableObject {
             pendingSelections = .init()
             safariAssociations = .init()
             safariEvidence = nil
+            safariFrames = .init()
             rediscover = []
         }
         let icons = enabled && config.workspaceSidebar.browserTabIcons
@@ -99,6 +102,7 @@ final class BrowserTabsModel: ObservableObject {
         let ownerPids = Dictionary(uniqueKeysWithValues: owners.map { ($0.windowId, $0.app.pid) })
         cache.reconcile(owners: ownerPids, now: now)
         safariExtension.retain(safariIsRunning: MacApp.allAppsMap.values.contains { $0.rawAppBundleId == safariBundleId })
+        trackSafariFrames(now: now)
         iconAssociations.retain(Set(cache.snapshots.values.flatMap { $0.tabs.map(\.target) }))
         publish()
         schedule.retain(Set(ownerPids.keys))
@@ -155,24 +159,43 @@ final class BrowserTabsModel: ObservableObject {
     }
 
     /// Pairs Safari windows with what the extension reports, only when there's something new: a
-    /// fresh read, a report, or a Safari window appearing or going.
+    /// fresh read, a report, or a Safari window appearing or going. Moving a window isn't: the
+    /// reports' bounds are compared with where windows were when each report arrived.
     private func updateSafariAssociations() {
         let safari = cache.snapshots.values.filter { MacApp.allAppsMap[$0.pid]?.rawAppBundleId == safariBundleId }
         let read = Set(safari.map(\.windowId))
-        func frame(_ id: UInt32) -> CGRect? {
-            Window.get(byId: id)?.lastKnownActualRect.map { CGRect(x: $0.topLeftX, y: $0.topLeftY, width: $0.width, height: $0.height) }
-                ?? windowServerFrame(id)
-        }
-        let live = MacWindow.allWindowsMap.values.filter { $0.app.rawAppBundleId == safariBundleId }.map(\.windowId)
-        let unread = safariExtensionUnreadWindows(live: live, read: read).map(frame)
+        let unread = safariExtensionUnreadWindows(live: liveSafariWindows(), read: read)
         let evidence = SafariExtensionEvidence(observed: Dictionary(uniqueKeysWithValues: safari.map { ($0.windowId, cache.observed[$0.windowId] ?? 0) }),
-            reports: safariExtension.generation, unreadFrames: unread)
+            reports: safariExtension.generation, unread: unread)
         guard evidence != safariEvidence else { return }
         safariEvidence = evidence
-        safariAssociations.update(safari.map { .init(snapshot: $0, frame: frame($0.windowId), observed: cache.observed[$0.windowId] ?? 0) },
-            windows: safariExtension.windows, unreadFrames: unread, now: ProcessInfo.processInfo.systemUptime)
+        safariAssociations.update(safari.map { .init(snapshot: $0, observed: cache.observed[$0.windowId] ?? 0) },
+            windows: safariExtension.windows, unread: unread, now: ProcessInfo.processInfo.systemUptime)
         // Safari reports where its windows are only with its tabs; ask again rather than wait a minute.
         if safariAssociations.awaitsFrames { safariExtension.requestResync(atMostEvery: 10) }
+    }
+
+    private func liveSafariWindows() -> [UInt32] {
+        MacWindow.allWindowsMap.values.filter { $0.app.rawAppBundleId == safariBundleId }.map(\.windowId)
+    }
+
+    /// Notes where each Safari window is, a few times a second while browser tabs are on, so a
+    /// report arriving knows which windows have held still since Safari measured them.
+    private func trackSafariFrames(now: TimeInterval) {
+        let ids = liveSafariWindows()
+        guard safariExtension.isAvailable, !ids.isEmpty else {
+            safariFrames = .init()
+            return
+        }
+        safariFrames.observe(Dictionary(ids.map { id in
+            (id, Window.get(byId: id)?.lastKnownActualRect.map { CGRect(x: $0.topLeftX, y: $0.topLeftY, width: $0.width, height: $0.height) }
+                ?? windowServerFrame(id))
+        }, uniquingKeysWith: { first, _ in first }), now: now)
+    }
+
+    private func sightSafariWindows(measured: TimeInterval) -> [UInt32: CGRect] {
+        trackSafariFrames(now: ProcessInfo.processInfo.systemUptime)
+        return safariFrames.sighting(measured: measured)
     }
 
     /// Closes one browser tab, as middle-clicking it in a browser's tab bar does. The window
