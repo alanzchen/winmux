@@ -102,6 +102,12 @@ func workspaceSidebarTabDropLabelText(_ placement: WorkspaceSidebarTabDropPlacem
     placement == .left ? "Split left" : "Split right"
 }
 
+/// A split half's label for this preview, where it isn't the side a window splits to: a tab that
+/// joins a dragged pinned tab tiles into the pin.
+func workspaceSidebarTabDropLabelText(for preview: WorkspaceSidebarDropPreviewViewModel?) -> String? {
+    preview?.receivingPinnedTabName == nil ? nil : "Tile into Pinned Tab"
+}
+
 /// Each tab's top and bottom edges are gaps; the middle takes the tab itself. The bands reach
 /// a little past the tab, so the gap between two tabs is one target. A folder's bands stay
 /// outside it, in the space around it, so every part of the folder takes the drop itself.

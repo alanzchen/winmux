@@ -33,6 +33,8 @@ struct WorkspaceSidebarDropPreviewViewModel: Hashable {
     var targetsPinned = false
     /// Tabs mode: the pin it goes beside among the pinned tiles.
     var targetPinnedGap: WorkspaceSidebarTabGap? = nil
+    /// Tabs mode: the dragged pinned tab the target tab joins, on the other side of the half shown.
+    var receivingPinnedTabName: String? = nil
 
     init(
         sourceWindowId: UInt32,

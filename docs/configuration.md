@@ -70,9 +70,14 @@ tabs-always-expanded = true
 - **Pin Tab** places a row in the shortcut tiles at the top; so does dragging it onto
   them, or, with nothing pinned yet, onto **Drop to Pin** there. Dropped beside a tile,
   it's pinned in that place; a line between the tiles marks the spot. A pinned tile drags
-  as its whole tab, split or empty: beside another tile to rearrange the pins, into the
-  tab list to unpin it where it's dropped, onto a group to unpin it into the group, or
-  onto **New Tab** to unpin it in place. Drag a tab onto a pinned tile and pause for a
+  as its whole tab, split or empty: beside another tile to rearrange the pins, between
+  two tabs in the list to unpin it there, onto a group to unpin it into the group, or
+  onto **New Tab** to unpin it in place. Dragged over a tab in the list and held there
+  for a moment, it tiles that tab into the pin instead: the half under the pointer is
+  highlighted, labelled **Tile into Pinned Tab**, and the pin goes on that side. The tab
+  joins whole, its split kept, and the pin stays pinned in its place. A shared pin on
+  another display comes to the tab's display. Moving across a tab without the pause does
+  nothing. Drag a tab onto a pinned tile and pause for a
   moment to tile its window beside the pin's, as in the list; the half under the pointer
   is highlighted and chooses the side, and an empty pin takes the window in. A window
   dragged in from the screen joins the pin it's dropped on. A tab pinned from its menu

@@ -285,8 +285,11 @@ struct WorkspaceSidebarDropDestinationTabsList: View {
                 WorkspaceSidebarPinnedTab(workspace: workspace, badgeModel: .shared, targetMonitorScopeId: scope,
                     insertionEdge: workspaceSidebarPinnedInsertionEdge(preview, workspaceName: workspace.name,
                         projectId: projectId, monitorScopeId: scope),
-                    isDropTarget: preview?.targetWorkspaceName == workspace.name,
-                    dropPlacement: preview?.targetPlacement, dropLabelSlot: preview?.targetLabelSlot,
+                    isDropTarget: preview?.targetWorkspaceName == workspace.name
+                        || preview?.receivingPinnedTabName == workspace.name,
+                    // A pin that takes a tab in lights up whole; the half shown is on the tab.
+                    dropPlacement: preview?.targetWorkspaceName == workspace.name ? preview?.targetPlacement : nil,
+                    dropLabelSlot: preview?.targetLabelSlot,
                     sharedPinLocation: snapshot.projection.sharedPinLocation(of: workspace),
                     sharedPinClickMovesHere: false) { _ in }
             }
@@ -326,6 +329,7 @@ struct WorkspaceSidebarDropDestinationTabsList: View {
                 actions: WorkspaceSidebarActions(),
                 dropPlacement: preview?.targetPlacement,
                 dropLabelSlot: preview?.targetLabelSlot,
+                dropLabelText: workspaceSidebarTabDropLabelText(for: preview),
                 insertionEdge: insertionEdge,
                 insertionLabel: insertionLabel,
                 gapTarget: (projectId, scope),

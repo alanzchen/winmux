@@ -72,6 +72,7 @@ struct WorkspaceSidebarTabCardView: View {
     /// Where a dragged tab would go on this tab, while one is over it.
     var dropPlacement: WorkspaceSidebarTabDropPlacement? = nil
     var dropLabelSlot: WorkspaceSidebarTabDropLabelSlot? = nil
+    var dropLabelText: String? = nil
     /// The edge a dragged tab would be inserted at, while one is over it.
     var insertionEdge: VerticalEdge? = nil
     var insertionLabel: String? = nil
@@ -132,7 +133,7 @@ struct WorkspaceSidebarTabCardView: View {
             }
             .overlay(alignment: .top) {
                 WorkspaceSidebarTabDropSideHighlight(placement: isDropTarget ? dropPlacement : nil,
-                    labelSlot: dropLabelSlot)
+                    labelSlot: dropLabelSlot, labelText: dropLabelText)
                     .frame(height: headsCard ? workspaceSidebarTabRowHeight : nil)
                     .padding(hasBrowserGroups && drawsBrowserCard ? workspaceSidebarTabGroupInset : 0)
             }
@@ -477,6 +478,8 @@ struct WorkspaceSidebarTabDropSideHighlight: View {
     var labelSlot: WorkspaceSidebarTabDropLabelSlot? = nil
     /// A pinned tile's corners; rows take their level's.
     var cornerRadius: CGFloat? = nil
+    /// In place of the side it splits to.
+    var labelText: String? = nil
     @Environment(\.workspaceSidebarTabIndent) private var indent
     @Environment(\.workspaceSidebarReducesMotion) private var reducesMotion
 
@@ -504,7 +507,7 @@ struct WorkspaceSidebarTabDropSideHighlight: View {
                 let slot = labelSlot ?? WorkspaceSidebarTabDropLabelSlot(half: placement == .left ? .leading : .trailing,
                     edge: placement == .left ? .leading : .trailing)
                 if placement != .stack, !slot.isHidden {
-                    WorkspaceSidebarTabDropLabel(text: workspaceSidebarTabDropLabelText(placement))
+                    WorkspaceSidebarTabDropLabel(text: labelText ?? workspaceSidebarTabDropLabelText(placement))
                         .padding(.horizontal, workspaceSidebarTabDropLabelInset)
                         .frame(width: geometry.size.width / 2, height: geometry.size.height,
                             alignment: slot.edge == .leading ? .leading : .trailing)
