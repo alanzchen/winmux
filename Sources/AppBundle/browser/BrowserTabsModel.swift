@@ -27,6 +27,11 @@ final class BrowserTabsModel: ObservableObject {
         self.snapshots = snapshots
         self.safariExtension = safariExtension
         safariExtension.sightSafariWindows = { [weak self] measured in self?.sightSafariWindows(measured: measured) ?? [:] }
+        safariExtension.reportArrived = { [weak self] in
+            guard let self, self.task != nil else { return false }
+            self.publish()
+            return self.safariAssociations.awaitsReport || self.safariAssociations.awaitsAnotherReport(self.safariExtension.windows)
+        }
     }
 
     /// The windows some sidebar shows, and so the ones read.

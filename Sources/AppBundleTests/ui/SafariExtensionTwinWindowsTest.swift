@@ -998,6 +998,8 @@ final class SafariExtensionTwinWindowsTest: XCTestCase {
                     Self.tab(id: 101, icon: Self.otherIcon, audible: true, active: false)]
         harness.wait(2)
         harness.report([(10, 1, tabs)])
+        XCTAssertTrue(harness.associations.awaitsAnotherReport(harness.bridge.windows),
+            "Same-titled tabs in a window about to be paired need another report after a read")
         harness.wait(1)
         harness.read(1)
         harness.wait(1)
@@ -1014,6 +1016,11 @@ final class SafariExtensionTwinWindowsTest: XCTestCase {
         harness.report([(10, 1, tabs)])
         XCTAssertEqual(harness.associations.described(playing).extensionTab?.id, 101, "No extra round of reads and reports")
         XCTAssertEqual(harness.timeline.last, "1: other site mail.test | site | other site sound")
+        XCTAssertFalse(harness.associations.awaitsAnotherReport(harness.bridge.windows), "Once paired for good, nothing waits")
+        XCTAssertFalse(harness.associations.awaitsReport)
+        var other = SafariExtensionAssociations()
+        other.update([], windows: harness.bridge.windows, now: harness.uptime)
+        XCTAssertFalse(other.awaitsAnotherReport(harness.bridge.windows), "Nor for a window no read matches, such as one the sidebar doesn't list")
     }
 
     /// One of WinMux's writes is still running past the margin, then lands; Safari measures the

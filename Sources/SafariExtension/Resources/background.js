@@ -18,6 +18,8 @@ const failedAddressDelay = 10 * 60 * 1000;
 const unavailableDelay = 60 * 1000;
 
 let sendTimer = null;
+// WinMux asking, in its answer, for another report a moment later (`again`, in seconds).
+let againTimer = null;
 let sending = false;
 let sendAgain = false;
 let forcedSend = false;
@@ -157,6 +159,11 @@ async function send() {
             return;
         }
         if (wasUnavailable) setUnavailableUntil(0);
+        // WinMux can't yet tell some of its windows apart, and a report a moment later may.
+        const again = reply.again;
+        if (Number.isInteger(again) && again >= 1 && again <= 60 && againTimer === null) {
+            againTimer = setTimeout(() => { againTimer = null; scheduleSend(0, true); }, again * 1000);
+        }
         const wanted = Array.isArray(reply.want) ? reply.want.filter((key) => typeof key === "string") : [];
         // Until WinMux has every icon it asked for, the same report may ask again.
         if (wanted.length === 0) lastReport = key;
@@ -478,17 +485,18 @@ for (const event of [browser.tabs.onCreated, browser.tabs.onActivated, browser.t
     event?.addListener(() => scheduleSend());
 }
 // WinMux switching windows in its sidebar moves them, and Safari says nothing of where windows
-// are but this: a report then says where they are now. One that moved none says nothing new, and
-// isn't sent.
+// are but this: a report a second later, once they've settled, says where they are now. One that
+// moved none says nothing new, and isn't sent.
 browser.windows.onFocusChanged?.addListener((windowId) => {
-    if (windowId !== browser.windows.WINDOW_ID_NONE) scheduleSend();
+    if (windowId !== browser.windows.WINDOW_ID_NONE) scheduleSend(1000);
 });
 browser.alarms.onAlarm.addListener((alarm) => { if (alarm.name === heartbeat) scheduleSend(0, true); });
 browser.runtime.onInstalled.addListener(() => { injectIntoOpenTabs(); scheduleSend(0, true); });
 browser.runtime.onStartup.addListener(() => scheduleSend(0, true));
 
 // WinMux asks for everything again when it starts, or when it sees a Safari window it can't
-// match. Best effort: Safari may have unloaded this page, and then the heartbeat catches up.
+// match. Best effort: Safari may have unloaded this page, and then the heartbeat catches up, or
+// WinMux's answer to the next report asks again (`again` above).
 try {
     browser.runtime.connectNative(nativeApplication).onMessage.addListener((message) => {
         if ((message?.name ?? message?.type) === "resync") scheduleSend(0, true);

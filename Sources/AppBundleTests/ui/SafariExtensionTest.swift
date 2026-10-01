@@ -220,6 +220,40 @@ final class SafariExtensionTest: XCTestCase {
         }
     }
 
+    /// Safari 27 doesn't wake the extension for a resync, but the extension reads WinMux's answer
+    /// to each report: while pairing waits on another report, each answer asks for one, two
+    /// seconds on at first and then twice as long each time, up to a minute.
+    @MainActor
+    func testWhilePairingWaitsOnAnotherReportTheAnswerAsksForOneAtMostEveryFewSeconds() throws {
+        var time = 100.0
+        let bridge = SafariExtensionBridge(configuration: { nil }, icons: SafariExtensionIcons(), now: { time })
+        bridge.setEnabled(true)
+        var awaiting = false
+        var arrivals = 0
+        bridge.reportArrived = { arrivals += 1; return awaiting }
+        func again() throws -> Int? {
+            let message = SafariExtensionMessage.decode(try envelope(["v": 2, "type": "state", "session": "s", "time": time * 1000,
+                "windows": [["id": 1, "tabs": [["id": 4, "title": "A", "active": true]]]]]))
+            return try XCTUnwrap(JSONSerialization.jsonObject(with: bridge.receive(message)) as? [String: Any])["again"] as? Int
+        }
+        XCTAssertNil(try again(), "Nothing to wait for")
+        awaiting = true
+        XCTAssertEqual(try again(), SafariExtensionBridge.firstAgain)
+        XCTAssertEqual(arrivals, 2, "Each report is taken in before it's answered")
+        var asked: [Int] = []
+        for _ in 0..<6 {
+            time += 1
+            asked.append(try XCTUnwrap(try again()))
+        }
+        XCTAssertEqual(asked, [4, 8, 16, 32, 60, 60], "Longer each time, up to a minute")
+        awaiting = false
+        time += 1
+        XCTAssertNil(try again())
+        awaiting = true
+        time += 1
+        XCTAssertEqual(try again(), SafariExtensionBridge.firstAgain, "A new wait starts again from two seconds")
+    }
+
     func testManifestListsItsFilesAndOnlyThePermissionsItUses() throws {
         let data = try Data(contentsOf: Self.resources.appendingPathComponent("manifest.json"))
         let manifest = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])

@@ -115,7 +115,9 @@ describes tabs, and WinMux trusts a description only when it agrees with the tab
   on its way, counts as unknown. The one paired must have been where Safari says, and every
   other twin seen elsewhere; an unknown twin could have been anywhere. If the report doesn't
   settle which twin is which, both keep Safari's icon and no sound, and WinMux asks Safari to
-  report again (at most every ten seconds) when a newer report could settle it. Twins that are
+  report again when a newer report could settle it: in its answer to a report, which has the
+  extension report again two seconds later (at once, then less often while the wait lasts, down to once a minute), as Safari 27.0 didn't
+  wake the extension for a separate request. Twins that are
   in the same place in every report stay that way, and so do twins described by an extension
   from before this, whose reports don't say when it measured.
 - While some Safari window hasn't been read (one the sidebar doesn't show, or one whose tab
@@ -132,7 +134,8 @@ describes tabs, and WinMux trusts a description only when it agrees with the tab
   with the same title, a read only proposes a pairing (it may have caught a reorder Safari
   hadn't reported yet). It counts once a report Safari measured after that read, and a read
   begun after the report arrived, still agree, and Safari's next report says no tab was moved,
-  opened or closed in between. Their sound shows a few seconds after their icons. A tab whose Safari tab is gone, or whose title no longer matches it,
+  opened or closed in between. WinMux's answers ask Safari for those reports, so their sound
+  follows their icons by seconds rather than waiting for Safari's once-a-minute check-in. A tab whose Safari tab is gone, or whose title no longer matches it,
   shows nothing from the extension until a read pairs it again. An extension from before tab
   ids matches them by position.
 - A window that briefly stops matching, such as while a title changes, keeps its icons for up
@@ -151,8 +154,9 @@ playing sound or muted, and its icon as a 32-pixel PNG; each window's id and pla
 how many times tabs were moved, opened or closed since Safari started, with when the extension
 began measuring.
 Private Browsing windows are left out entirely, even when the extension is allowed in them.
-The extension sends these reports to WinMux on this Mac when tabs change or a Safari window
-gains focus, leaving out one that would say nothing new, and once a minute regardless. WinMux
+The extension sends these reports to WinMux on this Mac when tabs change, a second after a
+Safari window gains focus (once WinMux has moved its windows), and when WinMux's answer asks
+for another, leaving out one that would say nothing new; and once a minute regardless. WinMux
 keeps them in memory, with up to 512 icons; it never drops one a tab shows. It forgets a Safari profile that stops reporting after two
 and a half minutes, and forgets everything when Safari quits or browser tabs are turned off.
 
@@ -202,7 +206,9 @@ that each connecting process is signed as WinMux Tabs by WinMux's own team befor
 anything. On macOS 13 and 14, another program running as you could
 take the socket's place while WinMux isn't running and receive the extension's reports.
 
-When WinMux updates, Safari reloads the extension, which starts with no icons. Pages opened
+When WinMux updates, Safari reloads the extension, which starts with no icons. In testing
+(Safari 27.0, a Developer ID–signed build), Safari also reloaded it each time WinMux started,
+with a new session and new window and tab ids. Pages opened
 after that report theirs as usual, and a tab whose page hasn't reported shows the icon last
 made for its site. A page that was already open may keep Safari's icon until it reloads:
 the extension asks such pages to report again, but in testing Safari 27.0 didn't deliver their

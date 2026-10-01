@@ -84,6 +84,15 @@ final class SafariExtensionBridge {
     /// Where Safari's windows have been, unmoved, since before a moment (by system uptime),
     /// recorded as each report arrives. Bounds in a report are compared only with that record.
     var sightSafariWindows: (_ measured: TimeInterval) -> [UInt32: CGRect] = { _ in [:] }
+    /// Takes in a report as it arrives, and says whether pairing still waits on Safari reporting
+    /// again. The answer then asks the extension to (`again`, in seconds): Safari 27 doesn't wake
+    /// the extension for `requestResync`, but it always reads the answer. The first wait is
+    /// `firstAgain`, so windows WinMux just moved settle first; each answer while the wait lasts
+    /// doubles it, up to `maximumAgain`, so a wait that never ends costs a report a minute at most.
+    var reportArrived: () -> Bool = { false }
+    private var againDelay = SafariExtensionBridge.firstAgain
+    static let firstAgain = 2
+    static let maximumAgain = 60
     /// A report that took longer than this to arrive says too little about where windows are now.
     static let maximumTransit: TimeInterval = 5
     /// A profile that hasn't reported for this long (the extension checks in each minute) is gone.
@@ -205,8 +214,15 @@ final class SafariExtensionBridge {
                 let wanted = Set(state.windows.flatMap { $0.tabs.compactMap(\.icon) }).filter { key in
                     icons.images[key] == nil && time - (failedIcons[key] ?? -.infinity) > 300
                 }.sorted()
+                var reply: [String: Any] = ["ok": true, "want": Array(wanted.prefix(max(0, min(2 * SafariExtensionMessage.maximumIcons, room))))]
+                if reportArrived() {
+                    reply["again"] = againDelay
+                    againDelay = min(Self.maximumAgain, againDelay * 2)
+                } else {
+                    againDelay = Self.firstAgain
+                }
                 // Up to twice what one message carries, so the extension sees that more remain.
-                return answer(["ok": true, "want": Array(wanted.prefix(max(0, min(2 * SafariExtensionMessage.maximumIcons, room))))])
+                return answer(reply)
             case .icons(let profile, let session, let received):
                 guard states[profile]?.state.session == session else { return answer(["ok": true]) }
                 let referenced = referencedIcons
@@ -226,8 +242,9 @@ final class SafariExtensionBridge {
     }
 
     /// Asks the extension to report now rather than at its next once-a-minute check-in. Best
-    /// effort: Safari may have unloaded the extension's page. Never while Safari isn't running,
-    /// so starting WinMux can't open Safari.
+    /// effort: Safari may have unloaded the extension's page, and in testing Safari 27.0 never
+    /// delivered it to an idle one; an answer's `again` reaches it. Never while Safari isn't
+    /// running, so starting WinMux can't open Safari.
     func requestResync(atMostEvery interval: TimeInterval = 0) {
         let time = now()
         guard enabled, time - lastResync >= interval, let configuration,

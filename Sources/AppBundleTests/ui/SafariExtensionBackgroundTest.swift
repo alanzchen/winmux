@@ -199,6 +199,34 @@ final class SafariExtensionBackgroundTest: XCTestCase {
         XCTAssertEqual(try reports(context).count, 8)
     }
 
+    /// WinMux's answer can ask for another report a moment later, which goes even though it would
+    /// say nothing new; one such request waits at a time, and anything but a few seconds is ignored.
+    /// A window gaining focus reports a second later, once WinMux has moved its windows.
+    func testWinMuxCanAskForAnotherReportAndAFocusChangeReportsOnceWindowsSettle() throws {
+        let context = try page()
+        XCTAssertEqual(try reports(context).count, 1)
+        try run(context, "replies.push({v: 2, ok: true, want: [], again: 2}); browser.alarms.onAlarm.fire({name: 'winmux-heartbeat'});", seconds: 0.5)
+        XCTAssertEqual(try reports(context).count, 2)
+        try run(context, "browser.tabs.onUpdated.fire(7, {title: 'Demo Page'});", seconds: 1)
+        XCTAssertEqual(try reports(context).count, 2, "The same report, unasked, isn't sent")
+        try settle(context, seconds: 1)
+        XCTAssertEqual(try reports(context).count, 3, "WinMux asked for it two seconds on")
+        for again in ["0", "61", "'2'", "1.5"] {
+            try run(context, "replies.push({v: 2, ok: true, want: [], again: \(again)}); browser.alarms.onAlarm.fire({name: 'winmux-heartbeat'});", seconds: 40)
+        }
+        XCTAssertEqual(try reports(context).count, 7, "Only the heartbeats")
+        try run(context, "replies.push({v: 2, ok: true, want: [], again: 3}, {v: 2, ok: true, want: [], again: 3}); browser.alarms.onAlarm.fire({name: 'winmux-heartbeat'});", seconds: 1)
+        try run(context, "browser.alarms.onAlarm.fire({name: 'winmux-heartbeat'});", seconds: 2.5)
+        XCTAssertEqual(try reports(context).count, 10, "Two asked within one wait bring one more report")
+        try settle(context, seconds: 5)
+        XCTAssertEqual(try reports(context).count, 10)
+
+        try run(context, "safariWindows[0].left = 1023; browser.windows.onFocusChanged.fire(1);", seconds: 0.5)
+        XCTAssertEqual(try reports(context).count, 10, "Not while WinMux may still be moving windows")
+        try settle(context, seconds: 1)
+        XCTAssertEqual(try reports(context).count, 11)
+    }
+
     /// The count of tab moves, openings and closings: once per event, not for activations or
     /// titles, left out when a move lands while Safari lists its windows, and kept across reloads.
     func testTheReorderCountCountsEachEventLeavesOutAMoveMidListingAndSurvivesAReload() throws {

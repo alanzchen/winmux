@@ -591,6 +591,22 @@ struct SafariExtensionAssociations {
         }
     }
 
+    /// Whether these reports list, in a window paired or about to be, a tab among others with its
+    /// title (or whose title Safari withholds) that isn't paired for good: that takes a read after
+    /// this report and a report after that, so Safari should report again soon. An older
+    /// extension's tabs, which pair by place, never wait.
+    func awaitsAnotherReport(_ windows: [SafariExtensionWindow]) -> Bool {
+        let paired = Set(confirmed.values).union(pending.values.map(\.key))
+        let settled = Set(bound.values)
+        return windows.contains { window in
+            guard paired.contains(window.key) else { return false }
+            let counts = Dictionary(window.tabs.map { ($0.title, 1) }, uniquingKeysWith: +)
+            return window.tabs.contains { tab in
+                (tab.title.isEmpty || counts[tab.title, default: 0] > 1) && window.tabKey(tab).map { !settled.contains($0) } ?? false
+            }
+        }
+    }
+
     /// Whether the extension describes all of the window's tabs, each paired for good, and the
     /// window agrees with its latest report: from then on, the reports say when its tabs change.
     func settles(_ snapshot: BrowserWindowTabs) -> Bool {
