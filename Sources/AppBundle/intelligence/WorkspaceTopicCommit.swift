@@ -122,11 +122,16 @@ func workspaceTopicValidatedMembers(_ groups: [WorkspaceTopicCommitGroup], reque
         guard analyzed.contains(token), let binding = prepared.bindings[token], let workspace = binding.liveWorkspace,
               workspace.projectId == binding.projectId, workspace.projectId == prepared.scope.projectId,
               store.state.workspaces[binding.name]?.isFavorite != true, store.collection(containing: binding.name) == nil,
-              binding.windows.allSatisfy(\.isLive),
-              workspaceTopicLiveWindows(workspace).map(\.windowId).sorted() == binding.windows.map(\.windowId),
-              let tab = listed[binding.name],
-              workspaceTopicEvidence(for: tab, token: token, liveWindowCount: binding.windows.count).promptText == binding.evidenceText
-        else { return nil }
+              binding.windows.allSatisfy(\.isLive) else { return nil }
+        // Live state first: the published list may not show a move or a minimize yet.
+        let live = workspaceTopicLiveWindows(workspace)
+        guard live.map(\.windowId).sorted() == binding.windows.map(\.windowId),
+              Set(workspaceTopicReadableWindows(workspace).map(\.windowId)) == Set(live.map(\.windowId)),
+              workspaceTopicLiveScopeMatches(workspace, listedScopeId: prepared.scope.listedScopeId),
+              let tab = listed[binding.name] else { return nil }
+        // And still eligible as preparing it now would judge it: whole, with the same text.
+        let evidence = workspaceTopicEvidence(for: tab, token: token, liveWindowCount: live.count)
+        guard evidence.isComplete, evidence.promptText == binding.evidenceText else { return nil }
         workspaces.append(workspace)
     }
     return workspaces

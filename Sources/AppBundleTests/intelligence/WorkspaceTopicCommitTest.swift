@@ -223,6 +223,53 @@ final class WorkspaceTopicCommitTest: XCTestCase {
         TrayMenuModel.shared.workspaceSidebarSelectedMonitorScopeId = workspaceSidebarDefaultScopeId
     }
 
+    /// A member moved to another display while the sidebar still shows the older list.
+    func testAMemberMovedLiveBeforeTheSidebarCatchesUpIsRejected() async throws {
+        let main = TestMonitor(monitorAppKitNsScreenScreensId: 1, name: "Main", rect: Rect(topLeftX: 0, topLeftY: 0, width: 1920, height: 1080),
+            visibleRect: Rect(topLeftX: 0, topLeftY: 0, width: 1920, height: 1080), isMain: true)
+        let side = TestMonitor(monitorAppKitNsScreenScreensId: 2, name: "Side", rect: Rect(topLeftX: 1920, topLeftY: 0, width: 1920, height: 1080),
+            visibleRect: Rect(topLeftX: 1920, topLeftY: 0, width: 1920, height: 1080), isMain: false)
+        setMonitorsForTests([main, side])
+        defer { setMonitorsForTests(nil) }
+        makeTabs()
+        for workspace in tabs.values { workspace.preferredMonitorPoint = main.rect.topLeftCorner }
+        await updateWorkspaceSidebarModel()
+        let display = workspaceSidebarMonitorScopeId(for: main)
+        TrayMenuModel.shared.workspaceSidebarSelectedMonitorScopeId = display
+        coordinator.suggest(WorkspaceTopicTestEnvironment.scope(), snapshot: WorkspaceTopicTestEnvironment.snapshot)
+        try await WorkspaceTopicTestEnvironment.settle(coordinator)
+        XCTAssertEqual(coordinator.groups.count, 2)
+        guard let request = coordinator.request else { return XCTFail() }
+        let plan = coordinator.groups.map { WorkspaceTopicCommitGroup(name: $0.name, members: $0.includedMembers) }
+        tabs["grades"]!.preferredMonitorPoint = side.rect.topLeftCorner
+        XCTAssertEqual(workspaceSidebarMonitorScopeId(for: tabs["grades"]!.workspaceMonitor), workspaceSidebarMonitorScopeId(for: side))
+        XCTAssertEqual(commitWorkspaceTopicGroups(plan, request: request, isCurrent: true), .notApplied(workspaceTopicOutOfDateMessage),
+            "Not republished yet, but it isn't on this display any more")
+        XCTAssertEqual(workspaceSidebarOrganizationStore.state.collections, [])
+        TrayMenuModel.shared.workspaceSidebarSelectedMonitorScopeId = workspaceSidebarDefaultScopeId
+    }
+
+    /// A split member with no title of its own, minimized after the preview: the text sent is the
+    /// same, but the tab can no longer be read whole.
+    func testAMemberThatCantBeReadWholeAnyMoreIsRejected() async throws {
+        for republish in [false, true] {
+            setUpWorkspacesForTests()
+            TopicTestApps.reset()
+            coordinator = WorkspaceTopicTestEnvironment.setUp(provider: provider)
+            makeTabs()
+            let blank = TestWindow.new(id: 340, parent: tabs["grades"]!.rootTilingContainer, app: TopicTestApps.mail, title: "")
+            try await ready()
+            guard let request = coordinator.request else { return XCTFail() }
+            let plan = coordinator.groups.map { WorkspaceTopicCommitGroup(name: $0.name, members: $0.includedMembers) }
+            blank.bind(to: macosMinimizedWindowsContainer, adaptiveWeight: 1, index: INDEX_BIND_LAST)
+            blank.layoutReason = .macos(prevParentKind: .tilingContainer, prevWorkspaceName: "grades")
+            if republish { await updateWorkspaceSidebarModel() }
+            XCTAssertEqual(commitWorkspaceTopicGroups(plan, request: request, isCurrent: true), .notApplied(workspaceTopicOutOfDateMessage),
+                republish ? "Republished: the tab is incomplete now" : "Before the sidebar shows it: live state says so")
+            XCTAssertEqual(workspaceSidebarOrganizationStore.state.collections, [])
+        }
+    }
+
     private func moved(_ tab: WorkspaceSidebarWorkspaceViewModel, to scope: String) -> WorkspaceSidebarWorkspaceViewModel {
         WorkspaceSidebarWorkspaceViewModel(name: tab.name, projectId: tab.projectId, displayName: tab.displayName,
             sidebarLabel: tab.sidebarLabel, isGeneratedName: tab.isGeneratedName, monitorScopeId: scope, monitorName: tab.monitorName,

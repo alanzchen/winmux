@@ -97,6 +97,24 @@ func workspaceTopicLiveWindows(_ workspace: Workspace) -> [Window] {
     return all.filter { seen.insert(ObjectIdentifier($0)).inserted }
 }
 
+/// The windows of the tab the sidebar lists, and so can be read: its layout and floating ones.
+/// Minimized ones and those in a native container aren't.
+@MainActor
+func workspaceTopicReadableWindows(_ workspace: Workspace) -> [Window] {
+    workspace.rootTilingContainer.allLeafWindowsRecursive + workspace.floatingWindows.filter(\.isBound)
+}
+
+/// Whether the tab, as it is now, belongs to a list of `listedScopeId`'s tabs: every display's,
+/// the focused tab only, or one display's. From live placement, not the last published list.
+@MainActor
+func workspaceTopicLiveScopeMatches(_ workspace: Workspace, listedScopeId: String) -> Bool {
+    switch listedScopeId {
+        case workspaceSidebarDefaultScopeId: true
+        case workspaceSidebarFocusedScopeId: focus.workspace === workspace
+        default: workspaceSidebarMonitorScopeId(for: workspace.workspaceMonitor) == listedScopeId
+    }
+}
+
 /// A window title fit to analyze: no control characters, the home folder as ~, at most 120
 /// characters. Nil when nothing's left or it only repeats the app's name.
 nonisolated func workspaceTopicSanitizedTitle(_ title: String?, appName: String,
@@ -179,7 +197,11 @@ func prepareWorkspaceTopicRequest(scope: WorkspaceTopicScope, snapshot: Workspac
         }
         // A window it can't read could be about something else entirely: judge the tab whole or
         // not at all. Its text can't all be shown, so it can't be offered for consent either.
-        guard evidence.isComplete else { skip(.partlyHidden); continue }
+        let readable = Set(workspaceTopicReadableWindows(workspace).map(ObjectIdentifier.init))
+        guard evidence.isComplete, live.allSatisfy({ readable.contains(ObjectIdentifier($0)) }) else {
+            skip(.partlyHidden)
+            continue
+        }
         if let browser = live.first(where: { workspaceTopicIsBrowser($0.app.rawAppBundleId) }) {
             let windowIds = live.map(\.windowId).sorted()
             let text = evidence.promptText
