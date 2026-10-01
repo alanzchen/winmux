@@ -37,6 +37,9 @@ final class SafariExtensionBackgroundTest: XCTestCase {
         }
         var sent = [];
         var titles = [];
+        var actual = {};
+        var holdResets = false;
+        var heldResets = [];
         var replies = [];
         var listings = 0;
         var duringListing = null;
@@ -74,7 +77,14 @@ final class SafariExtensionBackgroundTest: XCTestCase {
             },
             alarms: { get: async () => ({}), create: () => {}, onAlarm: event() },
             scripting: { executeScript: async () => {} },
-            action: { setTitle: async (details) => { titles.push(copy(details)); } },
+            action: { setTitle: (details) => {
+                titles.push(copy(details));
+                // Safari applies each call in turn; a reset's answer can come late, held back here
+                // until the test lets it finish.
+                actual[details.tabId] = details.title;
+                if (details.title === null && holdResets) return new Promise((resolve) => heldResets.push(resolve));
+                return Promise.resolve();
+            } },
         };
         """
 
@@ -288,6 +298,25 @@ final class SafariExtensionBackgroundTest: XCTestCase {
         for tab in [7, 8] {
             XCTAssertEqual(again.filter { $0.tab == tab }.map(\.title.isEmpty), [true, false], "then titled, tab \(tab)")
         }
+    }
+
+    /// A forced report's reset of a tab's title is slow to finish; meanwhile the tab moves to the
+    /// other window and is titled for it. The late reset doesn't then put back the old window's
+    /// title, and the button keeps naming the window the tab is in.
+    func testALateResetDoesntPutBackAnOlderTitle() throws {
+        let context = try page()
+        try run(context, "holdResets = true; browser.alarms.onAlarm.fire({name: 'winmux-heartbeat'});")
+        try run(context, """
+            holdResets = false;
+            safariWindows[0].tabs = []; safariWindows[1].tabs[0].active = false;
+            safariWindows[1].tabs.push({id: 7, index: 1, title: 'Demo Page', url: 'https://demo.test/', active: true});
+            browser.tabs.onDetached.fire(7, {}); browser.tabs.onAttached.fire(7, {newWindowId: 2});
+            """)
+        XCTAssertEqual(try value(context, "actual[7]") as? String, WinMuxTabsTitle(window: 2, tab: 7))
+        try run(context, "heldResets.forEach((finish) => finish()); heldResets = [];")
+        try run(context, "browser.tabs.onUpdated.fire(7, {title: 'Demo Page'});")
+        XCTAssertEqual(try value(context, "actual[7]") as? String, WinMuxTabsTitle(window: 2, tab: 7))
+        XCTAssertEqual(try value(context, "stamped.get(7)") as? String, WinMuxTabsTitle(window: 2, tab: 7))
     }
 
     /// The count of tab moves, openings and closings: once per event, not for activations or

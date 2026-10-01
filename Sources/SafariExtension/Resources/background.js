@@ -40,6 +40,8 @@ let lastReport = null;
 // The title each tab's toolbar button was given, so it's set only when it changes. Safari may drop
 // it as the tab loads a page, so loading forgets it, and so does Safari unloading this page.
 const stamped = new Map();
+// Each tab's latest title operation: an older one's later steps don't overwrite a newer title.
+const titleWrites = new Map();
 
 // Safari unloads this page when idle, so what it needs again lives in session storage, which
 // Safari keeps only in memory and clears when it quits: this browsing session's identifier, the
@@ -116,7 +118,6 @@ function iconFor(data, tab) {
  * until its tab's title changes, and nothing tells this page it came back. Safari ignores a title
  * the tab already has, so `all` resets each to the name first. */
 function stampWindows(windows, session, all = false) {
-    const setTitle = (tabId, title) => Promise.resolve(browser.action?.setTitle({ tabId, title }));
     for (const window of Array.isArray(windows) ? windows : []) {
         if (window.incognito === true || (window.type !== undefined && window.type !== "normal")) continue;
         const tab = window.tabs?.find((tab) => tab.active === true);
@@ -124,11 +125,19 @@ function stampWindows(windows, session, all = false) {
         const title = WinMuxTabs.markerTitle(session, window.id, tab.id);
         if (!all && stamped.get(tab.id) === title) continue;
         stamped.set(tab.id, title);
-        try {
-            (all ? setTitle(tab.id, null).then(() => setTitle(tab.id, title)) : setTitle(tab.id, title)).catch(() => stamped.delete(tab.id));
-        } catch {
-            stamped.delete(tab.id);
-        }
+        setButtonTitle(tab.id, title, all);
+    }
+}
+
+function setButtonTitle(tabId, title, reset) {
+    const operation = (titleWrites.get(tabId) ?? 0) + 1;
+    titleWrites.set(tabId, operation);
+    const latest = () => titleWrites.get(tabId) === operation;
+    const write = (value) => latest() ? Promise.resolve(browser.action?.setTitle({ tabId, title: value })) : Promise.resolve();
+    try {
+        (reset ? write(null).then(() => write(title)) : write(title)).catch(() => { if (latest()) stamped.delete(tabId); });
+    } catch {
+        stamped.delete(tabId);
     }
 }
 
@@ -482,6 +491,7 @@ for (const event of [browser.tabs.onCreated, browser.tabs.onMoved, browser.tabs.
 }
 browser.tabs.onRemoved.addListener(async (tabId) => {
     stamped.delete(tabId);
+    titleWrites.delete(tabId);
     const data = await loaded;
     countOrderChange(data);
     data.reports.delete(tabId);
@@ -494,6 +504,7 @@ browser.tabs.onRemoved.addListener(async (tabId) => {
 });
 browser.tabs.onReplaced?.addListener(async (added, removed) => {
     stamped.delete(removed);
+    titleWrites.delete(removed);
     const data = await loaded;
     countOrderChange(data);
     if (data.tabIcons[removed]) {
