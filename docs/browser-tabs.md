@@ -102,22 +102,26 @@ agrees with the tab strip it read:
   by where they were when Safari reported. WinMux notes where Safari's windows are a few times
   a second, and compares the bounds in each report only with where windows were when that
   report arrived, never with where they are now: WinMux moves windows (switching tabs parks one
-  in a corner) and Safari doesn't report that. A window that moved just before Safari measured,
-  or while the report was on its way, counts as unknown. If the report doesn't settle which
-  twin is which, both keep Safari's icon and no sound, and WinMux asks Safari to report again
-  (at most every ten seconds) when a newer report could settle it. Twins that are in the same
-  place in every report stay that way.
+  in a corner) and Safari doesn't report that. The extension notes when it begins measuring,
+  and a window that moved, resized or reopened since just before then, or while the report was
+  on its way, counts as unknown. The one paired must have been where Safari says, and every
+  other twin seen elsewhere; an unknown twin could have been anywhere. If the report doesn't
+  settle which twin is which, both keep Safari's icon and no sound, and WinMux asks Safari to
+  report again (at most every ten seconds) when a newer report could settle it. Twins that are
+  in the same place in every report stay that way, and so do twins described by an extension
+  from before this, whose reports don't say when it measured.
 - While some Safari window hasn't been read (one the sidebar doesn't show, or one whose tab
   strip couldn't be read yet), a new match also needs the window, and no unread window, to
   have been where Safari says, since the unread window could be the real twin.
 - Once made, a match holds as long as its tabs agree and Safari still reports that window,
   however WinMux moves it, and no other window can take its report. Only a later report that
-  pairs the window with another by where they were replaces it. A window that closes, and a
-  later one that gets its number, start over.
-- Within a matched window, each tab is matched with Safari's tab by Safari's id for it: a read
-  made after a report pairs them by position, and after that each keeps its tab while the tab
-  bar is reordered, so tabs with the same title never trade icons or sound. An extension from
-  before tab ids matches them by position.
+  pairs the window, or that report, with another by where they were replaces it. A window that
+  closes, and a later one that gets its number, start over.
+- Within a matched window, each tab is matched with Safari's tab by Safari's id for it. A read
+  made after a report pairs a tab with the one in its place; after that it keeps that tab while
+  the tab bar is reordered, so tabs with the same title don't trade icons or sound. A tab whose
+  Safari tab is gone, or whose title no longer matches it, shows nothing from the extension
+  until a read pairs it again. An extension from before tab ids matches them by position.
 - A window that briefly stops matching, such as while a title changes, keeps its icons for up
   to ten seconds. It hides sound at once.
 - A tab whose title Safari withholds from the extension (a start page, or a site without

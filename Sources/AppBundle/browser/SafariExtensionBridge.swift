@@ -71,16 +71,16 @@ final class SafariExtensionBridge {
     private(set) var generation = 0
     private let loadConfiguration: () -> SafariExtensionConfiguration?
     private var loadedConfiguration: SafariExtensionConfiguration??
-    private var states: [String: (state: SafariExtensionState, received: TimeInterval, sighting: [UInt32: CGRect])] = [:]
+    private var states: [String: (state: SafariExtensionState, received: TimeInterval, measured: TimeInterval, sighting: [UInt32: CGRect])] = [:]
     private var failedIcons: [String: TimeInterval] = [:]
     private var enabled = false
     private var server: SafariExtensionServer?
     private var lastResync: TimeInterval = -.infinity
     private let now: () -> TimeInterval
     private let clock: () -> TimeInterval
-    /// Where Safari's windows have been since before a moment (by system uptime), recorded as
-    /// each report arrives. Bounds in a report are compared only with that record.
-    var sightSafariWindows: (_ since: TimeInterval) -> [UInt32: CGRect] = { _ in [:] }
+    /// Where Safari's windows have been, unmoved, since before a moment (by system uptime),
+    /// recorded as each report arrives. Bounds in a report are compared only with that record.
+    var sightSafariWindows: (_ measured: TimeInterval) -> [UInt32: CGRect] = { _ in [:] }
     /// A report that took longer than this to arrive says too little about where windows are now.
     static let maximumTransit: TimeInterval = 5
     /// A profile that hasn't reported for this long (the extension checks in each minute) is gone.
@@ -124,6 +124,7 @@ final class SafariExtensionBridge {
                 report.state.windows.map { window in
                     var window = window
                     window.received = report.received
+                    window.measured = report.measured
                     window.sighting = report.sighting
                     return window
                 }
@@ -187,11 +188,12 @@ final class SafariExtensionBridge {
                 if let previous = states[state.profile]?.state, previous.session == state.session, previous.time > state.time {
                     return answer(["ok": true])
                 }
-                // Safari measured its windows just before it stamped the report. One that took too
-                // long, or comes from a clock that moved, says nothing about where they were.
-                let transit = clock() - state.time / 1000
-                let sighting = (-1...Self.maximumTransit).contains(transit) ? sightSafariWindows(time - max(0, transit)) : [:]
-                states[state.profile] = (state, time, sighting)
+                // The extension notes when it began measuring windows, before asking Safari for them.
+                // A report without that (an older extension's), one that took too long, or one
+                // from a clock that moved, says nothing about where windows were.
+                let transit = state.measured.map { clock() - $0 / 1000 }
+                let measured = transit.flatMap { (-1...Self.maximumTransit).contains($0) ? time - max(0, $0) : nil }
+                states[state.profile] = (state, time, measured ?? -.infinity, measured.map(sightSafariWindows) ?? [:])
                 generation += 1
                 lastContact = time
                 let referenced = referencedIcons

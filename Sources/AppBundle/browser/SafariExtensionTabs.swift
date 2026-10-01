@@ -35,11 +35,13 @@ struct SafariExtensionWindow: Equatable, Sendable {
     /// Where Safari says the window is, in the same top-left screen coordinates WinMux uses.
     var bounds: CGRect? = nil
     var tabs: [SafariExtensionTab]
-    /// When WinMux received the report listing this window, by system uptime.
+    /// When WinMux received the report listing this window, and when Safari began measuring its
+    /// windows for it, both by system uptime.
     var received: TimeInterval = -.infinity
+    var measured: TimeInterval = -.infinity
     /// Where WinMux saw Safari's windows, by window number, when that report arrived: only those
-    /// that had held still since before Safari measured `bounds`. Bounds are only ever compared
-    /// with these, never with where windows are now, which WinMux may have changed since.
+    /// that hadn't moved or changed since before Safari began measuring. Bounds are only ever
+    /// compared with these, never with where windows are now, which WinMux may have changed since.
     var sighting: [UInt32: CGRect] = [:]
 
     func tabKey(_ tab: SafariExtensionTab) -> SafariExtensionTabKey? { tab.id.map { .init(source: key.source, id: $0) } }
@@ -50,6 +52,10 @@ struct SafariExtensionState: Equatable, Sendable {
     let profile: String
     let session: String
     let time: Double
+    /// When the extension began measuring windows for this report, before it asked Safari for
+    /// them, on the same clock as `time` (protocol 2). Without it, the report's bounds say
+    /// nothing WinMux can trust about where windows were.
+    var measured: Double? = nil
     /// Whether Safari lets the extension read every website. Without that, titles are missing.
     let allSites: Bool
     let windows: [SafariExtensionWindow]
@@ -96,7 +102,9 @@ enum SafariExtensionMessage: Equatable, Sendable {
                 // Safari's ids are unique within a session, so a report repeating one is wrong throughout.
                 let tabIds = windows.flatMap { $0.tabs.compactMap(\.id) }
                 guard Set(windows.map(\.key)).count == windows.count, Set(tabIds).count == tabIds.count else { return nil }
+                let measured = version >= 2 ? (message["measured"] as? NSNumber)?.doubleValue : nil
                 return .state(.init(profile: profile, session: session, time: time,
+                    measured: measured.flatMap { $0.isFinite && $0 <= time ? $0 : nil },
                     allSites: message["allSites"] as? Bool ?? false, windows: windows))
             case "icons":
                 guard let raw = message["icons"] as? [String: String], raw.count <= maximumIcons else { return nil }
@@ -208,12 +216,16 @@ struct SafariExtensionNativeWindow: Hashable, Sendable {
 struct SafariExtensionCandidate {
     let snapshot: BrowserWindowTabs
     var observed: TimeInterval = 0
+    /// When WinMux first saw this native window, by system uptime. A report measured before then
+    /// saw another window under its number, if any.
+    var appeared: TimeInterval = -.infinity
     /// Its tabs' titles as the extension's are compared, worked out once for every window they're compared with.
     let titles: [String]
 
-    init(snapshot: BrowserWindowTabs, observed: TimeInterval = 0) {
+    init(snapshot: BrowserWindowTabs, observed: TimeInterval = 0, appeared: TimeInterval = -.infinity) {
         self.snapshot = snapshot
         self.observed = observed
+        self.appeared = appeared
         titles = snapshot.tabs.map { safariExtensionComparableTitle($0.title) }
     }
 
@@ -237,11 +249,13 @@ struct SafariExtensionMatches {
 
 /// Pairs Safari windows with extension windows only where each is the other's one candidate.
 /// Two windows with the same tabs are told apart by where WinMux saw them when the report
-/// arrived (`SafariExtensionWindow.sighting`); if that doesn't settle it, neither is paired. This
-/// never guesses: an unpaired window just keeps Safari's app icon. `unread` are Safari windows
-/// WinMux hasn't read: any of them could be an extension window's real twin. With one, a pairing
-/// also needs the window, and no unread one, to have been where the report says; a window the
-/// report's arrival didn't see in place could have been anywhere, so nothing pairs.
+/// arrived (`SafariExtensionWindow.sighting`): the one paired must have been where Safari says,
+/// and every other that could be must have been seen elsewhere. A window the report's arrival
+/// didn't see could have been anywhere, so it stands in the way. If that doesn't settle it,
+/// neither is paired. This never guesses: an unpaired window just keeps Safari's app icon.
+/// `unread` are Safari windows WinMux hasn't read: any of them could be an extension window's
+/// real twin. With one, a pairing also needs the window to have been where the report says and
+/// every unread one to have been seen elsewhere.
 func safariExtensionPairs(_ candidates: [SafariExtensionCandidate], _ windows: [SafariExtensionWindow],
                           unread: [UInt32] = []) -> [UInt32: SafariExtensionWindowKey] {
     safariExtensionMatches(candidates, windows, unread: unread).pairs
@@ -249,35 +263,40 @@ func safariExtensionPairs(_ candidates: [SafariExtensionCandidate], _ windows: [
 
 func safariExtensionMatches(_ candidates: [SafariExtensionCandidate], _ windows: [SafariExtensionWindow],
                             unread: [UInt32] = []) -> SafariExtensionMatches {
-    var forward: [UInt32: [Int]] = [:]
+    var forward: [Int: [Int]] = [:]
     var backward: [Int: [Int]] = [:]
     for (index, candidate) in candidates.enumerated() {
         for (windowIndex, window) in windows.enumerated() where safariExtensionTabsAgree(candidate, window) {
-            forward[candidate.snapshot.windowId, default: []].append(windowIndex)
+            forward[index, default: []].append(windowIndex)
             backward[windowIndex, default: []].append(index)
         }
     }
-    func seen(_ id: UInt32, in window: Int) -> Bool { windows[window].sighting[id] != nil }
-    func placed(_ id: UInt32, in window: Int) -> Bool { safariExtensionFramesAgree(windows[window].sighting[id], windows[window].bounds) }
+    /// Where the report listing `window` saw the candidate, if it saw this very native window.
+    func frame(_ candidate: Int, in window: Int) -> CGRect? {
+        candidates[candidate].appeared <= windows[window].measured ? windows[window].sighting[candidates[candidate].snapshot.windowId] : nil
+    }
+    func placed(_ candidate: Int, in window: Int) -> Bool { safariExtensionFramesAgree(frame(candidate, in: window), windows[window].bounds) }
+    /// Seen, and somewhere else than the report says.
+    func elsewhere(_ candidate: Int, in window: Int) -> Bool {
+        frame(candidate, in: window).map { !safariExtensionFramesAgree($0, windows[window].bounds) } ?? false
+    }
+    func unreadElsewhere(_ id: UInt32, in window: Int) -> Bool {
+        windows[window].sighting[id].map { !safariExtensionFramesAgree($0, windows[window].bounds) } ?? false
+    }
     var result = SafariExtensionMatches()
-    for (index, candidate) in candidates.enumerated() {
-        let id = candidate.snapshot.windowId
-        guard let agreeing = forward[id] else { continue }
-        // Whether frames the report's arrival didn't record are why this is undecided.
+    for index in candidates.indices {
+        guard let agreeing = forward[index] else { continue }
+        let id = candidates[index].snapshot.windowId
+        // Whether frames the report's arrival didn't record are why this stays undecided.
         let unseen = agreeing.contains { window in
-            !seen(id, in: window) || (backward[window] ?? []).contains { !seen(candidates[$0].snapshot.windowId, in: window) } ||
-                unread.contains { !seen($0, in: window) }
+            frame(index, in: window) == nil || (backward[window] ?? []).contains { frame($0, in: window) == nil } ||
+                unread.contains { windows[window].sighting[$0] == nil }
         }
-        var mine = agreeing
-        if mine.count > 1 { mine = mine.filter { placed(id, in: $0) } }
-        guard mine.count == 1, var theirs = backward[mine[0]] else {
-            if unseen { result.needsFrames.insert(id) }
-            continue
-        }
-        let window = mine[0]
-        if theirs.count > 1 { theirs = theirs.filter { placed(candidates[$0].snapshot.windowId, in: window) } }
-        guard theirs == [index], unread.isEmpty || placed(id, in: window) &&
-            unread.allSatisfy({ seen($0, in: window) && !safariExtensionFramesAgree(windows[window].sighting[$0], windows[window].bounds) })
+        let possible = agreeing.count > 1 ? agreeing.filter { !elsewhere(index, in: $0) } : agreeing
+        guard possible.count == 1, let window = possible.first, let rivals = backward[window],
+              agreeing.count == 1 && rivals.count == 1 ||
+                  placed(index, in: window) && rivals.allSatisfy({ $0 == index || elsewhere($0, in: window) }),
+              unread.isEmpty || placed(index, in: window) && unread.allSatisfy({ unreadElsewhere($0, in: window) })
         else {
             if unseen { result.needsFrames.insert(id) }
             continue
@@ -314,9 +333,6 @@ struct SafariExtensionAssociations {
     static let confirmation: TimeInterval = 0.75
     static let grace: TimeInterval = 10
     private var lifetimes: [UInt32: SafariExtensionNativeWindow] = [:]
-    /// When a window number started belonging to another window. Reports that arrived before
-    /// then saw the earlier window there.
-    private var replaced: [UInt32: TimeInterval] = [:]
     private var pending: [UInt32: (key: SafariExtensionWindowKey, observed: TimeInterval)] = [:]
     private var confirmed: [UInt32: SafariExtensionWindowKey] = [:]
     private var lastAgreement: [UInt32: TimeInterval] = [:]
@@ -339,19 +355,10 @@ struct SafariExtensionAssociations {
                          now: TimeInterval) {
         for candidate in candidates {
             let native = candidate.native
-            if let known = lifetimes[native.windowId], known != native {
-                reset(native.windowId)
-                replaced[native.windowId] = now
-            }
+            if let known = lifetimes[native.windowId], known != native { reset(native.windowId) }
             lifetimes[native.windowId] = native
         }
         let ids = Set(candidates.map(\.snapshot.windowId))
-        replaced = replaced.filter { ids.contains($0.key) }
-        let windows = replaced.isEmpty ? windows : windows.map { window in
-            var window = window
-            window.sighting = window.sighting.filter { id, _ in replaced[id].map { window.received >= $0 } ?? true }
-            return window
-        }
         let byKey = Dictionary(windows.map { ($0.key, $0) }, uniquingKeysWith: { first, _ in first })
         let alive = Set(candidates.flatMap { $0.snapshot.tabs.map(\.target) })
         tabs = tabs.filter { alive.contains($0.key) }
@@ -362,11 +369,13 @@ struct SafariExtensionAssociations {
         lastAgreement = lastAgreement.filter { ids.contains($0.key) }
 
         let loose = safariExtensionMatches(candidates, windows)
+        // A report that pairs the window, or its report, otherwise outweighs the hold.
+        let owners = Dictionary(loose.pairs.map { ($0.value, $0.key) }, uniquingKeysWith: { first, _ in first })
         var held: [UInt32: SafariExtensionWindowKey] = [:]
         for candidate in candidates {
             let id = candidate.snapshot.windowId
             if let key = confirmed[id], let window = byKey[key], safariExtensionTabsAgree(candidate, window),
-               loose.pairs[id].map({ $0 == key }) ?? true { held[id] = key }
+               loose.pairs[id].map({ $0 == key }) ?? true, owners[key].map({ $0 == id }) ?? true { held[id] = key }
         }
         // A window still in its grace period can share its key with one paired since.
         let holders = Dictionary(held.values.map { ($0, 1) }, uniquingKeysWith: +)
@@ -409,38 +418,37 @@ struct SafariExtensionAssociations {
         }
     }
 
-    /// Gives each of a paired window's tabs what the extension says about it. A read made after
-    /// the report saw the tabs the report lists, so they pair by position, and each keeps the id
-    /// it paired with. Before that read, tabs may have moved since the read: each keeps the
-    /// Safari tab it was, wherever that is now in the window, and one whose tab left takes its
-    /// place's, unless another listed tab is that one. Titles and places never say which tab is
-    /// which once ids do.
+    /// Gives each of a paired window's tabs what the extension says about it. Each listed tab
+    /// keeps the Safari tab it's bound to, by id, as long as Safari still lists that tab in this
+    /// window and their titles agree, wherever the tab bar puts it: neither a read nor a report
+    /// says which of two same-titled tabs moved. A tab without one is bound to the tab in its
+    /// place only by a read made after the report, and only to a tab no other listed tab is.
+    /// Until then, and once its tab is gone, it shows nothing from the extension.
     private mutating func describe(_ candidate: SafariExtensionCandidate, _ window: SafariExtensionWindow) {
-        let targets = candidate.snapshot.tabs.map(\.target)
+        let listed = candidate.snapshot.tabs
         let keys = window.tabs.compactMap(window.tabKey)
+        // An older extension doesn't name tabs: they pair by position.
         guard keys.count == window.tabs.count else {
-            for (target, tab) in zip(targets, window.tabs) {
-                tabs[target] = tab
-                bound[target] = nil
-            }
-            return
-        }
-        if candidate.observed >= window.received {
-            for (index, target) in targets.enumerated() {
-                bound[target] = keys[index]
-                tabs[target] = window.tabs[index]
+            for (tab, described) in zip(listed, window.tabs) {
+                tabs[tab.target] = described
+                bound[tab.target] = nil
             }
             return
         }
         let positions = Dictionary(keys.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
-        let claimed = Set(targets.compactMap { bound[$0] }.filter { positions[$0] != nil })
-        for (index, target) in targets.enumerated() {
-            if let key = bound[target], let position = positions[key] {
-                tabs[target] = window.tabs[position]
-            } else if !claimed.contains(keys[index]) {
-                bound[target] = keys[index]
-                tabs[target] = window.tabs[index]
+        var claimed: Set<SafariExtensionTabKey> = []
+        for tab in listed {
+            if let key = bound[tab.target], positions[key] != nil { claimed.insert(key) } else { bound[tab.target] = nil }
+        }
+        let comparable = candidate.observed >= window.received
+        for (index, tab) in listed.enumerated() {
+            if bound[tab.target] == nil, comparable, claimed.insert(keys[index]).inserted { bound[tab.target] = keys[index] }
+            guard let key = bound[tab.target], let position = positions[key] else {
+                tabs[tab.target] = nil
+                continue
             }
+            let described = window.tabs[position]
+            tabs[tab.target] = described.title.isEmpty || described.title == candidate.titles[index] ? described : nil
         }
     }
 
@@ -473,32 +481,56 @@ struct SafariExtensionAssociations {
     }
 }
 
+/// What WinMux knows about a Safari window's geometry at one moment.
+struct SafariExtensionFrameSample: Equatable, Sendable {
+    var frame: CGRect?
+    /// Which native window it is: a later one with the same number is another.
+    var identity: ObjectIdentifier? = nil
+    /// Counts WinMux's moves and resizes of the window and the ones it heard about, so a move
+    /// and a move back between two samples still count.
+    var generation: UInt64? = nil
+}
+
 /// Where WinMux has seen each Safari window, and since when it has been there, so a report's
 /// bounds are only ever compared with frames from the moment Safari measured them.
 struct SafariExtensionFrameTrack {
-    /// How long before Safari measured its windows a frame must already have been in place:
-    /// WinMux samples frames a few times a second, and could have missed a move just before.
+    /// How long before Safari began measuring its windows a frame must already have been in
+    /// place: WinMux samples frames a few times a second, and hears of some moves late.
     static let margin: TimeInterval = 0.3
-    private var frames: [UInt32: (frame: CGRect, since: TimeInterval)] = [:]
+    private struct Entry {
+        var sample: SafariExtensionFrameSample
+        var frame: CGRect
+        var since: TimeInterval
+        var appeared: TimeInterval
+    }
+    private var entries: [UInt32: Entry] = [:]
 
-    /// Where Safari's windows are now. A window first seen, moved or resized starts counting
-    /// again; one not listed, or whose frame is unknown, is dropped.
-    mutating func observe(_ current: [UInt32: CGRect?], now: TimeInterval) {
-        var next: [UInt32: (frame: CGRect, since: TimeInterval)] = [:]
-        for (id, frame) in current {
-            guard let frame else { continue }
-            if let known = frames[id], safariExtensionFramesAgree(known.frame, frame, tolerance: 1) {
-                next[id] = known
-            } else {
-                next[id] = (frame, now)
+    /// Where Safari's windows are now. A window first seen, moved, resized or replaced starts
+    /// counting again; one not listed, or whose frame is unknown, is dropped.
+    mutating func observe(_ current: [UInt32: SafariExtensionFrameSample], now: TimeInterval) {
+        var next: [UInt32: Entry] = [:]
+        for (id, sample) in current {
+            guard let frame = sample.frame else { continue }
+            guard let known = entries[id], known.sample.identity == sample.identity else {
+                next[id] = Entry(sample: sample, frame: frame, since: now, appeared: now)
+                continue
             }
+            let still = known.sample.generation == sample.generation && safariExtensionFramesAgree(known.frame, frame, tolerance: 1)
+            next[id] = Entry(sample: sample, frame: frame, since: still ? known.since : now, appeared: known.appeared)
         }
-        frames = next
+        entries = next
     }
 
-    /// The windows that have been where they are since before `measured`, when Safari measured
-    /// its windows for a report.
-    func sighting(measured: TimeInterval) -> [UInt32: CGRect] {
-        frames.filter { $0.value.since <= measured - Self.margin }.mapValues(\.frame)
+    mutating func observe(_ frames: [UInt32: CGRect?], now: TimeInterval) {
+        observe(frames.mapValues { SafariExtensionFrameSample(frame: $0) }, now: now)
     }
+
+    /// The windows that have been where they are, unmoved, since before `measured`, when Safari
+    /// began measuring its windows for a report.
+    func sighting(measured: TimeInterval) -> [UInt32: CGRect] {
+        entries.filter { $0.value.since <= measured - Self.margin }.mapValues(\.frame)
+    }
+
+    /// When the native window now under this number was first seen, if it has been.
+    func appeared(_ id: UInt32) -> TimeInterval? { entries[id]?.appeared }
 }

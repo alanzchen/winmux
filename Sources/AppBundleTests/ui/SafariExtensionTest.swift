@@ -156,6 +156,21 @@ final class SafariExtensionTest: XCTestCase {
             XCTAssertEqual(try evaluate(context, "WinMuxTabs.negotiatedVersion(\(reply), 2)") as? Int, 2, reply)
         }
         XCTAssertEqual(try evaluate(context, "WinMuxTabs.negotiatedVersion({v: 1, ok: false, reason: 'invalid'}, 1)") as? Int, 1)
+        // Version 2 says when the extension began measuring windows; version 1 has no place for it.
+        let current = try XCTUnwrap(try evaluate(context, "WinMuxTabs.stateMessage({session: 's', measured: 5, time: 9, allSites: true, windows: []})") as? [String: Any])
+        XCTAssertEqual(current["measured"] as? Int, 5)
+        XCTAssertEqual(current["v"] as? Int, 2)
+        let older = try XCTUnwrap(try evaluate(context, "WinMuxTabs.stateMessage({version: 1, session: 's', measured: 5, time: 9, allSites: true, windows: []})") as? [String: Any])
+        XCTAssertNil(older["measured"])
+        for (measured, kept) in [(5.0, 5.0), (9, 9), (10, nil), (Double.nan, nil)] as [(Double, Double?)] {
+            var message: [String: Any] = ["v": 2, "type": "state", "session": "s", "time": 9, "windows": [] as [Any]]
+            if !measured.isNaN { message["measured"] = measured }
+            guard case .state(let state) = SafariExtensionMessage.decode(try envelope(message)) else { return XCTFail() }
+            XCTAssertEqual(state.measured, kept, "A measurement after the report was sent can't be")
+        }
+        guard case .state(let legacy) = SafariExtensionMessage.decode(try envelope(["v": 1, "type": "state", "session": "s", "time": 9,
+            "measured": 5, "windows": [] as [Any]])) else { return XCTFail() }
+        XCTAssertNil(legacy.measured)
         // This WinMux takes both, and answers in its own version.
         let bridge = SafariExtensionBridge(configuration: { nil }, icons: SafariExtensionIcons())
         bridge.setEnabled(true)

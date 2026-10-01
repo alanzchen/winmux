@@ -169,7 +169,8 @@ final class BrowserTabsModel: ObservableObject {
             reports: safariExtension.generation, unread: unread)
         guard evidence != safariEvidence else { return }
         safariEvidence = evidence
-        safariAssociations.update(safari.map { .init(snapshot: $0, observed: cache.observed[$0.windowId] ?? 0) },
+        safariAssociations.update(safari.map { .init(snapshot: $0, observed: cache.observed[$0.windowId] ?? 0,
+                appeared: safariFrames.appeared($0.windowId) ?? .infinity) },
             windows: safariExtension.windows, unread: unread, now: ProcessInfo.processInfo.systemUptime)
         // Safari reports where its windows are only with its tabs; ask again rather than wait a minute.
         if safariAssociations.awaitsFrames { safariExtension.requestResync(atMostEvery: 10) }
@@ -179,17 +180,21 @@ final class BrowserTabsModel: ObservableObject {
         MacWindow.allWindowsMap.values.filter { $0.app.rawAppBundleId == safariBundleId }.map(\.windowId)
     }
 
-    /// Notes where each Safari window is, a few times a second while browser tabs are on, so a
-    /// report arriving knows which windows have held still since Safari measured them.
+    /// Notes where each Safari window is, a few times a second while a sidebar shows browser
+    /// tabs, so a report arriving knows which windows have held still since Safari measured them.
+    /// Each window's move count catches a move and a move back between two samples.
     private func trackSafariFrames(now: TimeInterval) {
-        let ids = liveSafariWindows()
-        guard safariExtension.isAvailable, !ids.isEmpty else {
+        let windows = MacWindow.allWindowsMap.values.filter { $0.app.rawAppBundleId == safariBundleId }
+        guard safariExtension.isAvailable, !schedule.watched.isEmpty, !windows.isEmpty else {
             safariFrames = .init()
             return
         }
-        safariFrames.observe(Dictionary(ids.map { id in
-            (id, Window.get(byId: id)?.lastKnownActualRect.map { CGRect(x: $0.topLeftX, y: $0.topLeftY, width: $0.width, height: $0.height) }
-                ?? windowServerFrame(id))
+        let measured = windowServerFrames(windows.filter { $0.lastKnownActualRect == nil }.map(\.windowId))
+        safariFrames.observe(Dictionary(windows.map { window in
+            (window.windowId, SafariExtensionFrameSample(
+                frame: window.lastKnownActualRect.map { CGRect(x: $0.topLeftX, y: $0.topLeftY, width: $0.width, height: $0.height) }
+                    ?? measured[window.windowId],
+                identity: ObjectIdentifier(window), generation: window.nativeStateObservationToken()))
         }, uniquingKeysWith: { first, _ in first }), now: now)
     }
 
@@ -306,14 +311,21 @@ func browserTabsShown(_ snapshot: BrowserWindowTabs, read: TimeInterval?, now: T
     return snapshot
 }
 
-/// Where the window server has a window WinMux hasn't measured yet, such as one that just opened,
-/// in the same top-left screen coordinates.
-private func windowServerFrame(_ id: UInt32) -> CGRect? {
-    var value = UnsafeRawPointer(bitPattern: UInt(id))
-    guard let ids = CFArrayCreate(nil, &value, 1, nil),
-          let bounds = (CGWindowListCreateDescriptionFromArray(ids) as? [[String: Any]])?.first?[kCGWindowBounds as String] as? NSDictionary
-    else { return nil }
-    return CGRect(dictionaryRepresentation: bounds)
+/// Where the window server has windows WinMux hasn't measured lately, such as ones that just
+/// opened or moved, in the same top-left screen coordinates, in one request.
+private func windowServerFrames(_ ids: [UInt32]) -> [UInt32: CGRect] {
+    guard !ids.isEmpty else { return [:] }
+    var values = ids.map { UnsafeRawPointer(bitPattern: UInt($0)) }
+    guard let array = CFArrayCreate(nil, &values, values.count, nil),
+          let descriptions = CGWindowListCreateDescriptionFromArray(array) as? [[String: Any]] else { return [:] }
+    var frames: [UInt32: CGRect] = [:]
+    for description in descriptions {
+        guard let number = (description[kCGWindowNumber as String] as? NSNumber)?.uint32Value,
+              let bounds = description[kCGWindowBounds as String] as? NSDictionary,
+              let frame = CGRect(dictionaryRepresentation: bounds) else { continue }
+        frames[number] = frame
+    }
+    return frames
 }
 
 @MainActor

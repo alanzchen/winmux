@@ -102,13 +102,15 @@ async function send() {
         // The pause may have been read from storage after this send was scheduled.
         if (!force && isUnavailable()) return;
         const wasUnavailable = unavailableUntil !== 0;
+        // Noted before asking for the windows: their bounds describe some moment after this.
+        const measured = Date.now();
         const windows = await browser.windows.getAll({ populate: true });
         const allSites = await browser.permissions.contains({ origins: ["*://*/*"] }).catch(() => false);
         const version = peerVersion;
-        const reply = await browser.runtime.sendNativeMessage(nativeApplication, {
-            v: version, type: "state", session: data.session, time: Date.now(), allSites,
+        const reply = await browser.runtime.sendNativeMessage(nativeApplication, WinMuxTabs.stateMessage({
+            version, session: data.session, measured, time: Date.now(), allSites,
             windows: WinMuxTabs.stateWindows(windows, (tab) => iconFor(data, tab), version),
-        });
+        }));
         const spoken = WinMuxTabs.negotiatedVersion(reply, version);
         if (spoken !== version) {
             // An older WinMux: say it again in its version, without tab ids.

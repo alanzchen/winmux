@@ -211,6 +211,17 @@ var WinMuxTabs = (() => {
     }
 
     /**
+     * A report of `windows` for WinMux, in `version`. From version 2 it also says when the
+     * extension began measuring windows, `measured`, before it asked Safari for them: WinMux
+     * trusts their bounds only against where it saw windows from just before then.
+     */
+    function stateMessage({ version = protocolVersion, session, measured, time, allSites, windows }) {
+        const message = { v: version, type: "state", session, time, allSites, windows };
+        if (version >= 2) message.measured = measured;
+        return message;
+    }
+
+    /**
      * The version to speak to WinMux after its `reply` to a message in `version`: an older WinMux
      * refuses a newer message as invalid and names the version it speaks.
      */
@@ -244,6 +255,6 @@ var WinMuxTabs = (() => {
 
     return {
         protocolVersion, host, origin, iconAddressAllowed, iconCandidates, imageDimensions, iconBytesAllowed,
-        stateWindows, negotiatedVersion, trimmed, hex, base64,
+        stateWindows, stateMessage, negotiatedVersion, trimmed, hex, base64,
     };
 })();
