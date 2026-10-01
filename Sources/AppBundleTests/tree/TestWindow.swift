@@ -52,8 +52,12 @@ final class TestWindow: Window, CustomStringConvertible {
 
     nonisolated var description: String { "TestWindow(\(windowId))" }
 
+    /// Native focus requests, to show an edit made none.
+    @MainActor private(set) var nativeFocusCount = 0
+
     @MainActor
     override func nativeFocus() {
+        nativeFocusCount += 1
         appForTests = testApp
         testApp.focusedWindow = self
     }

@@ -24,7 +24,8 @@ struct WorkspaceTopicEvidence: Hashable, Sendable {
     /// A name the user gave the tab. Generated names, which may come from titles, aren't used.
     let label: String?
     let windows: [WorkspaceTopicWindowEvidence]
-    /// False when some of its windows weren't listed, such as minimized ones, or titles were cut.
+    /// False when some of its windows can't be read: minimized or hidden ones the sidebar doesn't
+    /// list, or more than one request takes. A long title cut short still counts as read.
     let isComplete: Bool
 
     var appNames: [String] { windows.map(\.appName) }
@@ -45,6 +46,10 @@ enum WorkspaceTopicSkipReason: Hashable, Sendable {
     case notEnoughToGoOn
     /// It has no windows of its own.
     case empty
+    /// Some of its windows can't be read, such as minimized ones, so it can't be judged whole.
+    case partlyHidden
+    /// Apple Intelligence couldn't tag it, for example because it declined.
+    case untagged
     /// Its windows changed while the sidebar was being read.
     case changed
     /// More tabs than one suggestion analyzes.
@@ -56,6 +61,8 @@ enum WorkspaceTopicSkipReason: Hashable, Sendable {
             case .excludedApp(let app): "Has a \(app) window, which you excluded."
             case .notEnoughToGoOn: "Its titles don't say what it's about."
             case .empty: "It has no windows."
+            case .partlyHidden: "Some of its windows, such as minimized ones, can't be read, so it's left as it is."
+            case .untagged: "Apple Intelligence couldn't tag it."
             case .changed: "It changed while WinMux was reading it."
             case .limit: "Over the \(workspaceTopicMaximumCandidates)-tab limit for one suggestion."
         }

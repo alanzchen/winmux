@@ -61,6 +61,61 @@ final class WorkspaceTopicCoordinatorTest: XCTestCase {
         XCTAssertEqual(prompts, [])
     }
 
+    func testARunQueuedJustBeforeOffNeverMakesTheProvider() async throws {
+        var made = 0
+        coordinator.makeProvider = { made += 1; return self.provider }
+        makeTabs()
+        await updateWorkspaceSidebarModel()
+        coordinator.suggest(WorkspaceTopicTestEnvironment.scope(), snapshot: WorkspaceTopicTestEnvironment.snapshot)
+        // Off before the queued run gets a turn.
+        config.workspaceSidebar.intelligence.mode = .off
+        syncWorkspaceTopicSuggestions()
+        try await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertEqual(made, 0, "No model object after Off")
+        let checks = await provider.availabilityChecks
+        XCTAssertEqual(checks, 0)
+        XCTAssertEqual(coordinator.cachedTagCount, 0)
+    }
+
+    func testANewExclusionStopsTheRunBeforeTheNextCall() async throws {
+        makeTabs()
+        await provider.hold()
+        await suggest()
+        try await WorkspaceTopicTestEnvironment.waitUntil { await self.provider.heldCount == 1 }
+        // Excluded while the first call runs: no later tab of that app may be sent.
+        config.workspaceSidebar.intelligence.excludedApps = ["com.apple.Terminal"]
+        await provider.release()
+        try await Task.sleep(nanoseconds: 100_000_000)
+        let prompts = await provider.prompts
+        XCTAssertEqual(prompts.count, 1, "The run stopped at the change")
+        XCTAssertFalse(prompts.joined().contains("Terminal"))
+        await updateWorkspaceSidebarModel()
+        XCTAssertFalse(coordinator.isActive, "And the preview closes")
+        XCTAssertEqual(coordinator.cachedTagCount, 0, "Tags made under the old settings are forgotten")
+    }
+
+    func testANewRequestStartsWithoutTheLastOnesConsent() async throws {
+        makeTabs()
+        TestWindow.new(id: 270, parent: Workspace.get(byName: "web").rootTilingContainer, app: TopicTestApps.safari,
+            title: "ECON 4310 syllabus")
+        await suggest()
+        try await WorkspaceTopicTestEnvironment.settle(coordinator)
+        let token = try XCTUnwrap(coordinator.request?.prepared.skipped.first { $0.reason == .browser(appName: "Safari") }?.token)
+        coordinator.setBrowserTab(token, included: true)
+        try await WorkspaceTopicTestEnvironment.settle(coordinator)
+        var prompts = await provider.prompts
+        XCTAssertEqual(prompts.filter { $0.contains("syllabus") }.count, 1)
+        // Without cancelling the open preview, ask again from a menu.
+        openWorkspaceTopicSuggestions(projectId: TrayMenuModel.shared.workspaceSidebarActiveProjectId, tabs: nil,
+            panelScopeId: WorkspaceTopicTestEnvironment.scopeId)
+        try await WorkspaceTopicTestEnvironment.settle(coordinator)
+        prompts = await provider.prompts
+        XCTAssertEqual(prompts.filter { $0.contains("syllabus") }.count, 1, "Cached tags aren't asked for, and the browser tab is out again")
+        XCTAssertEqual(coordinator.includedBrowserTabs, [])
+        XCTAssertTrue(coordinator.request?.prepared.skipped.contains { $0.reason == .browser(appName: "Safari") } == true)
+        WorkspaceTopicSuggestionPanel.shared.close()
+    }
+
     func testOnlyTabsModeOffersSuggestions() async {
         makeTabs()
         await updateWorkspaceSidebarModel()
@@ -206,7 +261,8 @@ final class WorkspaceTopicCoordinatorTest: XCTestCase {
         try await WorkspaceTopicTestEnvironment.settle(coordinator)
         XCTAssertEqual(coordinator.phase, .ready)
         XCTAssertEqual(groupNames(), ["tiling-app"])
-        XCTAssertEqual(coordinator.request?.thin.count, 1, "The refused tab is listed as not analyzed")
+        XCTAssertEqual(coordinator.request?.untagged.count, 1, "The refused tab is listed as left out, with its own reason")
+        XCTAssertEqual(coordinator.request?.thin, [])
         coordinator.reset()
         await provider.fail("grades", with: .busy)
         await suggest()

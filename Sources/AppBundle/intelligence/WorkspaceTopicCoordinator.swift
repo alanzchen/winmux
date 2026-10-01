@@ -39,8 +39,10 @@ struct WorkspaceTopicRequestState {
     let prepared: WorkspaceTopicPreparedRequest
     /// Tabs whose titles were sent to the model, as sent.
     var analyzed: [WorkspaceTopicEvidence] = []
-    /// Tabs left out after reading them: their titles say too little, or the model couldn't tag them.
+    /// Tabs left out after reading them: their titles say too little to send.
     var thin: [WorkspaceTopicToken] = []
+    /// Tabs sent to the model that it couldn't tag, such as a refusal. They join no group.
+    var untagged: [WorkspaceTopicToken] = []
     var scope: WorkspaceTopicScope { prepared.scope }
 }
 
@@ -86,6 +88,8 @@ final class WorkspaceTopicCoordinator: ObservableObject {
     /// the model, so the next call waits for this one: never two at once.
     private var occupancy: Task<Void, Never>?
     private var cache = WorkspaceTopicTagCache(capacity: 128)
+    /// The settings the cached tags were made under.
+    private var cachePrivacy: WorkspaceIntelligenceConfig?
     private var consents: [WorkspaceTopicBrowserConsent] = []
     private(set) var providerCallCount = 0
     private(set) var providerFactoryCallCount = 0
@@ -96,14 +100,19 @@ final class WorkspaceTopicCoordinator: ObservableObject {
 
     // MARK: Requests
 
-    /// Starts a suggestion for `scope`, replacing any in progress.
-    func suggest(_ scope: WorkspaceTopicScope, snapshot: WorkspaceSidebarSnapshot) {
+    /// Starts a suggestion for `scope`, replacing any in progress. A new request from a menu
+    /// starts without consent; only regenerating the same preview keeps what it was given.
+    func suggest(_ scope: WorkspaceTopicScope, snapshot: WorkspaceSidebarSnapshot, keepingConsent: Bool = false) {
         let started = clock.now
         generation &+= 1
         let current = generation
         runTask?.cancel()
         runTask = nil
         groups = []
+        if !keepingConsent || request?.scope != scope {
+            consents = []
+            includedBrowserTabs = []
+        }
         guard config.suggestsTopicGroups else {
             request = nil
             phase = .unavailable(.notTabsMode)
@@ -128,18 +137,27 @@ final class WorkspaceTopicCoordinator: ObservableObject {
 
     private func isCurrent(_ generation: UInt64) -> Bool { generation == self.generation && !Task.isCancelled }
 
+    /// Still this run, still on, and still under the settings it was asked with: checked before
+    /// making the provider, before every model call, and after every wait.
+    private func mayContinue(_ generation: UInt64, privacy: WorkspaceIntelligenceConfig) -> Bool {
+        isCurrent(generation) && config.suggestsTopicGroups && TrayMenuModel.shared.isEnabled &&
+            config.workspaceSidebar.intelligence == privacy
+    }
+
     private func run(_ candidates: [WorkspaceTopicEvidence], generation: UInt64, projectId: String,
                      privacy: WorkspaceIntelligenceConfig, started: Double) async {
+        // A run queued just before Off, Cancel or a newer request never reaches the model.
+        guard mayContinue(generation, privacy: privacy) else { return }
         if provider == nil {
             providerFactoryCallCount += 1
             provider = makeProvider()
         }
         guard let provider else { phase = .unavailable(.requiresNewerMacOS); return }
         let availability = await provider.availability()
-        guard isCurrent(generation) else { return }
+        guard mayContinue(generation, privacy: privacy) else { return }
         if case .unavailable(let reason) = availability { phase = .unavailable(reason); return }
         let (enough, thin) = await workspaceTopicSplitThinEvidence(candidates)
-        guard isCurrent(generation) else { return }
+        guard mayContinue(generation, privacy: privacy) else { return }
         request?.thin = thin
         request?.analyzed = enough
         phase = .analyzing(done: 0, total: enough.count)
@@ -162,20 +180,23 @@ final class WorkspaceTopicCoordinator: ObservableObject {
                     catch is CancellationError { return }
                     catch { return fail(.timedOut, generation) }
                 }
-                // A newer suggestion, Cancel or Off may have come while waiting: check before asking.
-                guard isCurrent(generation) else { return }
+                // A newer suggestion, Cancel, Off or a new exclusion may have come while waiting.
+                guard mayContinue(generation, privacy: privacy) else { return }
                 let call = Task { try await provider.topics(for: evidence) }
                 occupancy = Task { _ = try? await call.value }
                 providerCallCount += 1
                 calls += 1
                 do {
                     tags = try await workspaceTopicAwait(call, timeout: min(itemTimeout, max(0, deadline - clock.now)), clock: clock)
+                    // A reset while the answer came back cleared the cache; don't refill it.
+                    guard mayContinue(generation, privacy: privacy) else { return }
                     cache.insert(tags, for: key)
+                    cachePrivacy = privacy
                 } catch is CancellationError {
                     // A newer suggestion, Cancel, or turning the feature off.
                     return
                 } catch {
-                    guard isCurrent(generation) else { return }
+                    guard mayContinue(generation, privacy: privacy) else { return }
                     let failure = error as? WorkspaceTopicFailure ?? .generationFailed
                     if failure == .timedOut, clock.now >= deadline { return fail(.timedOut, generation) }
                     guard failure.affectsOnlyOneTab else { return fail(failure, generation) }
@@ -186,13 +207,13 @@ final class WorkspaceTopicCoordinator: ObservableObject {
                     continue
                 }
             }
-            guard isCurrent(generation) else { return }
+            guard mayContinue(generation, privacy: privacy) else { return }
             items.append(.init(evidence: evidence, tags: tags))
             phase = .analyzing(done: index + 1, total: enough.count)
         }
         let suggested = await workspaceTopicRunPolicy(items)
-        guard isCurrent(generation) else { return }
-        request?.thin += abstained
+        guard mayContinue(generation, privacy: privacy) else { return }
+        request?.untagged = abstained
         groups = suggested.map { group in
             WorkspaceTopicDraftGroup(id: group.id, name: group.name,
                 members: group.members.map { WorkspaceTopicDraftMember(token: $0) }, sharedEvidence: group.sharedEvidence)
@@ -210,7 +231,7 @@ final class WorkspaceTopicCoordinator: ObservableObject {
     /// Asks again for the same tabs, as they are now.
     func suggestAgain() {
         guard let request, let snapshot = workspaceTopicPanelSnapshot(for: request.scope) else { return reset() }
-        suggest(request.scope, snapshot: snapshot)
+        suggest(request.scope, snapshot: snapshot, keepingConsent: true)
     }
 
     /// Includes a browser tab's titles in this request only, bound to the text just shown.
@@ -248,6 +269,7 @@ final class WorkspaceTopicCoordinator: ObservableObject {
         cancel()
         provider = nil
         cache.removeAll()
+        cachePrivacy = nil
         WorkspaceTopicSuggestionPanel.shared.close()
     }
 
@@ -289,8 +311,14 @@ final class WorkspaceTopicCoordinator: ObservableObject {
     /// After each sidebar update: a preview whose sidebar now shows another project or display
     /// list, or whose feature was turned off, is closed rather than applied somewhere else.
     func revalidate() {
+        if let cachePrivacy, cachePrivacy != config.workspaceSidebar.intelligence {
+            cache.removeAll()
+            self.cachePrivacy = nil
+        }
         guard let request else { return }
         guard config.suggestsTopicGroups, TrayMenuModel.shared.isEnabled else { return reset() }
+        // New exclusions or a new mode: what was read may no longer be allowed. Start over.
+        guard config.workspaceSidebar.intelligence == request.prepared.privacy else { return reset() }
         guard workspaceTopicPanelStillShows(request.scope) else { return reset() }
     }
 }

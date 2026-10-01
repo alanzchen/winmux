@@ -61,19 +61,29 @@ final class WorkspaceTopicSnapshotTest: XCTestCase {
         let request = await prepare()
         XCTAssertFalse(request.candidates.contains { name(request, $0.token) == "split" },
             "The sidebar doesn't list the minimized window, but it's still the tab's")
-        XCTAssertEqual(request.skipped.first { name(request, $0.token) == "split" }?.reason, .browser(appName: "Safari"))
+        let skipped = request.skipped.first { name(request, $0.token) == "split" }
+        XCTAssertEqual(skipped?.reason, .partlyHidden)
+        XCTAssertNil(skipped?.preview, "Its whole text can't be shown, so it can't be included either")
         XCTAssertEqual(request.bindings.values.first { $0.name == "split" }?.windows.map(\.windowId), [10, 11])
     }
 
-    func testAMinimizedOrdinaryWindowMarksTheTabIncomplete() async {
+    func testASplitWithAWindowItCantReadIsLeftWhole() async {
+        // The minimized window could be about something else: the split must not join the
+        // visible window's topic.
         let split = tab("split", [(12, TopicTestApps.xcode, "Config.swift — tiling-app")])
-        let hidden = TestWindow.new(id: 13, parent: split.rootTilingContainer, app: TopicTestApps.terminal, title: "build")
+        let hidden = TestWindow.new(id: 13, parent: split.rootTilingContainer, app: TopicTestApps.terminal, title: "Divorce papers")
         hidden.bind(to: macosMinimizedWindowsContainer, adaptiveWeight: 1, index: INDEX_BIND_LAST)
         hidden.layoutReason = .macos(prevParentKind: .tilingContainer, prevWorkspaceName: split.name)
+        _ = tab("peer", [(14, TopicTestApps.terminal, "tiling-app — build")])
         let request = await prepare()
-        let evidence = request.candidates.first { name(request, $0.token) == "split" }
-        XCTAssertEqual(evidence?.isComplete, false)
-        XCTAssertEqual(evidence?.windows.map(\.title), ["Config.swift — tiling-app"], "Only what the sidebar shows is read")
+        XCTAssertFalse(request.candidates.contains { name(request, $0.token) == "split" })
+        XCTAssertEqual(request.skipped.first { name(request, $0.token) == "split" }?.reason, .partlyHidden)
+        XCTAssertFalse(request.candidates.map(\.promptText).joined().contains("Divorce"), "Never read")
+        let many = tab("many", (0 ..< 7).map { (UInt32(20 + $0), TopicTestApps.xcode, "tiling-app part \($0)") })
+        _ = many
+        let crowded = await prepare()
+        XCTAssertEqual(crowded.skipped.first { name(crowded, $0.token) == "many" }?.reason, .partlyHidden,
+            "A seventh window the request can't take could be about something else")
     }
 
     func testPinnedAndGroupedTabsAreLeftAsTheyAre() async throws {

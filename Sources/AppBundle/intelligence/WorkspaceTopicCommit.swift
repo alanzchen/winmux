@@ -98,7 +98,7 @@ func commitWorkspaceTopicGroups(_ groups: [WorkspaceTopicCommitGroup], request: 
 }
 
 /// The live tabs a batch would group, or nil if anything about any of them changed: the
-/// feature, the settings, the sidebar's scope, or a member's identity, windows, titles, pin or group.
+/// feature, the settings, the sidebar's scope, or a member's identity, windows, titles, label, pin or group.
 @MainActor
 func workspaceTopicValidatedMembers(_ groups: [WorkspaceTopicCommitGroup], request: WorkspaceTopicRequestState,
                                     isCurrent: Bool) -> [Workspace]? {
@@ -111,17 +111,21 @@ func workspaceTopicValidatedMembers(_ groups: [WorkspaceTopicCommitGroup], reque
         guard group.members.count >= 2, group.members.allSatisfy({ seen.insert($0).inserted }),
               let name = workspaceTopicValidatedEditedName(group.name), name == group.name else { return nil }
     }
-    let published = Dictionary(TrayMenuModel.shared.workspaceSidebarWorkspaces.map { ($0.name, $0) }, uniquingKeysWith: { first, _ in first })
+    // Each member must still be in the list that sidebar shows now, as the user sees it.
+    guard let snapshot = workspaceTopicPanelSnapshot(for: prepared.scope) else { return nil }
+    let listed = Dictionary(snapshot.tabsListedWorkspaces(for: prepared.scope.projectId).map { ($0.name, $0) },
+        uniquingKeysWith: { first, _ in first })
+    let analyzed = Set(request.analyzed.map(\.token))
     let store = workspaceSidebarOrganizationStore
     var workspaces: [Workspace] = []
     for token in groups.flatMap(\.members) {
-        guard let binding = prepared.bindings[token], let workspace = binding.liveWorkspace,
+        guard analyzed.contains(token), let binding = prepared.bindings[token], let workspace = binding.liveWorkspace,
               workspace.projectId == binding.projectId, workspace.projectId == prepared.scope.projectId,
               store.state.workspaces[binding.name]?.isFavorite != true, store.collection(containing: binding.name) == nil,
               binding.windows.allSatisfy(\.isLive),
               workspaceTopicLiveWindows(workspace).map(\.windowId).sorted() == binding.windows.map(\.windowId),
-              let tab = published[binding.name],
-              workspaceTopicEvidence(for: tab, token: token, liveWindowCount: binding.windows.count).windows.map(\.title) == binding.titles
+              let tab = listed[binding.name],
+              workspaceTopicEvidence(for: tab, token: token, liveWindowCount: binding.windows.count).promptText == binding.evidenceText
         else { return nil }
         workspaces.append(workspace)
     }

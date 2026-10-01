@@ -29,8 +29,8 @@ struct WorkspaceTopicBinding {
     let projectId: WorkspaceProjectId
     weak var workspace: Workspace?
     let windows: [WorkspaceTopicWindowRef]
-    /// The sanitized titles the request read, to tell whether the tab changed since.
-    let titles: [String]
+    /// The tab's label and sanitized titles as the request read them, to tell whether it changed since.
+    let evidenceText: String
 
     /// The same Workspace object, still registered under its name: never a new tab that reused it.
     var liveWorkspace: Workspace? {
@@ -117,17 +117,17 @@ func workspaceTopicEvidence(for tab: WorkspaceSidebarWorkspaceViewModel, token: 
     var windows: [WorkspaceTopicWindowEvidence] = []
     var characters = 0
     var isComplete = true
-    let shown = workspaceSidebarPinnedTabWindows(tab).filter { $0.appBundleId != winMuxAppId }
+    let listed = workspaceSidebarPinnedTabWindows(tab)
+    // WinMux's own windows, such as Settings, say nothing about the tab.
+    let shown = listed.filter { $0.appBundleId != winMuxAppId }
     for window in shown {
         guard windows.count < 6 else { isComplete = false; break }
-        let sanitized = workspaceTopicSanitizedTitle(window.title, appName: window.appName)
-        if sanitized?.wasCut == true { isComplete = false }
-        let title = sanitized?.title ?? ""
+        let title = workspaceTopicSanitizedTitle(window.title, appName: window.appName)?.title ?? ""
         guard characters + title.count <= 600 else { isComplete = false; break }
         characters += title.count
         windows.append(.init(appName: window.appName, bundleId: window.appBundleId, title: title))
     }
-    if liveWindowCount > shown.count { isComplete = false }
+    if liveWindowCount > listed.count { isComplete = false }
     return WorkspaceTopicEvidence(token: token, label: label.map(workspaceTopicSanitizedText), windows: windows, isComplete: isComplete)
 }
 
@@ -161,7 +161,7 @@ func prepareWorkspaceTopicRequest(scope: WorkspaceTopicScope, snapshot: Workspac
         let evidence = workspaceTopicEvidence(for: tab, token: token, liveWindowCount: live.count)
         bindings[token] = WorkspaceTopicBinding(token: token, name: tab.name, projectId: tab.projectId, workspace: workspace,
             windows: live.map { WorkspaceTopicWindowRef(windowId: $0.windowId, window: $0) }.sorted { $0.windowId < $1.windowId },
-            titles: evidence.windows.map(\.title))
+            evidenceText: evidence.promptText)
         let first = shown.first
         displays[token] = WorkspaceTopicTabDisplay(title: workspaceSidebarTabListTitle(tab), appName: first?.appName ?? "",
             bundleId: first?.appBundleId, bundlePath: first?.appBundlePath, windowCount: max(shown.count, live.count))
@@ -177,6 +177,9 @@ func prepareWorkspaceTopicRequest(scope: WorkspaceTopicScope, snapshot: Workspac
             skip(.excludedApp(appName: appName(window)))
             continue
         }
+        // A window it can't read could be about something else entirely: judge the tab whole or
+        // not at all. Its text can't all be shown, so it can't be offered for consent either.
+        guard evidence.isComplete else { skip(.partlyHidden); continue }
         if let browser = live.first(where: { workspaceTopicIsBrowser($0.app.rawAppBundleId) }) {
             let windowIds = live.map(\.windowId).sorted()
             let text = evidence.promptText

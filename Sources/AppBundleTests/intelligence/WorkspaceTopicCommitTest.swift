@@ -73,12 +73,17 @@ final class WorkspaceTopicCommitTest: XCTestCase {
         Workspace.all.flatMap(\.allLeafWindowsRecursive).compactMap { $0 as? TestWindow }.reduce(0) { $0 + $1.setAxFrameCount }
     }
 
+    private func nativeFocusCalls() -> Int {
+        Workspace.all.flatMap(\.allLeafWindowsRecursive).compactMap { $0 as? TestWindow }.reduce(0) { $0 + $1.nativeFocusCount }
+    }
+
     func testApplyMakesEveryGroupInOneEditWithOneUndoAndNothingElse() async throws {
         makeTabs()
         try workspaceSidebarOrganizationStore.update { $0.workspaces["other-pin", default: .init()].setFavorite(true) }
         try await ready()
         let layout = layoutFingerprint()
         let writes = frameWrites()
+        let focusCalls = nativeFocusCalls()
         let econ = try XCTUnwrap(coordinator.groups.firstIndex { $0.name == "ECON 4310" })
         coordinator.groups[econ].name = "  Econ\u{0} class "
         XCTAssertNil(coordinator.groups[econ].problem)
@@ -92,6 +97,7 @@ final class WorkspaceTopicCommitTest: XCTestCase {
         XCTAssertEqual(WorkspaceSidebarTabUndo.shared.title, "Undo Group by Topic")
         XCTAssertEqual(layoutFingerprint(), layout, "No tree, display or focus change")
         XCTAssertEqual(frameWrites(), writes)
+        XCTAssertEqual(nativeFocusCalls(), focusCalls, "No native focus request")
         for name in ["deck", "grades", "code", "shell"] {
             XCTAssertNotNil(savedWorkspaceStore.record(named: name), "Each member keeps its name across a relaunch")
         }
@@ -103,6 +109,7 @@ final class WorkspaceTopicCommitTest: XCTestCase {
         for name in ["deck", "grades", "code", "shell"] { XCTAssertNil(savedWorkspaceStore.record(named: name)) }
         XCTAssertEqual(layoutFingerprint(), layout, "Undo rebuilds nothing and moves no focus")
         XCTAssertEqual(frameWrites(), writes)
+        XCTAssertEqual(nativeFocusCalls(), focusCalls)
         XCTAssertNil(WorkspaceSidebarTabUndo.shared.title)
     }
 
@@ -188,6 +195,39 @@ final class WorkspaceTopicCommitTest: XCTestCase {
             // The preview would close on that update; Apply from it must still refuse.
             XCTAssertTrue(self.coordinator.isActive)
         }
+    }
+
+    func testATabRelabeledMeanwhileIsRejected() async throws {
+        try await assertRejected {
+            config.workspaceSidebar.workspaceLabels["deck"] = "Payroll"
+            await updateWorkspaceSidebarModel()
+        }
+    }
+
+    func testAMemberNoLongerInTheSidebarsListIsRejected() async throws {
+        makeTabs()
+        await updateWorkspaceSidebarModel()
+        let display = workspaceSidebarMonitorScopeId(for: mainMonitor)
+        TrayMenuModel.shared.workspaceSidebarSelectedMonitorScopeId = display
+        coordinator.suggest(WorkspaceTopicTestEnvironment.scope(), snapshot: WorkspaceTopicTestEnvironment.snapshot)
+        try await WorkspaceTopicTestEnvironment.settle(coordinator)
+        XCTAssertEqual(coordinator.groups.count, 2)
+        // "grades" is now listed on another display; the panel itself still shows the same list.
+        TrayMenuModel.shared.workspaceSidebarWorkspaces = TrayMenuModel.shared.workspaceSidebarWorkspaces.map {
+            $0.name == "grades" ? moved($0, to: "monitor:5000,0") : $0
+        }
+        guard let request = coordinator.request else { return XCTFail() }
+        let plan = coordinator.groups.map { WorkspaceTopicCommitGroup(name: $0.name, members: $0.includedMembers) }
+        XCTAssertEqual(commitWorkspaceTopicGroups(plan, request: request, isCurrent: true), .notApplied(workspaceTopicOutOfDateMessage))
+        XCTAssertEqual(workspaceSidebarOrganizationStore.state.collections, [])
+        TrayMenuModel.shared.workspaceSidebarSelectedMonitorScopeId = workspaceSidebarDefaultScopeId
+    }
+
+    private func moved(_ tab: WorkspaceSidebarWorkspaceViewModel, to scope: String) -> WorkspaceSidebarWorkspaceViewModel {
+        WorkspaceSidebarWorkspaceViewModel(name: tab.name, projectId: tab.projectId, displayName: tab.displayName,
+            sidebarLabel: tab.sidebarLabel, isGeneratedName: tab.isGeneratedName, monitorScopeId: scope, monitorName: tab.monitorName,
+            isFocused: tab.isFocused, isVisible: tab.isVisible, items: tab.items, apps: tab.apps, savedState: tab.savedState,
+            appearance: tab.appearance)
     }
 
     func testChangedPrivacySettingsRejectTheBatch() async throws {

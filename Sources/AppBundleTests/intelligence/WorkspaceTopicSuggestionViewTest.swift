@@ -169,6 +169,42 @@ final class WorkspaceTopicSuggestionViewTest: XCTestCase {
         try renderEveryWidth("not-applied")
     }
 
+    /// Closing hands key back only while the preview has it: after the user moved on, an
+    /// automatic close (say, the setting turned off) leaves their choice alone.
+    func testClosingTheRealPanelDoesntTakeFocusBackFromALaterWindow() async throws {
+        try await ready()
+        func keyable() -> KeyablePanel {
+            let panel = KeyablePanel(contentRect: CGRect(x: 600, y: 300, width: 120, height: 80), styleMask: [.borderless],
+                backing: .buffered, defer: false)
+            panel.isReleasedWhenClosed = false
+            return panel
+        }
+        let before = keyable(), later = keyable()
+        defer { before.close(); later.close() }
+        before.makeKeyAndOrderFront(nil)
+        spin(0.2)
+        try XCTSkipUnless(before.isKeyWindow, "This session can't make test windows key")
+        let preview = WorkspaceTopicSuggestionPanel.shared
+        preview.show(anchor: CGRect(x: 0, y: 200, width: 240, height: 600), sidebarWidth: 240)
+        spin(0.2)
+        XCTAssertTrue(preview.isVisible)
+        XCTAssertFalse(before.isKeyWindow, "The preview took key when it opened")
+        preview.close()
+        spin(0.2)
+        XCTAssertTrue(before.isKeyWindow, "Closed while it had key: key goes back")
+
+        preview.show(anchor: CGRect(x: 0, y: 200, width: 240, height: 600), sidebarWidth: 240)
+        spin(0.2)
+        later.makeKeyAndOrderFront(nil)
+        spin(0.2)
+        XCTAssertTrue(later.isKeyWindow)
+        config.workspaceSidebar.intelligence.mode = .off
+        syncWorkspaceTopicSuggestions()
+        spin(0.2)
+        XCTAssertFalse(preview.isVisible, "Turning it off closes the preview")
+        XCTAssertTrue(later.isKeyWindow, "and leaves the window the user chose since")
+    }
+
     /// Real clicks and typing in a key panel: the group's checkbox, its name field, then Apply.
     func testClickingTypingAndApplyingInThePreview() async throws {
         try await ready()

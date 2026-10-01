@@ -117,8 +117,11 @@ final class WorkspaceTopicSuggestionPanel: NSObject, NSWindowDelegate {
         self.panel = nil
         if let localMonitor { NSEvent.removeMonitor(localMonitor) }
         localMonitor = nil
+        // Hand key back only if the preview still has it: after the user has moved on, closing
+        // it, say because the setting was turned off, must not take their focus back.
+        let ownsKey = panel.isKeyWindow
         panel.orderOut(nil)
-        if previousKeyWindow?.isVisible == true { previousKeyWindow?.makeKey() }
+        if ownsKey, previousKeyWindow?.isVisible == true { previousKeyWindow?.makeKey() }
         previousKeyWindow = nil
         WorkspaceSidebarPanel.scheduleHoverRecheckForVisiblePanels()
     }
@@ -264,15 +267,15 @@ struct WorkspaceTopicSuggestionView: View {
     @ViewBuilder private var summary: some View {
         if let request = coordinator.request {
             let grouped = Set(coordinator.groups.flatMap(\.includedMembers))
-            let analyzedLeft = request.analyzed.filter { !grouped.contains($0.token) && !request.thin.contains($0.token) }.count
+            let analyzedLeft = request.analyzed.filter { !grouped.contains($0.token) && !request.untagged.contains($0.token) }.count
             let unchanged = request.prepared.unchangedCount + (coordinator.phase == .ready ? analyzedLeft : 0)
             let skipped = request.prepared.skipped
             VStack(alignment: .leading, spacing: 8) {
                 if unchanged > 0 {
                     Text("Left as they are: \(unchanged) \(unchanged == 1 ? "tab" : "tabs")").font(.caption).foregroundStyle(.secondary)
                 }
-                if !skipped.isEmpty || !request.thin.isEmpty {
-                    let count = skipped.count + request.thin.count
+                if !skipped.isEmpty || !request.thin.isEmpty || !request.untagged.isEmpty {
+                    let count = skipped.count + request.thin.count + request.untagged.count
                     DisclosureGroup(isExpanded: $showsSkipped) {
                         VStack(alignment: .leading, spacing: 8) {
                             ForEach(skipped) { tab in skippedRow(tab, request: request) }
@@ -280,10 +283,14 @@ struct WorkspaceTopicSuggestionView: View {
                                 skippedText(request.prepared.displays[token]?.title ?? "Tab",
                                     reason: WorkspaceTopicSkipReason.notEnoughToGoOn.description)
                             }
+                            ForEach(request.untagged, id: \.rawValue) { token in
+                                skippedText(request.prepared.displays[token]?.title ?? "Tab",
+                                    reason: WorkspaceTopicSkipReason.untagged.description)
+                            }
                         }
                         .padding(.top, 4)
                     } label: {
-                        Text("Not analyzed: \(count) \(count == 1 ? "tab" : "tabs")").font(.caption)
+                        Text("Left out: \(count) \(count == 1 ? "tab" : "tabs")").font(.caption)
                     }
                 }
                 if !request.analyzed.isEmpty {
