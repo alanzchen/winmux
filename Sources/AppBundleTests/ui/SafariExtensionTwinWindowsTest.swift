@@ -974,6 +974,42 @@ final class SafariExtensionTwinWindowsTest: XCTestCase {
         XCTAssertEqual(harness.associations.described(playing).extensionTab?.id, 101)
     }
 
+    /// Safari answers WinMux's request for a report quickly, measuring before the read that
+    /// matched a proposal ends. With nothing reordered, that report leaves the match standing, and
+    /// the next settles it.
+    func testAReportMeasuredDuringTheMatchingReadDoesntUndoAnUnchangedMatch() {
+        let harness = Harness()
+        harness.frames = [1: Self.shown]
+        let session = UUID()
+        func listed(_ title: String, selected: Bool = false) -> BrowserTab {
+            .init(target: .init(windowId: 1, pid: 7, windowSession: session, tabId: UUID()), title: title, isSelected: selected)
+        }
+        let mail = listed("Mail", selected: true)
+        let quiet = listed("Demo Page")
+        let playing = listed("Demo Page")
+        harness.reads = [1: .init(windowId: 1, pid: 7, windowSession: session, tabs: [mail, quiet, playing])]
+        let tabs = [Self.tab("Mail", id: 99, icon: Self.otherIcon, host: "mail.test"), Self.tab(id: 100, active: false),
+                    Self.tab(id: 101, icon: Self.otherIcon, audible: true, active: false)]
+        harness.wait(2)
+        harness.report([(10, 1, tabs)])
+        harness.wait(1)
+        harness.read(1)
+        harness.wait(1)
+        harness.report([(10, 1, tabs)])
+        harness.wait(0.5)
+        // A read begins after that report arrived; Safari measures a quick reply before it ends.
+        let started = harness.uptime
+        harness.report([(10, 1, tabs)], transit: 0.3, during: {
+            harness.elapse(0.1)
+            harness.read(1, startedAt: started)
+        })
+        XCTAssertNil(harness.associations.described(playing).extensionTab)
+        harness.wait(1)
+        harness.report([(10, 1, tabs)])
+        XCTAssertEqual(harness.associations.described(playing).extensionTab?.id, 101, "No extra round of reads and reports")
+        XCTAssertEqual(harness.timeline.last, "1: other site mail.test | site | other site sound")
+    }
+
     /// One of WinMux's writes is still running past the margin, then lands; Safari measures the
     /// window there and WinMux's next write puts it back before any sample or notification.
     func testAWriteStillRunningOrLandingBetweenSamplesLeavesTheWindowUnseen() {

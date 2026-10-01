@@ -483,14 +483,16 @@ struct SafariExtensionAssociations {
                 continue
             }
             if let matched = proposal.matched, window.received > matched.received {
-                // A later report: it vouches for the match if nothing was reordered in between.
-                if window.measured >= matched.read, window.order == matched.order, keys == matched.tabs {
+                // A later report: it vouches for the match if nothing was reordered in between. One
+                // measured before the matching read ended can only refute it.
+                let unchanged = window.order == matched.order && keys == matched.tabs
+                if unchanged, window.measured >= matched.read {
                     proposed[tab.target] = nil
                     bound[tab.target] = proposal.key
                     claimed.insert(proposal.key)
                     continue
                 }
-                proposal.matched = nil
+                if !unchanged || window.measured >= matched.read { proposal.matched = nil }
             }
             if comparable, window.measured >= proposal.read {
                 // A report measured since, and a read begun after it arrived: they agree, or the proposal goes.
