@@ -165,7 +165,9 @@ final class SafariExtensionTwinWindowsTest: XCTestCase {
         }
 
         /// A new Accessibility read of each window in `ids`, then pairing with what's known.
-        func read(_ ids: UInt32...) {
+        func read(_ ids: UInt32...) { read(ids) }
+
+        func read(_ ids: [UInt32]) {
             for id in ids {
                 observed[id] = uptime
                 readStarted[id] = uptime
@@ -824,7 +826,7 @@ final class SafariExtensionTwinWindowsTest: XCTestCase {
         track.pause()
         XCTAssertEqual(track.sighting(measured: 4), [:], "Nothing says where it was while no one looked")
         track.observe(sample(Self.shown), now: 9)
-        XCTAssertEqual(track.appeared(1), 0)
+        XCTAssertEqual(track.appeared(1), -.infinity, "Open since before WinMux first looked, at some unknown time")
         XCTAssertEqual(track.sighting(measured: 9.2), [:])
         XCTAssertEqual(track.sighting(measured: 9.4), [1: Self.shown])
         // A write WinMux ran counts at once, before any notification of the move.
@@ -838,6 +840,16 @@ final class SafariExtensionTwinWindowsTest: XCTestCase {
         track.observe(sample(Self.shown, writes: 4), now: 15)
         track.observe(sample(Self.shown, writes: 4), now: 16)
         XCTAssertEqual(track.sighting(measured: 15.4), [1: Self.shown])
+        // A window that opens while WinMux looks appeared then, and still did after a pause.
+        let other = NativeWindow()
+        var both = sample(Self.shown, writes: 4)
+        both[2] = .init(frame: Self.parked, identity: ObjectIdentifier(other), generation: 0, writes: 0)
+        track.observe(both, now: 17)
+        XCTAssertEqual(track.appeared(2), 17)
+        track.pause()
+        track.observe(both, now: 18)
+        XCTAssertEqual(track.appeared(2), 17)
+        XCTAssertEqual(track.appeared(1), -.infinity)
     }
 
 
@@ -1018,6 +1030,16 @@ final class SafariExtensionTwinWindowsTest: XCTestCase {
         XCTAssertEqual(harness.timeline.last, "1: other site mail.test | site | other site sound")
         XCTAssertFalse(harness.associations.awaitsAnotherReport(harness.bridge.windows), "Once paired for good, nothing waits")
         XCTAssertFalse(harness.associations.awaitsReport)
+        // Safari reports the same-titled tabs swapped: their titles still agree with the last read,
+        // but the window is read again at once, to show the new order. A report changing only an
+        // icon isn't a reason to.
+        harness.wait(1)
+        harness.order += 1
+        harness.report([(10, 1, [tabs[0], tabs[2], tabs[1]])])
+        XCTAssertEqual(harness.associations.rereads, [1])
+        harness.wait(1)
+        harness.report([(10, 1, [tabs[0], tabs[2], Self.tab(id: 100, icon: Self.otherIcon, active: false)])])
+        XCTAssertEqual(harness.associations.rereads, [])
         var other = SafariExtensionAssociations()
         other.update([], windows: harness.bridge.windows, now: harness.uptime)
         XCTAssertFalse(other.awaitsAnotherReport(harness.bridge.windows), "Nor for a window no read matches, such as one the sidebar doesn't list")
@@ -1205,14 +1227,34 @@ final class SafariExtensionTwinWindowsTest: XCTestCase {
         harness.stamp(3, window: 12, tab: 102)
     }
 
+    /// What makes the buttons count: Safari reports, WinMux reads the windows after it arrived,
+    /// seeing their buttons, Safari reports again with nothing reordered (WinMux's answer asks it
+    /// to), and a read confirms the pairing.
+    private func trust(_ harness: Harness, _ windows: [(id: Int, native: UInt32?, tabs: [SafariExtensionTab])], reading ids: [UInt32]) {
+        harness.report(windows)
+        harness.wait(1)
+        harness.read(ids)
+        harness.wait(1)
+        harness.report(windows)
+        harness.wait(1)
+        harness.read(ids)
+    }
+
     func testTwinsInTheSamePlaceArePairedByWhatTheirToolbarButtonsName() {
         let harness = parkedTriplets()
         stampTriplets(harness)
+        harness.wait(1)
+        harness.read(1, 2, 3)
         harness.report(triplets())
-        for _ in 0..<2 {
-            harness.wait(1)
-            harness.read(1, 2, 3)
-        }
+        XCTAssertTrue(harness.associations.rereads.isSuperset(of: [2, 3]), "Buttons seen before a report count only from a read after it")
+        XCTAssertTrue(harness.associations.awaitsReport, "and a report after that, which WinMux's answer asks for")
+        harness.wait(1)
+        harness.read(1, 2, 3)
+        XCTAssertEqual(harness.timeline.last, "1: site sound, 2: Safari, 3: Safari", "Not yet: the tabs may have moved since that report")
+        harness.wait(1)
+        harness.report(triplets())
+        harness.wait(1)
+        harness.read(1, 2, 3)
         XCTAssertEqual(harness.timeline.last, "1: site sound, 2: site, 3: site sound")
         XCTAssertEqual(harness.associations.resolution(of: 2), .resolved(.init(source: "8A7B6C5D-0000-4000-8000-000000000001:\(Self.hexSession)", id: 11)))
         XCTAssertFalse(harness.associations.awaitsReport)
@@ -1235,11 +1277,9 @@ final class SafariExtensionTwinWindowsTest: XCTestCase {
         let harness = parkedTriplets()
         harness.close(1)
         harness.stamp(2, window: 11, tab: 101)
-        harness.report([(11, 2, [Self.tab(id: 101)]), (12, 3, [Self.tab(id: 102, audible: true)])])
-        for _ in 0..<2 {
-            harness.wait(1)
-            harness.read(2, 3)
-        }
+        trust(harness, [(11, 2, [Self.tab(id: 101)]), (12, 3, [Self.tab(id: 102, audible: true)])], reading: [2, 3])
+        harness.wait(1)
+        harness.read(2, 3)
         XCTAssertEqual(harness.timeline.last, "2: site, 3: site sound", "The report B's button names isn't C's, so C has the other")
     }
 
@@ -1257,8 +1297,7 @@ final class SafariExtensionTwinWindowsTest: XCTestCase {
         let before = harness.timeline.count
         harness.stamp(1, window: 11, tab: 101)
         harness.stamp(2, window: 10, tab: 100)
-        harness.wait(1)
-        harness.read(1, 2)
+        trust(harness, twins(), reading: [1, 2])
         harness.wait(1)
         harness.read(1, 2)
         XCTAssertEqual(harness.timeline.last, "1: site, 2: site sound")
@@ -1278,7 +1317,8 @@ final class SafariExtensionTwinWindowsTest: XCTestCase {
         XCTAssertEqual(harness.timeline.last, "1: site sound, 2: site")
         let before = harness.timeline.count
         harness.stamp(2, window: 10, tab: 100)
-        for _ in 0..<3 {
+        trust(harness, twins(), reading: [1, 2])
+        for _ in 0..<2 {
             harness.wait(1)
             harness.read(1, 2)
         }
@@ -1305,12 +1345,11 @@ final class SafariExtensionTwinWindowsTest: XCTestCase {
         XCTAssertEqual(harness.timeline.last, "1: site sound, 2: Safari")
         let before = harness.timeline.count
         harness.stamp(2, window: 10, tab: 100)
-        for _ in 0..<2 {
-            harness.wait(1)
-            harness.read(1, 2)
-        }
+        trust(harness, [(10, 1, [Self.tab(id: 100, audible: true)])], reading: [1, 2])
+        harness.wait(1)
+        harness.read(1, 2)
         XCTAssertEqual(harness.timeline.last, "1: site, 2: site sound", "A keeps its icon a few seconds, not the sound")
-        XCTAssertFalse(harness.timeline[before...].contains { $0.hasPrefix("1: site sound") })
+        XCTAssertFalse(harness.timeline[before...].contains { $0 == "1: site sound, 2: site sound" })
     }
 
     func testAButtonFromAnotherSessionOrNamingAWindowTheReportDoesntListNamesNothing() {
@@ -1318,19 +1357,16 @@ final class SafariExtensionTwinWindowsTest: XCTestCase {
         harness.stamp(1, window: 10, tab: 100)
         harness.stamp(2, window: 11, tab: 101, session: "00000000-0000-4000-8000-000000000000")
         harness.stamp(3, window: 13, tab: 102)
-        harness.report(triplets())
-        for _ in 0..<2 {
-            harness.wait(1)
-            harness.read(1, 2, 3)
-        }
+        trust(harness, triplets(), reading: [1, 2, 3])
+        harness.wait(1)
+        harness.read(1, 2, 3)
         XCTAssertEqual(harness.timeline.last, "1: site sound, 2: Safari, 3: Safari", "B and C are paired as if they had none")
         XCTAssertEqual(harness.associations.resolution(of: 3), .unresolved)
         // Safari titles them again, as for its new session or once the tab has moved.
         stampTriplets(harness)
-        for _ in 0..<2 {
-            harness.wait(1)
-            harness.read(1, 2, 3)
-        }
+        trust(harness, triplets(), reading: [1, 2, 3])
+        harness.wait(1)
+        harness.read(1, 2, 3)
         XCTAssertEqual(harness.timeline.last, "1: site sound, 2: site, 3: site sound")
     }
 
@@ -1339,11 +1375,9 @@ final class SafariExtensionTwinWindowsTest: XCTestCase {
         harness.stamp(1, window: 10, tab: 100)
         harness.stamp(2, window: 12, tab: 102)
         harness.stamp(3, window: 12, tab: 102)
-        harness.report(triplets())
-        for _ in 0..<2 {
-            harness.wait(1)
-            harness.read(1, 2, 3)
-        }
+        trust(harness, triplets(), reading: [1, 2, 3])
+        harness.wait(1)
+        harness.read(1, 2, 3)
         XCTAssertEqual(harness.timeline.last, "1: site sound, 2: Safari, 3: Safari")
         XCTAssertFalse(harness.timeline.contains { $0.contains("2: site sound") })
     }
@@ -1353,11 +1387,9 @@ final class SafariExtensionTwinWindowsTest: XCTestCase {
     func testWithoutItsButtonAWindowKeepsWhatItSettledAndNewOnesFallBackToFrames() {
         let harness = parkedTriplets()
         stampTriplets(harness)
-        harness.report(triplets())
-        for _ in 0..<2 {
-            harness.wait(1)
-            harness.read(1, 2, 3)
-        }
+        trust(harness, triplets(), reading: [1, 2, 3])
+        harness.wait(1)
+        harness.read(1, 2, 3)
         XCTAssertEqual(harness.timeline.last, "1: site sound, 2: site, 3: site sound")
         let before = harness.timeline.count
         for id: UInt32 in [1, 2, 3] { harness.reads[id]?.marker = nil }
@@ -1383,11 +1415,9 @@ final class SafariExtensionTwinWindowsTest: XCTestCase {
     func testAfterTheExtensionReconnectsOnlyItsNewSessionsButtonsCount() {
         let harness = parkedTriplets()
         stampTriplets(harness)
-        harness.report(triplets())
-        for _ in 0..<2 {
-            harness.wait(1)
-            harness.read(1, 2, 3)
-        }
+        trust(harness, triplets(), reading: [1, 2, 3])
+        harness.wait(1)
+        harness.read(1, 2, 3)
         let old = harness.session
         let key = { (id: Int, session: String) in SafariExtensionWindowKey(source: "8A7B6C5D-0000-4000-8000-000000000001:\(session)", id: id) }
         harness.session = "0b1c2d3e-0000-4000-8000-000000000002"
@@ -1402,10 +1432,9 @@ final class SafariExtensionTwinWindowsTest: XCTestCase {
         XCTAssertEqual(harness.timeline.last, "1: site sound, 2: site, 3: site", "B and C keep their icons a few seconds, without sound")
         harness.stamp(2, window: 11, tab: 101, session: old)
         harness.stamp(3, window: 12, tab: 102)
-        for _ in 0..<2 {
-            harness.wait(1)
-            harness.read(1, 2, 3)
-        }
+        trust(harness, triplets(), reading: [1, 2, 3])
+        harness.wait(1)
+        harness.read(1, 2, 3)
         XCTAssertEqual(harness.timeline.last, "1: site sound, 2: site, 3: site sound", "C's new title settles it, and B by elimination")
     }
 
@@ -1414,11 +1443,9 @@ final class SafariExtensionTwinWindowsTest: XCTestCase {
     func testANewWindowUnderAnOldNumberIsPairedOnlyByWhatItsOwnButtonNamesNow() {
         let harness = parkedTriplets()
         stampTriplets(harness)
-        harness.report(triplets())
-        for _ in 0..<2 {
-            harness.wait(1)
-            harness.read(1, 2, 3)
-        }
+        trust(harness, triplets(), reading: [1, 2, 3])
+        harness.wait(1)
+        harness.read(1, 2, 3)
         harness.close(2)
         harness.report([(10, 1, [Self.tab(id: 100, audible: true)]), (12, 3, [Self.tab(id: 102, audible: true)])])
         harness.open(2, at: Self.parked)
@@ -1437,6 +1464,138 @@ final class SafariExtensionTwinWindowsTest: XCTestCase {
         harness.read(1, 2, 3)
         XCTAssertEqual(harness.associations.resolution(of: 2), .resolved(key))
         XCTAssertEqual(harness.timeline.last, "1: site sound, 2: site, 3: site sound")
+    }
+
+    /// Two windows, each with an active Home tab and a Mail tab of its own site, paired by their
+    /// buttons. Their Home tabs trade windows, still first and active, and each takes its button
+    /// title with it, naming the window it left; Safari's report of the moves is late. Both
+    /// windows' tabs still agree with both reports, and each title still matches its tab's old
+    /// window, but no report since the read that saw them says the tabs stayed put: neither moves
+    /// either window to the other's report, and neither Mail tab shows the other's site.
+    func testTitlesTabsCarryToAnotherWindowDontMoveItsPairingBeforeSafariReportsTheMove() {
+        let harness = Harness()
+        harness.session = Self.hexSession
+        harness.frames = [1: Self.shown, 2: Self.parked]
+        func listed(_ native: UInt32, _ session: UUID) -> [BrowserTab] {
+            [.init(target: .init(windowId: native, pid: 7, windowSession: session, tabId: UUID()), title: "Home", isSelected: true),
+             .init(target: .init(windowId: native, pid: 7, windowSession: session, tabId: UUID()), title: "Mail", isSelected: false)]
+        }
+        let one = UUID(), two = UUID()
+        harness.reads = [1: .init(windowId: 1, pid: 7, windowSession: one, tabs: listed(1, one)),
+                         2: .init(windowId: 2, pid: 7, windowSession: two, tabs: listed(2, two))]
+        let mailOne = Self.tab("Mail", id: 101, icon: Self.otherIcon, host: "one.test", active: false)
+        let mailTwo = Self.tab("Mail", id: 111, icon: Self.otherIcon, audible: true, host: "two.test", active: false)
+        let before: [(id: Int, native: UInt32?, tabs: [SafariExtensionTab])] =
+            [(10, 1, [Self.tab("Home", id: 100), mailOne]), (11, 2, [Self.tab("Home", id: 110), mailTwo])]
+        harness.wait(2)
+        harness.stamp(1, window: 10, tab: 100)
+        harness.stamp(2, window: 11, tab: 110)
+        trust(harness, before, reading: [1, 2])
+        harness.wait(1)
+        harness.read(1, 2)
+        let settled = "1: site | other site one.test, 2: site | other site sound two.test"
+        XCTAssertEqual(harness.timeline.last, settled)
+        let key = { SafariExtensionWindowKey(source: "8A7B6C5D-0000-4000-8000-000000000001:\(Self.hexSession)", id: $0) }
+
+        // The Home tabs trade windows. Each window's button now shows the other's title.
+        harness.order += 2
+        harness.stamp(1, window: 11, tab: 110)
+        harness.stamp(2, window: 10, tab: 100)
+        let traded = harness.timeline.count
+        for _ in 0..<4 {
+            harness.wait(1)
+            harness.read(1, 2)
+        }
+        XCTAssertEqual(harness.associations.resolution(of: 1), .resolved(key(10)))
+        XCTAssertEqual(harness.associations.resolution(of: 2), .resolved(key(11)))
+        XCTAssertEqual(Set(harness.timeline[traded...]), [settled], "No Mail tab ever shows the other's site or sound")
+        XCTAssertTrue(harness.associations.awaitsReport, "WinMux asks Safari to report")
+
+        // Safari reports the moves, and titles the buttons again.
+        let after: [(id: Int, native: UInt32?, tabs: [SafariExtensionTab])] =
+            [(10, 1, [Self.tab("Home", id: 110), mailOne]), (11, 2, [Self.tab("Home", id: 100), mailTwo])]
+        harness.wait(1)
+        harness.report(after)
+        harness.stamp(1, window: 10, tab: 110)
+        harness.stamp(2, window: 11, tab: 100)
+        trust(harness, after, reading: [1, 2])
+        harness.wait(1)
+        harness.read(1, 2)
+        // Until a read after that report pairs each Home tab with the one that came over, it shows nothing.
+        for row in harness.timeline[traded...] {
+            let parts = row.components(separatedBy: ", 2: ")
+            XCTAssertFalse(parts[0].contains("two.test") || parts.last!.contains("one.test"), row)
+        }
+        XCTAssertEqual(harness.timeline.last, settled)
+        XCTAssertEqual(harness.associations.described(harness.reads[1]!.tabs[0]).extensionTab?.id, 110, "A's Home is the tab that came over")
+        XCTAssertEqual(harness.associations.described(harness.reads[2]!.tabs[1]).extensionTab?.id, 111)
+    }
+
+    /// A new native window shows a closed one's title, which the last report, from before it
+    /// closed, still lists. The new window appeared after that report, and no later report says
+    /// the title holds: it doesn't take the closed window's report.
+    func testANewWindowShowingAClosedOnesTitleDoesntTakeItsReportBeforeSafariReportsAgain() {
+        let harness = parkedTriplets()
+        stampTriplets(harness)
+        trust(harness, triplets(), reading: [1, 2, 3])
+        harness.wait(1)
+        harness.read(1, 2, 3)
+        XCTAssertEqual(harness.timeline.last, "1: site sound, 2: site, 3: site sound")
+        harness.close(2)
+        harness.order += 2
+        harness.open(4, at: Self.parked)
+        harness.stamp(4, window: 11, tab: 101)
+        for _ in 0..<4 {
+            harness.wait(1)
+            harness.read(1, 3, 4)
+        }
+        XCTAssertNotEqual(harness.associations.resolution(of: 4), .resolved(.init(source: "8A7B6C5D-0000-4000-8000-000000000001:\(Self.hexSession)", id: 11)))
+        XCTAssertEqual(harness.timeline.last, "1: site sound, 3: site sound, 4: Safari")
+        // Safari reports the change, with the new window, and titles it.
+        let now: [(id: Int, native: UInt32?, tabs: [SafariExtensionTab])] =
+            [(10, 1, [Self.tab(id: 100, audible: true)]), (12, 3, [Self.tab(id: 102, audible: true)]), (14, 4, [Self.tab(id: 104)])]
+        harness.stamp(4, window: 14, tab: 104)
+        trust(harness, now, reading: [1, 3, 4])
+        harness.wait(1)
+        harness.read(1, 3, 4)
+        XCTAssertEqual(harness.associations.resolution(of: 4), .resolved(.init(source: "8A7B6C5D-0000-4000-8000-000000000001:\(Self.hexSession)", id: 14)))
+    }
+
+    /// A button counts once a report Safari measured after the read that saw it, which began after
+    /// the report before arrived, still agrees with the same count of reorderings. B, a twin no
+    /// frames tell apart, keeps anything else from pairing A.
+    func testAButtonCountsOnlyOnceAReportFromAfterTheReadThatSawItAgreesWithNothingReordered() {
+        let prefix = String(Self.hexSession.prefix(8))
+        var a = Self.lone("Demo Page", window: 1)
+        a.marker = .init(session: prefix, window: 10, tab: 100)
+        let b = Self.lone("Demo Page", window: 2)
+        func reports(received: TimeInterval, measured: TimeInterval, order: Int) -> [SafariExtensionWindow] {
+            [SafariExtensionWindow(key: .init(source: "p:s", id: 10), session: Self.hexSession, tabs: [Self.tab(id: 100)],
+                received: received, measured: measured, order: order),
+             SafariExtensionWindow(key: .init(source: "p:s", id: 11), session: Self.hexSession, tabs: [Self.tab(id: 101)],
+                received: received, measured: measured, order: order)]
+        }
+        var associations = SafariExtensionAssociations()
+        func step(read: TimeInterval, _ windows: [SafariExtensionWindow]) {
+            associations.update([.init(snapshot: a, observed: read, readStarted: read - 0.1), .init(snapshot: b, observed: read, readStarted: read - 0.1)],
+                windows: windows, now: max(read, windows[0].received))
+        }
+        let key = SafariExtensionWindowKey(source: "p:s", id: 10)
+        step(read: 0.5, reports(received: 1, measured: 0.9, order: 5))
+        step(read: 0.5, reports(received: 3, measured: 2.5, order: 5))
+        XCTAssertEqual(associations.resolution(of: 1), .unresolved, "No read after the first report saw the button")
+        step(read: 4, reports(received: 3, measured: 2.5, order: 5))
+        step(read: 4, reports(received: 5, measured: 3.9, order: 5))
+        XCTAssertEqual(associations.resolution(of: 1), .unresolved, "A report measured while that read looked can't say the tab stayed")
+        step(read: 4, reports(received: 6, measured: 5.5, order: 6))
+        XCTAssertEqual(associations.resolution(of: 1), .unresolved, "Something was reordered since: it starts over")
+        XCTAssertTrue(associations.awaitsReport)
+        step(read: 7, reports(received: 6, measured: 5.5, order: 6))
+        step(read: 7, reports(received: 8, measured: 7.5, order: 6))
+        XCTAssertEqual(associations.resolution(of: 1), .pending(key))
+        step(read: 9, reports(received: 8, measured: 7.5, order: 6))
+        XCTAssertEqual(associations.resolution(of: 1), .resolved(key))
+        XCTAssertEqual(associations.resolution(of: 2), .resolved(.init(source: "p:s", id: 11)), "and B is the one left")
     }
 
     /// What a button names must agree with the latest report: that window, from its session, with
@@ -1481,21 +1640,41 @@ final class SafariExtensionTwinWindowsTest: XCTestCase {
             "Two reports, each with a session starting the same way, listing the window")
         XCTAssertEqual(safariExtensionMarkedPairs([read(5, marker: a)], [window(1, active: 11, ids: false)]), [:],
             "An older extension's report names no tabs")
+        var twoActive = window(1, active: 11)
+        twoActive = .init(key: twoActive.key, session: twoActive.session, tabs: [
+            .init(id: 10, title: "Demo Page", isActive: true), .init(id: 11, title: "Demo Page", isActive: true),
+        ])
+        func readTwo(_ native: UInt32, marker: SafariExtensionMarker) -> SafariExtensionCandidate {
+            let session = UUID()
+            var snapshot = BrowserWindowTabs(windowId: native, pid: 7, windowSession: session, tabs: [0, 1].map {
+                .init(target: .init(windowId: native, pid: 7, windowSession: session, tabId: UUID()), title: "Demo Page", isSelected: $0 == 0)
+            })
+            snapshot.tabs[1].isSelected = true
+            snapshot.marker = marker
+            return .init(snapshot: snapshot, observed: 1)
+        }
+        XCTAssertEqual(safariExtensionMarkedPairs([readTwo(5, marker: .init(session: prefix, window: 1, tab: 10)),
+                                                   readTwo(6, marker: .init(session: prefix, window: 1, tab: 11))], [twoActive]), [:],
+            "A report listing two active tabs in one window lets neither button name it")
     }
 
     /// While some Safari window is unread, a pairing needs frames to rule it out, unless the
     /// window's own button names its report: the unread one can't be showing that button.
     func testAButtonPairsItsWindowEvenWhileAnotherSafariWindowIsUnread() {
         let prefix = String(Self.hexSession.prefix(8))
-        let windows = [SafariExtensionWindow(key: .init(source: "p:s", id: 10), session: Self.hexSession, tabs: [Self.tab(id: 100, audible: true)])]
+        func report(received: TimeInterval) -> [SafariExtensionWindow] {
+            [SafariExtensionWindow(key: .init(source: "p:s", id: 10), session: Self.hexSession, tabs: [Self.tab(id: 100, audible: true)],
+                received: received, measured: received - 0.1, order: 5)]
+        }
         for marked in [true, false] {
             var snapshot = Self.lone("Demo Page", window: 1)
             if marked { snapshot.marker = .init(session: prefix, window: 10, tab: 100) }
             var associations = SafariExtensionAssociations()
-            for time in [1.0, 2.0] {
-                associations.update([.init(snapshot: snapshot, observed: time)], windows: windows, unread: [5], now: time)
-            }
-            XCTAssertEqual(associations.resolution(of: 1), marked ? .resolved(windows[0].key) : .unresolved, "marked: \(marked)")
+            // A report, a read after it, a report after that read, and another read.
+            associations.update([.init(snapshot: snapshot, observed: 2, readStarted: 1.9)], windows: report(received: 1), unread: [5], now: 2)
+            associations.update([.init(snapshot: snapshot, observed: 2, readStarted: 1.9)], windows: report(received: 3), unread: [5], now: 3)
+            associations.update([.init(snapshot: snapshot, observed: 4, readStarted: 3.9)], windows: report(received: 3), unread: [5], now: 4)
+            XCTAssertEqual(associations.resolution(of: 1), marked ? .resolved(report(received: 3)[0].key) : .unresolved, "marked: \(marked)")
         }
     }
 
@@ -1504,11 +1683,9 @@ final class SafariExtensionTwinWindowsTest: XCTestCase {
     func testOnlyWindowsTheExtensionDescribesInFullAndLatelyAreSettled() {
         let harness = parkedTriplets()
         stampTriplets(harness)
-        harness.report(triplets())
-        for _ in 0..<2 {
-            harness.wait(1)
-            harness.read(1, 2, 3)
-        }
+        trust(harness, triplets(), reading: [1, 2, 3])
+        harness.wait(1)
+        harness.read(1, 2, 3)
         let snapshots = Array(harness.reads.values)
         XCTAssertEqual(safariExtensionSettledWindows(snapshots, harness.associations, windows: harness.bridge.windows, now: harness.uptime), [1, 2, 3])
         XCTAssertEqual(safariExtensionSettledWindows(snapshots, harness.associations, windows: harness.bridge.windows,

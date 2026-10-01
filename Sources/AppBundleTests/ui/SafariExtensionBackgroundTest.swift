@@ -254,6 +254,35 @@ final class SafariExtensionBackgroundTest: XCTestCase {
         XCTAssertEqual(try reports(context).count, failed + 1, "From 5 s again after WinMux answered")
     }
 
+    /// Safari unloads the page while it waits to try WinMux again, and loads it again with what
+    /// session storage kept: the attempt still comes when the wait ends, without any tab event or
+    /// heartbeat, and titles the buttons.
+    func testAPageReloadedWhileWaitingToTryWinMuxAgainStillTriesWhenTheWaitEnds() throws {
+        let context = try page(replies: "['unreachable']")
+        XCTAssertEqual(try reports(context).count, 1)
+        let storage = try XCTUnwrap(context.evaluateScript("JSON.stringify(storage)")?.toString())
+        let reloaded = try page(storage: storage)
+        XCTAssertEqual(try reports(reloaded).count, 0, "Still waiting")
+        XCTAssertEqual(try titles(reloaded).count, 0)
+        // The new page's clock starts where the first one's did: the wait has about 4.25 s left.
+        try settle(reloaded, seconds: 3.5)
+        XCTAssertEqual(try reports(reloaded).count, 0)
+        try settle(reloaded, seconds: 1.5)
+        XCTAssertEqual(try reports(reloaded).count, 1, "The attempt comes when the wait ends")
+        XCTAssertEqual(try titles(reloaded).map(\.tab), [7, 8])
+    }
+
+    /// Safari drops the buttons' titles when the button leaves the toolbar, and nothing says it
+    /// came back: the heartbeat, and any other forced report, titles every window's button again.
+    func testAForcedReportTitlesEveryWindowsButtonAgain() throws {
+        let context = try page()
+        XCTAssertEqual(try titles(context).map(\.tab), [7, 8])
+        try run(context, "browser.tabs.onUpdated.fire(7, {title: 'Demo Page'});")
+        XCTAssertEqual(try titles(context).count, 2, "An ordinary report doesn't title them again")
+        try run(context, "browser.alarms.onAlarm.fire({name: 'winmux-heartbeat'});")
+        XCTAssertEqual(try titles(context).dropFirst(2).map(\.tab), [7, 8])
+    }
+
     /// The count of tab moves, openings and closings: once per event, not for activations or
     /// titles, left out when a move lands while Safari lists its windows, and kept across reloads.
     func testTheReorderCountCountsEachEventLeavesOutAMoveMidListingAndSurvivesAReload() throws {

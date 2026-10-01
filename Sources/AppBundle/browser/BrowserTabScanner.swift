@@ -156,7 +156,15 @@ final class BrowserTabScanner<Node: BrowserTabAXNode> {
     private var quietTabControls: Int?
     /// The WinMux Tabs extension's toolbar button's identifier in Safari, which names the extension
     /// and its team, when WinMux has the extension. Its title says which extension window this is.
-    var markerIdentifier: String?
+    /// A new identifier has the next read walk the window, to find that button.
+    var markerIdentifier: String? {
+        didSet {
+            guard markerIdentifier != oldValue else { return }
+            markerNode = nil
+            walkedMarker = nil
+            lastDiscovery = -.infinity
+        }
+    }
     /// That button, as the last complete walk found it, and what it said then.
     private var markerNode: Node?
     private var walkedMarker: SafariExtensionMarker?

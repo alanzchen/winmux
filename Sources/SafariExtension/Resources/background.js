@@ -89,6 +89,10 @@ function markUnavailable() {
     const delay = retryDelay;
     retryDelay = Math.min(unavailableDelay, retryDelay * 2);
     setUnavailableUntil(Date.now() + delay);
+    retryIn(delay);
+}
+
+function retryIn(delay) {
     if (retryTimer === null) retryTimer = setTimeout(() => { retryTimer = null; scheduleSend(0, true); }, delay);
 }
 
@@ -107,14 +111,16 @@ function iconFor(data, tab) {
     return key && data.icons[key] ? key : undefined;
 }
 
-/** Titles each normal window's active tab's toolbar button with the window's ids, once. */
-function stampWindows(windows, session) {
+/** Titles each normal window's active tab's toolbar button with the window's ids, once, or again
+ * for every window when `all`: Safari drops the titles when the button leaves the toolbar, and
+ * nothing tells this page it came back. */
+function stampWindows(windows, session, all = false) {
     for (const window of Array.isArray(windows) ? windows : []) {
         if (window.incognito === true || (window.type !== undefined && window.type !== "normal")) continue;
         const tab = window.tabs?.find((tab) => tab.active === true);
         if (!Number.isInteger(tab?.id) || !Number.isInteger(window.id)) continue;
         const title = WinMuxTabs.markerTitle(session, window.id, tab.id);
-        if (stamped.get(tab.id) === title) continue;
+        if (!all && stamped.get(tab.id) === title) continue;
         stamped.set(tab.id, title);
         try {
             Promise.resolve(browser.action?.setTitle({ tabId: tab.id, title })).catch(() => stamped.delete(tab.id));
@@ -149,7 +155,8 @@ async function send() {
         const orderBefore = data.order;
         const windows = await browser.windows.getAll({ populate: true });
         const order = data.order === orderBefore ? orderBefore : undefined;
-        stampWindows(windows, data.session);
+        // A forced send (the heartbeat, at least once a minute) titles every window's button again.
+        stampWindows(windows, data.session, force);
         const allSites = await browser.permissions.contains({ origins: ["*://*/*"] }).catch(() => false);
         const version = peerVersion;
         const message = WinMuxTabs.stateMessage({
@@ -518,4 +525,6 @@ try {
 } catch {}
 
 ensureHeartbeat();
-loaded.then(() => scheduleSend());
+// Safari can unload and reload this page while WinMux is away: the retry it was waiting for
+// comes when that pause ends.
+loaded.then(() => isUnavailable() ? retryIn(unavailableUntil - Date.now()) : scheduleSend());

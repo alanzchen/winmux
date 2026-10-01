@@ -282,17 +282,17 @@ struct SafariExtensionCandidate {
 /// A button naming anything else pairs nothing, nor do buttons that two windows show at once,
 /// as one of them hasn't caught up: those windows are paired as if they had none.
 func safariExtensionMarkedPairs(_ candidates: [SafariExtensionCandidate], _ windows: [SafariExtensionWindow]) -> [UInt32: SafariExtensionWindowKey] {
-    // Distinct buttons name distinct windows: a window has one active tab.
     let shown = Dictionary(candidates.compactMap { $0.snapshot.marker.map { ($0, 1) } }, uniquingKeysWith: +)
-    var pairs: [UInt32: SafariExtensionWindowKey] = [:]
+    var claims: [SafariExtensionWindowKey: [UInt32]] = [:]
     for candidate in candidates {
         guard let marker = candidate.snapshot.marker, shown[marker] == 1 else { continue }
         let named = windows.filter { $0.key.id == marker.window && $0.session.hasPrefix(marker.session) }
         guard named.count == 1, let window = named.first, window.tabs.contains(where: { $0.id == marker.tab && $0.isActive }),
               safariExtensionTabsAgree(candidate, window) else { continue }
-        pairs[candidate.snapshot.windowId] = window.key
+        claims[window.key, default: []].append(candidate.snapshot.windowId)
     }
-    return pairs
+    // A report listing two active tabs in one window would let two buttons name it: neither does.
+    return Dictionary(uniqueKeysWithValues: claims.compactMap { key, ids in ids.count == 1 ? (ids[0], key) : nil })
 }
 
 /// Frames within this of each other are the same; WinMux reads them two ways, which can round apart.
@@ -349,6 +349,13 @@ func safariExtensionMatches(_ candidates: [SafariExtensionCandidate], _ windows:
         guard let frame, let bounds = windows[window].bounds else { return false }
         return !safariExtensionFramesAgree(frame, bounds)
     }
+    /// Whether the report listing `window` could describe the candidate: not if Safari measured it
+    /// before this native window appeared, when it described another, if any (one that closed,
+    /// whose number or tabs this one has). The candidate still stands in others' way: the report
+    /// may be that closed window's. An older extension's reports don't say when they were measured.
+    func current(_ candidate: Int, for window: Int) -> Bool {
+        windows[window].measured == -.infinity || candidates[candidate].appeared <= windows[window].measured
+    }
     var result = SafariExtensionMatches()
     for index in candidates.indices {
         guard let agreeing = forward[index] else { continue }
@@ -359,7 +366,7 @@ func safariExtensionMatches(_ candidates: [SafariExtensionCandidate], _ windows:
                 (backward[window] ?? []).contains { frame($0, in: window) == nil } || unread.contains { unreadFrame($0, in: window) == nil }
         }
         let possible = agreeing.count > 1 ? agreeing.filter { !elsewhere(frame(index, in: $0), in: $0) } : agreeing
-        guard possible.count == 1, let window = possible.first, let rivals = backward[window],
+        guard possible.count == 1, let window = possible.first, current(index, for: window), let rivals = backward[window],
               agreeing.count == 1 && rivals.count == 1 ||
                   placed(index, in: window) && rivals.allSatisfy({ $0 == index || elsewhere(frame($0, in: window), in: window) }),
               unread.isEmpty || placed(index, in: window) && unread.allSatisfy({ elsewhere(unreadFrame($0, in: window), in: window) })
@@ -386,7 +393,8 @@ enum SafariExtensionResolution: Equatable, Sendable {
 
 /// Which extension window describes each Safari window WinMux lists, and which extension tab
 /// each of its tabs is. A window whose toolbar button names its extension window is paired by
-/// that (`safariExtensionMarkedPairs`); the rest are paired among the windows left. A new
+/// that (`safariExtensionMarkedPairs`), once a report from after a read that saw the button still
+/// agrees (`MarkerClaim`); the rest are paired among the windows left. A new
 /// pairing counts once a later Accessibility read, at least 0.75 s on, still agrees, as the two
 /// report at different moments. While some Safari window is unread, a pairing no button named
 /// also needs the frames to settle it. Once counted, a pairing holds as long as its
@@ -418,10 +426,32 @@ struct SafariExtensionAssociations {
         var matched: (received: TimeInterval, order: Int, tabs: [SafariExtensionTabKey], read: TimeInterval)? = nil
     }
     private var proposed: [BrowserTabTarget: Proposal] = [:]
+    /// A window's toolbar button naming a report's window, at a read begun after that report
+    /// arrived, which ended at `read`. The title belongs to a tab and goes with it, so until
+    /// Safari reports again it may name the window the tab left: it counts only once a report
+    /// Safari measured after that read still agrees, with the same count of reorderings, so the
+    /// tab stayed where the title says while the read looked.
+    private struct MarkerClaim {
+        let marker: SafariExtensionMarker
+        let key: SafariExtensionWindowKey
+        let received: TimeInterval
+        let order: Int
+        let read: TimeInterval
+    }
+    private var markerClaims: [UInt32: MarkerClaim] = [:]
+    /// Report windows a window's button named this way, for this window lifetime: each keeps
+    /// counting while the window's button names it and the latest report still agrees.
+    private var trustedMarkers: [UInt32: SafariExtensionWindowKey] = [:]
+    /// Each window's tabs, by Safari's ids, in the latest report it was described by.
+    private var reportedTabs: [UInt32: [SafariExtensionTabKey]] = [:]
     /// Windows whose tabs agreed with the extension in the latest observation, and those that
     /// agreed before it but no longer do.
     private(set) var agreeing: Set<UInt32> = []
     private(set) var lapsed: Set<UInt32> = []
+    /// Windows to read again at once: those that stopped agreeing, those whose reported tabs were
+    /// reordered among themselves (their titles can still agree), and those whose button names a
+    /// report's window, so a read after that report can start trusting it.
+    private(set) var rereads: Set<UInt32> = []
     /// Whether something can't be settled until Safari reports again: a window, with frames this
     /// report's arrival didn't have or with an unread window settled, or a tab's pairing.
     private(set) var awaitsReport = false
@@ -446,12 +476,17 @@ struct SafariExtensionAssociations {
         bound = bound.filter { alive.contains($0.key) }
         proposed = proposed.filter { alive.contains($0.key) }
         lifetimes = lifetimes.filter { ids.contains($0.key) }
+        markerClaims = markerClaims.filter { ids.contains($0.key) }
+        trustedMarkers = trustedMarkers.filter { ids.contains($0.key) }
+        reportedTabs = reportedTabs.filter { ids.contains($0.key) }
         pending = pending.filter { ids.contains($0.key) }
         confirmed = confirmed.filter { ids.contains($0.key) }
         lastAgreement = lastAgreement.filter { ids.contains($0.key) }
 
-        // A window's own toolbar button outweighs everything else, holds included.
-        let marked = safariExtensionMarkedPairs(candidates, windows)
+        // A window's own toolbar button outweighs everything else, holds included, once trusted.
+        var reordered: Set<UInt32> = []
+        var untrusted: Set<UInt32> = []
+        let marked = trustMarkers(candidates, named: safariExtensionMarkedPairs(candidates, windows), byKey: byKey, untrusted: &untrusted)
         let markedKeys = Set(marked.values)
         let open = candidates.filter { marked[$0.snapshot.windowId] == nil }
         let openWindows = windows.filter { !markedKeys.contains($0.key) }
@@ -502,10 +537,51 @@ struct SafariExtensionAssociations {
             }
             lastAgreement[id] = now
             agreeing.insert(id)
+            let keys = window.tabs.compactMap(window.tabKey)
+            if let previous = reportedTabs[id], previous != keys { reordered.insert(id) }
+            reportedTabs[id] = keys
             describe(candidate, window)
         }
-        if !proposed.isEmpty { awaitsReport = true }
+        if !proposed.isEmpty || !untrusted.isEmpty { awaitsReport = true }
         lapsed = agreed.subtracting(agreeing)
+        rereads = lapsed.union(reordered).union(untrusted.filter { markerClaims[$0] == nil })
+    }
+
+    /// The windows whose toolbar buttons count (`MarkerClaim`), out of those whose buttons name a
+    /// report's window (`named`). `untrusted` gets the rest of those: they need another report.
+    private mutating func trustMarkers(_ candidates: [SafariExtensionCandidate], named: [UInt32: SafariExtensionWindowKey],
+                                       byKey: [SafariExtensionWindowKey: SafariExtensionWindow],
+                                       untrusted: inout Set<UInt32>) -> [UInt32: SafariExtensionWindowKey] {
+        var trusted: [UInt32: SafariExtensionWindowKey] = [:]
+        for candidate in candidates {
+            let id = candidate.snapshot.windowId
+            guard let marker = candidate.snapshot.marker, let key = named[id], let window = byKey[key] else {
+                markerClaims[id] = nil
+                trustedMarkers[id] = nil
+                continue
+            }
+            if trustedMarkers[id] == key {
+                trusted[id] = key
+                continue
+            }
+            trustedMarkers[id] = nil
+            if let claim = markerClaims[id], claim.marker == marker, claim.key == key, window.received > claim.received {
+                if window.order == claim.order, window.measured >= claim.read {
+                    markerClaims[id] = nil
+                    trustedMarkers[id] = key
+                    trusted[id] = key
+                    continue
+                }
+                // Reordered meanwhile, or not yet a report from after the read: start over, or wait.
+                if window.order != claim.order { markerClaims[id] = nil }
+            }
+            if let claim = markerClaims[id], claim.marker != marker || claim.key != key { markerClaims[id] = nil }
+            if markerClaims[id] == nil, candidate.readStarted >= window.received, let order = window.order {
+                markerClaims[id] = MarkerClaim(marker: marker, key: key, received: window.received, order: order, read: candidate.observed)
+            }
+            untrusted.insert(id)
+        }
+        return trusted
     }
 
     /// Gives each of a paired window's tabs what the extension says about it. Each listed tab
@@ -641,6 +717,9 @@ struct SafariExtensionAssociations {
         forget(id)
         pending[id] = nil
         lifetimes[id] = nil
+        markerClaims[id] = nil
+        trustedMarkers[id] = nil
+        reportedTabs[id] = nil
     }
 }
 
@@ -673,15 +752,20 @@ struct SafariExtensionFrameTrack {
         var paused = false
     }
     private var entries: [UInt32: Entry] = [:]
+    /// When the current run of samples began: windows first seen then were already open, since
+    /// some time WinMux doesn't know.
+    private var runStarted: TimeInterval?
 
     /// Where Safari's windows are now. A window first seen, moved, resized or replaced starts
     /// counting again; one not listed, or whose frame is unknown, is dropped.
     mutating func observe(_ current: [UInt32: SafariExtensionFrameSample], now: TimeInterval) {
+        let starting = runStarted == nil
+        if starting { runStarted = now }
         var next: [UInt32: Entry] = [:]
         for (id, sample) in current {
             guard let frame = sample.frame else { continue }
             guard let known = entries[id], known.sample.identity == sample.identity else {
-                next[id] = Entry(sample: sample, frame: frame, since: now, appeared: now)
+                next[id] = Entry(sample: sample, frame: frame, since: now, appeared: starting ? -.infinity : now)
                 continue
             }
             let still = !known.paused && !sample.writing && known.sample.generation == sample.generation &&
@@ -695,6 +779,7 @@ struct SafariExtensionFrameTrack {
     /// from its next sample, as nothing says where it was meanwhile.
     mutating func pause() {
         for id in entries.keys { entries[id]?.paused = true }
+        runStarted = nil
     }
 
     mutating func observe(_ frames: [UInt32: CGRect?], now: TimeInterval) {
@@ -707,6 +792,7 @@ struct SafariExtensionFrameTrack {
         entries.filter { !$0.value.paused && $0.value.since <= measured - Self.margin }.mapValues(\.frame)
     }
 
-    /// When the native window now under this number was first seen, if it has been.
+    /// When the native window now under this number was first seen, if it has been: -infinity for
+    /// one already open when a run of samples began.
     func appeared(_ id: UInt32) -> TimeInterval? { entries[id]?.appeared }
 }

@@ -1092,8 +1092,10 @@ final class BrowserTabsTest: XCTestCase {
         XCTAssertEqual(button.structureReads, reads)
         button.unreadable = false
 
-        let plain = BrowserTabScanner(root: tree.root, adapter: .safari, windowId: 123, pid: 45)
+        let plain = BrowserTabScanner(root: tree.root, adapter: .safari, windowId: 123, pid: 45, now: { time })
         XCTAssertNil(try XCTUnwrap(plain.scan()).marker, "Without the extension, WinMux looks for no button")
+        plain.markerIdentifier = identifier
+        XCTAssertEqual(try XCTUnwrap(plain.scan()).marker?.tab, 1402, "Once it has the extension, the next read walks the window for it")
         let chrome = fixture(.chromium)
         chrome.root.append(toolbar)
         XCTAssertNil(try XCTUnwrap(BrowserTabScanner(root: chrome.root, adapter: .chromium, windowId: 1, pid: 2,

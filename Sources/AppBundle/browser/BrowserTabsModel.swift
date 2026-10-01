@@ -184,8 +184,9 @@ final class BrowserTabsModel: ObservableObject {
             now: ProcessInfo.processInfo.systemUptime)
         // Safari reports where its windows are only with its tabs; ask again rather than wait a minute.
         if safariAssociations.awaitsReport { safariExtension.requestResync(atMostEvery: 10) }
-        // A report that no longer agrees with a window's last read says its tabs changed: read it now.
-        if reported { for id in safariAssociations.lapsed { schedule.reset(id) } }
+        // A report that no longer agrees with a window's last read, or reorders its tabs, says they
+        // changed; one its button names can start counting from a read after it: read those now.
+        if reported { for id in safariAssociations.rereads { schedule.reset(id) } }
     }
 
     private func settledSafariWindows(now: TimeInterval) -> Set<UInt32> {

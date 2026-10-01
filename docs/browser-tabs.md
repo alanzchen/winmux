@@ -102,10 +102,13 @@ describes tabs, and WinMux trusts a description only when it agrees with the tab
   with the tab bar, and a window whose button names a window of the latest report is that one,
   wherever it is, even among twins in the same place. The title must come from that report's
   extension session, name the tab the report says is active there, and the window's tabs must
-  agree. A title naming anything else (the button hasn't caught up with a switch, a tab moved,
-  or the extension reloaded) names nothing, nor does one two windows show at once. Those windows,
-  and windows without the button, are matched by the rules below. The button is only ever read:
-  selecting, closing and moving never depend on it.
+  agree. A tab keeps its title when it moves to another window, until the extension titles it
+  again, so a title counts only once a report Safari measured after the read that saw it still
+  agrees, with no tab moved, opened or closed in between; WinMux's answer asks Safari for that
+  report, so this takes a few seconds. A title naming anything else (the button hasn't caught up
+  with a switch, a tab moved, or the extension reloaded) names nothing, nor does one two windows
+  show at once. Those windows, and windows without the button, are matched by the rules below.
+  The button is only ever read: selecting, closing and moving never depend on it.
 - Two windows with the same tabs, such as two one-tab windows on the same page, are told apart
   by where they were when Safari reported. WinMux notes where Safari's windows are a few times
   a second, and compares the bounds in each report only with where windows were when that
