@@ -269,18 +269,25 @@ final class SafariExtensionBackgroundTest: XCTestCase {
         XCTAssertEqual(try reports(reloaded).count, 0)
         try settle(reloaded, seconds: 1.5)
         XCTAssertEqual(try reports(reloaded).count, 1, "The attempt comes when the wait ends")
-        XCTAssertEqual(try titles(reloaded).map(\.tab), [7, 8])
+        XCTAssertEqual(try titles(reloaded).filter { !$0.title.isEmpty }.map(\.tab), [7, 8], "and titles the buttons")
     }
 
-    /// Safari drops the buttons' titles when the button leaves the toolbar, and nothing says it
-    /// came back: the heartbeat, and any other forced report, titles every window's button again.
+    /// A button put back in the toolbar shows just the extension's name, and nothing says it came
+    /// back: the heartbeat, and any other forced report, titles every window's button again,
+    /// first resetting it to the name, as Safari ignores a title the tab already has.
     func testAForcedReportTitlesEveryWindowsButtonAgain() throws {
         let context = try page()
         XCTAssertEqual(try titles(context).map(\.tab), [7, 8])
         try run(context, "browser.tabs.onUpdated.fire(7, {title: 'Demo Page'});")
         XCTAssertEqual(try titles(context).count, 2, "An ordinary report doesn't title them again")
         try run(context, "browser.alarms.onAlarm.fire({name: 'winmux-heartbeat'});")
-        XCTAssertEqual(try titles(context).dropFirst(2).map(\.tab), [7, 8])
+        let again = try titles(context).dropFirst(2)
+        XCTAssertEqual(again.filter { $0.title.isEmpty }.map(\.tab), [7, 8], "Each reset to the name")
+        XCTAssertEqual(again.filter { !$0.title.isEmpty }.map(\.title),
+            [WinMuxTabsTitle(window: 1, tab: 7), WinMuxTabsTitle(window: 2, tab: 8)])
+        for tab in [7, 8] {
+            XCTAssertEqual(again.filter { $0.tab == tab }.map(\.title.isEmpty), [true, false], "then titled, tab \(tab)")
+        }
     }
 
     /// The count of tab moves, openings and closings: once per event, not for activations or

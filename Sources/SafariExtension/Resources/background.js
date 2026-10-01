@@ -112,9 +112,11 @@ function iconFor(data, tab) {
 }
 
 /** Titles each normal window's active tab's toolbar button with the window's ids, once, or again
- * for every window when `all`: Safari drops the titles when the button leaves the toolbar, and
- * nothing tells this page it came back. */
+ * for every window when `all`: a button put back in the toolbar shows just the extension's name
+ * until its tab's title changes, and nothing tells this page it came back. Safari ignores a title
+ * the tab already has, so `all` resets each to the name first. */
 function stampWindows(windows, session, all = false) {
+    const setTitle = (tabId, title) => Promise.resolve(browser.action?.setTitle({ tabId, title }));
     for (const window of Array.isArray(windows) ? windows : []) {
         if (window.incognito === true || (window.type !== undefined && window.type !== "normal")) continue;
         const tab = window.tabs?.find((tab) => tab.active === true);
@@ -123,7 +125,7 @@ function stampWindows(windows, session, all = false) {
         if (!all && stamped.get(tab.id) === title) continue;
         stamped.set(tab.id, title);
         try {
-            Promise.resolve(browser.action?.setTitle({ tabId: tab.id, title })).catch(() => stamped.delete(tab.id));
+            (all ? setTitle(tab.id, null).then(() => setTitle(tab.id, title)) : setTitle(tab.id, title)).catch(() => stamped.delete(tab.id));
         } catch {
             stamped.delete(tab.id);
         }
