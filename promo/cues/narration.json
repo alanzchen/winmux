@@ -1,0 +1,190 @@
+{
+  "$comment": "Narration cues. start = where the trimmed line file begins (seconds on the 120 BPM grid in cues/beats.json; speech onset is ~0.08 s later). maxEnd = hard end of the line's window. targetSec = planned natural read. The approved take for each line is vo/<id>.wav (native 24 kHz Gemini TTS master). Never time-stretch a take; re-read it or move the picture instead. 'WinMux' is pronounced WIN-mux.",
+  "wpmTarget": 150,
+  "lines": [
+    {
+      "id": "L01",
+      "start": 1.5,
+      "maxEnd": 5.0,
+      "targetSec": 2.4,
+      "text": "Every project brings its own windows.",
+      "emphasis": [
+        "own"
+      ],
+      "beat": "clutter builds"
+    },
+    {
+      "id": "L02",
+      "start": 5.5,
+      "maxEnd": 10.0,
+      "targetSec": 2.8,
+      "text": "Soon, you're searching more than working.",
+      "emphasis": [
+        "searching",
+        "working"
+      ],
+      "beat": "windows pile up; wry, not grim"
+    },
+    {
+      "id": "L03",
+      "start": 14.0,
+      "maxEnd": 18.25,
+      "targetSec": 3.8,
+      "text": "Meet WinMux, a tiling window manager for your Mac.",
+      "emphasis": [
+        "WinMux"
+      ],
+      "beat": "just after the snap; warm introduction"
+    },
+    {
+      "id": "L04",
+      "start": 18.5,
+      "maxEnd": 22.0,
+      "targetSec": 2.2,
+      "text": "Every window, in its place.",
+      "emphasis": [
+        "place"
+      ],
+      "beat": "calm tiles; let it breathe"
+    },
+    {
+      "id": "L05",
+      "start": 24.25,
+      "maxEnd": 29.75,
+      "targetSec": 4.5,
+      "text": "In the sidebar, every workspace is a tab, one click away.",
+      "emphasis": [
+        "tab",
+        "one click"
+      ],
+      "beat": "camera on the sidebar; 'one click away' lands on the Roadmap click at 28.5 s"
+    },
+    {
+      "id": "L06",
+      "start": 29.75,
+      "maxEnd": 35.75,
+      "targetSec": 4.5,
+      "text": "Projects keep each context apart. Switch, and the sidebar follows.",
+      "emphasis": [
+        "apart",
+        "Switch"
+      ],
+      "beat": "'Switch' lands on the project switch at 33.0 s; back to Launch at 35.5 s"
+    },
+    {
+      "id": "L07",
+      "start": 36.0,
+      "maxEnd": 40.0,
+      "targetSec": 3.4,
+      "text": "Group related tabs, and fold away the rest.",
+      "emphasis": [
+        "Group",
+        "fold away"
+      ],
+      "beat": "group collapses at 38.0 s"
+    },
+    {
+      "id": "L08",
+      "start": 40.25,
+      "maxEnd": 43.75,
+      "targetSec": 3.2,
+      "text": "Pin the ones you always come back to.",
+      "emphasis": [
+        "Pin"
+      ],
+      "beat": "pin lands at 42.0 s"
+    },
+    {
+      "id": "L09",
+      "start": 48.5,
+      "maxEnd": 51.5,
+      "targetSec": 2.0,
+      "text": "And it works across displays.",
+      "emphasis": [
+        "across displays"
+      ],
+      "beat": "right after the displays reveal at 48.0 s"
+    },
+    {
+      "id": "L10",
+      "start": 52.0,
+      "maxEnd": 56.5,
+      "targetSec": 4.2,
+      "text": "Drag a tab, and your other displays appear as rails.",
+      "emphasis": [
+        "Drag",
+        "rails"
+      ],
+      "beat": "rails slide in at 54.0 s, near 'appear'"
+    },
+    {
+      "id": "L11",
+      "start": 56.5,
+      "maxEnd": 61.0,
+      "targetSec": 4.0,
+      "text": "Pause to open its list. Drop, and it's there.",
+      "emphasis": [
+        "Pause",
+        "Drop"
+      ],
+      "beat": "rail tints 57.0 s; list opens 58.0 s; 'Drop' lands on the drop at 59.5 s"
+    },
+    {
+      "id": "L12",
+      "start": 62.0,
+      "maxEnd": 64.5,
+      "targetSec": 2.3,
+      "text": "Share your pins across displays.",
+      "emphasis": [
+        "Share"
+      ],
+      "beat": "pin grids merge at 63.0 s"
+    },
+    {
+      "id": "L13",
+      "start": 64.75,
+      "maxEnd": 68.5,
+      "targetSec": 3.3,
+      "text": "Click one, and it comes to your screen.",
+      "emphasis": [
+        "comes to your screen"
+      ],
+      "beat": "'Click' lands on the click at 65.0 s; the window arrives at 67.0 s"
+    },
+    {
+      "id": "L14",
+      "start": 68.5,
+      "maxEnd": 72.0,
+      "targetSec": 3.4,
+      "text": "A subtle badge marks the ones on other displays.",
+      "emphasis": [
+        "subtle badge"
+      ],
+      "beat": "close-up on the display badge"
+    },
+    {
+      "id": "L15",
+      "start": 72.0,
+      "maxEnd": 76.0,
+      "targetSec": 3.1,
+      "text": "Reorder them anywhere. No window changes screens.",
+      "emphasis": [
+        "anywhere",
+        "No window"
+      ],
+      "beat": "reorder lands at 74.0 s"
+    },
+    {
+      "id": "L16",
+      "start": 78.25,
+      "maxEnd": 82.0,
+      "targetSec": 2.6,
+      "text": "WinMux. Your windows, in flow.",
+      "emphasis": [
+        "WinMux",
+        "flow"
+      ],
+      "beat": "logo landed at 78.0 s; final chord at 82.0 s"
+    }
+  ]
+}

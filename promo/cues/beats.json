@@ -1,0 +1,614 @@
+{
+  "$comment": "Beat grid for the WinMux intro. Single source of truth for the music synth (scripts/music/synth.mjs) and the film timeline (src/timeline.ts). Positions are musical: bar (0-based) + beat (0-based, may be fractional). Seconds = (bar*4 + beat) * 60 / bpm. 't' is derived and checked by scripts/cues-check.mjs; edit bar/beat, then run `npm run cues`.",
+  "bpm": 120,
+  "timeSignature": [
+    4,
+    4
+  ],
+  "fps": 60,
+  "framesPerBeat": 30,
+  "bars": 43,
+  "durationSec": 86,
+  "key": "D major (opens in B minor)",
+  "sections": [
+    {
+      "id": "clutter",
+      "startBar": 0,
+      "endBar": 6,
+      "mood": "tension; windows pile up",
+      "energy": 0.35
+    },
+    {
+      "id": "calm",
+      "startBar": 6,
+      "endBar": 12,
+      "mood": "release; tiles settle; half-time",
+      "energy": 0.45
+    },
+    {
+      "id": "sidebar",
+      "startBar": 12,
+      "endBar": 22,
+      "mood": "light groove; tabs, projects, groups, pins",
+      "energy": 0.6
+    },
+    {
+      "id": "reveal",
+      "startBar": 22,
+      "endBar": 24,
+      "mood": "build; camera pulls out to the displays",
+      "energy": 0.7
+    },
+    {
+      "id": "displays",
+      "startBar": 24,
+      "endBar": 38,
+      "mood": "full groove; rails, drop, shared pins, badge, reorder",
+      "energy": 0.85
+    },
+    {
+      "id": "converge",
+      "startBar": 38,
+      "endBar": 39,
+      "mood": "dominant build into the logo",
+      "energy": 0.75
+    },
+    {
+      "id": "endcard",
+      "startBar": 39,
+      "endBar": 43,
+      "mood": "logo hit, plagal cadence, ring-out",
+      "energy": 0.4
+    }
+  ],
+  "phrases": [
+    {
+      "bar": 0,
+      "bars": 4,
+      "label": "intro"
+    },
+    {
+      "bar": 4,
+      "bars": 2,
+      "label": "clutter build + riser"
+    },
+    {
+      "bar": 6,
+      "bars": 4,
+      "label": "calm A"
+    },
+    {
+      "bar": 10,
+      "bars": 2,
+      "label": "calm B (focus hops)"
+    },
+    {
+      "bar": 12,
+      "bars": 3,
+      "label": "tabs"
+    },
+    {
+      "bar": 15,
+      "bars": 3,
+      "label": "projects"
+    },
+    {
+      "bar": 18,
+      "bars": 2,
+      "label": "groups"
+    },
+    {
+      "bar": 20,
+      "bars": 2,
+      "label": "pins"
+    },
+    {
+      "bar": 22,
+      "bars": 2,
+      "label": "reveal build"
+    },
+    {
+      "bar": 24,
+      "bars": 2,
+      "label": "displays intro"
+    },
+    {
+      "bar": 26,
+      "bars": 5,
+      "label": "rails + drop"
+    },
+    {
+      "bar": 31,
+      "bars": 3,
+      "label": "shared pins + click"
+    },
+    {
+      "bar": 34,
+      "bars": 4,
+      "label": "badge + reorder"
+    },
+    {
+      "bar": 38,
+      "bars": 1,
+      "label": "converge"
+    },
+    {
+      "bar": 39,
+      "bars": 4,
+      "label": "end card"
+    }
+  ],
+  "chords": [
+    {
+      "bar": 0,
+      "chord": "Bm(add9)"
+    },
+    {
+      "bar": 1,
+      "chord": "Bm(add9)"
+    },
+    {
+      "bar": 2,
+      "chord": "G"
+    },
+    {
+      "bar": 3,
+      "chord": "G"
+    },
+    {
+      "bar": 4,
+      "chord": "Em7"
+    },
+    {
+      "bar": 5,
+      "chord": "F#sus4"
+    },
+    {
+      "bar": 5.5,
+      "chord": "F#"
+    },
+    {
+      "bar": 6,
+      "chord": "D"
+    },
+    {
+      "bar": 7,
+      "chord": "A/C#"
+    },
+    {
+      "bar": 8,
+      "chord": "Bm7"
+    },
+    {
+      "bar": 9,
+      "chord": "Gmaj7"
+    },
+    {
+      "bar": 10,
+      "chord": "D"
+    },
+    {
+      "bar": 11,
+      "chord": "A"
+    },
+    {
+      "bar": 12,
+      "chord": "D"
+    },
+    {
+      "bar": 13,
+      "chord": "A/C#"
+    },
+    {
+      "bar": 14,
+      "chord": "Bm7"
+    },
+    {
+      "bar": 15,
+      "chord": "Gmaj7"
+    },
+    {
+      "bar": 16,
+      "chord": "D"
+    },
+    {
+      "bar": 17,
+      "chord": "A/C#"
+    },
+    {
+      "bar": 18,
+      "chord": "Bm7"
+    },
+    {
+      "bar": 19,
+      "chord": "Gmaj7"
+    },
+    {
+      "bar": 20,
+      "chord": "Em7"
+    },
+    {
+      "bar": 21,
+      "chord": "A"
+    },
+    {
+      "bar": 22,
+      "chord": "Gmaj7"
+    },
+    {
+      "bar": 23,
+      "chord": "Asus4"
+    },
+    {
+      "bar": 23.5,
+      "chord": "A"
+    },
+    {
+      "bar": 24,
+      "chord": "Gmaj7"
+    },
+    {
+      "bar": 25,
+      "chord": "A"
+    },
+    {
+      "bar": 26,
+      "chord": "F#m7"
+    },
+    {
+      "bar": 27,
+      "chord": "Bm7"
+    },
+    {
+      "bar": 28,
+      "chord": "Gmaj7"
+    },
+    {
+      "bar": 29,
+      "chord": "A"
+    },
+    {
+      "bar": 30,
+      "chord": "D/F#"
+    },
+    {
+      "bar": 31,
+      "chord": "Gmaj7"
+    },
+    {
+      "bar": 32,
+      "chord": "Em7"
+    },
+    {
+      "bar": 33,
+      "chord": "F#m7"
+    },
+    {
+      "bar": 34,
+      "chord": "Gmaj7"
+    },
+    {
+      "bar": 35,
+      "chord": "A"
+    },
+    {
+      "bar": 36,
+      "chord": "Bm7"
+    },
+    {
+      "bar": 37,
+      "chord": "Asus4"
+    },
+    {
+      "bar": 37.5,
+      "chord": "A"
+    },
+    {
+      "bar": 38,
+      "chord": "A7sus4"
+    },
+    {
+      "bar": 39,
+      "chord": "D(add9)"
+    },
+    {
+      "bar": 40,
+      "chord": "G/D"
+    },
+    {
+      "bar": 41,
+      "chord": "D(add9)"
+    },
+    {
+      "bar": 42,
+      "chord": "D(add9)"
+    }
+  ],
+  "accents": [
+    {
+      "id": "first-window",
+      "bar": 0,
+      "beat": 2,
+      "strength": 0.3,
+      "visual": "first window pops onto the empty display"
+    },
+    {
+      "id": "snap",
+      "bar": 6,
+      "beat": 0,
+      "strength": 1.0,
+      "visual": "clutter snaps: windows tile, the rest fly into the sidebar as tabs"
+    },
+    {
+      "id": "focus-1",
+      "bar": 11,
+      "beat": 0,
+      "strength": 0.25,
+      "visual": "focus ring hops to tile 2"
+    },
+    {
+      "id": "focus-2",
+      "bar": 11,
+      "beat": 1,
+      "strength": 0.25,
+      "visual": "focus ring hops to tile 3"
+    },
+    {
+      "id": "focus-3",
+      "bar": 11,
+      "beat": 2,
+      "strength": 0.25,
+      "visual": "focus ring hops back to tile 1"
+    },
+    {
+      "id": "push-in-land",
+      "bar": 12,
+      "beat": 0,
+      "strength": 0.6,
+      "visual": "camera arrives on the sidebar"
+    },
+    {
+      "id": "row-click",
+      "bar": 14,
+      "beat": 1,
+      "strength": 0.55,
+      "visual": "click 'Roadmap': the selection moves, its window slides in"
+    },
+    {
+      "id": "project-switch",
+      "bar": 16,
+      "beat": 2,
+      "strength": 0.8,
+      "visual": "project switcher: Launch -> Writing, sidebar pages"
+    },
+    {
+      "id": "project-back",
+      "bar": 17,
+      "beat": 3,
+      "strength": 0.5,
+      "visual": "back to Launch"
+    },
+    {
+      "id": "group-collapse",
+      "bar": 19,
+      "beat": 0,
+      "strength": 0.7,
+      "visual": "group 'Launch week' folds into its header"
+    },
+    {
+      "id": "pin-land",
+      "bar": 21,
+      "beat": 0,
+      "strength": 0.8,
+      "visual": "'Roadmap' lands in the pinned tiles"
+    },
+    {
+      "id": "pull-out",
+      "bar": 22,
+      "beat": 0,
+      "strength": 0.3,
+      "visual": "camera pulls back from the sidebar (riser starts)"
+    },
+    {
+      "id": "fill",
+      "bar": 23,
+      "beat": 3,
+      "strength": 0.5,
+      "visual": "drum fill; the other displays start to glow"
+    },
+    {
+      "id": "displays-reveal",
+      "bar": 24,
+      "beat": 0,
+      "strength": 1.0,
+      "visual": "three displays revealed; chorus drops"
+    },
+    {
+      "id": "drag-grab",
+      "bar": 26,
+      "beat": 2,
+      "strength": 0.3,
+      "visual": "pointer grabs 'Release notes'"
+    },
+    {
+      "id": "rails-in",
+      "bar": 27,
+      "beat": 0,
+      "strength": 0.85,
+      "visual": "full-height display rails slide in beside the sidebar"
+    },
+    {
+      "id": "rail-hover",
+      "bar": 28,
+      "beat": 2,
+      "strength": 0.3,
+      "visual": "pointer pauses on the Studio Display rail: tint"
+    },
+    {
+      "id": "list-open",
+      "bar": 29,
+      "beat": 0,
+      "strength": 0.8,
+      "visual": "rail fills blue; Studio Display's list opens"
+    },
+    {
+      "id": "drop",
+      "bar": 29,
+      "beat": 3,
+      "strength": 0.85,
+      "visual": "drop between Docs and Standup notes in Studio Display's list"
+    },
+    {
+      "id": "land-b",
+      "bar": 30,
+      "beat": 1,
+      "strength": 0.55,
+      "visual": "the tab lands in Studio Display's sidebar"
+    },
+    {
+      "id": "share-on",
+      "bar": 31,
+      "beat": 2,
+      "strength": 0.6,
+      "visual": "pins shared: both pin grids become one set"
+    },
+    {
+      "id": "pin-click",
+      "bar": 32,
+      "beat": 2,
+      "strength": 0.5,
+      "visual": "click the badged 'Team chat' pin on the left display"
+    },
+    {
+      "id": "pin-arrives",
+      "bar": 33,
+      "beat": 2,
+      "strength": 0.85,
+      "visual": "its window arrives on the clicked display"
+    },
+    {
+      "id": "badge-focus",
+      "bar": 34,
+      "beat": 2,
+      "strength": 0.3,
+      "visual": "close-up on the display badge"
+    },
+    {
+      "id": "reorder",
+      "bar": 37,
+      "beat": 0,
+      "strength": 0.7,
+      "visual": "pin reordered; every display's grid follows; no window moves"
+    },
+    {
+      "id": "converge",
+      "bar": 38,
+      "beat": 0,
+      "strength": 0.6,
+      "visual": "everything draws together"
+    },
+    {
+      "id": "logo-land",
+      "bar": 39,
+      "beat": 0,
+      "strength": 1.0,
+      "visual": "five glass windows lock into the WinMux icon"
+    },
+    {
+      "id": "final-chord",
+      "bar": 41,
+      "beat": 0,
+      "strength": 0.7,
+      "visual": "wordmark + details settle; final chord"
+    },
+    {
+      "id": "fade-out",
+      "bar": 42,
+      "beat": 2,
+      "strength": 0.0,
+      "visual": "fade to black by 86 s"
+    }
+  ],
+  "clutterPops": [
+    {
+      "bar": 0,
+      "beat": 2
+    },
+    {
+      "bar": 1,
+      "beat": 0
+    },
+    {
+      "bar": 1,
+      "beat": 2
+    },
+    {
+      "bar": 1,
+      "beat": 3
+    },
+    {
+      "bar": 2,
+      "beat": 0
+    },
+    {
+      "bar": 2,
+      "beat": 1.5
+    },
+    {
+      "bar": 2,
+      "beat": 3
+    },
+    {
+      "bar": 3,
+      "beat": 0
+    },
+    {
+      "bar": 3,
+      "beat": 1
+    },
+    {
+      "bar": 3,
+      "beat": 2.5
+    },
+    {
+      "bar": 4,
+      "beat": 0
+    },
+    {
+      "bar": 4,
+      "beat": 1
+    },
+    {
+      "bar": 4,
+      "beat": 2
+    },
+    {
+      "bar": 4,
+      "beat": 2.5
+    },
+    {
+      "bar": 4,
+      "beat": 3.5
+    },
+    {
+      "bar": 5,
+      "beat": 0
+    },
+    {
+      "bar": 5,
+      "beat": 1
+    },
+    {
+      "bar": 5,
+      "beat": 1.5
+    },
+    {
+      "bar": 5,
+      "beat": 2
+    },
+    {
+      "bar": 5,
+      "beat": 2.5
+    }
+  ]
+}

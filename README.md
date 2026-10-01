@@ -18,6 +18,28 @@ with a customizable app-icon Dock, expanded settings, and its own signed updates
 
 *Sidebar mode with tiled windows and tab groups.*
 
+## Product video
+
+<a href="https://github.com/alanzchen/winmux/releases/download/promo-video-v3/winmux-intro_v3.mp4">
+  <img src="resources/screenshots/promo-video-thumbnail.jpg" width="480" alt="Play the WinMux product video (86 seconds, MP4)">
+</a>
+
+[Watch the 86-second introduction](https://github.com/alanzchen/winmux/releases/download/promo-video-v3/winmux-intro_v3.mp4) (MP4, 1920×1080, 34 MB, with [captions](https://github.com/alanzchen/winmux/releases/tag/promo-video-v3)).
+- **What's real:** the sidebar UI is rendered from WinMux's own views with demo data.
+- **What's illustrated:** the app windows and display motion.
+- **Narration:** AI-generated, with Google Gemini TTS.
+- **Music:** original.
+
+The video's source is in [`promo/`](promo/README.md). Build it with:
+
+```sh
+script/build-promo-video.sh --version v3
+```
+
+- **Output:** `promo/out/winmux-intro-v3/`, which holds the MP4, captions, audio stems and QC reports.
+- **Requirements:** it's tested on macOS on Apple silicon, and needs Node.js 20+ with npm, ffmpeg with ffprobe, and Python 3. No credentials are needed, but the script does need network access for `npm ci` and a one-time browser download.
+- **Licence:** Remotion, which renders the video, is free for individuals and small teams, but larger companies need a Remotion licence. That applies to whoever builds the video; see [promo/THIRD_PARTY_NOTICES.md](promo/THIRD_PARTY_NOTICES.md).
+
 ## Get started
 
 **Requirements:** an Apple Silicon Mac running macOS 13 or later. Native Liquid
@@ -174,6 +196,7 @@ in sync. See the [full CLI guide](docs/cli.md) for commands and examples.
 | Stutter or an unresponsive Dock | [Record a performance report](docs/dock-performance-debugging.md) |
 | Build or contribute | [Local development](docs/development.md) · [Contributor guidelines](AGENTS.md) |
 | Signing and publishing releases | [Release guide](docs/releasing.md) |
+| The product video and its source | [promo/README.md](promo/README.md) |
 
 For a bug report, include your WinMux version, macOS version, display arrangement,
 and steps to reproduce it in [this fork's issue tracker](https://github.com/alanzchen/winmux/issues).

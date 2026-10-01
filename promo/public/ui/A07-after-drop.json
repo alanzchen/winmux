@@ -1,0 +1,114 @@
+{
+  "height" : 884,
+  "name" : "A07-after-drop",
+  "scale" : 3,
+  "surface" : {
+    "h" : 884,
+    "w" : 264,
+    "x" : 0,
+    "y" : 0
+  },
+  "targets" : [
+    {
+      "h" : 62,
+      "name" : "pin-mail",
+      "type" : "workspace",
+      "w" : 84,
+      "x" : 6,
+      "y" : 78
+    },
+    {
+      "h" : 62,
+      "name" : "pin-cal",
+      "type" : "workspace",
+      "w" : 84,
+      "x" : 90,
+      "y" : 78
+    },
+    {
+      "h" : 62,
+      "name" : "roadmap",
+      "type" : "workspace",
+      "w" : 84,
+      "x" : 174,
+      "y" : 78
+    },
+    {
+      "h" : 36,
+      "type" : "newTab",
+      "w" : 244,
+      "x" : 10,
+      "y" : 180
+    },
+    {
+      "h" : 36,
+      "name" : "design",
+      "type" : "workspace",
+      "w" : 244,
+      "x" : 10,
+      "y" : 218
+    },
+    {
+      "after" : false,
+      "h" : 10,
+      "type" : "gap",
+      "w" : 244,
+      "workspace" : "design",
+      "x" : 10,
+      "y" : 215
+    },
+    {
+      "after" : true,
+      "h" : 10,
+      "type" : "gap",
+      "w" : 244,
+      "workspace" : "design",
+      "x" : 10,
+      "y" : 247
+    },
+    {
+      "h" : 36,
+      "name" : "build",
+      "type" : "workspace",
+      "w" : 244,
+      "x" : 10,
+      "y" : 256
+    },
+    {
+      "after" : false,
+      "h" : 10,
+      "type" : "gap",
+      "w" : 244,
+      "workspace" : "build",
+      "x" : 10,
+      "y" : 253
+    },
+    {
+      "after" : true,
+      "h" : 10,
+      "type" : "gap",
+      "w" : 244,
+      "workspace" : "build",
+      "x" : 10,
+      "y" : 285
+    },
+    {
+      "h" : 36,
+      "id" : "c-launch-week",
+      "type" : "collection",
+      "w" : 236,
+      "x" : 14,
+      "y" : 301
+    },
+    {
+      "after" : true,
+      "h" : 446,
+      "type" : "gap",
+      "w" : 244,
+      "workspace" : "press",
+      "x" : 10,
+      "y" : 344
+    }
+  ],
+  "width" : 264
+}

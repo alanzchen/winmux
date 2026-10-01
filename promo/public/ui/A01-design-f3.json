@@ -1,0 +1,245 @@
+{
+  "height" : 884,
+  "name" : "A01-design-f3",
+  "scale" : 3,
+  "surface" : {
+    "h" : 884,
+    "w" : 264,
+    "x" : 0,
+    "y" : 0
+  },
+  "targets" : [
+    {
+      "h" : 62,
+      "name" : "pin-mail",
+      "type" : "workspace",
+      "w" : 84,
+      "x" : 6,
+      "y" : 78
+    },
+    {
+      "h" : 62,
+      "name" : "pin-cal",
+      "type" : "workspace",
+      "w" : 84,
+      "x" : 90,
+      "y" : 78
+    },
+    {
+      "after" : true,
+      "h" : 62,
+      "type" : "pinned",
+      "w" : 84,
+      "workspace" : "pin-cal",
+      "x" : 174,
+      "y" : 78
+    },
+    {
+      "h" : 36,
+      "type" : "newTab",
+      "w" : 244,
+      "x" : 10,
+      "y" : 180
+    },
+    {
+      "h" : 36,
+      "name" : "design",
+      "type" : "workspace",
+      "w" : 244,
+      "x" : 10,
+      "y" : 218
+    },
+    {
+      "after" : false,
+      "h" : 10,
+      "type" : "gap",
+      "w" : 244,
+      "workspace" : "design",
+      "x" : 10,
+      "y" : 215
+    },
+    {
+      "after" : true,
+      "h" : 10,
+      "type" : "gap",
+      "w" : 244,
+      "workspace" : "design",
+      "x" : 10,
+      "y" : 247
+    },
+    {
+      "h" : 36,
+      "name" : "release",
+      "type" : "workspace",
+      "w" : 244,
+      "x" : 10,
+      "y" : 256
+    },
+    {
+      "after" : false,
+      "h" : 10,
+      "type" : "gap",
+      "w" : 244,
+      "workspace" : "release",
+      "x" : 10,
+      "y" : 253
+    },
+    {
+      "after" : true,
+      "h" : 10,
+      "type" : "gap",
+      "w" : 244,
+      "workspace" : "release",
+      "x" : 10,
+      "y" : 285
+    },
+    {
+      "h" : 36,
+      "name" : "roadmap",
+      "type" : "workspace",
+      "w" : 244,
+      "x" : 10,
+      "y" : 294
+    },
+    {
+      "after" : false,
+      "h" : 10,
+      "type" : "gap",
+      "w" : 244,
+      "workspace" : "roadmap",
+      "x" : 10,
+      "y" : 291
+    },
+    {
+      "after" : true,
+      "h" : 10,
+      "type" : "gap",
+      "w" : 244,
+      "workspace" : "roadmap",
+      "x" : 10,
+      "y" : 323
+    },
+    {
+      "h" : 36,
+      "name" : "build",
+      "type" : "workspace",
+      "w" : 244,
+      "x" : 10,
+      "y" : 332
+    },
+    {
+      "after" : false,
+      "h" : 10,
+      "type" : "gap",
+      "w" : 244,
+      "workspace" : "build",
+      "x" : 10,
+      "y" : 329
+    },
+    {
+      "after" : true,
+      "h" : 10,
+      "type" : "gap",
+      "w" : 244,
+      "workspace" : "build",
+      "x" : 10,
+      "y" : 361
+    },
+    {
+      "h" : 36,
+      "id" : "c-launch-week",
+      "type" : "collection",
+      "w" : 236,
+      "x" : 14,
+      "y" : 377
+    },
+    {
+      "h" : 36,
+      "name" : "changelog",
+      "type" : "workspace",
+      "w" : 236,
+      "x" : 14,
+      "y" : 415
+    },
+    {
+      "after" : false,
+      "h" : 10,
+      "type" : "gap",
+      "w" : 236,
+      "workspace" : "changelog",
+      "x" : 14,
+      "y" : 412
+    },
+    {
+      "after" : true,
+      "h" : 10,
+      "type" : "gap",
+      "w" : 236,
+      "workspace" : "changelog",
+      "x" : 14,
+      "y" : 444
+    },
+    {
+      "h" : 36,
+      "name" : "store",
+      "type" : "workspace",
+      "w" : 236,
+      "x" : 14,
+      "y" : 453
+    },
+    {
+      "after" : false,
+      "h" : 10,
+      "type" : "gap",
+      "w" : 236,
+      "workspace" : "store",
+      "x" : 14,
+      "y" : 450
+    },
+    {
+      "after" : true,
+      "h" : 10,
+      "type" : "gap",
+      "w" : 236,
+      "workspace" : "store",
+      "x" : 14,
+      "y" : 482
+    },
+    {
+      "h" : 36,
+      "name" : "press",
+      "type" : "workspace",
+      "w" : 236,
+      "x" : 14,
+      "y" : 491
+    },
+    {
+      "after" : false,
+      "h" : 10,
+      "type" : "gap",
+      "w" : 236,
+      "workspace" : "press",
+      "x" : 14,
+      "y" : 488
+    },
+    {
+      "after" : true,
+      "h" : 10,
+      "type" : "gap",
+      "w" : 236,
+      "workspace" : "press",
+      "x" : 14,
+      "y" : 520
+    },
+    {
+      "after" : true,
+      "h" : 256,
+      "type" : "gap",
+      "w" : 244,
+      "workspace" : "press",
+      "x" : 10,
+      "y" : 534
+    }
+  ],
+  "width" : 264
+}

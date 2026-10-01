@@ -1,0 +1,131 @@
+{
+  "height" : 884,
+  "name" : "A09-after-click",
+  "scale" : 3,
+  "surface" : {
+    "h" : 884,
+    "w" : 264,
+    "x" : 0,
+    "y" : 0
+  },
+  "targets" : [
+    {
+      "h" : 62,
+      "name" : "pin-mail",
+      "type" : "workspace",
+      "w" : 84,
+      "x" : 6,
+      "y" : 78
+    },
+    {
+      "h" : 62,
+      "name" : "pin-cal",
+      "type" : "workspace",
+      "w" : 84,
+      "x" : 90,
+      "y" : 78
+    },
+    {
+      "h" : 62,
+      "name" : "roadmap",
+      "type" : "workspace",
+      "w" : 84,
+      "x" : 174,
+      "y" : 78
+    },
+    {
+      "h" : 62,
+      "name" : "chat",
+      "type" : "workspace",
+      "w" : 84,
+      "x" : 6,
+      "y" : 140
+    },
+    {
+      "after" : true,
+      "h" : 62,
+      "type" : "pinned",
+      "w" : 168,
+      "workspace" : "chat",
+      "x" : 90,
+      "y" : 140
+    },
+    {
+      "h" : 36,
+      "type" : "newTab",
+      "w" : 244,
+      "x" : 10,
+      "y" : 242
+    },
+    {
+      "h" : 36,
+      "name" : "design",
+      "type" : "workspace",
+      "w" : 244,
+      "x" : 10,
+      "y" : 280
+    },
+    {
+      "after" : false,
+      "h" : 10,
+      "type" : "gap",
+      "w" : 244,
+      "workspace" : "design",
+      "x" : 10,
+      "y" : 277
+    },
+    {
+      "after" : true,
+      "h" : 10,
+      "type" : "gap",
+      "w" : 244,
+      "workspace" : "design",
+      "x" : 10,
+      "y" : 309
+    },
+    {
+      "h" : 36,
+      "name" : "build",
+      "type" : "workspace",
+      "w" : 244,
+      "x" : 10,
+      "y" : 318
+    },
+    {
+      "after" : false,
+      "h" : 10,
+      "type" : "gap",
+      "w" : 244,
+      "workspace" : "build",
+      "x" : 10,
+      "y" : 315
+    },
+    {
+      "after" : true,
+      "h" : 10,
+      "type" : "gap",
+      "w" : 244,
+      "workspace" : "build",
+      "x" : 10,
+      "y" : 347
+    },
+    {
+      "h" : 36,
+      "id" : "c-launch-week",
+      "type" : "collection",
+      "w" : 236,
+      "x" : 14,
+      "y" : 363
+    },
+    {
+      "after" : true,
+      "h" : 384,
+      "type" : "gap",
+      "w" : 244,
+      "workspace" : "press",
+      "x" : 10,
+      "y" : 406
+    }
+  ],
+  "width" : 264
+}

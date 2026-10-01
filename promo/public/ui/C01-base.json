@@ -1,0 +1,108 @@
+{
+  "height" : 884,
+  "name" : "C01-base",
+  "scale" : 3,
+  "surface" : {
+    "h" : 884,
+    "w" : 264,
+    "x" : 0,
+    "y" : 0
+  },
+  "targets" : [
+    {
+      "h" : 36,
+      "type" : "newTab",
+      "w" : 244,
+      "x" : 10,
+      "y" : 118
+    },
+    {
+      "h" : 36,
+      "name" : "moodboard",
+      "type" : "workspace",
+      "w" : 244,
+      "x" : 10,
+      "y" : 156
+    },
+    {
+      "after" : false,
+      "h" : 10,
+      "type" : "gap",
+      "w" : 244,
+      "workspace" : "moodboard",
+      "x" : 10,
+      "y" : 153
+    },
+    {
+      "after" : true,
+      "h" : 10,
+      "type" : "gap",
+      "w" : 244,
+      "workspace" : "moodboard",
+      "x" : 10,
+      "y" : 185
+    },
+    {
+      "h" : 36,
+      "name" : "reading",
+      "type" : "workspace",
+      "w" : 244,
+      "x" : 10,
+      "y" : 194
+    },
+    {
+      "after" : false,
+      "h" : 10,
+      "type" : "gap",
+      "w" : 244,
+      "workspace" : "reading",
+      "x" : 10,
+      "y" : 191
+    },
+    {
+      "after" : true,
+      "h" : 10,
+      "type" : "gap",
+      "w" : 244,
+      "workspace" : "reading",
+      "x" : 10,
+      "y" : 223
+    },
+    {
+      "h" : 36,
+      "name" : "ideas-c",
+      "type" : "workspace",
+      "w" : 244,
+      "x" : 10,
+      "y" : 232
+    },
+    {
+      "after" : false,
+      "h" : 10,
+      "type" : "gap",
+      "w" : 244,
+      "workspace" : "ideas-c",
+      "x" : 10,
+      "y" : 229
+    },
+    {
+      "after" : true,
+      "h" : 10,
+      "type" : "gap",
+      "w" : 244,
+      "workspace" : "ideas-c",
+      "x" : 10,
+      "y" : 261
+    },
+    {
+      "after" : true,
+      "h" : 522,
+      "type" : "gap",
+      "w" : 244,
+      "workspace" : "ideas-c",
+      "x" : 10,
+      "y" : 268
+    }
+  ],
+  "width" : 264
+}

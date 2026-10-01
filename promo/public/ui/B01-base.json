@@ -1,0 +1,125 @@
+{
+  "height" : 884,
+  "name" : "B01-base",
+  "scale" : 3,
+  "surface" : {
+    "h" : 884,
+    "w" : 264,
+    "x" : 0,
+    "y" : 0
+  },
+  "targets" : [
+    {
+      "h" : 62,
+      "name" : "chat",
+      "type" : "workspace",
+      "w" : 84,
+      "x" : 6,
+      "y" : 78
+    },
+    {
+      "after" : true,
+      "h" : 62,
+      "type" : "pinned",
+      "w" : 168,
+      "workspace" : "chat",
+      "x" : 90,
+      "y" : 78
+    },
+    {
+      "h" : 36,
+      "type" : "newTab",
+      "w" : 244,
+      "x" : 10,
+      "y" : 180
+    },
+    {
+      "h" : 36,
+      "name" : "docs",
+      "type" : "workspace",
+      "w" : 244,
+      "x" : 10,
+      "y" : 218
+    },
+    {
+      "after" : false,
+      "h" : 10,
+      "type" : "gap",
+      "w" : 244,
+      "workspace" : "docs",
+      "x" : 10,
+      "y" : 215
+    },
+    {
+      "after" : true,
+      "h" : 10,
+      "type" : "gap",
+      "w" : 244,
+      "workspace" : "docs",
+      "x" : 10,
+      "y" : 247
+    },
+    {
+      "h" : 36,
+      "name" : "standup",
+      "type" : "workspace",
+      "w" : 244,
+      "x" : 10,
+      "y" : 256
+    },
+    {
+      "after" : false,
+      "h" : 10,
+      "type" : "gap",
+      "w" : 244,
+      "workspace" : "standup",
+      "x" : 10,
+      "y" : 253
+    },
+    {
+      "after" : true,
+      "h" : 10,
+      "type" : "gap",
+      "w" : 244,
+      "workspace" : "standup",
+      "x" : 10,
+      "y" : 285
+    },
+    {
+      "h" : 36,
+      "name" : "sketch",
+      "type" : "workspace",
+      "w" : 244,
+      "x" : 10,
+      "y" : 294
+    },
+    {
+      "after" : false,
+      "h" : 10,
+      "type" : "gap",
+      "w" : 244,
+      "workspace" : "sketch",
+      "x" : 10,
+      "y" : 291
+    },
+    {
+      "after" : true,
+      "h" : 10,
+      "type" : "gap",
+      "w" : 244,
+      "workspace" : "sketch",
+      "x" : 10,
+      "y" : 323
+    },
+    {
+      "after" : true,
+      "h" : 460,
+      "type" : "gap",
+      "w" : 244,
+      "workspace" : "sketch",
+      "x" : 10,
+      "y" : 330
+    }
+  ],
+  "width" : 264
+}

@@ -1,0 +1,5 @@
+# Installed and generated: regenerate with script/build-promo-video.sh
+node_modules/
+build/
+out/
+.DS_Store

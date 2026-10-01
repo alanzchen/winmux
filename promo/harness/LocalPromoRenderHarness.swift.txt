@@ -1,0 +1,359 @@
+import AppKit
+@testable import AppBundle
+import Common
+import SwiftUI
+import XCTest
+
+// Render-only XCTest harness for the product video. It's kept as .swift.txt so SwiftPM and the
+// app's tests never compile it. To use it, copy it into Sources/AppBundleTests/ in a scratch
+// checkout of this repository (never commit it there) and run, for example:
+//   WINMUX_RENDER_DIR="$PWD/promo-renders" WINMUX_RENDER_SCALE=3 WINMUX_RENDER_WINDOW_SCALE=3 \
+//     swift test --arch arm64 --filter LocalPromoRenderHarness
+// It renders the REAL WinMux SwiftUI views (WorkspaceSidebarView in Tabs mode, the drag's display
+// rails and the destination list) from NEUTRAL FIXTURE data. Each state also writes its drop-target
+// frames (tab rows, pinned tiles, group headers, gaps) as JSON, which the film uses to slice the
+// renders and move rows instead of cross-fading whole images. Copy the output into promo/public/ui/.
+// WINMUX_RENDER_ONLY=<name,...> renders selected states; the 8x badge close-up uses
+// WINMUX_RENDER_SCALE=8 WINMUX_RENDER_WINDOW_SCALE=8 WINMUX_RENDER_ONLY=B04-after-click.
+@MainActor
+final class LocalPromoRenderHarness: XCTestCase {
+    override func tearDown() async throws {
+        config = defaultConfig
+        workspaceSidebarOrganizationStore = .init()
+        try await super.tearDown()
+    }
+
+    // Real bundles give real icons.
+    private let safari = "/Applications/Safari.app"
+    private let preview = "/System/Applications/Preview.app"
+    private let textEdit = "/System/Applications/TextEdit.app"
+    private let notes = "/System/Applications/Notes.app"
+    private let terminal = "/System/Applications/Utilities/Terminal.app"
+    private let mail = "/System/Applications/Mail.app"
+    private let calendar = "/System/Applications/Calendar.app"
+    private let messages = "/System/Applications/Messages.app"
+    private let freeform = "/System/Applications/Freeform.app"
+
+    // Fixture displays, left to right.
+    private let scopeA = "monitor:0,0"
+    private let scopeB = "monitor:1440,0"
+    private let scopeC = "monitor:2880,0"
+    private let nameA = "Built-in Retina Display"
+    private let nameB = "Studio Display"
+    private let nameC = "LG UltraFine"
+
+    private let launch = workspaceProjectDefaultId
+    private let writing = WorkspaceProjectId(rawValue: "p-writing")
+    private let home = WorkspaceProjectId(rawValue: "p-home")
+    private let research = WorkspaceProjectId(rawValue: "p-research")
+
+    private let width: CGFloat = 264
+    private let height: CGFloat = 884
+
+    // MARK: fixture builders
+
+    private func win(_ id: UInt32, _ ws: String, _ app: String, _ path: String, _ title: String, focused: Bool = false)
+        -> WorkspaceSidebarWindowViewModel {
+        .init(windowId: id, workspaceName: ws, appName: app, appBundleId: nil, appBundlePath: path, title: title, isFocused: focused)
+    }
+
+    private func tab(_ name: String, _ windows: [WorkspaceSidebarWindowViewModel], on scope: String,
+                     project: WorkspaceProjectId? = nil, pinned: Bool = false, pinOrder: Int? = nil,
+                     visible: Bool = false, focused: Bool = false) -> WorkspaceSidebarWorkspaceViewModel {
+        var workspace = WorkspaceSidebarWorkspaceViewModel(name: name, projectId: project ?? launch, displayName: name,
+            sidebarLabel: "", isGeneratedName: true, monitorScopeId: scope, monitorName: nil,
+            isFocused: focused, isVisible: visible, items: windows.map { .init(kind: .window($0)) })
+        workspace.appearance.isFavorite = pinned
+        workspace.appearance.pinOrder = pinOrder
+        workspace.apps = uniqueWorkspaceSidebarApps(windows.map { .init(name: $0.appName, bundleId: nil, bundlePath: $0.appBundlePath) })
+        if pinned {
+            let display = scope == scopeA ? nameA : scope == scopeB ? nameB : nameC
+            workspace.knownDisplay = .init(monitorScopeId: scope, displayName: display)
+        }
+        return workspace
+    }
+
+    /// The whole fixture world. `state` names the moment in the film.
+    struct World {
+        var visibleA = "design"          // A's on-screen tab
+        var focusedWindowA: UInt32 = 20  // focused window in A's visible tab
+        var visibleB = "chat"
+        var releaseOn = "A"              // where "release" lives
+        var releaseVisibleOnB = false
+        var roadmapPinned = false
+        var groupCollapsed = false
+        var chatOn = "B"                 // where the "Team chat" pin lives
+        var pinsReordered = false
+        var shared = false
+        var projectA: WorkspaceProjectId = workspaceProjectDefaultId
+    }
+
+    private func workspaces(_ w: World) -> [WorkspaceSidebarWorkspaceViewModel] {
+        let pins = w.pinsReordered ? ["chat": 0, "pin-mail": 1, "pin-cal": 2, "roadmap": 3] : ["pin-mail": 0, "pin-cal": 1, "roadmap": 2, "chat": 3]
+        let focusA = { (id: UInt32) in w.focusedWindowA == id }
+        var list: [WorkspaceSidebarWorkspaceViewModel] = []
+        // Display A, Launch
+        list.append(tab("pin-mail", [win(1, "pin-mail", "Mail", mail, "Inbox")], on: scopeA, pinned: true, pinOrder: pins["pin-mail"]))
+        list.append(tab("pin-cal", [win(2, "pin-cal", "Calendar", calendar, "Week")], on: scopeA, pinned: true, pinOrder: pins["pin-cal"]))
+        let chatScope = w.chatOn == "A" ? scopeA : scopeB
+        let chatVisible = w.chatOn == "A" ? w.visibleA == "chat" : w.visibleB == "chat"
+        list.append(tab("chat", [win(3, "chat", "Messages", messages, "Team chat", focused: w.chatOn == "A" && chatVisible)], on: chatScope,
+            pinned: true, pinOrder: pins["chat"], visible: chatVisible, focused: w.chatOn == "A" && chatVisible))
+        list.append(tab("design", [win(20, "design", "Safari", safari, "Prototype", focused: w.visibleA == "design" && focusA(20)),
+                                   win(21, "design", "Preview", preview, "Mockups", focused: w.visibleA == "design" && focusA(21)),
+                                   win(22, "design", "TextEdit", textEdit, "Specs", focused: w.visibleA == "design" && focusA(22))],
+            on: scopeA, visible: w.visibleA == "design", focused: w.visibleA == "design"))
+        let releaseScope = w.releaseOn == "A" ? scopeA : scopeB
+        list.append(tab("release", [win(30, "release", "Safari", safari, "Release notes", focused: w.releaseOn == "A" && w.visibleA == "release")],
+            on: releaseScope, visible: w.releaseOn == "A" ? w.visibleA == "release" : w.releaseVisibleOnB,
+            focused: w.releaseOn == "A" && w.visibleA == "release"))
+        list.append(tab("roadmap", [win(31, "roadmap", "Notes", notes, "Roadmap", focused: w.visibleA == "roadmap")], on: scopeA,
+            pinned: w.roadmapPinned, pinOrder: w.roadmapPinned ? pins["roadmap"] : nil,
+            visible: w.visibleA == "roadmap", focused: w.visibleA == "roadmap"))
+        list.append(tab("build", [win(32, "build", "Terminal", terminal, "build")], on: scopeA))
+        list.append(tab("changelog", [win(40, "changelog", "TextEdit", textEdit, "Changelog")], on: scopeA))
+        list.append(tab("store", [win(41, "store", "Safari", safari, "Store listing")], on: scopeA))
+        list.append(tab("press", [win(42, "press", "Preview", preview, "Press kit")], on: scopeA))
+        // Display B, Launch
+        list.append(tab("docs", [win(50, "docs", "Safari", safari, "Docs")], on: scopeB, visible: w.visibleB == "docs"))
+        list.append(tab("standup", [win(51, "standup", "Notes", notes, "Standup notes")], on: scopeB))
+        list.append(tab("sketch", [win(52, "sketch", "Freeform", freeform, "Sketches")], on: scopeB))
+        // Display C, Launch
+        list.append(tab("moodboard", [win(60, "moodboard", "Freeform", freeform, "Moodboard")], on: scopeC, visible: true))
+        list.append(tab("reading", [win(61, "reading", "Safari", safari, "Reading list")], on: scopeC))
+        list.append(tab("ideas-c", [win(62, "ideas-c", "Notes", notes, "Ideas")], on: scopeC))
+        // Display A, Writing
+        list.append(tab("w-ideas", [win(70, "w-ideas", "Notes", notes, "Ideas")], on: scopeA, project: writing, pinned: true, pinOrder: 0))
+        list.append(tab("chapter", [win(71, "chapter", "TextEdit", textEdit, "Chapter 3", focused: w.projectA == writing)], on: scopeA,
+            project: writing, visible: w.projectA == writing, focused: w.projectA == writing))
+        list.append(tab("outline", [win(72, "outline", "Notes", notes, "Outline")], on: scopeA, project: writing))
+        list.append(tab("sources", [win(73, "sources", "Safari", safari, "Sources")], on: scopeA, project: writing))
+        // B's list order: docs, then the dropped release, then the rest.
+        if w.releaseOn == "B", let r = list.firstIndex(where: { $0.name == "release" }) {
+            let release = list.remove(at: r)
+            let d = list.firstIndex(where: { $0.name == "docs" })!
+            list.insert(release, at: d + 1)
+        }
+        return list
+    }
+
+    private func snapshot(_ w: World, scope: String, preview: WorkspaceSidebarDropPreviewViewModel? = nil) -> WorkspaceSidebarSnapshot {
+        var s = WorkspaceSidebarSnapshot.empty
+        var c = WorkspaceSidebarConfiguration(collapsedWidth: 44, expandedWidth: width, topPadding: 12,
+            showMonitorSelector: false, showsClock: false, showsSeconds: false, showsDate: false, showsWeekday: false,
+            showsStatusPills: false, chromeStyle: .solid, solidChromeColor: .fog, solidChromeCustomColor: "#D8E3EE",
+            showAppIcons: false, usesTabsList: true, alwaysExpanded: true)
+        c.configuredCollapsedWidth = 44
+        c.sharesPinnedTabs = w.shared
+        c.tabCollections = [
+            .init(id: "c-launch-week", projectId: launch, name: "Launch week", colorHex: "#3FB8A5",
+                workspaceNames: ["changelog", "store", "press"], isCollapsed: w.groupCollapsed),
+        ]
+        s.configuration = c
+        s.visibleWidth = width
+        s.targetMonitorScopeId = scope
+        s.selectedMonitorScopeId = scope
+        s.focusedMonitorScopeId = scopeA
+        s.activeProjectId = scope == scopeA ? w.projectA : launch
+        s.monitorScopes = [
+            .init(id: workspaceSidebarDefaultScopeId, displayName: "All Displays", subtitle: nil, systemImageName: "display.2", isFocusedMonitor: false),
+            .init(id: scopeA, displayName: nameA, subtitle: nil, systemImageName: "display", isFocusedMonitor: scope == scopeA),
+            .init(id: scopeB, displayName: nameB, subtitle: nil, systemImageName: "display", isFocusedMonitor: scope == scopeB),
+            .init(id: scopeC, displayName: nameC, subtitle: nil, systemImageName: "display", isFocusedMonitor: scope == scopeC),
+        ]
+        s.projects = [
+            .init(id: launch, displayName: "Launch", colorHex: "#4CC9F0", emoji: "🚀"),
+            .init(id: writing, displayName: "Writing", colorHex: "#FFB703", emoji: "✍️"),
+            .init(id: home, displayName: "Home", colorHex: "#80ED99", emoji: "🏡"),
+            .init(id: research, displayName: "Research", colorHex: "#E0AAFF", emoji: "🔬"),
+        ]
+        s.workspaces = workspaces(w)
+        s.dropPreview = preview
+        return s
+    }
+
+    // MARK: rendering
+
+    private final class TargetBox { var targets: [WorkspaceSidebarDropTargetFrame] = []; var surface: CGRect? }
+
+    private var scale: CGFloat { CGFloat(Double(ProcessInfo.processInfo.environment["WINMUX_RENDER_SCALE"] ?? "3") ?? 3) }
+
+    /// An offscreen window that reports a higher backing scale, so SwiftUI rasterizes text, symbols and
+    /// icons at that scale (a window-less host always rasterizes them at the main screen's 2x).
+    private final class ScaledWindow: NSWindow {
+        var scale: CGFloat = 2
+        override var backingScaleFactor: CGFloat { scale }
+    }
+    private var windowScale: CGFloat? { ProcessInfo.processInfo.environment["WINMUX_RENDER_WINDOW_SCALE"].flatMap { Double($0) }.map { CGFloat($0) } }
+    private var windows: [NSWindow] = []
+
+    private func host<V: View>(_ view: V, size: CGSize) -> NSHostingView<some View> {
+        let host = NSHostingView(rootView: view.frame(width: size.width, height: size.height)
+            .environment(\.colorScheme, .light)
+            .transaction { $0.animation = nil })
+        host.frame = CGRect(origin: .zero, size: size)
+        host.appearance = NSAppearance(named: .aqua)
+        if let windowScale {
+            let window = ScaledWindow(contentRect: CGRect(x: -10000, y: -10000, width: size.width, height: size.height),
+                styleMask: [.borderless], backing: .buffered, defer: false)
+            window.scale = windowScale
+            window.isReleasedWhenClosed = false
+            window.contentView = host
+            windows.append(window)
+        }
+        host.layoutSubtreeIfNeeded()
+        for _ in 0 ..< 8 { RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.1)); host.layoutSubtreeIfNeeded() }
+        return host
+    }
+
+    private func writePNG(_ host: NSView, size: CGSize, to url: URL) throws {
+        let rep = try XCTUnwrap(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(size.width * scale),
+            pixelsHigh: Int(size.height * scale), bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
+        rep.size = size
+        host.cacheDisplay(in: host.bounds, to: rep)
+        try XCTUnwrap(rep.representation(using: .png, properties: [:])).write(to: url)
+    }
+
+    private func describe(_ kind: WorkspaceSidebarDropTargetKind) -> [String: Any] {
+        switch kind {
+            case let .workspace(name): return ["type": "workspace", "name": name]
+            case let .tabCollection(id, _): return ["type": "collection", "id": id]
+            case .newWorkspace: return ["type": "newTab"]
+            case let .monitor(id): return ["type": "monitor", "id": id]
+            case let .tabGap(_, _, gap): return ["type": "gap", "workspace": gap.workspaceName, "after": gap.isAfter]
+            case let .pinnedTabs(_, gap, _):
+                var d: [String: Any] = ["type": "pinned"]
+                if let gap { d["workspace"] = gap.workspaceName; d["after"] = gap.isAfter }
+                return d
+        }
+    }
+
+    /// WINMUX_RENDER_ONLY=name1,name2 renders just those states (e.g. a high-scale close-up).
+    private func wanted(_ name: String) -> Bool {
+        guard let only = ProcessInfo.processInfo.environment["WINMUX_RENDER_ONLY"], !only.isEmpty else { return true }
+        return only.split(separator: ",").contains { $0 == name }
+    }
+
+    private func renderSidebar(_ name: String, _ w: World, scope: String, preview: WorkspaceSidebarDropPreviewViewModel? = nil,
+                               badges: WorkspaceSidebarDockBadgeModel, dir: URL) throws {
+        guard wanted(name) else { return }
+        let box = TargetBox()
+        let actions = WorkspaceSidebarActions(setDropTargets: { box.targets = $0 }, setSurfaceFrame: { box.surface = $0 })
+        let music = AppleMusicNowPlayingModel(isMusicRunning: { false }, requestStatus: { _ in nil }, requestArtwork: { .failed })
+        let view = WorkspaceSidebarView(snapshot: snapshot(w, scope: scope, preview: preview), actions: actions,
+            reduceMotionOverride: true, reduceTransparencyOverride: true, dockBadgeModel: badges,
+            browserTabsModel: BrowserTabsModel(snapshots: [:]), musicPlayerModel: music)
+        let size = CGSize(width: width, height: height)
+        let h = host(view, size: size)
+        try writePNG(h, size: size, to: dir.appendingPathComponent("\(name).png"))
+        let json: [String: Any] = [
+            "name": name, "width": width, "height": height, "scale": scale,
+            "surface": box.surface.map { ["x": $0.minX, "y": $0.minY, "w": $0.width, "h": $0.height] } as Any,
+            "targets": box.targets.map { t -> [String: Any] in
+                var d = describe(t.kind)
+                d["x"] = t.frame.minX; d["y"] = t.frame.minY; d["w"] = t.frame.width; d["h"] = t.frame.height
+                return d
+            },
+        ]
+        let data = try JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys])
+        try data.write(to: dir.appendingPathComponent("\(name).json"))
+    }
+
+    private func renderRails(_ name: String, armingIndex: Int?, openIndex: Int?, dir: URL) throws {
+        guard wanted(name) else { return }
+        let hints = [
+            WorkspaceSidebarDropDestinationHint(id: scopeB, name: nameB, direction: .right),
+            WorkspaceSidebarDropDestinationHint(id: scopeC, name: nameC, direction: .right),
+        ]
+        let frames = [CGRect(x: 0, y: 0, width: 30, height: height), CGRect(x: 32, y: 0, width: 30, height: height)]
+        let model = WorkspaceSidebarDropDestinationHintsModel()
+        model.set(.init(hints: hints, frames: frames, armingId: armingIndex.map { hints[$0].id },
+            openId: openIndex.map { hints[$0].id }, columnFits: true, isRow: false))
+        let size = CGSize(width: 62, height: height)
+        let h = host(WorkspaceSidebarDropDestinationHintsView(model: model), size: size)
+        try writePNG(h, size: size, to: dir.appendingPathComponent("\(name).png"))
+    }
+
+    private func renderList(_ name: String, _ w: World, preview: WorkspaceSidebarDropPreviewViewModel?, dir: URL) throws {
+        guard wanted(name) else { return }
+        var projection = snapshot(w, scope: scopeB, preview: preview)
+        projection.activeProjectId = launch
+        let column = WorkspaceSidebarDropDestinationColumnModel()
+        column.set(.init(hint: .init(id: scopeB, name: nameB, direction: .right), surface: .dropDestination(generation: 1),
+            projection: projection, width: 280))
+        let size = CGSize(width: 280, height: height)
+        let h = host(WorkspaceSidebarDropDestinationView(model: column, scroll: WorkspaceSidebarDropDestinationScrollModel()) { _, _ in },
+            size: size)
+        try writePNG(h, size: size, to: dir.appendingPathComponent("\(name).png"))
+    }
+
+    private func badgeModel() async -> WorkspaceSidebarDockBadgeModel {
+        var badges = WorkspaceSidebarDockBadgeSnapshot()
+        badges.insert(url: URL(fileURLWithPath: messages), label: "3")
+        let fixed = badges
+        let model = WorkspaceSidebarDockBadgeModel(read: { fixed })
+        model.setEnabled(true, showsAppBadges: true)
+        for _ in 0 ..< 20 where model.snapshot.labelsByPath.isEmpty { try? await Task.sleep(for: .milliseconds(20)) }
+        return model
+    }
+
+    // MARK: the film's states
+
+    func testRenderPromoStates() async throws {
+        guard let path = ProcessInfo.processInfo.environment["WINMUX_RENDER_DIR"] else { throw XCTSkip("render dir unset") }
+        _ = NSApplication.shared
+        let dir = URL(fileURLWithPath: path)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let badges = await badgeModel()
+
+        // Act 2-3 on display A.
+        var w = World()
+        try renderSidebar("A01-design-f1", w, scope: scopeA, badges: badges, dir: dir)
+        w.focusedWindowA = 21; try renderSidebar("A01-design-f2", w, scope: scopeA, badges: badges, dir: dir)
+        w.focusedWindowA = 22; try renderSidebar("A01-design-f3", w, scope: scopeA, badges: badges, dir: dir)
+        w.focusedWindowA = 20
+        w.visibleA = "roadmap"; try renderSidebar("A02-roadmap", w, scope: scopeA, badges: badges, dir: dir)
+        var wr = w; wr.projectA = writing; try renderSidebar("A03-writing", wr, scope: scopeA, badges: badges, dir: dir)
+        w.groupCollapsed = true; try renderSidebar("A04-collapsed", w, scope: scopeA, badges: badges, dir: dir)
+        // Dragging Roadmap onto the pinned tiles: the line between tiles marks the spot.
+        var pinDrag = WorkspaceSidebarDropPreviewViewModel(sourceWindowId: 31, label: "Roadmap", appName: "Notes",
+            targetWorkspaceName: nil, targetsNewWorkspace: false, isTabGroup: false, windowCount: 1)
+        pinDrag.targetsPinned = true
+        pinDrag.targetPinnedGap = .init(workspaceName: "pin-cal", isAfter: true)
+        try renderSidebar("A04b-pin-drop-preview", w, scope: scopeA, preview: pinDrag, badges: badges, dir: dir)
+        w.roadmapPinned = true; try renderSidebar("A05-pinned", w, scope: scopeA, badges: badges, dir: dir)
+
+        // Act 4: the drag of Release notes (hidden on A) to Studio Display.
+        let source = WorkspaceSidebarDropPreviewViewModel(sourceWindowId: 30, label: "Release notes", appName: "Safari",
+            targetWorkspaceName: nil, targetsNewWorkspace: false, isTabGroup: false, windowCount: 1)
+        try renderSidebar("A06-drag-source", w, scope: scopeA, preview: source, badges: badges, dir: dir)
+        try renderSidebar("B01-base", w, scope: scopeB, badges: badges, dir: dir)
+        try renderSidebar("C01-base", w, scope: scopeC, badges: badges, dir: dir)
+        try renderRails("R01-idle", armingIndex: nil, openIndex: nil, dir: dir)
+        try renderRails("R02-hover-b", armingIndex: 0, openIndex: nil, dir: dir)
+        try renderRails("R03-open-b", armingIndex: nil, openIndex: 0, dir: dir)
+        try renderList("L01-list-b", w, preview: nil, dir: dir)
+        var gap = WorkspaceSidebarDropPreviewViewModel(sourceWindowId: 30, label: "Release notes", appName: "Safari",
+            targetWorkspaceName: nil, targetsNewWorkspace: false, targetProjectId: launch, targetMonitorScopeId: scopeB,
+            isTabGroup: false, windowCount: 1)
+        gap.targetGap = .init(workspaceName: "docs", isAfter: true)
+        try renderList("L02-list-b-gap", w, preview: gap, dir: dir)
+        w.releaseOn = "B"
+        try renderSidebar("A07-after-drop", w, scope: scopeA, badges: badges, dir: dir)
+        try renderSidebar("B02-after-drop", w, scope: scopeB, badges: badges, dir: dir)
+        var wv = w; wv.releaseVisibleOnB = true; wv.visibleB = "release"
+        try renderSidebar("B02v-after-drop-visible", wv, scope: scopeB, badges: badges, dir: dir)
+
+        // Shared pins.
+        w.shared = true
+        try renderSidebar("A08-shared", w, scope: scopeA, badges: badges, dir: dir)
+        try renderSidebar("B03-shared", w, scope: scopeB, badges: badges, dir: dir)
+        w.chatOn = "A"; w.visibleA = "chat"; w.visibleB = "docs"
+        try renderSidebar("A09-after-click", w, scope: scopeA, badges: badges, dir: dir)
+        try renderSidebar("B04-after-click", w, scope: scopeB, badges: badges, dir: dir)
+        w.pinsReordered = true
+        try renderSidebar("A10-reordered", w, scope: scopeA, badges: badges, dir: dir)
+        try renderSidebar("B05-reordered", w, scope: scopeB, badges: badges, dir: dir)
+    }
+}
