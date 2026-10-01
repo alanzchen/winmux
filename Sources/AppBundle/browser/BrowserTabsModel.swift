@@ -171,9 +171,11 @@ final class BrowserTabsModel: ObservableObject {
         safariEvidence = evidence
         safariAssociations.update(safari.map { .init(snapshot: $0, observed: cache.observed[$0.windowId] ?? 0,
                 appeared: safariFrames.appeared($0.windowId) ?? .infinity) },
-            windows: safariExtension.windows, unread: unread, now: ProcessInfo.processInfo.systemUptime)
+            windows: safariExtension.windows, unread: unread,
+            unreadAppeared: Dictionary(uniqueKeysWithValues: unread.map { ($0, safariFrames.appeared($0) ?? .infinity) }),
+            now: ProcessInfo.processInfo.systemUptime)
         // Safari reports where its windows are only with its tabs; ask again rather than wait a minute.
-        if safariAssociations.awaitsFrames { safariExtension.requestResync(atMostEvery: 10) }
+        if safariAssociations.awaitsReport { safariExtension.requestResync(atMostEvery: 10) }
     }
 
     private func liveSafariWindows() -> [UInt32] {
@@ -182,19 +184,27 @@ final class BrowserTabsModel: ObservableObject {
 
     /// Notes where each Safari window is, a few times a second while a sidebar shows browser
     /// tabs, so a report arriving knows which windows have held still since Safari measured them.
-    /// Each window's move count catches a move and a move back between two samples.
+    /// Frames come from the window server, in one request, rather than WinMux's cache, which
+    /// lags a move until its notification arrives. Each window's counts of the frame writes WinMux
+    /// queued and the moves it heard about catch a move and a move back between two samples.
     private func trackSafariFrames(now: TimeInterval) {
         let windows = MacWindow.allWindowsMap.values.filter { $0.app.rawAppBundleId == safariBundleId }
-        guard safariExtension.isAvailable, !schedule.watched.isEmpty, !windows.isEmpty else {
+        guard safariExtension.isAvailable, !windows.isEmpty else {
             safariFrames = .init()
             return
         }
-        let measured = windowServerFrames(windows.filter { $0.lastKnownActualRect == nil }.map(\.windowId))
+        // Hidden sidebars read no browser windows; nothing is paired meanwhile.
+        guard !schedule.watched.isEmpty else {
+            safariFrames.pause()
+            return
+        }
+        let frames = windowServerFrames(windows.map(\.windowId))
         safariFrames.observe(Dictionary(windows.map { window in
             (window.windowId, SafariExtensionFrameSample(
-                frame: window.lastKnownActualRect.map { CGRect(x: $0.topLeftX, y: $0.topLeftY, width: $0.width, height: $0.height) }
-                    ?? measured[window.windowId],
-                identity: ObjectIdentifier(window), generation: window.nativeStateObservationToken()))
+                frame: frames[window.windowId]
+                    ?? window.lastKnownActualRect.map { CGRect(x: $0.topLeftX, y: $0.topLeftY, width: $0.width, height: $0.height) },
+                identity: ObjectIdentifier(window), generation: window.nativeStateObservationToken(),
+                writes: window.macApp.frameWrites[window.windowId] ?? 0))
         }, uniquingKeysWith: { first, _ in first }), now: now)
     }
 

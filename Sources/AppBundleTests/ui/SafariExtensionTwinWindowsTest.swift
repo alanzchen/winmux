@@ -26,9 +26,11 @@ final class SafariExtensionTwinWindowsTest: XCTestCase {
     private final class Harness {
         var uptime: TimeInterval = 1000
         var wall: TimeInterval = 1_790_000_000
-        /// Where each window is now, and how many times it has moved.
+        /// Where each window is now, how many frame writes WinMux queued for it, and how many
+        /// moves it heard about.
         var frames: [UInt32: CGRect] = [:]
-        var moves: [UInt32: UInt64] = [:]
+        var writes: [UInt32: UInt64] = [:]
+        var heard: [UInt32: UInt64] = [:]
         var natives: [UInt32: NativeWindow] = [:]
         var reads: [UInt32: BrowserWindowTabs] = [:]
         var observed: [UInt32: TimeInterval] = [:]
@@ -53,7 +55,8 @@ final class SafariExtensionTwinWindowsTest: XCTestCase {
         func sample() {
             for id in frames.keys where natives[id] == nil { natives[id] = NativeWindow() }
             track.observe(Dictionary(uniqueKeysWithValues: frames.map { id, frame in
-                (id, SafariExtensionFrameSample(frame: frame, identity: ObjectIdentifier(natives[id]!), generation: moves[id] ?? 0))
+                (id, SafariExtensionFrameSample(frame: frame, identity: ObjectIdentifier(natives[id]!), generation: heard[id] ?? 0,
+                    writes: writes[id] ?? 0))
             }), now: uptime)
         }
 
@@ -72,10 +75,11 @@ final class SafariExtensionTwinWindowsTest: XCTestCase {
             wall += seconds
         }
 
-        /// WinMux moves a window; `sampled: false` is a move no sample sees before the next.
+        /// WinMux moves a window, counting the write as it queues it; its notification, if any,
+        /// comes later. `sampled: false` is a move no sample sees before the next.
         func move(_ id: UInt32, to frame: CGRect, sampled: Bool = true) {
             frames[id] = frame
-            moves[id, default: 0] += 1
+            writes[id, default: 0] += 1
             if sampled { sample() }
         }
 
@@ -187,6 +191,15 @@ final class SafariExtensionTwinWindowsTest: XCTestCase {
         [(10, 1, [Self.tab(id: ids ? 100 : nil, audible: audibleA)]), (11, 2, [Self.tab(id: ids ? 101 : nil)])]
     }
 
+    /// Safari reports a window's tabs again, as when WinMux asks it to, and WinMux reads the tab
+    /// bar after that.
+    private func settle(_ harness: Harness, _ tabs: [SafariExtensionTab], window: UInt32 = 1, id: Int = 10) {
+        harness.wait(1)
+        harness.report([(id, window, tabs)])
+        harness.wait(1)
+        harness.read(window)
+    }
+
     private func switchTabs(_ harness: Harness) {
         let a = harness.frames[1]!
         harness.move(1, to: harness.frames[2]!)
@@ -256,7 +269,7 @@ final class SafariExtensionTwinWindowsTest: XCTestCase {
             harness.read(1, 2)
         }
         XCTAssertEqual(Set(harness.timeline), ["1: Safari, 2: Safari"], "Where the twins were when Safari measured is unknown")
-        XCTAssertTrue(harness.associations.awaitsFrames, "WinMux asks Safari to report again")
+        XCTAssertTrue(harness.associations.awaitsReport, "WinMux asks Safari to report again")
         XCTAssertEqual(harness.associations.resolution(of: 1), .unresolved)
         // The reply to that request comes seconds later, with the windows where they are now.
         harness.wait(3)
@@ -267,7 +280,7 @@ final class SafariExtensionTwinWindowsTest: XCTestCase {
         harness.read(1, 2)
         XCTAssertEqual(harness.timeline.last, "1: site sound, 2: site")
         XCTAssertFalse(harness.timeline.contains { $0.contains("2: site sound") })
-        XCTAssertFalse(harness.associations.awaitsFrames)
+        XCTAssertFalse(harness.associations.awaitsReport)
     }
 
     func testTwinsSeenInTheSamePlaceStayUnresolvedWithoutAskingSafariAgain() {
@@ -283,7 +296,7 @@ final class SafariExtensionTwinWindowsTest: XCTestCase {
         }
         XCTAssertEqual(harness.timeline.last, "1: site sound, 2: Safari, 3: Safari", "Only A's place settles which report is A")
         XCTAssertEqual(harness.associations.resolution(of: 2), .unresolved)
-        XCTAssertFalse(harness.associations.awaitsFrames, "Another report from the same places wouldn't settle it")
+        XCTAssertFalse(harness.associations.awaitsReport, "Another report from the same places wouldn't settle it")
     }
 
     // MARK: 3. A held twin keeps getting its own window's updates, and only those
@@ -381,7 +394,7 @@ final class SafariExtensionTwinWindowsTest: XCTestCase {
         harness.read(1, 2)
         XCTAssertEqual(harness.timeline.last, "1: Safari, 2: site sound", "The new window doesn't inherit the old one's pairing")
         XCTAssertEqual(harness.associations.resolution(of: 1), .unresolved, "Nor where the old one was when Safari last reported")
-        XCTAssertTrue(harness.associations.awaitsFrames)
+        XCTAssertTrue(harness.associations.awaitsReport)
         harness.wait(1)
         harness.report([(10, 1, [Self.tab(id: 100)]), (11, 2, [Self.tab(id: 101, audible: true)])])
         harness.wait(1)
@@ -532,7 +545,7 @@ final class SafariExtensionTwinWindowsTest: XCTestCase {
             harness.read(1, 2)
         }
         XCTAssertEqual(Set(harness.timeline), ["1: Safari, 2: Safari"])
-        XCTAssertTrue(harness.associations.awaitsFrames)
+        XCTAssertTrue(harness.associations.awaitsReport)
         harness.report(twins())
         harness.wait(1)
         harness.read(1, 2)
@@ -617,6 +630,7 @@ final class SafariExtensionTwinWindowsTest: XCTestCase {
         harness.read(1)
         harness.wait(1)
         harness.read(1)
+        settle(harness, [reportedMail, reportedQuiet, reportedPlaying])
         let before = harness.timeline.count
         // Read first, in the new order.
         tabBar([mail, playing, quiet])
@@ -652,12 +666,13 @@ final class SafariExtensionTwinWindowsTest: XCTestCase {
         harness.reads = [1: .init(windowId: 1, pid: 7, windowSession: session, tabs: [mail, quiet, playing])]
         harness.wait(2)
         let reportedMail = Self.tab("Mail", id: 99, icon: Self.otherIcon, host: "mail.test")
-        harness.report([(10, 1, [reportedMail, Self.tab(id: 100, active: false),
-                                Self.tab(id: 101, icon: Self.otherIcon, audible: true, active: false)])])
+        let first = [reportedMail, Self.tab(id: 100, active: false), Self.tab(id: 101, icon: Self.otherIcon, audible: true, active: false)]
+        harness.report([(10, 1, first)])
         harness.wait(1)
         harness.read(1)
         harness.wait(1)
         harness.read(1)
+        settle(harness, first)
         XCTAssertEqual(harness.timeline.last, "1: other site mail.test | site | other site sound")
         harness.report([(10, 1, [reportedMail, Self.tab(id: 102, icon: Self.otherIcon, active: false), Self.tab(id: 100, active: false)])])
         XCTAssertEqual(harness.timeline.last, "1: other site mail.test | site | Safari", "The quiet tab follows its id; the gone tab shows nothing")
@@ -668,6 +683,7 @@ final class SafariExtensionTwinWindowsTest: XCTestCase {
         harness.wait(1)
         harness.read(1)
         XCTAssertEqual(harness.timeline.last, "1: other site mail.test | other site | site")
+        settle(harness, [reportedMail, Self.tab(id: 102, icon: Self.otherIcon, active: false), Self.tab(id: 100, active: false)])
         XCTAssertEqual(harness.associations.described(opened).extensionTab?.id, 102)
     }
 
@@ -684,6 +700,92 @@ final class SafariExtensionTwinWindowsTest: XCTestCase {
             harness.read(1, 2, 3)
         }
         XCTAssertEqual(harness.timeline.last, "1: Safari, 2: Safari, 3: other site")
+    }
+
+
+    // MARK: Review round 2
+
+    /// Same-titled tabs are swapped just before the read that confirms the window, while
+    /// Safari's report of the swap is still on its way. That read and the older report agree
+    /// place by place, but they describe different moments.
+    func testSameTitledTabsSwappedBeforeTheFirstPairingNeverSettleOnEachOthersSound() {
+        let harness = Harness()
+        harness.frames = [1: Self.shown]
+        let session = UUID()
+        func listed(_ title: String, selected: Bool = false) -> BrowserTab {
+            .init(target: .init(windowId: 1, pid: 7, windowSession: session, tabId: UUID()), title: title, isSelected: selected)
+        }
+        let mail = listed("Mail", selected: true)
+        let quiet = listed("Demo Page")
+        let playing = listed("Demo Page")
+        func tabBar(_ tabs: [BrowserTab]) { harness.reads[1] = .init(windowId: 1, pid: 7, windowSession: session, tabs: tabs) }
+        let reportedMail = Self.tab("Mail", id: 99, icon: Self.otherIcon, host: "mail.test")
+        let reportedQuiet = Self.tab(id: 100, active: false)
+        let reportedPlaying = Self.tab(id: 101, icon: Self.otherIcon, audible: true, active: false)
+        tabBar([mail, quiet, playing])
+        harness.wait(2)
+        harness.report([(10, 1, [reportedMail, reportedQuiet, reportedPlaying])])
+        harness.wait(1)
+        harness.read(1)
+        // The swap, read before Safari's report of it.
+        tabBar([mail, playing, quiet])
+        harness.wait(1)
+        harness.read(1)
+        harness.report([(10, 1, [reportedMail, reportedPlaying, reportedQuiet])])
+        for _ in 0..<3 {
+            harness.wait(1)
+            harness.read(1)
+            harness.report([(10, 1, [reportedMail, reportedPlaying, reportedQuiet])])
+        }
+        harness.wait(1)
+        harness.read(1)
+        let rows = harness.timeline
+        XCTAssertFalse(rows.contains { $0.hasSuffix("| other site sound") }, "The quiet tab, last in the tab bar, never plays: \(rows)")
+        XCTAssertEqual(rows.last, "1: other site mail.test | other site sound | site")
+        XCTAssertEqual(harness.associations.described(playing).extensionTab?.id, 101)
+        XCTAssertEqual(harness.associations.described(quiet).extensionTab?.id, 100)
+    }
+
+    /// A report that doesn't say where its window is rules nothing out.
+    func testAReportWithoutBoundsDoesntPlaceItsWindowElsewhere() {
+        let a = Self.lone("Demo Page", window: 1)
+        let x = SafariExtensionWindow(key: .init(source: "p:s", id: 10), bounds: Self.shown, tabs: [Self.tab(id: 100)], sighting: [1: Self.shown])
+        let y = SafariExtensionWindow(key: .init(source: "q:s", id: 20), bounds: nil, tabs: [Self.tab(id: 200, audible: true)], sighting: [1: Self.shown])
+        for windows in [[x, y], [y, x]] {
+            let found = safariExtensionMatches([.init(snapshot: a)], windows)
+            XCTAssertEqual(found.pairs, [:])
+            XCTAssertEqual(found.needsFrames, [1])
+        }
+    }
+
+    /// An unread window that appeared after a report was measured wasn't what the report saw
+    /// under its number, so its old place proves nothing.
+    func testAnUnreadWindowNewerThanAReportCantBeRuledOutByIt() {
+        let a = Self.lone("Demo Page", window: 1)
+        let x = SafariExtensionWindow(key: .init(source: "p:s", id: 10), bounds: Self.shown, tabs: [Self.tab(id: 100)],
+            measured: 10, sighting: [1: Self.shown, 3: Self.parked])
+        XCTAssertEqual(safariExtensionPairs([.init(snapshot: a)], [x], unread: [3], unreadAppeared: [3: 5]), [1: x.key])
+        XCTAssertEqual(safariExtensionPairs([.init(snapshot: a)], [x], unread: [3], unreadAppeared: [3: 12]), [:])
+    }
+
+    func testFramesTrackedWhileHiddenStartCountingAgainButKeepWhenTheirWindowsAppeared() {
+        var track = SafariExtensionFrameTrack()
+        let window = NativeWindow()
+        func sample(_ frame: CGRect, writes: UInt64 = 0) -> [UInt32: SafariExtensionFrameSample] {
+            [1: .init(frame: frame, identity: ObjectIdentifier(window), generation: 0, writes: writes)]
+        }
+        track.observe(sample(Self.shown), now: 0)
+        track.observe(sample(Self.shown), now: 5)
+        XCTAssertEqual(track.sighting(measured: 4), [1: Self.shown])
+        track.pause()
+        XCTAssertEqual(track.sighting(measured: 4), [:], "Nothing says where it was while no one looked")
+        track.observe(sample(Self.shown), now: 9)
+        XCTAssertEqual(track.appeared(1), 0)
+        XCTAssertEqual(track.sighting(measured: 9.2), [:])
+        XCTAssertEqual(track.sighting(measured: 9.4), [1: Self.shown])
+        // A write WinMux queued counts at once, before any notification of the move.
+        track.observe(sample(Self.shown, writes: 2), now: 11)
+        XCTAssertEqual(track.sighting(measured: 11.2), [:])
     }
 
     // MARK: Tabs inside a window, by Safari's ids
@@ -708,6 +810,10 @@ final class SafariExtensionTwinWindowsTest: XCTestCase {
         harness.read(1)
         harness.wait(1)
         harness.read(1)
+        XCTAssertEqual(harness.timeline.last, "1: other site mail.test | site | other site", "Same-titled tabs are only proposed: no sound yet")
+        XCTAssertNil(harness.associations.described(playing).extensionTab)
+        XCTAssertTrue(harness.associations.awaitsReport, "WinMux asks Safari to report again")
+        settle(harness, [reportedMail, reportedQuiet, reportedPlaying])
         XCTAssertEqual(harness.timeline.last, "1: other site mail.test | site | other site sound")
         XCTAssertEqual(harness.associations.described(playing).extensionTab, .init(source: "8A7B6C5D-0000-4000-8000-000000000001:s1", id: 101))
         // The playing tab is dragged before the quiet one. Safari reports the new order before

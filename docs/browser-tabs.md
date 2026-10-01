@@ -119,9 +119,12 @@ agrees with the tab strip it read:
   closes, and a later one that gets its number, start over.
 - Within a matched window, each tab is matched with Safari's tab by Safari's id for it. A read
   made after a report pairs a tab with the one in its place; after that it keeps that tab while
-  the tab bar is reordered, so tabs with the same title don't trade icons or sound. A tab whose
-  Safari tab is gone, or whose title no longer matches it, shows nothing from the extension
-  until a read pairs it again. An extension from before tab ids matches them by position.
+  the tab bar is reordered, so tabs with the same title don't trade icons or sound. Among tabs
+  with the same title, a pairing counts only once a later report and a later read agree (the
+  read may have caught a reorder Safari hadn't reported yet), so their sound shows a moment
+  later than their icons. A tab whose Safari tab is gone, or whose title no longer matches it,
+  shows nothing from the extension until a read pairs it again. An extension from before tab
+  ids matches them by position.
 - A window that briefly stops matching, such as while a title changes, keeps its icons for up
   to ten seconds. It hides sound at once.
 - A tab whose title Safari withholds from the extension (a start page, or a site without

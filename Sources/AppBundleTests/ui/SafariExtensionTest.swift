@@ -406,7 +406,7 @@ final class SafariExtensionTest: XCTestCase {
             associations.update([.init(snapshot: window, observed: time)], windows: [elsewhere], unread: [2], now: time)
         }
         XCTAssertNil(associations.described(window.tabs[0]).siteIcon, "The unread window is where the extension's is")
-        XCTAssertTrue(associations.awaitsFrames)
+        XCTAssertTrue(associations.awaitsReport)
         XCTAssertEqual(associations.resolution(of: 1), .unresolved)
         for time in [3.0, 4] {
             associations.update([.init(snapshot: window, observed: time)], windows: [elsewhere], now: time)
@@ -427,7 +427,7 @@ final class SafariExtensionTest: XCTestCase {
             stacked.update([.init(snapshot: window, observed: time)], windows: [unplaced], unread: [2], now: time)
         }
         XCTAssertNil(stacked.described(window.tabs[0]).siteIcon, "An unread window the report's arrival didn't see could be anywhere")
-        XCTAssertTrue(stacked.awaitsFrames)
+        XCTAssertTrue(stacked.awaitsReport)
 
         var fresh = SafariExtensionAssociations()
         let placed = described(["Inbox", "Docs"], selected: 0, id: 10, bounds: frame.offsetBy(dx: 1, dy: 2), icon: String(repeating: "e", count: 64),
@@ -436,14 +436,14 @@ final class SafariExtensionTest: XCTestCase {
             fresh.update([.init(snapshot: window, observed: time)], windows: [placed], unread: [2], now: time)
         }
         XCTAssertNotNil(fresh.described(window.tabs[0]).siteIcon)
-        XCTAssertFalse(fresh.awaitsFrames)
+        XCTAssertFalse(fresh.awaitsReport)
         // Safari's next report finds the window moved, but the unread one wasn't seen in place.
         var moved = placed
         moved.sighting = [1: frame.offsetBy(dx: 300, dy: 0)]
         moved.bounds = frame.offsetBy(dx: 300, dy: 0)
         fresh.update([.init(snapshot: window, observed: 2)], windows: [moved], unread: [2], now: 2)
         XCTAssertNotNil(fresh.described(window.tabs[0]).siteIcon, "An established pairing holds on its tabs")
-        XCTAssertFalse(fresh.awaitsFrames)
+        XCTAssertFalse(fresh.awaitsReport)
     }
 
     @MainActor
