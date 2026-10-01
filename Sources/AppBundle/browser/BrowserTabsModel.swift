@@ -138,7 +138,7 @@ final class BrowserTabsModel: ObservableObject {
             if var result, Window.get(byId: window.windowId)?.app === app {
                 if !iconsEnabled { result.iconCandidate = nil }
                 iconAssociations.update(result, now: ProcessInfo.processInfo.systemUptime)
-                cache.receive(result, now: ProcessInfo.processInfo.systemUptime)
+                cache.receive(result, now: ProcessInfo.processInfo.systemUptime, started: readStarted)
                 pendingSelections.observe(result, readStarted: readStarted)
                 publish()
             } else {
@@ -170,7 +170,7 @@ final class BrowserTabsModel: ObservableObject {
         guard evidence != safariEvidence else { return }
         safariEvidence = evidence
         safariAssociations.update(safari.map { .init(snapshot: $0, observed: cache.observed[$0.windowId] ?? 0,
-                appeared: safariFrames.appeared($0.windowId) ?? .infinity) },
+                readStarted: cache.readStarted[$0.windowId], appeared: safariFrames.appeared($0.windowId) ?? .infinity) },
             windows: safariExtension.windows, unread: unread,
             unreadAppeared: Dictionary(uniqueKeysWithValues: unread.map { ($0, safariFrames.appeared($0) ?? .infinity) }),
             now: ProcessInfo.processInfo.systemUptime)
@@ -185,8 +185,9 @@ final class BrowserTabsModel: ObservableObject {
     /// Notes where each Safari window is, a few times a second while a sidebar shows browser
     /// tabs, so a report arriving knows which windows have held still since Safari measured them.
     /// Frames come from the window server, in one request, rather than WinMux's cache, which
-    /// lags a move until its notification arrives. Each window's counts of the frame writes WinMux
-    /// queued and the moves it heard about catch a move and a move back between two samples.
+    /// lags a move until its notification arrives. Each window's counts of the writes WinMux ran
+    /// and the moves it heard about catch a move and a move back between two samples; a window
+    /// with a write running counts as moving.
     private func trackSafariFrames(now: TimeInterval) {
         let windows = MacWindow.allWindowsMap.values.filter { $0.app.rawAppBundleId == safariBundleId }
         guard safariExtension.isAvailable, !windows.isEmpty else {
@@ -200,11 +201,12 @@ final class BrowserTabsModel: ObservableObject {
         }
         let frames = windowServerFrames(windows.map(\.windowId))
         safariFrames.observe(Dictionary(windows.map { window in
-            (window.windowId, SafariExtensionFrameSample(
+            let writes = window.macApp.frameWriteLedger.state(window.windowId)
+            return (window.windowId, SafariExtensionFrameSample(
                 frame: frames[window.windowId]
                     ?? window.lastKnownActualRect.map { CGRect(x: $0.topLeftX, y: $0.topLeftY, width: $0.width, height: $0.height) },
                 identity: ObjectIdentifier(window), generation: window.nativeStateObservationToken(),
-                writes: window.macApp.frameWrites[window.windowId] ?? 0))
+                writes: writes.steps, writing: writes.writing))
         }, uniquingKeysWith: { first, _ in first }), now: now)
     }
 

@@ -72,14 +72,17 @@ struct BrowserTabRead: Sendable {
 /// Last complete reads survive short browser transitions, but not indefinite failures.
 struct BrowserTabSnapshotCache {
     private(set) var snapshots: [UInt32: BrowserWindowTabs] = [:]
-    /// When each window's snapshot was last read. Only a new read is new evidence about its tabs.
+    /// When each window's snapshot was last read, and when that read began. Only a new read is new
+    /// evidence about its tabs.
     private(set) var observed: [UInt32: TimeInterval] = [:]
+    private(set) var readStarted: [UInt32: TimeInterval] = [:]
     private var failedSince: [UInt32: TimeInterval] = [:]
     static let maximumAge: TimeInterval = 10
 
-    mutating func receive(_ snapshot: BrowserWindowTabs, now: TimeInterval) {
+    mutating func receive(_ snapshot: BrowserWindowTabs, now: TimeInterval, started: TimeInterval? = nil) {
         snapshots[snapshot.windowId] = snapshot
         observed[snapshot.windowId] = now
+        readStarted[snapshot.windowId] = started ?? now
         failedSince[snapshot.windowId] = nil
     }
 
@@ -93,6 +96,7 @@ struct BrowserTabSnapshotCache {
         }
         failedSince = failedSince.filter { snapshots[$0.key] != nil }
         observed = observed.filter { snapshots[$0.key] != nil }
+        readStarted = readStarted.filter { snapshots[$0.key] != nil }
     }
 
     /// A tab the user just closed leaves the list before the next read confirms it.

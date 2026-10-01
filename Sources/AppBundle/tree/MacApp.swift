@@ -33,15 +33,9 @@ final class MacApp: AbstractApp {
     private let frameWriteBarrier = AppFrameWriteBarrier()
     private var lastFrameSubmission: TimeInterval = 0
     var browserTabsMayRead: Bool { ProcessInfo.processInfo.systemUptime - lastFrameSubmission > 0.12 }
-    /// How many times WinMux has moved, resized, minimized or fullscreened each window, counted
-    /// as each write is queued: a move and a move back between two looks still count. Starts over
-    /// now and then, which only makes every window look moved once.
-    private(set) var frameWrites: [UInt32: UInt64] = [:]
-
-    private func countFrameWrite(_ windowId: UInt32) {
-        if frameWrites.count >= 1024 { frameWrites = [:] }
-        frameWrites[windowId, default: 0] &+= 1
-    }
+    /// The moves, resizes, minimizes and fullscreen changes WinMux makes to each window, counted
+    /// as they run.
+    let frameWriteLedger = FrameWriteLedger()
     @MainActor private static var focusJob: RunLoopJob? = nil
 
     /*conforms*/ var name: String? { nsApp.localizedName }
@@ -425,21 +419,19 @@ final class MacApp: AbstractApp {
 
     func setAxFrame(_ windowId: UInt32, _ topLeft: CGPoint?, _ size: CGSize?) {
         lastFrameSubmission = ProcessInfo.processInfo.systemUptime
-        countFrameWrite(windowId)
         frameWriteBarrier.recordWrite()
         setFrameJobs.removeValue(forKey: windowId)?.cancel()
-        setFrameJobs[windowId] = withWindowAsync(windowId) { [axApp] window, job in
-            try setFrame(window, app: axApp.threadGuarded, topLeft, size, job)
+        setFrameJobs[windowId] = withWindowAsync(windowId) { [axApp, frameWriteLedger] window, job in
+            try setFrame(window, app: axApp.threadGuarded, topLeft, size, job) { try frameWriteLedger.record(windowId, $0) }
         }
     }
 
     func setAxFrameBlocking(_ windowId: UInt32, _ topLeft: CGPoint?, _ size: CGSize?) async throws {
         lastFrameSubmission = ProcessInfo.processInfo.systemUptime
-        countFrameWrite(windowId)
         frameWriteBarrier.recordWrite()
         setFrameJobs.removeValue(forKey: windowId)?.cancel()
-        try await withWindow(windowId) { [axApp] window, job in
-            try setFrame(window, app: axApp.threadGuarded, topLeft, size, job)
+        try await withWindow(windowId) { [axApp, frameWriteLedger] window, job in
+            try setFrame(window, app: axApp.threadGuarded, topLeft, size, job) { try frameWriteLedger.record(windowId, $0) }
         }
     }
 
@@ -496,18 +488,16 @@ final class MacApp: AbstractApp {
     }
 
     func setNativeFullscreen(_ windowId: UInt32, _ value: Bool) {
-        countFrameWrite(windowId)
         setFrameJobs.removeValue(forKey: windowId)?.cancel()
-        setFrameJobs[windowId] = withWindowAsync(windowId) { window, job in
-            window.set(Ax.isFullscreenAttr, value)
+        setFrameJobs[windowId] = withWindowAsync(windowId) { [frameWriteLedger] window, job in
+            frameWriteLedger.record(windowId) { window.set(Ax.isFullscreenAttr, value) }
         }
     }
 
     func setNativeMinimized(_ windowId: UInt32, _ value: Bool) {
-        countFrameWrite(windowId)
         setFrameJobs.removeValue(forKey: windowId)?.cancel()
-        setFrameJobs[windowId] = withWindowAsync(windowId) { window, job in
-            window.set(Ax.minimizedAttr, value)
+        setFrameJobs[windowId] = withWindowAsync(windowId) { [frameWriteLedger] window, job in
+            frameWriteLedger.record(windowId) { window.set(Ax.minimizedAttr, value) }
         }
     }
 
@@ -515,10 +505,10 @@ final class MacApp: AbstractApp {
     func setDockMenuMinimized(_ windowId: UInt32, _ value: Bool) async throws -> Bool {
         if serverArgs.isReadOnly { return false }
         setFrameJobs.removeValue(forKey: windowId)?.cancel()
-        return try await withWindow(windowId) { window, job in
+        return try await withWindow(windowId) { [frameWriteLedger] window, job in
             // AX acceptance is authoritative; the animation may not have updated
             // the readable state yet. Native events drive the subsequent refresh.
-            window.set(Ax.minimizedAttr, value)
+            frameWriteLedger.record(windowId) { window.set(Ax.minimizedAttr, value) }
         } ?? false
     }
 

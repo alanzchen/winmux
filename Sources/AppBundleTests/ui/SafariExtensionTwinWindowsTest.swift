@@ -30,10 +30,12 @@ final class SafariExtensionTwinWindowsTest: XCTestCase {
         /// moves it heard about.
         var frames: [UInt32: CGRect] = [:]
         var writes: [UInt32: UInt64] = [:]
+        var writing: Set<UInt32> = []
         var heard: [UInt32: UInt64] = [:]
         var natives: [UInt32: NativeWindow] = [:]
         var reads: [UInt32: BrowserWindowTabs] = [:]
         var observed: [UInt32: TimeInterval] = [:]
+        var readStarted: [UInt32: TimeInterval] = [:]
         var track = SafariExtensionFrameTrack()
         var associations = SafariExtensionAssociations()
         var bridge: SafariExtensionBridge!
@@ -56,7 +58,7 @@ final class SafariExtensionTwinWindowsTest: XCTestCase {
             for id in frames.keys where natives[id] == nil { natives[id] = NativeWindow() }
             track.observe(Dictionary(uniqueKeysWithValues: frames.map { id, frame in
                 (id, SafariExtensionFrameSample(frame: frame, identity: ObjectIdentifier(natives[id]!), generation: heard[id] ?? 0,
-                    writes: writes[id] ?? 0))
+                    writes: writes[id] ?? 0, writing: writing.contains(id)))
             }), now: uptime)
         }
 
@@ -75,12 +77,24 @@ final class SafariExtensionTwinWindowsTest: XCTestCase {
             wall += seconds
         }
 
-        /// WinMux moves a window, counting the write as it queues it; its notification, if any,
-        /// comes later. `sampled: false` is a move no sample sees before the next.
+        /// WinMux moves a window, its write beginning and ending as it runs; its notification, if
+        /// any, comes later. `sampled: false` is a move no sample sees before the next.
         func move(_ id: UInt32, to frame: CGRect, sampled: Bool = true) {
+            beginWrite(id)
+            endWrite(id, at: frame)
+            if sampled { sample() }
+        }
+
+        /// A write that has begun to run on the app's AX thread, and one that ends, moving the window.
+        func beginWrite(_ id: UInt32) {
+            writes[id, default: 0] += 1
+            writing.insert(id)
+        }
+
+        func endWrite(_ id: UInt32, at frame: CGRect) {
             frames[id] = frame
             writes[id, default: 0] += 1
-            if sampled { sample() }
+            writing.remove(id)
         }
 
         /// A new native window under `id`, read as one tab.
@@ -138,13 +152,23 @@ final class SafariExtensionTwinWindowsTest: XCTestCase {
 
         /// A new Accessibility read of each window in `ids`, then pairing with what's known.
         func read(_ ids: UInt32...) {
-            for id in ids { observed[id] = uptime }
+            for id in ids {
+                observed[id] = uptime
+                readStarted[id] = uptime
+            }
+            update()
+        }
+
+        /// A read that began at `started` and ends now, having seen the tab bar as it is now.
+        func read(_ id: UInt32, startedAt started: TimeInterval) {
+            observed[id] = uptime
+            readStarted[id] = started
             update()
         }
 
         func update() {
             associations.update(reads.keys.sorted().map {
-                .init(snapshot: reads[$0]!, observed: observed[$0] ?? 0, appeared: track.appeared($0) ?? .infinity)
+                .init(snapshot: reads[$0]!, observed: observed[$0] ?? 0, readStarted: readStarted[$0], appeared: track.appeared($0) ?? .infinity)
             }, windows: bridge.windows, now: uptime)
             timeline.append(reads.keys.sorted().map(row).joined(separator: ", "))
         }
@@ -783,9 +807,149 @@ final class SafariExtensionTwinWindowsTest: XCTestCase {
         XCTAssertEqual(track.appeared(1), 0)
         XCTAssertEqual(track.sighting(measured: 9.2), [:])
         XCTAssertEqual(track.sighting(measured: 9.4), [1: Self.shown])
-        // A write WinMux queued counts at once, before any notification of the move.
+        // A write WinMux ran counts at once, before any notification of the move.
         track.observe(sample(Self.shown, writes: 2), now: 11)
         XCTAssertEqual(track.sighting(measured: 11.2), [:])
+        // A write still running, however long, leaves the window unknown.
+        var running = sample(Self.shown, writes: 3)
+        running[1]?.writing = true
+        for time in [12.0, 13, 14] { track.observe(running, now: time) }
+        XCTAssertEqual(track.sighting(measured: 13.9), [:])
+        track.observe(sample(Self.shown, writes: 4), now: 15)
+        track.observe(sample(Self.shown, writes: 4), now: 16)
+        XCTAssertEqual(track.sighting(measured: 15.4), [1: Self.shown])
+    }
+
+
+    // MARK: Review round 3
+
+    /// A report Safari measured before same-titled tabs swapped arrives only after the read that
+    /// proposed their pairing, and a later read still sees them swapped.
+    func testAReportMeasuredBeforeAProposalNeverConfirmsIt() {
+        let harness = Harness()
+        harness.frames = [1: Self.shown]
+        let session = UUID()
+        func listed(_ title: String, selected: Bool = false) -> BrowserTab {
+            .init(target: .init(windowId: 1, pid: 7, windowSession: session, tabId: UUID()), title: title, isSelected: selected)
+        }
+        let mail = listed("Mail", selected: true)
+        let quiet = listed("Demo Page")
+        let playing = listed("Demo Page")
+        func tabBar(_ tabs: [BrowserTab]) { harness.reads[1] = .init(windowId: 1, pid: 7, windowSession: session, tabs: tabs) }
+        let reportedMail = Self.tab("Mail", id: 99, icon: Self.otherIcon, host: "mail.test")
+        let reportedQuiet = Self.tab(id: 100, active: false)
+        let reportedPlaying = Self.tab(id: 101, icon: Self.otherIcon, audible: true, active: false)
+        tabBar([mail, quiet, playing])
+        harness.wait(2)
+        harness.report([(10, 1, [reportedMail, reportedQuiet, reportedPlaying])])
+        harness.wait(1)
+        // Safari measures the old order, then waits; meanwhile the tabs swap and WinMux first reads them.
+        harness.report([(10, 1, [reportedMail, reportedQuiet, reportedPlaying])], pause: 1.2, whileMeasuring: {
+            tabBar([mail, playing, quiet])
+            harness.elapse(0.2)
+            harness.read(1)
+        })
+        harness.wait(1)
+        harness.read(1)
+        // Then Safari's report of the swap, and more reads and reports.
+        for _ in 0..<3 {
+            harness.wait(1)
+            harness.report([(10, 1, [reportedMail, reportedPlaying, reportedQuiet])])
+            harness.wait(1)
+            harness.read(1)
+        }
+        let rows = harness.timeline
+        XCTAssertFalse(rows.contains { $0.hasSuffix("| other site sound") }, "The quiet tab, last in the tab bar, never plays: \(rows)")
+        XCTAssertEqual(rows.last, "1: other site mail.test | other site sound | site")
+        XCTAssertEqual(harness.associations.described(quiet).extensionTab?.id, 100)
+    }
+
+    /// Same-titled tabs swap, swap back and swap again around one read and one report: the read
+    /// began before the report arrived and ended after it, having seen the last swap, which the
+    /// report doesn't have. Such a read can't settle a pairing against that report.
+    func testAReadThatBeganBeforeAReportArrivedCantConfirmAPairingAgainstIt() {
+        let harness = Harness()
+        harness.frames = [1: Self.shown]
+        let session = UUID()
+        func listed(_ title: String, selected: Bool = false) -> BrowserTab {
+            .init(target: .init(windowId: 1, pid: 7, windowSession: session, tabId: UUID()), title: title, isSelected: selected)
+        }
+        let mail = listed("Mail", selected: true)
+        let quiet = listed("Demo Page")
+        let playing = listed("Demo Page")
+        func tabBar(_ tabs: [BrowserTab]) { harness.reads[1] = .init(windowId: 1, pid: 7, windowSession: session, tabs: tabs) }
+        let reportedMail = Self.tab("Mail", id: 99, icon: Self.otherIcon, host: "mail.test")
+        let reportedQuiet = Self.tab(id: 100, active: false)
+        let reportedPlaying = Self.tab(id: 101, icon: Self.otherIcon, audible: true, active: false)
+        tabBar([mail, quiet, playing])
+        harness.wait(2)
+        harness.report([(10, 1, [reportedMail, reportedQuiet, reportedPlaying])])
+        // The first swap, read before Safari reports it: the proposals are wrong.
+        tabBar([mail, playing, quiet])
+        harness.wait(1)
+        harness.read(1)
+        // Swapped back; Safari measures that. Then swapped again while a read is under way and
+        // the report arrives.
+        tabBar([mail, quiet, playing])
+        harness.wait(0.5)
+        let started = harness.uptime
+        harness.report([(10, 1, [reportedMail, reportedQuiet, reportedPlaying])], during: { tabBar([mail, playing, quiet]) })
+        harness.elapse(0.1)
+        harness.read(1, startedAt: started)
+        // Safari's report of the last swap, and more reports and reads.
+        for _ in 0..<3 {
+            harness.wait(1)
+            harness.report([(10, 1, [reportedMail, reportedPlaying, reportedQuiet])])
+            harness.wait(1)
+            harness.read(1)
+        }
+        let rows = harness.timeline
+        XCTAssertFalse(rows.contains { $0.hasSuffix("| other site sound") }, "The quiet tab, last in the tab bar, never plays: \(rows)")
+        XCTAssertEqual(rows.last, "1: other site mail.test | other site sound | site")
+    }
+
+    /// One of WinMux's writes is still running past the margin, then lands; Safari measures the
+    /// window there and WinMux's next write puts it back before any sample or notification.
+    func testAWriteStillRunningOrLandingBetweenSamplesLeavesTheWindowUnseen() {
+        let harness = Harness()
+        harness.frames = [1: Self.shown, 2: Self.parked]
+        harness.reads = [1: Self.lone("Demo Page", window: 1), 2: Self.lone("Demo Page", window: 2)]
+        harness.wait(2)
+        harness.beginWrite(1)
+        harness.wait(1)
+        harness.report(twins(), capture: 0.05, beforeCapture: {
+            harness.endWrite(1, at: Self.parked)
+            harness.beginWrite(2)
+            harness.endWrite(2, at: Self.shown)
+        }, whileMeasuring: {
+            harness.move(1, to: Self.shown, sampled: false)
+            harness.move(2, to: Self.parked, sampled: false)
+        })
+        for _ in 0..<2 {
+            harness.wait(1)
+            harness.read(1, 2)
+        }
+        XCTAssertEqual(Set(harness.timeline), ["1: Safari, 2: Safari"], "Safari measured them swapped; WinMux can't vouch for either place")
+        XCTAssertTrue(harness.associations.awaitsReport)
+    }
+
+    func testTheWriteLedgerCountsWritesAsTheyRunAndForgetsOnlySettledOnes() {
+        let ledger = FrameWriteLedger()
+        XCTAssertEqual(ledger.state(1).steps, 0)
+        ledger.begin(1)
+        XCTAssertEqual(ledger.state(1).steps, 1)
+        XCTAssertTrue(ledger.state(1).writing)
+        ledger.end(1)
+        XCTAssertEqual(ledger.state(1).steps, 2)
+        XCTAssertFalse(ledger.state(1).writing)
+        struct Failed: Error {}
+        XCTAssertThrowsError(try ledger.record(2) { throw Failed() })
+        XCTAssertEqual(ledger.state(2).steps, 2, "A write that fails still ends")
+        XCTAssertFalse(ledger.state(2).writing)
+        ledger.begin(3)
+        for id in UInt32(10)..<1100 { ledger.record(id) {} }
+        XCTAssertTrue(ledger.state(3).writing, "A running write is never forgotten")
+        XCTAssertEqual(ledger.state(3).steps, 1)
     }
 
     // MARK: Tabs inside a window, by Safari's ids

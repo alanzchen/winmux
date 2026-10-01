@@ -216,15 +216,18 @@ struct SafariExtensionNativeWindow: Hashable, Sendable {
 struct SafariExtensionCandidate {
     let snapshot: BrowserWindowTabs
     var observed: TimeInterval = 0
+    /// When that read began: it saw the tabs at some moment between then and `observed`.
+    var readStarted: TimeInterval
     /// When WinMux first saw this native window, by system uptime. A report measured before then
     /// saw another window under its number, if any.
     var appeared: TimeInterval = -.infinity
     /// Its tabs' titles as the extension's are compared, worked out once for every window they're compared with.
     let titles: [String]
 
-    init(snapshot: BrowserWindowTabs, observed: TimeInterval = 0, appeared: TimeInterval = -.infinity) {
+    init(snapshot: BrowserWindowTabs, observed: TimeInterval = 0, readStarted: TimeInterval? = nil, appeared: TimeInterval = -.infinity) {
         self.snapshot = snapshot
         self.observed = observed
+        self.readStarted = readStarted ?? observed
         self.appeared = appeared
         titles = snapshot.tabs.map { safariExtensionComparableTitle($0.title) }
     }
@@ -431,11 +434,13 @@ struct SafariExtensionAssociations {
     /// keeps the Safari tab it's bound to, by id, as long as Safari still lists that tab in this
     /// window and their titles agree, wherever the tab bar puts it: neither a read nor a report
     /// says which of two same-titled tabs moved. A tab without one pairs with the tab in its
-    /// place, if no other listed tab has that one, only by a read made after the report. A title
-    /// says which tab is which; among tabs with the same title, the pairing is only proposed,
-    /// showing the icon but not the sound, until a later report and a later read still agree:
-    /// the read may have seen a reorder Safari hadn't reported yet. Until a tab is paired, and
-    /// once its Safari tab is gone, it shows nothing from the extension.
+    /// place, if no other listed tab has that one, only by a read begun after the report arrived.
+    /// A title says which tab is which; among tabs with the same title, the pairing is only
+    /// proposed, showing the icon but not the sound, until a report Safari measured after that
+    /// read ended, and a read begun after that report arrived, still agree: the read may have
+    /// seen a reorder Safari hadn't reported yet, or a report measured before it may arrive
+    /// after. Until a tab is paired, and once its Safari tab is gone, it shows nothing from the
+    /// extension.
     private mutating func describe(_ candidate: SafariExtensionCandidate, _ window: SafariExtensionWindow) {
         let listed = candidate.snapshot.tabs
         let keys = window.tabs.compactMap(window.tabKey)
@@ -450,7 +455,7 @@ struct SafariExtensionAssociations {
         }
         let positions = Dictionary(keys.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
         let counts = Dictionary(candidate.titles.map { ($0, 1) }, uniquingKeysWith: +)
-        let comparable = candidate.observed >= window.received
+        let comparable = candidate.readStarted >= window.received
         var claimed: Set<SafariExtensionTabKey> = []
         for (index, tab) in listed.enumerated() {
             if let key = bound[tab.target] {
@@ -459,8 +464,8 @@ struct SafariExtensionAssociations {
             guard let proposal = proposed[tab.target] else { continue }
             if positions[proposal.key] == nil {
                 proposed[tab.target] = nil
-            } else if window.received > proposal.read, comparable {
-                // A report and a read since: they settle it, either way.
+            } else if window.measured >= proposal.read, comparable {
+                // A report measured since, and a read begun after it arrived: they settle it, either way.
                 proposed[tab.target] = nil
                 if positions[proposal.key] == index, bound[tab.target] == nil {
                     bound[tab.target] = proposal.key
@@ -526,10 +531,12 @@ struct SafariExtensionFrameSample: Equatable, Sendable {
     /// Which native window it is: a later one with the same number is another.
     var identity: ObjectIdentifier? = nil
     /// Counts the moves and resizes WinMux heard about (`Window.nativeStateObservationToken`),
-    /// and the frame writes it queued itself (`MacApp.frameWrites`), so a move and a move back
-    /// between two samples still count, whether or not its notification has arrived yet.
+    /// and the steps of the writes it made itself (`FrameWriteLedger`), so a move and a move back
+    /// between two samples still count, whether or not their notifications have arrived.
     var generation: UInt64? = nil
     var writes: UInt64? = nil
+    /// Whether one of WinMux's writes is running now: where the window will be is unknown.
+    var writing = false
 }
 
 /// Where WinMux has seen each Safari window, and since when it has been there, so a report's
@@ -558,8 +565,8 @@ struct SafariExtensionFrameTrack {
                 next[id] = Entry(sample: sample, frame: frame, since: now, appeared: now)
                 continue
             }
-            let still = !known.paused && known.sample.generation == sample.generation && known.sample.writes == sample.writes &&
-                safariExtensionFramesAgree(known.frame, frame, tolerance: 1)
+            let still = !known.paused && !sample.writing && known.sample.generation == sample.generation &&
+                known.sample.writes == sample.writes && safariExtensionFramesAgree(known.frame, frame, tolerance: 1)
             next[id] = Entry(sample: sample, frame: frame, since: still ? known.since : now, appeared: known.appeared)
         }
         entries = next
