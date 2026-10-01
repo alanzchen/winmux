@@ -152,6 +152,44 @@ The sidebar's bottom edge follows the same display reservation and outer gap as
 the tiled windows. Enable `show-app-badges` to mirror native Dock labels at the
 right of tabs and on pinned icons; compact icons show small red dots.
 
+### Topic group suggestions
+
+Tabs mode can suggest groups for a project's tabs with Apple Intelligence's on-device
+model. It's off by default; turn on **Suggest topic groups with Apple Intelligence** in
+Settings, or:
+
+```toml
+[workspace-sidebar.intelligence]
+mode = 'manual'      # Default: 'off'
+excluded-apps = []   # Bundle IDs whose windows are never analyzed
+```
+
+- Right-click the project's name at the top of the Tabs sidebar, or several chosen
+  tabs, and choose **Suggest Topic Groups…**. Nothing is read before you do, and nothing
+  runs in the background. The model needs macOS 26 or later with Apple Intelligence
+  turned on; the preview says why when it isn't available. There's no cloud fallback.
+- WinMux reads only the tab titles the sidebar already shows, for the project and
+  display list that sidebar shows, or for the chosen tabs. Pinned tabs and tabs already
+  in a group are left as they are. A tab with a window of a browser or of an app in
+  `excluded-apps` is skipped whole, split and all, even when that window is minimized.
+  The preview lists skipped tabs; for a browser tab it shows exactly the text that would
+  be analyzed and offers **Include these titles in this suggestion**. That choice lasts
+  for that one suggestion and covers only that text. WinMux can't tell whether a
+  browser window is private. Browser tabs inside a window are never analyzed.
+- The preview proposes groups of at least two tabs, each tab in one group at most, and
+  says which words they share. Tabs that don't clearly share a specific topic stay
+  where they are; one app alone, or a tab whose windows are about different things, is
+  never enough to group. Rename a group, uncheck tabs or whole groups, then **Apply**.
+  **What was analyzed** shows the text sent to the model.
+- Apply checks every tab again and makes all the groups in one change, as ordinary
+  groups you can rename, recolor, drag or ungroup. If any tab changed meanwhile,
+  nothing is applied and the preview asks you to suggest again. **Undo Group by Topic**
+  removes the groups again without touching layouts, displays or focus. Cancel and the
+  preview itself save nothing. With `--read-only`, Apply is unavailable.
+- Suggestions and their cached tags live in memory only. Turning the setting off, or
+  leaving Tabs mode, stops a suggestion in progress and forgets them. Logs record only
+  counts, timings and error categories, never titles.
+
 ## Show workspaces from this display or all displays
 
 Each Dock, Sidebar, or Tabs panel lists only the workspaces on the display it's on.

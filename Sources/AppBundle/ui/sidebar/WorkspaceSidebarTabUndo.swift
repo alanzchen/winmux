@@ -8,13 +8,25 @@ import SwiftUI
 final class WorkspaceSidebarTabUndo: ObservableObject {
     static let shared = WorkspaceSidebarTabUndo()
     @Published private(set) var title: String?
-    private var entry: (before: WorkspaceSidebarTabUndoSnapshot, after: WorkspaceSidebarTabUndoSnapshot)?
+    private var entry: (before: WorkspaceSidebarTabUndoSnapshot, after: WorkspaceSidebarTabUndoSnapshot,
+                        organizationOnly: WorkspaceSidebarOrganizationIdentityDelta?)?
 
     func record(_ title: String, before: WorkspaceSidebarTabUndoSnapshot) {
         let after = WorkspaceSidebarTabUndoSnapshot()
         guard before.canRestore(after) else { clear(); return }
         guard !before.matches(after) else { return }
-        entry = (before, after)
+        entry = (before, after, nil)
+        self.title = "Undo \(title)"
+    }
+
+    /// An edit that changed only the organization and saved tab identities, with `before` and
+    /// `after` taken right around it. Its Undo writes those back and touches nothing else: no
+    /// layout, display or focus. Anything else changed alongside it clears the history instead.
+    func recordOrganizationEdit(_ title: String, before: WorkspaceSidebarTabUndoSnapshot, after: WorkspaceSidebarTabUndoSnapshot,
+                                identities: WorkspaceSidebarOrganizationIdentityDelta) {
+        guard before.canRestore(after), before.matchesStructure(after) else { clear(); return }
+        guard !before.matches(after) else { return }
+        entry = (before, after, identities)
         self.title = "Undo \(title)"
     }
 
@@ -34,11 +46,73 @@ final class WorkspaceSidebarTabUndo: ObservableObject {
             clear()
             return
         }
+        if let identities = entry.organizationOnly { return try undoOrganizationEdit(entry.before, identities) }
         // Write the fallible organization store before making any live changes.
         try workspaceSidebarOrganizationStore.update { $0 = entry.before.organization }
         clear()
         entry.before.restore(replacing: entry.after)
         syncClosedWindowsCacheToCurrentWorld()
+    }
+
+    /// Organization first: if it can't be written, nothing has changed and Undo stays available.
+    /// Then exactly the identities the edit added. If saving those fails, the groups stay removed
+    /// and the identities stay saved, in memory as on disk, and the error says so.
+    private func undoOrganizationEdit(_ before: WorkspaceSidebarTabUndoSnapshot,
+                                      _ identities: WorkspaceSidebarOrganizationIdentityDelta) throws {
+        try workspaceSidebarOrganizationStore.update { $0 = before.organization }
+        clear()
+        guard !identities.isEmpty else { return }
+        let savedBefore = savedWorkspaceStore.file
+        let runtimeBefore = SavedWorkspaceRuntimeIdentityState()
+        for created in identities.created {
+            if let removed = savedWorkspaceStore.remove(named: created.name) { clearSavedWorkspaceRuntimeState(removed) }
+        }
+        for name in identities.promoted { savedWorkspaceStore.update(named: name) { $0.keepWhenEmpty = false } }
+        do {
+            try savedWorkspaceStore.flushNowReportingFailure()
+        } catch {
+            savedWorkspaceStore.restoreForRollback(savedBefore)
+            runtimeBefore.restore()
+            throw NSError(domain: "WinMux.SidebarOrganization", code: 2, userInfo: [NSLocalizedDescriptionKey:
+                "The groups were removed, but WinMux couldn't update its saved tabs, so they stay saved: \(error.localizedDescription)"])
+        }
+        for created in identities.created where created.workspace?.lifecycle == .durable {
+            created.workspace?.lifecycle = created.lifecycle
+        }
+    }
+}
+
+/// What an organization-only edit changed in saved tab identities, so its Undo puts back exactly
+/// that, and nothing a later edit did.
+@MainActor
+struct WorkspaceSidebarOrganizationIdentityDelta {
+    struct Created {
+        let name: String
+        weak var workspace: Workspace?
+        let lifecycle: WorkspaceLifecycle
+    }
+
+    /// Records the edit created, with each tab's lifecycle before.
+    var created: [Created] = []
+    /// Records whose keep-when-empty the edit turned back on.
+    var promoted: [String] = []
+
+    var isEmpty: Bool { created.isEmpty && promoted.isEmpty }
+}
+
+/// The session state `clearSavedWorkspaceRuntimeState` drops, to put back when a write fails.
+@MainActor
+struct SavedWorkspaceRuntimeIdentityState {
+    private let vanishedSlots = savedWorkspaceRuntime.vanishedSlots
+    private let visibleOnHome = savedWorkspaceRuntime.visibleOnHomeAtLastCheckpoint
+    private let awaitingProject = savedWorkspaceRuntime.workspacesAwaitingProject
+    private let pruneRetryAfter = savedWorkspaceRuntime.organizationPruneRetryAfter
+
+    func restore() {
+        savedWorkspaceRuntime.vanishedSlots = vanishedSlots
+        savedWorkspaceRuntime.visibleOnHomeAtLastCheckpoint = visibleOnHome
+        savedWorkspaceRuntime.workspacesAwaitingProject = awaitingProject
+        savedWorkspaceRuntime.organizationPruneRetryAfter = pruneRetryAfter
     }
 }
 
@@ -64,6 +138,15 @@ struct WorkspaceSidebarTabUndoSnapshot {
     func matches(_ other: Self) -> Bool {
         organization == other.organization && projects == other.projects && monitorRects == other.monitorRects &&
             items == other.items && saved.map(undoIdentity) == other.saved.map(undoIdentity)
+    }
+
+    /// The same tabs, layouts, projects and displays, with the same tab on each: only the
+    /// organization, saved identities and tab lifecycles may differ.
+    func matchesStructure(_ other: Self) -> Bool {
+        projects == other.projects && monitorRects == other.monitorRects &&
+            viewports.mapValues(\.activeWorkspaceId) == other.viewports.mapValues(\.activeWorkspaceId) &&
+            items.count == other.items.count && zip(items, other.items).allSatisfy { $0.matchesStructure($1) } &&
+            focusedWindow === other.focusedWindow && focusedWorkspace === other.focusedWorkspace
     }
 
     private func undoIdentity(_ record: SavedWorkspaceRecord) -> SavedWorkspaceRecord {
@@ -198,6 +281,13 @@ private struct WorkspaceSidebarUndoWorkspace: Equatable {
     }
 
     var windows: [WorkspaceSidebarUndoWindow] { tree.windows + floating + unconventional }
+
+    func matchesStructure(_ other: Self) -> Bool {
+        workspace === other.workspace && projectId == other.projectId && namingStyle == other.namingStyle &&
+            hasHadWindows == other.hasHadWindows && preferredMonitorPoint == other.preferredMonitorPoint &&
+            retainsEmptyAfterProjectMove == other.retainsEmptyAfterProjectMove && tree == other.tree &&
+            floating == other.floating && unconventional == other.unconventional
+    }
 
     @MainActor func restore() {
         workspace.projectId = projectId

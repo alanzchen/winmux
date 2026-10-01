@@ -234,6 +234,16 @@ enum SettingsCatalog {
                 .used(in: [.tabs]),
             bool(.dockContent, "music-player-at-bottom", "Keep the Music player at the bottom", "Show Apple Music's player at the bottom of the expanded Tabs sidebar while Music is open, whichever tab or project is showing, instead of under Music's tab.", section: sidebar, path: \.workspaceSidebar.musicPlayerAtBottom)
                 .used(in: [.tabs]),
+            SettingsField(group: .dockContent, section: "workspace-sidebar.intelligence", key: "mode",
+                title: "Suggest topic groups with Apple Intelligence",
+                help: "Adds Suggest Topic Groups… to a project's menu and to the menu for several chosen tabs. When you choose it, Apple Intelligence reads that project's tab titles on this Mac and proposes groups to review before anything changes. Pinned tabs, grouped tabs and browser windows are left out unless you include a browser's titles for one suggestion. Turning this off stops any suggestion and forgets it.",
+                control: .toggle, read: { .bool($0.workspaceSidebar.intelligence.mode == .manual) },
+                render: { $0.bool ? "'manual'" : "'off'" },
+                project: { configuration, value in configuration.workspaceSidebar.intelligence.mode = value.bool ? .manual : .off })
+                .used(in: [.tabs])
+                .requiring(.disables("Needs macOS 26 or later with Apple Intelligence.") {
+                    workspaceTopicSystemModelIsSupported || $0.workspaceSidebar.intelligence.mode == .manual
+                }),
             bool(.placement, "stay-on-top", "Keep above the macOS Dock", "Keep the panel above the macOS Dock and other floating windows. When off, system UI such as the macOS Dock can appear above it. A Dock-mode panel still yields when the macOS Dock appears on the same edge of the same display.", section: sidebar, path: \.workspaceSidebar.stayOnTop)
                 .used(in: .allModes),
             int(.placement, "menu-bar-reserve-height", "Menu bar space", "Space below the macOS menu bar, in points. Set to 0 when the menu bar auto-hides.", section: sidebar, range: 0...72, path: \.workspaceSidebar.menuBarReserveHeight)

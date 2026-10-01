@@ -143,6 +143,14 @@ on-mode-changed = []
     # solid-color = 'midnight'
     # custom-color = '#191B20'
 
+# Tabs mode: topic group suggestions from Apple Intelligence, on this Mac only.
+# 'manual' adds Suggest Topic Groups… to a project's menu and to the menu for several chosen
+# tabs; nothing is read until you choose it, and nothing changes until you apply a suggestion.
+[workspace-sidebar.intelligence]
+    mode = 'off' # 'off' or 'manual'
+    # Bundle IDs whose windows are never analyzed. A tab with one of their windows is skipped.
+    excluded-apps = []
+
 [workspace-sidebar.project-labels]
     "default" = "Default"
 

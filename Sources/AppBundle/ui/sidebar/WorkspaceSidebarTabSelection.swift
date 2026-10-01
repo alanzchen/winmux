@@ -69,7 +69,9 @@ final class WorkspaceSidebarTabDragState: ObservableObject {
 func workspaceSidebarTabSelectionMenuEntries(_ names: [String], workspaces: [WorkspaceSidebarWorkspaceViewModel],
                                              collections: [WorkspaceTabCollection],
                                              send: @escaping @MainActor (WorkspaceSidebarAction) -> Void,
-                                             clear: @escaping @MainActor () -> Void) -> [WorkspaceSidebarAppMenuEntry] {
+                                             clear: @escaping @MainActor () -> Void,
+                                             suggest: (@MainActor (WorkspaceProjectId, [String]) -> Void)? = nil)
+    -> [WorkspaceSidebarAppMenuEntry] {
     let tabs = names.compactMap { name in workspaces.first { $0.name == name } }
     guard tabs.count > 1, let projectId = tabs.first?.projectId else { return [] }
     let names = tabs.map(\.name)
@@ -92,6 +94,7 @@ func workspaceSidebarTabSelectionMenuEntries(_ names: [String], workspaces: [Wor
         .init(title: "New Group with \(tabs.count) Tabs", perform: act(.createTabCollectionFromTabs(names))),
     ]
     if !destinations.isEmpty { entries.append(.init(title: "Add to Group", children: destinations)) }
+    if let suggest { entries.append(.init(title: workspaceTopicSuggestMenuTitle, perform: { clear(); suggest(projectId, names) })) }
     return entries + [
         .separator,
         .init(title: "Deselect Tabs", perform: { clear() }),
@@ -104,13 +107,20 @@ func workspaceSidebarTabSelectionMenuEntries(_ names: [String], workspaces: [Wor
 
 /// The menu for several chosen tabs, when `name` is one of them.
 @MainActor
-func workspaceSidebarTabSelectionMenu(containing name: String) -> NSMenu? {
+func workspaceSidebarTabSelectionMenu(containing name: String, scope: String? = nil) -> NSMenu? {
     let selection = WorkspaceSidebarTabSelection.shared
     guard config.usesBrowserTabs, selection.isMultiple, selection.contains(name) else { return nil }
+    let projectId = TrayMenuModel.shared.workspaceSidebarWorkspaces.first { $0.name == name }?.projectId
+    var suggest: (@MainActor (WorkspaceProjectId, [String]) -> Void)?
+    if let projectId, workspaceTopicSuggestionsOffered(projectId: projectId, panelScopeId: scope) {
+        suggest = { projectId, names in
+            handleWorkspaceSidebarAction(.suggestTopicGroups(projectId, tabs: names), targetMonitorScopeId: scope)
+        }
+    }
     let entries = workspaceSidebarTabSelectionMenuEntries(selection.names,
         workspaces: TrayMenuModel.shared.workspaceSidebarWorkspaces,
         collections: workspaceSidebarOrganizationStore.state.collections,
-        send: { handleWorkspaceSidebarAction($0) }, clear: { selection.clear() })
+        send: { handleWorkspaceSidebarAction($0) }, clear: { selection.clear() }, suggest: suggest)
     return entries.isEmpty ? nil : workspaceSidebarNativeAppMenu(entries)
 }
 

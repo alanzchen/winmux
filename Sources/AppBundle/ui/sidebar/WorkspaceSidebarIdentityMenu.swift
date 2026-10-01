@@ -127,7 +127,9 @@ func workspaceSidebarIdentityMenuModel(_ target: WorkspaceSidebarIdentityTarget,
                 entries: [
                     .init(title: "Switch to Project", perform: { send(.selectProject(id)) }),
                     .init(title: "New Project", perform: { send(.createProject) }),
-                ],
+                ] + (workspaceTopicSuggestionsOffered(projectId: id, panelScopeId: actionScope)
+                    ? [.separator, .init(title: workspaceTopicSuggestMenuTitle, perform: { send(.suggestTopicGroups(id, tabs: nil)) })]
+                    : []),
                 trailingEntries: [
                     .init(title: asks ? "Delete Project…" : "Delete Project", enabled: canDelete, isDestructive: true,
                         perform: { send(.deleteProject(id)) },
@@ -301,7 +303,8 @@ final class WorkspaceSidebarIdentityMenu: NSObject, NSWindowDelegate {
 
     /// A right-click or Control-click. On one of several chosen tabs it opens their shared menu.
     static func showMenu(_ target: WorkspaceSidebarIdentityTarget, with event: NSEvent, in view: NSView) {
-        if let name = target.tabName, let selection = workspaceSidebarTabSelectionMenu(containing: name) {
+        if let name = target.tabName,
+           let selection = workspaceSidebarTabSelectionMenu(containing: name, scope: workspaceSidebarMenuScope(of: view)) {
             return shared.show(selection, click: (event, view))
         }
         let point = NSEvent.mouseLocation
@@ -311,7 +314,7 @@ final class WorkspaceSidebarIdentityMenu: NSObject, NSWindowDelegate {
 
     /// The same menu without a click, such as VoiceOver's Show Menu.
     func showMenu(_ target: WorkspaceSidebarIdentityTarget, at point: NSPoint, scope: String? = nil) {
-        if let name = target.tabName, let selection = workspaceSidebarTabSelectionMenu(containing: name) {
+        if let name = target.tabName, let selection = workspaceSidebarTabSelectionMenu(containing: name, scope: scope) {
             return show(selection, at: point)
         }
         guard let model = Self.model(for: target, at: point, scope: scope) else { return }

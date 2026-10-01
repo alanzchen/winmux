@@ -156,6 +156,10 @@ func handleWorkspaceSidebarAction(
             }
         case .undoTabAction:
             runWorkspaceSidebarSession { try WorkspaceSidebarTabUndo.shared.undo() }
+        case .suggestTopicGroups(let projectId, let tabs):
+            let scope = targetMonitorScopeId ?? viewModel.workspaceSidebarTargetMonitorScopeId
+            // After the menu that asked has closed, so the preview can take key.
+            DispatchQueue.main.async { openWorkspaceTopicSuggestions(projectId: projectId, tabs: tabs, panelScopeId: scope) }
         case .selectApp(let workspaceName, let appId):
             focusAppFromSidebar(workspaceName: workspaceName, appId: appId, targetMonitorScopeId: targetMonitorScopeId)
         case .overrideWorkspaceInUseAndSelectApp(let workspaceName, let appId):

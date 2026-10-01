@@ -56,7 +56,7 @@ enum SettingsPanelLayout {
                     .init(id: tabsContentSection, title: "Content",
                         note: "The tab sidebar takes on the current project's color. Right-click a project to change it.",
                         fields: ids(["share-pinned-tabs", "browser-tabs", "browser-tab-icons", "music-player-at-bottom",
-                            "show-app-badges"])),
+                            "show-app-badges", "intelligence.mode"])),
                 ]
         }
     }

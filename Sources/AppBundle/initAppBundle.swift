@@ -129,6 +129,7 @@ private let serverHelp = """
 
 nonisolated(unsafe) private var _serverArgs = ServerArgs()
 var serverArgs: ServerArgs { _serverArgs }
+func setServerReadOnlyForTests(_ readOnly: Bool) { _serverArgs.isReadOnly = readOnly }
 private func initServerArgs() {
     let args = CommandLine.arguments.slice(1...) ?? []
     if args.contains(where: { $0 == "-h" || $0 == "--help" }) {

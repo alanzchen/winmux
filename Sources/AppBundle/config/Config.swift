@@ -191,6 +191,8 @@ struct WorkspaceSidebarConfig: ConvenienceCopyable, Equatable, Sendable {
     var solidChromeCustomColor: String = "#191B20"
     var sidebarAppearance = SidebarAppearanceConfig()
     var dockAppearance = DockAppearanceConfig()
+    /// Tabs mode: on-device topic group suggestions. Off by default.
+    var intelligence = WorkspaceIntelligenceConfig()
     var menuBarReserveHeight: Int = 28
     var projectDeletionAction: WorkspaceProjectDeletionAction = .closeWindows
     /// Naming a workspace also saves it (layout, apps, display) across restarts.

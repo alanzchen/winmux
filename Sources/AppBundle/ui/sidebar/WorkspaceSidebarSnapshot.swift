@@ -131,6 +131,9 @@ enum WorkspaceSidebarAction: Equatable {
     case detachTabWindow(UInt32)
     case splitTabWindow(UInt32, fromWorkspace: WorkspaceId, withWorkspace: WorkspaceId)
     case undoTabAction
+    /// Tabs mode: on-device topic group suggestions for the project this sidebar shows, or for
+    /// the chosen tabs. Opens a preview; nothing changes until it's applied.
+    case suggestTopicGroups(WorkspaceProjectId, tabs: [String]?)
     case selectApp(workspaceName: String, appId: String)
     case overrideWorkspaceInUseAndSelectApp(workspaceName: String, appId: String)
     case selectProject(WorkspaceProjectId)

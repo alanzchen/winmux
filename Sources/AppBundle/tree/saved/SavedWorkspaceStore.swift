@@ -111,25 +111,37 @@ final class SavedWorkspaceStore {
     }
 
     func flushNow() {
+        // Best effort, like window-state.json. The next change retries the write.
+        try? flushNowReportingFailure()
+    }
+
+    /// Writes now, and says whether it worked: for edits that must not go on when it didn't.
+    func flushNowReportingFailure() throws {
         writeTask?.cancel()
         writeTask = nil
-        guard let url, !isReadOnly else { return }
-        do {
-            let data = try encodeSavedWorkspacesFile(file)
-            guard data != lastWrittenData else { return }
-            let directory = url.deletingLastPathComponent()
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            if !didBackUpThisSession, FileManager.default.fileExists(atPath: url.path) {
-                let backupUrl = directory.appendingPathComponent(savedWorkspacesBackupFilename, isDirectory: false)
-                try? FileManager.default.removeItem(at: backupUrl)
-                try? FileManager.default.copyItem(at: url, to: backupUrl)
-            }
-            didBackUpThisSession = true
-            try data.write(to: url, options: .atomic)
-            lastWrittenData = data
-        } catch {
-            // Best effort, like window-state.json. The next change retries the write.
+        if let readOnlyReason { throw WorkspaceMutationError.savedWorkspacesReadOnly(readOnlyReason) }
+        guard let url else { return }
+        let data = try encodeSavedWorkspacesFile(file)
+        guard data != lastWrittenData else { return }
+        let directory = url.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        if !didBackUpThisSession, FileManager.default.fileExists(atPath: url.path) {
+            let backupUrl = directory.appendingPathComponent(savedWorkspacesBackupFilename, isDirectory: false)
+            try? FileManager.default.removeItem(at: backupUrl)
+            try? FileManager.default.copyItem(at: url, to: backupUrl)
         }
+        didBackUpThisSession = true
+        try data.write(to: url, options: .atomic)
+        lastWrittenData = data
+    }
+
+    /// Puts back the records as they were before an edit that failed, within the same main-actor
+    /// turn, so nothing can have used them since. A pending write would only save the edit back.
+    func restoreForRollback(_ previous: SavedWorkspacesFile) {
+        writeTask?.cancel()
+        writeTask = nil
+        file = previous
+        rebuildIndexes()
     }
 
     /// Loads the file. A newer file is used read-only; an unreadable one is moved aside so it

@@ -72,6 +72,7 @@ private let workspaceSidebarParser: [String: any ParserProtocol<WorkspaceSidebar
             "custom-color": Parser(\.customColor) { parseChromeSolidCustomColor($0, $1).map(Optional.some) },
         ], backtrace, &errors)
     },
+    "intelligence": Parser(\.intelligence, parseWorkspaceIntelligence),
     "use-liquid-glass": Parser(\.chromeStyle) { raw, backtrace in
         parseBool(raw, backtrace).map { $0 ? .liquidGlass : .solid }
     },
