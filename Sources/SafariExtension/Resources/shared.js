@@ -228,6 +228,25 @@ var WinMuxTabs = (() => {
     }
 
     /**
+     * What the extension's toolbar button is titled in a window while `tabId` is its active tab:
+     * the extension's name, then the first 8 characters of this session, the window's id and the
+     * tab's. Safari shows the title of a window's active tab as its button's tooltip and
+     * accessible name, so WinMux reads which extension window each Safari window is, even two
+     * showing the same pages.
+     */
+    function markerTitle(session, windowId, tabId) {
+        return `WinMux Tabs \u00b7 ${String(session).slice(0, 8)}-${windowId}-${tabId}`;
+    }
+
+    /**
+     * What a report says, without when it was made, so one that says nothing new needn't be sent.
+     */
+    function reportKey(message) {
+        const { time, measured, ...rest } = message;
+        return JSON.stringify(rest);
+    }
+
+    /**
      * The version to speak to WinMux after its `reply` to a message in `version`: an older WinMux
      * refuses a newer message as invalid and names the version it speaks.
      */
@@ -261,6 +280,6 @@ var WinMuxTabs = (() => {
 
     return {
         protocolVersion, host, origin, iconAddressAllowed, iconCandidates, imageDimensions, iconBytesAllowed,
-        stateWindows, stateMessage, negotiatedVersion, trimmed, hex, base64,
+        stateWindows, stateMessage, markerTitle, reportKey, negotiatedVersion, trimmed, hex, base64,
     };
 })();

@@ -91,13 +91,21 @@ Without that access Safari hides tabs' titles from the extension, and those tabs
 Safari's icon. Settings › Workspace Panel › Tabs › Content shows whether it's reporting and
 opens Safari's extension settings.
 
-The extension changes nothing in Safari. Selecting and closing tabs still use Accessibility,
-as above. The extension only describes tabs, and WinMux trusts a description only when it
-agrees with the tab strip it read:
+The extension changes nothing in your pages or tabs; it only titles its own toolbar button
+(below). Selecting and closing tabs still use Accessibility, as above. The extension only
+describes tabs, and WinMux trusts a description only when it agrees with the tab strip it read:
 
 - A Safari window takes the extension's details only when it has the same tabs, in the same
   order, with the same tab selected, and no other window matches as well. A match must hold
   across two Accessibility reads 0.75 seconds apart.
+- The extension's toolbar button in each window names that window: WinMux reads its title along
+  with the tab bar, and a window whose button names a window of the latest report is that one,
+  wherever it is, even among twins in the same place. The title must come from that report's
+  extension session, name the tab the report says is active there, and the window's tabs must
+  agree. A title naming anything else (the button hasn't caught up with a switch, a tab moved,
+  or the extension reloaded) names nothing, nor does one two windows show at once. Those windows,
+  and windows without the button, are matched by the rules below. The button is only ever read:
+  selecting, closing and moving never depend on it.
 - Two windows with the same tabs, such as two one-tab windows on the same page, are told apart
   by where they were when Safari reported. WinMux notes where Safari's windows are a few times
   a second, and compares the bounds in each report only with where windows were when that
@@ -114,8 +122,9 @@ agrees with the tab strip it read:
   strip couldn't be read yet), a new match also needs the window, and no unread window, to
   have been where Safari says, since the unread window could be the real twin.
 - Once made, a match holds as long as its tabs agree and Safari still reports that window,
-  however WinMux moves it, and no other window can take its report. Only a later report that
-  pairs the window, or that report, with another by where they were replaces it. A window that
+  however WinMux moves it, and no other window can take its report. Only a window's button
+  naming another report, or a later report that pairs the window, or that report, with another
+  by where they were, replaces it. A window that
   closes, and a later one that gets its number, start over.
 - Within a matched window, each tab is matched with Safari's tab by Safari's id for it. A read
   made after a report pairs a tab with the one in its place; after that it keeps that tab while
@@ -142,9 +151,37 @@ playing sound or muted, and its icon as a 32-pixel PNG; each window's id and pla
 how many times tabs were moved, opened or closed since Safari started, with when the extension
 began measuring.
 Private Browsing windows are left out entirely, even when the extension is allowed in them.
-The extension sends these reports to WinMux on this Mac when tabs change and once a minute,
-and WinMux keeps them in memory, with up to 512 icons; it never drops one a tab shows. It forgets a Safari profile that stops reporting after two
+The extension sends these reports to WinMux on this Mac when tabs change or a Safari window
+gains focus, leaving out one that would say nothing new, and once a minute regardless. WinMux
+keeps them in memory, with up to 512 icons; it never drops one a tab shows. It forgets a Safari profile that stops reporting after two
 and a half minutes, and forgets everything when Safari quits or browser tabs are turned off.
+
+### The toolbar button's title
+
+So WinMux can tell which Safari window is which, the extension titles its toolbar button in
+each normal window, through the title of that window's active tab: **WinMux Tabs ·** followed
+by the first 8 characters of the extension's session (a random identifier it makes each time
+Safari starts it), Safari's id for the window and its id for the tab, such as
+`WinMux Tabs · 3f2a9c1e-1401-1402`. The title holds no page titles or addresses, and Private
+Browsing windows keep the plain name. It's the button's tooltip, and VoiceOver reads it as the
+button's name, so you'll see and hear those numbers there. A new tab shows the plain name until
+the extension titles it, a moment after it becomes active. The title is visible in the
+tooltip and readable by any app with Accessibility access, like the rest of Safari's window.
+
+Without the button (removed with **View › Customize Toolbar**, or moved into the toolbar's
+overflow menu in a narrow window), WinMux matches windows only by their tabs and where they
+were, as above, and twins in the same place keep Safari's icon.
+
+### How often WinMux reads Safari's tabs
+
+WinMux reads a listed browser window's tab bar every second while it's focused and every four
+seconds otherwise, and soon after an Accessibility notification. A Safari window the extension
+describes in full, by a report from the last minute and a half, with access to every website,
+is read only every 15 seconds, and within a second of an Accessibility notification: the
+extension reports when its tabs change, and a report that no longer agrees with the last read
+reads the window again at once. Any other window, and every
+window while the extension is off, waiting, stale or without access to every website, is read
+as before.
 
 Icons come from each page's own icon links, best near 32 pixels, then its `/favicon.ico`.
 The extension fetches them inside Safari without cookies or a referrer, from the page's own

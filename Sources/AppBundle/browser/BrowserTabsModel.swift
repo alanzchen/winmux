@@ -106,6 +106,7 @@ final class BrowserTabsModel: ObservableObject {
         iconAssociations.retain(Set(cache.snapshots.values.flatMap { $0.tabs.map(\.target) }))
         publish()
         schedule.retain(Set(ownerPids.keys))
+        schedule.relax(settledSafariWindows(now: now))
         rediscover = rediscover.filter { ownerPids[$0] != nil }
         schedule.focus(focus.windowOrNil?.windowId)
         // Hidden rails retain their cache but do no browser work. Revealing them
@@ -130,7 +131,8 @@ final class BrowserTabsModel: ObservableObject {
             let read = try? await app.readBrowserTabs(window.windowId, readIcons: iconsEnabled,
                 rediscover: rediscover.remove(window.windowId) != nil,
                 loneRediscovery: AudioActivityModel.shared.isPlaying(bundleId: app.rawAppBundleId)
-                    ? browserLoneTabRediscoveryWhilePlaying : browserLoneTabRediscovery)
+                    ? browserLoneTabRediscoveryWhilePlaying : browserLoneTabRediscovery,
+                extensionButton: safariExtension.configuration?.toolbarIdentifier)
             let result = read?.tabs ?? read?.loneTab
             reads += 1
             guard generation == token, !Task.isCancelled else { return }
@@ -168,6 +170,7 @@ final class BrowserTabsModel: ObservableObject {
         let evidence = SafariExtensionEvidence(observed: Dictionary(uniqueKeysWithValues: safari.map { ($0.windowId, cache.observed[$0.windowId] ?? 0) }),
             reports: safariExtension.generation, unread: unread)
         guard evidence != safariEvidence else { return }
+        let reported = evidence.reports != safariEvidence?.reports
         safariEvidence = evidence
         safariAssociations.update(safari.map { .init(snapshot: $0, observed: cache.observed[$0.windowId] ?? 0,
                 readStarted: cache.readStarted[$0.windowId], appeared: safariFrames.appeared($0.windowId) ?? .infinity) },
@@ -176,6 +179,13 @@ final class BrowserTabsModel: ObservableObject {
             now: ProcessInfo.processInfo.systemUptime)
         // Safari reports where its windows are only with its tabs; ask again rather than wait a minute.
         if safariAssociations.awaitsReport { safariExtension.requestResync(atMostEvery: 10) }
+        // A report that no longer agrees with a window's last read says its tabs changed: read it now.
+        if reported { for id in safariAssociations.lapsed { schedule.reset(id) } }
+    }
+
+    private func settledSafariWindows(now: TimeInterval) -> Set<UInt32> {
+        guard safariExtension.allSites else { return [] }
+        return safariExtensionSettledWindows(Array(cache.snapshots.values), safariAssociations, windows: safariExtension.windows, now: now)
     }
 
     private func liveSafariWindows() -> [UInt32] {
@@ -302,6 +312,24 @@ func browserTabRereads(_ windows: [(id: UInt32, bundleId: String?)], changed: Se
     return result
 }
 
+/// How recent a report must be for the windows it describes to be read only now and then: the
+/// extension reports at least once a minute, and only what changed in between.
+let safariExtensionSettledReportAge: TimeInterval = 90
+
+/// Safari windows the extension describes in full, by a report from its last check-in or since.
+/// Its reports say when their tabs change, which reads them again at once, so they're otherwise
+/// read only now and then. Only while the extension may read every website: otherwise it can't
+/// see some tabs' titles change.
+func safariExtensionSettledWindows(_ snapshots: [BrowserWindowTabs], _ associations: SafariExtensionAssociations,
+                                   windows: [SafariExtensionWindow], now: TimeInterval) -> Set<UInt32> {
+    let reported = Dictionary(windows.map { ($0.key, $0.received) }, uniquingKeysWith: max)
+    return Set(snapshots.filter { snapshot in
+        guard case .resolved(let key) = associations.resolution(of: snapshot.windowId),
+              let received = reported[key], now - received < safariExtensionSettledReportAge else { return false }
+        return associations.settles(snapshot)
+    }.map(\.windowId))
+}
+
 /// How long the sound a read found in a tab's name counts. The sidebar's windows are read every
 /// few seconds; one it stopped showing keeps its tabs, but not their sound.
 let browserTabSoundLifetime: TimeInterval = 10
@@ -320,6 +348,7 @@ func browserTabsShown(_ snapshot: BrowserWindowTabs, read: TimeInterval?, now: T
         return tab
     }
     snapshot.knowsSound = safari.agreeing.contains(snapshot.windowId)
+    snapshot.marker = nil
     return snapshot
 }
 

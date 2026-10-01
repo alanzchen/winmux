@@ -3,7 +3,8 @@
 // Sends WinMux each Safari window's tabs (title, host, sound, pin and icon) whenever they change,
 // and once a minute, so a WinMux that just started catches up. WinMux answers with the icons it
 // doesn't have yet; only those are sent. Everything stays on this Mac, and Private Browsing
-// windows are left out entirely.
+// windows are left out entirely. Each window's toolbar button is titled with the window's ids,
+// so WinMux can tell which window is which (`WinMuxTabs.markerTitle`).
 const nativeApplication = "com.zimengxiong.winmux";
 const heartbeat = "winmux-heartbeat";
 const iconPixels = 32;
@@ -26,6 +27,12 @@ let peerVersion = WinMuxTabs.protocolVersion;
 // While WinMux isn't running, or has browser tabs off, only the heartbeat checks in, and no
 // icons are fetched.
 let unavailableUntil = 0;
+// What the last report WinMux took in full said (`WinMuxTabs.reportKey`). Only the heartbeat and
+// WinMux asking send the same again.
+let lastReport = null;
+// The title each tab's toolbar button was given, so it's set only when it changes. Safari may drop
+// it as the tab loads a page, so loading forgets it, and so does Safari unloading this page.
+const stamped = new Map();
 
 // Safari unloads this page when idle, so what it needs again lives in session storage, which
 // Safari keeps only in memory and clears when it quits: this browsing session's identifier, the
@@ -85,6 +92,23 @@ function iconFor(data, tab) {
     return key && data.icons[key] ? key : undefined;
 }
 
+/** Titles each normal window's active tab's toolbar button with the window's ids, once. */
+function stampWindows(windows, session) {
+    for (const window of Array.isArray(windows) ? windows : []) {
+        if (window.incognito === true || (window.type !== undefined && window.type !== "normal")) continue;
+        const tab = window.tabs?.find((tab) => tab.active === true);
+        if (!Number.isInteger(tab?.id) || !Number.isInteger(window.id)) continue;
+        const title = WinMuxTabs.markerTitle(session, window.id, tab.id);
+        if (stamped.get(tab.id) === title) continue;
+        stamped.set(tab.id, title);
+        try {
+            Promise.resolve(browser.action?.setTitle({ tabId: tab.id, title })).catch(() => stamped.delete(tab.id));
+        } catch {
+            stamped.delete(tab.id);
+        }
+    }
+}
+
 function save(data) {
     return sessionStorage?.set({ icons: data.icons, originIcons: data.originIcons, tabIcons: data.tabIcons, pending: data.pending })
         .catch(() => {});
@@ -110,12 +134,17 @@ async function send() {
         const orderBefore = data.order;
         const windows = await browser.windows.getAll({ populate: true });
         const order = data.order === orderBefore ? orderBefore : undefined;
+        stampWindows(windows, data.session);
         const allSites = await browser.permissions.contains({ origins: ["*://*/*"] }).catch(() => false);
         const version = peerVersion;
-        const reply = await browser.runtime.sendNativeMessage(nativeApplication, WinMuxTabs.stateMessage({
+        const message = WinMuxTabs.stateMessage({
             version, session: data.session, measured, order, time: Date.now(), allSites,
             windows: WinMuxTabs.stateWindows(windows, (tab) => iconFor(data, tab), version),
-        }));
+        });
+        const key = WinMuxTabs.reportKey(message);
+        if (!force && key === lastReport) return;
+        lastReport = null;
+        const reply = await browser.runtime.sendNativeMessage(nativeApplication, message);
         const spoken = WinMuxTabs.negotiatedVersion(reply, version);
         if (spoken !== version) {
             // An older WinMux: say it again in its version, without tab ids.
@@ -129,6 +158,8 @@ async function send() {
         }
         if (wasUnavailable) setUnavailableUntil(0);
         const wanted = Array.isArray(reply.want) ? reply.want.filter((key) => typeof key === "string") : [];
+        // Until WinMux has every icon it asked for, the same report may ask again.
+        if (wanted.length === 0) lastReport = key;
         const icons = {};
         for (const key of wanted.slice(0, iconsPerMessage)) {
             const png = data.icons[key]?.png;
@@ -405,7 +436,9 @@ browser.tabs.onUpdated.addListener((tabId, changes) => {
             }
         });
     }
-    if (["title", "url", "audible", "mutedInfo", "pinned"].some((key) => key in changes)) scheduleSend();
+    // A page loading may reset the tab's toolbar title.
+    if ("url" in changes || "status" in changes) stamped.delete(tabId);
+    if (["title", "url", "status", "audible", "mutedInfo", "pinned"].some((key) => key in changes)) scheduleSend();
 });
 /** Counts a change that may reorder tabs, remembered across page unloads. */
 function countOrderChange(data) {
@@ -418,6 +451,7 @@ for (const event of [browser.tabs.onCreated, browser.tabs.onMoved, browser.tabs.
     event?.addListener(() => loaded.then(countOrderChange));
 }
 browser.tabs.onRemoved.addListener(async (tabId) => {
+    stamped.delete(tabId);
     const data = await loaded;
     countOrderChange(data);
     data.reports.delete(tabId);
@@ -429,6 +463,7 @@ browser.tabs.onRemoved.addListener(async (tabId) => {
     scheduleSend();
 });
 browser.tabs.onReplaced?.addListener(async (added, removed) => {
+    stamped.delete(removed);
     const data = await loaded;
     countOrderChange(data);
     if (data.tabIcons[removed]) {
@@ -442,6 +477,12 @@ for (const event of [browser.tabs.onCreated, browser.tabs.onActivated, browser.t
                      browser.tabs.onDetached, browser.windows.onCreated, browser.windows.onRemoved]) {
     event?.addListener(() => scheduleSend());
 }
+// WinMux switching windows in its sidebar moves them, and Safari says nothing of where windows
+// are but this: a report then says where they are now. One that moved none says nothing new, and
+// isn't sent.
+browser.windows.onFocusChanged?.addListener((windowId) => {
+    if (windowId !== browser.windows.WINDOW_ID_NONE) scheduleSend();
+});
 browser.alarms.onAlarm.addListener((alarm) => { if (alarm.name === heartbeat) scheduleSend(0, true); });
 browser.runtime.onInstalled.addListener(() => { injectIntoOpenTabs(); scheduleSend(0, true); });
 browser.runtime.onStartup.addListener(() => scheduleSend(0, true));

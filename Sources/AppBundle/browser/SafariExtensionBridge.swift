@@ -12,6 +12,9 @@ struct SafariExtensionConfiguration: Sendable {
     let socketPath: String
     /// A running process must meet this to be heard: the embedded extension, signed by WinMux's team.
     let peerRequirement: String
+    /// How Safari's Accessibility names the extension's toolbar button, in every window.
+    var toolbarIdentifier: String { "WebExtension-\(extensionId) (\(team))" }
+    let team: String
 
     static func load(bundle: Bundle = .main) -> SafariExtensionConfiguration? {
         guard let group = bundle.object(forInfoDictionaryKey: "WinMuxAppGroup") as? String,
@@ -28,7 +31,7 @@ struct SafariExtensionConfiguration: Sendable {
         let socketPath = container.appendingPathComponent("tabs.sock").path
         guard socketPath.utf8.count < MemoryLayout.size(ofValue: sockaddr_un().sun_path) else { return nil }
         return .init(extensionId: extensionId, socketPath: socketPath, peerRequirement:
-            "anchor apple generic and identifier \"\(extensionId)\" and certificate leaf[subject.OU] = \"\(team)\"")
+            "anchor apple generic and identifier \"\(extensionId)\" and certificate leaf[subject.OU] = \"\(team)\"", team: team)
     }
 
     private static func signingTeam() -> String? {

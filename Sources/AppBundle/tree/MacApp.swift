@@ -189,8 +189,10 @@ final class MacApp: AbstractApp {
 
     /// `rediscover` walks a window without a tab strip in full, rather than reading only its title;
     /// `loneRediscovery` is how long such a window whose title stays goes between walks.
+    /// `extensionButton` identifies the WinMux Tabs extension's toolbar button in Safari's windows.
     func readBrowserTabs(_ windowId: UInt32, readIcons: Bool = false, rediscover: Bool = false,
-                         loneRediscovery: TimeInterval = browserLoneTabRediscovery) async throws -> BrowserTabRead {
+                         loneRediscovery: TimeInterval = browserLoneTabRediscovery,
+                         extensionButton: String? = nil) async throws -> BrowserTabRead {
         guard let adapter = BrowserTabAdapter(bundleId: rawAppBundleId) else { return .init() }
         return try await thread?.runInLoop { [windows, pid] job in
             guard let window = windows.threadGuarded[windowId] else { return BrowserTabRead() }
@@ -202,6 +204,7 @@ final class MacApp: AbstractApp {
                     Task { @MainActor in BrowserTabsModel.shared.markDirty(windowId, pid: pid) }
                 }
             }
+            window.browserTabScanner?.markerIdentifier = extensionButton
             try job.checkCancellation()
             let budgetEnd = ProcessInfo.processInfo.systemUptime + 0.15
             if !rediscover, let lone = window.browserTabScanner?.loneTab(until: budgetEnd, rediscoverAfter: loneRediscovery,

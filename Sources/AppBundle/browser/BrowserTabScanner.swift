@@ -154,14 +154,21 @@ final class BrowserTabScanner<Node: BrowserTabAXNode> {
     /// How many controls a Safari tab has with nothing playing: its icon, while tabs show website
     /// icons, and its title. Learned once per walk.
     private var quietTabControls: Int?
+    /// The WinMux Tabs extension's toolbar button's identifier in Safari, which names the extension
+    /// and its team, when WinMux has the extension. Its title says which extension window this is.
+    var markerIdentifier: String?
+    /// That button, as the last complete walk found it, and what it said then.
+    private var markerNode: Node?
+    private var walkedMarker: SafariExtensionMarker?
 
-    init(root: Node, adapter: BrowserTabAdapter, windowId: UInt32, pid: Int32,
+    init(root: Node, adapter: BrowserTabAdapter, windowId: UInt32, pid: Int32, markerIdentifier: String? = nil,
          now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
          isCancelled: @escaping () -> Bool = { false }) {
         self.root = root
         self.adapter = adapter
         self.windowId = windowId
         self.pid = pid
+        self.markerIdentifier = markerIdentifier
         self.now = now
         self.isCancelled = isCancelled
         self.observedNodes = [root]
@@ -236,7 +243,22 @@ final class BrowserTabScanner<Node: BrowserTabAXNode> {
         // The selected control plus window/container notifications cover common
         // changes. Keep subscriptions bounded; polling reconciles background tabs.
         observedNodes = [root, candidate] + zip(next, tabs).filter { $0.1.isSelected }.map { $0.0.node }
-        return .init(windowId: windowId, pid: pid, windowSession: windowSession, tabs: tabs)
+        return .init(windowId: windowId, pid: pid, windowSession: windowSession, tabs: tabs,
+            marker: marker(walked: discovered, until: deadline, cancelled: cancelled))
+    }
+
+    /// What the extension's toolbar button says now: read with the walk, or on its own, in one
+    /// round trip, after. A button the walk didn't find, that's gone, or that a read ran out of
+    /// time for, says nothing; the next walk looks again.
+    private func marker(walked: Bool, until deadline: TimeInterval, cancelled: () -> Bool) -> SafariExtensionMarker? {
+        guard adapter == .safari, let markerIdentifier, let markerNode else { return nil }
+        if walked { return walkedMarker }
+        guard now() < deadline, !isCancelled(), !cancelled() else { return nil }
+        guard let structure = markerNode.structure(), structure.identifier == markerIdentifier else {
+            self.markerNode = nil
+            return nil
+        }
+        return SafariExtensionMarker(structure.description)
     }
 
     func select(_ target: BrowserTabTarget, cancelled: () -> Bool = { false }) -> Bool {
@@ -293,7 +315,7 @@ final class BrowserTabScanner<Node: BrowserTabAXNode> {
         return .init(windowId: windowId, pid: pid, windowSession: windowSession, tabs: [
             .init(target: .init(windowId: windowId, pid: pid, windowSession: windowSession, tabId: loneTabId),
                 title: browserTabLabel(title, adapter: adapter).title, isSelected: true, audio: loneTabAudio),
-        ])
+        ], marker: marker(walked: false, until: budgetEnd, cancelled: cancelled))
     }
 
     /// A Safari tab playing sound shows a mute button after its icon and title, and keeps it, to
@@ -375,6 +397,7 @@ final class BrowserTabScanner<Node: BrowserTabAXNode> {
     private func discover(deadline: TimeInterval, cancelled: () -> Bool) -> Node? {
         foundNoTabStrip = false
         var audio: BrowserTabAudio?
+        var marker: (node: Node, value: SafariExtensionMarker?)?
         // Each node with the one whose children listed it.
         var queue: [(node: Node, depth: Int, lister: Node?)] = [(root, 0, nil)]
         var visited: [Node] = []
@@ -395,9 +418,14 @@ final class BrowserTabScanner<Node: BrowserTabAXNode> {
                 if !candidates.contains(parent) { candidates.append(parent) }
                 continue
             }
-            // Read with the walk: the speaker for a window without a tab strip's one tab.
+            // Read with the walk: the speaker for a window without a tab strip's one tab, and the
+            // extension's button.
             if adapter == .safari, structure.identifier == safariAudioIndicatorIdentifier {
                 audio = safariAddressFieldAudio(structure)
+                continue
+            }
+            if adapter == .safari, let markerIdentifier, structure.identifier == markerIdentifier {
+                marker = (node, SafariExtensionMarker(structure.description))
                 continue
             }
             // Leaf controls cannot contain a tab strip. Never inspect web content
@@ -409,6 +437,8 @@ final class BrowserTabScanner<Node: BrowserTabAXNode> {
         }
         foundNoTabStrip = candidates.isEmpty
         loneTabAudio = foundNoTabStrip ? audio : nil
+        markerNode = marker?.node
+        walkedMarker = marker?.value
         guard candidates.count == 1, candidates[0].window() == root, now() < deadline else { return nil }
         return candidates[0]
     }

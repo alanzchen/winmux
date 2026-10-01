@@ -32,6 +32,8 @@ struct SafariExtensionTabKey: Hashable, Sendable {
 
 struct SafariExtensionWindow: Equatable, Sendable {
     let key: SafariExtensionWindowKey
+    /// The extension session that reported it, which its toolbar button names (`SafariExtensionMarker`).
+    var session = ""
     /// Where Safari says the window is, in the same top-left screen coordinates WinMux uses.
     var bounds: CGRect? = nil
     var tabs: [SafariExtensionTab]
@@ -102,7 +104,7 @@ enum SafariExtensionMessage: Equatable, Sendable {
                 let source = "\(profile):\(session)"
                 var windows: [SafariExtensionWindow] = []
                 for raw in rawWindows {
-                    guard let window = decodeWindow(raw, source: source, version: version) else { return nil }
+                    guard let window = decodeWindow(raw, source: source, session: session, version: version) else { return nil }
                     windows.append(window)
                 }
                 // Safari's ids are unique within a session, so a report repeating one is wrong throughout.
@@ -140,7 +142,7 @@ enum SafariExtensionMessage: Equatable, Sendable {
         return Int(exactly: number.doubleValue)
     }
 
-    private static func decodeWindow(_ raw: [String: Any], source: String, version: Int) -> SafariExtensionWindow? {
+    private static func decodeWindow(_ raw: [String: Any], source: String, session: String, version: Int) -> SafariExtensionWindow? {
         guard let id = (raw["id"] as? NSNumber)?.intValue,
               let rawTabs = raw["tabs"] as? [[String: Any]], rawTabs.count <= maximumTabs
         else { return nil }
@@ -162,7 +164,39 @@ enum SafariExtensionMessage: Equatable, Sendable {
                 isAudible: tab["audible"] as? Bool ?? false, isMuted: tab["muted"] as? Bool ?? false,
                 isPinned: tab["pinned"] as? Bool ?? false, icon: icon))
         }
-        return .init(key: .init(source: source, id: id), bounds: bounds, tabs: tabs)
+        return .init(key: .init(source: source, id: id), session: session, bounds: bounds, tabs: tabs)
+    }
+}
+
+/// What the WinMux Tabs extension's toolbar button is called in one Safari window, as
+/// Accessibility reads it: "WinMux Tabs · ", then the first 8 characters of the extension's
+/// session, its id for the window and its id for the window's active tab, which is the tab the
+/// extension gave that title. Safari shows a tab's own button title only while the tab is active,
+/// in its window. Anything else, such as the plain name before the extension titles a new tab,
+/// names nothing.
+struct SafariExtensionMarker: Hashable, Sendable {
+    let session: String
+    let window: Int
+    let tab: Int
+
+    static let prefix = "WinMux Tabs \u{00B7} "
+
+    init(session: String, window: Int, tab: Int) {
+        self.session = session
+        self.window = window
+        self.tab = tab
+    }
+
+    init?(_ title: String?) {
+        guard let title, title.hasPrefix(Self.prefix) else { return nil }
+        let parts = title.dropFirst(Self.prefix.count).split(separator: "-", omittingEmptySubsequences: false)
+        func number(_ part: Substring) -> Int? {
+            (1...15).contains(part.utf8.count) && part.utf8.allSatisfy { (0x30...0x39).contains($0) } ? Int(part) : nil
+        }
+        guard parts.count == 3, parts[0].utf8.count == 8,
+              parts[0].utf8.allSatisfy({ (0x30...0x39).contains($0) || (0x61...0x66).contains($0) }),
+              let window = number(parts[1]), let tab = number(parts[2]) else { return nil }
+        self.init(session: String(parts[0]), window: window, tab: tab)
     }
 }
 
@@ -240,6 +274,25 @@ struct SafariExtensionCandidate {
     }
 
     var native: SafariExtensionNativeWindow { .init(windowId: snapshot.windowId, pid: snapshot.pid, windowSession: snapshot.windowSession) }
+}
+
+/// Pairs Safari windows by their extension toolbar buttons (`SafariExtensionMarker`). A window
+/// whose button names a window the latest report lists, from that report's session, with the
+/// named tab active there and the same tabs as the window's read, is that window, wherever it is.
+/// A button naming anything else pairs nothing, nor do buttons that two windows show at once,
+/// as one of them hasn't caught up: those windows are paired as if they had none.
+func safariExtensionMarkedPairs(_ candidates: [SafariExtensionCandidate], _ windows: [SafariExtensionWindow]) -> [UInt32: SafariExtensionWindowKey] {
+    // Distinct buttons name distinct windows: a window has one active tab.
+    let shown = Dictionary(candidates.compactMap { $0.snapshot.marker.map { ($0, 1) } }, uniquingKeysWith: +)
+    var pairs: [UInt32: SafariExtensionWindowKey] = [:]
+    for candidate in candidates {
+        guard let marker = candidate.snapshot.marker, shown[marker] == 1 else { continue }
+        let named = windows.filter { $0.key.id == marker.window && $0.session.hasPrefix(marker.session) }
+        guard named.count == 1, let window = named.first, window.tabs.contains(where: { $0.id == marker.tab && $0.isActive }),
+              safariExtensionTabsAgree(candidate, window) else { continue }
+        pairs[candidate.snapshot.windowId] = window.key
+    }
+    return pairs
 }
 
 /// Frames within this of each other are the same; WinMux reads them two ways, which can round apart.
@@ -332,9 +385,11 @@ enum SafariExtensionResolution: Equatable, Sendable {
 }
 
 /// Which extension window describes each Safari window WinMux lists, and which extension tab
-/// each of its tabs is. A new pairing counts once a later Accessibility read, at least 0.75 s
-/// on, still agrees, as the two report at different moments. While some Safari window is
-/// unread, it also needs the frames to settle it. Once counted, a pairing holds as long as its
+/// each of its tabs is. A window whose toolbar button names its extension window is paired by
+/// that (`safariExtensionMarkedPairs`); the rest are paired among the windows left. A new
+/// pairing counts once a later Accessibility read, at least 0.75 s on, still agrees, as the two
+/// report at different moments. While some Safari window is unread, a pairing no button named
+/// also needs the frames to settle it. Once counted, a pairing holds as long as its
 /// extension window is reported and their tabs agree, unless a later report's frames pair it
 /// with another: frames that don't settle it, or a report from while windows moved, leave it be.
 /// No other window takes a held one's report; a report two windows held is held by neither. A
@@ -363,8 +418,10 @@ struct SafariExtensionAssociations {
         var matched: (received: TimeInterval, order: Int, tabs: [SafariExtensionTabKey], read: TimeInterval)? = nil
     }
     private var proposed: [BrowserTabTarget: Proposal] = [:]
-    /// Windows whose tabs agreed with the extension in the latest observation.
+    /// Windows whose tabs agreed with the extension in the latest observation, and those that
+    /// agreed before it but no longer do.
     private(set) var agreeing: Set<UInt32> = []
+    private(set) var lapsed: Set<UInt32> = []
     /// Whether something can't be settled until Safari reports again: a window, with frames this
     /// report's arrival didn't have or with an unread window settled, or a tab's pairing.
     private(set) var awaitsReport = false
@@ -393,13 +450,18 @@ struct SafariExtensionAssociations {
         confirmed = confirmed.filter { ids.contains($0.key) }
         lastAgreement = lastAgreement.filter { ids.contains($0.key) }
 
-        let loose = safariExtensionMatches(candidates, windows)
+        // A window's own toolbar button outweighs everything else, holds included.
+        let marked = safariExtensionMarkedPairs(candidates, windows)
+        let markedKeys = Set(marked.values)
+        let open = candidates.filter { marked[$0.snapshot.windowId] == nil }
+        let openWindows = windows.filter { !markedKeys.contains($0.key) }
+        let loose = safariExtensionMatches(open, openWindows)
         // A report that pairs the window, or its report, otherwise outweighs the hold.
         let owners = Dictionary(loose.pairs.map { ($0.value, $0.key) }, uniquingKeysWith: { first, _ in first })
         var held: [UInt32: SafariExtensionWindowKey] = [:]
-        for candidate in candidates {
+        for candidate in open {
             let id = candidate.snapshot.windowId
-            if let key = confirmed[id], let window = byKey[key], safariExtensionTabsAgree(candidate, window),
+            if let key = confirmed[id], !markedKeys.contains(key), let window = byKey[key], safariExtensionTabsAgree(candidate, window),
                loose.pairs[id].map({ $0 == key }) ?? true, owners[key].map({ $0 == id }) ?? true { held[id] = key }
         }
         // A window still in its grace period can share its key with one paired since.
@@ -409,10 +471,11 @@ struct SafariExtensionAssociations {
         func holding(_ found: [UInt32: SafariExtensionWindowKey]) -> [UInt32: SafariExtensionWindowKey] {
             found.filter { !taken.contains($0.value) }.merging(held) { _, kept in kept }
         }
-        let pairs = holding(loose.pairs)
-        let strictMatches = unread.isEmpty ? loose : safariExtensionMatches(candidates, windows, unread: unread, unreadAppeared: unreadAppeared)
-        let strict = unread.isEmpty ? pairs : holding(strictMatches.pairs)
+        let pairs = holding(loose.pairs).merging(marked) { _, named in named }
+        let strictMatches = unread.isEmpty ? loose : safariExtensionMatches(open, openWindows, unread: unread, unreadAppeared: unreadAppeared)
+        let strict = unread.isEmpty ? pairs : holding(strictMatches.pairs).merging(marked) { _, named in named }
         awaitsReport = !strictMatches.needsFrames.subtracting(held.keys).isEmpty
+        let agreed = agreeing
         agreeing = []
         for candidate in candidates {
             let id = candidate.snapshot.windowId
@@ -442,6 +505,7 @@ struct SafariExtensionAssociations {
             describe(candidate, window)
         }
         if !proposed.isEmpty { awaitsReport = true }
+        lapsed = agreed.subtracting(agreeing)
     }
 
     /// Gives each of a paired window's tabs what the extension says about it. Each listed tab
@@ -525,6 +589,13 @@ struct SafariExtensionAssociations {
             }
             tabs[tab.target] = described
         }
+    }
+
+    /// Whether the extension describes all of the window's tabs, each paired for good, and the
+    /// window agrees with its latest report: from then on, the reports say when its tabs change.
+    func settles(_ snapshot: BrowserWindowTabs) -> Bool {
+        agreeing.contains(snapshot.windowId) && confirmed[snapshot.windowId] != nil &&
+            snapshot.tabs.allSatisfy { tabs[$0.target] != nil && proposed[$0.target] == nil }
     }
 
     /// The tab with what the extension says about it. Sound shows only while the window agrees

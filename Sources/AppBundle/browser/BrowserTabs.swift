@@ -58,6 +58,9 @@ struct BrowserWindowTabs: Equatable, Sendable {
     /// Safari extension says that. A Chromium tab's name says it plays sound, but one without
     /// that may still play: another alert, such as a camera recording, takes its place.
     var knowsSound = false
+    /// What the WinMux Tabs extension's toolbar button in a Safari window named at the read, if
+    /// anything: which extension window this is.
+    var marker: SafariExtensionMarker? = nil
 
     var isGroup: Bool { tabs.count > 1 }
 }
@@ -177,6 +180,9 @@ struct BrowserTabReadSchedule {
     private var entries: [UInt32: Entry] = [:]
     private(set) var watched: Set<UInt32> = []
     private var focused: UInt32?
+    /// Windows something else says, at once, when their tabs change: read only now and then.
+    private var relaxed: Set<UInt32> = []
+    static let relaxedInterval: TimeInterval = 15
 
     mutating func watch(_ ids: Set<UInt32>) {
         for id in ids.subtracting(watched) { entries[id] = nil }
@@ -188,6 +194,8 @@ struct BrowserTabReadSchedule {
         focused = id
         if let id { entries[id] = nil }
     }
+
+    mutating func relax(_ ids: Set<UInt32>) { relaxed = ids }
 
     mutating func retain(_ ids: Set<UInt32>) {
         entries = entries.filter { ids.contains($0.key) }
@@ -211,7 +219,7 @@ struct BrowserTabReadSchedule {
         guard watched.contains(id) else { return false }
         guard let entry = entries[id] else { return true }
         let interval: TimeInterval = entry.failures > 0 ? min(30, pow(2, Double(min(entry.failures - 1, 5))))
-            : entry.dirty || id == focused ? 1 : 4
+            : entry.dirty ? 1 : relaxed.contains(id) ? Self.relaxedInterval : id == focused ? 1 : 4
         return now - entry.lastRead >= interval
     }
 

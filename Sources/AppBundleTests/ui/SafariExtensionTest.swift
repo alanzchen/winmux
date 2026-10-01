@@ -197,6 +197,29 @@ final class SafariExtensionTest: XCTestCase {
             "A newer WinMux's refusal of a version it doesn't know never downgrades this one")
     }
 
+    /// The extension titles its toolbar button with the window's ids; WinMux reads exactly that
+    /// back, and nothing else as a marker.
+    func testTheToolbarTitleTheExtensionSetsIsTheMarkerWinMuxReads() throws {
+        let context = try script()
+        let title = try XCTUnwrap(try evaluate(context, "WinMuxTabs.markerTitle('3f2a9c1e-0000-4000-8000-000000000001', 1401, 1402)") as? String)
+        XCTAssertTrue(title.hasPrefix("WinMux Tabs"), "Its tooltip and accessible name still say what it is")
+        XCTAssertEqual(SafariExtensionMarker(title), .init(session: "3f2a9c1e", window: 1401, tab: 1402))
+        for other in [nil, "", "WinMux Tabs", "WinMux Tabs \u{00B7} 3f2a9c1e-1401", "WinMux Tabs \u{00B7} 3f2a9c1e-1401-1402-5",
+                      "WinMux Tabs \u{00B7} 3F2A9C1E-1401-1402", "WinMux Tabs \u{00B7} 3f2a9c1-1401-1402", "WinMux Tabs \u{00B7} 3f2a9c1e--1-1402",
+                      "WinMux Tabs \u{00B7} 3f2a9c1e-14a1-1402", "WinMux Tabs \u{00B7} 3f2a9c1e-1401-1402 ", "Other \u{00B7} 3f2a9c1e-1401-1402",
+                      "WinMux Tabs \u{00B7} 3f2a9c1e-1401-1234567890123456"] as [String?] {
+            XCTAssertNil(SafariExtensionMarker(other), other ?? "nil")
+        }
+        XCTAssertEqual(try evaluate(context, "WinMuxTabs.reportKey({v: 2, type: 'state', session: 's', measured: 1, time: 2, order: 3, allSites: true, windows: [{id: 1}]})")
+            as? String, try evaluate(context, "WinMuxTabs.reportKey({v: 2, type: 'state', session: 's', measured: 8, time: 9, order: 3, allSites: true, windows: [{id: 1}]})")
+            as? String, "When a report was made isn't news")
+        for change in ["order: 4", "allSites: false", "session: 't'", "v: 1"] {
+            XCTAssertNotEqual(try evaluate(context, "WinMuxTabs.reportKey({v: 2, type: 'state', session: 's', time: 2, order: 3, allSites: true, windows: [], \(change)})")
+                as? String, try evaluate(context, "WinMuxTabs.reportKey({v: 2, type: 'state', session: 's', time: 2, order: 3, allSites: true, windows: []})")
+                as? String, change)
+        }
+    }
+
     func testManifestListsItsFilesAndOnlyThePermissionsItUses() throws {
         let data = try Data(contentsOf: Self.resources.appendingPathComponent("manifest.json"))
         let manifest = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
@@ -204,6 +227,8 @@ final class SafariExtensionTest: XCTestCase {
         XCTAssertEqual(Set(manifest["permissions"] as? [String] ?? []), ["tabs", "nativeMessaging", "storage", "alarms", "scripting"])
         let background = try XCTUnwrap(manifest["background"] as? [String: Any])
         XCTAssertEqual(background["persistent"] as? Bool, false, "Safari unloads idle extension pages; nothing may rely on staying loaded")
+        XCTAssertEqual((manifest["action"] as? [String: Any])?["default_title"] as? String, "WinMux Tabs",
+            "A toolbar button whose title the extension can set for each tab, named plainly until it does")
         XCTAssertEqual(((manifest["browser_specific_settings"] as? [String: Any])?["safari"] as? [String: Any])?["strict_min_version"] as? String,
             "18.4", "Safari runs Developer ID–signed web extensions from 18.4")
         let content = try XCTUnwrap((manifest["content_scripts"] as? [[String: Any]])?.first)
@@ -560,7 +585,7 @@ final class SafariExtensionTest: XCTestCase {
     }
 
     private func server(_ requirement: String, path: String, answers: SocketTestAnswers) throws -> SafariExtensionServer {
-        try XCTUnwrap(SafariExtensionServer(configuration: .init(extensionId: "test", socketPath: path, peerRequirement: requirement)) { message in
+        try XCTUnwrap(SafariExtensionServer(configuration: .init(extensionId: "test", socketPath: path, peerRequirement: requirement, team: "TEAM")) { message in
             answers.record(message)
             return Data("{\"ok\":true}".utf8)
         })

@@ -41,6 +41,29 @@ final class BrowserTabsTest: XCTestCase {
         XCTAssertTrue(schedule.isDue(2, now: time), "Changing focus resets retry backoff")
     }
 
+    /// Windows something else reports changes of at once are read only now and then, the focused
+    /// one too, but at once when they're reset, and as often as before when a notification
+    /// marks them, a read fails, or they stop being relaxed.
+    func testRelaxedWindowsAreReadOnlyNowAndThenUntilMarkedResetOrNoLongerRelaxed() {
+        var schedule = BrowserTabReadSchedule()
+        schedule.watch([1, 2])
+        schedule.focus(1)
+        schedule.relax([1, 2])
+        for id: UInt32 in [1, 2] { schedule.didRead(id, now: 0, succeeded: true) }
+        XCTAssertFalse(schedule.isDue(1, now: 4), "Focused or not")
+        XCTAssertFalse(schedule.isDue(2, now: BrowserTabReadSchedule.relaxedInterval - 0.1))
+        XCTAssertTrue(schedule.isDue(2, now: BrowserTabReadSchedule.relaxedInterval))
+        schedule.markDirty(2)
+        XCTAssertTrue(schedule.isDue(2, now: 1), "An Accessibility notification still reads it within a second")
+        schedule.reset(1)
+        XCTAssertTrue(schedule.isDue(1, now: 0.1), "A report that disagrees reads it at once")
+        schedule.didRead(1, now: 1, succeeded: false)
+        XCTAssertTrue(schedule.isDue(1, now: 2), "A failed read backs off as before")
+        schedule.didRead(2, now: 1, succeeded: true)
+        schedule.relax([])
+        XCTAssertTrue(schedule.isDue(2, now: 5), "Once the extension stops describing it, as often as before")
+    }
+
     func testIncompleteCachedStripKeepsContainerAndSelectionOnlyRechecksItsTarget() throws {
         let tree = fixture(.chromium)
         let snapshot = try XCTUnwrap(tree.scanner.scan())
@@ -1012,6 +1035,88 @@ final class BrowserTabsTest: XCTestCase {
         other.append(playing)
         XCTAssertEqual(try XCTUnwrap(tree.scanner.scan()).tabs.map(\.audio), [nil, nil])
         XCTAssertNil(tree.scanner.loneTab())
+    }
+
+    /// The WinMux Tabs extension titles its toolbar button in each window with that window's ids.
+    /// The walk finds the button by its identifier, which names the extension and its team; later
+    /// reads ask only the button again. Buttons of other extensions, or of an unsigned copy, say nothing.
+    func testASafariReadSaysWhatTheExtensionsToolbarButtonNamesAndRereadsOnlyThatButton() throws {
+        let identifier = "WebExtension-com.zimengxiong.winmux.safari-extension (N9YEGD9WDP)"
+        let tree = fixture(.safari)
+        let toolbar = BrowserTestNode("AXToolbar")
+        let other = BrowserTestNode("AXButton")
+        other.identifier = "WebExtension-com.example.other (ABCDE12345)"
+        other.axDescription = "WinMux Tabs \u{00B7} 3f2a9c1e-1-2"
+        let unsigned = BrowserTestNode("AXButton")
+        unsigned.identifier = "WebExtension-com.zimengxiong.winmux.safari-extension (UNSIGNED)"
+        unsigned.axDescription = "WinMux Tabs \u{00B7} 3f2a9c1e-1-3"
+        let button = BrowserTestNode("AXButton")
+        button.identifier = identifier
+        button.axDescription = "WinMux Tabs \u{00B7} 3f2a9c1e-1401-1402"
+        for node in [other, unsigned, button] { toolbar.append(node) }
+        tree.root.append(toolbar)
+        var time = 0.0
+        let scanner = BrowserTabScanner(root: tree.root, adapter: .safari, windowId: 123, pid: 45, markerIdentifier: identifier, now: { time })
+        let first = try XCTUnwrap(scanner.scan())
+        XCTAssertEqual(first.marker, .init(session: "3f2a9c1e", window: 1401, tab: 1402))
+        XCTAssertEqual(button.structureReads, 1, "Read with the walk")
+        let walked = toolbar.childReads
+        button.axDescription = "WinMux Tabs \u{00B7} 3f2a9c1e-1401-1500"
+        time = 1
+        XCTAssertEqual(try XCTUnwrap(scanner.scan()).marker?.tab, 1500, "A later read asks the button again")
+        XCTAssertEqual(button.structureReads, 2)
+        XCTAssertEqual(toolbar.childReads, walked, "and nothing else outside the tab bar")
+        XCTAssertEqual(other.structureReads, 1)
+
+        button.axDescription = "WinMux Tabs"
+        XCTAssertNil(try XCTUnwrap(scanner.scan()).marker, "Before the extension titles a new tab, the button names nothing")
+        button.axDescription = "WinMux Tabs \u{00B7} 3f2a9c1e-1401-1402"
+        button.identifier = "SidebarButton"
+        XCTAssertNil(try XCTUnwrap(scanner.scan()).marker, "An element that's no longer the extension's button says nothing")
+        button.identifier = identifier
+        time = 62
+        XCTAssertEqual(try XCTUnwrap(scanner.scan()).marker?.tab, 1402, "The next walk finds it again")
+        // The button is customized away, though its old element still answers.
+        toolbar.nodes.removeLast()
+        time = 123
+        XCTAssertNil(try XCTUnwrap(scanner.scan()).marker, "A walk that doesn't find it says nothing")
+        XCTAssertNil(try XCTUnwrap(scanner.scan()).marker, "and what was found before isn't asked again")
+        toolbar.append(button)
+        time = 184
+        XCTAssertEqual(try XCTUnwrap(scanner.scan()).marker?.tab, 1402, "One that finds it again reads it")
+        // Its element stops answering.
+        button.unreadable = true
+        XCTAssertNil(try XCTUnwrap(scanner.scan()).marker)
+        let reads = button.structureReads
+        XCTAssertNil(try XCTUnwrap(scanner.scan()).marker, "Until the next walk, a gone button isn't asked again")
+        XCTAssertEqual(button.structureReads, reads)
+        button.unreadable = false
+
+        let plain = BrowserTabScanner(root: tree.root, adapter: .safari, windowId: 123, pid: 45)
+        XCTAssertNil(try XCTUnwrap(plain.scan()).marker, "Without the extension, WinMux looks for no button")
+        let chrome = fixture(.chromium)
+        chrome.root.append(toolbar)
+        XCTAssertNil(try XCTUnwrap(BrowserTabScanner(root: chrome.root, adapter: .chromium, windowId: 1, pid: 2,
+            markerIdentifier: identifier).scan()).marker)
+    }
+
+    func testASafariWindowWithoutATabBarCarriesWhatItsExtensionButtonNames() throws {
+        let identifier = "WebExtension-com.zimengxiong.winmux.safari-extension (N9YEGD9WDP)"
+        let root = BrowserTestNode("AXWindow")
+        root.ownTitle = "Demo Page"
+        let toolbar = BrowserTestNode("AXToolbar")
+        let button = BrowserTestNode("AXButton")
+        button.identifier = identifier
+        button.axDescription = "WinMux Tabs \u{00B7} 3f2a9c1e-7-8"
+        toolbar.append(button)
+        root.append(toolbar)
+        let scanner = BrowserTabScanner(root: root, adapter: .safari, windowId: 1, pid: 2, markerIdentifier: identifier, now: { 0 })
+        XCTAssertNil(scanner.scan())
+        XCTAssertEqual(try XCTUnwrap(scanner.loneTab()).marker, .init(session: "3f2a9c1e", window: 7, tab: 8))
+        button.axDescription = "WinMux Tabs \u{00B7} 3f2a9c1e-7-9"
+        let walked = root.childReads
+        XCTAssertEqual(try XCTUnwrap(scanner.loneTab()).marker?.tab, 9, "Each title-only read asks the button too")
+        XCTAssertEqual(root.childReads, walked)
     }
 
     func testASafariWindowWithoutATabBarIsReadAsItsOneTabNamedByTheWindow() throws {
