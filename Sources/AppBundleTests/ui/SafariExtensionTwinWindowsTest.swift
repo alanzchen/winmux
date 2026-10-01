@@ -1466,6 +1466,51 @@ final class SafariExtensionTwinWindowsTest: XCTestCase {
         XCTAssertEqual(harness.timeline.last, "1: site sound, 2: site, 3: site sound")
     }
 
+    /// A page loading in a window shows its button's plain name until the extension titles it
+    /// again, and Safari's report of that may never come, as it says nothing new. What the button
+    /// established holds through that, and so does a claim not yet confirmed.
+    func testAButtonShowingJustItsNameWhileAPageLoadsKeepsWhatItEstablished() {
+        let harness = parkedTriplets()
+        stampTriplets(harness)
+        trust(harness, triplets(), reading: [1, 2, 3])
+        harness.wait(1)
+        harness.read(1, 2, 3)
+        XCTAssertEqual(harness.timeline.last, "1: site sound, 2: site, 3: site sound")
+        // B and C reload: their buttons show the plain name, then their titles again.
+        harness.reads[2]?.marker = nil
+        harness.reads[3]?.marker = nil
+        for _ in 0..<2 {
+            harness.wait(1)
+            harness.read(1, 2, 3)
+        }
+        stampTriplets(harness)
+        harness.wait(1)
+        harness.read(1, 2, 3)
+        XCTAssertEqual(harness.timeline.last, "1: site sound, 2: site, 3: site sound")
+        XCTAssertFalse(harness.associations.awaitsReport, "Nothing waits on Safari reporting again")
+        // The extension reloads (a new session): the new titles' claims survive a load too.
+        harness.session = "0b1c2d3e-0000-4000-8000-000000000002"
+        stampTriplets(harness)
+        harness.report(triplets())
+        harness.wait(1)
+        harness.read(1, 2, 3)
+        harness.reads[2]?.marker = nil
+        harness.reads[3]?.marker = nil
+        harness.wait(1)
+        harness.read(1, 2, 3)
+        harness.wait(1)
+        harness.report(triplets())
+        harness.reads[2]?.marker = .init(session: "0b1c2d3e", window: 11, tab: 101)
+        harness.reads[3]?.marker = .init(session: "0b1c2d3e", window: 12, tab: 102)
+        harness.wait(1)
+        harness.read(1, 2, 3)
+        harness.wait(1)
+        harness.read(1, 2, 3)
+        XCTAssertEqual(harness.associations.resolution(of: 2), .resolved(.init(source: "8A7B6C5D-0000-4000-8000-000000000001:0b1c2d3e-0000-4000-8000-000000000002", id: 11)))
+        XCTAssertEqual(harness.associations.resolution(of: 3), .resolved(.init(source: "8A7B6C5D-0000-4000-8000-000000000001:0b1c2d3e-0000-4000-8000-000000000002", id: 12)))
+        XCTAssertEqual(harness.timeline.last, "1: site sound, 2: site, 3: site sound")
+    }
+
     /// Two windows, each with an active Home tab and a Mail tab of its own site, paired by their
     /// buttons. Their Home tabs trade windows, still first and active, and each takes its button
     /// title with it, naming the window it left; Safari's report of the moves is late. Both

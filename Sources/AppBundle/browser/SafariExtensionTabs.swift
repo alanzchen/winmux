@@ -559,7 +559,10 @@ struct SafariExtensionAssociations {
         var trusted: [UInt32: SafariExtensionWindowKey] = [:]
         for candidate in candidates {
             let id = candidate.snapshot.windowId
-            guard let marker = candidate.snapshot.marker, let key = named[id], let window = byKey[key] else {
+            // A button showing just its name (a page loading, or the button out of the toolbar)
+            // keeps what it established; one naming anything else, or nothing it can, doesn't.
+            guard let marker = candidate.snapshot.marker else { continue }
+            guard let key = named[id], let window = byKey[key] else {
                 markerClaims[id] = nil
                 trustedMarkers[id] = nil
                 continue
