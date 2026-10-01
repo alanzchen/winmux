@@ -1598,6 +1598,66 @@ final class SafariExtensionTwinWindowsTest: XCTestCase {
         XCTAssertEqual(associations.resolution(of: 2), .resolved(.init(source: "p:s", id: 11)), "and B is the one left")
     }
 
+    /// While the sidebar is hidden, WinMux stops sampling. Window 1 closes meanwhile and a new
+    /// one gets its number, on the same page, before Safari reports. Once WinMux samples again,
+    /// the new window doesn't take the closed one's report, or where that report saw it.
+    func testAWindowReplacedWhileSamplingPausedDoesntInheritItsPredecessorsReport() {
+        let harness = pairedTwins()
+        harness.track.pause()
+        harness.elapse(5)
+        harness.natives[1] = NativeWindow()
+        harness.reads[1] = Self.lone("Demo Page", window: 1)
+        for _ in 0..<3 {
+            harness.wait(1)
+            harness.read(1, 2)
+        }
+        XCTAssertEqual(harness.timeline.last, "1: Safari, 2: site", "Not the closed window's sound or icon")
+        XCTAssertTrue(harness.associations.awaitsReport)
+        harness.report([(12, 1, [Self.tab(id: 102)]), (11, 2, [Self.tab(id: 101)])])
+        for _ in 0..<2 {
+            harness.wait(1)
+            harness.read(1, 2)
+        }
+        XCTAssertEqual(harness.associations.resolution(of: 1), .resolved(.init(source: "8A7B6C5D-0000-4000-8000-000000000001:s1", id: 12)))
+    }
+
+    /// Safari measures window A; A closes and a new window opens on the same page while the report
+    /// is on its way, which takes too long for WinMux to trust when it was measured. That report
+    /// can't be taken to describe the new window. An older extension's reports, which never say,
+    /// still pair by tabs.
+    func testANewWindowDoesntPairWithAReportWhoseMeasurementWasThrownOut() {
+        let harness = Harness()
+        harness.frames = [1: Self.shown]
+        harness.reads = [1: Self.lone("Demo Page", window: 1)]
+        harness.wait(2)
+        harness.report([(10, 1, [Self.tab(id: 100, audible: true)])], transit: SafariExtensionBridge.maximumTransit + 1, during: {
+            harness.close(1)
+            harness.open(3, at: Self.shown)
+        })
+        XCTAssertEqual(harness.bridge.windows.first?.measured, -.infinity)
+        for _ in 0..<2 {
+            harness.wait(1)
+            harness.read(3)
+        }
+        XCTAssertEqual(harness.associations.resolution(of: 3), .unresolved)
+        XCTAssertEqual(harness.timeline.last, "3: Safari")
+        harness.report([(13, 3, [Self.tab(id: 103)])])
+        for _ in 0..<2 {
+            harness.wait(1)
+            harness.read(3)
+        }
+        XCTAssertEqual(harness.associations.resolution(of: 3), .resolved(.init(source: "8A7B6C5D-0000-4000-8000-000000000001:s1", id: 13)))
+        // An older extension's report, received after another new window opened.
+        harness.open(4, at: Self.parked, title: "Other Page")
+        harness.wait(1)
+        harness.report([(13, 3, [Self.tab(id: nil)]), (14, 4, [Self.tab("Other Page", id: nil, icon: Self.otherIcon)])])
+        for _ in 0..<2 {
+            harness.wait(1)
+            harness.read(3, 4)
+        }
+        XCTAssertEqual(harness.timeline.last, "3: site, 4: other site")
+    }
+
     /// What a button names must agree with the latest report: that window, from its session, with
     /// that tab active, and the same tabs as the read. Anything else names nothing.
     func testAButtonPairsItsWindowOnlyWhenTheReportListsThatWindowWithThatTabActive() {

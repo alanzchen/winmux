@@ -34,6 +34,9 @@ struct SafariExtensionWindow: Equatable, Sendable {
     let key: SafariExtensionWindowKey
     /// The extension session that reported it, which its toolbar button names (`SafariExtensionMarker`).
     var session = ""
+    /// From an extension older than protocol 2, which doesn't say when it measured. A newer one's
+    /// report without a usable measurement says nothing about when it was measured, either.
+    var legacy = false
     /// Where Safari says the window is, in the same top-left screen coordinates WinMux uses.
     var bounds: CGRect? = nil
     var tabs: [SafariExtensionTab]
@@ -164,7 +167,7 @@ enum SafariExtensionMessage: Equatable, Sendable {
                 isAudible: tab["audible"] as? Bool ?? false, isMuted: tab["muted"] as? Bool ?? false,
                 isPinned: tab["pinned"] as? Bool ?? false, icon: icon))
         }
-        return .init(key: .init(source: source, id: id), session: session, bounds: bounds, tabs: tabs)
+        return .init(key: .init(source: source, id: id), session: session, legacy: version < 2, bounds: bounds, tabs: tabs)
     }
 }
 
@@ -351,10 +354,11 @@ func safariExtensionMatches(_ candidates: [SafariExtensionCandidate], _ windows:
     }
     /// Whether the report listing `window` could describe the candidate: not if Safari measured it
     /// before this native window appeared, when it described another, if any (one that closed,
-    /// whose number or tabs this one has). The candidate still stands in others' way: the report
-    /// may be that closed window's. An older extension's reports don't say when they were measured.
+    /// whose number or tabs this one has), nor if it can't be known when it was measured. The
+    /// candidate still stands in others' way: the report may be that closed window's. An older
+    /// extension's reports never say when they were measured, and pair as before.
     func current(_ candidate: Int, for window: Int) -> Bool {
-        windows[window].measured == -.infinity || candidates[candidate].appeared <= windows[window].measured
+        windows[window].legacy || candidates[candidate].appeared <= windows[window].measured
     }
     var result = SafariExtensionMatches()
     for index in candidates.indices {
@@ -752,15 +756,16 @@ struct SafariExtensionFrameTrack {
         var paused = false
     }
     private var entries: [UInt32: Entry] = [:]
-    /// When the current run of samples began: windows first seen then were already open, since
-    /// some time WinMux doesn't know.
-    private var runStarted: TimeInterval?
+    /// Whether WinMux has sampled before: windows in the first sample were already open, since
+    /// some time WinMux doesn't know. Any seen first later, even after a pause, appeared then, or
+    /// at least nothing measured before then can be taken to describe them.
+    private var sampledBefore = false
 
     /// Where Safari's windows are now. A window first seen, moved, resized or replaced starts
     /// counting again; one not listed, or whose frame is unknown, is dropped.
     mutating func observe(_ current: [UInt32: SafariExtensionFrameSample], now: TimeInterval) {
-        let starting = runStarted == nil
-        if starting { runStarted = now }
+        let starting = !sampledBefore
+        sampledBefore = true
         var next: [UInt32: Entry] = [:]
         for (id, sample) in current {
             guard let frame = sample.frame else { continue }
@@ -779,7 +784,6 @@ struct SafariExtensionFrameTrack {
     /// from its next sample, as nothing says where it was meanwhile.
     mutating func pause() {
         for id in entries.keys { entries[id]?.paused = true }
-        runStarted = nil
     }
 
     mutating func observe(_ frames: [UInt32: CGRect?], now: TimeInterval) {
@@ -793,6 +797,6 @@ struct SafariExtensionFrameTrack {
     }
 
     /// When the native window now under this number was first seen, if it has been: -infinity for
-    /// one already open when a run of samples began.
+    /// one already open when WinMux first sampled.
     func appeared(_ id: UInt32) -> TimeInterval? { entries[id]?.appeared }
 }

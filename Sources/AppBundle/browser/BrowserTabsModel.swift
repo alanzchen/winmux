@@ -141,7 +141,7 @@ final class BrowserTabsModel: ObservableObject {
             let result = read?.tabs ?? read?.loneTab
             reads += 1
             guard generation == token, !Task.isCancelled else { return }
-            schedule.didRead(window.windowId, now: ProcessInfo.processInfo.systemUptime, succeeded: result != nil)
+            schedule.didRead(window.windowId, now: ProcessInfo.processInfo.systemUptime, succeeded: result != nil, started: readStarted)
             if var result, Window.get(byId: window.windowId)?.app === app {
                 if !iconsEnabled { result.iconCandidate = nil }
                 iconAssociations.update(result, now: ProcessInfo.processInfo.systemUptime)
@@ -186,7 +186,7 @@ final class BrowserTabsModel: ObservableObject {
         if safariAssociations.awaitsReport { safariExtension.requestResync(atMostEvery: 10) }
         // A report that no longer agrees with a window's last read, or reorders its tabs, says they
         // changed; one its button names can start counting from a read after it: read those now.
-        if reported { for id in safariAssociations.rereads { schedule.reset(id) } }
+        if reported { for id in safariAssociations.rereads { schedule.invalidate(id, now: ProcessInfo.processInfo.systemUptime) } }
     }
 
     private func settledSafariWindows(now: TimeInterval) -> Set<UInt32> {
@@ -206,8 +206,13 @@ final class BrowserTabsModel: ObservableObject {
     /// with a write running counts as moving.
     private func trackSafariFrames(now: TimeInterval) {
         let windows = MacWindow.allWindowsMap.values.filter { $0.app.rawAppBundleId == safariBundleId }
-        guard safariExtension.isAvailable, !windows.isEmpty else {
+        guard safariExtension.isAvailable else {
             safariFrames = .init()
+            return
+        }
+        // With no Safari window, nothing is sampled, but any that opens later is new.
+        guard !windows.isEmpty else {
+            safariFrames.observe([UInt32: SafariExtensionFrameSample](), now: now)
             return
         }
         // Hidden sidebars read no browser windows; nothing is paired meanwhile.

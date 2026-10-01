@@ -182,6 +182,9 @@ struct BrowserTabReadSchedule {
     private var focused: UInt32?
     /// Windows something else says, at once, when their tabs change: read only now and then.
     private var relaxed: Set<UInt32> = []
+    /// When something said each window's tabs changed: only a read begun since counts as reading
+    /// them again, not one already under way.
+    private var invalidated: [UInt32: TimeInterval] = [:]
     static let relaxedInterval: TimeInterval = 15
 
     mutating func watch(_ ids: Set<UInt32>) {
@@ -199,6 +202,7 @@ struct BrowserTabReadSchedule {
 
     mutating func retain(_ ids: Set<UInt32>) {
         entries = entries.filter { ids.contains($0.key) }
+        invalidated = invalidated.filter { ids.contains($0.key) }
     }
 
     mutating func markDirty(_ id: UInt32) {
@@ -213,6 +217,12 @@ struct BrowserTabReadSchedule {
 
     mutating func reset(_ id: UInt32) { entries[id] = nil }
 
+    /// Reads the window again at once, and again after any read under way now.
+    mutating func invalidate(_ id: UInt32, now: TimeInterval) {
+        entries[id] = nil
+        invalidated[id] = now
+    }
+
     func lastRead(_ id: UInt32) -> TimeInterval { entries[id]?.lastRead ?? -.infinity }
 
     func isDue(_ id: UInt32, now: TimeInterval) -> Bool {
@@ -223,9 +233,11 @@ struct BrowserTabReadSchedule {
         return now - entry.lastRead >= interval
     }
 
-    mutating func didRead(_ id: UInt32, now: TimeInterval, succeeded: Bool) {
+    mutating func didRead(_ id: UInt32, now: TimeInterval, succeeded: Bool, started: TimeInterval? = nil) {
         entries[id] = Entry(lastRead: now, failures: succeeded ? 0 : min(6, (entries[id]?.failures ?? 0) + 1),
             lastSuccess: succeeded ? now : entries[id]?.lastSuccess)
+        guard let since = invalidated[id] else { return }
+        if succeeded, (started ?? now) >= since { invalidated[id] = nil } else if succeeded { entries[id]?.dirty = true; entries[id]?.lastRead = -.infinity }
     }
 }
 

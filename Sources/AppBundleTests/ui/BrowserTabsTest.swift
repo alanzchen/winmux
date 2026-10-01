@@ -64,6 +64,23 @@ final class BrowserTabsTest: XCTestCase {
         XCTAssertTrue(schedule.isDue(2, now: 5), "Once the extension stops describing it, as often as before")
     }
 
+    /// A report says a window's tabs changed while a read of it is under way: that read saw them
+    /// from before, so the window is read again right after it.
+    func testAReadUnderWayWhenAReportSaysTheTabsChangedDoesntCountAsReadingThemAgain() {
+        var schedule = BrowserTabReadSchedule()
+        schedule.watch([1])
+        schedule.relax([1])
+        schedule.didRead(1, now: 0, succeeded: true)
+        XCTAssertFalse(schedule.isDue(1, now: 4))
+        schedule.invalidate(1, now: 4.2)
+        XCTAssertTrue(schedule.isDue(1, now: 4.2))
+        schedule.didRead(1, now: 4.4, succeeded: true, started: 4)
+        XCTAssertTrue(schedule.isDue(1, now: 4.5), "The read under way began before the report")
+        schedule.didRead(1, now: 4.7, succeeded: true, started: 4.5)
+        XCTAssertFalse(schedule.isDue(1, now: 5))
+        XCTAssertTrue(schedule.isDue(1, now: 4.7 + BrowserTabReadSchedule.relaxedInterval))
+    }
+
     func testIncompleteCachedStripKeepsContainerAndSelectionOnlyRechecksItsTarget() throws {
         let tree = fixture(.chromium)
         let snapshot = try XCTUnwrap(tree.scanner.scan())

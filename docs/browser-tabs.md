@@ -130,7 +130,8 @@ describes tabs, and WinMux trusts a description only when it agrees with the tab
   however WinMux moves it, and no other window can take its report. Only a window's button
   naming another report, or a later report that pairs the window, or that report, with another
   by where they were, replaces it. A window that
-  closes, and a later one that gets its number, start over.
+  closes, and a later one that gets its number, start over, and a window that opened after
+  Safari measured a report isn't matched by that report.
 - Within a matched window, each tab is matched with Safari's tab by Safari's id for it. A read
   made after a report pairs a tab with the one in its place; after that it keeps that tab while
   the tab bar is reordered, so tabs with the same title don't trade icons or sound. Among tabs
