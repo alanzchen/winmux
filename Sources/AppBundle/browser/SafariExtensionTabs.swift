@@ -39,6 +39,8 @@ struct SafariExtensionWindow: Equatable, Sendable {
     /// windows for it, both by system uptime.
     var received: TimeInterval = -.infinity
     var measured: TimeInterval = -.infinity
+    /// The report's count of reorderings (`SafariExtensionState.order`).
+    var order: Int? = nil
     /// Where WinMux saw Safari's windows, by window number, when that report arrived: only those
     /// that hadn't moved or changed since before Safari began measuring. Bounds are only ever
     /// compared with these, never with where windows are now, which WinMux may have changed since.
@@ -56,6 +58,10 @@ struct SafariExtensionState: Equatable, Sendable {
     /// them, on the same clock as `time` (protocol 2). Without it, the report's bounds say
     /// nothing WinMux can trust about where windows were.
     var measured: Double? = nil
+    /// How many tab moves, attachments, openings and closings the extension had heard of this
+    /// session, if that didn't change while it measured (protocol 2). Two reports with the same
+    /// count saw no reordering in between.
+    var order: Int? = nil
     /// Whether Safari lets the extension read every website. Without that, titles are missing.
     let allSites: Bool
     let windows: [SafariExtensionWindow]
@@ -103,8 +109,9 @@ enum SafariExtensionMessage: Equatable, Sendable {
                 let tabIds = windows.flatMap { $0.tabs.compactMap(\.id) }
                 guard Set(windows.map(\.key)).count == windows.count, Set(tabIds).count == tabIds.count else { return nil }
                 let measured = version >= 2 ? (message["measured"] as? NSNumber)?.doubleValue : nil
+                let order = version >= 2 ? integer(message["order"]).flatMap { $0 >= 0 ? $0 : nil } : nil
                 return .state(.init(profile: profile, session: session, time: time,
-                    measured: measured.flatMap { $0.isFinite && $0 <= time ? $0 : nil },
+                    measured: measured.flatMap { $0.isFinite && $0 <= time ? $0 : nil }, order: order,
                     allSites: message["allSites"] as? Bool ?? false, windows: windows))
             case "icons":
                 guard let raw = message["icons"] as? [String: String], raw.count <= maximumIcons else { return nil }
@@ -346,9 +353,16 @@ struct SafariExtensionAssociations {
     /// Which Safari tab each listed tab is, by the extension's id, once a read and a report
     /// agreed on it. An older extension sends no ids; its tabs pair by position.
     private(set) var bound: [BrowserTabTarget: SafariExtensionTabKey] = [:]
-    /// Listed tabs among others with the same title, paired by place with a Safari tab by one read,
-    /// and when: a later report and a later read must agree before it counts.
-    private var proposed: [BrowserTabTarget: (key: SafariExtensionTabKey, read: TimeInterval)] = [:]
+    /// Listed tabs among others with the same title, paired by place with a Safari tab by one
+    /// read, which ended at `read`. `matched` is a later report and a read begun after it arrived
+    /// that still agree: the report's arrival, its count of reorderings and the window's tabs in
+    /// it, and when that read ended.
+    private struct Proposal {
+        let key: SafariExtensionTabKey
+        let read: TimeInterval
+        var matched: (received: TimeInterval, order: Int, tabs: [SafariExtensionTabKey], read: TimeInterval)? = nil
+    }
+    private var proposed: [BrowserTabTarget: Proposal] = [:]
     /// Windows whose tabs agreed with the extension in the latest observation.
     private(set) var agreeing: Set<UInt32> = []
     /// Whether something can't be settled until Safari reports again: a window, with frames this
@@ -435,12 +449,14 @@ struct SafariExtensionAssociations {
     /// window and their titles agree, wherever the tab bar puts it: neither a read nor a report
     /// says which of two same-titled tabs moved. A tab without one pairs with the tab in its
     /// place, if no other listed tab has that one, only by a read begun after the report arrived.
-    /// A title says which tab is which; among tabs with the same title, the pairing is only
-    /// proposed, showing the icon but not the sound, until a report Safari measured after that
-    /// read ended, and a read begun after that report arrived, still agree: the read may have
-    /// seen a reorder Safari hadn't reported yet, or a report measured before it may arrive
-    /// after. Until a tab is paired, and once its Safari tab is gone, it shows nothing from the
-    /// extension.
+    ///
+    /// A title says which tab is which. Among tabs with the same title, a read can only propose a
+    /// pairing, showing the icon but not the sound: it may have seen a reorder Safari hadn't
+    /// reported. The proposal stands once a report Safari began measuring after that read, and a
+    /// read begun after that report arrived, still agree, and a later report measured after that
+    /// read has the same tabs in the same order and the same count of reorderings: so nothing was
+    /// reordered while that read looked. Until a tab is paired, and once its Safari tab is gone,
+    /// it shows nothing from the extension.
     private mutating func describe(_ candidate: SafariExtensionCandidate, _ window: SafariExtensionWindow) {
         let listed = candidate.snapshot.tabs
         let keys = window.tabs.compactMap(window.tabKey)
@@ -461,24 +477,38 @@ struct SafariExtensionAssociations {
             if let key = bound[tab.target] {
                 if positions[key] != nil { claimed.insert(key) } else { bound[tab.target] = nil }
             }
-            guard let proposal = proposed[tab.target] else { continue }
-            if positions[proposal.key] == nil {
+            guard var proposal = proposed[tab.target] else { continue }
+            guard positions[proposal.key] != nil, bound[tab.target] == nil else {
                 proposed[tab.target] = nil
-            } else if window.measured >= proposal.read, comparable {
-                // A report measured since, and a read begun after it arrived: they settle it, either way.
-                proposed[tab.target] = nil
-                if positions[proposal.key] == index, bound[tab.target] == nil {
+                continue
+            }
+            if let matched = proposal.matched, window.received > matched.received {
+                // A later report: it vouches for the match if nothing was reordered in between.
+                if window.measured >= matched.read, window.order == matched.order, keys == matched.tabs {
+                    proposed[tab.target] = nil
                     bound[tab.target] = proposal.key
                     claimed.insert(proposal.key)
+                    continue
                 }
-            } else if bound[tab.target] == nil {
-                claimed.insert(proposal.key)
+                proposal.matched = nil
             }
+            if comparable, window.measured >= proposal.read {
+                // A report measured since, and a read begun after it arrived: they agree, or the proposal goes.
+                guard positions[proposal.key] == index else {
+                    proposed[tab.target] = nil
+                    continue
+                }
+                if proposal.matched == nil, let order = window.order {
+                    proposal.matched = (window.received, order, keys, candidate.observed)
+                }
+            }
+            proposed[tab.target] = proposal
+            claimed.insert(proposal.key)
         }
         for (index, tab) in listed.enumerated() {
             if bound[tab.target] == nil, proposed[tab.target] == nil, comparable, claimed.insert(keys[index]).inserted {
                 let ambiguous = counts[candidate.titles[index], default: 0] > 1 || window.tabs[index].title.isEmpty
-                if ambiguous { proposed[tab.target] = (keys[index], candidate.observed) } else { bound[tab.target] = keys[index] }
+                if ambiguous { proposed[tab.target] = Proposal(key: keys[index], read: candidate.observed) } else { bound[tab.target] = keys[index] }
             }
             let key = bound[tab.target] ?? proposed[tab.target]?.key
             guard let key, let position = positions[key],
@@ -531,7 +561,7 @@ struct SafariExtensionFrameSample: Equatable, Sendable {
     /// Which native window it is: a later one with the same number is another.
     var identity: ObjectIdentifier? = nil
     /// Counts the moves and resizes WinMux heard about (`Window.nativeStateObservationToken`),
-    /// and the steps of the writes it made itself (`FrameWriteLedger`), so a move and a move back
+    /// and the version of the writes it made itself (`FrameWriteLedger`), so a move and a move back
     /// between two samples still count, whether or not their notifications have arrived.
     var generation: UInt64? = nil
     var writes: UInt64? = nil

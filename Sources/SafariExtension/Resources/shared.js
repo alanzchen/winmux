@@ -213,11 +213,17 @@ var WinMuxTabs = (() => {
     /**
      * A report of `windows` for WinMux, in `version`. From version 2 it also says when the
      * extension began measuring windows, `measured`, before it asked Safari for them: WinMux
-     * trusts their bounds only against where it saw windows from just before then.
+     * trusts their bounds only against where it saw windows from just before then. And `order`
+     * counts the tab moves, attachments, openings and closings the extension has heard of this
+     * session, when that count didn't change while it asked: two reports with the same count saw
+     * no reordering in between.
      */
-    function stateMessage({ version = protocolVersion, session, measured, time, allSites, windows }) {
+    function stateMessage({ version = protocolVersion, session, measured, order, time, allSites, windows }) {
         const message = { v: version, type: "state", session, time, allSites, windows };
-        if (version >= 2) message.measured = measured;
+        if (version >= 2) {
+            message.measured = measured;
+            if (Number.isInteger(order) && order >= 0) message.order = order;
+        }
         return message;
     }
 

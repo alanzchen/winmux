@@ -206,7 +206,7 @@ final class BrowserTabsModel: ObservableObject {
                 frame: frames[window.windowId]
                     ?? window.lastKnownActualRect.map { CGRect(x: $0.topLeftX, y: $0.topLeftY, width: $0.width, height: $0.height) },
                 identity: ObjectIdentifier(window), generation: window.nativeStateObservationToken(),
-                writes: writes.steps, writing: writes.writing))
+                writes: writes.version, writing: writes.writing))
         }, uniquingKeysWith: { first, _ in first }), now: now)
     }
 

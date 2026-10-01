@@ -125,6 +125,7 @@ final class SafariExtensionBridge {
                     var window = window
                     window.received = report.received
                     window.measured = report.measured
+                    window.order = report.state.order
                     window.sighting = report.sighting
                     return window
                 }

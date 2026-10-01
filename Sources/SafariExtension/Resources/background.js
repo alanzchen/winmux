@@ -33,7 +33,7 @@ let unavailableUntil = 0;
 // was away.
 const sessionStorage = browser.storage.session;
 const loaded = (async () => {
-    const stored = await sessionStorage?.get(["session", "icons", "originIcons", "tabIcons", "pending", "unavailableUntil"])
+    const stored = await sessionStorage?.get(["session", "icons", "originIcons", "tabIcons", "pending", "unavailableUntil", "order"])
         .catch(() => ({})) ?? {};
     if (Number.isFinite(stored.unavailableUntil)) unavailableUntil = Math.max(unavailableUntil, stored.unavailableUntil);
     let session = stored.session;
@@ -50,6 +50,8 @@ const loaded = (async () => {
         originIcons: stored.originIcons ?? {},
         tabIcons: stored.tabIcons ?? {},
         pending: stored.pending ?? {},
+        // Tab moves, attachments, openings and closings heard of this session.
+        order: Number.isInteger(stored.order) ? stored.order : 0,
         addresses: new Map(),
         // The latest report from each tab's page; an icon finished for an older one is dropped.
         reports: new Map(),
@@ -102,13 +104,16 @@ async function send() {
         // The pause may have been read from storage after this send was scheduled.
         if (!force && isUnavailable()) return;
         const wasUnavailable = unavailableUntil !== 0;
-        // Noted before asking for the windows: their bounds describe some moment after this.
+        // Noted before asking for the windows: their bounds describe some moment after this, and
+        // their tab order is the one the order count names only if no move came in meanwhile.
         const measured = Date.now();
+        const orderBefore = data.order;
         const windows = await browser.windows.getAll({ populate: true });
+        const order = data.order === orderBefore ? orderBefore : undefined;
         const allSites = await browser.permissions.contains({ origins: ["*://*/*"] }).catch(() => false);
         const version = peerVersion;
         const reply = await browser.runtime.sendNativeMessage(nativeApplication, WinMuxTabs.stateMessage({
-            version, session: data.session, measured, time: Date.now(), allSites,
+            version, session: data.session, measured, order, time: Date.now(), allSites,
             windows: WinMuxTabs.stateWindows(windows, (tab) => iconFor(data, tab), version),
         }));
         const spoken = WinMuxTabs.negotiatedVersion(reply, version);
@@ -402,8 +407,19 @@ browser.tabs.onUpdated.addListener((tabId, changes) => {
     }
     if (["title", "url", "audible", "mutedInfo", "pinned"].some((key) => key in changes)) scheduleSend();
 });
+/** Counts a change that may reorder tabs, remembered across page unloads. */
+function countOrderChange(data) {
+    data.order += 1;
+    sessionStorage?.set({ order: data.order }).catch(() => {});
+}
+
+for (const event of [browser.tabs.onCreated, browser.tabs.onMoved, browser.tabs.onAttached, browser.tabs.onDetached,
+                     browser.windows.onCreated, browser.windows.onRemoved]) {
+    event?.addListener(() => loaded.then(countOrderChange));
+}
 browser.tabs.onRemoved.addListener(async (tabId) => {
     const data = await loaded;
+    countOrderChange(data);
     data.reports.delete(tabId);
     if (data.tabIcons[tabId] || data.pending[tabId]) {
         delete data.tabIcons[tabId];
@@ -414,6 +430,7 @@ browser.tabs.onRemoved.addListener(async (tabId) => {
 });
 browser.tabs.onReplaced?.addListener(async (added, removed) => {
     const data = await loaded;
+    countOrderChange(data);
     if (data.tabIcons[removed]) {
         data.tabIcons[added] = data.tabIcons[removed];
         delete data.tabIcons[removed];

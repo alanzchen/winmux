@@ -160,8 +160,17 @@ final class SafariExtensionTest: XCTestCase {
         let current = try XCTUnwrap(try evaluate(context, "WinMuxTabs.stateMessage({session: 's', measured: 5, time: 9, allSites: true, windows: []})") as? [String: Any])
         XCTAssertEqual(current["measured"] as? Int, 5)
         XCTAssertEqual(current["v"] as? Int, 2)
-        let older = try XCTUnwrap(try evaluate(context, "WinMuxTabs.stateMessage({version: 1, session: 's', measured: 5, time: 9, allSites: true, windows: []})") as? [String: Any])
+        let older = try XCTUnwrap(try evaluate(context, "WinMuxTabs.stateMessage({version: 1, session: 's', measured: 5, order: 3, time: 9, allSites: true, windows: []})") as? [String: Any])
         XCTAssertNil(older["measured"])
+        XCTAssertNil(older["order"])
+        XCTAssertEqual((try evaluate(context, "WinMuxTabs.stateMessage({session: 's', measured: 5, order: 3, time: 9, allSites: true, windows: []})") as? [String: Any])?["order"] as? Int, 3)
+        XCTAssertNil((try evaluate(context, "WinMuxTabs.stateMessage({session: 's', measured: 5, order: undefined, time: 9, allSites: true, windows: []})") as? [String: Any])?["order"],
+            "A count that changed while Safari listed its windows isn't sent")
+        for (order, kept) in [(3, 3), (-1, nil)] as [(Any, Int?)] {
+            guard case .state(let state) = SafariExtensionMessage.decode(try envelope(["v": 2, "type": "state", "session": "s", "time": 9,
+                "order": order, "windows": [] as [Any]])) else { return XCTFail() }
+            XCTAssertEqual(state.order, kept)
+        }
         for (measured, kept) in [(5.0, 5.0), (9, 9), (10, nil), (Double.nan, nil)] as [(Double, Double?)] {
             var message: [String: Any] = ["v": 2, "type": "state", "session": "s", "time": 9, "windows": [] as [Any]]
             if !measured.isNaN { message["measured"] = measured }
