@@ -120,9 +120,10 @@ agrees with the tab strip it read:
 - Within a matched window, each tab is matched with Safari's tab by Safari's id for it. A read
   made after a report pairs a tab with the one in its place; after that it keeps that tab while
   the tab bar is reordered, so tabs with the same title don't trade icons or sound. Among tabs
-  with the same title, a pairing counts only once a later report and a later read agree (the
-  read may have caught a reorder Safari hadn't reported yet), so their sound shows a moment
-  later than their icons. A tab whose Safari tab is gone, or whose title no longer matches it,
+  with the same title, a read only proposes a pairing (it may have caught a reorder Safari
+  hadn't reported yet). It counts once a report Safari measured after that read, and a read
+  begun after the report arrived, still agree, and Safari's next report says no tab was moved,
+  opened or closed in between. Their sound shows a few seconds after their icons. A tab whose Safari tab is gone, or whose title no longer matches it,
   shows nothing from the extension until a read pairs it again. An extension from before tab
   ids matches them by position.
 - A window that briefly stops matching, such as while a title changes, keeps its icons for up
@@ -137,7 +138,9 @@ agrees with the tab strip it read:
 
 What leaves Safari: for each tab in a normal window, its id (a number Safari gives it until
 Safari quits), title, host name (never the path or query), whether it's active, pinned,
-playing sound or muted, and its icon as a 32-pixel PNG; and each window's id and place on screen.
+playing sound or muted, and its icon as a 32-pixel PNG; each window's id and place on screen; and
+how many times tabs were moved, opened or closed since Safari started, with when the extension
+began measuring.
 Private Browsing windows are left out entirely, even when the extension is allowed in them.
 The extension sends these reports to WinMux on this Mac when tabs change and once a minute,
 and WinMux keeps them in memory, with up to 512 icons; it never drops one a tab shows. It forgets a Safari profile that stops reporting after two
