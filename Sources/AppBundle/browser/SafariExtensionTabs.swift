@@ -358,7 +358,7 @@ func safariExtensionMatches(_ candidates: [SafariExtensionCandidate], _ windows:
     /// candidate still stands in others' way: the report may be that closed window's. An older
     /// extension's reports never say when they were measured, and pair as before.
     func current(_ candidate: Int, for window: Int) -> Bool {
-        windows[window].legacy || candidates[candidate].appeared <= windows[window].measured
+        windows[window].legacy || windows[window].measured.isFinite && candidates[candidate].appeared <= windows[window].measured
     }
     var result = SafariExtensionMatches()
     for index in candidates.indices {

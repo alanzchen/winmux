@@ -351,7 +351,8 @@ final class SafariExtensionTest: XCTestCase {
 
     private func described(_ titles: [String], selected: Int, id: Int, source: String = "p:s", bounds: CGRect? = nil,
                            icon: String? = nil, host: String? = nil, audible: Bool = false, sighting: [UInt32: CGRect] = [:]) -> SafariExtensionWindow {
-        .init(key: .init(source: source, id: id), bounds: bounds, tabs: titles.enumerated().map { index, title in
+        // Without tab ids or a measurement, as an older extension reports.
+        .init(key: .init(source: source, id: id), legacy: true, bounds: bounds, tabs: titles.enumerated().map { index, title in
             .init(title: title, host: title.isEmpty ? nil : host, isActive: index == selected, isAudible: audible && index == selected,
                 icon: title.isEmpty ? nil : icon)
         }, sighting: sighting)

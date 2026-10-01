@@ -95,7 +95,7 @@ final class WorkspaceSidebarWindowSoundTest: XCTestCase {
                 audio: index == 0 ? .playing : nil)
         })
         func reported(audible: [Bool], muted: [Bool] = [false, false]) -> SafariExtensionWindow {
-            .init(key: .init(source: "p:s", id: 10), tabs: ["Inbox", "Docs"].enumerated().map { index, title in
+            .init(key: .init(source: "p:s", id: 10), legacy: true, tabs: ["Inbox", "Docs"].enumerated().map { index, title in
                 .init(title: title, isActive: index == 0, isAudible: audible[index], isMuted: muted[index])
             })
         }
@@ -120,7 +120,7 @@ final class WorkspaceSidebarWindowSoundTest: XCTestCase {
                 tabs: [.init(target: .init(windowId: id, pid: 7, windowSession: session, tabId: UUID()), title: title, isSelected: true)])
         }
         func reported(_ id: Int, _ title: String, audible: Bool = false) -> SafariExtensionWindow {
-            .init(key: .init(source: "p:s", id: id), tabs: [.init(title: title, isActive: true, isAudible: audible)])
+            .init(key: .init(source: "p:s", id: id), legacy: true, tabs: [.init(title: title, isActive: true, isAudible: audible)])
         }
         let snapshots = [lone(1, "Lo-fi radio"), lone(2, "Docs"), lone(3, "Mail")]
         let report = [reported(10, "Docs"), reported(11, "Lo-fi radio", audible: true), reported(12, "Mail")]

@@ -451,8 +451,8 @@ final class SafariExtensionTwinWindowsTest: XCTestCase {
         let a = Self.lone("Demo Page", window: 1)
         let b = Self.lone("Demo Page", window: 2)
         func report(a aSeen: CGRect, b bSeen: CGRect, received: TimeInterval) -> [SafariExtensionWindow] {
-            [.init(key: key(10), bounds: Self.shown, tabs: [Self.tab(id: 100, audible: true)], received: received, sighting: [1: aSeen, 2: bSeen]),
-             .init(key: key(11), bounds: Self.parked, tabs: [Self.tab(id: 101)], received: received, sighting: [1: aSeen, 2: bSeen])]
+            [.init(key: key(10), legacy: true, bounds: Self.shown, tabs: [Self.tab(id: 100, audible: true)], received: received, sighting: [1: aSeen, 2: bSeen]),
+             .init(key: key(11), legacy: true, bounds: Self.parked, tabs: [Self.tab(id: 101)], received: received, sighting: [1: aSeen, 2: bSeen])]
         }
         var associations = SafariExtensionAssociations()
         // Say a report once put B where Safari's playing window was.
@@ -484,7 +484,7 @@ final class SafariExtensionTwinWindowsTest: XCTestCase {
             let a = Self.lone("Demo Page", window: 1)
             let b = Self.lone("Demo Page", window: 2)
             func window(_ sighting: [UInt32: CGRect], audible: Bool = true) -> SafariExtensionWindow {
-                .init(key: key, bounds: Self.shown, tabs: [Self.tab(id: 100, audible: audible)], sighting: sighting)
+                .init(key: key, legacy: true, bounds: Self.shown, tabs: [Self.tab(id: 100, audible: audible)], sighting: sighting)
             }
             var retitled = a
             retitled.tabs[0].title = "(1) Demo Page"
@@ -528,7 +528,7 @@ final class SafariExtensionTwinWindowsTest: XCTestCase {
             let a = Self.lone("Demo Page", window: 1)
             let b = Self.lone("Demo Page", window: 2)
             func x(_ sighting: [UInt32: CGRect]) -> [SafariExtensionWindow] {
-                [.init(key: key, bounds: Self.shown, tabs: [Self.tab(id: 100, audible: true)], sighting: sighting)]
+                [.init(key: key, legacy: true, bounds: Self.shown, tabs: [Self.tab(id: 100, audible: true)], sighting: sighting)]
             }
             var associations = SafariExtensionAssociations()
             func update(_ windows: [SafariExtensionWindow], at time: TimeInterval) {
@@ -554,14 +554,14 @@ final class SafariExtensionTwinWindowsTest: XCTestCase {
     func testATwinTheReportsArrivalDidntSeeStandsInTheWay() {
         let a = Self.lone("Demo Page", window: 1)
         let b = Self.lone("Demo Page", window: 2)
-        let x = SafariExtensionWindow(key: .init(source: "p:s", id: 10), bounds: Self.shown, tabs: [Self.tab(id: 100, audible: true)],
+        let x = SafariExtensionWindow(key: .init(source: "p:s", id: 10), legacy: true, bounds: Self.shown, tabs: [Self.tab(id: 100, audible: true)],
             sighting: [2: Self.shown])
         let backward = safariExtensionMatches([.init(snapshot: a), .init(snapshot: b)], [x])
         XCTAssertEqual(backward.pairs, [:])
         XCTAssertEqual(backward.needsFrames, [1, 2], "Safari's next report may settle it")
         // A in two profiles' reports: seen where one says, unseen by the other.
-        let y = SafariExtensionWindow(key: .init(source: "q:s", id: 20), bounds: Self.parked, tabs: [Self.tab(id: 200)])
-        let forward = safariExtensionMatches([.init(snapshot: a)], [.init(key: x.key, bounds: Self.shown, tabs: x.tabs, sighting: [1: Self.shown]), y])
+        let y = SafariExtensionWindow(key: .init(source: "q:s", id: 20), legacy: true, bounds: Self.parked, tabs: [Self.tab(id: 200)])
+        let forward = safariExtensionMatches([.init(snapshot: a)], [.init(key: x.key, legacy: true, bounds: Self.shown, tabs: x.tabs, sighting: [1: Self.shown]), y])
         XCTAssertEqual(forward.pairs, [:])
         XCTAssertEqual(forward.needsFrames, [1])
         // A window that appeared after the report was measured wasn't what it saw under that number.
@@ -1162,7 +1162,7 @@ final class SafariExtensionTwinWindowsTest: XCTestCase {
             return tab
         }
         for time in [0.0, 1] {
-            positional.update([.init(snapshot: stale, observed: time)], windows: [.init(key: .init(source: "p:s", id: 10), tabs: unnamed)], now: time)
+            positional.update([.init(snapshot: stale, observed: time)], windows: [.init(key: .init(source: "p:s", id: 10), legacy: true, tabs: unnamed)], now: time)
         }
         XCTAssertEqual(positional.described(quiet).audio, .playing, "What protocol 1 does, and why tabs now carry ids")
     }
@@ -1656,6 +1656,31 @@ final class SafariExtensionTwinWindowsTest: XCTestCase {
             harness.read(3, 4)
         }
         XCTAssertEqual(harness.timeline.last, "3: site, 4: other site")
+    }
+
+    /// Safari measures window A before WinMux first samples; A closes and a window on the same
+    /// page opens in its place; the report arrives too late for WinMux to trust when it was
+    /// measured. The new window, first seen in WinMux's first sample, could be older or newer
+    /// than the report, which can't say: it isn't taken to describe it.
+    func testAWindowFromTheFirstSampleDoesntPairWithAReportOfUnknownAge() {
+        let harness = Harness()
+        harness.frames = [1: Self.shown]
+        harness.reads = [1: Self.lone("Demo Page", window: 1)]
+        harness.report([(10, 1, [Self.tab(id: 100, audible: true)])], transit: SafariExtensionBridge.maximumTransit + 1)
+        XCTAssertEqual(harness.bridge.windows.first?.measured, -.infinity)
+        XCTAssertEqual(harness.track.appeared(1), -.infinity)
+        for _ in 0..<3 {
+            harness.wait(1)
+            harness.read(1)
+        }
+        XCTAssertEqual(harness.associations.resolution(of: 1), .unresolved)
+        XCTAssertTrue(harness.associations.awaitsReport)
+        harness.report([(10, 1, [Self.tab(id: 100, audible: true)])])
+        for _ in 0..<2 {
+            harness.wait(1)
+            harness.read(1)
+        }
+        XCTAssertEqual(harness.timeline.last, "1: site sound")
     }
 
     /// What a button names must agree with the latest report: that window, from its session, with

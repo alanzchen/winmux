@@ -1131,8 +1131,18 @@ final class BrowserTabsTest: XCTestCase {
         root.append(toolbar)
         let scanner = BrowserTabScanner(root: root, adapter: .safari, windowId: 1, pid: 2, markerIdentifier: identifier, now: { 0 })
         XCTAssertNil(scanner.scan())
-        XCTAssertEqual(try XCTUnwrap(scanner.loneTab()).marker, .init(session: "3f2a9c1e", window: 7, tab: 8))
+        XCTAssertEqual(try XCTUnwrap(scanner.loneTab(afterWalk: true)).marker, .init(session: "3f2a9c1e", window: 7, tab: 8))
         XCTAssertEqual(button.structureReads, 1, "Right after the walk that read it, the button isn't asked again")
+        // A walk's read that fails right after it, or is given up: the next read asks the button.
+        XCTAssertNil(scanner.scan())
+        root.ownTitle = nil
+        XCTAssertNil(scanner.loneTab(afterWalk: true))
+        root.ownTitle = "Demo Page"
+        button.axDescription = "WinMux Tabs \u{00B7} 3f2a9c1e-7-10"
+        let walkedReads = button.structureReads
+        XCTAssertEqual(try XCTUnwrap(scanner.loneTab()).marker?.tab, 10, "Not what the earlier walk read")
+        XCTAssertEqual(button.structureReads, walkedReads + 1)
+        button.axDescription = "WinMux Tabs \u{00B7} 3f2a9c1e-7-8"
         button.axDescription = "WinMux Tabs \u{00B7} 3f2a9c1e-7-9"
         let walked = root.childReads
         XCTAssertEqual(try XCTUnwrap(scanner.loneTab()).marker?.tab, 9, "Each title-only read asks the button too")

@@ -224,7 +224,7 @@ final class MacApp: AbstractApp {
             if let nodes = window.browserTabScanner?.observedNodes { window.browserTabObservation?.update(nodes) }
             let hasNoTabStrip = snapshot == nil && window.browserTabScanner?.foundNoTabStrip == true
             return BrowserTabRead(tabs: snapshot,
-                loneTab: hasNoTabStrip ? window.browserTabScanner?.loneTab(until: budgetEnd, cancelled: { job.isCancelled }) : nil)
+                loneTab: hasNoTabStrip ? window.browserTabScanner?.loneTab(until: budgetEnd, afterWalk: true, cancelled: { job.isCancelled }) : nil)
         } ?? .init()
     }
 
