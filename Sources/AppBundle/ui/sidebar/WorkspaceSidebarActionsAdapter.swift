@@ -111,7 +111,7 @@ func handleWorkspaceSidebarAction(
             }
         case .closeBrowserTab(let target):
             BrowserTabsModel.shared.close(target)
-        case .setWorkspaceColor, .setWorkspaceEmoji, .setWorkspaceFavorite, .createTabCollection,
+        case .setWorkspaceColor, .setWorkspaceEmoji, .setWorkspaceFavorite, .setWorkspacePinScope, .createTabCollection,
              .renameTabCollection, .setTabCollectionColor, .setTabCollectionEmoji, .toggleTabCollection,
              .assignTabCollection, .ungroupTabCollection, .moveTabCollection, .createTabInCollection, .toggleTabsSidebar,
              .createTabCollectionFromTabs, .assignTabsToCollection, .setTabsFavorite:

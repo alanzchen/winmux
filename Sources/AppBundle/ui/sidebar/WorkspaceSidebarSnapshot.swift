@@ -104,6 +104,9 @@ enum WorkspaceSidebarAction: Equatable {
     case setWorkspaceColor(String, String?)
     case setWorkspaceEmoji(String, String?)
     case setWorkspaceFavorite(String, Bool)
+    /// Tabs mode: pins a tab in All Projects, or a pin in All Projects back among `projectId`'s
+    /// pins, the project the sidebar shows.
+    case setWorkspacePinScope(String, WorkspaceSidebarPinScope?, projectId: WorkspaceProjectId)
     case createTabCollection(String)
     case renameTabCollection(String, String)
     case setTabCollectionColor(String, String?)

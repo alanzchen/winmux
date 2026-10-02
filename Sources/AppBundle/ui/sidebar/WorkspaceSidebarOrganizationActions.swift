@@ -28,7 +28,16 @@ func handleWorkspaceSidebarOrganizationAction(_ action: WorkspaceSidebarAction, 
                 try store.update { $0.workspaces[name, default: .init()].emoji = emoji.flatMap(normalizedWorkspaceProjectEmoji) }
             case .setWorkspaceFavorite(let name, let favorite):
                 guard let workspace = Workspace.existing(byName: name) else { return }
-                try setWorkspaceSidebarTabFavorite(workspace, favorite)
+                if favorite {
+                    try setWorkspaceSidebarTabFavorite(workspace, true)
+                } else {
+                    // A pin in All Projects unpinned stays in the project the sidebar shows.
+                    try unpinWorkspaceSidebarTab(workspace, into: workspaceSidebarContextProjectId(for: workspace,
+                        targetMonitorScopeId: targetMonitorScopeId))
+                }
+            case .setWorkspacePinScope(let name, let scope, let projectId):
+                guard let workspace = Workspace.existing(byName: name) else { return }
+                try setWorkspaceSidebarTabPinScope(workspace, scope, projectId: projectId)
             case .setTabsFavorite(let names, let favorite):
                 try setWorkspaceSidebarTabsFavorite(names.compactMap(Workspace.existing(byName:)), favorite)
             case .createTabCollectionFromTabs(let names):
@@ -95,6 +104,7 @@ func handleWorkspaceSidebarOrganizationAction(_ action: WorkspaceSidebarAction, 
 func workspaceSidebarOrganizationUndoTitle(_ action: WorkspaceSidebarAction) -> String? {
     switch action {
         case .setWorkspaceFavorite(_, let pinned): pinned ? "Pin Tab" : "Unpin Tab"
+        case .setWorkspacePinScope(_, let scope, _): workspaceSidebarPinScopeUndoTitle(scope)
         case .createTabCollection: "Create Group"
         case .assignTabCollection, .assignTabsToCollection: "Move to Group"
         case .createTabCollectionFromTabs: "Group Tabs"

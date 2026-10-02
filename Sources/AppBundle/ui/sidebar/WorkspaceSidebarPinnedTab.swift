@@ -215,6 +215,7 @@ struct WorkspaceSidebarPinnedTab: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(workspace.displayName)
+        .accessibilityValue(workspace.appearance.isPinnedInAllProjects ? "Pinned in all projects" : "")
     }
 
     private var isActiveHere: Bool {
@@ -225,8 +226,10 @@ struct WorkspaceSidebarPinnedTab: View {
         sharedPinLocation?.help(clickMovesHere: sharedPinClickMovesHere)
     }
 
-    /// A tile's help names where a shared pin from another display is, except during a drag.
+    /// A tile's help says it's pinned in All Projects, and names where a shared pin from another
+    /// display is, except during a drag.
     private func helpWithLocation(_ help: String) -> String {
+        let help = workspace.appearance.isPinnedInAllProjects ? "\(help)\nIn all projects" : help
         guard let locationHelp, !drag.isDragging else { return help }
         return "\(help)\n\(locationHelp)"
     }
