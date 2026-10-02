@@ -9,7 +9,8 @@ func buildWorkspaceSidebarModelState() async -> WorkspaceSidebarModelState {
         sortedMonitors: availableMonitors,
         focusedMonitorScopeId: focusedMonitorScopeId,
     )
-    let activeProjectId = currentFocus.workspace.projectId
+    // The project the user is in: a pin in All Projects doesn't take the sidebar to its own.
+    let activeProjectId = workspaceContextProjectId(of: currentFocus.workspace)
     let projects = buildWorkspaceSidebarProjectViewModels()
     let workspaces = await buildWorkspaceSidebarWorkspaceViewModels(
         currentFocus: currentFocus,

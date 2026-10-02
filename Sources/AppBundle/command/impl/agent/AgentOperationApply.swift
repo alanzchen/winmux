@@ -166,7 +166,7 @@ extension AgentOperation {
         let existedBefore = Workspace.existing(byName: name) != nil
         let targetWorkspace = Workspace.get(byName: name)
         if !existedBefore {
-            targetWorkspace.assignProject(projectSource?.projectId ?? focus.workspace.projectId)
+            targetWorkspace.assignProject(workspaceContextProjectId(of: projectSource ?? focus.workspace))
         }
         targetWorkspace.seedMonitorIfNeeded(monitorSource.nodeMonitor ?? focus.workspace.workspaceMonitor)
         return targetWorkspace

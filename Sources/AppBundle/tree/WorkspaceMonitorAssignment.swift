@@ -11,16 +11,19 @@ extension Monitor {
         return self.activeWorkspace
     }
 
+    /// `contextProjectId` is the project a pin in All Projects is shown in, as switching to a project
+    /// chooses it; otherwise the display stays in its project.
     @MainActor
-    func setActiveWorkspace(_ workspace: Workspace) -> Bool {
-        rect.topLeftCorner.setActiveWorkspace(workspace)
+    func setActiveWorkspace(_ workspace: Workspace, contextProjectId: WorkspaceProjectId? = nil) -> Bool {
+        rect.topLeftCorner.setActiveWorkspace(workspace, contextProjectId: contextProjectId)
     }
 }
 
 @MainActor
 func activateWorkspaceOnMonitorPreservingSourceViewport(_ workspace: Workspace, targetMonitor: Monitor) -> Bool {
     let sourceMonitor = workspace.isVisible ? workspace.workspaceMonitor : nil
-    let sourceProjectId = workspace.projectId
+    // The display it leaves stays in its own project, which a pin in All Projects isn't from.
+    let sourceProjectId = sourceMonitor.map { winMuxWorkspaceState.activeProjectId(for: $0) } ?? workspace.projectId
     if let sourceMonitor,
        sourceMonitor.rect.topLeftCorner != targetMonitor.rect.topLeftCorner
     {
@@ -56,15 +59,18 @@ func overrideWorkspaceOnMonitorBySwappingActiveViewports(_ workspace: Workspace,
         return true
     }
 
+    // The display it leaves stays in its own project, which a pin in All Projects isn't from.
+    let sourceProjectId = winMuxWorkspaceState.activeProjectId(for: sourceMonitor)
     let sourceReplacement = nearestWorkspaceForOverrideSourceMonitor(
         excluding: workspace,
         sourceMonitor: sourceMonitor,
         targetMonitor: targetMonitor,
+        projectId: sourceProjectId,
     )
     if let sourceReplacement {
         _ = winMuxWorkspaceState.setActiveWorkspace(sourceReplacement, on: MonitorViewportId(sourceMonitor))
     } else {
-        let fallback = createBlankWorkspace(projectId: workspace.projectId, monitor: sourceMonitor)
+        let fallback = createBlankWorkspace(projectId: sourceProjectId, monitor: sourceMonitor)
         _ = winMuxWorkspaceState.setActiveWorkspace(fallback, on: MonitorViewportId(sourceMonitor))
     }
     _ = winMuxWorkspaceState.setActiveWorkspace(workspace, on: MonitorViewportId(targetMonitor))
@@ -78,10 +84,12 @@ func nearestWorkspaceForOverrideSourceMonitor(
     excluding workspace: Workspace,
     sourceMonitor: Monitor,
     targetMonitor: Monitor,
+    projectId: WorkspaceProjectId? = nil,
 ) -> Workspace? {
+    let projectId = projectId ?? workspace.projectId
     let candidates = orderedWorkspacesForPresentation()
         .filter { candidate in
-            candidate.projectId == workspace.projectId &&
+            candidate.projectId == projectId && !workspaceIsPinnedInAllProjects(candidate) &&
                 candidate != workspace &&
                 !candidate.isArchived &&
                 isValidAssignment(workspace: candidate, screen: sourceMonitor.rect.topLeftCorner) &&
@@ -104,7 +112,7 @@ func gcMonitors() {
 
 extension CGPoint {
     @MainActor
-    func setActiveWorkspace(_ workspace: Workspace) -> Bool {
+    func setActiveWorkspace(_ workspace: Workspace, contextProjectId: WorkspaceProjectId? = nil) -> Bool {
         if !isValidAssignment(workspace: workspace, screen: self) {
             return false
         }
@@ -112,7 +120,7 @@ extension CGPoint {
         guard !winMuxWorkspaceState.isWorkspaceActive(workspace.id, outside: viewportId) else {
             return false
         }
-        _ = winMuxWorkspaceState.setActiveWorkspace(workspace, on: viewportId)
+        _ = winMuxWorkspaceState.setActiveWorkspace(workspace, on: viewportId, contextProjectId: contextProjectId)
         checkWorkspaceHierarchyInvariants()
         return true
     }
@@ -267,6 +275,7 @@ func rearrangeWorkspacesOnMonitors() {
                 previousWorkspaceId: preservedViewport.previousWorkspaceId,
                 lastActiveWorkspaceByProject: preservedViewport.lastActiveWorkspaceByProject,
                 displayKey: displayKey,
+                contextProjectId: preservedViewport.contextProjectId,
             )
         } else if displayKey != nil {
             winMuxWorkspaceState.monitorViewportsById[newMonitor] = MonitorViewport(id: newMonitor, displayKey: displayKey)
@@ -300,7 +309,9 @@ func rearrangeWorkspacesOnMonitors() {
             assignedWorkspaceIds.insert(savedWorkspace.id)
             continue
         }
-        let projectId = existingVisibleWorkspace?.projectId ?? workspaceProjectDefaultId
+        // The project the display was in, which a pin in All Projects there isn't from.
+        let projectId = mappedOldMonitor.flatMap { oldViewportsById[$0] }.flatMap(winMuxWorkspaceState.projectId(of:))
+            ?? existingVisibleWorkspace?.projectId ?? workspaceProjectDefaultId
         let workspace = getOrCreateFallbackWorkspace(
             projectId: projectId,
             monitor: newScreen.monitorApproximation,

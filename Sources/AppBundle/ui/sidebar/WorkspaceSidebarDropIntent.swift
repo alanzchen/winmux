@@ -100,7 +100,7 @@ struct WorkspaceSidebarDropIntent {
         guard let destination else { return true }
         guard let monitor = destination.resolve() else { return false }
         if workspace.workspaceMonitor.rect == monitor.rect { return true }
-        return listsSharedPins && workspace.projectId == activeWorkspaceProjectId(for: monitor)
+        return listsSharedPins && workspaceIsListed(workspace, inProject: activeWorkspaceProjectId(for: monitor))
             && workspaceSidebarOrganizationStore.state.workspaces[workspace.name]?.isFavorite == true
     }
 }

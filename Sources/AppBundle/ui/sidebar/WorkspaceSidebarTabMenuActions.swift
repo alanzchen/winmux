@@ -4,7 +4,9 @@ import AppKit
 func canSplitWorkspaceSidebarTabWindow(_ window: Window, with target: Workspace) -> Bool {
     guard config.usesBrowserTabs, !serverArgs.isReadOnly, window.parent is TilingContainer, !window.isFullscreen,
           let source = window.nodeWorkspace, source !== target, !source.isArchived, !target.isArchived,
-          source.projectId == target.projectId, !target.rootTilingContainer.isEffectivelyEmpty,
+          // The same project as the sidebar shows them: a pin in All Projects is in every one.
+          workspaceContextProjectId(of: source) == workspaceContextProjectId(of: target),
+          !target.rootTilingContainer.isEffectivelyEmpty,
           source.workspaceMonitor.rect == target.workspaceMonitor.rect,
           workspaceSidebarMenuCanMove(window, workspaceName: source.name, destination: target),
           target.rootTilingContainer.allLeafWindowsRecursive.allSatisfy({
@@ -39,7 +41,7 @@ func splitWorkspaceSidebarTabWindow(_ windowId: UInt32, fromWorkspace sourceId: 
 /// `keepsGroup` is false when the new tab is pinned right after, which takes it out of any group.
 func detachWorkspaceTabWindow(_ window: Window, keepsGroup: Bool = true) throws {
     guard config.usesBrowserTabs, let source = window.nodeWorkspace, source.allLeafWindowsRecursive.count > 1 else { return }
-    let tab = createWorkspace(after: source, projectId: source.projectId, monitor: source.workspaceMonitor)
+    let tab = createWorkspace(after: source, projectId: workspaceContextProjectId(of: source), monitor: source.workspaceMonitor)
     do {
         if keepsGroup, let group = workspaceSidebarOrganizationStore.collection(containing: source.name) {
             try assignWorkspaceToSidebarCollection(tab, collectionId: group.id, keepWhenEmpty: false)

@@ -9,6 +9,9 @@ struct MonitorViewport {
     /// Stable identity of the physical display last seen at this viewport. Lets
     /// rearrangeWorkspacesOnMonitors follow displays instead of top-left points.
     var displayKey: String? = nil
+    /// The project this display is in. It follows the active workspace, except that a pin in All
+    /// Projects leaves it as it was: showing one doesn't take the display to the pin's own project.
+    var contextProjectId: WorkspaceProjectId? = nil
 }
 
 @MainActor
@@ -143,7 +146,21 @@ struct WinMuxWorkspaceState {
     mutating func activeProjectId(for monitor: Monitor) -> WorkspaceProjectId {
         let viewportId = MonitorViewportId(monitor)
         ensureMonitorViewportExists(viewportId)
-        return monitorViewportsById[viewportId]?.activeWorkspaceId.flatMap { workspaceById[$0]?.projectId } ?? workspaceProjectDefaultId
+        return monitorViewportsById[viewportId].flatMap(projectId(of:)) ?? workspaceProjectDefaultId
+    }
+
+    /// The project a display is in: its active workspace's, or, while that's a pin in All Projects,
+    /// the project it was in before, if that still exists. Nil with nothing active.
+    func projectId(of viewport: MonitorViewport) -> WorkspaceProjectId? {
+        guard let active = viewport.activeWorkspaceId.flatMap({ workspaceById[$0] }) else { return nil }
+        guard workspaceIsPinnedInAllProjects(active) else { return active.projectId }
+        return viewport.contextProjectId.flatMap { projectsById[$0] != nil ? $0 : nil } ?? active.projectId
+    }
+
+    /// The project a display stays in as it shows something else: its project now, or, with nothing
+    /// active, the one it was last in.
+    private func continuingProjectId(of viewport: MonitorViewport) -> WorkspaceProjectId? {
+        projectId(of: viewport) ?? viewport.contextProjectId
     }
 
     mutating func visibleWorkspace(for monitor: Monitor) -> Workspace? {
@@ -158,18 +175,49 @@ struct WinMuxWorkspaceState {
         }
     }
 
-    mutating func setActiveWorkspace(_ workspace: Workspace, on viewportId: MonitorViewportId) -> Bool {
+    /// `contextProjectId` is the project a pin in All Projects is shown in, when the caller chose
+    /// one, as switching to a project does. Otherwise the display stays in the project it's in.
+    mutating func setActiveWorkspace(_ workspace: Workspace, on viewportId: MonitorViewportId,
+                                     contextProjectId: WorkspaceProjectId? = nil) -> Bool {
         ensureMonitorViewportExists(viewportId)
         ensureProjectExists(workspace.projectId)
 
         var viewport = monitorViewportsById[viewportId] ?? MonitorViewport(id: viewportId)
-        if viewport.activeWorkspaceId != workspace.id {
+        let isPinnedInAllProjects = workspaceIsPinnedInAllProjects(workspace)
+        let becomesActive = viewport.activeWorkspaceId != workspace.id
+        let context = isPinnedInAllProjects
+            ? contextProjectId ?? continuingProjectId(of: viewport) ?? workspace.projectId
+            : workspace.projectId
+        if becomesActive {
             viewport.previousWorkspaceId = viewport.activeWorkspaceId
         }
         viewport.activeWorkspaceId = workspace.id
-        viewport.lastActiveWorkspaceByProject[workspace.projectId] = workspace.id
+        viewport.contextProjectId = context
+        // A project remembers the tab chosen while the display was in it, so going back there shows
+        // it again. A pin in All Projects that stays on screen while the display changes project
+        // wasn't chosen there, so it changes no project's memory.
+        if !isPinnedInAllProjects || becomesActive {
+            viewport.lastActiveWorkspaceByProject[context] = workspace.id
+        }
         monitorViewportsById[viewportId] = viewport
         return true
+    }
+
+    /// The display keeps the pin in All Projects it shows and goes to `projectId`: only its project
+    /// changes. No project's remembered tab changes, since nothing was chosen.
+    mutating func setContextProject(_ projectId: WorkspaceProjectId, on viewportId: MonitorViewportId) {
+        ensureMonitorViewportExists(viewportId)
+        monitorViewportsById[viewportId]?.contextProjectId = projectId
+    }
+
+    /// A deleted project is no display's to go back to.
+    mutating func forgetProjectInViewports(_ projectId: WorkspaceProjectId) {
+        for (viewportId, viewport) in monitorViewportsById {
+            var viewport = viewport
+            viewport.lastActiveWorkspaceByProject.removeValue(forKey: projectId)
+            if viewport.contextProjectId == projectId { viewport.contextProjectId = nil }
+            monitorViewportsById[viewportId] = viewport
+        }
     }
 
     mutating func assignWorkspace(_ workspace: Workspace, to projectId: WorkspaceProjectId) {
@@ -191,8 +239,9 @@ struct WinMuxWorkspaceState {
             if viewport.previousWorkspaceId.flatMap({ workspaceById[$0] }) == nil {
                 viewport.previousWorkspaceId = nil
             }
+            // A pin in All Projects is remembered for whichever project it was shown in.
             viewport.lastActiveWorkspaceByProject = viewport.lastActiveWorkspaceByProject.filter { projectId, workspaceId in
-                workspaceById[workspaceId]?.projectId == projectId
+                projectsById[projectId] != nil && workspaceById[workspaceId].map { workspaceIsListed($0, inProject: projectId) } == true
             }
             monitorViewportsById[viewportId] = viewport
         }

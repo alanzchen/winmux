@@ -20,7 +20,8 @@ struct WorkspaceSidebarView: View {
               snapshot.visibleWidth > snapshot.configuration.expansionStartWidth else { return [] }
         return Set(snapshot.workspaces.filter {
             workspaceSidebarTabPresentation($0) != .folder &&
-                (!searchText.isEmpty || $0.projectId == snapshot.activeProjectId || $0.projectId == browsedProjectId) &&
+                (!searchText.isEmpty || $0.projectId == snapshot.activeProjectId || $0.projectId == browsedProjectId
+                    || $0.appearance.isPinnedInAllProjects) &&
                 (!$0.isVisible || workspaceSidebarMonitorScopeIsSentinel(snapshot.targetMonitorScopeId) ||
                     $0.monitorScopeId == snapshot.targetMonitorScopeId ||
                     snapshot.configuration.sharesPinnedTabs && $0.appearance.isFavorite)
@@ -1535,6 +1536,8 @@ extension WorkspaceSidebarView {
               displayedProjectId != snapshot.activeProjectId,
               !pageWorkspaces.contains(where: { workspaceIsActiveOnTargetMonitor($0) }),
               let focusedWorkspace = snapshot.workspaces.first(where: { workspaceIsActiveOnTargetMonitor($0) }),
+              // A pin in All Projects already shows above every project's tabs.
+              !(snapshot.configuration.usesTabsList && focusedWorkspace.appearance.isPinnedInAllProjects),
               workspaceSidebarWorkspaceMatchesScope(
                 focusedWorkspace,
                 selectedScopeId: snapshot.selectedMonitorScopeId,
