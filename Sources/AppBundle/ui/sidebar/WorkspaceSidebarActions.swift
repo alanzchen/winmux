@@ -523,7 +523,11 @@ func previewWorkspaceSidebarDrop(_ windowId: UInt32, subject: WindowDragSubject,
         clearWorkspaceSidebarDropPreview()
         return
     }
-    guard isActionableSidebarDropTarget(sourceWindow: sourceWindow, subject: subject, target: target) else {
+    // Chosen tabs dragged together go where all of them can, even where the dragged one alone wouldn't move.
+    let batch = currentActiveWorkspaceSidebarDrag()?.batch
+    guard batch.map({ isActionableWorkspaceSidebarBatchDropTarget($0, target: target) })
+        ?? isActionableSidebarDropTarget(sourceWindow: sourceWindow, subject: subject, target: target)
+    else {
         clearWorkspaceSidebarDropPreview()
         return
     }
@@ -548,7 +552,8 @@ func previewWorkspaceSidebarDrop(_ windowId: UInt32, subject: WindowDragSubject,
         var preview = workspaceSidebarDropPreview(sourceWindow: sourceWindow, subject: subject, targetWorkspaceName: nil,
             targetsNewWorkspace: false, targetProjectId: projectId, targetMonitorScopeId: monitorScopeId)
         preview.targetGap = gap
-        preview.separatesFromTab = workspaceTabDragLeavesWindowsBehind(dragSubjectNode(for: sourceWindow, subject: subject))
+        // A batch moves whole tabs, so no window leaves its tab for a new one.
+        preview.separatesFromTab = batch == nil && workspaceTabDragLeavesWindowsBehind(dragSubjectNode(for: sourceWindow, subject: subject))
         setWorkspaceSidebarDropPreviewIfChanged(preview, owner: owner)
         return
     }
@@ -664,7 +669,7 @@ private func workspaceSidebarDropPreview(
     let isTabGroup = moveNode is TilingContainer
     let sourceLabel = sidebarDragSourceTitle(for: sourceWindow, subject: subject)
     let appName = sourceWindow.app.name ?? sourceWindow.app.rawAppBundleId ?? "Window"
-    return WorkspaceSidebarDropPreviewViewModel(
+    let preview = WorkspaceSidebarDropPreviewViewModel(
         sourceWindowId: sourceWindow.windowId,
         label: sourceLabel,
         appName: appName,
@@ -678,6 +683,8 @@ private func workspaceSidebarDropPreview(
         windowCount: max(moveNode.allLeafWindowsRecursive.count, 1),
         tabItems: workspaceSidebarDropPreviewTabs(for: moveNode, isTabGroup: isTabGroup),
     )
+    // Chosen tabs dragged together read as their count.
+    return currentActiveWorkspaceSidebarDrag()?.batch.map { $0.preview(preview) } ?? preview
 }
 
 @MainActor
@@ -1034,7 +1041,8 @@ func finishSidebarWindowDrag(pointer: CGPoint? = nil) {
         usesBrowserTabs: config.usesBrowserTabs,
         startedInSidebar: getCurrentMouseDragStartedInSidebar(),
         hasActiveSidebarDrag: currentActiveWorkspaceSidebarDrag() != nil,
-        isPointerInSidebar: surface != nil, isPointerOnTemporarySurface: surface?.isTemporary == true)
+        isPointerInSidebar: surface != nil, isPointerOnTemporarySurface: surface?.isTemporary == true,
+        carriesBatch: workspaceSidebarDragCarriesBatch())
     if release != nil, releasedWithoutSidebarDrop, surface?.isTemporary == true { noteWorkspaceSidebarConsumedRelease() }
     // The release is captured: the other displays' hints and list go. A release outside them keeps
     // the window drag's pending drop for the screen.
@@ -1097,6 +1105,15 @@ private func workspaceSidebarDragTarget(for sourceWindow: Window, subject: Windo
     guard let target = workspaceSidebarSurfaceHit(at: point).target else {
         WorkspaceSidebarTabSplitHoverController.shared.reset()
         return nil
+    }
+    // Chosen tabs dragged together never pause into a split: over a tab they go beside it.
+    if let batch = currentActiveWorkspaceSidebarDrag()?.batch {
+        let resolved = committing
+            ? WorkspaceSidebarTabSplitHoverController.shared.commitTarget(source: sourceWindow.windowId, hitTarget: target, point: point)
+            : workspaceSidebarBatchDropTarget(target, point: point)
+        guard let resolved, isActionableWorkspaceSidebarBatchDropTarget(batch, target: resolved.kind, pinGridIsShared: pinGridIsShared)
+        else { return nil }
+        return resolved
     }
     let resolved = committing && config.usesBrowserTabs
         ? WorkspaceSidebarTabSplitHoverController.shared.commitTarget(source: sourceWindow.windowId, hitTarget: target, point: point)
@@ -1198,6 +1215,10 @@ private func commitActiveWorkspaceSidebarDragIfPossible() -> Bool {
     clearWorkspaceSidebarDropPreview()
     WindowDragCursorProxyPanel.shared.hide()
     if case .monitor = target.kind { return false }
+    if let batch = activeDrag.batch {
+        queueWorkspaceSidebarBatchDrop(batch, target: target.kind, intent: intent, settlingId: settlingId)
+        return true
+    }
     queueWorkspaceSidebarDrop(sourceWindow.windowId, subject: activeDrag.subject, target: target.kind,
         placement: placement, intent: intent, settlingId: settlingId)
     return true

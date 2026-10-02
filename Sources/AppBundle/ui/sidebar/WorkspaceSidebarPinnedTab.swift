@@ -89,6 +89,9 @@ struct WorkspaceSidebarPinnedTab: View {
     @ObservedObject private var selection = WorkspaceSidebarTabSelection.shared
     @ObservedObject private var drag = WorkspaceSidebarTabDragState.shared
 
+    /// Dragged, alone or as one of the chosen tabs it carries: dimmed until the drag ends.
+    private var isDragSource: Bool { drag.draggedPinnedTab == workspace.name || drag.draggedTabs.contains(workspace.name) }
+
     var body: some View {
         let windows = workspaceSidebarPinnedTabWindows(workspace)
         let identity = windows.count > 1 ? WorkspaceSidebarSplitIdentity(workspace) : nil
@@ -183,8 +186,8 @@ struct WorkspaceSidebarPinnedTab: View {
                     .padding(compact ? 1 : 6)
             }
         }
-        .opacity(drag.draggedPinnedTab == workspace.name ? 0.45 : 1)
-        .animation(WorkspaceSidebarTabMotion.feedback, value: drag.draggedPinnedTab == workspace.name)
+        .opacity(isDragSource ? 0.45 : 1)
+        .animation(WorkspaceSidebarTabMotion.feedback, value: isDragSource)
         .modifier(WorkspaceSidebarOptionalDragModifier(
             isEnabled: actions != nil,
             onChanged: { actions?.pinnedTabDragChanged(workspace.name, $0) },

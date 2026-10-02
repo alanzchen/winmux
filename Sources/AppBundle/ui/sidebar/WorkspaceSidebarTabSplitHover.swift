@@ -108,6 +108,7 @@ final class WorkspaceSidebarTabSplitHoverController {
                 try? await Task.sleep(for: .seconds(max(0, armsAt - now) + 0.01))
                 guard !Task.isCancelled else { return }
                 refreshActiveWorkspaceSidebarDragPreviewIfNeeded()
+                refreshActiveSidebarPinnedTabDragPreview()
             }
         }
         return ready

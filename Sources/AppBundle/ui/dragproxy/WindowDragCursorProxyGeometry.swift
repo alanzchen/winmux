@@ -1,12 +1,20 @@
 import AppKit
 
-func windowDragCursorProxyFrame(mouseScreenPoint: CGPoint, proxySize: CGSize) -> CGRect {
-    let screenFrame = NSScreen.screens
+/// The visible frame of the screen the pointer is on.
+func windowDragCursorProxyScreenFrame(containing mouseScreenPoint: CGPoint) -> CGRect {
+    NSScreen.screens
         .first(where: { $0.frame.contains(mouseScreenPoint) })?
         .visibleFrame ?? NSScreen.main?.visibleFrame ?? .zero
+}
 
-    var x = mouseScreenPoint.x - (proxySize.width / 2)
-    var y = mouseScreenPoint.y - (proxySize.height / 2)
+/// `pointer` puts the pointer at that point of the proxy, from its bottom-left corner; without it,
+/// the proxy is centered on the pointer.
+func windowDragCursorProxyFrame(mouseScreenPoint: CGPoint, proxySize: CGSize, pointer: CGPoint? = nil,
+                                screenFrame: CGRect? = nil) -> CGRect {
+    let screenFrame = screenFrame ?? windowDragCursorProxyScreenFrame(containing: mouseScreenPoint)
+
+    var x = mouseScreenPoint.x - (pointer?.x ?? proxySize.width / 2)
+    var y = mouseScreenPoint.y - (pointer?.y ?? proxySize.height / 2)
     if x + proxySize.width > screenFrame.maxX {
         x = screenFrame.maxX - proxySize.width
     } else if x < screenFrame.minX {

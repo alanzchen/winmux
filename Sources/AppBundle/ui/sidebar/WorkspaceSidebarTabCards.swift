@@ -72,6 +72,7 @@ struct WorkspaceSidebarTabCardView: View {
     /// Where a dragged tab would go on this tab, while one is over it.
     var dropPlacement: WorkspaceSidebarTabDropPlacement? = nil
     var dropLabelSlot: WorkspaceSidebarTabDropLabelSlot? = nil
+    var dropLabelText: String? = nil
     /// The edge a dragged tab would be inserted at, while one is over it.
     var insertionEdge: VerticalEdge? = nil
     var insertionLabel: String? = nil
@@ -91,6 +92,10 @@ struct WorkspaceSidebarTabCardView: View {
     @Environment(\.workspaceSidebarTabIndent) private var indent
     @Environment(\.workspaceSidebarReducesMotion) private var reducesMotion
     @ObservedObject private var selection = WorkspaceSidebarTabSelection.shared
+    @ObservedObject private var drag = WorkspaceSidebarTabDragState.shared
+
+    /// One of the chosen tabs a drag carries together: the whole card dims, not just a row.
+    private var isBatchSource: Bool { drag.draggedTabs.contains(workspace.name) }
 
     /// A browser window's tabs draw their own card, which marks the tab in use and takes its color.
     private var drawsBrowserCard: Bool {
@@ -132,7 +137,7 @@ struct WorkspaceSidebarTabCardView: View {
             }
             .overlay(alignment: .top) {
                 WorkspaceSidebarTabDropSideHighlight(placement: isDropTarget ? dropPlacement : nil,
-                    labelSlot: dropLabelSlot)
+                    labelSlot: dropLabelSlot, labelText: dropLabelText)
                     .frame(height: headsCard ? workspaceSidebarTabRowHeight : nil)
                     .padding(hasBrowserGroups && drawsBrowserCard ? workspaceSidebarTabGroupInset : 0)
             }
@@ -172,6 +177,8 @@ struct WorkspaceSidebarTabCardView: View {
                     )
                 }
             }
+            .opacity(isBatchSource ? 0.45 : 1)
+            .animation(WorkspaceSidebarTabMotion.feedback, value: isBatchSource)
     }
 
     private var backgroundOpacity: Double {
@@ -328,7 +335,7 @@ struct WorkspaceSidebarTabCardView: View {
                 workspaceSidebarMatchingBrowserTabs(browserTabs[window.windowId], window: window, workspace: workspace,
                     query: browserQuery, context: browserSearchContext).isEmpty,
             isSearchSelected: selectedSearchTarget == .window(window.windowId),
-            isDragSource: dragSourceWindowId == window.windowId,
+            isDragSource: !isBatchSource && dragSourceWindowId == window.windowId,
             actions: actions,
             workspaceMenu: (workspace, onBeginRename),
             followsIndent: followsIndent,
@@ -477,6 +484,8 @@ struct WorkspaceSidebarTabDropSideHighlight: View {
     var labelSlot: WorkspaceSidebarTabDropLabelSlot? = nil
     /// A pinned tile's corners; rows take their level's.
     var cornerRadius: CGFloat? = nil
+    /// In place of the side it splits to.
+    var labelText: String? = nil
     @Environment(\.workspaceSidebarTabIndent) private var indent
     @Environment(\.workspaceSidebarReducesMotion) private var reducesMotion
 
@@ -504,7 +513,7 @@ struct WorkspaceSidebarTabDropSideHighlight: View {
                 let slot = labelSlot ?? WorkspaceSidebarTabDropLabelSlot(half: placement == .left ? .leading : .trailing,
                     edge: placement == .left ? .leading : .trailing)
                 if placement != .stack, !slot.isHidden {
-                    WorkspaceSidebarTabDropLabel(text: workspaceSidebarTabDropLabelText(placement))
+                    WorkspaceSidebarTabDropLabel(text: labelText ?? workspaceSidebarTabDropLabelText(placement))
                         .padding(.horizontal, workspaceSidebarTabDropLabelInset)
                         .frame(width: geometry.size.width / 2, height: geometry.size.height,
                             alignment: slot.edge == .leading ? .leading : .trailing)

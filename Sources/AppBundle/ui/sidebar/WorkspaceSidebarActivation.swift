@@ -13,6 +13,8 @@ struct ActiveWorkspaceSidebarDrag: Equatable {
     let windowId: UInt32
     let subject: WindowDragSubject
     let previewStyle: WorkspaceSidebarDragPreviewStyle
+    /// The chosen tabs it carries, when it began on one of them.
+    var batch: WorkspaceSidebarDragBatch? = nil
 }
 
 /// `sourceWindow` is the window the drag started in. Without one, it's the window the current
@@ -152,8 +154,11 @@ func beginActiveWorkspaceSidebarDrag(windowId: UInt32, subject: WindowDragSubjec
     if let previous = TrayMenuModel.shared.workspaceSidebarDockDrag {
         finishWorkspaceSidebarDockLift(id: previous.id)
     }
-    activeWorkspaceSidebarDrag = ActiveWorkspaceSidebarDrag(windowId: windowId, subject: subject, previewStyle: previewStyle)
-    WorkspaceSidebarTabDragState.shared.set(config.usesBrowserTabs)
+    // Frozen as the drag begins: choosing tabs during it changes nothing it carries.
+    let batch = Window.get(byId: windowId)?.nodeWorkspace.flatMap { WorkspaceSidebarDragBatch(startingWith: $0.name) }
+    activeWorkspaceSidebarDrag = ActiveWorkspaceSidebarDrag(windowId: windowId, subject: subject, previewStyle: previewStyle,
+        batch: batch)
+    WorkspaceSidebarTabDragState.shared.set(config.usesBrowserTabs, batch: batch?.names ?? [])
 }
 
 @MainActor

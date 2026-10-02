@@ -9,7 +9,7 @@ struct WorkspaceSidebarDropPreviewTabItem: Hashable {
 
 struct WorkspaceSidebarDropPreviewViewModel: Hashable {
     let sourceWindowId: UInt32
-    let label: String
+    var label: String
     let appName: String
     let appBundleIdentifier: String?
     let appBundlePath: String?
@@ -17,9 +17,9 @@ struct WorkspaceSidebarDropPreviewViewModel: Hashable {
     let targetsNewWorkspace: Bool
     let targetProjectId: WorkspaceProjectId?
     let targetMonitorScopeId: String?
-    let isTabGroup: Bool
-    let windowCount: Int
-    let tabItems: [WorkspaceSidebarDropPreviewTabItem]
+    var isTabGroup: Bool
+    var windowCount: Int
+    var tabItems: [WorkspaceSidebarDropPreviewTabItem]
     /// Tabs mode: the side of the target tab it goes, or a stack.
     var targetCollectionId: String? = nil
     var targetPlacement: WorkspaceSidebarTabDropPlacement? = nil
@@ -33,6 +33,10 @@ struct WorkspaceSidebarDropPreviewViewModel: Hashable {
     var targetsPinned = false
     /// Tabs mode: the pin it goes beside among the pinned tiles.
     var targetPinnedGap: WorkspaceSidebarTabGap? = nil
+    /// Tabs mode: the dragged pinned tab the target tab joins, on the other side of the half shown.
+    var receivingPinnedTabName: String? = nil
+    /// Tabs mode: how many chosen tabs the drag carries together, when it carries several.
+    var batchTabCount: Int? = nil
 
     init(
         sourceWindowId: UInt32,

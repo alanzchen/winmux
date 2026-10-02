@@ -130,9 +130,8 @@ final class WorkspaceSidebarPinnedDragTest: XCTestCase {
             gap: .init(workspaceName: d.name, isAfter: false)), "Its place in the list is where it already sits, but it leaves the pins")
         XCTAssertNotNil(preview(3, before), "A window drag of the whole pinned tab is offered the same place")
         let row = WorkspaceSidebarTabReorderDestination(projectId: c.projectId, monitorScopeId: scope, collectionId: nil)
-        XCTAssertEqual(drop(c, .workspace(d.name), lower: true, reorder: row),
-            .list(projectId: c.projectId, monitorScopeId: scope, gap: .init(workspaceName: d.name, isAfter: true)),
-            "Over a tab, it goes by the nearer edge")
+        XCTAssertNil(drop(c, .workspace(d.name), lower: true, reorder: row),
+            "Over a tab, without pausing, it doesn't leave the pins: only the gaps between tabs unpin it")
         XCTAssertNil(drop(c, .workspace(d.name)), "A tab that takes no reorder, such as a search result, takes no pin")
 
         try applyWorkspaceSidebarPinnedTabDrop(c, .list(projectId: c.projectId, monitorScopeId: scope,

@@ -27,7 +27,8 @@ struct WorkspaceSidebarDragIcon: View {
         }
         .frame(width: size, height: size)
         .overlay(alignment: .bottomTrailing) {
-            if preview.windowCount > 1 {
+            // Chosen tabs dragged together say how many above the icon instead.
+            if preview.windowCount > 1, preview.batchTabCount == nil {
                 Text("\(preview.windowCount)")
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(.white)

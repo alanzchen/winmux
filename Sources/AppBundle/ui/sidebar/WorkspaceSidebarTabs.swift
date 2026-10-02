@@ -380,6 +380,11 @@ struct WorkspaceSidebarTabFolderView: View {
         return parts.joined(separator: ", ")
     }
 
+    @ObservedObject private var drag = WorkspaceSidebarTabDragState.shared
+
+    /// One of the chosen tabs a drag carries together: the whole folder dims, not just a row.
+    private var isBatchSource: Bool { drag.draggedTabs.contains(workspace.name) }
+
     var body: some View {
         WorkspaceSidebarTabGroupCard(tint: color, isExpanded: !rows.isEmpty, isActive: isActive, isDropTarget: isDropTarget) {
             header
@@ -392,7 +397,7 @@ struct WorkspaceSidebarTabFolderView: View {
                             indent: isGroupChild ? workspaceSidebarTabIndentStep : 0,
                             isInStack: isGroupChild,
                             isSearchSelected: selectedSearchTarget == .window(window.windowId),
-                            isDragSource: dragSourceWindowId == window.windowId,
+                            isDragSource: !isBatchSource && dragSourceWindowId == window.windowId,
                             actions: actions,
                             onSelect: { activation.select(.selectWindow(window.windowId), send: actions.send) },
                         )
@@ -400,7 +405,7 @@ struct WorkspaceSidebarTabFolderView: View {
                         .transition(.workspaceSidebarTabReveal)
                     case .group(let group):
                         WorkspaceSidebarTabGroupRowView(group: group, isSearching: isSearching,
-                            isDragSource: dragSourceWindowId == group.representativeWindowId,
+                            isDragSource: !isBatchSource && dragSourceWindowId == group.representativeWindowId,
                             actions: actions,
                             onSelect: { activation.select(.selectWindow(group.representativeWindowId), send: actions.send) })
                         .transition(.workspaceSidebarTabReveal)
@@ -433,6 +438,8 @@ struct WorkspaceSidebarTabFolderView: View {
                 )
             }
         }
+        .opacity(isBatchSource ? 0.45 : 1)
+        .animation(WorkspaceSidebarTabMotion.feedback, value: isBatchSource)
     }
 
     private var header: some View {
@@ -697,6 +704,7 @@ extension WorkspaceSidebarView {
                 badgeModel: dockBadgeModel,
                 dropPlacement: snapshot.dropPreview?.targetPlacement,
                 dropLabelSlot: snapshot.dropPreview?.targetLabelSlot,
+                dropLabelText: workspaceSidebarTabDropLabelText(for: snapshot.dropPreview),
                 insertionEdge: insertionEdge,
                 insertionLabel: insertionLabel,
                 gapTarget: gapTarget,

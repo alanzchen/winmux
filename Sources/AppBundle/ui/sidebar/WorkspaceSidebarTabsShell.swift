@@ -203,8 +203,11 @@ extension WorkspaceSidebarView {
                             insertionEdge: workspaceSidebarPinnedInsertionEdge(snapshot.dropPreview,
                                 workspaceName: workspace.name, projectId: snapshot.activeProjectId,
                                 monitorScopeId: tabsListScopeId),
-                            isDropTarget: snapshot.dropPreview?.targetWorkspaceName == workspace.name,
-                            dropPlacement: snapshot.dropPreview?.targetPlacement,
+                            isDropTarget: snapshot.dropPreview?.targetWorkspaceName == workspace.name
+                                || snapshot.dropPreview?.receivingPinnedTabName == workspace.name,
+                            // A pin that takes a tab in lights up whole; the half shown is on the tab.
+                            dropPlacement: snapshot.dropPreview?.targetWorkspaceName == workspace.name
+                                ? snapshot.dropPreview?.targetPlacement : nil,
                             dropLabelSlot: snapshot.dropPreview?.targetLabelSlot,
                             onOpenSavedApps: { selectTabWorkspace(workspace, action: .openSavedTab(workspace.name)) },
                             sharedPinLocation: snapshot.sharedPinLocation(of: workspace)) { windowId in
