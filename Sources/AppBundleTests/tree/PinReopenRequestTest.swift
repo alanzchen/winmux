@@ -305,9 +305,10 @@ final class PinReopenRequestTest: XCTestCase {
         XCTAssertEqual(left.activeWorkspace.name, "x")
     }
 
-    /// Three displays remembered showing p, r and q, with a hidden tab a on the first. After the
-    /// windows of p and r close, q moves to the first display, x shows on the third, and p is
-    /// reopened on the second. Then r's window comes back.
+    /// Three displays remembered showing s, q and p, with tab b hidden behind p. After the windows of
+    /// p and s close, the third display shows b again, p moves to the second display and q to the
+    /// first, and p is reopened there. Then s's window comes back. The restore goes through the
+    /// remembered tabs by name, so a tab remembered on a display it left would stay shown there.
     private func reopenAcrossThreeDisplaysThenRestore(_ remember: (FrozenWorld) -> Void) async throws
         -> (displays: [Monitor], reopened: Window, other: Window)
     {
@@ -315,26 +316,24 @@ final class PinReopenRequestTest: XCTestCase {
         let b = SavedWorkspaceTestMonitor(id: 2, name: "B", x: 1920, uuid: "B")
         let c = SavedWorkspaceTestMonitor(id: 3, name: "C", x: 3840, uuid: "C")
         setMonitorsForTests([a, b, c])
-        let hidden = Workspace.get(byName: "a")
+        let behind = Workspace.get(byName: "b")
         let p = Workspace.get(byName: "p")
         let q = Workspace.get(byName: "q")
-        let r = Workspace.get(byName: "r")
-        _ = TestWindow.new(id: 6, parent: hidden.rootTilingContainer)
+        let s = Workspace.get(byName: "s")
+        _ = TestWindow.new(id: 8, parent: behind.rootTilingContainer)
         let reopened = TestWindow.new(id: 2, parent: p.rootTilingContainer)
-        let other = TestWindow.new(id: 3, parent: r.rootTilingContainer)
         _ = TestWindow.new(id: 5, parent: q.rootTilingContainer)
-        XCTAssertTrue(a.setActiveWorkspace(hidden))
-        XCTAssertTrue(a.setActiveWorkspace(p))
-        XCTAssertTrue(b.setActiveWorkspace(r))
-        XCTAssertTrue(c.setActiveWorkspace(q))
+        let other = TestWindow.new(id: 3, parent: s.rootTilingContainer)
+        XCTAssertTrue(c.setActiveWorkspace(behind))
+        XCTAssertTrue(c.setActiveWorkspace(p))
+        XCTAssertTrue(b.setActiveWorkspace(q))
+        XCTAssertTrue(a.setActiveWorkspace(s))
         remember(snapshotCurrentFrozenWorld())
         reopened.unbindFromParent()
         other.unbindFromParent()
-        let x = Workspace.get(byName: "x")
-        _ = TestWindow.new(id: 7, parent: x.rootTilingContainer)
-        XCTAssertTrue(c.setActiveWorkspace(x))
-        XCTAssertTrue(a.setActiveWorkspace(q))
+        XCTAssertTrue(c.setActiveWorkspace(behind))
         XCTAssertTrue(b.setActiveWorkspace(p))
+        XCTAssertTrue(a.setActiveWorkspace(q))
         _ = p.focusWorkspace()
 
         clickPin(p)
@@ -350,8 +349,8 @@ final class PinReopenRequestTest: XCTestCase {
     func testAClosedWindowsRestoreKeepsEveryDisplayAsTheUserLeftItAcrossThreeDisplays() async throws {
         let (displays, reopened, other) = try await reopenAcrossThreeDisplaysThenRestore { replaceClosedWindowsCache($0) }
         XCTAssertEqual(reopened.nodeWorkspace?.name, "p")
-        XCTAssertEqual(other.nodeWorkspace?.name, "r", "The other window returns to its own tab")
-        XCTAssertEqual(displays.map(\.activeWorkspace.name), ["q", "p", "x"], "Each display shows what the user left it showing")
+        XCTAssertEqual(other.nodeWorkspace?.name, "s", "The other window returns to its own tab")
+        XCTAssertEqual(displays.map(\.activeWorkspace.name), ["q", "p", "b"], "Each display shows what the user left it showing")
     }
 
     func testASavedWorldsRestoreKeepsEveryDisplayAsTheUserLeftItAcrossThreeDisplays() async throws {
@@ -359,8 +358,8 @@ final class PinReopenRequestTest: XCTestCase {
             setPendingPersistedFrozenWorldForTests($0)
         }
         XCTAssertEqual(reopened.nodeWorkspace?.name, "p")
-        XCTAssertEqual(other.nodeWorkspace?.name, "r")
-        XCTAssertEqual(displays.map(\.activeWorkspace.name), ["q", "p", "x"])
+        XCTAssertEqual(other.nodeWorkspace?.name, "s")
+        XCTAssertEqual(displays.map(\.activeWorkspace.name), ["q", "p", "b"])
     }
 
     func testForgettingAReopenedWindowsOldPlaceKeepsEveryOtherWindowsPlace() {
