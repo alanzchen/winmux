@@ -88,13 +88,39 @@ struct NewWindowFocusSnapshot {
     let window: Window?
     /// The project the focused display was in: with a pin in All Projects on it, not the pin's own.
     var contextProjectId: WorkspaceProjectId? = nil
-    /// That display.
-    var monitorPoint: CGPoint? = nil
+    /// That display, or the one the user switched project on since with the pin on screen.
+    var display: NewWindowRequestDisplay? = nil
+    /// The project the user switched that display to since, with the pin kept on screen.
+    var switchedProjectId: WorkspaceProjectId? = nil
 
     static var current: NewWindowFocusSnapshot {
         let monitor = focus.workspace.workspaceMonitor
         return NewWindowFocusSnapshot(generation: focusChangeGeneration, workspace: focus.workspace, window: focus.windowOrNil,
-            contextProjectId: winMuxWorkspaceState.activeProjectId(for: monitor), monitorPoint: monitor.rect.topLeftCorner)
+            contextProjectId: winMuxWorkspaceState.activeProjectId(for: monitor), display: NewWindowRequestDisplay(monitor))
+    }
+}
+
+/// A display as a request saw it, to know it again later: by its identity, and otherwise by its
+/// place only while no display has changed, since another display may have taken that place.
+struct NewWindowRequestDisplay {
+    let topLeftCorner: CGPoint
+    let identity: MonitorDisplayIdentity?
+    let topologyGeneration: UInt64
+
+    @MainActor init(_ monitor: Monitor) {
+        topLeftCorner = monitor.rect.topLeftCorner
+        identity = monitor.displayIdentity
+        topologyGeneration = MonitorConfigurationObserver.shared.topologyGeneration
+    }
+
+    @MainActor func isShown(by monitor: Monitor) -> Bool {
+        if let identity, let other = monitor.displayIdentity {
+            guard identity == other else { return false }
+            // Identical panels without serial numbers can share an identity: then only the place tells.
+            if monitors.count(where: { $0.displayIdentity == identity }) == 1 { return true }
+        }
+        return topologyGeneration == MonitorConfigurationObserver.shared.topologyGeneration
+            && topLeftCorner == monitor.rect.topLeftCorner
     }
 }
 
@@ -228,12 +254,13 @@ final class NewWindowIntentRegistry {
         intents.first { $0.id == id }?.deadlineUptime = now() + timeout
     }
 
-    /// The display switched project with the pin in All Projects `pin` on screen: a reopen asked
-    /// from that pin comes back to it in the project switched to.
-    func noteProjectSwitch(keeping pin: Workspace, in projectId: WorkspaceProjectId) {
+    /// `monitor` switched project with the pin in All Projects `pin` on screen: a reopen asked from
+    /// that pin comes back to it in the project switched to, on that display.
+    func noteProjectSwitch(keeping pin: Workspace, in projectId: WorkspaceProjectId, on monitor: Monitor) {
         let waiting = intents + claims.values.map(\.intent) + deferredPlacements.values.map(\.claim.intent)
         for intent in waiting where intent.focusWhenSent?.workspace === pin {
-            intent.focusWhenSent?.contextProjectId = projectId
+            intent.focusWhenSent?.switchedProjectId = projectId
+            intent.focusWhenSent?.display = NewWindowRequestDisplay(monitor)
         }
     }
 
@@ -427,14 +454,15 @@ func finishDeferredReopenPlacements() {
 
 /// A pin in All Projects shows in the project its display is in, which a restore that showed
 /// another project's tab there meanwhile has changed: it comes back in the project it was clicked
-/// in, or switched to since with it on screen, which remembers it as chosen there again. Only on
-/// that display: an older restore that took the pin to another display left that one as it was.
+/// in, which remembers it as chosen there again, or the one switched to since with it on screen,
+/// where nothing was chosen. Only on that display: an older restore that took the pin to another
+/// display left that one as it was.
 @MainActor
 private func showPinInAllProjectsWhereItWasClicked(_ target: Workspace, _ intent: NewWindowIntent) {
     guard workspaceIsPinnedInAllProjects(target), let sent = intent.focusWhenSent, sent.workspace === target,
-          let projectId = sent.contextProjectId, sent.monitorPoint == target.workspaceMonitor.rect.topLeftCorner,
+          let projectId = sent.switchedProjectId ?? sent.contextProjectId, sent.display?.isShown(by: target.workspaceMonitor) == true,
           winMuxWorkspaceState.projectsById[projectId] != nil else { return }
-    _ = target.workspaceMonitor.setActiveWorkspace(target, contextProjectId: projectId)
+    _ = target.workspaceMonitor.setActiveWorkspace(target, contextProjectId: projectId, isChosen: projectId == sent.contextProjectId)
 }
 
 /// The launcher closed after the window was claimed but before detection placed it: it goes

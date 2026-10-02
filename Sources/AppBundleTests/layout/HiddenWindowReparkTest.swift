@@ -538,11 +538,15 @@ final class HiddenWindowReparkTest: XCTestCase {
         defer { workspaceSidebarOrganizationStore = .init() }
         let t = try pinSections()
         connect([sixK])
-        XCTAssertTrue(sixK.setActiveWorkspace(t.c1))
         _ = window(1, in: t.g.rootTilingContainer, Rect(topLeftX: 0, topLeftY: 25, width: 3008, height: 1667))
         let hidden = window(2, in: t.b1.rootTilingContainer, Rect(topLeftX: 100, topLeftY: 100, width: 1200, height: 800))
+        // C remembers its own tab; the pin, chosen in B, was carried into C by switching project.
+        XCTAssertTrue(sixK.setActiveWorkspace(t.c1))
+        XCTAssertTrue(sixK.setActiveWorkspace(t.b1))
         XCTAssertTrue(t.g.focusWorkspace())
+        XCTAssertTrue(switchWorkspaceProject(t.c, on: sixK) === t.g)
         XCTAssertEqual(activeWorkspaceProjectId(for: sixK), t.c)
+        XCTAssertEqual(memory(sixK)?[t.c], t.c1.id)
         let remembered = memory(sixK)
         try await settle([sixK], hidden: [hidden])
 
@@ -551,7 +555,7 @@ final class HiddenWindowReparkTest: XCTestCase {
         connect([builtin])
         XCTAssertTrue(builtin.activeWorkspace === t.g)
         XCTAssertEqual(activeWorkspaceProjectId(for: builtin), t.c, "Back on a display, the pin is still shown in C")
-        XCTAssertEqual(memory(builtin)?[t.c], t.g.id)
+        XCTAssertEqual(memory(builtin)?[t.c], t.c1.id, "Showing the pin again there chose nothing: C still remembers c1")
         for (project, id) in remembered ?? [:] where winMuxWorkspaceState.workspaceById[id] != nil {
             XCTAssertEqual(memory(builtin)?[project], id)
         }
