@@ -81,10 +81,13 @@ final class TestWindow: Window, CustomStringConvertible {
     }
 
     @MainActor private(set) var nativeStateFetchCount = 0
+    /// Runs inside the fullscreen read: suspend to model a slow AX read, or throw to model a failed one.
+    @MainActor var nativeStateGate: (@MainActor () async throws -> Void)?
 
     @MainActor override var isMacosFullscreen: Bool {
         get async throws {
             nativeStateFetchCount += 1
+            if let nativeStateGate { try await nativeStateGate() }
             return nativeIsMacosFullscreen
         }
     }

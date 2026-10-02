@@ -85,6 +85,41 @@ func syncClosedWindowsCacheToCurrentWorld() {
     try await restoreFrozenWorldIfNeeded(closedWindowsCache, newlyDetectedWindow: newlyDetectedWindow)
 }
 
+/// The cache once the user put `window` in `workspace` on purpose. See `FrozenWorld.superseding`.
+@MainActor
+func supersedeClosedWindowsCache(placementOf window: Window, in workspace: Workspace) {
+    closedWindowsCache = closedWindowsCache.superseding(placementOf: window, in: workspace)
+}
+
+/// Frozen-world restores under way. Each works from its own snapshot across its AX waits, so it
+/// leaves a reopened window that's claimed for a tab alone, and the reopen is finished only once
+/// none is left. See `finishNewWindowIntentPlacement`.
+@MainActor private(set) var activeFrozenRestoreCount = 0
+
+@MainActor
+func beginFrozenRestore() {
+    activeFrozenRestoreCount += 1
+}
+
+/// On every way out of a restore: returning, throwing, or cancelled.
+@MainActor
+func endFrozenRestore() {
+    activeFrozenRestoreCount -= 1
+    if activeFrozenRestoreCount == 0 { finishDeferredReopenPlacements() }
+}
+
+@MainActor
+func resetFrozenRestoresForTests() {
+    activeFrozenRestoreCount = 0
+}
+
+/// A reopened window claimed for a tab and not finished yet: whatever an older snapshot remembers,
+/// a restore neither moves it nor changes its state. Checked at each step, after every wait.
+@MainActor
+private func restoreLeavesAlone(_ window: Window) -> Bool {
+    NewWindowIntentRegistry.shared.holdsReopenClaim(on: window)
+}
+
 @MainActor
 func restoreFrozenWorldIfNeeded(_ frozenWorld: FrozenWorld, newlyDetectedWindow: Window) async throws -> Bool {
     if !frozenWorld.windowIds.contains(newlyDetectedWindow.windowId) {
@@ -93,6 +128,8 @@ func restoreFrozenWorldIfNeeded(_ frozenWorld: FrozenWorld, newlyDetectedWindow:
     guard frozenWorld.workspaces.contains(where: { collectFrozenWindows($0)[newlyDetectedWindow.windowId] != nil }) else {
         return false
     }
+    beginFrozenRestore()
+    defer { endFrozenRestore() }
     let monitors = monitors
     let topLeftCornerToMonitor = monitors.grouped { $0.rect.topLeftCorner }
     let restoredWorkspaceNames = Set(frozenWorld.workspaces.map(\.name))
@@ -106,13 +143,13 @@ func restoreFrozenWorldIfNeeded(_ frozenWorld: FrozenWorld, newlyDetectedWindow:
             .singleOrNil()?
             .setActiveWorkspace(workspace)
         for frozenWindow in frozenWorkspace.floatingWindows {
-            if let window = Window.get(byId: frozenWindow.id) {
+            if let window = Window.get(byId: frozenWindow.id), !restoreLeavesAlone(window) {
                 applyFrozenWindowState(window, frozenWindow)
                 window.bindAsFloatingWindow(to: workspace)
             }
         }
         for frozenWindow in frozenWorkspace.macosUnconventionalWindows {
-            if let window = Window.get(byId: frozenWindow.id) {
+            if let window = Window.get(byId: frozenWindow.id), !restoreLeavesAlone(window) {
                 try await restoreFrozenUnconventionalWindow(window, frozenWindow, on: workspace)
             }
         }
@@ -120,7 +157,15 @@ func restoreFrozenWorldIfNeeded(_ frozenWorld: FrozenWorld, newlyDetectedWindow:
         let potentialOrphans = prevRoot.allLeafWindowsRecursive
         prevRoot.unbindFromParent()
         restoreTreeRecursive(frozenContainer: frozenWorkspace.rootTilingNode, parent: workspace, index: INDEX_BIND_LAST)
+        // A reopened window claimed for this tab stays in it, before any wait below could let the
+        // user move it, or a failure strand it in the replaced root.
+        for window in potentialOrphans where restoreLeavesAlone(window) && window.isBound && window.nodeWorkspace == nil {
+            // Beside a restored stack, never in it.
+            let binding = workspaceAppendBindingData(targetWorkspace: workspace, index: INDEX_BIND_LAST)
+            window.bind(to: binding.parent, adaptiveWeight: binding.adaptiveWeight, index: binding.index)
+        }
         for window in (potentialOrphans - workspace.rootTilingContainer.allLeafWindowsRecursive) {
+            if restoreLeavesAlone(window) { continue }
             if let frozenWindow = frozenWindowById[window.windowId] {
                 if case .macos = frozenWindow.layoutReason {
                     try await restoreFrozenUnconventionalWindow(window, frozenWindow, on: workspace)
@@ -158,17 +203,21 @@ private func restoreTreeRecursive(frozenContainer: FrozenContainer, parent: NonL
         index: index,
     )
 
-    for (index, child) in frozenContainer.children.enumerated() {
+    var index = 0
+    for child in frozenContainer.children {
         switch child {
             case .window(let w):
                 // Stop the loop if can't find the window, because otherwise all the subsequent windows will have incorrect index
                 guard let window = Window.get(byId: w.id) else { return false }
+                // A reopened window claimed for a tab stays there; the rest of its old stack doesn't wait for it.
+                if restoreLeavesAlone(window) { continue }
                 applyFrozenWindowState(window, w)
                 window.bind(to: container, adaptiveWeight: w.weight, index: index)
             case .container(let c):
                 // There is no reason to continue
                 if !restoreTreeRecursive(frozenContainer: c, parent: container, index: index) { return false }
         }
+        index += 1
     }
     return true
 }
@@ -186,12 +235,13 @@ private func restoreFrozenUnconventionalWindow(
     _ frozenWindow: FrozenWindow,
     on workspace: Workspace,
 ) async throws {
-    applyFrozenWindowState(window, frozenWindow)
-
     let isMacosFullscreen = try await window.isMacosFullscreen
     let isMacosMinimized = try await (!isMacosFullscreen).andAsync { @MainActor @Sendable in try await window.isMacosMinimized }
     let isMacosWindowOfHiddenApp = !isMacosFullscreen && !isMacosMinimized &&
         !config.automaticallyUnhideMacosHiddenApps && (window.app as? MacApp)?.nsApp.isHidden == true
+    // A popup promoted and claimed for a tab while the AX reads waited.
+    if restoreLeavesAlone(window) { return }
+    applyFrozenWindowState(window, frozenWindow)
 
     switch true {
         case isMacosFullscreen:
@@ -203,12 +253,16 @@ private func restoreFrozenUnconventionalWindow(
         default:
             switch frozenWindow.layoutReason {
                 case .macos(let prevParentKind, let prevWorkspaceName):
-                    try await exitMacOsNativeUnconventionalState(
-                        window: window,
-                        prevParentKind: prevParentKind,
-                        prevWorkspaceName: prevWorkspaceName,
-                        workspace: workspace,
-                    )
+                    do {
+                        // A popup promoted and claimed for a tab while the relayout classified it.
+                        try await exitMacOsNativeUnconventionalState(
+                            window: window,
+                            prevParentKind: prevParentKind,
+                            prevWorkspaceName: prevWorkspaceName,
+                            workspace: workspace,
+                            abandonIf: { restoreLeavesAlone($0) },
+                        )
+                    } catch is WindowRelayoutAbandoned {}
                 case .standard:
                     window.bindAsFloatingWindow(to: workspace)
             }

@@ -31,7 +31,7 @@ enum LauncherAppAction: Equatable {
 func launcherAppAction(bundleId: String, isRunning: Bool, menuFallbackEnabled: Bool) -> LauncherAppAction {
     switch newWindowMethod(bundleId: bundleId, isRunning: isRunning, menuFallbackEnabled: menuFallbackEnabled) {
         case .open: .open
-        case .script, .launchThenScript: .newWindow
+        case .script, .launchThenScript, .reopen: .newWindow
         case .menuItem: .newWindowFromMenu
         case .unsupported: .unsupported
     }

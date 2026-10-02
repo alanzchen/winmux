@@ -876,7 +876,8 @@ func openSavedWorkspaceAppsFromSidebar(_ workspaceName: String) -> Task<SavedWor
 /// A saved tab whose windows are gone, clicked: it comes to the screen, then its apps open into
 /// it. An app that quit relaunches, and its windows return to their saved places, this tab's
 /// first. Otherwise, a running app or one whose saved windows have expired, the app is asked
-/// for a new window in this tab, as the launcher asks.
+/// for a new window in this tab, as the launcher asks. A running app with no window at all is
+/// opened again, as a Dock click does, and the window it shows comes to this tab.
 @MainActor
 func openSavedTabFromSidebar(_ name: String, targetMonitorScopeId: String? = nil) {
     WorkspaceSidebarPanel.suppressEdgeTrapForWorkspaceActivation()
@@ -894,8 +895,8 @@ func openSavedTabFromSidebar(_ name: String, targetMonitorScopeId: String? = nil
 
 @MainActor
 func openSavedTabApps(_ tab: Workspace, requestNewWindow: @MainActor (NewWindowRequestTarget, Workspace) -> Void = { target, tab in
-    requestNewWindow(target, targetWorkspace: tab) { outcome in
-        if case .failed(let reason) = outcome { showWorkspaceSidebarError(reason) }
+    requestNewWindow(target, targetWorkspace: tab, reopensWindowlessApp: true) { outcome in
+        if let message = savedTabAppFailureMessage(outcome, appName: target.appName) { showWorkspaceSidebarError(message) }
     }
 }) {
     let apps = workspaceSidebarDistinctSavedApps(workspaceSidebarSavedApps(for: tab))
@@ -918,6 +919,16 @@ func openSavedTabApps(_ tab: Workspace, requestNewWindow: @MainActor (NewWindowR
         }
     }
     if relaunches { openSavedWorkspaceAppsFromSidebar(tab.name) }
+}
+
+/// What a saved tab says when its app gave it no window: only once the app was really asked, and
+/// never for a request that was withdrawn or that a newer click took over.
+func savedTabAppFailureMessage(_ outcome: NewWindowRequestOutcome, appName: String) -> String? {
+    switch outcome {
+        case .failed(let reason): reason
+        case .timedOut: "\(appName) didn't open a window."
+        case .placed, .opened, .cancelled: nil
+    }
 }
 
 @MainActor

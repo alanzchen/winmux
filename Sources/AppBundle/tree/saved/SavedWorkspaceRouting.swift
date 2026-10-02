@@ -6,8 +6,16 @@ import Common
 /// routed it to a saved workspace, or put it where a launcher request asked.
 @MainActor
 func restoreOrDetectNewWindow(_ window: Window, isRegularWindow: Bool) async throws -> Bool {
-    let didRestorePersisted = try await restorePersistedFrozenWorldIfNeeded(newlyDetectedWindow: window)
-    let didRestoreClosed = try await restoreClosedWindowsCacheIfNeeded(newlyDetectedWindow: window)
+    // A window an app showed again because a tab reopened it goes to that tab, not back to where
+    // it was before it was closed.
+    let isReopenedForTab = NewWindowIntentRegistry.shared.pendingClaim(windowId: window.windowId)
+        .map { $0.intent.reopens && !$0.isWithdrawn } == true
+    var didRestorePersisted = false
+    var didRestoreClosed = false
+    if !isReopenedForTab {
+        didRestorePersisted = try await restorePersistedFrozenWorldIfNeeded(newlyDetectedWindow: window)
+        didRestoreClosed = try await restoreClosedWindowsCacheIfNeeded(newlyDetectedWindow: window)
+    }
     if isRegularWindow {
         savedWorkspaceRuntime.noteWindowSeen(pid: window.app.pid)
     }
