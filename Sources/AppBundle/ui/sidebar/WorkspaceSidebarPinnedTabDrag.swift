@@ -106,6 +106,20 @@ private func workspaceSidebarPinnedTabJoin(_ tab: Workspace, onto other: Workspa
     return .join(other.name, placement: side, monitorScopeId: monitorScopeId)
 }
 
+/// How a joining tab's tiled `node` goes into `row`: whole, or, split the same way as the row, as
+/// its windows, which then take the share the whole split would and keep their sizes within it.
+@MainActor
+private func workspaceSidebarJoinedPieces(_ node: TreeNode, into row: TilingContainer) -> [(TreeNode, CGFloat)] {
+    guard let split = node as? TilingContainer, split.orientation == row.orientation else { return [(node, WEIGHT_AUTO)] }
+    let children = Array(split.children)
+    let weights = children.map { $0.getWeight(row.orientation) }
+    let total = weights.reduce(0, +)
+    guard total > 0 else { return children.map { ($0, WEIGHT_AUTO) } }
+    // As WEIGHT_AUTO gives one more node: the row's average, or 1 in an empty row.
+    let share = row.children.isEmpty ? 1 : CGFloat(row.children.sumOfDouble { $0.getWeight(row.orientation) }).div(row.children.count) ?? 1
+    return zip(children, weights).map { ($0, share * $1 / total) }
+}
+
 /// What of `tab` tiles as one piece beside another tab's windows: its one tiled node, or its whole
 /// tiled layout, so a split stays the split it is. Nil without tiled windows.
 @MainActor
@@ -345,10 +359,9 @@ func joinWorkspaceTabIntoPinnedTab(_ name: String, pin: Workspace, placement: Wo
         // Beside the pin's windows, side by side. A tab split the same way joins as its windows, in
         // order, so its split isn't nested and turned by normalization; any other split joins whole.
         let row = workspaceSiblingInsertionRoot(pin, orientation: .h)
-        let pieces = (node as? TilingContainer).map { $0.orientation == row.orientation ? Array($0.children) : [node] } ?? [node]
         let first = placement == .left ? row.children.count : 0
-        for (offset, piece) in pieces.enumerated() {
-            piece.bind(to: row, adaptiveWeight: WEIGHT_AUTO, index: first + offset)
+        for (offset, (piece, weight)) in workspaceSidebarJoinedPieces(node, into: row).enumerated() {
+            piece.bind(to: row, adaptiveWeight: weight, index: first + offset)
         }
         for floating in tab.floatingWindows {
             floating.bind(to: pin, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)

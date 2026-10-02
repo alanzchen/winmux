@@ -102,6 +102,33 @@ final class WorkspaceSidebarPinTilingTest: XCTestCase {
         }
     }
 
+    /// Review round 2: a split joining side by side keeps its windows' sizes, into an empty pin and
+    /// beside a pin's window, where the split takes the share it would as one piece.
+    func testASplitKeepsItsWindowsSizesWhenItJoins() async throws {
+        for emptyPin in [true, false] {
+            try await setUp()
+            config.enableNormalizationFlattenContainers = true
+            config.enableNormalizationOppositeOrientationForNestedContainers = true
+            let tab = Workspace.get(byName: "n")
+            let wide = TestWindow.new(id: 2, parent: tab.rootTilingContainer)
+            let narrow = TestWindow.new(id: 3, parent: tab.rootTilingContainer)
+            wide.setWeight(.h, 3)
+            narrow.setWeight(.h, 1)
+            let pin = Workspace.get(byName: emptyPin ? "empty" : "p")
+            if !emptyPin { _ = TestWindow.new(id: 1, parent: pin.rootTilingContainer) }
+            try setWorkspaceSidebarTabFavorite(pin, true)
+            XCTAssertTrue(tab.workspaceMonitor.setActiveWorkspace(tab))
+            let drop = try await pausedDrop(pin, onto: tab, right: true)
+            // As joined, before a layout: the sizes the layout then gives the windows.
+            try applyWorkspaceSidebarPinnedTabDrop(pin, drop)
+            XCTAssertEqual(wide.getWeight(.h) / narrow.getWeight(.h), 3, accuracy: 0.001, "Its windows keep their sizes")
+            if !emptyPin, let own = Window.get(byId: 1) {
+                XCTAssertEqual(wide.getWeight(.h) + narrow.getWeight(.h), own.getWeight(.h), accuracy: 0.001,
+                    "Together, as much as one piece beside the pin's window")
+            }
+        }
+    }
+
     /// Review: a tab whose window used last floats still joins its tiled window as a split; the
     /// floating one floats over the pin.
     func testAFloatingWindowUsedLastDoesntMakeTheTiledOneFloat() async throws {
@@ -333,7 +360,6 @@ final class WorkspaceSidebarPinTilingTest: XCTestCase {
             }?.value
             XCTAssertTrue(tab.allLeafWindowsRecursive.isEmpty)
             let kept = Workspace.existing(byName: "n").map { !$0.isArchived } ?? false
-            print("PIN-TILING afterlife saved=\(saved) kept=\(kept)")
             XCTAssertEqual(kept, saved, saved ? "A saved tab stays" : "An ordinary tab goes")
         }
     }
