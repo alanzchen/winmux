@@ -91,26 +91,38 @@ func supersedeClosedWindowsCache(placementOf window: Window, in workspace: Works
     closedWindowsCache = closedWindowsCache.superseding(placementOf: window, in: workspace)
 }
 
-/// Frozen-world restores under way. Each works from its own snapshot across its AX waits, so a
+/// Frozen-world restores under way, with the snapshot each works from across its AX waits. A
 /// reopened window placed meanwhile is finished only once none is left. See
 /// `finishNewWindowIntentPlacement`.
-@MainActor private(set) var activeFrozenRestoreCount = 0
+@MainActor private var frozenRestoresUnderWay: [Int: FrozenWorld] = [:]
+@MainActor private var lastFrozenRestore = 0
+
+@MainActor var activeFrozenRestoreCount: Int { frozenRestoresUnderWay.count }
+@MainActor var frozenWorldsBeingRestored: [FrozenWorld] { Array(frozenRestoresUnderWay.values) }
 
 @MainActor
-func beginFrozenRestore() {
-    activeFrozenRestoreCount += 1
+func beginFrozenRestore(_ frozenWorld: FrozenWorld) -> Int {
+    lastFrozenRestore += 1
+    frozenRestoresUnderWay[lastFrozenRestore] = frozenWorld
+    NewWindowIntentRegistry.shared.noteRestoreBegan(frozenWorld)
+    return lastFrozenRestore
 }
 
 /// On every way out of a restore: returning, throwing, or cancelled.
 @MainActor
-func endFrozenRestore() {
-    activeFrozenRestoreCount -= 1
-    if activeFrozenRestoreCount == 0 { finishDeferredReopenPlacements() }
+func endFrozenRestore(_ restore: Int) {
+    frozenRestoresUnderWay.removeValue(forKey: restore)
+    if frozenRestoresUnderWay.isEmpty { finishDeferredReopenPlacements() }
 }
 
 @MainActor
 func resetFrozenRestoresForTests() {
-    activeFrozenRestoreCount = 0
+    frozenRestoresUnderWay = [:]
+}
+
+/// The workspace a snapshot remembers the window in, where restoring it would put the window back.
+func frozenWorkspaceName(remembering windowId: UInt32, in frozenWorld: FrozenWorld) -> String? {
+    frozenWorld.workspaces.first { collectFrozenWindows($0)[windowId] != nil }?.name
 }
 
 @MainActor
@@ -121,8 +133,8 @@ func restoreFrozenWorldIfNeeded(_ frozenWorld: FrozenWorld, newlyDetectedWindow:
     guard frozenWorld.workspaces.contains(where: { collectFrozenWindows($0)[newlyDetectedWindow.windowId] != nil }) else {
         return false
     }
-    beginFrozenRestore()
-    defer { endFrozenRestore() }
+    let restore = beginFrozenRestore(frozenWorld)
+    defer { endFrozenRestore(restore) }
     let monitors = monitors
     let topLeftCornerToMonitor = monitors.grouped { $0.rect.topLeftCorner }
     let restoredWorkspaceNames = Set(frozenWorld.workspaces.map(\.name))

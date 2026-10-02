@@ -60,7 +60,7 @@ final class PinReopenRestoreRaceTest: XCTestCase {
     /// app's window in `q`, and a hidden app's window in `held-first`, which a restore reads first.
     /// The first two closed; the user is on the empty pin.
     private func closedWorld() -> (old: Workspace, pin: Workspace, q: Workspace, held: TestWindow, reopened: TestWindow,
-                                   other: TestWindow)
+                                   other: TestWindow, world: FrozenWorld)
     {
         let heldFirst = Workspace.get(byName: "held-first")
         let old = Workspace.get(byName: "old")
@@ -70,11 +70,12 @@ final class PinReopenRestoreRaceTest: XCTestCase {
         let reopened = TestWindow.new(id: 2, parent: old.rootTilingContainer)
         _ = TestWindow.new(id: 1, parent: old.rootTilingContainer)
         let other = TestWindow.new(id: 3, parent: q.rootTilingContainer, app: TestApp(pid: 77, bundleId: "com.example.other"))
-        replaceClosedWindowsCache(snapshotCurrentFrozenWorld())
+        let world = snapshotCurrentFrozenWorld()
+        replaceClosedWindowsCache(world)
         reopened.unbindFromParent()
         other.unbindFromParent()
         _ = pin.focusWorkspace()
-        return (old, pin, q, held, reopened, other)
+        return (old, pin, q, held, reopened, other, world)
     }
 
     /// Another app's window comes back; its restore of the old snapshot waits on an AX read of `held`
@@ -101,7 +102,7 @@ final class PinReopenRestoreRaceTest: XCTestCase {
     }
 
     func testAReopenClaimedWhileARestoreWaitsOnAXEndsInTheClickedTab() async throws {
-        let (old, pin, q, held, reopened, other) = closedWorld()
+        let (old, pin, q, held, reopened, other, _) = closedWorld()
         let (restore, release) = await restoreWaitingOnAX(other, held: held)
         var outcomes: [NewWindowRequestOutcome] = []
         clickPin(pin) { outcomes.append($0) }
@@ -122,23 +123,23 @@ final class PinReopenRestoreRaceTest: XCTestCase {
     }
 
     func testAReopenWaitsForTheLastOfOverlappingRestores() async throws {
-        let (_, pin, _, _, reopened, _) = closedWorld()
+        let (_, pin, _, _, reopened, _, world) = closedWorld()
         var outcomes: [NewWindowRequestOutcome] = []
-        beginFrozenRestore()
-        beginFrozenRestore()
+        let first = beginFrozenRestore(world)
+        let second = beginFrozenRestore(world)
         clickPin(pin) { outcomes.append($0) }
         await letTasksRun()
         try await appShows(reopened)
 
-        endFrozenRestore()
+        endFrozenRestore(first)
         XCTAssertEqual(outcomes, [], "One restore is still under way")
-        endFrozenRestore()
+        endFrozenRestore(second)
         XCTAssertEqual(outcomes, [.placed(windowId: 2)])
         XCTAssertTrue(reopened.nodeWorkspace === pin)
     }
 
     func testARestoreThatFailsStillLetsTheReopenFinish() async throws {
-        let (_, pin, _, held, reopened, other) = closedWorld()
+        let (_, pin, _, held, reopened, other, _) = closedWorld()
         let (restore, release) = await restoreWaitingOnAX(other, held: held, failing: CocoaError(.featureUnsupported))
         var outcomes: [NewWindowRequestOutcome] = []
         clickPin(pin) { outcomes.append($0) }
@@ -157,7 +158,7 @@ final class PinReopenRestoreRaceTest: XCTestCase {
     }
 
     func testACancelledRestoreStillLetsTheReopenFinish() async throws {
-        let (_, pin, _, held, reopened, other) = closedWorld()
+        let (_, pin, _, held, reopened, other, _) = closedWorld()
         let (restore, release) = await restoreWaitingOnAX(other, held: held)
         var outcomes: [NewWindowRequestOutcome] = []
         clickPin(pin) { outcomes.append($0) }
@@ -174,9 +175,9 @@ final class PinReopenRestoreRaceTest: XCTestCase {
     }
 
     func testATabClosedWhileItsReopenWaitsGetsNothingAndSaysNothing() async throws {
-        let (old, pin, _, _, reopened, _) = closedWorld()
+        let (old, pin, _, _, reopened, _, world) = closedWorld()
         var outcomes: [NewWindowRequestOutcome] = []
-        beginFrozenRestore()
+        let restore = beginFrozenRestore(world)
         clickPin(pin) { outcomes.append($0) }
         await letTasksRun()
         try await appShows(reopened)
@@ -184,7 +185,7 @@ final class PinReopenRestoreRaceTest: XCTestCase {
         reopened.bind(to: old.rootTilingContainer, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
         removeWorkspaceFromRegistry(pin, reason: .deleted)
 
-        endFrozenRestore()
+        endFrozenRestore(restore)
         XCTAssertEqual(outcomes, [.cancelled])
         XCTAssertNil(savedTabAppFailureMessage(.cancelled, appName: "Probe"))
         XCTAssertTrue(reopened.nodeWorkspace === old, "Left where it is")
@@ -192,18 +193,18 @@ final class PinReopenRestoreRaceTest: XCTestCase {
     }
 
     func testMovingOnWhileTheReopenWaitsKeepsTheUserThereAndStillPlacesTheWindow() async throws {
-        let (old, pin, _, _, reopened, _) = closedWorld()
+        let (old, pin, _, _, reopened, _, world) = closedWorld()
         let elsewhere = Workspace.get(byName: "elsewhere")
         let stay = TestWindow.new(id: 7, parent: elsewhere.rootTilingContainer)
         var outcomes: [NewWindowRequestOutcome] = []
-        beginFrozenRestore()
+        let restore = beginFrozenRestore(world)
         clickPin(pin) { outcomes.append($0) }
         await letTasksRun()
         try await appShows(reopened)
         reopened.bind(to: old.rootTilingContainer, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
         _ = stay.focusWindow()
 
-        endFrozenRestore()
+        endFrozenRestore(restore)
         XCTAssertTrue(reopened.nodeWorkspace === pin, "Still where the click asked")
         XCTAssertTrue(focus.windowOrNil === stay, "No focus steal")
         XCTAssertTrue(elsewhere.isVisible)
@@ -212,8 +213,8 @@ final class PinReopenRestoreRaceTest: XCTestCase {
 
     func testTheReopenGetsBackTheStateTheRequestGaveItNotTheOldSnapshots() async throws {
         config.automaticallyTileNewWindows = true
-        let (old, pin, _, _, reopened, _) = closedWorld()
-        beginFrozenRestore()
+        let (old, pin, _, _, reopened, _, world) = closedWorld()
+        let restore = beginFrozenRestore(world)
         clickPin(pin) { _ in }
         await letTasksRun()
         try await appShows(reopened)
@@ -222,46 +223,47 @@ final class PinReopenRestoreRaceTest: XCTestCase {
         reopened.bindAsFloatingWindow(to: old)
         reopened.isFullscreen = true
 
-        endFrozenRestore()
+        endFrozenRestore(restore)
         XCTAssertTrue(reopened.nodeWorkspace === pin)
         XCTAssertFalse(reopened.isFloating, "Tiled, as new windows are")
         XCTAssertFalse(reopened.isFullscreen)
     }
 
     func testAReopenClaimedInsideARestoresOwnPathFinishesAsThatRestoreEnds() async throws {
-        let (_, pin, _, _, reopened, _) = closedWorld()
+        let (_, pin, _, _, reopened, _, world) = closedWorld()
         var outcomes: [NewWindowRequestOutcome] = []
         clickPin(pin) { outcomes.append($0) }
         await letTasksRun()
         // The claim happens within a restore's own registration path: nothing waits on anything.
-        beginFrozenRestore()
+        let restore = beginFrozenRestore(world)
         try await appShows(reopened)
         XCTAssertEqual(outcomes, [])
-        endFrozenRestore()
+        endFrozenRestore(restore)
         XCTAssertEqual(outcomes, [.placed(windowId: 2)], "Finished synchronously as the restore ends")
     }
 
     func testAReopenWaitingPastItsDeadlineFailsAndStaysWhereTheRestoreLeftIt() async throws {
-        let (old, pin, _, _, reopened, _) = closedWorld()
+        let (old, pin, _, _, reopened, _, world) = closedWorld()
         var outcomes: [NewWindowRequestOutcome] = []
-        beginFrozenRestore()
+        let restore = beginFrozenRestore(world)
         let intentId = try XCTUnwrap(clickPin(pin) { outcomes.append($0) })
         await letTasksRun()
         try await appShows(reopened)
         reopened.bind(to: old.rootTilingContainer, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
         XCTAssertNotNil(registry.deadline(forIntent: intentId), "The expiry watcher keeps watching it")
 
+        // The restores end after the deadline, before the expiry watcher wakes.
         clock += newWindowIntentTimeout + 1
-        registry.expireOverdueIntents()
+        endFrozenRestore(restore)
         XCTAssertEqual(outcomes, [.failed("WinMux couldn't place the new window")])
-        endFrozenRestore()
-        XCTAssertTrue(reopened.nodeWorkspace === old, "Ended already; the late drain leaves it alone")
+        XCTAssertTrue(reopened.nodeWorkspace === old, "Over; it stays where the restore left it")
+        registry.expireOverdueIntents()
         XCTAssertEqual(outcomes.count, 1)
     }
 
     func testAnotherClickWhileTheWindowWaitsForRestoresAsksNothingAndSaysNothing() async throws {
-        let (_, pin, _, _, reopened, _) = closedWorld()
-        beginFrozenRestore()
+        let (_, pin, _, _, reopened, _, world) = closedWorld()
+        let restore = beginFrozenRestore(world)
         clickPin(pin) { _ in }
         await letTasksRun()
         try await appShows(reopened)
@@ -270,14 +272,14 @@ final class PinReopenRestoreRaceTest: XCTestCase {
         requestNewWindow(NewWindowRequestTarget(bundleId: appId, appName: "Probe", bundleURL: appURL), targetWorkspace: pin,
             reopensWindowlessApp: true) { second.append($0) }
         XCTAssertEqual(second, [.cancelled], "Not \"can't open a new window\"")
-        endFrozenRestore()
+        endFrozenRestore(restore)
         XCTAssertTrue(reopened.nodeWorkspace === pin)
     }
 
     func testARequestWithdrawnWhileItsWindowWaitsLeavesTheWindowWhereItIs() async throws {
-        let (old, pin, _, _, reopened, _) = closedWorld()
+        let (old, pin, _, _, reopened, _, world) = closedWorld()
         var outcomes: [NewWindowRequestOutcome] = []
-        beginFrozenRestore()
+        let restore = beginFrozenRestore(world)
         let intentId = try XCTUnwrap(clickPin(pin) { outcomes.append($0) })
         await letTasksRun()
         try await appShows(reopened)
@@ -285,8 +287,91 @@ final class PinReopenRestoreRaceTest: XCTestCase {
 
         registry.cancel(intentId: intentId, outcome: .failed("Probe couldn't be opened: gone"))
         XCTAssertEqual(outcomes, [.failed("Probe couldn't be opened: gone")])
-        endFrozenRestore()
+        endFrozenRestore(restore)
         XCTAssertTrue(reopened.nodeWorkspace === old, "Withdrawn: the usual rules, not the click")
         XCTAssertEqual(outcomes.count, 1)
+    }
+
+    func testATabRemovedBeforeAWaitingReopenExpiresSaysNothing() async throws {
+        let (old, pin, _, _, reopened, _, world) = closedWorld()
+        var outcomes: [NewWindowRequestOutcome] = []
+        let restore = beginFrozenRestore(world)
+        clickPin(pin) { outcomes.append($0) }
+        await letTasksRun()
+        try await appShows(reopened)
+        reopened.bind(to: old.rootTilingContainer, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
+        removeWorkspaceFromRegistry(pin, reason: .deleted)
+
+        clock += newWindowIntentTimeout + 1
+        registry.expireOverdueIntents()
+        XCTAssertEqual(outcomes, [.cancelled], "No error for a tab that's gone")
+        endFrozenRestore(restore)
+        XCTAssertEqual(outcomes.count, 1)
+    }
+
+    func testAWindowTheUserMovesWhileItWaitsStaysWhereTheUserPutIt() async throws {
+        let (_, pin, _, _, reopened, _, world) = closedWorld()
+        let elsewhere = Workspace.get(byName: "elsewhere")
+        _ = TestWindow.new(id: 7, parent: elsewhere.rootTilingContainer)
+        var outcomes: [NewWindowRequestOutcome] = []
+        let restore = beginFrozenRestore(world)
+        clickPin(pin) { outcomes.append($0) }
+        await letTasksRun()
+        try await appShows(reopened)
+        // move-node-to-workspace elsewhere, while an unrelated restore still runs
+        reopened.bind(to: elsewhere.rootTilingContainer, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
+
+        endFrozenRestore(restore)
+        XCTAssertTrue(reopened.nodeWorkspace === elsewhere, "A newer deliberate move isn't undone")
+        XCTAssertEqual(outcomes, [.cancelled])
+        XCTAssertNil(savedTabAppFailureMessage(outcomes[0], appName: "Probe"))
+    }
+
+    func testAWindowLeftInARootTheRestoreReplacedStillGoesToTheClickedTab() async throws {
+        let (_, pin, _, _, reopened, _, world) = closedWorld()
+        var outcomes: [NewWindowRequestOutcome] = []
+        let restore = beginFrozenRestore(world)
+        clickPin(pin) { outcomes.append($0) }
+        await letTasksRun()
+        try await appShows(reopened)
+        // The restore detached the tab's root, with the window still in it, then failed before
+        // reaching the window. The window keeps its parent, which no longer belongs to the tab.
+        let detached = pin.rootTilingContainer
+        detached.unbindFromParent()
+        XCTAssertTrue(reopened.parent === detached)
+        XCTAssertNil(reopened.nodeWorkspace)
+
+        endFrozenRestore(restore)
+        XCTAssertTrue(reopened.nodeWorkspace === pin)
+        XCTAssertEqual(outcomes, [.placed(windowId: 2)])
+    }
+
+    func testTwoAppsReopenedWhileARestoreRunsBothEndInTheirOwnTabs() async throws {
+        let (_, pin, _, _, reopened, _, world) = closedWorld()
+        let otherPin = Workspace.get(byName: "other-pin")
+        let otherApp = TestApp(pid: 88, bundleId: "com.example.second")
+        let secondWindow = TestWindow.new(id: 12, parent: otherPin.rootTilingContainer, app: otherApp)
+        secondWindow.unbindFromParent()
+        let secondURL = URL(fileURLWithPath: "/Applications/Second.app")
+        reopenRunningApplication = { [appURL] url in url == appURL ? TestApp.shared.pid : 88 }
+        var outcomes: [String: [NewWindowRequestOutcome]] = [:]
+        let restore = beginFrozenRestore(world)
+        clickPin(pin) { outcomes["first", default: []].append($0) }
+        startReopenRequest(NewWindowRequestTarget(bundleId: "com.example.second", appName: "Second", bundleURL: secondURL), pid: 88,
+            appURL: secondURL, targetWorkspace: otherPin, focusGeneration: focusChangeGeneration, preexistingWindowIds: { [] },
+            completion: { outcomes["second", default: []].append($0) })
+        await letTasksRun()
+        try await appShows(reopened)
+        let tab = try XCTUnwrap(registry.claim(windowId: 12, pid: 88, bundleId: "com.example.second", firstSeenUptime: clock))
+        let binding = newWindowIntentBinding(targetWorkspace: tab)
+        secondWindow.bind(to: binding.parent, adaptiveWeight: binding.adaptiveWeight, index: binding.index)
+        _ = try await restoreOrDetectNewWindow(secondWindow, isRegularWindow: true)
+        XCTAssertEqual(outcomes, [:], "Both wait")
+
+        endFrozenRestore(restore)
+        XCTAssertTrue(reopened.nodeWorkspace === pin)
+        XCTAssertTrue(secondWindow.nodeWorkspace === otherPin)
+        XCTAssertEqual(outcomes["first"], [.placed(windowId: 2)])
+        XCTAssertEqual(outcomes["second"], [.placed(windowId: 12)])
     }
 }

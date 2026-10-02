@@ -83,6 +83,9 @@ struct DeferredReopenPlacement {
     let isFullscreen: Bool
     let noOuterGapsInFullscreen: Bool
     let layoutReason: LayoutReason
+    /// The workspaces that restores under way meanwhile remember the window in: a restore can only
+    /// put it back there. A move anywhere else is the user's.
+    private(set) var restoreDestinations: Set<String> = []
 
     init(window: Window, claim: NewWindowIntentClaim) {
         self.window = window
@@ -91,6 +94,10 @@ struct DeferredReopenPlacement {
         isFullscreen = window.isFullscreen
         noOuterGapsInFullscreen = window.noOuterGapsInFullscreen
         layoutReason = window.layoutReason
+    }
+
+    mutating func noteRestore(of frozenWorld: FrozenWorld) {
+        if let name = frozenWorkspaceName(remembering: window.windowId, in: frozenWorld) { restoreDestinations.insert(name) }
     }
 }
 
@@ -263,8 +270,15 @@ final class NewWindowIntentRegistry {
     }
 
     /// Waits for the restores under way, within the claim's deadline.
-    func deferPlacement(_ placement: DeferredReopenPlacement) {
+    func deferPlacement(_ placement: DeferredReopenPlacement, restoresUnderWay: [FrozenWorld]) {
+        var placement = placement
+        for frozenWorld in restoresUnderWay { placement.noteRestore(of: frozenWorld) }
         deferredPlacements[placement.claim.intent.id] = placement
+    }
+
+    /// A restore begins before the waiting placements are finished; it may put their windows back.
+    func noteRestoreBegan(_ frozenWorld: FrozenWorld) {
+        for id in deferredPlacements.keys { deferredPlacements[id]?.noteRestore(of: frozenWorld) }
     }
 
     /// The placements to finish now, in the order they were claimed.
@@ -297,7 +311,10 @@ final class NewWindowIntentRegistry {
         let waitedTooLong = deferredPlacements.filter { $0.value.claim.claimedUptime + newWindowIntentTimeout < time }
         for (id, deferred) in waitedTooLong {
             deferredPlacements.removeValue(forKey: id)
-            finish(deferred.claim.intent, .failed("WinMux couldn't place the new window"))
+            let target = deferred.claim.targetWorkspace
+            // A tab closed meanwhile has nothing left to report to.
+            let tabRemains = winMuxWorkspaceState.workspaceById[target.id] === target && !target.isArchived
+            finish(deferred.claim.intent, tabRemains ? .failed("WinMux couldn't place the new window") : .cancelled)
         }
     }
 
@@ -354,7 +371,8 @@ func finishNewWindowIntentPlacement(_ window: Window, claim: NewWindowIntentClai
     // A restore under way works from a snapshot older than this placement, across its AX waits, and
     // would put a reopened window back where it was before it closed. It's finished once they end.
     if claim.intent.reopens, activeFrozenRestoreCount > 0 {
-        NewWindowIntentRegistry.shared.deferPlacement(DeferredReopenPlacement(window: window, claim: claim))
+        NewWindowIntentRegistry.shared.deferPlacement(DeferredReopenPlacement(window: window, claim: claim),
+            restoresUnderWay: frozenWorldsBeingRestored)
         return
     }
     if newWindowIntentMayTakeFocus(claim.intent), window.nodeWorkspace?.isVisible == true, window.focusWindow() {
@@ -368,30 +386,46 @@ func finishNewWindowIntentPlacement(_ window: Window, claim: NewWindowIntentClai
 }
 
 /// The last restore under way ended: each reopened window placed meanwhile goes back where and as
-/// the request put it, if its tab and request still stand. It takes focus, and shows its tab again,
-/// only if the user hasn't moved on. Synchronous, so it never waits on the restore that called it.
+/// the request put it, if its tab and request still stand and a restore, not the user, moved it.
+/// It takes focus, and shows its tab again, only if the user hasn't moved on. Synchronous, so it
+/// never waits on the restore that called it.
 @MainActor
 func finishDeferredReopenPlacements() {
     let registry = NewWindowIntentRegistry.shared
+    // A placement past its deadline is over, however late the expiry watcher wakes.
+    registry.expireOverdueIntents()
     for deferred in registry.takeDeferredPlacements() {
         let window = deferred.window
         let claim = deferred.claim
         let target = claim.targetWorkspace
         guard !claim.isWithdrawn else { continue }
-        guard winMuxWorkspaceState.workspaceById[target.id] === target, !target.isArchived,
-              Window.get(byId: window.windowId) === window
+        // Still the window that was placed, closed neither in WinMux nor in a replaced registration.
+        guard winMuxWorkspaceState.workspaceById[target.id] === target, !target.isArchived, window.isBound,
+              Window.get(byId: window.windowId).map({ $0 === window }) ?? true
         else {
             // The tab or the window went meanwhile; the window stays where it is.
             registry.cancel(claim: claim)
             continue
         }
-        if window.parent !== deferred.parent {
+        let current = window.nodeWorkspace
+        let restored = !deferred.restoreDestinations.isEmpty
+        // A restore leaves a window only where its snapshot remembers it, or in a root it replaced.
+        let putBackByRestore = current == nil ||
+            current.map { deferred.restoreDestinations.contains($0.name) && ($0 !== target || window.parent !== deferred.parent) } == true
+        if current !== target, !putBackByRestore {
+            // The user moved it since; it stays there.
+            registry.cancel(claim: claim)
+            continue
+        }
+        if putBackByRestore {
             let binding = newWindowIntentBinding(targetWorkspace: target)
             window.bind(to: binding.parent, adaptiveWeight: binding.adaptiveWeight, index: binding.index)
         }
-        window.isFullscreen = deferred.isFullscreen
-        window.noOuterGapsInFullscreen = deferred.noOuterGapsInFullscreen
-        window.layoutReason = deferred.layoutReason
+        if restored {
+            window.isFullscreen = deferred.isFullscreen
+            window.noOuterGapsInFullscreen = deferred.noOuterGapsInFullscreen
+            window.layoutReason = deferred.layoutReason
+        }
         // The restore may have shown another tab where the user was looking at this one.
         let userWasHere = window.nodeWorkspace?.isVisible == true || claim.intent.focusWhenSent?.workspace === target
         if newWindowIntentMayTakeFocus(claim.intent), userWasHere, window.focusWindow() {
