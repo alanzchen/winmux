@@ -72,33 +72,12 @@ struct NewWindowIntentClaim {
     var isWithdrawn: Bool { intent.isCancelled }
 }
 
-/// A reopened window placed while a frozen-world restore was under way. The restore works from an
-/// older snapshot and may still move it, so the placement is finished once no restore is left.
+/// A reopened window placed while a frozen-world restore was under way. Restores leave it alone,
+/// and it's finished once none is left, so it reports where it ends up.
 @MainActor
 struct DeferredReopenPlacement {
     let window: Window
     let claim: NewWindowIntentClaim
-    /// Where and how the request put the window, which a restore may change.
-    let parent: NonLeafTreeNodeObject?
-    let isFullscreen: Bool
-    let noOuterGapsInFullscreen: Bool
-    let layoutReason: LayoutReason
-    /// The workspaces that restores under way meanwhile remember the window in: a restore can only
-    /// put it back there. A move anywhere else is the user's.
-    private(set) var restoreDestinations: Set<String> = []
-
-    init(window: Window, claim: NewWindowIntentClaim) {
-        self.window = window
-        self.claim = claim
-        parent = window.parent
-        isFullscreen = window.isFullscreen
-        noOuterGapsInFullscreen = window.noOuterGapsInFullscreen
-        layoutReason = window.layoutReason
-    }
-
-    mutating func noteRestore(of frozenWorld: FrozenWorld) {
-        if let name = frozenWorkspaceName(remembering: window.windowId, in: frozenWorld) { restoreDestinations.insert(name) }
-    }
 }
 
 /// Where focus was when WinMux sent the request to the app.
@@ -122,6 +101,9 @@ final class NewWindowIntentRegistry {
     var isRestorationCandidate: (UInt32) -> Bool = { windowId in
         persistedFrozenWorldContains(windowId: windowId) || closedWindowsCacheContains(windowId: windowId)
     }
+    /// Whether WinMux still has this window registered: not closed, and not replaced by a new
+    /// registration of the same id. Replaceable for tests, whose windows aren't registered.
+    var isRegistered: (Window) -> Bool = { window in MacWindow.allWindowsMap[window.windowId] === window }
     /// Whether the process a reopen asked is still running.
     var isProcessAlive: (Int32) -> Bool = { pid in
         NSRunningApplication(processIdentifier: pid).map { !$0.isTerminated } ?? false
@@ -270,15 +252,14 @@ final class NewWindowIntentRegistry {
     }
 
     /// Waits for the restores under way, within the claim's deadline.
-    func deferPlacement(_ placement: DeferredReopenPlacement, restoresUnderWay: [FrozenWorld]) {
-        var placement = placement
-        for frozenWorld in restoresUnderWay { placement.noteRestore(of: frozenWorld) }
+    func deferPlacement(_ placement: DeferredReopenPlacement) {
         deferredPlacements[placement.claim.intent.id] = placement
     }
 
-    /// A restore begins before the waiting placements are finished; it may put their windows back.
-    func noteRestoreBegan(_ frozenWorld: FrozenWorld) {
-        for id in deferredPlacements.keys { deferredPlacements[id]?.noteRestore(of: frozenWorld) }
+    /// A reopen claimed this window for a tab and hasn't finished: restores leave it alone.
+    func holdsReopenClaim(on window: Window) -> Bool {
+        if let claim = claims[window.windowId], claim.intent.reopens, !claim.isWithdrawn { return true }
+        return deferredPlacements.values.contains { $0.window === window }
     }
 
     /// The placements to finish now, in the order they were claimed.
@@ -329,6 +310,7 @@ final class NewWindowIntentRegistry {
             persistedFrozenWorldContains(windowId: windowId) || closedWindowsCacheContains(windowId: windowId)
         }
         isProcessAlive = { pid in NSRunningApplication(processIdentifier: pid).map { !$0.isTerminated } ?? false }
+        isRegistered = { window in MacWindow.allWindowsMap[window.windowId] === window }
     }
 
     private func finish(_ intent: NewWindowIntent, _ outcome: NewWindowRequestOutcome) {
@@ -371,8 +353,7 @@ func finishNewWindowIntentPlacement(_ window: Window, claim: NewWindowIntentClai
     // A restore under way works from a snapshot older than this placement, across its AX waits, and
     // would put a reopened window back where it was before it closed. It's finished once they end.
     if claim.intent.reopens, activeFrozenRestoreCount > 0 {
-        NewWindowIntentRegistry.shared.deferPlacement(DeferredReopenPlacement(window: window, claim: claim),
-            restoresUnderWay: frozenWorldsBeingRestored)
+        NewWindowIntentRegistry.shared.deferPlacement(DeferredReopenPlacement(window: window, claim: claim))
         return
     }
     if newWindowIntentMayTakeFocus(claim.intent), window.nodeWorkspace?.isVisible == true, window.focusWindow() {
@@ -385,10 +366,11 @@ func finishNewWindowIntentPlacement(_ window: Window, claim: NewWindowIntentClai
     NewWindowIntentRegistry.shared.completeClaim(claim, window: window)
 }
 
-/// The last restore under way ended: each reopened window placed meanwhile goes back where and as
-/// the request put it, if its tab and request still stand and a restore, not the user, moved it.
-/// It takes focus, and shows its tab again, only if the user hasn't moved on. Synchronous, so it
-/// never waits on the restore that called it.
+/// The last restore under way ended: each reopened window placed meanwhile is finished where it is,
+/// if its tab and request still stand. Restores left it alone, so it's in its tab unless the user
+/// moved it, which stands, or a restore that failed partway left it in a root it replaced. It takes
+/// focus, and shows its tab again, only if the user hasn't moved on. Synchronous, so it never waits
+/// on the restore that called it.
 @MainActor
 func finishDeferredReopenPlacements() {
     let registry = NewWindowIntentRegistry.shared
@@ -399,40 +381,43 @@ func finishDeferredReopenPlacements() {
         let claim = deferred.claim
         let target = claim.targetWorkspace
         guard !claim.isWithdrawn else { continue }
-        // Still the window that was placed, closed neither in WinMux nor in a replaced registration.
-        guard winMuxWorkspaceState.workspaceById[target.id] === target, !target.isArchived, window.isBound,
-              Window.get(byId: window.windowId).map({ $0 === window }) ?? true
+        guard winMuxWorkspaceState.workspaceById[target.id] === target, !target.isArchived, registry.isRegistered(window)
         else {
             // The tab or the window went meanwhile; the window stays where it is.
             registry.cancel(claim: claim)
             continue
         }
-        let current = window.nodeWorkspace
-        let restored = !deferred.restoreDestinations.isEmpty
-        // A restore leaves a window only where its snapshot remembers it, or in a root it replaced.
-        let putBackByRestore = current == nil ||
-            current.map { deferred.restoreDestinations.contains($0.name) && ($0 !== target || window.parent !== deferred.parent) } == true
-        if current !== target, !putBackByRestore {
-            // The user moved it since; it stays there.
-            registry.cancel(claim: claim)
-            continue
-        }
-        if putBackByRestore {
+        if window.isInDetachedTree {
             let binding = newWindowIntentBinding(targetWorkspace: target)
             window.bind(to: binding.parent, adaptiveWeight: binding.adaptiveWeight, index: binding.index)
         }
-        if restored {
-            window.isFullscreen = deferred.isFullscreen
-            window.noOuterGapsInFullscreen = deferred.noOuterGapsInFullscreen
-            window.layoutReason = deferred.layoutReason
+        guard window.nodeWorkspace === target else {
+            // The user moved it since, or it went native full screen or minimized; it stays as it is.
+            registry.cancel(claim: claim)
+            continue
         }
-        // The restore may have shown another tab where the user was looking at this one.
-        let userWasHere = window.nodeWorkspace?.isVisible == true || claim.intent.focusWhenSent?.workspace === target
+        // A restore may have shown another tab where the user was looking at this one.
+        let userWasHere = target.isVisible || claim.intent.focusWhenSent?.workspace === target
         if newWindowIntentMayTakeFocus(claim.intent), userWasHere, window.focusWindow() {
             window.nativeFocus()
         }
         noteExplicitWindowPlacement(window, in: target)
         registry.completeClaim(claim, window: window)
+    }
+}
+
+extension Window {
+    /// In a tiling tree that a restore unbound from its workspace, not in any workspace or macOS container.
+    @MainActor
+    fileprivate var isInDetachedTree: Bool {
+        var node: TreeNode = self
+        while let parent = node.parent {
+            if parent is Workspace || parent is MacosMinimizedWindowsContainer || parent is MacosPopupWindowsContainer {
+                return false
+            }
+            node = parent
+        }
+        return node !== self
     }
 }
 
