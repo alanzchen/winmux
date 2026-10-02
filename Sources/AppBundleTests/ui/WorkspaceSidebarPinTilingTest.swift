@@ -102,29 +102,40 @@ final class WorkspaceSidebarPinTilingTest: XCTestCase {
         }
     }
 
-    /// Review round 2: a split joining side by side keeps its windows' sizes, into an empty pin and
-    /// beside a pin's window, where the split takes the share it would as one piece.
+    /// Review rounds 2 and 3: a split joining side by side keeps its windows' sizes once laid out,
+    /// into an empty pin and beside one or two of the pin's windows. Weights are lengths, and layout
+    /// adds the same amount to each child, so the split ends with the 1/(n + 1) of the row one piece
+    /// would, and each of the pin's windows gives up what it would to one more window.
     func testASplitKeepsItsWindowsSizesWhenItJoins() async throws {
-        for emptyPin in [true, false] {
+        for pinWindows in 0 ... 2 {
             try await setUp()
             config.enableNormalizationFlattenContainers = true
             config.enableNormalizationOppositeOrientationForNestedContainers = true
             let tab = Workspace.get(byName: "n")
+            let width = tab.workspaceMonitor.visibleRectPaddedByOuterGaps.width
             let wide = TestWindow.new(id: 2, parent: tab.rootTilingContainer)
             let narrow = TestWindow.new(id: 3, parent: tab.rootTilingContainer)
-            wide.setWeight(.h, 3)
-            narrow.setWeight(.h, 1)
-            let pin = Workspace.get(byName: emptyPin ? "empty" : "p")
-            if !emptyPin { _ = TestWindow.new(id: 1, parent: pin.rootTilingContainer) }
+            wide.setWeight(.h, width * 0.75)
+            narrow.setWeight(.h, width * 0.25)
+            let pin = Workspace.get(byName: pinWindows == 0 ? "empty" : "p")
+            let own = (0 ..< pinWindows).map { TestWindow.new(id: UInt32(10 + $0), parent: pin.rootTilingContainer) }
+            try await pin.layoutWorkspace()
             try setWorkspaceSidebarTabFavorite(pin, true)
             XCTAssertTrue(tab.workspaceMonitor.setActiveWorkspace(tab))
+            try await tab.layoutWorkspace()
+            XCTAssertEqual(wide.getWeight(.h), width * 0.75, accuracy: 0.5, "Laid out as set")
             let drop = try await pausedDrop(pin, onto: tab, right: true)
-            // As joined, before a layout: the sizes the layout then gives the windows.
             try applyWorkspaceSidebarPinnedTabDrop(pin, drop)
-            XCTAssertEqual(wide.getWeight(.h) / narrow.getWeight(.h), 3, accuracy: 0.001, "Its windows keep their sizes")
-            if !emptyPin, let own = Window.get(byId: 1) {
-                XCTAssertEqual(wide.getWeight(.h) + narrow.getWeight(.h), own.getWeight(.h), accuracy: 0.001,
-                    "Together, as much as one piece beside the pin's window")
+            try await pin.layoutWorkspace()
+            let share = width / CGFloat(pinWindows + 1)
+            XCTAssertEqual(pin.rootTilingContainer.allLeafWindowsRecursive.map(\.windowId), [2, 3] + own.map(\.windowId))
+            XCTAssertEqual(wide.getWeight(.h), share * 0.75, accuracy: 0.5, "\(pinWindows) pin windows: its windows keep their sizes")
+            XCTAssertEqual(narrow.getWeight(.h), share * 0.25, accuracy: 0.5, "\(pinWindows) pin windows")
+            for window in own {
+                XCTAssertEqual(window.getWeight(.h), share, accuracy: 0.5, "The pin's windows give up what one more window takes")
+            }
+            for window in pin.rootTilingContainer.allLeafWindowsRecursive {
+                XCTAssertGreaterThan(try XCTUnwrap(window.lastAppliedLayoutPhysicalRect).width, 0)
             }
         }
     }

@@ -115,9 +115,13 @@ private func workspaceSidebarJoinedPieces(_ node: TreeNode, into row: TilingCont
     let weights = children.map { $0.getWeight(row.orientation) }
     let total = weights.reduce(0, +)
     guard total > 0 else { return children.map { ($0, WEIGHT_AUTO) } }
-    // As WEIGHT_AUTO gives one more node: the row's average, or 1 in an empty row.
-    let share = row.children.isEmpty ? 1 : CGFloat(row.children.sumOfDouble { $0.getWeight(row.orientation) }).div(row.children.count) ?? 1
-    return zip(children, weights).map { ($0, share * $1 / total) }
+    // Weights are lengths, and layout adds the same amount to every child to fill the row. An
+    // empty row keeps the split's own lengths. Otherwise the windows end with the 1/(n + 1) of the
+    // row one WEIGHT_AUTO node would, and each of the row's n children loses what it would then.
+    let count = CGFloat(row.children.count)
+    guard count > 0 else { return Array(zip(children, weights)) }
+    let share = CGFloat(row.children.sumOfDouble { $0.getWeight(row.orientation) }) / (count + 1)
+    return zip(children, weights).map { ($0, share * $1 / total + share / count) }
 }
 
 /// What of `tab` tiles as one piece beside another tab's windows: its one tiled node, or its whole
