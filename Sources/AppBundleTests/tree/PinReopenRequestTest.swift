@@ -198,8 +198,10 @@ final class PinReopenRequestTest: XCTestCase {
         let old = Workspace.get(byName: "old")
         let otherOld = Workspace.get(byName: "other-old")
         let pin = Workspace.get(byName: "pin")
-        _ = TestWindow.new(id: 1, parent: old.rootTilingContainer)
+        // First in its old tab: a unit-test lookup can't find windows of the root a restore replaces,
+        // and the restore stops at the first window it can't find.
         let first = TestWindow.new(id: 2, parent: old.rootTilingContainer)
+        _ = TestWindow.new(id: 1, parent: old.rootTilingContainer)
         let second = TestWindow.new(id: 3, parent: otherOld.rootTilingContainer)
         // Both hid on close; the cached world has each where it was.
         replaceClosedWindowsCache(snapshotCurrentFrozenWorld())
@@ -226,8 +228,10 @@ final class PinReopenRequestTest: XCTestCase {
         let old = Workspace.get(byName: "old")
         let otherOld = Workspace.get(byName: "other-old")
         let pin = Workspace.get(byName: "pin")
-        _ = TestWindow.new(id: 1, parent: old.rootTilingContainer)
+        // First in its old tab: a unit-test lookup can't find windows of the root a restore replaces,
+        // and the restore stops at the first window it can't find.
         let first = TestWindow.new(id: 2, parent: old.rootTilingContainer)
+        _ = TestWindow.new(id: 1, parent: old.rootTilingContainer)
         let second = TestWindow.new(id: 3, parent: otherOld.rootTilingContainer)
         // Saved as WinMux quit; both windows were hidden when it started again, so nothing restored.
         setPendingPersistedFrozenWorldForTests(snapshotCurrentFrozenWorld())
@@ -252,8 +256,10 @@ final class PinReopenRequestTest: XCTestCase {
         let old = Workspace.get(byName: "old")
         let otherOld = Workspace.get(byName: "other-old")
         let pin = Workspace.get(byName: "pin")
-        _ = TestWindow.new(id: 1, parent: old.rootTilingContainer)
+        // First in its old tab: a unit-test lookup can't find windows of the root a restore replaces,
+        // and the restore stops at the first window it can't find.
         let first = TestWindow.new(id: 2, parent: old.rootTilingContainer)
+        _ = TestWindow.new(id: 1, parent: old.rootTilingContainer)
         let second = TestWindow.new(id: 3, parent: otherOld.rootTilingContainer)
         let world = snapshotCurrentFrozenWorld()
         first.unbindFromParent()
