@@ -252,48 +252,6 @@ final class PinReopenRequestTest: XCTestCase {
         XCTAssertTrue(second.nodeWorkspace === otherOld, "The other window still returns to its own tab")
     }
 
-    /// A restore that began before the reopen, from a snapshot where the reopened window `first` and
-    /// `sibling` share a stack in `old`, which was on screen. It runs its course; then it's corrected.
-    private func restoreBegunBeforeAReopen(movingOnAfterward: Workspace? = nil) async throws
-        -> (first: Window, sibling: Window, old: Workspace, pin: Workspace)
-    {
-        let old = Workspace.get(byName: "old")
-        let pin = Workspace.get(byName: "pin")
-        _ = old.focusWorkspace()
-        let first = TestWindow.new(id: 2, parent: old.rootTilingContainer)
-        let sibling = TestWindow.new(id: 3, parent: old.rootTilingContainer)
-        let world = snapshotCurrentFrozenWorld()
-        first.unbindFromParent()
-        sibling.unbindFromParent()
-        _ = pin.focusWorkspace()
-        let restoreBegan = explicitWindowPlacementCount
-
-        clickPin(pin)
-        await letTheRequestRun()
-        _ = try await appShows(2, reusing: first)
-        if let movingOnAfterward { _ = movingOnAfterward.focusWorkspace() }
-        // The sibling comes back too; its restore, begun earlier, resumes only now.
-        let binding = bindingDataForNewRegularWindow(focus.workspace, window: nil)
-        sibling.bind(to: binding.parent, adaptiveWeight: binding.adaptiveWeight, index: binding.index)
-        _ = try await restoreFrozenWorldIfNeeded(world, newlyDetectedWindow: sibling, placedSince: restoreBegan)
-        return (first, sibling, old, pin)
-    }
-
-    func testARestoreAlreadyUnderWayEndsWithTheReopenedWindowAndItsTabWhereTheUserPutThem() async throws {
-        let (first, sibling, old, pin) = try await restoreBegunBeforeAReopen()
-        XCTAssertTrue(first.nodeWorkspace === pin, "Placed after the restore's snapshot: it stays where the user put it")
-        XCTAssertTrue(sibling.nodeWorkspace === old, "Its sibling from the same stack still goes back to its tab")
-        XCTAssertTrue(pin.isVisible, "The older snapshot doesn't switch the display back to its tab")
-    }
-
-    func testARestoreUnderWayDoesntShowTheTabAgainAfterTheUserMovedOn() async throws {
-        let elsewhere = Workspace.get(byName: "elsewhere")
-        _ = TestWindow.new(id: 7, parent: elsewhere.rootTilingContainer)
-        let (first, _, _, pin) = try await restoreBegunBeforeAReopen(movingOnAfterward: elsewhere)
-        XCTAssertTrue(first.nodeWorkspace === pin)
-        XCTAssertFalse(pin.isVisible, "The user went elsewhere after the reopen; the display isn't taken back")
-    }
-
     func testForgettingAReopenedWindowsOldPlaceKeepsEveryOtherWindowsPlace() {
         let old = Workspace.get(byName: "old")
         let pin = Workspace.get(byName: "pin")

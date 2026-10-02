@@ -46,57 +46,13 @@ func collectAllWindowIdsRecursive(_ node: TreeNode) -> [UInt32] {
     }
 }
 
-/// A window the user put in a workspace on purpose.
-struct ExplicitWindowPlacement {
-    /// Placements are numbered in order.
-    let number: UInt64
-    let workspaceId: WorkspaceId
-    /// The display showing the workspace then, if one was.
-    let shownOn: CGPoint?
-    /// Focus moving after this means the user has gone elsewhere.
-    let focusGeneration: UInt64
-}
-
-@MainActor private(set) var explicitWindowPlacementCount: UInt64 = 0
-@MainActor private var explicitWindowPlacements: [UInt32: ExplicitWindowPlacement] = [:]
-
 /// The user put `window` in `workspace` on purpose, as reopening an app from its tab does.
 /// Snapshots taken before forget where the window was, so restoring them for another window
 /// can't take it back, and they remember the display showing `workspace`.
 @MainActor
 func noteExplicitWindowPlacement(_ window: Window, in workspace: Workspace) {
-    explicitWindowPlacementCount += 1
-    explicitWindowPlacements = explicitWindowPlacements.filter { Window.get(byId: $0.key) != nil }
-    let monitor = workspace.workspaceMonitor
-    explicitWindowPlacements[window.windowId] = ExplicitWindowPlacement(number: explicitWindowPlacementCount,
-        workspaceId: workspace.id, shownOn: monitor.activeWorkspace === workspace ? monitor.rect.topLeftCorner : nil,
-        focusGeneration: focusChangeGeneration)
     supersedeClosedWindowsCache(placementOf: window, in: workspace)
     supersedePendingPersistedFrozenWorld(placementOf: window, in: workspace)
-}
-
-/// A restore that began before placement number `count` worked from a snapshot older than the
-/// placements since, at every step and across every wait. Once it's done, each window placed
-/// since goes back where the user put it, and its workspace back on the display that showed it,
-/// unless the user has moved focus since.
-@MainActor
-func reassertExplicitWindowPlacements(since count: UInt64) {
-    for (windowId, placement) in explicitWindowPlacements.sorted(by: { $0.value.number < $1.value.number })
-        where placement.number > count
-    {
-        guard let window = Window.get(byId: windowId),
-              let workspace = winMuxWorkspaceState.workspaceById[placement.workspaceId], !workspace.isArchived
-        else { continue }
-        if window.nodeWorkspace !== workspace {
-            let binding = newWindowIntentBinding(targetWorkspace: workspace)
-            window.bind(to: binding.parent, adaptiveWeight: binding.adaptiveWeight, index: binding.index)
-        }
-        if let corner = placement.shownOn, focusChangeGeneration == placement.focusGeneration,
-           let monitor = monitors.first(where: { $0.rect.topLeftCorner == corner }), monitor.activeWorkspace !== workspace
-        {
-            _ = monitor.setActiveWorkspace(workspace)
-        }
-    }
 }
 
 extension FrozenWorld {

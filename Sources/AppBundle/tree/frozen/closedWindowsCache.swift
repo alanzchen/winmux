@@ -91,12 +91,8 @@ func supersedeClosedWindowsCache(placementOf window: Window, in workspace: Works
     closedWindowsCache = closedWindowsCache.superseding(placementOf: window, in: workspace)
 }
 
-/// `placedSince`: placements after this one are newer than the snapshot; the default is now.
 @MainActor
-func restoreFrozenWorldIfNeeded(_ frozenWorld: FrozenWorld, newlyDetectedWindow: Window,
-                                placedSince: UInt64? = nil) async throws -> Bool {
-    // The restore awaits, and meanwhile the user may put one of its windows somewhere on purpose.
-    let placementsBefore = placedSince ?? explicitWindowPlacementCount
+func restoreFrozenWorldIfNeeded(_ frozenWorld: FrozenWorld, newlyDetectedWindow: Window) async throws -> Bool {
     if !frozenWorld.windowIds.contains(newlyDetectedWindow.windowId) {
         return false
     }
@@ -154,7 +150,6 @@ func restoreFrozenWorldIfNeeded(_ frozenWorld: FrozenWorld, newlyDetectedWindow:
         }
         _ = targetMonitor.setActiveWorkspace(targetWorkspace)
     }
-    reassertExplicitWindowPlacements(since: placementsBefore)
     return true
 }
 
