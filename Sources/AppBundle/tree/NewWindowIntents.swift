@@ -461,27 +461,34 @@ func finishDeferredReopenPlacements() {
 /// A pin in All Projects shows in the project its display is in, which a restore that showed
 /// another project's tab there meanwhile has changed: it comes back in the project it was clicked
 /// in, which remembers it as chosen there again, or the one switched to since with it on screen,
-/// where nothing was chosen. Only on the display that was in it: an older restore that took the pin
-/// to another display left that one as it was.
+/// where nothing was chosen. Only on the display that was in it: on another one, where an older
+/// restore took the pin, it shows in that display's own project, and is chosen there neither.
 @MainActor
 private func showPinInAllProjectsWhereItWasClicked(_ target: Workspace, _ intent: NewWindowIntent) {
-    guard workspaceIsPinnedInAllProjects(target), let sent = intent.focusWhenSent, sent.workspace === target else { return }
+    guard workspaceIsPinnedInAllProjects(target) else { return }
     let monitor = target.workspaceMonitor
-    let isWhereItWasClicked = sent.display?.isShown(by: monitor) == true
-    let projectId: WorkspaceProjectId?
-    let isChosen: Bool
-    if let switched = sent.switchedProjectId {
-        guard sent.switchedDisplay?.isShown(by: monitor) == true else { return }
-        projectId = switched
-        // Switching back to the project it was clicked in, where it was clicked, is that choice again.
-        isChosen = switched == sent.contextProjectId && isWhereItWasClicked
+    if let (projectId, isChosen) = projectThePinWasShownIn(on: monitor, intent.focusWhenSent, target: target),
+       winMuxWorkspaceState.projectsById[projectId] != nil {
+        _ = monitor.setActiveWorkspace(target, contextProjectId: projectId, isChosen: isChosen)
     } else {
-        guard isWhereItWasClicked else { return }
-        projectId = sent.contextProjectId
-        isChosen = true
+        _ = monitor.setActiveWorkspace(target, isChosen: false)
     }
-    guard let projectId, winMuxWorkspaceState.projectsById[projectId] != nil else { return }
-    _ = monitor.setActiveWorkspace(target, contextProjectId: projectId, isChosen: isChosen)
+}
+
+/// The project a reopen's pin in All Projects was shown in on `monitor`, and whether it was chosen
+/// there: the one it was clicked in, or switched to since with it on screen. Nil on another display.
+@MainActor
+private func projectThePinWasShownIn(on monitor: Monitor, _ sent: NewWindowFocusSnapshot?,
+                                     target: Workspace) -> (WorkspaceProjectId, isChosen: Bool)? {
+    guard let sent, sent.workspace === target else { return nil }
+    let isWhereItWasClicked = sent.display?.isShown(by: monitor) == true
+    if let switched = sent.switchedProjectId {
+        guard sent.switchedDisplay?.isShown(by: monitor) == true else { return nil }
+        // Switching back to the project it was clicked in, where it was clicked, is that choice again.
+        return (switched, switched == sent.contextProjectId && isWhereItWasClicked)
+    }
+    guard isWhereItWasClicked, let clicked = sent.contextProjectId else { return nil }
+    return (clicked, true)
 }
 
 /// The launcher closed after the window was claimed but before detection placed it: it goes
