@@ -32,19 +32,27 @@ func moveWorkspaceToProject(workspaceName: String, projectId: WorkspaceProjectId
         winMuxWorkspaceState.monitorViewportsById[viewportId] = viewport
     }
     ensureMinimumWorkspace(for: sourceProjectId, monitor: monitor)
-    if syncsSavedRecord { syncSavedWorkspaceRecordProject(workspace) }
+    if syncsSavedRecord { syncSavedWorkspaceRecords([workspace]) }
     checkWorkspaceHierarchyInvariants()
     return true
 }
 
-/// Writes now what the next checkpoint would: the saved record's project, and the records in the
-/// order the tabs are presented in. An Undo taken right after a move then still matches what's
-/// saved once that checkpoint runs.
+/// Writes now what the next checkpoint would after `workspaces` moved: their saved records'
+/// projects, and the records in the order the tabs are presented in. An Undo taken right after the
+/// move then still matches what's saved once that checkpoint runs. Tabs that aren't saved change
+/// no record's place.
 @MainActor
-func syncSavedWorkspaceRecordProject(_ workspace: Workspace) {
-    guard !savedWorkspaceStore.isReadOnly, let record = savedWorkspaceStore.record(named: workspace.name),
-          savedWorkspaceProjectSyncAllowed(workspace, record: record) else { return }
-    savedWorkspaceStore.update(named: workspace.name) { $0.projectId = workspace.projectId }
+func syncSavedWorkspaceRecords(_ workspaces: [Workspace]) {
+    guard !savedWorkspaceStore.isReadOnly else { return }
+    var saved = false
+    for workspace in workspaces {
+        guard let record = savedWorkspaceStore.record(named: workspace.name) else { continue }
+        saved = true
+        if record.projectId != workspace.projectId, savedWorkspaceProjectSyncAllowed(workspace, record: record) {
+            savedWorkspaceStore.update(named: workspace.name) { $0.projectId = workspace.projectId }
+        }
+    }
+    guard saved else { return }
     savedWorkspaceStore.reorder(workspaceNamesInOrder: orderedWorkspacesForPresentation().map(\.name))
     savedWorkspaceStore.flushNow()
 }

@@ -363,10 +363,11 @@ func applyWorkspaceSidebarPinnedTabDrop(_ tab: Workspace, _ drop: WorkspaceSideb
     let window = tab.mostRecentWindowRecursive ?? tab.anyLeafWindowRecursive
     switch drop {
         case .rearrange(let gap, let monitorScopeId, let move):
-            // Shared pins only rearrange; otherwise the tab comes to the list's display first. Among
-            // the other section's pins, it moves there, still pinned.
+            // Shared pins only rearrange; otherwise the tab comes to the list's display first, or,
+            // pinned in All Projects, just after. Among the other section's pins, it moves there,
+            // still pinned.
             try withWorkspaceTabOnPinDropDisplay(tab, monitorScopeId: monitorScopeId, pinGridIsShared: pinGridIsShared,
-                focusing: window) {
+                focusing: window, editsFirst: move?.scope == .allProjects) {
                 if let move {
                     try setWorkspaceSidebarTabPinScope(tab, move.scope, projectId: move.projectId, beside: gap)
                 } else {

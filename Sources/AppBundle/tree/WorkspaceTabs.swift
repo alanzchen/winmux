@@ -325,9 +325,8 @@ func moveWholeTabToGap(_ tab: Workspace, projectId: WorkspaceProjectId, monitor:
     // Unpinning doesn't depend on the project, so it goes first: if it can't be saved, the tab stays put.
     do { if isPinned { try setWorkspaceSidebarTabFavorite(tab, false) } }
     catch { showWorkspaceSidebarError(error.localizedDescription); return false }
-    let changesProject = tab.projectId != projectId
-    let changesScope = changesProject || tab.workspaceMonitor.rect != monitor.rect
-    if changesProject, !moveWorkspaceToProject(workspaceName: tab.name, projectId: projectId) { return false }
+    let changesScope = tab.projectId != projectId || tab.workspaceMonitor.rect != monitor.rect
+    if tab.projectId != projectId, !moveWorkspaceToProject(workspaceName: tab.name, projectId: projectId) { return false }
     do { if changesGroup { try assignWorkspaceToSidebarCollection(tab, collectionId: gap.collectionId) } }
     catch { showWorkspaceSidebarError(error.localizedDescription); return false }
     if changesScope {
@@ -335,9 +334,9 @@ func moveWholeTabToGap(_ tab: Workspace, projectId: WorkspaceProjectId, monitor:
         if let window { _ = window.focusWindow() } else { _ = tab.focusWorkspace() }
     }
     winMuxWorkspaceState.moveWorkspace(tab.id, relativeTo: anchor.id, after: gap.isAfter)
-    // Its record goes to the project now, in its new place, as a pin unpinned into the list's
-    // project from All Projects often is, so its Undo outlasts the next capture.
-    if changesProject { syncSavedWorkspaceRecordProject(tab) }
+    // Its record goes to its new project and place now, as a pin unpinned into the list's project
+    // from All Projects often does, so the drop's Undo outlasts the next capture.
+    syncSavedWorkspaceRecords([tab])
     return true
 }
 

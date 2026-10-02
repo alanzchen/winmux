@@ -370,6 +370,8 @@ private func moveWorkspaceSidebarBatchToGroup(_ batch: WorkspaceSidebarDragBatch
         for (previous, tab) in zip(tabs, tabs.dropFirst()) {
             winMuxWorkspaceState.moveWorkspace(tab.id, relativeTo: previous.id, after: true)
         }
+        // Their records in that order now, so the drop's Undo outlasts the next capture.
+        syncSavedWorkspaceRecords(tabs)
         if !moves.isEmpty { focusWorkspaceSidebarBatchPrimary(batch) }
         return workspaceSidebarBatchStayed(placements)
     }
@@ -408,8 +410,10 @@ private func pinWorkspaceSidebarBatch(_ batch: WorkspaceSidebarDragBatch, _ tabs
     guard pinsTabs || changesSection || order != nil || !moves.isEmpty else { return false }
     syncClosedWindowsCacheToCurrentWorld()
     suppressPostDragAxObserverEvents(for: tabs.flatMap(\.allLeafWindowsRecursive).map(\.windowId))
+    // Pinned in All Projects before they come to the list's display, which then stays in its project.
+    let pinsFirst = section == .allProjects
     return try withWorkspaceSidebarDropTransaction {
-        for (tab, monitor) in moves { try moveWorkspaceTabToDisplay(tab, monitor, focusing: nil) }
+        if !pinsFirst { for (tab, monitor) in moves { try moveWorkspaceTabToDisplay(tab, monitor, focusing: nil) } }
         if pinsTabs { try saveWorkspaceSidebarIdentities(tabs) }
         // Pinning and placing are one write, so a failure leaves neither behind.
         let names = Set(batch.names)
@@ -420,6 +424,7 @@ private func pinWorkspaceSidebarBatch(_ batch: WorkspaceSidebarDragBatch, _ tabs
             }
             for (index, name) in (order ?? []).enumerated() { state.workspaces[name, default: .init()].pinOrder = index }
         }
+        if pinsFirst { for (tab, monitor) in moves { try moveWorkspaceTabToDisplay(tab, monitor, focusing: nil) } }
         // Pins back from All Projects are the list's project's, from whichever they were.
         if section == .project {
             for tab in tabs where tab.projectId != projectId {

@@ -435,42 +435,47 @@ func applySidebarPinDrop(_ windowId: UInt32, subject: WindowDragSubject, gap: Wo
         }
     }
     suppressPostDragAxObserverEvents(for: sourceNode.allLeafWindowsRecursive.map(\.windowId))
-    // If pinning can't be saved, everything goes back as it was, split and all.
-    let before = WorkspaceSidebarTabUndoSnapshot()
-    do {
+    // If pinning can't be saved, everything goes back as it was, split, pins and all.
+    try withWorkspaceSidebarDropTransaction {
         if sourceNode === sourceWindow, workspaceTabDragLeavesWindowsBehind(sourceNode) {
             // Pinned tabs leave their group, so the new tab never joins one: pinning is the
             // only organization write, and a failure leaves no stray membership behind.
             try detachWorkspaceTabWindow(sourceWindow, keepsGroup: false,
-                destination: sidebarPinDropNewTabDestination(sourceWindow, monitorScopeId: monitorScopeId, projectId: projectId))
+                destination: sidebarPinDropNewTabDestination(sourceWindow, section: section, monitorScopeId: monitorScopeId,
+                    projectId: projectId))
         }
-        guard let workspace = sourceNode.nodeWorkspace else { return }
+        guard let workspace = sourceNode.nodeWorkspace else { return true }
+        let isPinned = workspaceSidebarOrganizationStore.state.workspaces[workspace.name]?.isFavorite == true
+        // Into All Projects, or a pin back among the project's pins: still one write of the pins.
+        let pin = {
+            if section == .allProjects || isPinned && WorkspaceSidebarPinSection(of: workspace) != section {
+                try setWorkspaceSidebarTabPinScope(workspace, section.scope, projectId: projectId ?? workspace.projectId, beside: gap)
+            } else {
+                try pinWorkspaceSidebarTab(workspace, beside: gap)
+            }
+        }
+        // Pinned in All Projects before it comes to the list's display, which then stays in its project.
+        if section == .allProjects { try pin() }
         // A window pulled out of a split keeps its new tab where it was made, among shared pins.
         if let monitor = workspaceSidebarPinDropDisplayChange(for: workspace, monitorScopeId: monitorScopeId,
             pinGridIsShared: pinGridIsShared) {
             syncClosedWindowsCacheToCurrentWorld()
             try moveWorkspaceTabToDisplay(workspace, monitor, focusing: sourceWindow)
         }
-        // Into All Projects, or a pin back among the project's pins: still one write of the pins.
-        let isPinned = workspaceSidebarOrganizationStore.state.workspaces[workspace.name]?.isFavorite == true
-        if section == .allProjects || isPinned && WorkspaceSidebarPinSection(of: workspace) != section {
-            try setWorkspaceSidebarTabPinScope(workspace, section.scope, projectId: projectId ?? workspace.projectId, beside: gap)
-        } else {
-            try pinWorkspaceSidebarTab(workspace, beside: gap)
-        }
-    } catch {
-        before.restore(replacing: WorkspaceSidebarTabUndoSnapshot())
-        throw error
+        if section != .allProjects { try pin() }
+        return true
     }
 }
 
-/// Where a window pulled out of a split onto another project's pins gets its new tab: in that
+/// Where a window pulled out of a split onto another project's own pins gets its new tab: in that
 /// project, on the display whose list it was dropped on, so the display it came from stays in its
-/// own. Its own project's pins, or none named, leave the new tab to be made where the window was.
+/// own. Its own project's pins, none named, or the pins in All Projects, which are no project's,
+/// leave the new tab to be made where the window was, and to go where any tab dropped there goes.
 @MainActor
-private func sidebarPinDropNewTabDestination(_ window: Window, monitorScopeId: String?,
+private func sidebarPinDropNewTabDestination(_ window: Window, section: WorkspaceSidebarPinSection, monitorScopeId: String?,
                                              projectId: WorkspaceProjectId?) -> (projectId: WorkspaceProjectId, monitor: Monitor)? {
-    guard let source = window.nodeWorkspace, let projectId, projectId != workspaceContextProjectId(of: source) else { return nil }
+    guard section == .project, let source = window.nodeWorkspace, let projectId,
+          projectId != workspaceContextProjectId(of: source) else { return nil }
     let monitor = monitorScopeId.flatMap { workspaceSidebarDropTargetMonitor(scopeId: $0, fallbackWindow: window) }
     return (projectId, monitor ?? source.workspaceMonitor)
 }

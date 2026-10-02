@@ -55,9 +55,25 @@ func checkWorkspaceSidebarPinDropDisplay(_ tab: Workspace, monitorScopeId: Strin
 
 /// Runs `edit`, the pin change, where a drop on those pin tiles puts `tab`: on the list's display
 /// without shared pins, as `withWorkspaceTabOnDropDisplay` does, and where it is with them.
+/// `editsFirst` makes the change before the move, both or neither: a tab pinned in All Projects
+/// first comes to a display that stays in the project it's in, rather than going to the tab's.
 @MainActor
 func withWorkspaceTabOnPinDropDisplay(_ tab: Workspace, monitorScopeId: String?, pinGridIsShared: Bool,
-                                      focusing window: Window?, _ edit: () throws -> Void) throws {
+                                      focusing window: Window?, editsFirst: Bool = false, _ edit: () throws -> Void) throws {
+    if editsFirst {
+        try checkWorkspaceSidebarPinDropDisplay(tab, monitorScopeId: monitorScopeId, pinGridIsShared: pinGridIsShared)
+        try withWorkspaceSidebarDropTransaction {
+            try edit()
+            if let monitor = workspaceSidebarPinDropDisplayChange(for: tab, monitorScopeId: monitorScopeId,
+                pinGridIsShared: pinGridIsShared) {
+                syncClosedWindowsCacheToCurrentWorld()
+                suppressPostDragAxObserverEvents(for: tab.allLeafWindowsRecursive.map(\.windowId))
+                try moveWorkspaceTabToDisplay(tab, monitor, focusing: window)
+            }
+            return true
+        }
+        return
+    }
     guard pinGridIsShared else {
         return try withWorkspaceTabOnDropDisplay(tab, monitorScopeId: monitorScopeId, focusing: window, edit)
     }
