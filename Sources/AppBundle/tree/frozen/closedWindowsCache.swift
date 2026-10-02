@@ -97,9 +97,6 @@ func restoreFrozenWorldIfNeeded(_ frozenWorld: FrozenWorld, newlyDetectedWindow:
                                 placedSince: UInt64? = nil) async throws -> Bool {
     // The restore awaits, and meanwhile the user may put one of its windows somewhere on purpose.
     let placementsBefore = placedSince ?? explicitWindowPlacementCount
-    func restorable(_ windowId: UInt32) -> Window? {
-        wasPlacedExplicitly(windowId, after: placementsBefore) ? nil : Window.get(byId: windowId)
-    }
     if !frozenWorld.windowIds.contains(newlyDetectedWindow.windowId) {
         return false
     }
@@ -119,21 +116,20 @@ func restoreFrozenWorldIfNeeded(_ frozenWorld: FrozenWorld, newlyDetectedWindow:
             .singleOrNil()?
             .setActiveWorkspace(workspace)
         for frozenWindow in frozenWorkspace.floatingWindows {
-            if let window = restorable(frozenWindow.id) {
+            if let window = Window.get(byId: frozenWindow.id) {
                 applyFrozenWindowState(window, frozenWindow)
                 window.bindAsFloatingWindow(to: workspace)
             }
         }
         for frozenWindow in frozenWorkspace.macosUnconventionalWindows {
-            if let window = restorable(frozenWindow.id) {
+            if let window = Window.get(byId: frozenWindow.id) {
                 try await restoreFrozenUnconventionalWindow(window, frozenWindow, on: workspace)
             }
         }
         let prevRoot = workspace.rootTilingContainer // Save prevRoot into a variable to avoid it being garbage collected earlier than needed
         let potentialOrphans = prevRoot.allLeafWindowsRecursive
         prevRoot.unbindFromParent()
-        restoreTreeRecursive(frozenContainer: frozenWorkspace.rootTilingNode, parent: workspace, index: INDEX_BIND_LAST,
-            window: restorable)
+        restoreTreeRecursive(frozenContainer: frozenWorkspace.rootTilingNode, parent: workspace, index: INDEX_BIND_LAST)
         for window in (potentialOrphans - workspace.rootTilingContainer.allLeafWindowsRecursive) {
             if let frozenWindow = frozenWindowById[window.windowId] {
                 if case .macos = frozenWindow.layoutReason {
@@ -158,13 +154,13 @@ func restoreFrozenWorldIfNeeded(_ frozenWorld: FrozenWorld, newlyDetectedWindow:
         }
         _ = targetMonitor.setActiveWorkspace(targetWorkspace)
     }
+    reassertExplicitWindowPlacements(since: placementsBefore)
     return true
 }
 
 @discardableResult
 @MainActor
-private func restoreTreeRecursive(frozenContainer: FrozenContainer, parent: NonLeafTreeNodeObject, index: Int,
-                                  window windowById: (UInt32) -> Window?) -> Bool {
+private func restoreTreeRecursive(frozenContainer: FrozenContainer, parent: NonLeafTreeNodeObject, index: Int) -> Bool {
     let container = TilingContainer(
         parent: parent,
         adaptiveWeight: frozenContainer.weight,
@@ -177,12 +173,12 @@ private func restoreTreeRecursive(frozenContainer: FrozenContainer, parent: NonL
         switch child {
             case .window(let w):
                 // Stop the loop if can't find the window, because otherwise all the subsequent windows will have incorrect index
-                guard let window = windowById(w.id) else { return false }
+                guard let window = Window.get(byId: w.id) else { return false }
                 applyFrozenWindowState(window, w)
                 window.bind(to: container, adaptiveWeight: w.weight, index: index)
             case .container(let c):
                 // There is no reason to continue
-                if !restoreTreeRecursive(frozenContainer: c, parent: container, index: index, window: windowById) { return false }
+                if !restoreTreeRecursive(frozenContainer: c, parent: container, index: index) { return false }
         }
     }
     return true

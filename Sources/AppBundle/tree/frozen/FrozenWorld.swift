@@ -46,34 +46,63 @@ func collectAllWindowIdsRecursive(_ node: TreeNode) -> [UInt32] {
     }
 }
 
-/// Windows the user put somewhere on purpose, numbered in order. A restore that began before a
-/// placement works from an older snapshot, so it leaves that window where the user put it.
+/// A window the user put in a workspace on purpose.
+struct ExplicitWindowPlacement {
+    /// Placements are numbered in order.
+    let number: UInt64
+    let workspaceId: WorkspaceId
+    /// The display showing the workspace then, if one was.
+    let shownOn: CGPoint?
+    /// Focus moving after this means the user has gone elsewhere.
+    let focusGeneration: UInt64
+}
+
 @MainActor private(set) var explicitWindowPlacementCount: UInt64 = 0
-@MainActor private var explicitWindowPlacements: [UInt32: UInt64] = [:]
+@MainActor private var explicitWindowPlacements: [UInt32: ExplicitWindowPlacement] = [:]
 
 /// The user put `window` in `workspace` on purpose, as reopening an app from its tab does.
 /// Snapshots taken before forget where the window was, so restoring them for another window
-/// can't take it back, and they remember the display showing `workspace`. Restores already
-/// under way leave the window alone.
+/// can't take it back, and they remember the display showing `workspace`.
 @MainActor
 func noteExplicitWindowPlacement(_ window: Window, in workspace: Workspace) {
     explicitWindowPlacementCount += 1
     explicitWindowPlacements = explicitWindowPlacements.filter { Window.get(byId: $0.key) != nil }
-    explicitWindowPlacements[window.windowId] = explicitWindowPlacementCount
+    let monitor = workspace.workspaceMonitor
+    explicitWindowPlacements[window.windowId] = ExplicitWindowPlacement(number: explicitWindowPlacementCount,
+        workspaceId: workspace.id, shownOn: monitor.activeWorkspace === workspace ? monitor.rect.topLeftCorner : nil,
+        focusGeneration: focusChangeGeneration)
     supersedeClosedWindowsCache(placementOf: window, in: workspace)
     supersedePendingPersistedFrozenWorld(placementOf: window, in: workspace)
 }
 
-/// Whether the user placed the window after placement number `count`.
+/// A restore that began before placement number `count` worked from a snapshot older than the
+/// placements since, at every step and across every wait. Once it's done, each window placed
+/// since goes back where the user put it, and its workspace back on the display that showed it,
+/// unless the user has moved focus since.
 @MainActor
-func wasPlacedExplicitly(_ windowId: UInt32, after count: UInt64) -> Bool {
-    explicitWindowPlacements[windowId].map { $0 > count } ?? false
+func reassertExplicitWindowPlacements(since count: UInt64) {
+    for (windowId, placement) in explicitWindowPlacements.sorted(by: { $0.value.number < $1.value.number })
+        where placement.number > count
+    {
+        guard let window = Window.get(byId: windowId),
+              let workspace = winMuxWorkspaceState.workspaceById[placement.workspaceId], !workspace.isArchived
+        else { continue }
+        if window.nodeWorkspace !== workspace {
+            let binding = newWindowIntentBinding(targetWorkspace: workspace)
+            window.bind(to: binding.parent, adaptiveWeight: binding.adaptiveWeight, index: binding.index)
+        }
+        if let corner = placement.shownOn, focusChangeGeneration == placement.focusGeneration,
+           let monitor = monitors.first(where: { $0.rect.topLeftCorner == corner }), monitor.activeWorkspace !== workspace
+        {
+            _ = monitor.setActiveWorkspace(workspace)
+        }
+    }
 }
 
 extension FrozenWorld {
-    /// This world once the user put `window` in `workspace`: the window is no longer remembered
-    /// where it was, and a display showing `workspace` is remembered showing it. Every other
-    /// window keeps its remembered place. A world without the window is left as it is.
+    /// This world once the user put `window` in `workspace`: the window is remembered there, last,
+    /// where the request put it, and a display showing `workspace` is remembered showing it. Every
+    /// other window keeps its remembered place. A world without the window is left as it is.
     @MainActor
     func superseding(placementOf window: Window, in workspace: Workspace) -> FrozenWorld {
         guard windowIds.contains(window.windowId) else { return self }
@@ -81,12 +110,16 @@ extension FrozenWorld {
         var frozenMonitors = monitors
         var ids = windowIds.subtracting([window.windowId])
         let monitor = workspace.workspaceMonitor
-        if monitor.activeWorkspace === workspace {
+        let isShown = monitor.activeWorkspace === workspace
+        if let index = frozenWorkspaces.firstIndex(where: { $0.name == workspace.name }) {
+            frozenWorkspaces[index] = frozenWorkspaces[index].appending(window)
+            ids.insert(window.windowId)
+        } else if isShown {
             // A restore shows a remembered workspace, so the one on screen has to be among them.
-            if !frozenWorkspaces.contains(where: { $0.name == workspace.name }) {
-                frozenWorkspaces.append(FrozenWorkspace(workspace))
-                ids.formUnion(collectAllWindowIds(workspace: workspace))
-            }
+            frozenWorkspaces.append(FrozenWorkspace(workspace))
+            ids.formUnion(collectAllWindowIds(workspace: workspace))
+        }
+        if isShown {
             frozenMonitors = frozenMonitors.filter { $0.topLeftCorner != monitor.rect.topLeftCorner } + [FrozenMonitor(monitor)]
         }
         return FrozenWorld(workspaces: frozenWorkspaces, monitors: frozenMonitors, windowIds: ids)
@@ -103,6 +136,17 @@ extension FrozenWorkspace {
         self.rootTilingNode = rootTilingNode
         self.floatingWindows = floatingWindows
         self.macosUnconventionalWindows = macosUnconventionalWindows
+    }
+
+    /// With the window last, floating or in the root, as it is now.
+    @MainActor
+    func appending(_ window: Window) -> FrozenWorkspace {
+        let frozenWindow = FrozenWindow(window)
+        return FrozenWorkspace(name: name, projectId: projectId, namingStyle: namingStyle, monitor: monitor,
+            rootTilingNode: window.isFloating ? rootTilingNode : FrozenContainer(children: rootTilingNode.children + [.window(frozenWindow)],
+                layout: rootTilingNode.layout, orientation: rootTilingNode.orientation, weight: rootTilingNode.weight),
+            floatingWindows: window.isFloating ? floatingWindows + [frozenWindow] : floatingWindows,
+            macosUnconventionalWindows: macosUnconventionalWindows)
     }
 
     func removing(windowId: UInt32) -> FrozenWorkspace {

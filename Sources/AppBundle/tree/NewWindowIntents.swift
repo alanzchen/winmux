@@ -291,14 +291,14 @@ func finishNewWindowIntentPlacement(_ window: Window, claim: NewWindowIntentClai
         let binding = newWindowIntentBinding(targetWorkspace: claim.targetWorkspace)
         window.bind(to: binding.parent, adaptiveWeight: binding.adaptiveWeight, index: binding.index)
     }
-    // Snapshots kept to restore other windows still have a reopened window where it was before it
-    // closed; they mustn't take it back or switch the display away from the tab that asked.
-    if claim.intent.reopens { noteExplicitWindowPlacement(window, in: claim.targetWorkspace) }
     if broadcastsDetection { broadcastWindowDetected(window) }
     if newWindowIntentMayTakeFocus(claim.intent), window.nodeWorkspace?.isVisible == true, window.focusWindow() {
         // The launcher made WinMux frontmost, and neither scripted nor reopened windows activate their app.
         window.nativeFocus()
     }
+    // Snapshots kept to restore other windows still have a reopened window where it was before it
+    // closed; they mustn't take it back or switch the display away from the tab that asked.
+    if claim.intent.reopens { noteExplicitWindowPlacement(window, in: claim.targetWorkspace) }
     NewWindowIntentRegistry.shared.completeClaim(claim, window: window)
 }
 

@@ -252,31 +252,46 @@ final class PinReopenRequestTest: XCTestCase {
         XCTAssertTrue(second.nodeWorkspace === otherOld, "The other window still returns to its own tab")
     }
 
-    func testARestoreAlreadyUnderWayLeavesTheReopenedWindowAlone() async throws {
+    /// A restore that began before the reopen, from a snapshot where the reopened window `first` and
+    /// `sibling` share a stack in `old`, which was on screen. It runs its course; then it's corrected.
+    private func restoreBegunBeforeAReopen(movingOnAfterward: Workspace? = nil) async throws
+        -> (first: Window, sibling: Window, old: Workspace, pin: Workspace)
+    {
         let old = Workspace.get(byName: "old")
-        let otherOld = Workspace.get(byName: "other-old")
         let pin = Workspace.get(byName: "pin")
-        // First in its old tab: a unit-test lookup can't find windows of the root a restore replaces,
-        // and the restore stops at the first window it can't find.
+        _ = old.focusWorkspace()
         let first = TestWindow.new(id: 2, parent: old.rootTilingContainer)
-        _ = TestWindow.new(id: 1, parent: old.rootTilingContainer)
-        let second = TestWindow.new(id: 3, parent: otherOld.rootTilingContainer)
+        let sibling = TestWindow.new(id: 3, parent: old.rootTilingContainer)
         let world = snapshotCurrentFrozenWorld()
         first.unbindFromParent()
-        second.unbindFromParent()
+        sibling.unbindFromParent()
         _ = pin.focusWorkspace()
-        // Another window's restore began with this snapshot and is waiting on an AX read.
         let restoreBegan = explicitWindowPlacementCount
 
         clickPin(pin)
         await letTheRequestRun()
         _ = try await appShows(2, reusing: first)
+        if let movingOnAfterward { _ = movingOnAfterward.focusWorkspace() }
+        // The sibling comes back too; its restore, begun earlier, resumes only now.
         let binding = bindingDataForNewRegularWindow(focus.workspace, window: nil)
-        second.bind(to: binding.parent, adaptiveWeight: binding.adaptiveWeight, index: binding.index)
-        _ = try await restoreFrozenWorldIfNeeded(world, newlyDetectedWindow: second, placedSince: restoreBegan)
+        sibling.bind(to: binding.parent, adaptiveWeight: binding.adaptiveWeight, index: binding.index)
+        _ = try await restoreFrozenWorldIfNeeded(world, newlyDetectedWindow: sibling, placedSince: restoreBegan)
+        return (first, sibling, old, pin)
+    }
 
-        XCTAssertTrue(first.nodeWorkspace === pin, "Placed after the restore's snapshot: left where the user put it")
-        XCTAssertTrue(second.nodeWorkspace === otherOld)
+    func testARestoreAlreadyUnderWayEndsWithTheReopenedWindowAndItsTabWhereTheUserPutThem() async throws {
+        let (first, sibling, old, pin) = try await restoreBegunBeforeAReopen()
+        XCTAssertTrue(first.nodeWorkspace === pin, "Placed after the restore's snapshot: it stays where the user put it")
+        XCTAssertTrue(sibling.nodeWorkspace === old, "Its sibling from the same stack still goes back to its tab")
+        XCTAssertTrue(pin.isVisible, "The older snapshot doesn't switch the display back to its tab")
+    }
+
+    func testARestoreUnderWayDoesntShowTheTabAgainAfterTheUserMovedOn() async throws {
+        let elsewhere = Workspace.get(byName: "elsewhere")
+        _ = TestWindow.new(id: 7, parent: elsewhere.rootTilingContainer)
+        let (first, _, _, pin) = try await restoreBegunBeforeAReopen(movingOnAfterward: elsewhere)
+        XCTAssertTrue(first.nodeWorkspace === pin)
+        XCTAssertFalse(pin.isVisible, "The user went elsewhere after the reopen; the display isn't taken back")
     }
 
     func testForgettingAReopenedWindowsOldPlaceKeepsEveryOtherWindowsPlace() {
@@ -299,6 +314,20 @@ final class PinReopenRequestTest: XCTestCase {
             .visibleWorkspace, pin.name)
         XCTAssertEqual(world.superseding(placementOf: TestWindow.new(id: 9, parent: pin.rootTilingContainer), in: pin)
             .windowIds, world.windowIds, "A world that never had the window is left alone")
+
+        // A world that remembers the tab already: the window joins it, last, and nothing else changes.
+        _ = TestWindow.new(id: 4, parent: pin.rootTilingContainer)
+        reopened.bind(to: old.rootTilingContainer, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
+        let withPin = snapshotCurrentFrozenWorld()
+        reopened.bind(to: pin.rootTilingContainer, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
+        let pinRemembered = withPin.superseding(placementOf: reopened, in: pin)
+        let pinTab = try? XCTUnwrap(pinRemembered.workspaces.first { $0.name == pin.name })
+        let pinTabIds: [UInt32] = pinTab?.rootTilingNode.children.compactMap { child in
+            if case .window(let window) = child { window.id } else { nil }
+        } ?? []
+        XCTAssertEqual(pinTabIds, [9, 4, 2], "Last in the tab it was put in")
+        XCTAssertTrue(pinRemembered.windowIds.contains(2))
+        XCTAssertEqual(pinRemembered.workspaces.first { $0.name == old.name }.map { collectWindowIds($0) }, [1, 3])
     }
 
     func testClickingThePinAgainWhileTheAppReopensAsksItOnlyOnce() async throws {
@@ -460,5 +489,17 @@ final class PinReopenRequestTest: XCTestCase {
         XCTAssertNil(registry.claim(windowId: 5, pid: pid, bundleId: appId, firstSeenUptime: clock),
             "The process asked is gone")
         XCTAssertTrue(registry.claim(windowId: 5, pid: 42, bundleId: appId, firstSeenUptime: clock) === pin)
+    }
+
+    private func collectWindowIds(_ workspace: FrozenWorkspace) -> Set<UInt32> {
+        func ids(_ container: FrozenContainer) -> [UInt32] {
+            container.children.flatMap { child -> [UInt32] in
+                switch child {
+                    case .window(let window): [window.id]
+                    case .container(let nested): ids(nested)
+                }
+            }
+        }
+        return Set(ids(workspace.rootTilingNode) + workspace.floatingWindows.map(\.id))
     }
 }
