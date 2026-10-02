@@ -1,7 +1,6 @@
 import AppKit
 @testable import AppBundle
 import SwiftUI
-import Vision
 import XCTest
 
 /// Which of an app's windows show that it's playing sound.
@@ -174,57 +173,72 @@ final class WorkspaceSidebarWindowSoundTest: XCTestCase {
         XCTAssertGreaterThan(width(windows[0], WorkspaceSidebarBrowserWindows()), 0, "Without tabs, the app's sound shows")
     }
 
-    /// Three Safari windows, one tab each, in the Tabs sidebar; only the second's tab plays.
+    /// Three Safari windows, one tab each, in the Tabs sidebar; only the second's tab plays. The
+    /// composed sidebar is drawn with nothing playing, then with that tab playing: only the second
+    /// window's row changes, at its trailing end, where the speaker sits, and only that row has ink
+    /// there. Each row is the window it should be: changing a title changes only its row.
     @MainActor
     func testTheTabsSidebarShowsSoundOnlyOnTheWindowWhoseTabPlays() throws {
-        AudioActivityModel.shared.setPlaying([safariBundleId])
         defer { AudioActivityModel.shared.setPlaying([]) }
         let titles = ["Alpha", "Bravo", "Charlie"]
-        let windows = titles.enumerated().map { window(UInt32($0.offset + 1), safariBundleId, title: $0.element) }
-        var snapshot = WorkspaceSidebarSnapshot.empty
-        snapshot.configuration.usesTabsList = true
-        snapshot.configuration.expandedWidth = 280
-        snapshot.configuration.collapsedWidth = 44
-        snapshot.visibleWidth = 280
-        snapshot.projects = [.init(id: workspaceProjectDefaultId, displayName: "Research", colorHex: nil, emoji: nil)]
-        snapshot.workspaces = windows.map { window in
-            WorkspaceSidebarWorkspaceViewModel(name: window.workspaceName, projectId: workspaceProjectDefaultId,
-                displayName: window.workspaceName, sidebarLabel: "", isGeneratedName: true, monitorScopeId: "monitor:0,0",
-                monitorName: nil, isFocused: false, isVisible: false, items: [.init(kind: .window(window))])
-        }
-        let model = BrowserTabsModel(snapshots: [
-            1: browser(1, [nil], knowsSound: true), 2: browser(2, [.playing], knowsSound: true), 3: browser(3, [nil], knowsSound: true),
-        ])
-        let host = NSHostingView(rootView: WorkspaceSidebarView(snapshot: snapshot, reduceMotionOverride: true,
-            reduceTransparencyOverride: true, browserTabsModel: model).frame(width: 280, height: 360).environment(\.colorScheme, .light))
-        host.frame = CGRect(x: 0, y: 0, width: 280, height: 360)
-        host.layoutSubtreeIfNeeded()
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.1))
-        let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
-        host.cacheDisplay(in: host.bounds, to: bitmap)
-        let image = try XCTUnwrap(bitmap.cgImage)
-        let recognize = VNRecognizeTextRequest()
-        recognize.recognitionLevel = .accurate
-        recognize.usesLanguageCorrection = false
-        try VNImageRequestHandler(cgImage: image).perform([recognize])
-        let found = (recognize.results ?? []).compactMap { result in
-            result.topCandidates(1).first.map { ($0.string, result.boundingBox) }
-        }
-        // Dark pixels right of each title, where a row's speaker sits before its close button.
-        let ink = try titles.map { title in
-            // The fallback app glyph before a title reads as a bullet.
-            let box = try XCTUnwrap(found.first { $0.0.hasSuffix(title) }?.1, "\(title) in \(found.map(\.0))")
-            let rows = Int((1 - box.maxY) * CGFloat(bitmap.pixelsHigh))...Int((1 - box.minY) * CGFloat(bitmap.pixelsHigh))
-            let columns = Int(box.maxX * CGFloat(bitmap.pixelsWide)) + 8..<bitmap.pixelsWide
-            return rows.reduce(0) { count, y in
-                count + columns.filter { x in
-                    guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB) else { return false }
-                    return color.redComponent + color.greenComponent + color.blueComponent < 2.1
-                }.count
+        func windows(_ titles: [String]) -> [WorkspaceSidebarWindowViewModel] {
+            // No installed app's icon: one read again in the background could change between renders.
+            titles.enumerated().map { index, title in
+                .init(windowId: UInt32(index + 1), workspaceName: "\(index + 1)", appName: "Safari", appBundleId: safariBundleId,
+                    appBundlePath: workspaceSidebarTestMissingAppPath, title: title, isFocused: false)
             }
         }
+        func sidebar(_ titles: [String]) -> WorkspaceSidebarSnapshot {
+            var snapshot = WorkspaceSidebarSnapshot.empty
+            snapshot.configuration.usesTabsList = true
+            snapshot.configuration.expandedWidth = 280
+            snapshot.configuration.collapsedWidth = 44
+            snapshot.visibleWidth = 280
+            snapshot.projects = [.init(id: workspaceProjectDefaultId, displayName: "Research", colorHex: nil, emoji: nil)]
+            snapshot.workspaces = windows(titles).map { window in
+                WorkspaceSidebarWorkspaceViewModel(name: window.workspaceName, projectId: workspaceProjectDefaultId,
+                    displayName: window.workspaceName, sidebarLabel: "", isGeneratedName: true, monitorScopeId: "monitor:0,0",
+                    monitorName: nil, isFocused: false, isVisible: false, items: [.init(kind: .window(window))])
+            }
+            return snapshot
+        }
+        func tabs(playing: Bool) -> BrowserTabsModel {
+            BrowserTabsModel(snapshots: [
+                1: browser(1, [nil], knowsSound: true), 2: browser(2, [playing ? .playing : nil], knowsSound: true),
+                3: browser(3, [nil], knowsSound: true),
+            ])
+        }
+        let size = CGSize(width: 280, height: 360)
+        AudioActivityModel.shared.setPlaying([])
+        let silent = try renderWorkspaceSidebarForTest(sidebar(titles), browserTabs: tabs(playing: false), size: size)
+        AudioActivityModel.shared.setPlaying([safariBundleId])
+        let playing = try renderWorkspaceSidebarForTest(sidebar(titles), browserTabs: tabs(playing: true), size: size)
+
+        // Each window's row, as the sidebar laid it out: workspace n holds window n.
+        let rows = try windows(titles).map { try XCTUnwrap(playing.frame(of: .workspace($0.workspaceName)), "\($0.title ?? "") row") }
+        XCTAssertEqual(rows, windows(titles).map { silent.frame(of: .workspace($0.workspaceName)) }, "Sound moves no row")
+        for (index, row) in rows.enumerated() {
+            var renamed = titles
+            renamed[index] = "Delta"
+            let title = try XCTUnwrap(renderWorkspaceSidebarForTest(sidebar(renamed), browserTabs: tabs(playing: true), size: size)
+                .difference(from: playing), "The sidebar draws “\(titles[index])”").bounds
+            XCTAssertTrue(row.contains(title) && title.maxX <= row.midX, "\(titles[index]) is drawn at the start of its row: \(title) in \(row)")
+        }
+
+        let speaker = try XCTUnwrap(playing.difference(from: silent), "The sidebar shows the sound").bounds
+        XCTAssertTrue(rows[1].contains(speaker), "Only Bravo's row changes: \(speaker) in \(rows)")
+        XCTAssertGreaterThan(speaker.minX, rows[1].midX, "at its trailing end, where the speaker sits: \(speaker) in \(rows[1])")
+        for index in [0, 2] {
+            XCTAssertNil(playing.difference(from: silent, in: rows[index]), "\(titles[index])'s row shows no sound")
+        }
+        // And absolutely, as drawn: ink at a row's trailing end, past its title, is only the speaker.
+        func trailingInk(_ render: WorkspaceSidebarTestRender) -> [Int] {
+            rows.map { render.inkPixels(in: CGRect(x: $0.midX, y: $0.minY, width: $0.maxX - $0.midX, height: $0.height)) }
+        }
+        let ink = trailingInk(playing)
         XCTAssertEqual(ink[0], 0, "\(ink)")
         XCTAssertGreaterThan(ink[1], 10, "\(ink)")
         XCTAssertEqual(ink[2], 0, "\(ink)")
+        XCTAssertEqual(trailingInk(silent), [0, 0, 0], "Nothing playing, no row shows sound")
     }
 }
