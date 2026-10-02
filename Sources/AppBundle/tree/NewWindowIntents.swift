@@ -258,8 +258,13 @@ final class NewWindowIntentRegistry {
 
     /// A reopen claimed this window for a tab and hasn't finished: restores leave it alone.
     func holdsReopenClaim(on window: Window) -> Bool {
-        if let claim = claims[window.windowId], claim.intent.reopens, !claim.isWithdrawn { return true }
-        return deferredPlacements.values.contains { $0.window === window }
+        reopenClaimTarget(for: window) != nil
+    }
+
+    /// The tab a reopen that hasn't finished claimed this window for.
+    func reopenClaimTarget(for window: Window) -> Workspace? {
+        if let claim = claims[window.windowId], claim.intent.reopens, !claim.isWithdrawn { return claim.targetWorkspace }
+        return deferredPlacements.values.first { $0.window === window }?.claim.targetWorkspace
     }
 
     /// The placements to finish now, in the order they were claimed.
@@ -368,9 +373,8 @@ func finishNewWindowIntentPlacement(_ window: Window, claim: NewWindowIntentClai
 
 /// The last restore under way ended: each reopened window placed meanwhile is finished where it is,
 /// if its tab and request still stand. Restores left it alone, so it's in its tab unless the user
-/// moved it, which stands, or a restore that failed partway left it in a root it replaced. It takes
-/// focus, and shows its tab again, only if the user hasn't moved on. Synchronous, so it never waits
-/// on the restore that called it.
+/// moved it, which stands. It takes focus, and shows its tab again, only if the user hasn't moved
+/// on. Synchronous, so it never waits on the restore that called it.
 @MainActor
 func finishDeferredReopenPlacements() {
     let registry = NewWindowIntentRegistry.shared
@@ -387,10 +391,6 @@ func finishDeferredReopenPlacements() {
             registry.cancel(claim: claim)
             continue
         }
-        if window.isInDetachedTree {
-            let binding = newWindowIntentBinding(targetWorkspace: target)
-            window.bind(to: binding.parent, adaptiveWeight: binding.adaptiveWeight, index: binding.index)
-        }
         guard window.nodeWorkspace === target else {
             // The user moved it since, or it went native full screen or minimized; it stays as it is.
             registry.cancel(claim: claim)
@@ -406,19 +406,13 @@ func finishDeferredReopenPlacements() {
     }
 }
 
-extension Window {
-    /// In a tiling tree that a restore unbound from its workspace, not in any workspace or macOS container.
-    @MainActor
-    fileprivate var isInDetachedTree: Bool {
-        var node: TreeNode = self
-        while let parent = node.parent {
-            if parent is Workspace || parent is MacosMinimizedWindowsContainer || parent is MacosPopupWindowsContainer {
-                return false
-            }
-            node = parent
-        }
-        return node !== self
-    }
+/// A restore's relayout classified a window, and a reopen claimed it for a tab during that wait:
+/// the relayout just put it where the older snapshot remembers it. The claim is newer, so it stands.
+@MainActor
+func keepReopenClaimAfterRestoreRelayout(_ window: Window) {
+    guard let target = NewWindowIntentRegistry.shared.reopenClaimTarget(for: window), window.nodeWorkspace !== target else { return }
+    let binding = newWindowIntentBinding(targetWorkspace: target)
+    window.bind(to: binding.parent, adaptiveWeight: binding.adaptiveWeight, index: binding.index)
 }
 
 /// The launcher closed after the window was claimed but before detection placed it: it goes

@@ -157,9 +157,14 @@ func restoreFrozenWorldIfNeeded(_ frozenWorld: FrozenWorld, newlyDetectedWindow:
         let potentialOrphans = prevRoot.allLeafWindowsRecursive
         prevRoot.unbindFromParent()
         restoreTreeRecursive(frozenContainer: frozenWorkspace.rootTilingNode, parent: workspace, index: INDEX_BIND_LAST)
+        // A reopened window claimed for this tab stays in it, before any wait below could let the
+        // user move it, or a failure strand it in the replaced root.
+        for window in potentialOrphans where restoreLeavesAlone(window) && window.isBound && window.nodeWorkspace == nil {
+            window.bind(to: workspace.rootTilingContainer, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
+        }
         for window in (potentialOrphans - workspace.rootTilingContainer.allLeafWindowsRecursive) {
-            // A reopened window still goes back into the tab it's in, as it is.
-            if !restoreLeavesAlone(window), let frozenWindow = frozenWindowById[window.windowId] {
+            if restoreLeavesAlone(window) { continue }
+            if let frozenWindow = frozenWindowById[window.windowId] {
                 if case .macos = frozenWindow.layoutReason {
                     try await restoreFrozenUnconventionalWindow(window, frozenWindow, on: workspace)
                     continue
@@ -246,6 +251,7 @@ private func restoreFrozenUnconventionalWindow(
         default:
             switch frozenWindow.layoutReason {
                 case .macos(let prevParentKind, let prevWorkspaceName):
+                    defer { keepReopenClaimAfterRestoreRelayout(window) }
                     try await exitMacOsNativeUnconventionalState(
                         window: window,
                         prevParentKind: prevParentKind,

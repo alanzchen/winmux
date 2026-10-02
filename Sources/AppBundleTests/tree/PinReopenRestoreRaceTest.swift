@@ -91,6 +91,7 @@ final class PinReopenRestoreRaceTest: XCTestCase {
         -> (restore: Task<Bool, any Error>, release: () -> Void)
     {
         var resume: CheckedContinuation<Void, Never>?
+        let restoresBefore = activeFrozenRestoreCount
         held.nativeStateGate = {
             await withCheckedContinuation { resume = $0 }
             if let failing { throw failing }
@@ -101,7 +102,7 @@ final class PinReopenRestoreRaceTest: XCTestCase {
         let restore = Task { @MainActor in try await restoreOrDetectNewWindow(other, isRegularWindow: true) }
         await letTasksRun()
         XCTAssertNotNil(resume, "The restore waits on the AX read")
-        XCTAssertEqual(activeFrozenRestoreCount, 1)
+        XCTAssertEqual(activeFrozenRestoreCount, restoresBefore + 1)
         return (restore, {
             held.nativeStateGate = nil
             resume?.resume()
@@ -224,23 +225,104 @@ final class PinReopenRestoreRaceTest: XCTestCase {
         XCTAssertTrue(reopened.nodeWorkspace === pin)
     }
 
-    func testAWindowLeftInARootTheRestoreReplacedStillGoesToTheClickedTab() async throws {
-        let (_, pin, _, _, reopened, _, _) = closedWorld()
+    /// The pin itself is in the snapshot, with window `held` that a restore of it finds in the root it
+    /// replaces, so it waits on `held`'s AX read in its orphan pass (or fails there, with `failing`).
+    /// The reopened window was claimed into the pin before, while another restore ran.
+    private func restoreReplacingThePinsRoot(failing: (any Error)? = nil) async throws
+        -> (pin: Workspace, reopened: TestWindow, restore: Task<Bool, any Error>, release: () -> Void, outcomes: () -> [NewWindowRequestOutcome])
+    {
+        let old = Workspace.get(byName: "old")
+        let q = Workspace.get(byName: "q")
+        let pin = Workspace.get(byName: "pin")
+        let held = TestWindow.new(id: 5, parent: pin.rootTilingContainer)
+        // Remembered as coming back from macOS, so the orphan pass reads its native state.
+        held.layoutReason = .macos(prevParentKind: .tilingContainer, prevWorkspaceName: "pin")
+        let reopened = TestWindow.new(id: 2, parent: old.rootTilingContainer)
+        let other = TestWindow.new(id: 3, parent: q.rootTilingContainer, app: TestApp(pid: 77, bundleId: "com.example.other"))
+        replaceClosedWindowsCache(snapshotCurrentFrozenWorld())
+        reopened.unbindFromParent()
+        other.unbindFromParent()
+        _ = pin.focusWorkspace()
         var outcomes: [NewWindowRequestOutcome] = []
         beginFrozenRestore()
         clickPin(pin) { outcomes.append($0) }
         await letTasksRun()
         try await appShows(reopened)
-        // The restore detached the tab's root, with the window still in it, then failed before
-        // putting the window back. The window keeps its parent, which no longer belongs to the tab.
-        let detached = pin.rootTilingContainer
-        detached.unbindFromParent()
-        XCTAssertTrue(reopened.parent === detached)
-        XCTAssertNil(reopened.nodeWorkspace)
+        XCTAssertEqual(pin.rootTilingContainer.allLeafWindowsRecursive.map(\.windowId), [5, 2])
+        let (restore, release) = await restoreWaitingOnAX(other, held: held, failing: failing)
+        XCTAssertEqual(activeFrozenRestoreCount, 2)
+        return (pin, reopened, restore, release, { outcomes })
+    }
 
+    func testAWindowTheUserMovesWhileTheRestoreReplacingItsTabWaitsStaysWhereTheUserPutIt() async throws {
+        let (pin, reopened, restore, release, outcomes) = try await restoreReplacingThePinsRoot()
+        XCTAssertTrue(reopened.nodeWorkspace === pin, "Moved into the new root before the wait")
+        let elsewhere = Workspace.get(byName: "elsewhere")
+        _ = TestWindow.new(id: 7, parent: elsewhere.rootTilingContainer)
+        reopened.bind(to: elsewhere.rootTilingContainer, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
+
+        release()
+        _ = try await restore.value
+        XCTAssertTrue(reopened.nodeWorkspace === elsewhere, "The orphan pass doesn't put it back in the pin")
+        endFrozenRestore()
+        XCTAssertTrue(reopened.nodeWorkspace === elsewhere)
+        XCTAssertEqual(outcomes(), [.cancelled])
+    }
+
+    func testARestoreThatFailsAfterReplacingTheTabsRootLeavesTheReopenedWindowInTheTab() async throws {
+        let (pin, reopened, restore, release, outcomes) = try await restoreReplacingThePinsRoot(failing: CocoaError(.featureUnsupported))
+        release()
+        do {
+            _ = try await restore.value
+            XCTFail("The AX read failed")
+        } catch {}
+        XCTAssertTrue(reopened.parent === pin.rootTilingContainer, "Not stranded in the replaced root")
         endFrozenRestore()
         XCTAssertTrue(reopened.nodeWorkspace === pin)
-        XCTAssertEqual(outcomes, [.placed(windowId: 2)])
+        XCTAssertEqual(outcomes(), [.placed(windowId: 2)])
+    }
+
+    func testARestoreSkippingTheReopenedWindowRestoresTheRestOfItsStackInOrder() async throws {
+        let old = Workspace.get(byName: "old")
+        let parked = Workspace.get(byName: "parked")
+        let pin = Workspace.get(byName: "pin")
+        let reopened = TestWindow.new(id: 2, parent: old.rootTilingContainer)
+        let sibling = TestWindow.new(id: 1, parent: old.rootTilingContainer)
+        let next = TestWindow.new(id: 4, parent: old.rootTilingContainer)
+        let snapshot = snapshotCurrentFrozenWorld()
+        reopened.unbindFromParent()
+        // Elsewhere for now, so the restore finds them.
+        sibling.bind(to: parked.rootTilingContainer, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
+        next.bind(to: parked.rootTilingContainer, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
+        _ = pin.focusWorkspace()
+        beginFrozenRestore()
+        clickPin(pin) { _ in }
+        await letTasksRun()
+        try await appShows(reopened)
+
+        _ = try await restoreFrozenWorldIfNeeded(snapshot, newlyDetectedWindow: sibling)
+        XCTAssertTrue(reopened.nodeWorkspace === pin)
+        XCTAssertEqual(old.rootTilingContainer.children.compactMap { ($0 as? Window)?.windowId }, [1, 4],
+            "In their remembered order, without a gap where the reopened window was")
+        endFrozenRestore()
+    }
+
+    func testARelayoutThatClassifiedAWindowClaimedMeanwhileLeavesItWhereTheClaimPutIt() async throws {
+        let (old, pin, _, _, reopened, _, _) = closedWorld()
+        beginFrozenRestore()
+        clickPin(pin) { _ in }
+        await letTasksRun()
+        try await appShows(reopened)
+        // The restore's relayout finished its classification wait and put it where the snapshot remembers it.
+        reopened.bind(to: old.rootTilingContainer, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
+        keepReopenClaimAfterRestoreRelayout(reopened)
+        XCTAssertTrue(reopened.nodeWorkspace === pin)
+        endFrozenRestore()
+
+        // With no claim standing, the relayout's placement is left as it is.
+        reopened.bind(to: old.rootTilingContainer, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
+        keepReopenClaimAfterRestoreRelayout(reopened)
+        XCTAssertTrue(reopened.nodeWorkspace === old)
     }
 
     func testAWindowTheUserMovesWhileItWaitsStaysWhereTheUserPutIt() async throws {
