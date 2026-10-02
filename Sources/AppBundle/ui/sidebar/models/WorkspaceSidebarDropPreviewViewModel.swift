@@ -9,7 +9,7 @@ struct WorkspaceSidebarDropPreviewTabItem: Hashable {
 
 struct WorkspaceSidebarDropPreviewViewModel: Hashable {
     let sourceWindowId: UInt32
-    let label: String
+    var label: String
     let appName: String
     let appBundleIdentifier: String?
     let appBundlePath: String?
@@ -17,9 +17,9 @@ struct WorkspaceSidebarDropPreviewViewModel: Hashable {
     let targetsNewWorkspace: Bool
     let targetProjectId: WorkspaceProjectId?
     let targetMonitorScopeId: String?
-    let isTabGroup: Bool
-    let windowCount: Int
-    let tabItems: [WorkspaceSidebarDropPreviewTabItem]
+    var isTabGroup: Bool
+    var windowCount: Int
+    var tabItems: [WorkspaceSidebarDropPreviewTabItem]
     /// Tabs mode: the side of the target tab it goes, or a stack.
     var targetCollectionId: String? = nil
     var targetPlacement: WorkspaceSidebarTabDropPlacement? = nil

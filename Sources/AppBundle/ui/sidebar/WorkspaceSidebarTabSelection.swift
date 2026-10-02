@@ -56,11 +56,15 @@ final class WorkspaceSidebarTabDragState: ObservableObject {
     @Published private(set) var isDragging = false
     /// The pinned tab being dragged, which stays dimmed until the drag ends.
     @Published private(set) var draggedPinnedTab: String?
+    /// The chosen tabs a drag carries together, which stay dimmed until it ends.
+    @Published private(set) var draggedTabs: [String] = []
 
-    func set(_ dragging: Bool, pinnedTab: String? = nil) {
+    func set(_ dragging: Bool, pinnedTab: String? = nil, batch: [String] = []) {
         if isDragging != dragging { isDragging = dragging }
         let pinnedTab = dragging ? pinnedTab : nil
         if draggedPinnedTab != pinnedTab { draggedPinnedTab = pinnedTab }
+        let batch = dragging ? batch : []
+        if draggedTabs != batch { draggedTabs = batch }
     }
 }
 

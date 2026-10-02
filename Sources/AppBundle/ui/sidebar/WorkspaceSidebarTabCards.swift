@@ -92,6 +92,10 @@ struct WorkspaceSidebarTabCardView: View {
     @Environment(\.workspaceSidebarTabIndent) private var indent
     @Environment(\.workspaceSidebarReducesMotion) private var reducesMotion
     @ObservedObject private var selection = WorkspaceSidebarTabSelection.shared
+    @ObservedObject private var drag = WorkspaceSidebarTabDragState.shared
+
+    /// One of the chosen tabs a drag carries together: the whole card dims, not just a row.
+    private var isBatchSource: Bool { drag.draggedTabs.contains(workspace.name) }
 
     /// A browser window's tabs draw their own card, which marks the tab in use and takes its color.
     private var drawsBrowserCard: Bool {
@@ -173,6 +177,8 @@ struct WorkspaceSidebarTabCardView: View {
                     )
                 }
             }
+            .opacity(isBatchSource ? 0.45 : 1)
+            .animation(WorkspaceSidebarTabMotion.feedback, value: isBatchSource)
     }
 
     private var backgroundOpacity: Double {
@@ -329,7 +335,7 @@ struct WorkspaceSidebarTabCardView: View {
                 workspaceSidebarMatchingBrowserTabs(browserTabs[window.windowId], window: window, workspace: workspace,
                     query: browserQuery, context: browserSearchContext).isEmpty,
             isSearchSelected: selectedSearchTarget == .window(window.windowId),
-            isDragSource: dragSourceWindowId == window.windowId,
+            isDragSource: !isBatchSource && dragSourceWindowId == window.windowId,
             actions: actions,
             workspaceMenu: (workspace, onBeginRename),
             followsIndent: followsIndent,

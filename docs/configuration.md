@@ -67,6 +67,12 @@ tabs-always-expanded = true
   Tabs**, which keeps its tabs and windows. **Remove from Group** removes just one row.
 - Shift-click tabs to choose a range, or Command-click to add or remove one; a plain
   click goes back to one tab. Right-click a chosen tab to group, pin, or close them all.
+  Drag a chosen tab to move every chosen tab together, whole and in order: between tabs, on
+  this display or in another display's list, into a group, or onto the pins. They go only
+  where all of them can, Undo puts them all back, and the choice ends once they've moved.
+  Dragging a tab that isn't chosen moves only that tab. Chosen tabs don't split with another
+  tab, open a New Tab, or drop onto the screen, and pinned and unpinned tabs chosen together
+  go nowhere.
 - **Pin Tab** places a row in the shortcut tiles at the top; so does dragging it onto
   them, or, with nothing pinned yet, onto **Drop to Pin** there. Dropped beside a tile,
   it's pinned in that place; a line between the tiles marks the spot. A pinned tile drags

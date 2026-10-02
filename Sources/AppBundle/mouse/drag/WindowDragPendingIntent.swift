@@ -21,7 +21,8 @@ func updatePendingWindowDragIntent(
     if workspaceSidebarOwnsDrag(usesBrowserTabs: config.usesBrowserTabs,
         startedInSidebar: getCurrentMouseDragStartedInSidebar(),
         hasActiveSidebarDrag: currentActiveWorkspaceSidebarDrag() != nil,
-        isPointerInSidebar: surface != nil, isPointerOnTemporarySurface: surface?.isTemporary == true)
+        isPointerInSidebar: surface != nil, isPointerOnTemporarySurface: surface?.isTemporary == true,
+        carriesBatch: workspaceSidebarDragCarriesBatch())
     {
         // The sidebar already previewed this drag and will drop it where the preview shows;
         // a window-drag destination here would replace its gap line with a whole-row highlight.
@@ -67,8 +68,17 @@ func updatePendingWindowDragIntent(
 /// previews and drops it, with the gaps between tabs and the halves of a tab. Over temporary drop
 /// UI it does so in every mode. Elsewhere, the window drag's own destinations apply.
 func workspaceSidebarOwnsDrag(usesBrowserTabs: Bool, startedInSidebar: Bool, hasActiveSidebarDrag: Bool,
-                              isPointerInSidebar: Bool, isPointerOnTemporarySurface: Bool = false) -> Bool {
-    startedInSidebar && hasActiveSidebarDrag && (usesBrowserTabs && isPointerInSidebar || isPointerOnTemporarySurface)
+                              isPointerInSidebar: Bool, isPointerOnTemporarySurface: Bool = false,
+                              carriesBatch: Bool = false) -> Bool {
+    // Chosen tabs dragged together go only where all of them can, never onto the screen.
+    startedInSidebar && hasActiveSidebarDrag
+        && (usesBrowserTabs && isPointerInSidebar || isPointerOnTemporarySurface || carriesBatch)
+}
+
+/// Whether the sidebar's drag carries chosen tabs together, which the screen takes no drop of.
+@MainActor
+func workspaceSidebarDragCarriesBatch() -> Bool {
+    currentActiveWorkspaceSidebarDrag()?.batch != nil && !workspaceSidebarBatchScreenReleaseMovesDraggedWindow
 }
 
 @MainActor
