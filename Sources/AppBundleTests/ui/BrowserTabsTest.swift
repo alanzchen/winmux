@@ -1,7 +1,6 @@
 import AppKit
 @testable import AppBundle
 import SwiftUI
-import Vision
 import XCTest
 
 final class BrowserTabsTest: XCTestCase {
@@ -516,46 +515,73 @@ final class BrowserTabsTest: XCTestCase {
         XCTAssertTrue(browserTabSelectionAllowed(workspace: workspace, monitorScopeId: workspaceSidebarMonitorScopeId(for: left)))
     }
 
+    /// The composed Tabs sidebar draws a browser window's tabs, alone and in a split. Each title is
+    /// checked in the real rendered view, without reading text back from the image: drawing it with
+    /// only that text changed changes pixels, and only in that title's row. That shows the view draws
+    /// each title where it belongs, though not that the glyphs read as the word.
     @MainActor
     func testBrowserGroupAndSplitRenderWithoutChangingWindowIdentity() throws {
         let browser = try XCTUnwrap(fixture(.chromium).scanner.scan())
-        let chrome = WorkspaceSidebarWindowViewModel(windowId: 123, workspaceName: "1", appName: "Google Chrome",
-            appBundleId: "com.google.Chrome", appBundlePath: "/Applications/Google Chrome.app", title: "Alpha", isFocused: true)
-        let notes = WorkspaceSidebarWindowViewModel(windowId: 124, workspaceName: "1", appName: "Notes",
-            appBundleId: "com.apple.Notes", appBundlePath: nil, title: "Research notes", isFocused: false)
+        XCTAssertEqual(browser.tabs.map(\.title), ["Alpha", "Beta"])
+        func retitled(_ index: Int, _ title: String) -> BrowserTabsModel {
+            var tabs = browser
+            tabs.tabs[index].title = title
+            return BrowserTabsModel(snapshots: [123: tabs])
+        }
+        let size = CGSize(width: 280, height: 480)
         for split in [false, true] {
-            var snapshot = WorkspaceSidebarSnapshot.empty
-            snapshot.configuration.usesTabsList = true
-            snapshot.configuration.expandedWidth = 280
-            snapshot.configuration.collapsedWidth = 44
-            snapshot.visibleWidth = 280
-            snapshot.projects = [.init(id: workspaceProjectDefaultId, displayName: "Research", colorHex: nil, emoji: nil)]
-            let workspace = WorkspaceSidebarWorkspaceViewModel(name: "1", projectId: workspaceProjectDefaultId,
-                displayName: "1", sidebarLabel: "", isGeneratedName: true, monitorScopeId: "monitor:0,0", monitorName: nil,
-                isFocused: true, isVisible: true, items: (split ? [chrome, notes] : [chrome]).map { .init(kind: .window($0)) })
-            snapshot.workspaces = [workspace]
-            let model = BrowserTabsModel(snapshots: [123: browser])
-            let view = WorkspaceSidebarView(snapshot: snapshot, reduceMotionOverride: true,
-                reduceTransparencyOverride: true, browserTabsModel: model)
-            let host = NSHostingView(rootView: view.frame(width: 280, height: 480).environment(\.colorScheme, .light))
-            host.frame = CGRect(x: 0, y: 0, width: 280, height: 480)
-            host.layoutSubtreeIfNeeded()
-            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.1))
-            let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
-            host.cacheDisplay(in: host.bounds, to: bitmap)
-            let recognize = VNRecognizeTextRequest()
-            recognize.recognitionLevel = .accurate
-            recognize.usesLanguageCorrection = false
-            try VNImageRequestHandler(cgImage: XCTUnwrap(bitmap.cgImage)).perform([recognize])
-            let renderedText = (recognize.results ?? []).compactMap { $0.topCandidates(1).first?.string }.joined(separator: " ")
-            XCTAssertTrue(renderedText.contains("Alpha"), renderedText)
-            XCTAssertTrue(renderedText.contains("Beta"), renderedText)
-            XCTAssertTrue(renderedText.contains("Chrome"), renderedText)
+            func tab(appName: String = "Google Chrome", notesTitle: String = "Research notes") -> WorkspaceSidebarWorkspaceViewModel {
+                // No installed app's icon: one read again in the background could change between renders.
+                let chrome = WorkspaceSidebarWindowViewModel(windowId: 123, workspaceName: "1", appName: appName,
+                    appBundleId: "com.google.Chrome", appBundlePath: workspaceSidebarTestMissingAppPath, title: "Alpha", isFocused: true)
+                let notes = WorkspaceSidebarWindowViewModel(windowId: 124, workspaceName: "1", appName: "Notes",
+                    appBundleId: "com.apple.Notes", appBundlePath: workspaceSidebarTestMissingAppPath, title: notesTitle, isFocused: false)
+                return WorkspaceSidebarWorkspaceViewModel(name: "1", projectId: workspaceProjectDefaultId,
+                    displayName: "1", sidebarLabel: "", isGeneratedName: true, monitorScopeId: "monitor:0,0", monitorName: nil,
+                    isFocused: true, isVisible: true, items: (split ? [chrome, notes] : [chrome]).map { .init(kind: .window($0)) })
+            }
+            func sidebar(_ workspace: WorkspaceSidebarWorkspaceViewModel) -> WorkspaceSidebarSnapshot {
+                var snapshot = WorkspaceSidebarSnapshot.empty
+                snapshot.configuration.usesTabsList = true
+                snapshot.configuration.expandedWidth = 280
+                snapshot.configuration.collapsedWidth = 44
+                snapshot.visibleWidth = 280
+                snapshot.projects = [.init(id: workspaceProjectDefaultId, displayName: "Research", colorHex: nil, emoji: nil)]
+                snapshot.workspaces = [workspace]
+                return snapshot
+            }
+            let workspace = tab()
+            let render = try renderWorkspaceSidebarForTest(sidebar(workspace), browserTabs: BrowserTabsModel(snapshots: [123: browser]),
+                size: size)
             let directory = projectRoot.appendingPathComponent(".build/browser-tabs-ui")
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
+            try XCTUnwrap(render.bitmap.representation(using: .png, properties: [:]))
                 .write(to: directory.appendingPathComponent(split ? "split.png" : "single.png"))
-            XCTAssertEqual(host.fittingSize.width, 280, accuracy: 0.5)
+
+            XCTAssertNil(try renderWorkspaceSidebarForTest(sidebar(workspace), browserTabs: BrowserTabsModel(snapshots: [123: browser]),
+                size: size).difference(from: render), "The same sidebar draws the same pixels, so a difference is the text's")
+            func drawn(_ variant: WorkspaceSidebarTestRender, _ text: String) throws -> CGRect {
+                try XCTUnwrap(variant.difference(from: render), "The sidebar draws “\(text)”, split: \(split)").bounds
+            }
+            let header = try XCTUnwrap(render.frame(of: .workspace("1")), "The tab's header row")
+            let app = try drawn(renderWorkspaceSidebarForTest(sidebar(tab(appName: "Google Chromium")),
+                browserTabs: BrowserTabsModel(snapshots: [123: browser]), size: size), "Google Chrome")
+            let alpha = try drawn(renderWorkspaceSidebarForTest(sidebar(workspace), browserTabs: retitled(0, "Omega"), size: size), "Alpha")
+            let beta = try drawn(renderWorkspaceSidebarForTest(sidebar(workspace), browserTabs: retitled(1, "Delta"), size: size), "Beta")
+            // Alone, the browser's name is the tab's header; in a split, it heads the browser's half, under the split's.
+            XCTAssertTrue(split ? app.minY >= header.maxY : header.contains(app), "The browser's name heads its tabs: \(app), \(header)")
+            XCTAssertGreaterThanOrEqual(alpha.minY, app.maxY, "Alpha's row is under the browser's name: \(alpha)")
+            XCTAssertGreaterThanOrEqual(beta.minY, alpha.maxY, "and Beta's under Alpha's: \(beta)")
+            for row in [app, alpha, beta] {
+                XCTAssertTrue(row.minX >= header.minX && row.maxX <= header.maxX, "Inside the sidebar's list: \(row)")
+                XCTAssertLessThan(row.height, header.height, "One row's text: \(row)")
+            }
+            if split {
+                let notes = try drawn(renderWorkspaceSidebarForTest(sidebar(tab(notesTitle: "Field notes")),
+                    browserTabs: BrowserTabsModel(snapshots: [123: browser]), size: size), "Research notes")
+                XCTAssertTrue(header.contains(notes), "The split's header names its other window: \(notes) in \(header)")
+            }
+            XCTAssertEqual(render.fittingSize.width, 280, accuracy: 0.5)
             XCTAssertEqual(workspaceSidebarPinnedTabWindows(workspace).count, split ? 2 : 1)
         }
     }
