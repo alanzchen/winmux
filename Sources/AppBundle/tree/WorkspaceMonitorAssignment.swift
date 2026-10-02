@@ -252,6 +252,7 @@ func rearrangeWorkspacesOnMonitors() {
         }
     }
     let reservedTargetIds = restoreTargets.byViewport.values.map(\.id).toSet()
+    var preservedViewports: [MonitorViewportId: MonitorViewport] = [:]
     // Workspaces that stay on their mapped display; mid-rebuild, isVisible can't tell.
     let keptVisibleIds = newMonitorToOldMonitorMapping.values
         .compactMap { oldViewportsById[$0]?.activeWorkspaceId }
@@ -260,6 +261,7 @@ func rearrangeWorkspacesOnMonitors() {
         .subtracting(reservedTargetIds)
 
     winMuxWorkspaceState.monitorViewportsById = [:]
+    defer { keepProjectsRememberedTabs(preservedViewports) }
 
     var assignedWorkspaceIds: Set<WorkspaceId> = []
     for monitor in currentMonitors {
@@ -268,6 +270,7 @@ func rearrangeWorkspacesOnMonitors() {
         let mappedOldMonitor = newMonitorToOldMonitorMapping[newMonitor]
         let preservedViewport = mappedOldMonitor.flatMap { oldViewportsById[$0] } ?? oldViewportsById[newMonitor]
         let displayKey = monitor.displayIdentity?.key ?? mappedOldMonitor.flatMap { oldViewportsById[$0]?.displayKey }
+        preservedViewports[newMonitor] = preservedViewport
         if let preservedViewport {
             winMuxWorkspaceState.monitorViewportsById[newMonitor] = MonitorViewport(
                 id: newMonitor,
@@ -320,6 +323,17 @@ func rearrangeWorkspacesOnMonitors() {
         check(newScreen.setActiveWorkspace(workspace),
               "Generated incompatible fallback workspace (\(workspace)) for the display viewport (\(newScreen)")
         assignedWorkspaceIds.insert(workspace.id)
+    }
+}
+
+/// A display showing again the pin in All Projects it showed chose nothing: each project keeps
+/// the tab it remembered there, as it did before the displays changed.
+@MainActor
+private func keepProjectsRememberedTabs(_ preservedViewports: [MonitorViewportId: MonitorViewport]) {
+    for (id, preserved) in preservedViewports {
+        guard let active = preserved.activeWorkspaceId, winMuxWorkspaceState.monitorViewportsById[id]?.activeWorkspaceId == active,
+              let workspace = winMuxWorkspaceState.workspaceById[active], workspaceIsPinnedInAllProjects(workspace) else { continue }
+        winMuxWorkspaceState.monitorViewportsById[id]?.lastActiveWorkspaceByProject = preserved.lastActiveWorkspaceByProject
     }
 }
 

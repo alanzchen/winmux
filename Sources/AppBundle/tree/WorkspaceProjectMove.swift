@@ -32,14 +32,19 @@ func moveWorkspaceToProject(workspaceName: String, projectId: WorkspaceProjectId
         winMuxWorkspaceState.monitorViewportsById[viewportId] = viewport
     }
     ensureMinimumWorkspace(for: sourceProjectId, monitor: monitor)
-    // What the next checkpoint would write: the record's project, and the records in the order
-    // the tabs are now presented in.
-    if syncsSavedRecord, !savedWorkspaceStore.isReadOnly, let record = savedWorkspaceStore.record(named: workspaceName),
-       savedWorkspaceProjectSyncAllowed(workspace, record: record) {
-        savedWorkspaceStore.update(named: workspaceName) { $0.projectId = projectId }
-        savedWorkspaceStore.reorder(workspaceNamesInOrder: orderedWorkspacesForPresentation().map(\.name))
-        savedWorkspaceStore.flushNow()
-    }
+    if syncsSavedRecord { syncSavedWorkspaceRecordProject(workspace) }
     checkWorkspaceHierarchyInvariants()
     return true
+}
+
+/// Writes now what the next checkpoint would: the saved record's project, and the records in the
+/// order the tabs are presented in. An Undo taken right after a move then still matches what's
+/// saved once that checkpoint runs.
+@MainActor
+func syncSavedWorkspaceRecordProject(_ workspace: Workspace) {
+    guard !savedWorkspaceStore.isReadOnly, let record = savedWorkspaceStore.record(named: workspace.name),
+          savedWorkspaceProjectSyncAllowed(workspace, record: record) else { return }
+    savedWorkspaceStore.update(named: workspace.name) { $0.projectId = workspace.projectId }
+    savedWorkspaceStore.reorder(workspaceNamesInOrder: orderedWorkspacesForPresentation().map(\.name))
+    savedWorkspaceStore.flushNow()
 }

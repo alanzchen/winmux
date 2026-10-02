@@ -441,7 +441,8 @@ func applySidebarPinDrop(_ windowId: UInt32, subject: WindowDragSubject, gap: Wo
         if sourceNode === sourceWindow, workspaceTabDragLeavesWindowsBehind(sourceNode) {
             // Pinned tabs leave their group, so the new tab never joins one: pinning is the
             // only organization write, and a failure leaves no stray membership behind.
-            try detachWorkspaceTabWindow(sourceWindow, keepsGroup: false)
+            try detachWorkspaceTabWindow(sourceWindow, keepsGroup: false,
+                destination: sidebarPinDropNewTabDestination(sourceWindow, monitorScopeId: monitorScopeId, projectId: projectId))
         }
         guard let workspace = sourceNode.nodeWorkspace else { return }
         // A window pulled out of a split keeps its new tab where it was made, among shared pins.
@@ -461,6 +462,17 @@ func applySidebarPinDrop(_ windowId: UInt32, subject: WindowDragSubject, gap: Wo
         before.restore(replacing: WorkspaceSidebarTabUndoSnapshot())
         throw error
     }
+}
+
+/// Where a window pulled out of a split onto another project's pins gets its new tab: in that
+/// project, on the display whose list it was dropped on, so the display it came from stays in its
+/// own. Its own project's pins, or none named, leave the new tab to be made where the window was.
+@MainActor
+private func sidebarPinDropNewTabDestination(_ window: Window, monitorScopeId: String?,
+                                             projectId: WorkspaceProjectId?) -> (projectId: WorkspaceProjectId, monitor: Monitor)? {
+    guard let source = window.nodeWorkspace, let projectId, projectId != workspaceContextProjectId(of: source) else { return nil }
+    let monitor = monitorScopeId.flatMap { workspaceSidebarDropTargetMonitor(scopeId: $0, fallbackWindow: window) }
+    return (projectId, monitor ?? source.workspaceMonitor)
 }
 
 /// A tab dropped on a group's header joins the group, as the whole tab it's in. A group on
@@ -659,8 +671,9 @@ private func isActionableSidebarDropTarget(
         // unless it already is, and a pinned one moves beside another pin, or to the other
         // section's pins. From another display, the tab also moves to the display whose pins these
         // are, if it may go there; shared pins take it nowhere.
+        // Pins in All Projects are no project's, so a tab from another display's list may go there too.
         guard config.usesBrowserTabs, let workspace = sourceNode.nodeWorkspace,
-              workspaceIsListed(workspace, inProject: projectId) else { return false }
+              section == .allProjects || workspaceIsListed(workspace, inProject: projectId) else { return false }
         if workspaceTabDragLeavesWindowsBehind(sourceNode) {
             // It gets a new tab of its own, which may go to any display that's still there.
             if case .gone = workspaceSidebarDropDisplay(for: workspace, monitorScopeId: monitorScopeId) { return false }

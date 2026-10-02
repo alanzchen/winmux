@@ -39,11 +39,16 @@ func splitWorkspaceSidebarTabWindow(_ windowId: UInt32, fromWorkspace sourceId: 
 
 @MainActor
 /// `keepsGroup` is false when the new tab is pinned right after, which takes it out of any group.
-func detachWorkspaceTabWindow(_ window: Window, keepsGroup: Bool = true) throws {
+/// `destination` is the project and display of the list the window is dropped on, when that's
+/// another project's than the one its tab is listed in: the new tab is made there.
+func detachWorkspaceTabWindow(_ window: Window, keepsGroup: Bool = true,
+                              destination: (projectId: WorkspaceProjectId, monitor: Monitor)? = nil) throws {
     guard config.usesBrowserTabs, let source = window.nodeWorkspace, source.allLeafWindowsRecursive.count > 1 else { return }
-    let tab = createWorkspace(after: source, projectId: workspaceContextProjectId(of: source), monitor: source.workspaceMonitor)
+    let tab = createWorkspace(after: source, projectId: destination?.projectId ?? workspaceContextProjectId(of: source),
+        monitor: destination?.monitor ?? source.workspaceMonitor)
     do {
-        if keepsGroup, let group = workspaceSidebarOrganizationStore.collection(containing: source.name) {
+        if keepsGroup, let group = workspaceSidebarOrganizationStore.collection(containing: source.name),
+           group.projectId == tab.projectId {
             try assignWorkspaceToSidebarCollection(tab, collectionId: group.id, keepWhenEmpty: false)
         }
     } catch {

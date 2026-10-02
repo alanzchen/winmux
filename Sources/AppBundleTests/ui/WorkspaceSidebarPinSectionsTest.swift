@@ -378,6 +378,68 @@ final class WorkspaceSidebarPinSectionsTest: XCTestCase {
             point: CGPoint(x: 100, y: 30)))
     }
 
+    /// Review: the pins in All Projects are no project's, so another display's list takes any tab
+    /// there, while its project's own pins take only that project's.
+    func testAnotherDisplaysPinsInAllProjectsTakeATabFromAnyProject() throws {
+        let monitors = ["Left", "Right"].enumerated().map { index, name in
+            let rect = Rect(topLeftX: CGFloat(index) * 1920, topLeftY: 0, width: 1920, height: 1080)
+            return WorkspaceSidebarDragTestMonitor(monitorAppKitNsScreenScreensId: index + 1, name: name, rect: rect,
+                visibleRect: rect, isMain: index == 0)
+        }
+        setMonitorsForTests(monitors)
+        let t = try tabs()
+        let c = createWorkspaceProject().id
+        let c1 = tab("c1", in: c)
+        c1.preferredMonitorPoint = monitors[1].rect.topLeftCorner
+        XCTAssertTrue(monitors[1].setActiveWorkspace(c1))
+        let right = workspaceSidebarMonitorScopeId(for: monitors[1])
+        let window = try XCTUnwrap(t.b2.allLeafWindowsRecursive.first)
+        previewWorkspaceSidebarDrop(window.windowId, subject: .window,
+            target: .pinnedTabs(projectId: c, monitorScopeId: right, section: .project))
+        XCTAssertNil(TrayMenuModel.shared.workspaceSidebarDropPreview, "C's own pins take only C's tabs")
+        previewWorkspaceSidebarDrop(window.windowId, subject: .window,
+            target: .pinnedTabs(projectId: c, monitorScopeId: right, section: .allProjects))
+        XCTAssertEqual(TrayMenuModel.shared.workspaceSidebarDropPreview?.targetPinSection, .allProjects)
+        try applySidebarPinDrop(window.windowId, subject: .window, gap: nil, monitorScopeId: right, section: .allProjects,
+            projectId: c)
+        XCTAssertTrue(workspaceIsPinnedInAllProjects(t.b2))
+        XCTAssertEqual(t.b2.projectId, t.b, "It keeps its project")
+        // A pin of B dragged there too.
+        let promote = try XCTUnwrap(workspaceSidebarPinnedTabDrop(t.q, target: .init(kind: .pinnedTabs(projectId: c,
+            monitorScopeId: right, section: .allProjects), rect: Rect(topLeftX: 0, topLeftY: 0, width: 200, height: 60)),
+            point: CGPoint(x: 100, y: 30)))
+        try applyWorkspaceSidebarPinnedTabDrop(t.q, promote)
+        XCTAssertTrue(workspaceIsPinnedInAllProjects(t.q))
+        XCTAssertNotNil(workspaceSidebarPinnedTabDrop(t.g, target: .init(kind: .pinnedTabs(projectId: c,
+            monitorScopeId: right, section: .project), rect: Rect(topLeftX: 0, topLeftY: 0, width: 200, height: 60)),
+            point: CGPoint(x: 100, y: 30)), "C's own pins take a pin in All Projects, which C lists")
+    }
+
+    /// Review: chosen pins dropped on a group join it as tabs of the group's project, a pin in All
+    /// Projects from another project included.
+    func testChosenPinsDroppedOnAGroupJoinItInItsProject() async throws {
+        let t = try tabs()
+        let group = try workspaceSidebarOrganizationStore.create(projectId: t.b, workspaceNames: ["b2"])
+        let selection = WorkspaceSidebarTabSelection.shared
+        XCTAssertTrue(selection.handleClick(on: "g", modifiers: .command, order: ["g", "q"], active: nil))
+        XCTAssertTrue(selection.handleClick(on: "q", modifiers: .command, order: ["g", "q"], active: nil))
+        let batch = try XCTUnwrap(WorkspaceSidebarDragBatch(startingWith: "q"))
+        let drop = try XCTUnwrap(workspaceSidebarPinnedBatchDrop(batch, target: .init(kind: .tabCollection(group.id,
+            monitorScopeId: scope), rect: Rect(topLeftX: 0, topLeftY: 0, width: 200, height: 36)), point: CGPoint(x: 100, y: 18)))
+        await runWorkspaceSidebarSession(undoTitle: workspaceSidebarPinnedBatchDropUndoTitle(batch, drop)) {
+            _ = try applyWorkspaceSidebarPinnedBatchDrop(batch, drop)
+        }?.value
+        XCTAssertEqual(workspaceSidebarOrganizationStore.collection(containing: "g")?.id, group.id)
+        XCTAssertEqual(workspaceSidebarOrganizationStore.collection(containing: "q")?.id, group.id)
+        XCTAssertEqual(t.g.projectId, t.b, "The pin in All Projects joins as one of B's tabs")
+        XCTAssertNotEqual(appearance(t.g)?.isFavorite, true)
+        XCTAssertNotEqual(appearance(t.q)?.isFavorite, true)
+        try WorkspaceSidebarTabUndo.shared.undo()
+        XCTAssertTrue(workspaceIsPinnedInAllProjects(t.g), "One Undo")
+        XCTAssertEqual(t.g.projectId, t.a)
+        XCTAssertEqual(appearance(t.q)?.isFavorite, true)
+    }
+
     func testTheChosenTabsMenuPinsThemInAllProjectsOrBackInTheProjectShown() async throws {
         let t = try tabs()
         await updateWorkspaceSidebarModel()
@@ -431,6 +493,149 @@ final class WorkspaceSidebarPinSectionsTest: XCTestCase {
         XCTAssertEqual(t.b1.allLeafWindowsRecursive.count, 1, "The tab has its window back")
         XCTAssertTrue(mainMonitor.activeWorkspace === t.g)
         XCTAssertEqual(activeWorkspaceProjectId(for: mainMonitor), t.a, "and the display stays in the project switched to")
+    }
+
+    // MARK: Review: other displays, other projects, and captures
+
+    private func displays() -> (left: Monitor, right: Monitor) {
+        let monitors = ["Left", "Right"].enumerated().map { index, name in
+            let rect = Rect(topLeftX: CGFloat(index) * 1920, topLeftY: 0, width: 1920, height: 1080)
+            return WorkspaceSidebarDragTestMonitor(monitorAppKitNsScreenScreensId: index + 1, name: name, rect: rect,
+                visibleRect: rect, isMain: index == 0)
+        }
+        setMonitorsForTests(monitors)
+        Workspace.reconcileWorkspaceState()
+        return (monitors[0], monitors[1])
+    }
+
+    /// Project C, its tab `c1` shown on `display`, so that display is in C.
+    private func projectShown(on display: Monitor) -> (c: WorkspaceProjectId, c1: Workspace) {
+        let c = createWorkspaceProject().id
+        let c1 = tab("c1", in: c)
+        c1.preferredMonitorPoint = display.rect.topLeftCorner
+        XCTAssertTrue(display.setActiveWorkspace(c1))
+        return (c, c1)
+    }
+
+    private func choose(_ names: [String]) {
+        let selection = WorkspaceSidebarTabSelection.shared
+        selection.clear()
+        for name in names { XCTAssertTrue(selection.handleClick(on: name, modifiers: .command, order: names, active: nil)) }
+    }
+
+    /// Review: a pin in All Projects unpinned into the list of the project shown, alone or chosen with
+    /// another, takes its record there too, so its one Undo outlasts the next capture.
+    func testUnpinningIntoTheListOutlastsTheNextCapture() async throws {
+        let t = try tabs()
+        let rowRect = Rect(topLeftX: 0, topLeftY: 100, width: 200, height: 36)
+        let gap = WorkspaceSidebarTabGap(workspaceName: "b2", isAfter: true)
+        let list = try XCTUnwrap(drop(t.g, .init(kind: .tabGap(projectId: t.b, monitorScopeId: scope, gap: gap), rect: rowRect)))
+        await runWorkspaceSidebarSession(undoTitle: workspaceSidebarPinnedTabDropUndoTitle(list)) {
+            try applyWorkspaceSidebarPinnedTabDrop(t.g, list)
+        }?.value
+        XCTAssertEqual(t.g.projectId, t.b)
+        XCTAssertEqual(savedWorkspaceStore.record(named: "g")?.projectId, t.b, "Its record goes with it")
+        captureSavedWorkspaces(facts: savedTestFacts())
+        WorkspaceSidebarTabUndo.shared.invalidateIfChanged()
+        XCTAssertNotNil(WorkspaceSidebarTabUndo.shared.title, "The capture leaves the Undo")
+        try WorkspaceSidebarTabUndo.shared.undo()
+        XCTAssertTrue(workspaceIsPinnedInAllProjects(t.g))
+        XCTAssertEqual(t.g.projectId, t.a)
+        XCTAssertEqual(savedWorkspaceStore.record(named: "g")?.projectId, t.a)
+
+        let g2 = tab("g2", in: t.a)
+        try setWorkspaceSidebarTabPinScope(g2, .allProjects, projectId: t.a)
+        choose(["g", "g2"])
+        let batch = try XCTUnwrap(WorkspaceSidebarDragBatch(startingWith: "g"))
+        let batchDrop = try XCTUnwrap(workspaceSidebarPinnedBatchDrop(batch, target: .init(kind: .tabGap(projectId: t.b,
+            monitorScopeId: scope, gap: gap), rect: rowRect), point: CGPoint(x: 100, y: 110)))
+        await runWorkspaceSidebarSession(undoTitle: workspaceSidebarPinnedBatchDropUndoTitle(batch, batchDrop)) {
+            _ = try applyWorkspaceSidebarPinnedBatchDrop(batch, batchDrop)
+        }?.value
+        XCTAssertEqual([t.g.projectId, g2.projectId], [t.b, t.b])
+        XCTAssertEqual(["g", "g2"].map { savedWorkspaceStore.record(named: $0)?.projectId }, [t.b, t.b])
+        captureSavedWorkspaces(facts: savedTestFacts())
+        WorkspaceSidebarTabUndo.shared.invalidateIfChanged()
+        XCTAssertNotNil(WorkspaceSidebarTabUndo.shared.title, "Chosen together, too")
+        try WorkspaceSidebarTabUndo.shared.undo()
+        XCTAssertEqual(workspacePinnedTabsInAllProjects().map(\.name), ["g", "g2"])
+        XCTAssertEqual([t.g.projectId, g2.projectId], [t.a, t.a])
+    }
+
+    /// Review: a window taken out of a pin in All Projects onto another display's project pins gets a
+    /// pin of that project, on that display, and the display it came from stays as it was.
+    func testAWindowFromAPinInAllProjectsOntoAnotherDisplaysPinsIsThatProjectsPin() throws {
+        let (left, right) = displays()
+        let t = try tabs()
+        let (c, _) = projectShown(on: right)
+        let moved = TestWindow.new(id: 90, parent: t.g.rootTilingContainer)
+        XCTAssertTrue(t.g.focusWorkspace())
+        XCTAssertTrue(left.activeWorkspace === t.g)
+        let rightScope = workspaceSidebarMonitorScopeId(for: right)
+        previewWorkspaceSidebarDrop(moved.windowId, subject: .window,
+            target: .pinnedTabs(projectId: c, monitorScopeId: rightScope, section: .project))
+        XCTAssertEqual(TrayMenuModel.shared.workspaceSidebarDropPreview?.targetPinSection, .project)
+        try applySidebarPinDrop(moved.windowId, subject: .window, gap: nil, monitorScopeId: rightScope, section: .project,
+            projectId: c)
+        let pin = try XCTUnwrap(moved.nodeWorkspace)
+        XCTAssertFalse(pin === t.g)
+        XCTAssertEqual(pin.projectId, c, "A tab of the list it was dropped on")
+        XCTAssertEqual(workspacePinnedTabs(in: c).map(\.name), [pin.name])
+        XCTAssertTrue(right.activeWorkspace === pin)
+        XCTAssertEqual(activeWorkspaceProjectId(for: right), c)
+        XCTAssertTrue(left.activeWorkspace === t.g, "The display it came from keeps the pin")
+        XCTAssertEqual(activeWorkspaceProjectId(for: left), t.b, "in its project")
+    }
+
+    /// Review: with shared pins, pins in All Projects on another display, chosen in this display's
+    /// list, come back to the project this display shows.
+    func testChosenPinsInAllProjectsFromAnotherDisplayComeToTheProjectShown() throws {
+        config.workspaceSidebar.sharePinnedTabs = true
+        let (_, right) = displays()
+        let t = try tabs()
+        let g2 = tab("g2", in: t.a)
+        try setWorkspaceSidebarTabPinScope(g2, .allProjects, projectId: t.a)
+        let (c, _) = projectShown(on: right)
+        choose(["g", "g2"])
+        let batch = try XCTUnwrap(WorkspaceSidebarDragBatch(startingWith: "g"))
+        let rightScope = workspaceSidebarMonitorScopeId(for: right)
+        let target = WorkspaceSidebarDropTarget(kind: .pinnedTabs(projectId: c, gap: nil, monitorScopeId: rightScope, section: .project),
+            rect: Rect(topLeftX: 0, topLeftY: 0, width: 200, height: 60))
+        let down = try XCTUnwrap(workspaceSidebarPinnedBatchDrop(batch, target: target, point: CGPoint(x: 100, y: 30)))
+        XCTAssertEqual(down, .rearrange(nil, monitorScopeId: rightScope, move: .init(to: .project, in: c)))
+        XCTAssertTrue(try applyWorkspaceSidebarPinnedBatchDrop(batch, down))
+        XCTAssertEqual(workspacePinnedTabs(in: c).map(\.name), ["g", "g2"], "C's pins now, not B's")
+        XCTAssertEqual([t.g.projectId, g2.projectId], [c, c])
+        XCTAssertNil(workspaceSidebarPinnedBatchDrop(WorkspaceSidebarDragBatch(startingWith: "g")!, target: .init(kind: .pinnedTabs(
+            projectId: t.b, gap: nil, monitorScopeId: scope, section: .project), rect: target.rect), point: CGPoint(x: 100, y: 30)),
+            "C's pins don't go among B's")
+    }
+
+    /// Review: chosen tabs grouped from their menu go in a group of the project shown, with a pin in
+    /// All Projects from another project among them, in one Undo.
+    func testChosenTabsGroupedFromTheMenuJoinAGroupOfTheProjectShown() async throws {
+        let t = try tabs()
+        await handleWorkspaceSidebarOrganizationAction(.createTabCollectionFromTabs(["g", "b1"]), targetMonitorScopeId: scope)?.value
+        let group = try XCTUnwrap(workspaceSidebarOrganizationStore.collection(containing: "g"))
+        XCTAssertEqual(group.projectId, t.b)
+        XCTAssertEqual(group.workspaceNames, ["g", "b1"])
+        XCTAssertEqual(t.g.projectId, t.b, "It joins as one of B's tabs")
+        XCTAssertNotEqual(appearance(t.g)?.isFavorite, true)
+        XCTAssertEqual(WorkspaceSidebarTabUndo.shared.title, "Undo Group Tabs")
+        try WorkspaceSidebarTabUndo.shared.undo()
+        XCTAssertTrue(workspaceIsPinnedInAllProjects(t.g), "One Undo")
+        XCTAssertEqual(t.g.projectId, t.a)
+        XCTAssertTrue(workspaceSidebarOrganizationStore.state.collections.isEmpty)
+
+        // Only pins in All Projects, into one of B's groups.
+        let existing = try workspaceSidebarOrganizationStore.create(projectId: t.b, workspaceNames: ["b2"])
+        let g2 = tab("g2", in: t.a)
+        try setWorkspaceSidebarTabPinScope(g2, .allProjects, projectId: t.a)
+        await handleWorkspaceSidebarOrganizationAction(.assignTabsToCollection(["g", "g2"], existing.id),
+            targetMonitorScopeId: scope)?.value
+        XCTAssertEqual(workspaceSidebarOrganizationStore.collection(containing: "g")?.id, existing.id)
+        XCTAssertEqual(workspaceSidebarOrganizationStore.collection(containing: "g2")?.id, existing.id)
+        XCTAssertEqual([t.g.projectId, g2.projectId], [t.b, t.b])
     }
 }
 

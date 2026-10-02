@@ -100,14 +100,24 @@ func isActionableWorkspaceSidebarBatchDropTarget(_ batch: WorkspaceSidebarDragBa
             return workspaceSidebarBatchCanGo(tabs, toGap: gap, projectId: projectId, monitorScopeId: monitorScopeId)
         case .tabCollection(let id, let monitorScopeId):
             return workspaceSidebarBatchCanJoinGroup(tabs, id: id, monitorScopeId: monitorScopeId)
-        case .pinnedTabs(let projectId, let gap, let monitorScopeId, _):
-            guard projectId == batch.projectId, gap.map({ !batch.names.contains($0.workspaceName) }) ?? true else { return false }
+        case .pinnedTabs(let projectId, let gap, let monitorScopeId, let section):
+            guard workspaceSidebarBatchCanGo(tabs, toPinsOf: projectId, section: section),
+                  gap.map({ !batch.names.contains($0.workspaceName) }) ?? true else { return false }
             return tabs.allSatisfy {
                 workspaceSidebarPinDropCanReachDisplay($0, monitorScopeId: monitorScopeId, pinGridIsShared: pinGridIsShared)
             }
         case .workspace, .newWorkspace, .monitor:
             return false
     }
+}
+
+/// Whether every tab may go among `section`'s pins in a list of `projectId`: any tab to the pins in
+/// All Projects, which are no project's, and to a project's pins only tabs that list shows, as for
+/// one tab. Pins in All Projects are in every list, from wherever they were dragged.
+@MainActor
+private func workspaceSidebarBatchCanGo(_ tabs: [Workspace], toPinsOf projectId: WorkspaceProjectId,
+                                        section: WorkspaceSidebarPinSection) -> Bool {
+    section == .allProjects || tabs.allSatisfy { workspaceIsListed($0, inProject: projectId) }
 }
 
 /// Every tab can go to the gap, beside a tab that isn't one of them, and at least one would move.
@@ -160,7 +170,7 @@ func workspaceSidebarPinnedBatchDrop(_ batch: WorkspaceSidebarDragBatch, target:
     guard batch.kind == .pins, let tabs = batch.resolve() else { return nil }
     switch target.kind {
         case .pinnedTabs(let projectId, let gap, let monitorScopeId, let section):
-            guard projectId == batch.projectId,
+            guard workspaceSidebarBatchCanGo(tabs, toPinsOf: projectId, section: section),
                   tabs.allSatisfy({
                       workspaceSidebarPinDropCanReachDisplay($0, monitorScopeId: monitorScopeId, pinGridIsShared: pinGridIsShared)
                   })
@@ -255,9 +265,10 @@ func applyWorkspaceSidebarBatchDrop(_ batch: WorkspaceSidebarDragBatch, target: 
             else { return try refuseWorkspaceSidebarBatch(tabs, monitorScopeId: monitorScopeId) }
             return try moveWorkspaceSidebarBatchToGroup(batch, tabs, id: id, monitorScopeId: monitorScopeId)
         case .pinnedTabs(let projectId, let gap, let monitorScopeId, let section):
-            guard projectId == batch.projectId, gap.map({ !batch.names.contains($0.workspaceName) }) ?? true else { return false }
+            guard workspaceSidebarBatchCanGo(tabs, toPinsOf: projectId, section: section),
+                  gap.map({ !batch.names.contains($0.workspaceName) }) ?? true else { return false }
             return try pinWorkspaceSidebarBatch(batch, tabs, beside: gap, monitorScopeId: monitorScopeId, pinGridIsShared: pinGridIsShared,
-                section: section)
+                section: section, projectId: projectId)
         case .workspace, .newWorkspace, .monitor:
             return false
     }
@@ -275,7 +286,8 @@ func applyWorkspaceSidebarPinnedBatchDrop(_ batch: WorkspaceSidebarDragBatch, _ 
             if let gap, batch.names.contains(gap.workspaceName) { return false }
             // Without a move, they're all in one section already: where they stay.
             return try pinWorkspaceSidebarBatch(batch, tabs, beside: gap, monitorScopeId: monitorScopeId, pinGridIsShared: pinGridIsShared,
-                section: move?.section ?? tabs.first.map { WorkspaceSidebarPinSection(of: $0) } ?? .project)
+                section: move?.section ?? tabs.first.map { WorkspaceSidebarPinSection(of: $0) } ?? .project,
+                projectId: move?.projectId ?? batch.projectId)
         case .list(let projectId, let monitorScopeId, let gap):
             guard workspaceSidebarBatchCanGo(tabs, toGap: gap, projectId: projectId, monitorScopeId: monitorScopeId)
             else { return try refuseWorkspaceSidebarBatch(tabs, monitorScopeId: monitorScopeId) }
@@ -364,13 +376,13 @@ private func moveWorkspaceSidebarBatchToGroup(_ batch: WorkspaceSidebarDragBatch
 }
 
 /// The tabs are pinned, or pins move, together beside the pin `gap` names, in their order, among
-/// `section`'s pins. Pins from the other section come to it, still pinned; those that come back
-/// from All Projects come to the list's project. Without shared pins, pins on another display's
-/// list bring them to that display too.
+/// `section`'s pins in a list of `projectId`. Pins from the other section come to it, still
+/// pinned; those that come back from All Projects come to that list's project. Without shared
+/// pins, pins on another display's list bring them to that display too.
 @MainActor
 private func pinWorkspaceSidebarBatch(_ batch: WorkspaceSidebarDragBatch, _ tabs: [Workspace], beside gap: WorkspaceSidebarTabGap?,
                                       monitorScopeId: String?, pinGridIsShared: Bool,
-                                      section: WorkspaceSidebarPinSection) throws -> Bool {
+                                      section: WorkspaceSidebarPinSection, projectId: WorkspaceProjectId) throws -> Bool {
     let store = workspaceSidebarOrganizationStore
     // Pinning saves the tabs.
     if let reason = store.readOnlyReason ?? savedWorkspaceStore.readOnlyReason {
@@ -389,9 +401,9 @@ private func pinWorkspaceSidebarBatch(_ batch: WorkspaceSidebarDragBatch, _ tabs
     let pinsTabs = batch.kind == .tabs
     let changesSection = !pinsTabs && tabs.contains { WorkspaceSidebarPinSection(of: $0) != section }
     // Beside the pin shown, or, newly pinned or moved there with none, after the pins: either way in their order.
-    let order = gap.flatMap { workspacePinnedTabOrder(placing: batch.names, beside: $0, in: batch.projectId, section: section) }
+    let order = gap.flatMap { workspacePinnedTabOrder(placing: batch.names, beside: $0, in: projectId, section: section) }
         ?? (pinsTabs || changesSection
-            ? workspaceSidebarPinnedTabs(in: section, of: batch.projectId).map(\.name).filter { !batch.names.contains($0) } + batch.names
+            ? workspaceSidebarPinnedTabs(in: section, of: projectId).map(\.name).filter { !batch.names.contains($0) } + batch.names
             : nil)
     guard pinsTabs || changesSection || order != nil || !moves.isEmpty else { return false }
     syncClosedWindowsCacheToCurrentWorld()
@@ -410,8 +422,8 @@ private func pinWorkspaceSidebarBatch(_ batch: WorkspaceSidebarDragBatch, _ tabs
         }
         // Pins back from All Projects are the list's project's, from whichever they were.
         if section == .project {
-            for tab in tabs where tab.projectId != batch.projectId {
-                guard moveWorkspaceToProject(workspaceName: tab.name, projectId: batch.projectId, syncsSavedRecord: true)
+            for tab in tabs where tab.projectId != projectId {
+                guard moveWorkspaceToProject(workspaceName: tab.name, projectId: projectId, syncsSavedRecord: true)
                 else { return false }
             }
         }

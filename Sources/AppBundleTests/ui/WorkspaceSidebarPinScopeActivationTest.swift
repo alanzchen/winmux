@@ -403,6 +403,55 @@ final class WorkspaceSidebarPinScopeActivationTest: XCTestCase {
         XCTAssertEqual(activeWorkspaceProjectId(for: moved), t.b)
     }
 
+    /// Review: showing the pin again after the displays change chooses nothing, so each project
+    /// still opens on the tab chosen in it.
+    func testRearrangingDisplaysKeepsWhatEachProjectRemembers() throws {
+        let (left, _) = displays()
+        let t = try tabs()
+        XCTAssertTrue(t.g.focusWorkspace())
+        XCTAssertTrue(switchWorkspaceProject(t.a, on: left) === t.g)
+        let memory = winMuxWorkspaceState.monitorViewportsById[MonitorViewportId(left)]?.lastActiveWorkspaceByProject
+        XCTAssertEqual(memory?[t.a], t.a1.id)
+        let moved = WorkspaceSidebarDragTestMonitor(monitorAppKitNsScreenScreensId: 1, name: "Left",
+            rect: Rect(topLeftX: 0, topLeftY: 200, width: 1920, height: 1080),
+            visibleRect: Rect(topLeftX: 0, topLeftY: 200, width: 1920, height: 1080), isMain: true)
+        setMonitorsForTests([moved])
+        rearrangeWorkspacesOnMonitors()
+        XCTAssertTrue(moved.activeWorkspace === t.g)
+        XCTAssertEqual(activeWorkspaceProjectId(for: moved), t.a)
+        XCTAssertEqual(winMuxWorkspaceState.monitorViewportsById[MonitorViewportId(moved)]?.lastActiveWorkspaceByProject, memory)
+        XCTAssertTrue(t.b1.focusWorkspace())
+        XCTAssertTrue(switchWorkspaceProject(t.a, on: moved) === t.a1, "A still opens on the tab chosen in it")
+    }
+
+    /// Review: a pin in All Projects pinned back in another display's project takes the display
+    /// showing it there too, without changing its tab. Undo takes that display back to its project.
+    func testUndoTakesBackTheProjectOfADisplayThatKeptItsTab() async throws {
+        config.workspaceSidebar.sharePinnedTabs = true
+        let (left, right) = displays()
+        let t = try tabs()
+        let c = createWorkspaceProject().id
+        let c1 = tab("c1", in: c)
+        c1.preferredMonitorPoint = right.rect.topLeftCorner
+        XCTAssertTrue(right.setActiveWorkspace(c1))
+        XCTAssertTrue(t.g.focusWorkspace())
+        XCTAssertTrue(left.activeWorkspace === t.g)
+        let leftBefore = winMuxWorkspaceState.monitorViewportsById[MonitorViewportId(left)]
+        await handleWorkspaceSidebarOrganizationAction(.setWorkspacePinScope(t.g.name, nil, projectId: c),
+            targetMonitorScopeId: workspaceSidebarMonitorScopeId(for: right))?.value
+        XCTAssertEqual(t.g.projectId, c)
+        XCTAssertTrue(left.activeWorkspace === t.g)
+        XCTAssertEqual(activeWorkspaceProjectId(for: left), c, "The display showing it is in C with it")
+        try WorkspaceSidebarTabUndo.shared.undo()
+        XCTAssertTrue(workspaceIsPinnedInAllProjects(t.g))
+        XCTAssertTrue(left.activeWorkspace === t.g)
+        XCTAssertEqual(activeWorkspaceProjectId(for: left), t.b, "and back in B, still on the pin")
+        XCTAssertEqual(winMuxWorkspaceState.monitorViewportsById[MonitorViewportId(left)]?.lastActiveWorkspaceByProject,
+            leftBefore?.lastActiveWorkspaceByProject)
+        XCTAssertTrue(right.activeWorkspace === c1)
+        XCTAssertEqual(activeWorkspaceProjectId(for: right), c)
+    }
+
     // MARK: Deleting projects
 
     func testDeletingItsHomeKeepsAPinInAllProjectsWithItsWindowsAtHomeInDefault() async throws {

@@ -47,8 +47,9 @@ func workspaceSidebarPinnedTabDrop(_ tab: Workspace, target: WorkspaceSidebarDro
             // there, even where that display has no pins yet. Shared pins only rearrange: the
             // tab stays where it is, so a drop that wouldn't change their order does nothing.
             // Among the other section's pins, it moves there: that's a change in itself.
+            // Pins in All Projects are no project's: a pin from another display's list may go there too.
             let move = section == WorkspaceSidebarPinSection(of: tab) ? nil : WorkspaceSidebarPinMove(to: section, in: projectId)
-            guard workspaceIsListed(tab, inProject: projectId),
+            guard section == .allProjects || workspaceIsListed(tab, inProject: projectId),
                   workspaceSidebarPinDropCanReachDisplay(tab, monitorScopeId: monitorScopeId, pinGridIsShared: pinGridIsShared),
                   move != nil
                     || gap.flatMap({ workspacePinnedTabOrder(moving: tab, beside: $0) }) != nil

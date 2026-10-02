@@ -181,12 +181,19 @@ struct WorkspaceSidebarTabUndoSnapshot {
         // not been superseded by navigation. An appearance Undo must never switch
         // an unrelated display back to an older tab.
         var restoredViewports = currentViewports
-        // Switching project with a pin in All Projects kept on screen is navigation too.
-        for (id, viewport) in viewports where viewport.activeWorkspaceId != after.viewports[id]?.activeWorkspaceId {
-            if currentViewports[id]?.activeWorkspaceId == after.viewports[id]?.activeWorkspaceId,
-               currentViewports[id]?.contextProjectId == after.viewports[id]?.contextProjectId {
-                restoredViewports[id] = viewport
-            }
+        for (id, viewport) in viewports {
+            let edited = after.viewports[id], current = currentViewports[id]
+            // The project a display is in changes with a pin in All Projects it shows, which keeps its tab.
+            let changesSelection = viewport.activeWorkspaceId != edited?.activeWorkspaceId
+                || viewport.contextProjectId != edited?.contextProjectId
+            // A tab leaving a project leaves what the project remembers on displays that don't show it.
+            let changesMemory = viewport.lastActiveWorkspaceByProject != edited?.lastActiveWorkspaceByProject
+            // Switching project with a pin in All Projects kept on screen is navigation too.
+            guard changesSelection || changesMemory,
+                  current?.activeWorkspaceId == edited?.activeWorkspaceId, current?.contextProjectId == edited?.contextProjectId,
+                  changesSelection || current?.lastActiveWorkspaceByProject == edited?.lastActiveWorkspaceByProject
+            else { continue }
+            restoredViewports[id] = viewport
         }
         // A previously selected tab may now be in use on a display the edit did
         // not switch. Keep that later placement; simultaneous Undo swaps remain valid.
