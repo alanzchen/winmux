@@ -583,6 +583,11 @@ private var workspaceLayoutGeneration: UInt64 = 0
 @MainActor
 private var owedHiddenWindowsReassertion: HiddenWindowsReassertion? = nil
 
+/// Counts parks a layout gave up on because what it was hiding changed while it awaited AX. A
+/// pass with such a park hasn't carried out an owed reassertion for every window.
+@MainActor
+private var abandonedHiddenWindowParks: UInt64 = 0
+
 /// Whether this pass must re-park hidden windows even where WinMux believes them parked: wake
 /// and startup always; a settled display change only while no newer change has arrived.
 @MainActor
@@ -602,7 +607,11 @@ func parkHiddenWindow(
     ifStillValid: () -> Bool = { true },
 ) async throws {
     guard let visibility = window as? any WorkspaceWindowVisibility else { return }
-    try await visibility.hideInCorner(corner, reassert: reasserting, ifStillValid: ifStillValid)
+    try await visibility.hideInCorner(corner, reassert: reasserting) {
+        let valid = ifStillValid()
+        if !valid { abandonedHiddenWindowParks &+= 1 }
+        return valid
+    }
 }
 
 @MainActor
@@ -630,6 +639,7 @@ func layoutWorkspaces() async throws {
         owedHiddenWindowsReassertion = requested.union(owedHiddenWindowsReassertion)
     }
     let owedAtStart = owedHiddenWindowsReassertion
+    let abandonedParksAtStart = abandonedHiddenWindowParks
     let layoutMonitors = monitors
     let topologyGeneration = MonitorConfigurationObserver.shared.topologyGeneration
     let presentation = layoutMonitors.map { (rect: $0.rect, visibleRect: $0.visibleRect, workspace: $0.activeWorkspace) }
@@ -694,8 +704,12 @@ func layoutWorkspaces() async throws {
             }
         }
     }
-    // Carried out, unless a session asked for more while this pass ran.
-    if owedHiddenWindowsReassertion == owedAtStart { owedHiddenWindowsReassertion = nil }
+    // Carried out, unless this pass was superseded (its last park may just have been rejected),
+    // gave up a park, or a session asked for more while it ran.
+    try checkCancellation()
+    if isCurrentPresentation(), abandonedHiddenWindowParks == abandonedParksAtStart, owedHiddenWindowsReassertion == owedAtStart {
+        owedHiddenWindowsReassertion = nil
+    }
 }
 
 @MainActor

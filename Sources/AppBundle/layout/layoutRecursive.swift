@@ -65,6 +65,9 @@ extension TreeNode {
                 lastAppliedLayoutVirtualRect = virtual
                 try await workspace.rootTilingContainer.layoutRecursive(point, width: width, height: height, virtual: virtual, context)
                 for window in workspace.children.filterIsInstance(of: Window.self) {
+                    // Each move awaits AX; a newer layout or a command may have taken over since.
+                    guard context.isStillCurrent() else { return }
+                    guard window.parent === workspace else { continue }
                     window.lastAppliedLayoutPhysicalRect = nil
                     window.lastAppliedLayoutVirtualRect = nil
                     try await window.layoutFloatingWindow(context)
@@ -156,7 +159,7 @@ private struct LayoutContext {
     @MainActor
     func park(_ window: Window, stillHidden: () -> Bool) async throws {
         try await parkHiddenWindow(window, in: hideCorner, reasserting: reassertHiddenWindows) {
-            isStillCurrent() && stillHidden()
+            isStillCurrent() && window.nodeWorkspace === workspace && stillHidden()
         }
     }
 }
@@ -224,6 +227,10 @@ extension TilingContainer {
 
         let lastIndex = children.indices.last
         for (i, child) in children.enumerated() {
+            // An earlier child's layout can await AX (parking a tab). If a newer layout or a command
+            // changed the tree meanwhile, stop: weights no longer apply, and the change's own
+            // layout follows.
+            guard context.isStillCurrent(), child.parent === self, layout == .tiles else { return }
             child.setWeight(orientation, child.getWeight(orientation) + delta)
             let rawGap = context.resolvedGaps.inner.get(orientation).toDouble()
             // Gaps. Consider 4 cases:
@@ -244,6 +251,7 @@ extension TilingContainer {
                 ),
                 context,
             )
+            guard context.isStillCurrent(), child.parent === self, layout == .tiles else { return }
             virtualPoint = orientation == .h ? virtualPoint.addingXOffset(child.hWeight) : virtualPoint.addingYOffset(child.vWeight)
             point = orientation == .h ? point.addingXOffset(child.hWeight) : point.addingYOffset(child.vWeight)
         }
@@ -276,14 +284,16 @@ extension TilingContainer {
                 context,
             )
             for child in children where child != activeChild {
-                // Selecting another tab while a park reads the window must not park that tab.
-                try await child.hideTabbedWindows(context) { self.mostRecentChild === activeChild }
+                // Selecting this tab, or taking it out of the group, while a park reads the window
+                // must not park it. Other inactive tabs are still parked.
+                try await child.hideTabbedWindows(context) { child.parent === self && self.mostRecentChild !== child }
             }
             return
         }
 
         guard let mruIndex: Int = mostRecentChild?.ownIndex else { return }
         for (index, child) in children.enumerated() {
+            guard context.isStillCurrent(), child.parent === self else { return }
             let padding = CGFloat(config.tabGroupPadding)
             let (lPadding, rPadding): (CGFloat, CGFloat) = switch index {
                 case 0 where children.count == 1: (0, 0)
