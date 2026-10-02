@@ -13,6 +13,10 @@ enum NewWindowMethod: Equatable {
     case script(String)
     /// Opt-in for other running apps: press the app's own New Window menu item.
     case menuItem
+    /// Running, with no adapter and no window WinMux knows of: open the app again, as a Dock
+    /// click does. LaunchServices sends the running app the reopen Apple event, and the app shows
+    /// its window, a new one or the one it hid when it was closed.
+    case reopen
     /// Running, with no adapter and the menu fallback off. The launcher can't do anything useful.
     case unsupported
 }
@@ -35,11 +39,15 @@ func newWindowScriptSource(bundleId: String) -> String? {
     newWindowScriptCommands[bundleId].map { "tell application id \"\(bundleId)\" to \($0)" }
 }
 
-func newWindowMethod(bundleId: String, isRunning: Bool, menuFallbackEnabled: Bool) -> NewWindowMethod {
+/// `reopensWhenWindowless` is for a running app WinMux knows no window of, asked for one by a tab
+/// whose own windows are gone. A reopen can't make a second window, so it's only for that.
+func newWindowMethod(bundleId: String, isRunning: Bool, reopensWhenWindowless: Bool = false,
+                     menuFallbackEnabled: Bool) -> NewWindowMethod {
     if let script = newWindowScriptSource(bundleId: bundleId) {
         return isRunning ? .script(script) : .launchThenScript(script)
     }
     guard isRunning else { return .open }
+    if reopensWhenWindowless { return .reopen }
     return menuFallbackEnabled ? .menuItem : .unsupported
 }
 
@@ -151,9 +159,26 @@ func existingWindowIds(pid: Int32) -> Set<UInt32> {
     Set(MacWindow.allWindows.filter { $0.app.pid == pid }.map(\.windowId)).union(windowServerWindowIds(pid: pid))
 }
 
+/// Every window a process has that a reopen can't be showing: those WinMux has registered, and
+/// those on screen. A window the app hid when it was closed is off screen, and may come back.
+@MainActor
+func windowIdsBeforeReopen(pid: Int32) -> Set<UInt32> {
+    Set(MacWindow.allWindows.filter { $0.app.pid == pid }.map(\.windowId))
+        .union(windowServerWindowIds(pid: pid, onScreenOnly: true))
+}
+
+/// Whether WinMux knows a window of this process: in a workspace, minimized, hidden or full
+/// screen. A reopen wouldn't make another; it would only bring one of those forward, or
+/// deminiaturize a window another tab owns. Popups held aside don't count.
+@MainActor
+func runningAppHasWindows(pid: Int32, windows: [Window]) -> Bool {
+    windows.contains { $0.app.pid == pid && $0.isBound && !($0.parent is MacosPopupWindowsContainer) }
+}
+
 /// A snapshot of every window on the system, so keep it off the main thread when polling.
-nonisolated func windowServerWindowIds(pid: Int32) -> Set<UInt32> {
-    guard let windows = CGWindowListCopyWindowInfo([.optionAll], kCGNullWindowID) as? [[String: Any]] else { return [] }
+nonisolated func windowServerWindowIds(pid: Int32, onScreenOnly: Bool = false) -> Set<UInt32> {
+    guard let windows = CGWindowListCopyWindowInfo(onScreenOnly ? [.optionOnScreenOnly] : [.optionAll], kCGNullWindowID)
+        as? [[String: Any]] else { return [] }
     return Set(windows.compactMap { window in
         (window[kCGWindowOwnerPID as String] as? Int32) == pid ? window[kCGWindowNumber as String] as? UInt32 : nil
     })
@@ -174,15 +199,18 @@ final class NewWindowRequestHandle {
 }
 
 /// Asks the app for one new window and reports once that window has landed in the workspace.
+/// With `reopensWindowlessApp`, a running app WinMux knows no window of is reopened instead.
 @MainActor
 @discardableResult
 func requestNewWindow(
     _ target: NewWindowRequestTarget,
     targetWorkspace: Workspace,
+    reopensWindowlessApp: Bool = false,
     completion: @escaping @MainActor (NewWindowRequestOutcome) -> Void,
 ) -> NewWindowRequestHandle {
     let handle = NewWindowRequestHandle()
-    requestNewWindow(target, targetWorkspace: targetWorkspace, handle: handle, completion: completion)
+    requestNewWindow(target, targetWorkspace: targetWorkspace, reopensWindowlessApp: reopensWindowlessApp, handle: handle,
+        completion: completion)
     return handle
 }
 
@@ -190,6 +218,7 @@ func requestNewWindow(
 private func requestNewWindow(
     _ target: NewWindowRequestTarget,
     targetWorkspace: Workspace,
+    reopensWindowlessApp: Bool,
     handle: NewWindowRequestHandle,
     completion: @escaping @MainActor (NewWindowRequestOutcome) -> Void,
 ) {
@@ -202,9 +231,18 @@ private func requestNewWindow(
     let focusGeneration = focusChangeGeneration
     let running = NSRunningApplication.runningApplications(withBundleIdentifier: target.bundleId)
         .first { $0.activationPolicy == .regular && !$0.isTerminated }
-    switch newWindowMethod(bundleId: target.bundleId, isRunning: running != nil,
+    let isWindowless = reopensWindowlessApp && running.map {
+        !runningAppHasWindows(pid: $0.processIdentifier, windows: MacWindow.allWindows)
+    } == true
+    switch newWindowMethod(bundleId: target.bundleId, isRunning: running != nil, reopensWhenWindowless: isWindowless,
         menuFallbackEnabled: config.workspaceSidebar.launcherMenuFallback)
     {
+        case .reopen:
+            guard let running else { return completion(.cancelled) }
+            let pid = running.processIdentifier
+            handle.intentId = startReopenRequest(target, pid: pid, appURL: running.bundleURL ?? target.bundleURL,
+                targetWorkspace: targetWorkspace, focusGeneration: focusGeneration,
+                preexistingWindowIds: { windowIdsBeforeReopen(pid: pid) }, completion: completion)
         case .unsupported:
             completion(.failed("\(target.appName) can't open a new window from WinMux"))
         case .open:
@@ -279,6 +317,70 @@ private func startNewWindowRequest(
     return intentId
 }
 
+/// Opens a running app again through LaunchServices, which sends it the reopen Apple event that a
+/// Dock click sends ('rapp', expecting activation), without Automation permission. Returns the pid
+/// of the app it reached. Replaceable for tests.
+@MainActor
+var reopenRunningApplication: @MainActor (URL) async throws -> Int32 = { url in
+    let configuration = NSWorkspace.OpenConfiguration()
+    configuration.activates = true
+    configuration.addsToRecentItems = false
+    configuration.promptsUserIfNeeded = false
+    configuration.createsNewApplicationInstance = false
+    return try await NSWorkspace.shared.openApplication(at: url, configuration: configuration).processIdentifier
+}
+
+/// Asks a running app that has no window for one, as a Dock click does, for `targetWorkspace`.
+/// Clicking again while the reopen is pending asks nothing more: the newest click takes the
+/// request over, its tab gets the window, and it reports the outcome.
+@MainActor
+@discardableResult
+func startReopenRequest(
+    _ target: NewWindowRequestTarget,
+    pid: Int32,
+    appURL: URL?,
+    targetWorkspace: Workspace,
+    focusGeneration: UInt64,
+    preexistingWindowIds: () -> Set<UInt32>,
+    completion: @escaping @MainActor (NewWindowRequestOutcome) -> Void,
+) -> Int? {
+    let registry = NewWindowIntentRegistry.shared
+    if let pending = registry.pendingReopen(bundleId: target.bundleId, pid: pid) {
+        registry.takeOver(pending, targetWorkspace: targetWorkspace, focusGeneration: focusGeneration,
+            completion: { outcome in completion(outcome) })
+        registry.recordFocusWhenSent(forIntent: pending.id, .current)
+        return pending.id
+    }
+    guard let appURL = appURL ?? NSWorkspace.shared.urlForApplication(withBundleIdentifier: target.bundleId) else {
+        completion(.failed("\(target.appName) isn't installed"))
+        return nil
+    }
+    guard let intent = registry.register(bundleId: target.bundleId, pid: pid, targetWorkspace: targetWorkspace,
+        // No permission prompt to wait for: the app has as long to take the reopen as to show its window.
+        preexistingWindowIds: preexistingWindowIds(), focusGeneration: focusGeneration,
+        timeout: 2 * newWindowIntentTimeout, reopens: true,
+        completion: { outcome in completion(outcome) })
+    else {
+        completion(.failed("\(target.appName) is already opening a window"))
+        return nil
+    }
+    let intentId = intent.id
+    Task { @MainActor in await watchNewWindowIntentExpiry(intentId) }
+    Task { @MainActor in
+        registry.recordFocusWhenSent(forIntent: intentId, .current)
+        do {
+            let reachedPid = try await reopenRunningApplication(appURL)
+            // The app quit meanwhile and was launched again: its first window is still the one asked for.
+            if reachedPid != pid { registry.setPid(reachedPid, forIntent: intentId) }
+            registry.restartDeadline(forIntent: intentId)
+        } catch {
+            registry.cancel(intentId: intentId,
+                outcome: .failed("\(target.appName) couldn't be opened: \(error.localizedDescription)"))
+        }
+    }
+    return intentId
+}
+
 /// Ends the request at its deadline. Wakes at least every second, because the deadline moves
 /// once the app accepts the request.
 @MainActor
@@ -345,7 +447,7 @@ private func dispatchNewWindowRequest(_ method: NewWindowMethod, target: NewWind
             guard let pid, let macApp = MacApp.allAppsMap[pid] else { return "WinMux isn't managing \(target.appName) yet" }
             let pressed = (try? await macApp.pressNewWindowMenuItem()) ?? false
             return pressed ? nil : "\(target.appName) has no New Window menu item"
-        case .open, .launchThenScript, .unsupported:
+        case .open, .launchThenScript, .reopen, .unsupported:
             return "\(target.appName) can't open a new window from WinMux"
     }
 }

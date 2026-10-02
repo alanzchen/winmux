@@ -1,0 +1,255 @@
+@testable import AppBundle
+import AppKit
+import Common
+import XCTest
+
+/// A saved or pinned tab whose window closed while its app kept running: clicking it opens the
+/// app again, as a Dock click does, and the window the app shows comes to that tab.
+@MainActor
+final class PinReopenRequestTest: XCTestCase {
+    private var registry: NewWindowIntentRegistry { .shared }
+    private var clock: TimeInterval = 1000
+    private var originalReopen: (@MainActor (URL) async throws -> Int32)!
+    private var reopened: [URL] = []
+    private var reopenResult: Result<Int32, any Error> = .success(0)
+
+    private let appId = "bobko.WinMux.test-app"
+    private let appURL = URL(fileURLWithPath: "/Applications/Probe.app")
+    private var target: NewWindowRequestTarget { NewWindowRequestTarget(bundleId: appId, appName: "Probe", bundleURL: appURL) }
+    private var pid: Int32 { TestApp.shared.pid }
+
+    override func setUp() async throws {
+        try await super.setUp()
+        setUpWorkspacesForTests()
+        setSavedWorkspaceTestEnvironment()
+        replaceClosedWindowsCache(FrozenWorld(workspaces: [], monitors: [], windowIds: []))
+        registry.resetForTests()
+        clock = 1000
+        registry.now = { [weak self] in self?.clock ?? 0 }
+        originalReopen = reopenRunningApplication
+        reopened = []
+        reopenResult = .success(TestApp.shared.pid)
+        reopenRunningApplication = { [weak self] url in
+            guard let self else { return 0 }
+            reopened.append(url)
+            return try reopenResult.get()
+        }
+    }
+
+    override func tearDown() async throws {
+        reopenRunningApplication = originalReopen
+        registry.resetForTests()
+        replaceClosedWindowsCache(FrozenWorld(workspaces: [], monitors: [], windowIds: []))
+        config = defaultConfig
+        try await super.tearDown()
+    }
+
+    /// Lets the request's main-actor task send the reopen and hear back.
+    private func letTheRequestRun() async {
+        for _ in 0 ..< 20 { await Task.yield() }
+    }
+
+    @discardableResult
+    private func clickPin(_ tab: Workspace, preexisting: Set<UInt32> = [],
+                          _ outcome: @escaping @MainActor (NewWindowRequestOutcome) -> Void = { _ in }) -> Int? {
+        startReopenRequest(target, pid: pid, appURL: appURL, targetWorkspace: tab, focusGeneration: focusChangeGeneration,
+            preexistingWindowIds: { preexisting }, completion: outcome)
+    }
+
+    /// What detection does with a window the app showed: claim it, register it there, detect it.
+    private func appShows(_ windowId: UInt32, reusing window: Window? = nil) async throws -> Window? {
+        guard let tab = registry.claim(windowId: windowId, pid: pid, bundleId: appId, firstSeenUptime: clock) else { return nil }
+        let binding = newWindowIntentBinding(targetWorkspace: tab)
+        let shown: Window
+        if let window {
+            window.bind(to: binding.parent, adaptiveWeight: binding.adaptiveWeight, index: binding.index)
+            shown = window
+        } else {
+            shown = TestWindow.new(id: windowId, parent: binding.parent)
+        }
+        _ = try await restoreOrDetectNewWindow(shown, isRegularWindow: true)
+        return shown
+    }
+
+    func testOnlyARunningAppWithoutAnAdapterOrAWindowIsReopened() {
+        XCTAssertEqual(newWindowMethod(bundleId: "com.tinyspeck.slackmacgap", isRunning: true, reopensWhenWindowless: true,
+            menuFallbackEnabled: false), .reopen, "Running with no window: reopened, as a Dock click does")
+        XCTAssertEqual(newWindowMethod(bundleId: "com.tinyspeck.slackmacgap", isRunning: true, reopensWhenWindowless: true,
+            menuFallbackEnabled: true), .reopen, "Also before its New Window menu item")
+        XCTAssertEqual(newWindowMethod(bundleId: "com.tinyspeck.slackmacgap", isRunning: true, menuFallbackEnabled: false),
+            .unsupported, "With a window somewhere, a reopen would only bring that one forward")
+        XCTAssertEqual(newWindowMethod(bundleId: "com.tinyspeck.slackmacgap", isRunning: false, reopensWhenWindowless: true,
+            menuFallbackEnabled: false), .open, "Not running: launched")
+        XCTAssertEqual(newWindowMethod(bundleId: "com.apple.TextEdit", isRunning: true, reopensWhenWindowless: true,
+            menuFallbackEnabled: false), .script("tell application id \"com.apple.TextEdit\" to make new document"),
+            "An app with a tested adapter keeps it")
+    }
+
+    func testAnyWindowOfTheAppKeepsItFromBeingReopened() {
+        let other = Workspace.get(byName: "other")
+        let popup = TestWindow.new(id: 1, parent: macosPopupWindowsContainer)
+        XCTAssertFalse(runningAppHasWindows(pid: pid, windows: [popup]), "A popup isn't what a reopen brings back")
+        let stranger = TestWindow.new(id: 2, parent: other.rootTilingContainer,
+            app: TestApp(pid: 77, bundleId: "com.example.other"))
+        XCTAssertFalse(runningAppHasWindows(pid: pid, windows: [popup, stranger]))
+
+        let tiled = TestWindow.new(id: 3, parent: other.rootTilingContainer)
+        XCTAssertTrue(runningAppHasWindows(pid: pid, windows: [tiled]), "Another tab's window isn't taken from it")
+        let minimized = TestWindow.new(id: 4, parent: macosMinimizedWindowsContainer)
+        XCTAssertTrue(runningAppHasWindows(pid: pid, windows: [minimized]),
+            "A reopen would deminiaturize a minimized window, which may be another tab's")
+        let hidden = TestWindow.new(id: 5, parent: other.macOsNativeHiddenAppsWindowsContainer)
+        XCTAssertTrue(runningAppHasWindows(pid: pid, windows: [hidden]))
+        tiled.unbindFromParent()
+        XCTAssertFalse(runningAppHasWindows(pid: pid, windows: [tiled]), "A window that closed doesn't count")
+    }
+
+    func testTheAppIsAskedOnceAndTheWindowItShowsGoesToTheClickedTab() async throws {
+        let pin = Workspace.get(byName: "pin")
+        _ = pin.focusWorkspace()
+        var outcomes: [NewWindowRequestOutcome] = []
+        clickPin(pin, preexisting: [3]) { outcomes.append($0) }
+        await letTheRequestRun()
+        XCTAssertEqual(reopened, [appURL])
+
+        XCTAssertNil(registry.claim(windowId: 3, pid: pid, bundleId: appId, firstSeenUptime: clock),
+            "A window it had before isn't the one shown")
+        let shown = try await appShows(5)
+        let window = try XCTUnwrap(shown)
+        XCTAssertTrue(window.nodeWorkspace === pin)
+        XCTAssertEqual(outcomes, [.placed(windowId: 5)])
+        XCTAssertTrue(focus.windowOrNil === window)
+        XCTAssertEqual(savedTabAppFailureMessage(outcomes[0], appName: "Probe"), nil)
+    }
+
+    func testAWindowTheAppHidWhenItClosedIsWhatTheReopenBringsBack() async throws {
+        let pin = Workspace.get(byName: "pin")
+        // The app kept its window when it was closed. WinMux saw it close and remembers it.
+        registry.isRestorationCandidate = { $0 == 60 }
+        let launcher = try XCTUnwrap(registry.register(bundleId: appId, pid: pid, targetWorkspace: pin,
+            preexistingWindowIds: [], focusGeneration: focusChangeGeneration))
+        XCTAssertNil(registry.claim(windowId: 60, pid: pid, bundleId: appId, firstSeenUptime: clock),
+            "A launcher request for a new window never takes an old one")
+        registry.cancel(intentId: launcher.id)
+
+        clickPin(pin)
+        await letTheRequestRun()
+        XCTAssertTrue(registry.claim(windowId: 60, pid: pid, bundleId: appId, firstSeenUptime: clock) === pin)
+    }
+
+    func testAWindowShownAgainGoesToTheClickedTabNotBackToWhereItClosed() async throws {
+        let old = Workspace.get(byName: "old")
+        let pin = Workspace.get(byName: "pin")
+        _ = TestWindow.new(id: 1, parent: old.rootTilingContainer)
+        let hidden = TestWindow.new(id: 2, parent: old.rootTilingContainer)
+        // The app hid its window on close; WinMux cached the world as it closed.
+        replaceClosedWindowsCache(snapshotCurrentFrozenWorld())
+        hidden.unbindFromParent()
+        _ = pin.focusWorkspace()
+
+        var outcomes: [NewWindowRequestOutcome] = []
+        clickPin(pin) { outcomes.append($0) }
+        await letTheRequestRun()
+        _ = try await appShows(2, reusing: hidden)
+
+        XCTAssertTrue(hidden.nodeWorkspace === pin, "The click asked for it here")
+        XCTAssertTrue(pin.isVisible, "Restoring the old world would have switched the display back to its tab")
+        XCTAssertEqual(outcomes, [.placed(windowId: 2)])
+    }
+
+    func testClickingThePinAgainWhileTheAppReopensAsksItOnlyOnce() async throws {
+        let pin = Workspace.get(byName: "pin")
+        _ = pin.focusWorkspace()
+        var first: [NewWindowRequestOutcome] = []
+        var second: [NewWindowRequestOutcome] = []
+        let firstId = clickPin(pin) { first.append($0) }
+        await letTheRequestRun()
+        let secondId = clickPin(pin) { second.append($0) }
+        await letTheRequestRun()
+
+        XCTAssertEqual(reopened.count, 1, "A second reopen could make a slow app open a second window")
+        XCTAssertEqual(firstId, secondId)
+        XCTAssertEqual(first, [.cancelled], "Taken over quietly, no error for a double click")
+        _ = try await appShows(5)
+        XCTAssertEqual(second, [.placed(windowId: 5)])
+        XCTAssertEqual(first, [.cancelled], "Reported once")
+    }
+
+    func testAClickOnAnotherPinOfTheSameAppTakesThePendingReopenOver() async throws {
+        let firstPin = Workspace.get(byName: "first")
+        let secondPin = Workspace.get(byName: "second")
+        var outcomes: [String: [NewWindowRequestOutcome]] = [:]
+        _ = firstPin.focusWorkspace()
+        clickPin(firstPin) { outcomes["first", default: []].append($0) }
+        await letTheRequestRun()
+        _ = secondPin.focusWorkspace()
+        clickPin(secondPin) { outcomes["second", default: []].append($0) }
+        await letTheRequestRun()
+
+        XCTAssertEqual(reopened.count, 1)
+        let shown = try await appShows(5)
+        let window = try XCTUnwrap(shown)
+        XCTAssertTrue(window.nodeWorkspace === secondPin, "The newest click is the one the window answers")
+        XCTAssertTrue(firstPin.isEffectivelyEmpty)
+        XCTAssertEqual(outcomes["first"], [.cancelled])
+        XCTAssertEqual(outcomes["second"], [.placed(windowId: 5)])
+        XCTAssertTrue(focus.windowOrNil === window)
+    }
+
+    func testAnAppThatShowsNoWindowSaysSoOnceItsTimeIsUp() async throws {
+        var outcomes: [NewWindowRequestOutcome] = []
+        let intentId = try XCTUnwrap(clickPin(Workspace.get(byName: "pin")) { outcomes.append($0) })
+        XCTAssertEqual(registry.deadline(forIntent: intentId), clock + 2 * newWindowIntentTimeout,
+            "Until the app takes the reopen")
+        await letTheRequestRun()
+        XCTAssertEqual(registry.deadline(forIntent: intentId), clock + newWindowIntentTimeout,
+            "Then the usual time for its window")
+
+        clock += newWindowIntentTimeout - 1
+        registry.expireOverdueIntents()
+        XCTAssertEqual(outcomes, [], "A slow app's window still has time")
+        clock += 2
+        registry.expireOverdueIntents()
+        XCTAssertEqual(outcomes, [.timedOut])
+        XCTAssertEqual(savedTabAppFailureMessage(.timedOut, appName: "Probe"), "Probe didn't open a window.")
+        XCTAssertNil(registry.claim(windowId: 9, pid: pid, bundleId: appId, firstSeenUptime: clock),
+            "A window long after follows the usual rules")
+    }
+
+    func testAReopenLaunchServicesRefusesSaysWhy() async throws {
+        reopenResult = .failure(NSError(domain: NSCocoaErrorDomain, code: NSFileReadNoSuchFileError,
+            userInfo: [NSLocalizedDescriptionKey: "The app was moved."]))
+        var outcomes: [NewWindowRequestOutcome] = []
+        clickPin(Workspace.get(byName: "pin")) { outcomes.append($0) }
+        await letTheRequestRun()
+
+        XCTAssertEqual(outcomes, [.failed("Probe couldn't be opened: The app was moved.")])
+        XCTAssertEqual(savedTabAppFailureMessage(outcomes[0], appName: "Probe"), "Probe couldn't be opened: The app was moved.")
+        XCTAssertFalse(registry.hasPendingIntents)
+    }
+
+    func testAPinRemovedWhileItsAppReopensGetsNothingAndSaysNothing() async throws {
+        let pin = Workspace.get(byName: "removed")
+        var outcomes: [NewWindowRequestOutcome] = []
+        clickPin(pin) { outcomes.append($0) }
+        await letTheRequestRun()
+        removeWorkspaceFromRegistry(pin, reason: .deleted)
+
+        XCTAssertNil(registry.claim(windowId: 5, pid: pid, bundleId: appId, firstSeenUptime: clock),
+            "The window follows the usual rules")
+        XCTAssertNil(Workspace.existing(byName: "removed"), "Never recreated")
+        XCTAssertEqual(outcomes, [.cancelled])
+        XCTAssertNil(savedTabAppFailureMessage(.cancelled, appName: "Probe"))
+    }
+
+    func testAnAppThatQuitMeanwhileIsWaitedForInItsNewProcess() async throws {
+        let pin = Workspace.get(byName: "pin")
+        reopenResult = .success(42)
+        clickPin(pin)
+        await letTheRequestRun()
+
+        XCTAssertNil(registry.claim(windowId: 5, pid: pid, bundleId: appId, firstSeenUptime: clock),
+            "The process asked is gone")
+        XCTAssertTrue(registry.claim(windowId: 5, pid: 42, bundleId: appId, firstSeenUptime: clock) === pin)
+    }
+}

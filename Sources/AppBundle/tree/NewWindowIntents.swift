@@ -22,14 +22,19 @@ final class NewWindowIntent {
     /// Unknown until an app that wasn't running has launched.
     var pid: Int32?
     /// The destination by identity, so a workspace deleted and recreated under the same name
-    /// never receives an old request's window.
-    let targetWorkspaceId: WorkspaceId
-    /// Every window the app had before the request, registered with WinMux or not.
+    /// never receives an old request's window. A newer click can take a reopen over.
+    var targetWorkspaceId: WorkspaceId
+    /// Windows the app had before the request, which aren't the new one: every one, registered
+    /// with WinMux or not. For a reopen, those WinMux knows and those on screen; a window the app
+    /// hid when it was closed is what a reopen shows again.
     let preexistingWindowIds: Set<UInt32>
     let createdUptime: TimeInterval
     var deadlineUptime: TimeInterval
     /// If the user moves focus while waiting, the window is placed without taking focus.
-    let focusGeneration: UInt64
+    var focusGeneration: UInt64
+    /// The app was opened again to show its window, as a Dock click does. The window may be one
+    /// it hid when it was closed, which WinMux remembers as closed.
+    let reopens: Bool
     /// Where focus was when the request went to the app, which may show a permission prompt.
     var focusWhenSent: NewWindowFocusSnapshot?
     var completion: ((NewWindowRequestOutcome) -> Void)?
@@ -37,7 +42,7 @@ final class NewWindowIntent {
     var isCancelled = false
 
     init(id: Int, bundleId: String, pid: Int32?, targetWorkspaceId: WorkspaceId, preexistingWindowIds: Set<UInt32>,
-         createdUptime: TimeInterval, deadlineUptime: TimeInterval, focusGeneration: UInt64,
+         createdUptime: TimeInterval, deadlineUptime: TimeInterval, focusGeneration: UInt64, reopens: Bool = false,
          completion: ((NewWindowRequestOutcome) -> Void)?) {
         self.id = id
         self.bundleId = bundleId
@@ -47,6 +52,7 @@ final class NewWindowIntent {
         self.createdUptime = createdUptime
         self.deadlineUptime = deadlineUptime
         self.focusGeneration = focusGeneration
+        self.reopens = reopens
         self.completion = completion
     }
 }
@@ -100,6 +106,7 @@ final class NewWindowIntentRegistry {
         preexistingWindowIds: Set<UInt32>,
         focusGeneration: UInt64,
         timeout: TimeInterval = newWindowIntentTimeout,
+        reopens: Bool = false,
         completion: ((NewWindowRequestOutcome) -> Void)? = nil,
     ) -> NewWindowIntent? {
         expireOverdueIntents()
@@ -107,7 +114,7 @@ final class NewWindowIntentRegistry {
         let created = now()
         let intent = NewWindowIntent(id: nextId, bundleId: bundleId, pid: pid, targetWorkspaceId: targetWorkspace.id,
             preexistingWindowIds: preexistingWindowIds, createdUptime: created, deadlineUptime: created + timeout,
-            focusGeneration: focusGeneration, completion: completion)
+            focusGeneration: focusGeneration, reopens: reopens, completion: completion)
         nextId += 1
         intents.append(intent)
         return intent
@@ -117,9 +124,13 @@ final class NewWindowIntentRegistry {
     /// The intent is consumed, so the app's other new windows are placed normally.
     func claim(windowId: UInt32, pid: Int32, bundleId: String?, firstSeenUptime: TimeInterval) -> Workspace? {
         expireOverdueIntents()
-        guard let bundleId, !isRestorationCandidate(windowId),
-              let index = intents.firstIndex(where: { intent in
+        guard let bundleId, !intents.isEmpty else { return nil }
+        let isRestorationCandidate = isRestorationCandidate(windowId)
+        guard let index = intents.firstIndex(where: { intent in
                   intent.bundleId == bundleId &&
+                      // A window the reopen brought back may be one WinMux saw close. It wasn't
+                      // on screen when the app was asked, so it's what the reopen showed.
+                      (!isRestorationCandidate || intent.reopens) &&
                       (intent.pid == nil || intent.pid == pid) &&
                       !intent.preexistingWindowIds.contains(windowId) &&
                       // A window first seen before the request, promoted from a popup now, isn't it.
@@ -151,6 +162,25 @@ final class NewWindowIntentRegistry {
 
     func setPid(_ pid: Int32, forIntent id: Int) {
         intents.first { $0.id == id }?.pid = pid
+    }
+
+    /// The reopen of this app still waiting for its window.
+    func pendingReopen(bundleId: String, pid: Int32) -> NewWindowIntent? {
+        intents.first { $0.reopens && $0.bundleId == bundleId && $0.pid == pid }
+    }
+
+    /// A newer click takes a pending reopen over: its tab gets the window and its completion
+    /// reports. The app isn't asked again, so it can't open a second window, and the earlier
+    /// request ends quietly.
+    func takeOver(_ intent: NewWindowIntent, targetWorkspace: Workspace, focusGeneration: UInt64,
+                  completion: ((NewWindowRequestOutcome) -> Void)?) {
+        guard intents.contains(where: { $0 === intent }) else { return }
+        let replaced = intent.completion
+        intent.targetWorkspaceId = targetWorkspace.id
+        intent.focusGeneration = focusGeneration
+        intent.focusWhenSent = nil
+        intent.completion = completion
+        replaced?(.cancelled)
     }
 
     /// Once the app has taken the request, its window gets the usual time to appear, however
