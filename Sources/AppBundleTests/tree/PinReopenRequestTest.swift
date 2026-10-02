@@ -305,10 +305,11 @@ final class PinReopenRequestTest: XCTestCase {
         XCTAssertEqual(left.activeWorkspace.name, "x")
     }
 
-    /// Three displays remembered showing s, q and p, with tab b hidden behind p. After the windows of
-    /// p and s close, the third display shows b again, p moves to the second display and q to the
-    /// first, and p is reopened there. Then s's window comes back. The restore goes through the
-    /// remembered tabs by name, so a tab remembered on a display it left would stay shown there.
+    /// Three displays remembered showing s, q and p, with tabs c, a and b hidden behind them. After the
+    /// windows of p and s close, the third display shows b again, p moves to the second display and q
+    /// to the first, and p is reopened there. Then s's window comes back. The restore goes through
+    /// the remembered tabs by name; the hidden ones, restored early, hide p and q, so a tab
+    /// remembered on a display it left would be shown there and stranded.
     private func reopenAcrossThreeDisplaysThenRestore(_ remember: (FrozenWorld) -> Void) async throws
         -> (displays: [Monitor], reopened: Window, other: Window)
     {
@@ -316,17 +317,23 @@ final class PinReopenRequestTest: XCTestCase {
         let b = SavedWorkspaceTestMonitor(id: 2, name: "B", x: 1920, uuid: "B")
         let c = SavedWorkspaceTestMonitor(id: 3, name: "C", x: 3840, uuid: "C")
         setMonitorsForTests([a, b, c])
+        let hiddenOnA = Workspace.get(byName: "c")
+        let hiddenOnB = Workspace.get(byName: "a")
         let behind = Workspace.get(byName: "b")
         let p = Workspace.get(byName: "p")
         let q = Workspace.get(byName: "q")
         let s = Workspace.get(byName: "s")
         _ = TestWindow.new(id: 8, parent: behind.rootTilingContainer)
+        _ = TestWindow.new(id: 9, parent: hiddenOnA.rootTilingContainer)
+        _ = TestWindow.new(id: 10, parent: hiddenOnB.rootTilingContainer)
         let reopened = TestWindow.new(id: 2, parent: p.rootTilingContainer)
         _ = TestWindow.new(id: 5, parent: q.rootTilingContainer)
         let other = TestWindow.new(id: 3, parent: s.rootTilingContainer)
         XCTAssertTrue(c.setActiveWorkspace(behind))
         XCTAssertTrue(c.setActiveWorkspace(p))
+        XCTAssertTrue(b.setActiveWorkspace(hiddenOnB))
         XCTAssertTrue(b.setActiveWorkspace(q))
+        XCTAssertTrue(a.setActiveWorkspace(hiddenOnA))
         XCTAssertTrue(a.setActiveWorkspace(s))
         remember(snapshotCurrentFrozenWorld())
         reopened.unbindFromParent()
