@@ -302,10 +302,18 @@ final class WorkspaceSidebarPinScopeTest: XCTestCase {
         XCTAssertThrowsError(try setWorkspaceSidebarTabPinScope(g, nil, projectId: b))
         XCTAssertNotEqual(g.projectId, b)
         workspaceSidebarOrganizationStore = .init(state: state)
-        // A project that's gone can't take it: the pin stays where it was, in All Projects.
+        // A project that's gone can't take it: the pin stays where it was, in All Projects, and the
+        // display showing it in B stays in B, with what B remembers.
+        XCTAssertTrue(g.focusWorkspace())
+        XCTAssertEqual(activeWorkspaceProjectId(for: mainMonitor), b)
+        let viewport = winMuxWorkspaceState.monitorViewportsById[MonitorViewportId(mainMonitor)]
         try setWorkspaceSidebarTabPinScope(g, nil, projectId: "missing-project")
         XCTAssertTrue(workspaceIsPinnedInAllProjects(g))
         XCTAssertEqual(workspaceSidebarOrganizationStore.state, state)
+        XCTAssertTrue(mainMonitor.activeWorkspace === g)
+        XCTAssertEqual(activeWorkspaceProjectId(for: mainMonitor), b)
+        XCTAssertEqual(winMuxWorkspaceState.monitorViewportsById[MonitorViewportId(mainMonitor)]?.lastActiveWorkspaceByProject,
+            viewport?.lastActiveWorkspaceByProject)
     }
 
     func testUnpinningAPinInAllProjectsLeavesATabOfTheProjectShown() async throws {
