@@ -75,8 +75,9 @@ final class WorkspaceSidebarTabSelectionTest: XCTestCase {
         let entries = workspaceSidebarTabSelectionMenuEntries(["a", "b", "gone"], workspaces: tabs, collections: [group],
             send: { sent.append($0) }, clear: { cleared += 1 })
         XCTAssertEqual(entries.map(\.title).filter { !$0.isEmpty },
-            ["2 Tabs", "Pin 2 Tabs", "New Group with 2 Tabs", "Add to Group", "Deselect Tabs", "Close 2 Tabs"],
-            "Pinning until every chosen tab is pinned; closing last")
+            ["2 Tabs", "Pin 2 Tabs", "Pin 2 Tabs to All Projects", "New Group with 2 Tabs", "Add to Group", "Deselect Tabs",
+             "Close 2 Tabs"],
+            "Pinning until every chosen tab is pinned, here or in All Projects; closing last")
         XCTAssertEqual(entries.first?.kind, .header, "The count names what the menu acts on")
         let add = try? XCTUnwrap(entries.first { $0.title == "Add to Group" })
         XCTAssertEqual(add?.children.first?.checked, true, "Both are already in Work")

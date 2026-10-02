@@ -28,25 +28,49 @@ func handleWorkspaceSidebarOrganizationAction(_ action: WorkspaceSidebarAction, 
                 try store.update { $0.workspaces[name, default: .init()].emoji = emoji.flatMap(normalizedWorkspaceProjectEmoji) }
             case .setWorkspaceFavorite(let name, let favorite):
                 guard let workspace = Workspace.existing(byName: name) else { return }
-                try setWorkspaceSidebarTabFavorite(workspace, favorite)
+                if favorite {
+                    try setWorkspaceSidebarTabFavorite(workspace, true)
+                } else {
+                    // A pin in All Projects unpinned stays in the project the sidebar shows.
+                    try unpinWorkspaceSidebarTab(workspace, into: workspaceSidebarContextProjectId(for: workspace,
+                        targetMonitorScopeId: targetMonitorScopeId))
+                }
+            case .setWorkspacePinScope(let name, let scope, let projectId):
+                guard let workspace = Workspace.existing(byName: name) else { return }
+                try setWorkspaceSidebarTabPinScope(workspace, scope, projectId: projectId)
             case .setTabsFavorite(let names, let favorite):
-                try setWorkspaceSidebarTabsFavorite(names.compactMap(Workspace.existing(byName:)), favorite)
+                let tabs = names.compactMap(Workspace.existing(byName:))
+                if favorite {
+                    try setWorkspaceSidebarTabsFavorite(tabs, true)
+                } else if let first = tabs.first {
+                    // Pins in All Projects unpinned stay in the project the sidebar shows.
+                    try unpinWorkspaceSidebarTabs(tabs, into: workspaceSidebarContextProjectId(for: first,
+                        targetMonitorScopeId: targetMonitorScopeId))
+                }
+            case .setTabsPinScope(let names, let scope, let projectId):
+                try setWorkspaceSidebarTabsPinScope(names.compactMap(Workspace.existing(byName:)), scope, projectId: projectId)
             case .createTabCollectionFromTabs(let names):
                 let tabs = names.compactMap(Workspace.existing(byName:))
                 // A group belongs to one project; the selection comes from one page, so one project.
-                guard config.usesBrowserTabs, let projectId = tabs.first?.projectId,
-                      tabs.allSatisfy({ $0.projectId == projectId }) else { return }
-                try saveWorkspaceSidebarIdentities(tabs)
-                let group = try store.create(projectId: projectId, workspaceNames: tabs.map(\.name))
-                editorTarget = .collection(group.id)
+                guard config.usesBrowserTabs,
+                      let projectId = workspaceSidebarChosenTabsProjectId(tabs, targetMonitorScopeId: targetMonitorScopeId)
+                else { return }
+                try withWorkspaceSidebarTabsJoiningGroup(tabs, in: projectId) {
+                    try saveWorkspaceSidebarIdentities(tabs)
+                    let group = try store.create(projectId: projectId, workspaceNames: tabs.map(\.name))
+                    editorTarget = .collection(group.id)
+                }
             case .assignTabsToCollection(let names, let id):
                 let tabs = names.compactMap(Workspace.existing(byName:))
-                guard config.usesBrowserTabs, let projectId = tabs.first?.projectId,
-                      tabs.allSatisfy({ $0.projectId == projectId }),
+                guard config.usesBrowserTabs,
+                      let projectId = workspaceSidebarChosenTabsProjectId(tabs, targetMonitorScopeId: targetMonitorScopeId),
                       id.map({ id in store.state.collections.contains { $0.id == id && $0.projectId == projectId } }) ?? true
                 else { return }
-                if id != nil { try saveWorkspaceSidebarIdentities(tabs) }
-                try store.assign(tabs.map(\.name), projectId: projectId, to: id)
+                // Leaving a group moves no tab: pins in All Projects are in none.
+                try withWorkspaceSidebarTabsJoiningGroup(id == nil ? [] : tabs, in: projectId) {
+                    if id != nil { try saveWorkspaceSidebarIdentities(tabs) }
+                    try store.assign(tabs.map(\.name), projectId: projectId, to: id)
+                }
             case .createTabCollection(let name):
                 guard config.usesBrowserTabs, let workspace = Workspace.existing(byName: name) else { return }
                 try saveWorkspaceSidebarIdentity(workspace)
@@ -92,13 +116,41 @@ func handleWorkspaceSidebarOrganizationAction(_ action: WorkspaceSidebarAction, 
     }
 }
 
+/// The project of the list several chosen tabs were chosen in: their own, with pins in All
+/// Projects listed in the project the sidebar shows. Nil when no one list shows them all.
+@MainActor
+private func workspaceSidebarChosenTabsProjectId(_ tabs: [Workspace], targetMonitorScopeId: String?) -> WorkspaceProjectId? {
+    guard let first = tabs.first else { return nil }
+    let projectId = tabs.first { !workspaceIsPinnedInAllProjects($0) }?.projectId
+        ?? workspaceSidebarContextProjectId(for: first, targetMonitorScopeId: targetMonitorScopeId)
+    return tabs.allSatisfy { workspaceIsListed($0, inProject: projectId) } ? projectId : nil
+}
+
+/// `join` puts `tabs` in a group of `projectId`. Pins in All Projects from another project join it
+/// as tabs of that project, as a pin dropped on the group does: unpinned there first, and back
+/// where they were if joining fails. Joining the group unpins the rest.
+@MainActor
+private func withWorkspaceSidebarTabsJoiningGroup(_ tabs: [Workspace], in projectId: WorkspaceProjectId,
+                                                  _ join: () throws -> Void) throws {
+    let foreign = tabs.filter { $0.projectId != projectId }
+    guard !foreign.isEmpty else { return try join() }
+    try withWorkspaceSidebarDropTransaction {
+        try unpinWorkspaceSidebarTabs(foreign, into: projectId)
+        guard foreign.allSatisfy({ $0.projectId == projectId }) else { return false }
+        try join()
+        return true
+    }
+}
+
 func workspaceSidebarOrganizationUndoTitle(_ action: WorkspaceSidebarAction) -> String? {
     switch action {
         case .setWorkspaceFavorite(_, let pinned): pinned ? "Pin Tab" : "Unpin Tab"
+        case .setWorkspacePinScope(_, let scope, _): workspaceSidebarPinScopeUndoTitle(scope)
         case .createTabCollection: "Create Group"
         case .assignTabCollection, .assignTabsToCollection: "Move to Group"
         case .createTabCollectionFromTabs: "Group Tabs"
         case .setTabsFavorite(_, let pinned): pinned ? "Pin Tabs" : "Unpin Tabs"
+        case .setTabsPinScope(_, let scope, _): workspaceSidebarTabsPinScopeUndoTitle(scope)
         case .ungroupTabCollection: "Ungroup Tabs"
         case .moveTabCollection: "Move Group"
         case .renameTabCollection: "Rename Group"

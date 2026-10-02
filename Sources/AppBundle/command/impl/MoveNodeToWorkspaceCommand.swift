@@ -13,7 +13,7 @@ struct MoveNodeToWorkspaceCommand: Command {
             case .newWorkspace:
                 guard let subjectWs else { return io.err("Window \(window.windowId) doesn't belong to any workspace") }
                 targetWorkspace = getOrCreateAdjacentBlankWorkspace(
-                    projectId: subjectWs.projectId,
+                    projectId: workspaceContextProjectId(of: subjectWs),
                     monitor: window.nodeMonitor ?? target.workspace.workspaceMonitor,
                 )
             case .relative(let nextPrev):
@@ -74,7 +74,7 @@ private func resolveMoveTargetWorkspace(
     let existedBefore = Workspace.existing(byName: workspaceName) != nil
     let workspace = Workspace.get(byName: workspaceName)
     if !existedBefore {
-        workspace.assignProject(sourceWorkspace.projectId)
+        workspace.assignProject(workspaceContextProjectId(of: sourceWorkspace))
     }
     workspace.seedMonitorIfNeeded(sourceMonitor)
     return workspace

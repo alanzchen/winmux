@@ -241,15 +241,24 @@ struct WorkspaceSidebarDropDestinationTabsList: View {
     var body: some View {
         let pins = snapshot.pins
         let sections = snapshot.tabSections
-        let tailGap = workspaceSidebarTabsTailGap(sections: sections, lastPin: pins.last?.name)
+        let tailGap = workspaceSidebarTabsTailGap(sections: sections, lastPin: pins.last { $0.projectId == projectId }?.name)
+        // Pins in All Projects above the project's own, each section with a place to pin while it has none:
+        // this list is shown only during a drag.
+        let everywhere = pins.filter(\.appearance.isPinnedInAllProjects)
+        let own = pins.filter { !$0.appearance.isPinnedInAllProjects }
         VStack(alignment: .leading, spacing: 0) {
-            if pins.isEmpty {
-                WorkspaceSidebarTabsPinDropZone(projectId: projectId, monitorScopeId: scope, hasPins: false,
-                    isDropTarget: preview?.targetsPinned == true && preview?.targetProjectId == projectId)
-                    .frame(height: 36)
-                    .padding(.bottom, 6)
-            } else {
-                pinnedGrid(pins)
+            ForEach([WorkspaceSidebarPinSection.allProjects, .project], id: \.self) { section in
+                let tiles = section == .allProjects ? everywhere : own
+                if tiles.isEmpty {
+                    WorkspaceSidebarTabsPinDropZone(projectId: projectId, monitorScopeId: scope, hasPins: false,
+                        isDropTarget: workspaceSidebarPinDropZoneIsTarget(preview, section: section, projectId: projectId, list: scope),
+                        section: section,
+                        label: section == .project && !everywhere.isEmpty ? "Pin to “\(snapshot.project?.displayName ?? "This Project")”" : nil)
+                        .frame(height: 36)
+                        .padding(.bottom, 6)
+                } else {
+                    pinnedGrid(tiles, sizedLike: pins, section: section)
+                }
             }
             VStack(alignment: .leading, spacing: 2) {
                 WorkspaceSidebarTabNewWorkspaceRow(projectId: projectId, monitorScopeId: scope,
@@ -276,8 +285,9 @@ struct WorkspaceSidebarDropDestinationTabsList: View {
         .padding(.bottom, 8)
     }
 
-    private func pinnedGrid(_ pins: [WorkspaceSidebarWorkspaceViewModel]) -> some View {
-        let grid = WorkspaceSidebarPinnedGridLayout(workspaces: pins, width: snapshot.width - 16)
+    private func pinnedGrid(_ pins: [WorkspaceSidebarWorkspaceViewModel], sizedLike all: [WorkspaceSidebarWorkspaceViewModel],
+                            section: WorkspaceSidebarPinSection) -> some View {
+        let grid = WorkspaceSidebarPinnedGridLayout(workspaces: pins, sizedLike: all, width: snapshot.width - 16)
         return WorkspaceSidebarPinnedGrid(columns: grid.columns) {
             ForEach(pins) { workspace in
                 // A shared pin on a display other than the one this list stands for shows where it
@@ -299,7 +309,13 @@ struct WorkspaceSidebarDropDestinationTabsList: View {
                 Color.clear.preference(key: WorkspaceSidebarDropTargetPreferenceKey.self,
                     value: workspaceSidebarPinnedDropTargets(names: pins.map(\.name), projectId: projectId,
                         monitorScopeId: scope, frame: content.frame(in: .named("workspaceSidebarContent")),
-                        columns: grid.columns))
+                        columns: grid.columns, section: section))
+            }
+        }
+        .overlay(alignment: .topTrailing) {
+            if workspaceSidebarPinScopeChangeTargets(preview, section: section, projectId: projectId, list: scope) {
+                WorkspaceSidebarPinScopeCaption(section: section, projectName: snapshot.project?.displayName ?? "This Project")
+                    .offset(y: -9)
             }
         }
         .padding(.bottom, 8)

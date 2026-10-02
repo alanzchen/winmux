@@ -36,8 +36,10 @@ func createAdjacentTransientBlankWorkspaceIfAllowed(named workspaceName: String,
         return nil
     }
 
-    let workspace = Workspace.get(byName: nextSidebarCreatedWorkspaceName(projectId: current.projectId, monitor: current.workspaceMonitor))
+    // From a pin in All Projects, the project its display is in.
+    let projectId = workspaceContextProjectId(of: current)
+    let workspace = Workspace.get(byName: nextSidebarCreatedWorkspaceName(projectId: projectId, monitor: current.workspaceMonitor))
     workspace.markAsTransientBlank()
-    workspace.assignProject(current.projectId)
+    workspace.assignProject(projectId)
     return workspace
 }

@@ -5,11 +5,17 @@ import Common
 // windows and New Tab open one right after the current tab, and a tab that ends up empty
 // closes.
 
-/// A blank workspace placed right after `anchor` in its project, like a browser's new tab.
+/// A blank workspace placed right after `anchor` in its project, like a browser's new tab. A pin in
+/// All Projects has no place among a project's tabs, so a tab opened from one goes first, just below
+/// the pins.
 @MainActor
 func createWorkspace(after anchor: Workspace?, projectId: WorkspaceProjectId, monitor: Monitor) -> Workspace {
     let workspace = createBlankWorkspace(projectId: projectId, monitor: monitor)
-    if let anchor, anchor !== workspace, anchor.projectId == projectId {
+    if let anchor, anchor !== workspace, workspaceIsPinnedInAllProjects(anchor) {
+        if let first = orderedWorkspaces(in: projectId).first(where: { $0 !== workspace }) {
+            winMuxWorkspaceState.moveWorkspace(workspace.id, relativeTo: first.id, after: false)
+        }
+    } else if let anchor, anchor !== workspace, anchor.projectId == projectId {
         winMuxWorkspaceState.moveWorkspace(workspace.id, after: anchor.id)
     }
     return workspace
@@ -21,20 +27,23 @@ private let workspaceTabOpeningBurst: TimeInterval = 2
 @MainActor private var lastTabOpenedFrom: [WorkspaceId: (tab: WorkspaceId, uptime: TimeInterval)] = [:]
 
 /// The tab a new window opens in: right after the tab it opened from, or after the tabs that
-/// tab has just opened.
+/// tab has just opened. From a pin in All Projects, that's in the project its display is in.
 @MainActor
 func createWorkspaceForNewWindow(openedFrom anchor: Workspace, monitor: Monitor,
                                  now: TimeInterval = ProcessInfo.processInfo.systemUptime) -> Workspace {
-    let order = orderedWorkspaces(in: anchor.projectId)
+    let projectId = workspaceContextProjectId(of: anchor)
+    let order = orderedWorkspaces(in: projectId)
+    // A pin in All Projects isn't among the project's tabs, which its tabs go first among.
+    let anchorIndex = workspaceIsPinnedInAllProjects(anchor) ? -1 : order.firstIndex(where: { $0 === anchor })
     var after = anchor
     if let last = lastTabOpenedFrom[anchor.id], now - last.uptime < workspaceTabOpeningBurst,
        let lastTab = winMuxWorkspaceState.workspaceById[last.tab],
-       let anchorIndex = order.firstIndex(where: { $0 === anchor }),
+       let anchorIndex,
        let lastIndex = order.firstIndex(where: { $0 === lastTab }), lastIndex > anchorIndex
     {
         after = lastTab
     }
-    let workspace = createWorkspace(after: after, projectId: anchor.projectId, monitor: monitor)
+    let workspace = createWorkspace(after: after, projectId: projectId, monitor: monitor)
     lastTabOpenedFrom = lastTabOpenedFrom.filter { now - $0.value.uptime < workspaceTabOpeningBurst }
     lastTabOpenedFrom[anchor.id] = (workspace.id, now)
     return workspace
@@ -60,7 +69,10 @@ struct WorkspaceLauncherNewTab {
 @MainActor
 func newTabWorkspace(projectId: WorkspaceProjectId, monitor: Monitor) -> WorkspaceLauncherNewTab {
     let current = monitor.activeWorkspace
-    let isCurrentProject = current.projectId == projectId && !current.isArchived
+    // A pin in All Projects on screen is the current tab of the project its display is in.
+    let isCurrentProject = !current.isArchived && (workspaceIsPinnedInAllProjects(current)
+        ? winMuxWorkspaceState.activeProjectId(for: monitor) == projectId
+        : current.projectId == projectId)
     if isCurrentProject, !workspaceHasLifecycleWindows(current), !current.isKeptWhenEmpty, !current.isSaved {
         return WorkspaceLauncherNewTab(workspace: current, previous: nil, isNew: false)
     }
@@ -74,7 +86,7 @@ func newTabWorkspace(projectId: WorkspaceProjectId, monitor: Monitor) -> Workspa
 func workspaceForDropOnNewTab(projectId: WorkspaceProjectId, monitor: Monitor, sourceWindow: Window) -> Workspace {
     guard config.usesBrowserTabs else { return getOrCreateAdjacentBlankWorkspace(projectId: projectId, monitor: monitor) }
     let anchor = [sourceWindow.nodeWorkspace, monitor.activeWorkspace].compactMap { $0 }
-        .first { $0.projectId == projectId && $0.workspaceMonitor.rect == monitor.rect }
+        .first { workspaceIsListed($0, inProject: projectId) && $0.workspaceMonitor.rect == monitor.rect }
     return createWorkspace(after: anchor, projectId: projectId, monitor: monitor)
 }
 
@@ -83,7 +95,11 @@ func workspaceForDropOnNewTab(projectId: WorkspaceProjectId, monitor: Monitor, s
 @MainActor
 func workspaceTabNeighbor(of workspace: Workspace) -> Workspace? {
     let monitor = workspace.workspaceMonitor
-    let tabs = orderedWorkspaces(in: workspace.projectId).filter { tab in
+    // Pins in All Projects aren't among a project's tabs; one of them has its display's project's.
+    let candidates = workspaceIsPinnedInAllProjects(workspace)
+        ? workspaceNavigationTabs(current: workspace)
+        : orderedWorkspaces(in: workspace.projectId).filter { !workspaceIsPinnedInAllProjects($0) }
+    let tabs = candidates.filter { tab in
         tab === workspace || tab.workspaceMonitor.rect == monitor.rect
     }
     guard let index = tabs.firstIndex(where: { $0 === workspace }) else { return nil }
@@ -180,8 +196,10 @@ func separateWorkspaceIntoTabs(_ workspace: Workspace) {
     guard windows.count > 1 else { return }
     let kept = workspace.mostRecentWindowRecursive ?? windows[0]
     var after = workspace
+    // From a pin in All Projects, the new tabs are the project's its display is in.
+    let projectId = workspaceContextProjectId(of: workspace)
     for window in windows where window !== kept {
-        let tab = createWorkspace(after: after, projectId: workspace.projectId, monitor: workspace.workspaceMonitor)
+        let tab = createWorkspace(after: after, projectId: projectId, monitor: workspace.workspaceMonitor)
         window.bind(to: window.isFloating ? tab : tab.rootTilingContainer, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
         after = tab
     }
@@ -316,6 +334,9 @@ func moveWholeTabToGap(_ tab: Workspace, projectId: WorkspaceProjectId, monitor:
         if let window { _ = window.focusWindow() } else { _ = tab.focusWorkspace() }
     }
     winMuxWorkspaceState.moveWorkspace(tab.id, relativeTo: anchor.id, after: gap.isAfter)
+    // Its record goes to its new project and place now, as a pin unpinned into the list's project
+    // from All Projects often does, so the drop's Undo outlasts the next capture.
+    syncSavedWorkspaceRecords([tab])
     return true
 }
 

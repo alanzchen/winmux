@@ -46,6 +46,19 @@ extension WorkspaceSidebarView {
             .padding(.leading, expanded ? workspaceSidebarTabsListInset + workspaceSidebarTabLeadingPadding : 8)
             .padding(.trailing, expanded ? workspaceSidebarTabsListInset + workspaceSidebarTabTrailingSlotWidth / 2 - 14 : 8)
             .padding(.top, 14).padding(.bottom, 12)
+            .overlay {
+                // With nothing pinned in All Projects, dragging a tab offers that over the header, above
+                // where those pins go, so nothing below moves under the pointer.
+                if expanded, !isSearchActive {
+                    WorkspaceSidebarTabsPinDropZone(projectId: snapshot.activeProjectId, monitorScopeId: tabsListScopeId,
+                        hasPins: (visible[snapshot.activeProjectId] ?? []).contains(where: \.appearance.isPinnedInAllProjects),
+                        isDropTarget: workspaceSidebarPinDropZoneIsTarget(snapshot.dropPreview, section: .allProjects,
+                            projectId: snapshot.activeProjectId, list: tabsListScopeId),
+                        section: .allProjects)
+                        .padding(.horizontal, workspaceSidebarTabsListInset).padding(.vertical, 8)
+                        .opacity(reveal)
+                }
+            }
 
             if expanded {
                 if showsTabsDisplayMenu {
@@ -80,14 +93,16 @@ extension WorkspaceSidebarView {
                         beginSidebarSearchIfNeeded()
                     })
                     .overlay {
-                        // With nothing pinned, dragging a tab offers pinning over the search row,
-                        // so the list doesn't move under the pointer.
-                        let pinned = (visible[snapshot.activeProjectId] ?? []).contains { $0.appearance.isFavorite }
+                        // With none of the project's own pins, dragging a tab offers pinning over the search
+                        // row, so the list doesn't move under the pointer. Below pins in All Projects, it
+                        // names the project.
+                        let shown = visible[snapshot.activeProjectId] ?? []
+                        let pinsEverywhere = shown.contains(where: \.appearance.isPinnedInAllProjects)
                         WorkspaceSidebarTabsPinDropZone(projectId: snapshot.activeProjectId, monitorScopeId: tabsListScopeId,
-                            hasPins: pinned,
-                            isDropTarget: snapshot.dropPreview?.targetsPinned == true
-                                && snapshot.dropPreview?.targetProjectId == snapshot.activeProjectId
-                                && workspaceSidebarDropPreview(snapshot.dropPreview, targetsList: tabsListScopeId))
+                            hasPins: shown.contains { $0.appearance.isFavorite && !$0.appearance.isPinnedInAllProjects },
+                            isDropTarget: workspaceSidebarPinDropZoneIsTarget(snapshot.dropPreview, section: .project,
+                                projectId: snapshot.activeProjectId, list: tabsListScopeId),
+                            label: pinsEverywhere ? "Pin to “\(project?.displayName ?? "This Project")”" : "Drop to Pin")
                     }
                     .padding(.horizontal, workspaceSidebarTabsListInset).padding(.bottom, 4)
                     .opacity(reveal)
@@ -112,6 +127,9 @@ extension WorkspaceSidebarView {
                             let tabs = visible[snapshot.activeProjectId] ?? []
                             if index > 0, tabs[index - 1].appearance.isFavorite, !workspace.appearance.isFavorite {
                                 Divider().padding(.horizontal, 8).padding(.vertical, 3)
+                            } else if index > 0, tabs[index - 1].appearance.isPinnedInAllProjects, !workspace.appearance.isPinnedInAllProjects {
+                                // Pins in All Projects, then the project's own.
+                                Divider().opacity(0.6).padding(.horizontal, 12).padding(.vertical, 2)
                             }
                             WorkspaceSidebarPinnedTab(workspace: workspace, badgeModel: dockBadgeModel, compact: true,
                                 targetMonitorScopeId: snapshot.targetMonitorScopeId,
@@ -182,16 +200,29 @@ extension WorkspaceSidebarView {
             targetMonitorScopeId: snapshot.targetMonitorScopeId, focusedScopeId: snapshot.focusedMonitorScopeId)
     }
 
+    /// Pins in All Projects above the project's own, with a divider between them when both have some.
+    /// Each section wraps on its own; an empty one takes no room.
     private func tabsFavorites(_ workspaces: [WorkspaceSidebarWorkspaceViewModel]) -> some View {
         let favorites = workspaces.filter { $0.appearance.isFavorite }
-        let grid = WorkspaceSidebarPinnedGridLayout(workspaces: favorites, width: snapshot.visibleWidth - 20)
-        return tabsFavoriteGrid(favorites, grid: grid)
+        let everywhere = favorites.filter(\.appearance.isPinnedInAllProjects)
+        let own = favorites.filter { !$0.appearance.isPinnedInAllProjects }
+        let width = snapshot.visibleWidth - 20
+        return VStack(alignment: .leading, spacing: 0) {
+            tabsFavoriteGrid(everywhere, grid: .init(workspaces: everywhere, sizedLike: favorites, width: width),
+                section: .allProjects)
+            if !everywhere.isEmpty, !own.isEmpty {
+                Divider().opacity(0.6).padding(.horizontal, 16).padding(.bottom, 8).accessibilityHidden(true)
+            }
+            tabsFavoriteGrid(own, grid: .init(workspaces: own, sizedLike: favorites, width: width), section: .project)
+        }
     }
 
     /// A tab dropped beside a tile goes there among the pins, and the insertion line shows where;
-    /// after a pause over a tile, a window joins that pin's split instead.
+    /// after a pause over a tile, a window joins that pin's split instead. Dropped among the other
+    /// section's pins, a pin moves there, which the section's caption says while it's over them.
     private func tabsFavoriteGrid(_ favorites: [WorkspaceSidebarWorkspaceViewModel],
-                                  grid: WorkspaceSidebarPinnedGridLayout) -> some View {
+                                  grid: WorkspaceSidebarPinnedGridLayout, section: WorkspaceSidebarPinSection) -> some View {
+        let projectName = snapshot.projects.first { $0.id == snapshot.activeProjectId }?.displayName ?? "This Project"
         // The scroll view reaches past the tiles so it doesn't clip the insertion line beside the outer ones.
         let lineRoom = workspaceSidebarPinnedGridSpacing
         return GeometryReader { viewport in
@@ -222,7 +253,8 @@ extension WorkspaceSidebarView {
                         Color.clear.preference(key: WorkspaceSidebarDropTargetPreferenceKey.self,
                             value: favorites.isEmpty ? [] : workspaceSidebarPinnedDropTargets(names: favorites.map(\.name),
                                 projectId: snapshot.activeProjectId, monitorScopeId: tabsListScopeId,
-                                frame: content.frame(in: .named("workspaceSidebarContent")), columns: grid.columns))
+                                frame: content.frame(in: .named("workspaceSidebarContent")), columns: grid.columns,
+                                section: section))
                     }
                 }
                 .padding(.horizontal, lineRoom)
@@ -235,6 +267,15 @@ extension WorkspaceSidebarView {
         }
         .padding(.horizontal, -lineRoom)
         .frame(height: grid.height)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(section == .allProjects ? "Pinned in All Projects" : "Pinned in \(projectName)")
+        .overlay(alignment: .topTrailing) {
+            if !favorites.isEmpty, workspaceSidebarPinScopeChangeTargets(snapshot.dropPreview, section: section,
+                projectId: snapshot.activeProjectId, list: tabsListScopeId) {
+                WorkspaceSidebarPinScopeCaption(section: section, projectName: projectName)
+                    .offset(y: -9)
+            }
+        }
         .padding(.horizontal, 10).padding(.bottom, favorites.isEmpty ? 0 : 8)
         .overlay {
             if let workspace = favorites.first(where: { $0.name == activeInUseOverrideWorkspaceName }) {
@@ -452,26 +493,59 @@ struct WorkspaceSidebarTabsSearchRow: View {
     }
 }
 
-/// The pinned tiles' drop target: a tab dropped anywhere on them is pinned.
+/// The pinned tiles' drop target: a tab dropped anywhere on them is pinned, among `section`'s pins.
 struct WorkspaceSidebarTabsPinDropTarget: View {
     let projectId: WorkspaceProjectId
     let monitorScopeId: String
+    var section: WorkspaceSidebarPinSection = .project
 
     var body: some View {
         GeometryReader { geometry in
             Color.clear.preference(key: WorkspaceSidebarDropTargetPreferenceKey.self,
-                value: [WorkspaceSidebarDropTargetFrame(kind: .pinnedTabs(projectId: projectId, monitorScopeId: monitorScopeId),
-                    frame: geometry.frame(in: .named("workspaceSidebarContent")).insetBy(dx: -4, dy: -4))])
+                value: [WorkspaceSidebarDropTargetFrame(kind: .pinnedTabs(projectId: projectId, monitorScopeId: monitorScopeId,
+                    section: section), frame: geometry.frame(in: .named("workspaceSidebarContent")).insetBy(dx: -4, dy: -4))])
         }
     }
 }
 
-/// With nothing pinned, a place to drop a tab to pin it, shown only while a tab is dragged.
+/// Whether the drop shown is on `section`'s place to pin, in the list of `list`'s display showing `projectId`.
+func workspaceSidebarPinDropZoneIsTarget(_ preview: WorkspaceSidebarDropPreviewViewModel?, section: WorkspaceSidebarPinSection,
+                                         projectId: WorkspaceProjectId, list: String) -> Bool {
+    guard let preview, preview.targetsPinned, preview.targetProjectId == projectId else { return false }
+    return (preview.targetPinSection ?? .project) == section && workspaceSidebarDropPreview(preview, targetsList: list)
+}
+
+/// Whether the drop shown moves a pin to `section`'s pins, or pins a tab in All Projects there.
+func workspaceSidebarPinScopeChangeTargets(_ preview: WorkspaceSidebarDropPreviewViewModel?, section: WorkspaceSidebarPinSection,
+                                           projectId: WorkspaceProjectId, list: String) -> Bool {
+    preview?.changesPinScope == true && workspaceSidebarPinDropZoneIsTarget(preview, section: section, projectId: projectId, list: list)
+}
+
+/// Over a pin section a drop would move a pin to: which pins it would be among.
+struct WorkspaceSidebarPinScopeCaption: View {
+    let section: WorkspaceSidebarPinSection
+    let projectName: String
+
+    var body: some View {
+        Label(section == .allProjects ? "All Projects" : projectName, systemImage: section == .allProjects ? "globe" : "pin")
+            .font(.system(size: 10, weight: .semibold))
+            .lineLimit(1)
+            .padding(.horizontal, 7).padding(.vertical, 2)
+            .foregroundStyle(Color.white)
+            .background(Capsule().fill(Color.accentColor))
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+    }
+}
+
+/// With no pins in its section, a place to drop a tab to pin it there, shown only while a tab is dragged.
 struct WorkspaceSidebarTabsPinDropZone: View {
     let projectId: WorkspaceProjectId
     let monitorScopeId: String
     let hasPins: Bool
     let isDropTarget: Bool
+    var section: WorkspaceSidebarPinSection = .project
+    var label: String? = nil
     @ObservedObject private var drag = WorkspaceSidebarTabDragState.shared
     @Environment(\.workspaceSidebarReducesMotion) private var reducesMotion
 
@@ -479,7 +553,8 @@ struct WorkspaceSidebarTabsPinDropZone: View {
         let shape = RoundedRectangle(cornerRadius: workspaceSidebarTabCornerRadius, style: .continuous)
         ZStack {
             if drag.isDragging && !hasPins {
-                Label("Drop to Pin", systemImage: "pin")
+                Label(label ?? (section == .allProjects ? "Pin to All Projects" : "Drop to Pin"),
+                    systemImage: section == .allProjects ? "globe" : "pin")
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(isDropTarget ? Color.accentColor : Color.primary.opacity(0.6))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -491,7 +566,7 @@ struct WorkspaceSidebarTabsPinDropZone: View {
                         shape.strokeBorder(isDropTarget ? Color.accentColor.opacity(0.65) : Color.primary.opacity(0.3),
                             style: StrokeStyle(lineWidth: 1, dash: isDropTarget ? [] : [4, 3]))
                     }
-                    .background { WorkspaceSidebarTabsPinDropTarget(projectId: projectId, monitorScopeId: monitorScopeId) }
+                    .background { WorkspaceSidebarTabsPinDropTarget(projectId: projectId, monitorScopeId: monitorScopeId, section: section) }
                     .transition(.opacity)
                     .accessibilityHidden(true)
             }

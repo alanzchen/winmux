@@ -39,7 +39,7 @@ struct AgentWorkspaceLayout: Codable {
         let existedBefore = Workspace.existing(byName: name) != nil
         let workspace = Workspace.get(byName: name)
         if !existedBefore {
-            workspace.assignProject(focus.workspace.projectId)
+            workspace.assignProject(workspaceContextProjectId(of: focus.workspace))
         }
         workspace.seedMonitorIfNeeded(focusPane?.resolveNode()?.nodeMonitor ?? focus.workspace.workspaceMonitor)
         let oldWindows = workspace.allLeafWindowsRecursive

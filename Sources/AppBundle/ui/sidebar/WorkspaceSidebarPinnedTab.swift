@@ -13,8 +13,10 @@ struct WorkspaceSidebarPinnedGridLayout {
     let columns: Int
     let height: CGFloat
 
-    init(workspaces: [WorkspaceSidebarWorkspaceViewModel], width: CGFloat) {
-        let widestSplit = workspaces.map { workspaceSidebarPinnedTabWindows($0).count }.max() ?? 1
+    /// `sizedLike` are every tile shown with these, whose widest split sets the tiles' width for all,
+    /// so the pin sections' columns line up.
+    init(workspaces: [WorkspaceSidebarWorkspaceViewModel], sizedLike all: [WorkspaceSidebarWorkspaceViewModel]? = nil, width: CGFloat) {
+        let widestSplit = (all ?? workspaces).map { workspaceSidebarPinnedTabWindows($0).count }.max() ?? 1
         let minimumTileWidth = max(72, CGFloat(widestSplit) * 46)
         columns = max(1, Int((max(width, 0) + 8) / (minimumTileWidth + 8)))
         height = workspaces.isEmpty ? 0 : CGFloat(min(3, (workspaces.count + columns - 1) / columns) * 62 - 8)
@@ -215,6 +217,7 @@ struct WorkspaceSidebarPinnedTab: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(workspace.displayName)
+        .accessibilityValue(workspace.appearance.isPinnedInAllProjects ? "Pinned in all projects" : "")
     }
 
     private var isActiveHere: Bool {
@@ -225,8 +228,10 @@ struct WorkspaceSidebarPinnedTab: View {
         sharedPinLocation?.help(clickMovesHere: sharedPinClickMovesHere)
     }
 
-    /// A tile's help names where a shared pin from another display is, except during a drag.
+    /// A tile's help says it's pinned in All Projects, and names where a shared pin from another
+    /// display is, except during a drag.
     private func helpWithLocation(_ help: String) -> String {
+        let help = workspace.appearance.isPinnedInAllProjects ? "\(help)\nIn all projects" : help
         guard let locationHelp, !drag.isDragging else { return help }
         return "\(help)\n\(locationHelp)"
     }

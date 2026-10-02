@@ -100,7 +100,7 @@ private func findDirectWorkspaceTarget(named workspaceName: String, from current
             return workspace
         }
         guard let workspace = Workspace.existing(byName: workspaceName),
-              workspace.projectId == current.projectId,
+              workspaceIsListed(workspace, inProject: workspaceContextProjectId(of: current)),
               isUserFacingWorkspace(workspace, focusedWorkspace: current)
         else {
             return nil

@@ -100,7 +100,7 @@ struct WorkspaceSidebarDropIntent {
         guard let destination else { return true }
         guard let monitor = destination.resolve() else { return false }
         if workspace.workspaceMonitor.rect == monitor.rect { return true }
-        return listsSharedPins && workspace.projectId == activeWorkspaceProjectId(for: monitor)
+        return listsSharedPins && workspaceIsListed(workspace, inProject: activeWorkspaceProjectId(for: monitor))
             && workspaceSidebarOrganizationStore.state.workspaces[workspace.name]?.isFavorite == true
     }
 }
@@ -137,7 +137,7 @@ extension WorkspaceSidebarDropTargetKind {
     var monitorScopeId: String? {
         switch self {
             case .tabGap(_, let scope, _), .newWorkspace(_, let scope): scope
-            case .pinnedTabs(_, _, let scope), .tabCollection(_, let scope): scope
+            case .pinnedTabs(_, _, let scope, _), .tabCollection(_, let scope): scope
             case .workspace, .monitor: nil
         }
     }
@@ -147,7 +147,7 @@ extension WorkspaceSidebarDropTargetKind {
         switch self {
             case .workspace(let name): name
             case .tabGap(_, _, let gap): gap.workspaceName
-            case .pinnedTabs(_, let gap, _): gap?.workspaceName
+            case .pinnedTabs(_, let gap, _, _): gap?.workspaceName
             case .newWorkspace, .tabCollection, .monitor: nil
         }
     }
@@ -172,8 +172,9 @@ func workspaceSidebarDropTargetMonitor(scopeId: String, fallbackWindow: Window? 
 }
 
 /// Runs a drop's changes as one: if they throw or report failure, the tabs go back as they were.
-/// The live state goes back first, which can't fail; then the pins and groups, only if they
-/// changed. `body` must not suspend.
+/// The pins and groups go back first, only if they changed, as Undo does: putting the tabs back
+/// reads each tab's pin scope, so a pin in All Projects keeps its display in its project. Then the
+/// live state, which can't fail, goes back even if that write did. `body` must not suspend.
 @MainActor
 @discardableResult
 func withWorkspaceSidebarDropTransaction(_ body: () throws -> Bool) throws -> Bool {
@@ -191,10 +192,11 @@ func withWorkspaceSidebarDropTransaction(_ body: () throws -> Bool) throws -> Bo
 private func rollBackWorkspaceSidebarDrop(to before: WorkspaceSidebarTabUndoSnapshot) {
     let after = WorkspaceSidebarTabUndoSnapshot()
     guard !before.matches(after) else { return }
-    before.restore(replacing: after)
-    guard workspaceSidebarOrganizationStore.state != before.organization else { return }
-    do { try workspaceSidebarOrganizationStore.update { $0 = before.organization } } catch {
-        debugWorkspaceSidebarCrossDisplayDragLog("dropRollback organization restore failed: \(error)")
-        showWorkspaceSidebarError("Couldn't restore the tab's pins or groups: \(error.localizedDescription)")
+    if workspaceSidebarOrganizationStore.state != before.organization {
+        do { try workspaceSidebarOrganizationStore.update { $0 = before.organization } } catch {
+            debugWorkspaceSidebarCrossDisplayDragLog("dropRollback organization restore failed: \(error)")
+            showWorkspaceSidebarError("Couldn't restore the tab's pins or groups: \(error.localizedDescription)")
+        }
     }
+    before.restore(replacing: after)
 }

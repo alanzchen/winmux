@@ -6,20 +6,22 @@ import Common
 /// names the display whose list it lands on; a pin from another display moves there.
 enum WorkspaceSidebarPinnedTabDrop: Equatable {
     /// Beside another pin, or, with no gap, onto another display's pins, which may have none yet.
-    case rearrange(WorkspaceSidebarTabGap?, monitorScopeId: String? = nil)
+    /// `move` takes it to the other section's pins: it stays pinned, with its tab and windows.
+    case rearrange(WorkspaceSidebarTabGap?, monitorScopeId: String? = nil, move: WorkspaceSidebarPinMove? = nil)
     /// Between the list's tabs, unpinned.
     case list(projectId: WorkspaceProjectId, monitorScopeId: String, gap: WorkspaceSidebarTabGap)
     /// Into a group, which unpins it.
     case group(String, monitorScopeId: String? = nil)
-    /// On New Tab: unpinned there.
-    case unpin(monitorScopeId: String? = nil)
+    /// On New Tab: unpinned there, in `projectId`, the project of the list, for a pin in All Projects
+    /// from another.
+    case unpin(monitorScopeId: String? = nil, projectId: WorkspaceProjectId? = nil)
     /// Paused over a tab in a display's list: that whole tab joins this pin's split. The pin stays
     /// pinned, and goes on `placement`'s half of the tab, as a window dropped there would.
     case join(String, placement: WorkspaceSidebarTabDropPlacement, monitorScopeId: String? = nil)
 
     var monitorScopeId: String? {
         switch self {
-            case .rearrange(_, let scope), .group(_, let scope), .unpin(let scope), .join(_, _, let scope): scope
+            case .rearrange(_, let scope, _), .group(_, let scope), .unpin(let scope, _), .join(_, _, let scope): scope
             case .list(_, let scope, _): scope
         }
     }
@@ -40,17 +42,21 @@ func workspaceSidebarPinnedTabDrop(_ tab: Workspace, target: WorkspaceSidebarDro
     // A pause counts only over a tab: leaving it, for anything else, starts the next one over.
     if case .workspace = target.kind {} else { WorkspaceSidebarTabSplitHoverController.shared.reset() }
     switch target.kind {
-        case .pinnedTabs(let projectId, let gap, let monitorScopeId):
+        case .pinnedTabs(let projectId, let gap, let monitorScopeId, let section):
             // On this display it goes beside another pin; onto another display's pins it moves
             // there, even where that display has no pins yet. Shared pins only rearrange: the
             // tab stays where it is, so a drop that wouldn't change their order does nothing.
-            guard projectId == tab.projectId,
+            // Among the other section's pins, it moves there: that's a change in itself.
+            // Pins in All Projects are no project's: a pin from another display's list may go there too.
+            let move = section == WorkspaceSidebarPinSection(of: tab) ? nil : WorkspaceSidebarPinMove(to: section, in: projectId)
+            guard section == .allProjects || workspaceIsListed(tab, inProject: projectId),
                   workspaceSidebarPinDropCanReachDisplay(tab, monitorScopeId: monitorScopeId, pinGridIsShared: pinGridIsShared),
-                  gap.flatMap({ workspacePinnedTabOrder(moving: tab, beside: $0) }) != nil
+                  move != nil
+                    || gap.flatMap({ workspacePinnedTabOrder(moving: tab, beside: $0) }) != nil
                     || workspaceSidebarPinDropDisplayChange(for: tab, monitorScopeId: monitorScopeId,
                         pinGridIsShared: pinGridIsShared) != nil
             else { return nil }
-            return .rearrange(gap, monitorScopeId: monitorScopeId)
+            return .rearrange(gap, monitorScopeId: monitorScopeId, move: move)
         case .tabGap(let projectId, let monitorScopeId, let gap):
             guard Workspace.existing(byName: gap.workspaceName)?.projectId == projectId,
                   workspaceSidebarDropCanReachDisplay(tab, monitorScopeId: monitorScopeId) else { return nil }
@@ -73,14 +79,16 @@ func workspaceSidebarPinnedTabDrop(_ tab: Workspace, target: WorkspaceSidebarDro
             return workspaceSidebarPinnedTabJoin(tab, onto: other, target: target, monitorScopeId: destination.monitorScopeId,
                 point: point)
         case .tabCollection(let id, let monitorScopeId):
-            guard workspaceSidebarOrganizationStore.state.collections.contains(where: { $0.id == id && $0.projectId == tab.projectId }),
+            // A group of the project whose list shows the pin: for a pin in All Projects, any project's.
+            guard let group = workspaceSidebarOrganizationStore.state.collections.first(where: { $0.id == id }),
+                  workspaceIsListed(tab, inProject: group.projectId),
                   workspaceSidebarDropCanReachDisplay(tab, monitorScopeId: monitorScopeId)
             else { return nil }
             return .group(id, monitorScopeId: monitorScopeId)
         case .newWorkspace(let projectId, let monitorScopeId):
-            guard projectId == tab.projectId, workspaceSidebarDropCanReachDisplay(tab, monitorScopeId: monitorScopeId)
+            guard workspaceIsListed(tab, inProject: projectId), workspaceSidebarDropCanReachDisplay(tab, monitorScopeId: monitorScopeId)
             else { return nil }
-            return .unpin(monitorScopeId: monitorScopeId)
+            return .unpin(monitorScopeId: monitorScopeId, projectId: tab.projectId == projectId ? nil : projectId)
         case .monitor:
             return nil
     }
@@ -94,7 +102,8 @@ func workspaceSidebarPinnedTabDrop(_ tab: Workspace, target: WorkspaceSidebarDro
 private func workspaceSidebarPinnedTabJoin(_ tab: Workspace, onto other: Workspace, target: WorkspaceSidebarDropTarget,
                                            monitorScopeId: String, point: CGPoint) -> WorkspaceSidebarPinnedTabDrop? {
     let hover = WorkspaceSidebarTabSplitHoverController.shared
-    guard target.acceptsSides, other !== tab, other.projectId == tab.projectId,
+    // A tab of the project the list shows: a pin in All Projects takes one from any.
+    guard target.acceptsSides, other !== tab, workspaceIsListed(tab, inProject: other.projectId),
           workspaceSidebarOrganizationStore.state.workspaces[other.name]?.isFavorite != true,
           workspaceSidebarWholeTabNode(other) != nil, workspaceTabCanMove(tab, to: other.workspaceMonitor)
     else {
@@ -166,6 +175,14 @@ func workspaceSidebarPinnedTabDropPreview(_ tab: Workspace, batch: WorkspaceSide
     let appName = window.map { $0.app.name ?? $0.app.rawAppBundleId ?? "Window" } ?? "Tab"
     var projectId = tab.projectId
     if case .list(let listProjectId, _, _) = drop { projectId = listProjectId }
+    if case .unpin(_, let listProjectId?) = drop { projectId = listProjectId }
+    if case .rearrange(_, let monitorScopeId, let move) = drop {
+        // The pins of the list's project: a pin in All Projects is among them in every one.
+        projectId = move?.projectId ?? (workspaceIsPinnedInAllProjects(tab)
+            ? monitorScopeId.flatMap(workspaceSidebarMonitor(forScopeId:)).map(activeWorkspaceProjectId(for:))
+                ?? workspaceContextProjectId(of: tab)
+            : tab.projectId)
+    }
     let targetsNewTab = if case .unpin = drop { true } else { false }
     let joinedTab = if case .join(let name, _, _) = drop { name } else { String?.none }
     var preview = WorkspaceSidebarDropPreviewViewModel(sourceWindowId: window?.windowId ?? 0,
@@ -174,9 +191,11 @@ func workspaceSidebarPinnedTabDropPreview(_ tab: Workspace, batch: WorkspaceSide
         targetWorkspaceName: joinedTab, targetsNewWorkspace: targetsNewTab, targetProjectId: projectId,
         targetMonitorScopeId: drop?.monitorScopeId, isTabGroup: false, windowCount: max(windows.count, 1))
     switch drop {
-        case .rearrange(let gap, _):
+        case .rearrange(let gap, _, let move):
             preview.targetsPinned = true
             preview.targetPinnedGap = gap
+            preview.targetPinSection = move?.section ?? WorkspaceSidebarPinSection(of: tab)
+            preview.changesPinScope = move != nil
         case .list(_, _, let gap): preview.targetGap = gap
         case .group(let id, _): preview.targetCollectionId = id
         case .join(_, let placement, _):
@@ -326,6 +345,7 @@ private func clearSidebarPinnedTabDragFeedback() {
 
 func workspaceSidebarPinnedTabDropUndoTitle(_ drop: WorkspaceSidebarPinnedTabDrop) -> String {
     switch drop {
+        case .rearrange(_, _, let move?): workspaceSidebarPinScopeUndoTitle(move.scope)
         case .rearrange: "Move Tab"
         case .list, .unpin: "Unpin Tab"
         case .group: "Move to Group"
@@ -342,11 +362,17 @@ func applyWorkspaceSidebarPinnedTabDrop(_ tab: Workspace, _ drop: WorkspaceSideb
           workspaceSidebarOrganizationStore.state.workspaces[tab.name]?.isFavorite == true else { return }
     let window = tab.mostRecentWindowRecursive ?? tab.anyLeafWindowRecursive
     switch drop {
-        case .rearrange(let gap, let monitorScopeId):
-            // Shared pins only rearrange; otherwise the tab comes to the list's display first.
+        case .rearrange(let gap, let monitorScopeId, let move):
+            // Shared pins only rearrange; otherwise the tab comes to the list's display first, or,
+            // pinned in All Projects, just after. Among the other section's pins, it moves there,
+            // still pinned.
             try withWorkspaceTabOnPinDropDisplay(tab, monitorScopeId: monitorScopeId, pinGridIsShared: pinGridIsShared,
-                focusing: window) {
-                try pinWorkspaceSidebarTab(tab, beside: gap)
+                focusing: window, editsFirst: move?.scope == .allProjects) {
+                if let move {
+                    try setWorkspaceSidebarTabPinScope(tab, move.scope, projectId: move.projectId, beside: gap)
+                } else {
+                    try pinWorkspaceSidebarTab(tab, beside: gap)
+                }
             }
         case .list(let projectId, let monitorScopeId, let gap):
             // The list's display, or none: a display that went away takes nothing.
@@ -360,11 +386,20 @@ func applyWorkspaceSidebarPinnedTabDrop(_ tab: Workspace, _ drop: WorkspaceSideb
             }
         case .group(let id, let monitorScopeId):
             try withWorkspaceTabOnDropDisplay(tab, monitorScopeId: monitorScopeId, focusing: window) {
-                try assignWorkspaceToSidebarCollection(tab, collectionId: id)
+                // A pin in All Projects joins another project's group as a tab of that project.
+                _ = try withWorkspaceSidebarDropTransaction {
+                    if let group = workspaceSidebarOrganizationStore.state.collections.first(where: { $0.id == id }),
+                       group.projectId != tab.projectId {
+                        try unpinWorkspaceSidebarTab(tab, into: group.projectId)
+                        guard tab.projectId == group.projectId else { return false }
+                    }
+                    try assignWorkspaceToSidebarCollection(tab, collectionId: id)
+                    return true
+                }
             }
-        case .unpin(let monitorScopeId):
+        case .unpin(let monitorScopeId, let projectId):
             try withWorkspaceTabOnDropDisplay(tab, monitorScopeId: monitorScopeId, focusing: window) {
-                try setWorkspaceSidebarTabFavorite(tab, false)
+                try unpinWorkspaceSidebarTab(tab, into: projectId ?? tab.projectId)
             }
         case .join(let name, let placement, let monitorScopeId):
             try joinWorkspaceTabIntoPinnedTab(name, pin: tab, placement: placement, listedOn: monitorScopeId)
@@ -380,7 +415,8 @@ func applyWorkspaceSidebarPinnedTabDrop(_ tab: Workspace, _ drop: WorkspaceSideb
 func joinWorkspaceTabIntoPinnedTab(_ name: String, pin: Workspace, placement: WorkspaceSidebarTabDropPlacement,
                                    listedOn monitorScopeId: String? = nil) throws {
     // The session runs after other events: the tab may have closed, been pinned, or lost its windows.
-    guard let tab = Workspace.existing(byName: name), tab !== pin, tab.projectId == pin.projectId,
+    // Its windows join the pin, so they take its scope: a pin in All Projects takes a tab from any project.
+    guard let tab = Workspace.existing(byName: name), tab !== pin, workspaceIsListed(pin, inProject: tab.projectId),
           workspaceSidebarOrganizationStore.state.workspaces[name]?.isFavorite != true,
           let node = workspaceSidebarWholeTabNode(tab)
     else { return }

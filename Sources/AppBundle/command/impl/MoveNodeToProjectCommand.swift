@@ -10,7 +10,8 @@ struct MoveNodeToProjectCommand: Command {
         guard let sourceWorkspace = window.nodeWorkspace else {
             return io.err("Window \(window.windowId) doesn't belong to any workspace")
         }
-        guard let project = resolveProjectTarget(args.target.val, currentProjectId: sourceWorkspace.projectId, wrapAround: args.wrapAround) else {
+        guard let project = resolveProjectTarget(args.target.val, currentProjectId: workspaceContextProjectId(of: sourceWorkspace),
+            wrapAround: args.wrapAround) else {
             return io.err(projectTargetResolutionError(args.target.val))
         }
         let monitor = window.nodeMonitor ?? sourceWorkspace.workspaceMonitor

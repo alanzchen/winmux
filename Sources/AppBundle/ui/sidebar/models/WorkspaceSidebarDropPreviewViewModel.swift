@@ -33,6 +33,10 @@ struct WorkspaceSidebarDropPreviewViewModel: Hashable {
     var targetsPinned = false
     /// Tabs mode: the pin it goes beside among the pinned tiles.
     var targetPinnedGap: WorkspaceSidebarTabGap? = nil
+    /// Tabs mode: which of the pinned tiles' sections it goes to.
+    var targetPinSection: WorkspaceSidebarPinSection? = nil
+    /// Tabs mode: the drop puts it in another section than the one it's in, or pins it in All Projects.
+    var changesPinScope = false
     /// Tabs mode: the dragged pinned tab the target tab joins, on the other side of the half shown.
     var receivingPinnedTabName: String? = nil
     /// Tabs mode: how many chosen tabs the drag carries together, when it carries several.

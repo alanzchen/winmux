@@ -9,14 +9,25 @@ func switchWorkspaceProject(_ projectId: WorkspaceProjectId, on monitor: Monitor
         return nil
     }
     let viewportId = MonitorViewportId(monitor)
+    // A pin in All Projects on screen stays there: only the display's project changes, so the
+    // sidebar shows that project's pins and tabs below it. Its last tab isn't brought back.
+    if let shown = winMuxWorkspaceState.visibleWorkspace(for: monitor), workspaceIsPinnedInAllProjects(shown) {
+        winMuxWorkspaceState.setContextProject(projectId, on: viewportId)
+        debugWorkspaceSidebarProjectLog(
+            "switchProject project=\(projectId.rawValue) viewport=\(viewportId.description) keptPinInAllProjects=\(shown.name)"
+        )
+        return shown
+    }
+    // The tab last chosen in that project here: one of its own, or a pin in All Projects chosen in it.
     let rememberedWorkspace = winMuxWorkspaceState.monitorViewportsById[viewportId]?
         .lastActiveWorkspaceByProject[projectId]
         .flatMap { winMuxWorkspaceState.workspaceById[$0] }
+        .flatMap { workspaceIsListed($0, inProject: projectId) ? $0 : nil }
         .flatMap { workspaceIsProjectFallbackCandidate($0) && workspaceIsAvailableForMonitor($0, monitor: monitor) ? $0 : nil }
     let workspace = rememberedWorkspace
         ?? availablePreferredWorkspace(projectId: projectId, monitor: monitor)
         ?? createBlankWorkspace(projectId: projectId, monitor: monitor)
-    let didSetActive = monitor.setActiveWorkspace(workspace)
+    let didSetActive = monitor.setActiveWorkspace(workspace, contextProjectId: projectId)
     debugWorkspaceSidebarProjectLog(
         "switchProject project=\(projectId.rawValue) viewport=\(viewportId.description) remembered=\(rememberedWorkspace?.name ?? "nil") chosen=\(workspace.name) chosenProject=\(workspace.projectId.rawValue) didSetActive=\(didSetActive)"
     )
@@ -26,7 +37,7 @@ func switchWorkspaceProject(_ projectId: WorkspaceProjectId, on monitor: Monitor
 @MainActor
 func preferredWorkspace(projectId: WorkspaceProjectId, monitor: Monitor) -> Workspace? {
     projectWorkspaces(projectId: projectId)
-        .filter { !$0.isArchived }
+        .filter { !$0.isArchived && !workspaceIsPinnedInAllProjects($0) }
         .filter(workspaceIsProjectFallbackCandidate)
         .filter { isValidAssignment(workspace: $0, screen: monitor.rect.topLeftCorner) }
         .first
@@ -55,13 +66,16 @@ func getOrCreateAdjacentBlankWorkspace(projectId: WorkspaceProjectId, monitor: M
 
 @MainActor
 func deleteWorkspace(_ workspace: Workspace) throws {
+    // The project its display is in, read while it's still pinned: a pin in All Projects leaves its
+    // place to a tab of that one.
+    let fallbackProjectId = workspaceContextProjectId(of: workspace)
     if workspaceSidebarOrganizationStore.state.workspaces[workspace.name] != nil ||
         workspaceSidebarOrganizationStore.collection(containing: workspace.name) != nil {
         try workspaceSidebarOrganizationStore.removeWorkspace(workspace.name)
     }
     let fallback = workspaceFallbackForDeletion(
         excluding: workspace,
-        projectId: workspace.projectId,
+        projectId: fallbackProjectId,
         monitor: workspace.workspaceMonitor,
     )
     moveWorkspaceContents(from: workspace, to: fallback)
@@ -292,8 +306,11 @@ private func fallbackProjectIdForMissingActiveWorkspace(on viewportId: MonitorVi
     guard let viewport = winMuxWorkspaceState.monitorViewportsById[viewportId] else {
         return workspaceProjectDefaultId
     }
-    if let previousProjectId = viewport.previousWorkspaceId.flatMap({ winMuxWorkspaceState.workspaceById[$0]?.projectId }) {
-        return previousProjectId
+    if let previous = viewport.previousWorkspaceId.flatMap({ winMuxWorkspaceState.workspaceById[$0] }) {
+        // A pin in All Projects isn't from the project the display was in.
+        guard workspaceIsPinnedInAllProjects(previous), let contextProjectId = viewport.contextProjectId,
+              winMuxWorkspaceState.projectsById[contextProjectId] != nil else { return previous.projectId }
+        return contextProjectId
     }
     if let rememberedProjectId = viewport.lastActiveWorkspaceByProject
         .sorted(by: { $0.key < $1.key })
@@ -307,8 +324,10 @@ private func fallbackProjectIdForMissingActiveWorkspace(on viewportId: MonitorVi
 
 @MainActor
 func availablePreferredWorkspace(projectId: WorkspaceProjectId, monitor: Monitor) -> Workspace? {
+    // A pin in All Projects isn't where a project opens, though going back to a project where it
+    // was showing shows it again.
     orderedWorkspacesForPresentation()
-        .filter { $0.projectId == projectId }
+        .filter { $0.projectId == projectId && !workspaceIsPinnedInAllProjects($0) }
         .filter { !$0.isArchived }
         .filter(workspaceIsProjectFallbackCandidate)
         .filter { isValidAssignment(workspace: $0, screen: monitor.rect.topLeftCorner) }

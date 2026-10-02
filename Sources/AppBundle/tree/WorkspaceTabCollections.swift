@@ -42,18 +42,37 @@ func toggleWorkspaceSidebarTabCollection(_ id: String, monitorScopeId: String? =
     try store.edit(id) { $0.isCollapsed.toggle() }
 }
 
+/// Which pins a pinned tab is among. A pin without one is its project's, as every pin was before
+/// pins in All Projects; one in All Projects shows in every project's sidebar.
+enum WorkspaceSidebarPinScope: String, Codable, Hashable {
+    case allProjects
+}
+
 struct WorkspaceSidebarItemAppearance: Codable, Hashable {
     var colorHex: String? = nil
     var emoji: String? = nil
     var isFavorite = false
     /// A pin's place among its project's pins, once they've been rearranged. Pins without
-    /// one follow the arranged pins, in tab order.
+    /// one follow the arranged pins, in tab order. A pin in All Projects has its place among those.
     var pinOrder: Int? = nil
+    /// Optional, so files without it load, and files without pins in All Projects don't change.
+    /// It means something only while pinned.
+    var pinScope: WorkspaceSidebarPinScope? = nil
 
-    /// A new pin goes after the arranged pins, and an unpinned tab forgets its place.
+    var isPinnedInAllProjects: Bool { isFavorite && pinScope == .allProjects }
+
+    /// A new pin goes after the arranged pins, among its project's, and an unpinned tab forgets
+    /// its place and its scope.
     mutating func setFavorite(_ favorite: Bool) {
-        if favorite != isFavorite { pinOrder = nil }
+        if favorite != isFavorite { pinOrder = nil; pinScope = nil }
         isFavorite = favorite
+    }
+
+    /// Pins it among `scope`'s pins, after those arranged there, unless it's there already.
+    mutating func setPinScope(_ scope: WorkspaceSidebarPinScope?) {
+        if !isFavorite || pinScope != scope { pinOrder = nil }
+        isFavorite = true
+        pinScope = scope
     }
 }
 
@@ -178,6 +197,26 @@ final class WorkspaceSidebarOrganizationStore {
 }
 
 @MainActor var workspaceSidebarOrganizationStore = WorkspaceSidebarOrganizationStore()
+
+/// Tabs mode: a pin in All Projects, shown in every project's sidebar. It stays in its own
+/// project, its home, which is where an older build, the Dock and the CLI list it. Pins exist only
+/// in Tabs mode, so outside it this is every tab's own project, as before.
+@MainActor
+func workspaceIsPinnedInAllProjects(named name: String) -> Bool {
+    config.usesBrowserTabs && workspaceSidebarOrganizationStore.state.workspaces[name]?.isPinnedInAllProjects == true
+}
+
+@MainActor
+func workspaceIsPinnedInAllProjects(_ workspace: Workspace) -> Bool {
+    workspaceIsPinnedInAllProjects(named: workspace.name)
+}
+
+/// Whether `projectId`'s tabs include `workspace`: its own project's do, and every project's
+/// include a pin in All Projects.
+@MainActor
+func workspaceIsListed(_ workspace: Workspace, inProject projectId: WorkspaceProjectId) -> Bool {
+    workspace.projectId == projectId || workspaceIsPinnedInAllProjects(workspace)
+}
 
 /// Customizing a tab gives it a persistent identity. Reuse saved-workspace restoration
 /// so a generated name cannot be recycled for an unrelated window after relaunch.

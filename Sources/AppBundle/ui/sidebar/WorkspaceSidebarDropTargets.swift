@@ -12,9 +12,40 @@ enum WorkspaceSidebarDropTargetKind: Equatable {
     /// opens in a tab of its own.
     case tabGap(projectId: WorkspaceProjectId, monitorScopeId: String, gap: WorkspaceSidebarTabGap)
     /// Tabs mode: the pinned tiles at the top, where a dropped tab is pinned: beside the pin in
-    /// `gap`, or, with nothing pinned yet, in the place that offers pinning. `monitorScopeId` is
-    /// the display whose list shows the tiles: a tab from another display moves there.
-    case pinnedTabs(projectId: WorkspaceProjectId, gap: WorkspaceSidebarTabGap? = nil, monitorScopeId: String? = nil)
+    /// `gap`, or, with nothing pinned there yet, in the place that offers pinning. `monitorScopeId`
+    /// is the display whose list shows the tiles: a tab from another display moves there.
+    /// `projectId` is the project the list shows, and `section` which of its pins: those in All
+    /// Projects, above, or the project's own.
+    case pinnedTabs(projectId: WorkspaceProjectId, gap: WorkspaceSidebarTabGap? = nil, monitorScopeId: String? = nil,
+                    section: WorkspaceSidebarPinSection = .project)
+}
+
+/// Tabs mode: the pinned tiles' two sections. Pins in All Projects sit above the project's own.
+enum WorkspaceSidebarPinSection: Hashable {
+    case allProjects, project
+
+    init(_ scope: WorkspaceSidebarPinScope?) { self = scope == .allProjects ? .allProjects : .project }
+
+    /// The scope a pin in this section has.
+    var scope: WorkspaceSidebarPinScope? { self == .allProjects ? .allProjects : nil }
+
+    /// The section `workspace` is pinned in, or would be pinned in by Pin Tab.
+    @MainActor
+    init(of workspace: Workspace) { self = workspaceIsPinnedInAllProjects(workspace) ? .allProjects : .project }
+}
+
+/// A pin dropped among the other section's pins: it goes to `scope`'s, and with nil, the pins of
+/// `projectId`, the project the list shows, whichever project it was from.
+struct WorkspaceSidebarPinMove: Hashable {
+    let scope: WorkspaceSidebarPinScope?
+    let projectId: WorkspaceProjectId
+
+    init(to section: WorkspaceSidebarPinSection, in projectId: WorkspaceProjectId) {
+        scope = section.scope
+        self.projectId = projectId
+    }
+
+    var section: WorkspaceSidebarPinSection { .init(scope) }
 }
 
 /// A place between tabs: just before or just after a workspace.
@@ -128,13 +159,14 @@ func workspaceSidebarTabGapBands(for frame: CGRect, inside maxInside: CGFloat = 
 /// under the pointer, and a pause over it arms a split, as in the list. The tiles reach halfway
 /// across the space between them, and past the last one, the rest of its row puts a tab last.
 func workspaceSidebarPinnedDropTargets(names: [String], projectId: WorkspaceProjectId, monitorScopeId: String,
-                                       frame: CGRect, columns: Int) -> [WorkspaceSidebarDropTargetFrame] {
+                                       frame: CGRect, columns: Int,
+                                       section: WorkspaceSidebarPinSection = .project) -> [WorkspaceSidebarDropTargetFrame] {
     var targets: [WorkspaceSidebarDropTargetFrame] = []
     let columns = max(columns, 1)
     let slop = workspaceSidebarPinnedGridSpacing / 2
     let width = max((frame.width - CGFloat(columns - 1) * workspaceSidebarPinnedGridSpacing) / CGFloat(columns), 0)
     let destination = WorkspaceSidebarTabReorderDestination(projectId: projectId, monitorScopeId: monitorScopeId,
-        collectionId: nil, arrangesPins: true)
+        collectionId: nil, arrangesPins: true, pinSection: section)
     for (index, name) in names.enumerated() {
         let tile = CGRect(x: frame.minX + CGFloat(index % columns) * (width + workspaceSidebarPinnedGridSpacing),
             y: frame.minY + CGFloat(index / columns) * (workspaceSidebarPinnedGridRowHeight + workspaceSidebarPinnedGridSpacing),
@@ -143,7 +175,7 @@ func workspaceSidebarPinnedDropTargets(names: [String], projectId: WorkspaceProj
             tabReorderDestination: destination))
         if index == names.count - 1, index % columns < columns - 1 {
             targets.append(WorkspaceSidebarDropTargetFrame(kind: .pinnedTabs(projectId: projectId,
-                gap: WorkspaceSidebarTabGap(workspaceName: name, isAfter: true), monitorScopeId: monitorScopeId),
+                gap: WorkspaceSidebarTabGap(workspaceName: name, isAfter: true), monitorScopeId: monitorScopeId, section: section),
                 frame: CGRect(x: tile.maxX, y: tile.minY, width: frame.maxX + slop - tile.maxX, height: tile.height)))
         }
     }
@@ -163,13 +195,15 @@ struct WorkspaceSidebarTabReorderDestination: Equatable {
     let collectionId: String?
     /// A pinned tile, which a moving tab passes by its sides instead of its edges.
     var arrangesPins = false
+    /// The pinned tile's section.
+    var pinSection: WorkspaceSidebarPinSection = .project
 
     /// Where a tab moving across `name`'s tab goes before a pause arms a split: by the row's
     /// nearer edge, or among the pins by the tile's nearer side.
     func reorderTarget(beside name: String, rect: Rect, point: CGPoint) -> WorkspaceSidebarDropTargetKind {
         arrangesPins
             ? .pinnedTabs(projectId: projectId, gap: .init(workspaceName: name, isAfter: point.x >= rect.center.x),
-                monitorScopeId: monitorScopeId)
+                monitorScopeId: monitorScopeId, section: pinSection)
             : .tabGap(projectId: projectId, monitorScopeId: monitorScopeId,
                 gap: .init(workspaceName: name, isAfter: point.y >= rect.center.y, collectionId: collectionId))
     }
@@ -240,7 +274,7 @@ extension WorkspaceSidebarDropTargetKind {
     var isGap: Bool {
         switch self {
             case .tabGap: true
-            case .pinnedTabs(_, let gap, _): gap != nil
+            case .pinnedTabs(_, let gap, _, _): gap != nil
             default: false
         }
     }

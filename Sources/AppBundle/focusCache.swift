@@ -47,7 +47,7 @@ private func shouldIgnoreNativeFocusDuringProjectHold(_ nativeFocused: Window?) 
     else {
         return false
     }
-    return nativeFocused.visualWorkspace?.projectId != hold.projectId
+    return nativeFocused.visualWorkspace.map(workspaceContextProjectId(of:)) != hold.projectId
 }
 
 /// The data should flow (from nativeFocused to focused) and

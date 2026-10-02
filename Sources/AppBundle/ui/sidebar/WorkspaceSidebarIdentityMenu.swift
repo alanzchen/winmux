@@ -113,6 +113,10 @@ func workspaceSidebarIdentityMenuModel(_ target: WorkspaceSidebarIdentityTarget,
                                        }) -> WorkspaceSidebarIdentityMenuModel? {
     let actionScope = target.monitorScopeId ?? targetMonitorScopeId
     let send: @MainActor (WorkspaceSidebarAction) -> Void = { sendAction($0, actionScope) }
+    /// The project the asking sidebar shows, where a pin in All Projects goes back to.
+    func contextProjectId(of name: String) -> WorkspaceProjectId? {
+        Workspace.existing(byName: name).map { workspaceSidebarContextProjectId(for: $0, targetMonitorScopeId: actionScope) }
+    }
     let projects = TrayMenuModel.shared.workspaceSidebarProjects
     switch target {
         case .project(let id):
@@ -137,10 +141,11 @@ func workspaceSidebarIdentityMenuModel(_ target: WorkspaceSidebarIdentityTarget,
                 ])
         case .workspace(let name):
             guard let workspace = TrayMenuModel.shared.workspaceSidebarWorkspaces.first(where: { $0.name == name }) else { return nil }
-            return workspaceSidebarWorkspaceIdentityMenuModel(workspace, send: send)
+            return workspaceSidebarWorkspaceIdentityMenuModel(workspace, contextProjectId: contextProjectId(of: name), send: send)
         case .tab(let name, let windowId):
             guard let workspace = TrayMenuModel.shared.workspaceSidebarWorkspaces.first(where: { $0.name == name }) else { return nil }
-            return workspaceSidebarWorkspaceIdentityMenuModel(workspace, windowId: windowId, send: send)
+            return workspaceSidebarWorkspaceIdentityMenuModel(workspace, windowId: windowId,
+                contextProjectId: contextProjectId(of: name), send: send)
         case .collection(let id, let isSearching, _, let createMonitorScopeId):
             guard let group = workspaceSidebarOrganizationStore.state.collections.first(where: { $0.id == id }) else { return nil }
             let scope = actionScope ?? TrayMenuModel.shared.workspaceSidebarTargetMonitorScopeId
@@ -191,8 +196,9 @@ func workspaceSidebarTabListTitle(_ tab: WorkspaceSidebarWorkspaceViewModel) -> 
 }
 
 @MainActor
+/// `contextProjectId` is the project the sidebar asking shows, which a pin in All Projects goes back to.
 func workspaceSidebarWorkspaceIdentityMenuModel(_ workspace: WorkspaceSidebarWorkspaceViewModel,
-    windowId: UInt32? = nil,
+    windowId: UInt32? = nil, contextProjectId: WorkspaceProjectId? = nil,
     send: @escaping @MainActor (WorkspaceSidebarAction) -> Void) -> WorkspaceSidebarIdentityMenuModel {
     let name = workspace.name
     let context = workspaceSidebarWorkspaceMenuContext(workspaceName: name)
@@ -218,14 +224,26 @@ func workspaceSidebarWorkspaceIdentityMenuModel(_ workspace: WorkspaceSidebarWor
         if workspaceSidebarOrganizationStore.collection(containing: name) != nil {
             destinations += [.separator, .init(title: "Remove from Group", perform: { send(.assignTabCollection(name, nil)) })]
         }
+        // A pin in All Projects goes back to the pins of the project this sidebar shows. It's in
+        // no project's groups, and moving its home elsewhere would change nothing anyone sees.
+        let contextProjectId = contextProjectId ?? workspace.projectId
+        let isPinnedInAllProjects = workspace.appearance.isPinnedInAllProjects
+        let contextProjectName = projects.first { $0.id == contextProjectId }?.displayName ?? "This Project"
         leading = [
             .init(title: workspace.appearance.isFavorite ? "Unpin Tab" : "Pin Tab",
                 perform: { send(.setWorkspaceFavorite(name, !workspace.appearance.isFavorite)) }),
-            .init(title: "Add to Group", children: destinations),
+            isPinnedInAllProjects
+                ? .init(title: "Pin to “\(contextProjectName)” Only",
+                    perform: { send(.setWorkspacePinScope(name, nil, projectId: contextProjectId)) })
+                : .init(title: "Pin to All Projects",
+                    perform: { send(.setWorkspacePinScope(name, .allProjects, projectId: contextProjectId)) }),
         ]
-        if let move = workspaceSidebarProjectDestinations(projects, excluding: workspace.projectId, move: { project in
-            send(.moveWorkspace(name, toProject: project))
-        }) { leading.append(move) }
+        if !isPinnedInAllProjects {
+            leading.append(.init(title: "Add to Group", children: destinations))
+            if let move = workspaceSidebarProjectDestinations(projects, excluding: workspace.projectId, move: { project in
+                send(.moveWorkspace(name, toProject: project))
+            }) { leading.append(move) }
+        }
         leading.append(.separator)
         let windows = workspaceSidebarPinnedTabWindows(workspace)
         let clickedWindow = windows.first(where: { $0.windowId == windowId }) ?? (windows.count == 1 ? windows.first : nil)

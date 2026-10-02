@@ -593,7 +593,9 @@ extension WorkspaceSidebarView {
         let sections = workspaceSidebarTabSections(workspaces: folders.filter { isSearching || !$0.appearance.isFavorite },
             collections: snapshot.configuration.tabCollections, projectId: projectId)
         let tailGap = isSearching || !snapshot.configuration.usesTabsList ? nil
-            : workspaceSidebarTabsTailGap(sections: sections, lastPin: folders.last { $0.appearance.isFavorite }?.name)
+            // The last of the project's own pins: a pin in All Projects may be another project's tab.
+            : workspaceSidebarTabsTailGap(sections: sections,
+                lastPin: folders.last { $0.appearance.isFavorite && $0.projectId == projectId }?.name)
         return GeometryReader { viewport in
             // Measured once per page: every folder shares the width.
             let overrideMinHeight = workspaceSidebarInUseOverrideMinHeight(sectionWidth: viewport.size.width - leadingInset - trailingInset)
@@ -764,7 +766,8 @@ extension WorkspaceSidebarView {
             dismissOverride: { activeInUseOverrideWorkspaceName = nil },
             tabName: workspace.name,
             selectionContext: searchText.isEmpty && !isSearchEditing
-                ? { workspaceSidebarTabSelectionContext(projectId: workspace.projectId) } : nil,
+                ? { workspaceSidebarTabSelectionContext(projectId: workspaceSidebarListedProjectId(workspace,
+                    contextProjectId: snapshot.activeProjectId)) } : nil,
         )
         return (activation, isInUseOnOtherDisplay && activeInUseOverrideWorkspaceName == workspace.name)
     }

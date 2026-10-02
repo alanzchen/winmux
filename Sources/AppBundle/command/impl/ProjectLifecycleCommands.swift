@@ -6,8 +6,9 @@ struct ListProjectsCommand: Command {
     /*conforms*/ let shouldResetClosedWindowsCache = false
 
     func run(_ env: CmdEnv, _ io: CmdIo) -> Bool {
-        let focusedProjectId = focus.workspace.projectId
-        let visibleProjectIds = Set(Workspace.all.lazy.filter(\.isVisible).map(\.projectId))
+        // The projects the user is in: a pin in All Projects on screen is in its display's.
+        let focusedProjectId = workspaceContextProjectId(of: focus.workspace)
+        let visibleProjectIds = Set(Workspace.all.filter(\.isVisible).map(workspaceContextProjectId(of:)))
         var result = workspaceProjects().enumerated().map { offset, project in
             ProjectFormatObject(
                 index: offset + 1,

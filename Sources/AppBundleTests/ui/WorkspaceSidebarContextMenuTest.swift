@@ -60,7 +60,7 @@ final class WorkspaceSidebarContextMenuTest: XCTestCase {
     func testTabMenuGroupsItsItemsAndEndsWithWhatRemovesThem() {
         let single = workspaceSidebarWorkspaceIdentityMenuModel(tab("one", ids: [1]), windowId: 1, send: { _ in })
         XCTAssertEqual(groups(single.entries), [
-            ["Pin Tab", "Add to Group"],
+            ["Pin Tab", "Pin to All Projects", "Add to Group"],
             ["Keep Tab When Empty"],
             ["Rename…", "Color", "Change Icon…"],
             ["Close Window"],
@@ -68,7 +68,7 @@ final class WorkspaceSidebarContextMenuTest: XCTestCase {
 
         let member = workspaceSidebarWorkspaceIdentityMenuModel(tab("pair", ids: [1, 2]), windowId: 2, send: { _ in })
         XCTAssertEqual(groups(member.entries), [
-            ["Pin Tab", "Add to Group"],
+            ["Pin Tab", "Pin to All Projects", "Add to Group"],
             ["Move “Doc 2.txt” to New Tab", "Separate into Tabs"],
             ["Keep Tab When Empty"],
             ["Rename…", "Color", "Change Icon…"],

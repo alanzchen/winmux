@@ -56,6 +56,15 @@ func activeWorkspaceProjectId(for monitor: Monitor) -> WorkspaceProjectId {
     return winMuxWorkspaceState.activeProjectId(for: monitor)
 }
 
+/// The project `workspace` is in as the sidebar shows it: its own, except that a pin in All
+/// Projects is in the project of the display it's on, or assigned to. Everything that means "the
+/// project the user is in" reads this rather than the focused tab's own project.
+@MainActor
+func workspaceContextProjectId(of workspace: Workspace) -> WorkspaceProjectId {
+    guard workspaceIsPinnedInAllProjects(workspace) else { return workspace.projectId }
+    return winMuxWorkspaceState.activeProjectId(for: workspace.workspaceMonitor)
+}
+
 @MainActor
 func createWorkspaceProject() -> WorkspaceProject {
     materializePersistedWorkspaceProjects()
@@ -387,17 +396,12 @@ private func deleteWorkspaceProjectMovingWindowsToFallback(_ projectId: Workspac
         throw WorkspaceMutationError.projectCannotBeDeleted(project.name)
     }
 
+    rehomeWorkspacesPinnedInAllProjects(from: projectId)
     try persistWorkspaceSidebarProjectMetadataRemoval(projectId)
     removeWorkspaceSidebarProjectMetadataFromMemory(projectId)
 
     let fallbackId = workspaceProjectFallbackForDeletion(excluding: projectId)
-    let viewportsShowingDeletedProject = winMuxWorkspaceState.monitorViewportsById.values.compactMap { viewport -> MonitorViewportId? in
-        guard let activeWorkspaceId = viewport.activeWorkspaceId,
-              winMuxWorkspaceState.workspaceById[activeWorkspaceId]?.projectId == projectId
-        else { return nil }
-        return viewport.id
-    }
-    for viewportId in viewportsShowingDeletedProject {
+    for viewportId in viewportsShowingWorkspaceProject(projectId) {
         _ = switchWorkspaceProject(fallbackId, on: viewportId.topLeftCorner.monitorApproximation)
     }
 
@@ -412,9 +416,27 @@ private func deleteWorkspaceProjectMovingWindowsToFallback(_ projectId: Workspac
     }
 
     winMuxWorkspaceState.projectsById.removeValue(forKey: projectId)
+    winMuxWorkspaceState.forgetProjectInViewports(projectId)
     removeDeletedWorkspaceProjectFromOrder(projectId)
     ensureVisibleActiveProjectWorkspaces()
     checkWorkspaceHierarchyInvariants()
+}
+
+/// A project's pins in All Projects outlive it: they stay pinned in every project, now at home in
+/// Default, which can't be deleted, with their windows. They aren't the project's windows to close.
+@MainActor
+private func rehomeWorkspacesPinnedInAllProjects(from projectId: WorkspaceProjectId) {
+    for workspace in Workspace.all where workspace.projectId == projectId && workspaceIsPinnedInAllProjects(workspace) {
+        moveWorkspaceToProject(workspaceName: workspace.name, projectId: workspaceProjectDefaultId, syncsSavedRecord: true)
+    }
+}
+
+/// The displays in `projectId`, including those showing a pin in All Projects there.
+@MainActor
+private func viewportsShowingWorkspaceProject(_ projectId: WorkspaceProjectId) -> [MonitorViewportId] {
+    winMuxWorkspaceState.monitorViewportsById.values.compactMap { viewport in
+        winMuxWorkspaceState.projectId(of: viewport) == projectId ? viewport.id : nil
+    }
 }
 
 @MainActor
@@ -434,17 +456,13 @@ private func closeWindowsAndDeleteWorkspaceProject(_ projectId: WorkspaceProject
             throw WorkspaceMutationError.projectCloseBlocked(project.name, remaining.count)
         }
     }
-    // Save before changing workspace state, like the move-windows path. The windows are already closed.
+    // Save before changing workspace state, like the move-windows path. The windows are already closed;
+    // those of its pins in All Projects weren't the project's to close.
+    rehomeWorkspacesPinnedInAllProjects(from: projectId)
     try clearWorkspaceSidebarProjectMetadata(projectId)
 
     let fallbackId = workspaceProjectFallbackForDeletion(excluding: projectId)
-    let viewportsShowingDeletedProject = winMuxWorkspaceState.monitorViewportsById.values.compactMap { viewport -> MonitorViewportId? in
-        guard let activeWorkspaceId = viewport.activeWorkspaceId,
-              winMuxWorkspaceState.workspaceById[activeWorkspaceId]?.projectId == projectId
-        else { return nil }
-        return viewport.id
-    }
-    for viewportId in viewportsShowingDeletedProject {
+    for viewportId in viewportsShowingWorkspaceProject(projectId) {
         _ = switchWorkspaceProject(fallbackId, on: viewportId.topLeftCorner.monitorApproximation)
     }
 
@@ -453,6 +471,7 @@ private func closeWindowsAndDeleteWorkspaceProject(_ projectId: WorkspaceProject
     }
 
     winMuxWorkspaceState.projectsById.removeValue(forKey: projectId)
+    winMuxWorkspaceState.forgetProjectInViewports(projectId)
     removeDeletedWorkspaceProjectFromOrder(projectId)
     ensureVisibleActiveProjectWorkspaces()
     checkWorkspaceHierarchyInvariants()
@@ -505,10 +524,12 @@ private func removeDeletedWorkspaceProjectFromOrder(_ projectId: WorkspaceProjec
 }
 
 @MainActor
+/// A project's windows, as deleting it closes or moves them: not those of its pins in All Projects,
+/// which stay.
 func windowsInWorkspaceProject(_ projectId: WorkspaceProjectId) -> [Window] {
     var seen: Set<UInt32> = []
     var result: [Window] = []
-    for workspace in Workspace.all where workspace.projectId == projectId {
+    for workspace in Workspace.all where workspace.projectId == projectId && !workspaceIsPinnedInAllProjects(workspace) {
         for window in workspace.allLeafWindowsRecursive + workspaceOwnedMinimizedWindows(workspace)
         where seen.insert(window.windowId).inserted
         {
