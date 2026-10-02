@@ -117,7 +117,8 @@ extension WindowDragCursorProxyPanel {
     func layOutBatchProxy(mouseScreenPoint: CGPoint, force: Bool = false) {
         guard let (preview, style) = batchProxy else { return }
         let placement = windowDragCursorProxyBatchLabelPlacement(mouseScreenPoint: mouseScreenPoint,
-            iconHeight: windowDragCursorProxySize(label: preview.label, style: style).height,
+            icon: windowDragCursorProxySize(label: preview.label, style: style),
+            labelWidth: workspaceSidebarTabDropLabelWidth(preview.label),
             screenFrame: windowDragCursorProxyScreenFrame(containing: mouseScreenPoint))
         guard force || currentContent?.batchLabelPlacement != placement else { return }
         updateContent(preview: preview, style: style, batchLabelPlacement: placement)
@@ -141,14 +142,19 @@ enum WindowDragCursorProxyBatchLabelPlacement: Equatable {
     case above
     /// Before the icon, at the pointer's height: too near the screen's top for above.
     case leading
+    /// After the icon: too near the top for above, and the left edge for before.
+    case trailing
 }
 
 /// Above the icon, which the pointer sits on, so the pointer, covering what's below and right of
-/// its tip, leaves the count clear; before it where the screen's top leaves no room above.
-func windowDragCursorProxyBatchLabelPlacement(mouseScreenPoint: CGPoint, iconHeight: CGFloat,
+/// its tip, leaves the count clear. Where the screen's top leaves no room above, before it; where
+/// the left edge leaves none there either, after it, past the pointer's width.
+func windowDragCursorProxyBatchLabelPlacement(mouseScreenPoint: CGPoint, icon: CGSize, labelWidth: CGFloat,
                                               screenFrame: CGRect) -> WindowDragCursorProxyBatchLabelPlacement {
-    let above = iconHeight / 2 + windowDragCursorProxyBatchLabelSpacing + windowDragCursorProxyBatchLabelHeight
-    return screenFrame.maxY - mouseScreenPoint.y >= above ? .above : .leading
+    let above = icon.height / 2 + windowDragCursorProxyBatchLabelSpacing + windowDragCursorProxyBatchLabelHeight
+    if screenFrame.maxY - mouseScreenPoint.y >= above { return .above }
+    let before = icon.width / 2 + windowDragCursorProxyBatchLabelSpacing + labelWidth
+    return mouseScreenPoint.x - screenFrame.minX >= before ? .leading : .trailing
 }
 
 /// The proxy for `preview`: an icon drag of several chosen tabs has their count beside the icon.
@@ -161,7 +167,7 @@ func windowDragCursorProxySize(preview: WorkspaceSidebarDropPreviewViewModel, st
     return switch batchLabelPlacement {
         case .above: CGSize(width: max(size.width, label + 8),
             height: size.height + windowDragCursorProxyBatchLabelSpacing + windowDragCursorProxyBatchLabelHeight)
-        case .leading: CGSize(width: label + windowDragCursorProxyBatchLabelSpacing + size.width, height: size.height)
+        case .leading, .trailing: CGSize(width: label + windowDragCursorProxyBatchLabelSpacing + size.width, height: size.height)
     }
 }
 
@@ -176,6 +182,7 @@ func windowDragCursorProxyPointer(preview: WorkspaceSidebarDropPreviewViewModel,
     return switch batchLabelPlacement {
         case .above: CGPoint(x: size.width / 2, y: icon.height / 2)
         case .leading: CGPoint(x: size.width - icon.width / 2, y: icon.height / 2)
+        case .trailing: CGPoint(x: icon.width / 2, y: icon.height / 2)
     }
 }
 extension WindowDragCursorProxyPanel {

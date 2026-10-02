@@ -109,28 +109,39 @@ final class WorkspaceSidebarTabBatchDragTest: XCTestCase {
         XCTAssertEqual(size.height, icon.height + windowDragCursorProxyBatchLabelSpacing + windowDragCursorProxyBatchLabelHeight)
         let pointer = try XCTUnwrap(windowDragCursorProxyPointer(preview: preview, style: style))
         XCTAssertEqual(pointer, CGPoint(x: size.width / 2, y: icon.height / 2), "On the icon")
-        // Mid-screen: the count is above the pointer's tip.
+        // Everywhere on the screen, corners included and after clamping: the pointer is on the icon,
+        // and the count is clear of the arrow, which reaches below and right of its tip.
         let screen = CGRect(x: 0, y: 0, width: 1024, height: 740)
-        let middle = CGPoint(x: 500, y: 400)
-        XCTAssertEqual(windowDragCursorProxyBatchLabelPlacement(mouseScreenPoint: middle, iconHeight: icon.height,
-            screenFrame: screen), .above)
-        let frame = windowDragCursorProxyFrame(mouseScreenPoint: middle, proxySize: size, pointer: pointer, screenFrame: screen)
-        XCTAssertGreaterThanOrEqual(frame.maxY - windowDragCursorProxyBatchLabelHeight, middle.y + 2, "Above the tip")
-        XCTAssertTrue(frame.contains(middle))
-
-        // Review: near the screen's top there's no room above, so the count goes before the icon,
-        // left of the tip, and the pointer stays on the icon.
-        for top in [CGPoint(x: 500, y: 739), CGPoint(x: 500, y: 740 - icon.height / 2 - 4)] {
-            let placement = windowDragCursorProxyBatchLabelPlacement(mouseScreenPoint: top, iconHeight: icon.height, screenFrame: screen)
-            XCTAssertEqual(placement, .leading, "\(top)")
-            let size = windowDragCursorProxySize(preview: preview, style: style, batchLabelPlacement: placement)
-            let pointer = try XCTUnwrap(windowDragCursorProxyPointer(preview: preview, style: style, batchLabelPlacement: placement))
-            let frame = windowDragCursorProxyFrame(mouseScreenPoint: top, proxySize: size, pointer: pointer, screenFrame: screen)
-            XCTAssertLessThanOrEqual(frame.maxY, screen.maxY)
-            XCTAssertLessThanOrEqual(frame.minX + workspaceSidebarTabDropLabelWidth("3 Tabs"), top.x - 2, "Left of the tip")
-            let iconFrame = CGRect(x: frame.maxX - icon.width, y: frame.minY, width: icon.width, height: icon.height)
-            XCTAssertTrue(iconFrame.contains(top), "On the icon")
+        let labelWidth = workspaceSidebarTabDropLabelWidth("3 Tabs")
+        var seen: Set<String> = []
+        for x in [1, 10, 30, 60, 300, 1000, 1023] as [CGFloat] {
+            for y in [1, 10, 300, 700, 719, 730, 739] as [CGFloat] {
+                let tip = CGPoint(x: x, y: y)
+                let placement = windowDragCursorProxyBatchLabelPlacement(mouseScreenPoint: tip, icon: icon, labelWidth: labelWidth,
+                    screenFrame: screen)
+                seen.insert("\(placement)")
+                let size = windowDragCursorProxySize(preview: preview, style: style, batchLabelPlacement: placement)
+                let pointer = try XCTUnwrap(windowDragCursorProxyPointer(preview: preview, style: style, batchLabelPlacement: placement))
+                let frame = windowDragCursorProxyFrame(mouseScreenPoint: tip, proxySize: size, pointer: pointer, screenFrame: screen)
+                let height = windowDragCursorProxyBatchLabelHeight
+                let (iconFrame, labelFrame): (CGRect, CGRect) = switch placement {
+                    case .above: (CGRect(x: frame.midX - icon.width / 2, y: frame.minY, width: icon.width, height: icon.height),
+                        CGRect(x: frame.midX - labelWidth / 2, y: frame.maxY - height, width: labelWidth, height: height))
+                    case .leading: (CGRect(x: frame.maxX - icon.width, y: frame.minY, width: icon.width, height: icon.height),
+                        CGRect(x: frame.minX, y: frame.minY + (icon.height - height) / 2, width: labelWidth, height: height))
+                    case .trailing: (CGRect(x: frame.minX, y: frame.minY, width: icon.width, height: icon.height),
+                        CGRect(x: frame.maxX - labelWidth, y: frame.minY + (icon.height - height) / 2, width: labelWidth, height: height))
+                }
+                // At the left and right edges the screen moves the proxy aside; the pointer stays on it.
+                let clampedAside = frame.minX <= screen.minX || frame.maxX >= screen.maxX
+                XCTAssertTrue((clampedAside ? frame : iconFrame).insetBy(dx: -0.5, dy: -0.5).contains(tip),
+                    "\(tip) \(placement): on the icon")
+                let arrow = CGRect(x: tip.x - 1, y: tip.y - 21, width: 15, height: 22)
+                XCTAssertFalse(labelFrame.intersects(arrow), "\(tip) \(placement): the count clear of the pointer")
+                XCTAssertTrue(screen.contains(frame), "\(tip) \(placement): on the screen")
+            }
         }
+        XCTAssertEqual(seen, ["above", "leading", "trailing"])
 
         clearActiveWorkspaceSidebarDrag()
         selection.clear()

@@ -37,6 +37,9 @@ struct WindowDragCursorProxyView: View {
                 case .leading:
                     HStack(spacing: windowDragCursorProxyBatchLabelSpacing) { count; icon }
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
+                case .trailing:
+                    HStack(spacing: windowDragCursorProxyBatchLabelSpacing) { icon; count }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
             }
         } else if case .appIcon(let size) = style, let preview {
             WorkspaceSidebarDragIcon(preview: preview, size: size)
