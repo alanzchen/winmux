@@ -7,12 +7,7 @@ final class MacWindow: Window {
     override var wasFirstSeenDuringStartupOrRestored: Bool {
         popupPresentationState.firstSeenDuringStartup || popupPresentationState.wasRestored
     }
-    private var prevUnhiddenProportionalPositionInsideWorkspaceRect: CGPoint?
-    /// The corner the window is parked in, together with the monitor rect it was parked
-    /// against: when the monitor's geometry changes (or the workspace moves to another
-    /// monitor), the old corner position is wrong and the window must be re-parked even
-    /// though the corner still matches. One value so the two can't desync.
-    private var hiddenInCorner: (corner: OptimalHideCorner, monitorVisibleRect: Rect)?
+    private let cornerParking = CornerParkingState()
 
     @MainActor
     private init(_ id: UInt32, _ actor: MacApp, lastFloatingSize: CGSize?, parent: NonLeafTreeNodeObject, adaptiveWeight: CGFloat, index: Int, firstSeenInActiveApp: Bool) {
@@ -186,91 +181,18 @@ final class MacWindow: Window {
     // todo it's part of the window layout and should be moved to layoutRecursive.swift
     @MainActor
     func hideInCorner(_ corner: OptimalHideCorner, force: Bool = false, ifStillValid: () -> Bool = { true }) async throws {
-        guard ifStillValid() else { return }
-        guard let nodeMonitor else { return }
-        if !force, isHiddenInCorner, hiddenInCorner?.corner == corner,
-           hiddenInCorner?.monitorVisibleRect == nodeMonitor.visibleRect
-        {
-            return
-        }
-        // Don't accidentally override prevUnhiddenEmulationPosition in case of subsequent `hideInCorner` calls
-        var unhiddenPosition: CGPoint?
-        if !isHiddenInCorner {
-            guard let windowRect = try await getAxRect() else { return }
-            // Check for isHiddenInCorner for the second time because of the suspension point above
-            if !isHiddenInCorner {
-                let topLeftCorner = windowRect.topLeftCorner
-                let monitorRect = windowRect.center.monitorApproximation.rect // Similar to layoutFloatingWindow. Non idempotent
-                let absolutePoint = topLeftCorner - monitorRect.topLeftCorner
-                unhiddenPosition =
-                    CGPoint(x: absolutePoint.x / monitorRect.width, y: absolutePoint.y / monitorRect.height)
-            }
-        }
-        let p: CGPoint
-        // Record the corner actually used, so a failed size read is retried on the next layout
-        var appliedCorner = corner
-        switch corner {
-            case .bottomLeftCorner:
-                guard let s = try await getAxSize() else {
-                    appliedCorner = .bottomRightCorner
-                    fallthrough
-                }
-                // Zoom will jump off if you do one pixel offset https://github.com/nikitabobko/WinMux/issues/527
-                // todo this ad hoc won't be necessary once I implement optimization suggested by Zalim
-                let onePixelOffset = macApp.appId == .zoom ? .zero : CGPoint(x: 1, y: -1)
-                p = nodeMonitor.visibleRect.bottomLeftCorner + onePixelOffset + CGPoint(x: -s.width, y: 0)
-            case .bottomRightCorner:
-                // Zoom will jump off if you do one pixel offset https://github.com/nikitabobko/WinMux/issues/527
-                // todo this ad hoc won't be necessary once I implement optimization suggested by Zalim
-                let onePixelOffset = macApp.appId == .zoom ? .zero : CGPoint(x: 1, y: 1)
-                p = nodeMonitor.visibleRect.bottomRightCorner - onePixelOffset
-        }
-        // AX reads above can suspend while another tab is selected. Do not let the old
-        // layout park that tab or mark it hidden after a newer presentation has started.
-        try checkCancellation()
-        guard ifStillValid() else { return }
-        if prevUnhiddenProportionalPositionInsideWorkspaceRect == nil {
-            prevUnhiddenProportionalPositionInsideWorkspaceRect = unhiddenPosition
-        }
-        setAxFrame(p, nil)
-        hiddenInCorner = (appliedCorner, nodeMonitor.visibleRect)
+        // Zoom will jump off if you do one pixel offset https://github.com/nikitabobko/WinMux/issues/527
+        // todo this ad hoc won't be necessary once I implement optimization suggested by Zalim
+        try await parkInCorner(corner, cornerParking, force: force, onePixelOffset: macApp.appId != .zoom, ifStillValid: ifStillValid)
     }
 
     @MainActor
     func unhideFromCorner() {
-        guard let prevUnhiddenProportionalPositionInsideWorkspaceRect else { return }
-        guard let nodeWorkspace else { return } // hiding only makes sense for workspace windows
-        guard let parent else { return }
-
-        func restoreToSavedWorkspacePosition() {
-            let workspaceRect = nodeWorkspace.workspaceMonitor.rect
-            var newX = workspaceRect.topLeftX + workspaceRect.width * prevUnhiddenProportionalPositionInsideWorkspaceRect.x
-            var newY = workspaceRect.topLeftY + workspaceRect.height * prevUnhiddenProportionalPositionInsideWorkspaceRect.y
-            let windowWidth = lastKnownActualRect?.width ?? lastFloatingSize?.width ?? 0
-            let windowHeight = lastKnownActualRect?.height ?? lastFloatingSize?.height ?? 0
-            newX = newX.coerce(in: workspaceRect.minX ... max(workspaceRect.minX, workspaceRect.maxX - windowWidth))
-            newY = newY.coerce(in: workspaceRect.minY ... max(workspaceRect.minY, workspaceRect.maxY - windowHeight))
-            // The cached rect may be the parked one, and the move's events may be suppressed
-            // after a drag.
-            invalidateLastKnownActualRect()
-            setAxFrame(CGPoint(x: newX, y: newY), nil)
-        }
-
-        switch getChildParentRelation(child: self, parent: parent) {
-            // Just a small optimization to avoid unnecessary AX calls for non floating windows
-            // Tiling windows should be unhidden with layoutRecursive anyway
-            case .floatingWindow:
-                restoreToSavedWorkspacePosition()
-            case .macosNativeFullscreenWindow, .macosNativeHiddenAppWindow, .macosNativeMinimizedWindow,
-                 .macosPopupWindow, .tiling, .rootTilingContainer, .shimContainerRelation: break
-        }
-
-        self.prevUnhiddenProportionalPositionInsideWorkspaceRect = nil
-        self.hiddenInCorner = nil
+        restoreFromCorner(cornerParking)
     }
 
     override var isHiddenInCorner: Bool {
-        prevUnhiddenProportionalPositionInsideWorkspaceRect != nil
+        cornerParking.isHiddenInCorner
     }
 
     override func getAxSize() async throws -> CGSize? {

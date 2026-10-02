@@ -9,6 +9,15 @@ public let mainModeId = "main"
 @TaskLocal
 public var refreshSessionEvent: RefreshSessionEvent? = nil
 
+/// Set when a session runs on behalf of several coalesced events; nil means the event's own.
+@TaskLocal
+public var refreshSessionRequirementsOverride: RefreshSessionRequirements? = nil
+
+/// What the current refresh session must do.
+public var refreshSessionRequirements: RefreshSessionRequirements? {
+    refreshSessionRequirementsOverride ?? refreshSessionEvent?.requirements
+}
+
 @TaskLocal
 private var recursionDetectorDuringTermination = false
 
@@ -85,6 +94,9 @@ public enum RefreshSessionEvent: Sendable, CustomStringConvertible {
     case onTabSwitched
     /// Dragging the sidebar edge changes only the space reserved beside tiled windows.
     case onSidebarResized
+    /// Displays stopped changing. Carries the display-topology generation it was captured at, so
+    /// a newer display change makes it stale.
+    case displayTopologySettled(generation: UInt64)
 
     public var isStartup: Bool {
         if case .startup = self { return true } else { return false }
@@ -101,7 +113,7 @@ public enum RefreshSessionEvent: Sendable, CustomStringConvertible {
             case .onFocusedMonitorChanged, .onFocusChanged, .onTabSwitched, .onSidebarResized:
                 true
             case .configAutoReload, .globalObserverLeftMouseUp, .startup,
-                 .resetManipulatedWithMouse:
+                 .resetManipulatedWithMouse, .displayTopologySettled:
                 false
         }
     }
@@ -116,7 +128,7 @@ public enum RefreshSessionEvent: Sendable, CustomStringConvertible {
                 false
             case .configAutoReload, .globalObserverLeftMouseUp, .menuBarButton, .hotkeyBinding,
                  .startup, .socketServer, .resetManipulatedWithMouse, .onFocusedMonitorChanged,
-                 .onFocusChanged, .onModeChanged:
+                 .onFocusChanged, .onModeChanged, .displayTopologySettled:
                 true
         }
     }
@@ -125,22 +137,34 @@ public enum RefreshSessionEvent: Sendable, CustomStringConvertible {
         requiresWindowRefreshBarrier
     }
 
-    /// Hidden (corner-parked) windows can drift only when macOS repositions windows behind our
-    /// back with no AX events delivered — wake from sleep is the known case (plus startup, where
-    /// windows may be anywhere from a previous session). Monitor-geometry changes are handled
-    /// separately: hideInCorner re-parks when the monitor rect it parked against changes.
+    /// Hidden (corner-parked) windows can drift when macOS repositions windows behind our back
+    /// with no AX events delivered: on wake from sleep, and when displays come and go (macOS
+    /// moves windows off a display that's gone, possibly after WinMux re-parked them). Startup
+    /// counts too, since windows may be anywhere from a previous session. A display change is
+    /// re-asserted once its topology settles, and only while no newer change has arrived.
     /// Every other event leaves parked windows where they are, so re-asserting their frames
     /// (one AX round-trip per hidden window) would be pure waste.
-    public var requiresHiddenWindowsReassertion: Bool {
+    public var hiddenWindowsReassertion: HiddenWindowsReassertion? {
         switch self {
             case .startup:
-                true
+                .always
             case .globalObserver(let notif):
                 notif == NSWorkspace.didWakeNotification.rawValue ||
-                    notif == NSWorkspace.screensDidWakeNotification.rawValue
+                    notif == NSWorkspace.screensDidWakeNotification.rawValue ? .always : nil
+            case .displayTopologySettled(let generation):
+                .displayTopology(generation: generation)
             default:
-                false
+                nil
         }
+    }
+
+    public var requirements: RefreshSessionRequirements {
+        RefreshSessionRequirements(
+            windowRefreshBarrier: requiresWindowRefreshBarrier,
+            layoutReasonNormalization: requiresLayoutReasonNormalization,
+            freshWindowFrames: !canReuseLastAppliedWindowFrames,
+            hiddenWindowsReassertion: hiddenWindowsReassertion,
+        )
     }
 
     public var description: String {
@@ -159,6 +183,7 @@ public enum RefreshSessionEvent: Sendable, CustomStringConvertible {
             case .onModeChanged: "onModeChanged"
             case .onTabSwitched: "onTabSwitched"
             case .onSidebarResized: "onSidebarResized"
+            case .displayTopologySettled(let generation): "displayTopologySettled(\(generation))"
         }
     }
 }
