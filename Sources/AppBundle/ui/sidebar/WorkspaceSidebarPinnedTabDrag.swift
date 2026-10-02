@@ -37,6 +37,8 @@ func workspaceSidebarPinnedTabDrop(_ tab: Workspace, target: WorkspaceSidebarDro
                                    pinGridIsShared: Bool = workspaceSidebarPinGridIsShared()) -> WorkspaceSidebarPinnedTabDrop? {
     guard config.usesBrowserTabs, workspaceSidebarOrganizationStore.state.workspaces[tab.name]?.isFavorite == true
     else { return nil }
+    // A pause counts only over a tab: leaving it, for anything else, starts the next one over.
+    if case .workspace = target.kind {} else { WorkspaceSidebarTabSplitHoverController.shared.reset() }
     switch target.kind {
         case .pinnedTabs(let projectId, let gap, let monitorScopeId):
             // On this display it goes beside another pin; onto another display's pins it moves
@@ -119,6 +121,7 @@ private func workspaceSidebarPinnedTabDropUnderPointer(_ tab: Workspace, point: 
     -> (drop: WorkspaceSidebarPinnedTabDrop?, hit: WorkspaceSidebarSurfaceHit)
 {
     let hit = workspaceSidebarSurfaceHit(at: point)
+    if hit.target == nil { WorkspaceSidebarTabSplitHoverController.shared.reset() }
     return (hit.target.flatMap { workspaceSidebarPinnedTabDrop(tab, target: $0, point: point, pinGridIsShared: pinGridIsShared) },
         hit)
 }
@@ -306,36 +309,51 @@ func applyWorkspaceSidebarPinnedTabDrop(_ tab: Workspace, _ drop: WorkspaceSideb
             try withWorkspaceTabOnDropDisplay(tab, monitorScopeId: monitorScopeId, focusing: window) {
                 try setWorkspaceSidebarTabFavorite(tab, false)
             }
-        case .join(let name, let placement, _):
-            try joinWorkspaceTabIntoPinnedTab(name, pin: tab, placement: placement)
+        case .join(let name, let placement, let monitorScopeId):
+            try joinWorkspaceTabIntoPinnedTab(name, pin: tab, placement: placement, listedOn: monitorScopeId)
     }
 }
 
 /// The tab `name` joins the pinned tab `pin`, whole, its split kept: the pin goes on `placement`'s
 /// half of it, so the tab goes on the pin's other side. The pin stays pinned, in its place among the
-/// pins, and comes to the tab's display, as a click brings it, so the tab never leaves it. If any
-/// of it can't be done, nothing changes.
+/// pins, and comes to the tab's display, as a click brings it, so the tab never leaves it. A tab
+/// dropped on a display's list must still be on that display, which must still be there. If any of
+/// it can't be done, nothing changes.
 @MainActor
-func joinWorkspaceTabIntoPinnedTab(_ name: String, pin: Workspace, placement: WorkspaceSidebarTabDropPlacement) throws {
+func joinWorkspaceTabIntoPinnedTab(_ name: String, pin: Workspace, placement: WorkspaceSidebarTabDropPlacement,
+                                   listedOn monitorScopeId: String? = nil) throws {
     // The session runs after other events: the tab may have closed, been pinned, or lost its windows.
     guard let tab = Workspace.existing(byName: name), tab !== pin, tab.projectId == pin.projectId,
           workspaceSidebarOrganizationStore.state.workspaces[name]?.isFavorite != true,
-          let node = workspaceSidebarWholeTabNode(tab),
-          let window = tab.mostRecentWindowRecursive ?? tab.anyLeafWindowRecursive
+          let node = workspaceSidebarWholeTabNode(tab)
     else { return }
     let monitor = tab.workspaceMonitor
+    if let monitorScopeId, workspaceSidebarMonitorScopePoint(monitorScopeId) != nil {
+        guard let listed = workspaceSidebarDropTargetMonitor(scopeId: monitorScopeId) else {
+            throw WorkspaceMutationError.displayUnavailable
+        }
+        guard listed.rect == monitor.rect else { return }
+    }
     guard workspaceTabCanMove(pin, to: monitor) else { throw WorkspaceMutationError.tabAssignedToAnotherDisplay }
+    let focused = tab.mostRecentWindowRecursive ?? tab.anyLeafWindowRecursive
     syncClosedWindowsCacheToCurrentWorld()
     suppressPostDragAxObserverEvents(for: (pin.allLeafWindowsRecursive + tab.allLeafWindowsRecursive).map(\.windowId))
     _ = try withWorkspaceSidebarDropTransaction {
         if pin.workspaceMonitor.rect != monitor.rect || !pin.isVisible {
             guard placeWorkspaceTabOnDisplay(pin, monitor) else { throw WorkspaceMutationError.tabCannotShowOnDisplay }
         }
+        // Beside the pin's windows, side by side. A tab split the same way joins as its windows, in
+        // order, so its split isn't nested and turned by normalization; any other split joins whole.
+        let row = workspaceSiblingInsertionRoot(pin, orientation: .h)
+        let pieces = (node as? TilingContainer).map { $0.orientation == row.orientation ? Array($0.children) : [node] } ?? [node]
+        let first = placement == .left ? row.children.count : 0
+        for (offset, piece) in pieces.enumerated() {
+            piece.bind(to: row, adaptiveWeight: WEIGHT_AUTO, index: first + offset)
+        }
         for floating in tab.floatingWindows {
             floating.bind(to: pin, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
         }
-        applyWorkspaceZoneMove(sourceNode: node, sourceWindow: window, targetWorkspace: pin,
-            zone: placement == .left ? .right : .left)
+        _ = focused?.focusWindow()
         return true
     }
 }
