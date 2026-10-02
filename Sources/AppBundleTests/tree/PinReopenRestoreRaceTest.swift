@@ -307,22 +307,32 @@ final class PinReopenRestoreRaceTest: XCTestCase {
         endFrozenRestore()
     }
 
-    func testARelayoutThatClassifiedAWindowClaimedMeanwhileLeavesItWhereTheClaimPutIt() async throws {
-        let (old, pin, _, _, reopened, _, _) = closedWorld()
+    func testAReopenedWindowInATabWhoseStackARestoreRebuildsStaysBesideTheStack() async throws {
+        let pin = Workspace.get(byName: "pin")
+        let parked = Workspace.get(byName: "parked")
+        // The pin was remembered as one stack of two windows.
+        pin.rootTilingContainer.layout = .tabGroup
+        let first = TestWindow.new(id: 10, parent: pin.rootTilingContainer)
+        let second = TestWindow.new(id: 11, parent: pin.rootTilingContainer)
+        let snapshot = snapshotCurrentFrozenWorld()
+        // They're elsewhere now, where the restore finds them, and the pin is a plain tab again.
+        first.bind(to: parked.rootTilingContainer, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
+        second.bind(to: parked.rootTilingContainer, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
+        pin.rootTilingContainer.layout = .tiles
+        _ = pin.focusWorkspace()
+        let reopened = TestWindow.new(id: 2, parent: parked.rootTilingContainer)
+        reopened.unbindFromParent()
         beginFrozenRestore()
         clickPin(pin) { _ in }
         await letTasksRun()
         try await appShows(reopened)
-        // The restore's relayout finished its classification wait and put it where the snapshot remembers it.
-        reopened.bind(to: old.rootTilingContainer, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
-        keepReopenClaimAfterRestoreRelayout(reopened)
-        XCTAssertTrue(reopened.nodeWorkspace === pin)
-        endFrozenRestore()
 
-        // With no claim standing, the relayout's placement is left as it is.
-        reopened.bind(to: old.rootTilingContainer, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
-        keepReopenClaimAfterRestoreRelayout(reopened)
-        XCTAssertTrue(reopened.nodeWorkspace === old)
+        _ = try await restoreFrozenWorldIfNeeded(snapshot, newlyDetectedWindow: first)
+        XCTAssertTrue(first.parent === second.parent, "The stack is restored")
+        XCTAssertEqual((first.parent as? TilingContainer)?.layout, .tabGroup)
+        XCTAssertTrue(reopened.nodeWorkspace === pin)
+        XCTAssertFalse(reopened.parent === first.parent, "Beside the stack, as requested windows are, not a tab in it")
+        endFrozenRestore()
     }
 
     func testAWindowTheUserMovesWhileItWaitsStaysWhereTheUserPutIt() async throws {

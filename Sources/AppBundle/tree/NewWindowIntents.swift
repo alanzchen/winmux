@@ -406,15 +406,6 @@ func finishDeferredReopenPlacements() {
     }
 }
 
-/// A restore's relayout classified a window, and a reopen claimed it for a tab during that wait:
-/// the relayout just put it where the older snapshot remembers it. The claim is newer, so it stands.
-@MainActor
-func keepReopenClaimAfterRestoreRelayout(_ window: Window) {
-    guard let target = NewWindowIntentRegistry.shared.reopenClaimTarget(for: window), window.nodeWorkspace !== target else { return }
-    let binding = newWindowIntentBinding(targetWorkspace: target)
-    window.bind(to: binding.parent, adaptiveWeight: binding.adaptiveWeight, index: binding.index)
-}
-
 /// The launcher closed after the window was claimed but before detection placed it: it goes
 /// where any new window would, not into a workspace the user may have left.
 @MainActor

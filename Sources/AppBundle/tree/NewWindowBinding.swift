@@ -2,9 +2,14 @@ import AppKit
 import Common
 
 @MainActor
-func unbindAndGetBindingDataForNewWindow(_ windowId: UInt32, _ macApp: MacApp, _ workspace: Workspace, window: Window?) async throws -> BindingData {
-    try await classifyAndGetBindingDataForNewWindow(windowId, macApp, workspace, window: window).binding
+func unbindAndGetBindingDataForNewWindow(_ windowId: UInt32, _ macApp: MacApp, _ workspace: Workspace, window: Window?,
+                                         abandonIf: (@MainActor (Window) -> Bool)? = nil) async throws -> BindingData {
+    try await classifyAndGetBindingDataForNewWindow(windowId, macApp, workspace, window: window, abandonIf: abandonIf).binding
 }
+
+/// A relayout given up once its AX classification answered: the window has become someone else's
+/// to place meanwhile. Nothing was unbound.
+struct WindowRelayoutAbandoned: Error {}
 
 @MainActor
 func classifyAndGetBindingDataForNewWindow(
@@ -13,9 +18,12 @@ func classifyAndGetBindingDataForNewWindow(
     _ workspace: Workspace,
     window: Window?,
     observedAt: TimeInterval = ProcessInfo.processInfo.systemUptime,
+    abandonIf: (@MainActor (Window) -> Bool)? = nil,
 ) async throws -> (binding: BindingData, type: AxUiElementWindowType, claimed: Bool) {
     let windowLevel = getWindowLevel(for: windowId)
     let type = try await macApp.getAxUiElementWindowType(windowId, windowLevel)
+    // Checked after the wait and before the window is unbound below.
+    if let window, abandonIf?(window) == true { throw WindowRelayoutAbandoned() }
     switch type {
         case .popup:
             return (BindingData(parent: macosPopupWindowsContainer, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST), type, false)

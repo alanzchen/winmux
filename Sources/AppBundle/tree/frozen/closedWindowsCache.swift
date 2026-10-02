@@ -160,7 +160,9 @@ func restoreFrozenWorldIfNeeded(_ frozenWorld: FrozenWorld, newlyDetectedWindow:
         // A reopened window claimed for this tab stays in it, before any wait below could let the
         // user move it, or a failure strand it in the replaced root.
         for window in potentialOrphans where restoreLeavesAlone(window) && window.isBound && window.nodeWorkspace == nil {
-            window.bind(to: workspace.rootTilingContainer, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
+            // Beside a restored stack, never in it.
+            let binding = workspaceAppendBindingData(targetWorkspace: workspace, index: INDEX_BIND_LAST)
+            window.bind(to: binding.parent, adaptiveWeight: binding.adaptiveWeight, index: binding.index)
         }
         for window in (potentialOrphans - workspace.rootTilingContainer.allLeafWindowsRecursive) {
             if restoreLeavesAlone(window) { continue }
@@ -251,13 +253,16 @@ private func restoreFrozenUnconventionalWindow(
         default:
             switch frozenWindow.layoutReason {
                 case .macos(let prevParentKind, let prevWorkspaceName):
-                    defer { keepReopenClaimAfterRestoreRelayout(window) }
-                    try await exitMacOsNativeUnconventionalState(
-                        window: window,
-                        prevParentKind: prevParentKind,
-                        prevWorkspaceName: prevWorkspaceName,
-                        workspace: workspace,
-                    )
+                    do {
+                        // A popup promoted and claimed for a tab while the relayout classified it.
+                        try await exitMacOsNativeUnconventionalState(
+                            window: window,
+                            prevParentKind: prevParentKind,
+                            prevWorkspaceName: prevWorkspaceName,
+                            workspace: workspace,
+                            abandonIf: { restoreLeavesAlone($0) },
+                        )
+                    } catch is WindowRelayoutAbandoned {}
                 case .standard:
                     window.bindAsFloatingWindow(to: workspace)
             }
