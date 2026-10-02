@@ -320,7 +320,9 @@ private func moveWorkspaceSidebarBatchToGap(_ batch: WorkspaceSidebarDragBatch, 
 private func moveWorkspaceSidebarBatchToGroup(_ batch: WorkspaceSidebarDragBatch, _ tabs: [Workspace], id: String,
                                               monitorScopeId: String?) throws -> Bool {
     for tab in tabs { try checkWorkspaceSidebarDropDisplay(tab, monitorScopeId: monitorScopeId) }
+    // Where each tab ends: the list's display, or, already there or with no display named, where it is.
     let moves = tabs.compactMap { tab in workspaceSidebarDropDisplayChange(for: tab, monitorScopeId: monitorScopeId).map { (tab, $0) } }
+    let placements = tabs.map { tab in (tab, workspaceSidebarDropDisplayChange(for: tab, monitorScopeId: monitorScopeId) ?? tab.workspaceMonitor) }
     // A group that can't be saved leaves the tabs where they are rather than moving them and back.
     if let reason = workspaceSidebarOrganizationStore.readOnlyReason {
         showWorkspaceSidebarError(reason)
@@ -337,7 +339,7 @@ private func moveWorkspaceSidebarBatchToGroup(_ batch: WorkspaceSidebarDragBatch
             winMuxWorkspaceState.moveWorkspace(tab.id, relativeTo: previous.id, after: true)
         }
         if !moves.isEmpty { focusWorkspaceSidebarBatchPrimary(batch) }
-        return workspaceSidebarBatchStayed(moves)
+        return workspaceSidebarBatchStayed(placements)
     }
 }
 
@@ -355,6 +357,11 @@ private func pinWorkspaceSidebarBatch(_ batch: WorkspaceSidebarDragBatch, _ tabs
     for tab in tabs { try checkWorkspaceSidebarPinDropDisplay(tab, monitorScopeId: monitorScopeId, pinGridIsShared: pinGridIsShared) }
     let moves = tabs.compactMap { tab in
         workspaceSidebarPinDropDisplayChange(for: tab, monitorScopeId: monitorScopeId, pinGridIsShared: pinGridIsShared).map { (tab, $0) }
+    }
+    // Where each tab ends: the pins' display, or, already there or with shared pins, where it is.
+    let placements = tabs.map { tab in
+        (tab, workspaceSidebarPinDropDisplayChange(for: tab, monitorScopeId: monitorScopeId, pinGridIsShared: pinGridIsShared)
+            ?? tab.workspaceMonitor)
     }
     let pinsTabs = batch.kind == .tabs
     // Beside the pin shown, or, newly pinned with none, after the pins: either way in their order.
@@ -376,13 +383,13 @@ private func pinWorkspaceSidebarBatch(_ batch: WorkspaceSidebarDragBatch, _ tabs
             for (index, name) in (order ?? []).enumerated() { state.workspaces[name, default: .init()].pinOrder = index }
         }
         if !moves.isEmpty { focusWorkspaceSidebarBatchPrimary(batch) }
-        return workspaceSidebarBatchStayed(moves)
+        return workspaceSidebarBatchStayed(placements)
     }
 }
 
-/// Whether every tab is still on the display it went to once all have moved. Placing one hides the
-/// one before, which can then go back to a saved home its move didn't record, as on a display with
-/// no identity or while displays settle: the batch then goes back whole rather than split.
+/// Whether every tab is on the display it went to, or stayed on, once all have moved. Placing one
+/// hides another shown there, which can then go back to a saved home its move didn't record, as on
+/// a display with no identity or while displays settle: the batch then goes back whole, not split.
 @MainActor
 private func workspaceSidebarBatchStayed(_ moves: some Sequence<(Workspace, Monitor)>) -> Bool {
     guard moves.allSatisfy({ tab, monitor in tab.workspaceMonitor.rect == monitor.rect }) else {

@@ -254,21 +254,7 @@ final class WorkspaceSidebarTabBatchDragTest: XCTestCase {
     /// Review: saved tabs moved to a display their homes can't name go back there once hidden, so the
     /// batch would end split across displays. It goes back whole instead.
     func testABatchThatWouldEndSplitAcrossDisplaysGoesBackWhole() throws {
-        setSavedWorkspaceTestEnvironment()
-        let laptop = SavedWorkspaceTestMonitor(id: 1, name: "Built-in Display", x: 0, isMain: true, uuid: "LAPTOP", isBuiltin: true)
-        let projector = SavedWorkspaceTestMonitor(id: 2, name: "Projector", x: 1920, uuid: nil)
-        setMonitorsForTests([laptop, projector])
-        Workspace.reconcileWorkspaceState()
-        for (index, name) in ["a", "b"].enumerated() {
-            let tab = Workspace.get(byName: name)
-            _ = TestWindow.new(id: UInt32(index + 1), parent: tab.rootTilingContainer)
-            XCTAssertTrue(laptop.setActiveWorkspace(tab))
-            try ensureSavedWorkspaceRecord(tab)
-        }
-        let other = Workspace.get(byName: "r")
-        _ = TestWindow.new(id: 4, parent: other.rootTilingContainer)
-        XCTAssertTrue(projector.setActiveWorkspace(other))
-        XCTAssertTrue(laptop.setActiveWorkspace(Workspace.get(byName: "a")))
+        let (laptop, projector) = try savedTabsOnALaptopAndAProjector()
         choose(["a", "b"])
         let batch = try beginDrag(from: "a")
         clearActiveWorkspaceSidebarDrag()
@@ -279,6 +265,31 @@ final class WorkspaceSidebarTabBatchDragTest: XCTestCase {
         }
         XCTAssertEqual(orderedWorkspaces(in: workspaceProjectDefaultId).map(\.name).filter { ["a", "b", "r"].contains($0) },
             ["a", "b", "r"])
+    }
+
+    /// Review round 2: a chosen tab already shown on the list's display, though saved elsewhere, can
+    /// be hidden there by another one coming over. A group or pin drop then goes back whole too.
+    func testABatchWhoseTabAlreadyThereWouldGoBackGoesBackWhole() throws {
+        let (laptop, projector) = try savedTabsOnALaptopAndAProjector()
+        let group = try workspaceSidebarOrganizationStore.create(projectId: workspaceProjectDefaultId, workspaceNames: ["r"])
+        let projectorList = workspaceSidebarMonitorScopeId(for: projector)
+        let targets: [WorkspaceSidebarDropTargetKind] = [.tabCollection(group.id, monitorScopeId: projectorList),
+            .pinnedTabs(projectId: workspaceProjectDefaultId, gap: nil, monitorScopeId: projectorList)]
+        for target in targets {
+            // a is brought to the projector, as a click does; its saved home is still the laptop.
+            XCTAssertTrue(placeWorkspaceTabOnDisplay(Workspace.get(byName: "a"), projector))
+            XCTAssertTrue(Workspace.get(byName: "a").isVisible)
+            choose(["a", "b"])
+            let batch = try beginDrag(from: "b")
+            clearActiveWorkspaceSidebarDrag()
+            XCTAssertTrue(isActionableWorkspaceSidebarBatchDropTarget(batch, target: target))
+            XCTAssertFalse(try applyWorkspaceSidebarBatchDrop(batch, target: target), "\(target)")
+            XCTAssertEqual(Workspace.existing(byName: "a")?.workspaceMonitor.rect, projector.rect, "a is shown where it was")
+            XCTAssertEqual(Workspace.existing(byName: "b")?.workspaceMonitor.rect, laptop.rect, "b didn't go")
+            XCTAssertEqual(workspaceSidebarOrganizationStore.collection(containing: "r")?.workspaceNames, ["r"])
+            XCTAssertEqual(pinOrder(), [])
+            selection.clear()
+        }
     }
 
     /// Review: the preview offers a batch drop the dragged tab alone wouldn't make, and never "New Tab".
@@ -569,6 +580,27 @@ final class WorkspaceSidebarTabBatchDragTest: XCTestCase {
         XCTAssertTrue(left.setActiveWorkspace(tabs["a"]!))
         XCTAssertTrue(right.setActiveWorkspace(tabs["r"]!))
         return (left, right, tabs)
+    }
+
+    /// Saved tabs a and b homed on a laptop, a on screen there, and r on a projector, a display a
+    /// saved home can't name.
+    private func savedTabsOnALaptopAndAProjector() throws -> (laptop: Monitor, projector: Monitor) {
+        setSavedWorkspaceTestEnvironment()
+        let laptop = SavedWorkspaceTestMonitor(id: 1, name: "Built-in Display", x: 0, isMain: true, uuid: "LAPTOP", isBuiltin: true)
+        let projector = SavedWorkspaceTestMonitor(id: 2, name: "Projector", x: 1920, uuid: nil)
+        setMonitorsForTests([laptop, projector])
+        Workspace.reconcileWorkspaceState()
+        for (index, name) in ["a", "b"].enumerated() {
+            let tab = Workspace.get(byName: name)
+            _ = TestWindow.new(id: UInt32(index + 1), parent: tab.rootTilingContainer)
+            XCTAssertTrue(laptop.setActiveWorkspace(tab))
+            try ensureSavedWorkspaceRecord(tab)
+        }
+        let other = Workspace.get(byName: "r")
+        _ = TestWindow.new(id: 4, parent: other.rootTilingContainer)
+        XCTAssertTrue(projector.setActiveWorkspace(other))
+        XCTAssertTrue(laptop.setActiveWorkspace(Workspace.get(byName: "a")))
+        return (laptop, projector)
     }
 
     private func waitUntil(_ condition: () -> Bool, timeout: Duration = .seconds(2)) async throws {
