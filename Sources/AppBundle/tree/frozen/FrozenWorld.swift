@@ -55,28 +55,45 @@ func noteExplicitWindowPlacement(_ window: Window, in workspace: Workspace) {
     supersedePendingPersistedFrozenWorld(placementOf: window, in: workspace)
 }
 
+@MainActor
+private func liveMonitor(at topLeftCorner: CGPoint) -> Monitor? {
+    monitors.first { $0.rect.topLeftCorner == topLeftCorner }
+}
+
 extension FrozenWorld {
     /// This world once the user put `window` in `workspace`: the window is remembered there, last,
-    /// where the request put it, and a display showing `workspace` is remembered showing it. Every
-    /// other window keeps its remembered place. A world without the window is left as it is.
+    /// where the request put it, the workspace on the display it's on now, and that display showing
+    /// it if it does. Every other window keeps its remembered place. A world without the window is
+    /// left as it is.
     @MainActor
     func superseding(placementOf window: Window, in workspace: Workspace) -> FrozenWorld {
         guard windowIds.contains(window.windowId) else { return self }
         var frozenWorkspaces = workspaces.map { $0.removing(windowId: window.windowId) }
         var frozenMonitors = monitors
         var ids = windowIds.subtracting([window.windowId])
+        // A restore shows remembered workspaces only, so one remembered on screen has to be among them.
+        func remember(_ shown: Workspace) {
+            guard !frozenWorkspaces.contains(where: { $0.name == shown.name }) else { return }
+            frozenWorkspaces.append(FrozenWorkspace(shown))
+            ids.formUnion(collectAllWindowIds(workspace: shown))
+        }
         let monitor = workspace.workspaceMonitor
         let isShown = monitor.activeWorkspace === workspace
         if let index = frozenWorkspaces.firstIndex(where: { $0.name == workspace.name }) {
-            frozenWorkspaces[index] = frozenWorkspaces[index].appending(window)
+            frozenWorkspaces[index] = frozenWorkspaces[index].appending(window, on: FrozenMonitor(monitor))
             ids.insert(window.windowId)
         } else if isShown {
-            // A restore shows a remembered workspace, so the one on screen has to be among them.
-            frozenWorkspaces.append(FrozenWorkspace(workspace))
-            ids.formUnion(collectAllWindowIds(workspace: workspace))
+            remember(workspace)
         }
         if isShown {
-            frozenMonitors = frozenMonitors.filter { $0.topLeftCorner != monitor.rect.topLeftCorner } + [FrozenMonitor(monitor)]
+            frozenMonitors = frozenMonitors.filter { $0.topLeftCorner != monitor.rect.topLeftCorner }.compactMap { other in
+                guard other.visibleWorkspace == workspace.name else { return other }
+                // Remembered showing the workspace, which is on another display now: that display
+                // is remembered showing what it shows now. One that's gone is forgotten.
+                guard let display = liveMonitor(at: other.topLeftCorner) else { return nil }
+                remember(display.activeWorkspace)
+                return FrozenMonitor(display)
+            } + [FrozenMonitor(monitor)]
         }
         return FrozenWorld(workspaces: frozenWorkspaces, monitors: frozenMonitors, windowIds: ids)
     }
@@ -94,9 +111,9 @@ extension FrozenWorkspace {
         self.macosUnconventionalWindows = macosUnconventionalWindows
     }
 
-    /// With the window last, floating or in the root, as it is now.
+    /// With the window last, floating or in the root, as it is now, on the display it's on now.
     @MainActor
-    func appending(_ window: Window) -> FrozenWorkspace {
+    func appending(_ window: Window, on monitor: FrozenMonitor) -> FrozenWorkspace {
         let frozenWindow = FrozenWindow(window)
         return FrozenWorkspace(name: name, projectId: projectId, namingStyle: namingStyle, monitor: monitor,
             rootTilingNode: window.isFloating ? rootTilingNode : FrozenContainer(children: rootTilingNode.children + [.window(frozenWindow)],

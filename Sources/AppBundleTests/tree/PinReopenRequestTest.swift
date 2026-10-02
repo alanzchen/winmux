@@ -40,6 +40,7 @@ final class PinReopenRequestTest: XCTestCase {
     override func tearDown() async throws {
         reopenRunningApplication = originalReopen
         setPendingPersistedFrozenWorldForTests(nil)
+        setMonitorsForTests(nil)
         registry.resetForTests()
         replaceClosedWindowsCache(FrozenWorld(workspaces: [], monitors: [], windowIds: []))
         config = defaultConfig
@@ -250,6 +251,58 @@ final class PinReopenRequestTest: XCTestCase {
         XCTAssertTrue(first.nodeWorkspace === pin, "The saved world doesn't take it back")
         XCTAssertTrue(pin.isVisible)
         XCTAssertTrue(second.nodeWorkspace === otherOld, "The other window still returns to its own tab")
+    }
+
+    /// Tab p, whose window closes, was on the left display and q, whose window closes too, on the
+    /// right. The left display moves on to x; p is clicked on the right display and its app reopens
+    /// there. Then q's window comes back and the remembered world is restored for it.
+    private func reopenOnAnotherDisplayThenRestore(_ remember: (FrozenWorld) -> Void) async throws
+        -> (left: Monitor, right: Monitor, reopened: Window, other: Window)
+    {
+        let left = SavedWorkspaceTestMonitor(id: 1, name: "Left", x: 0, isMain: true, uuid: "LEFT", isBuiltin: true)
+        let right = SavedWorkspaceTestMonitor(id: 2, name: "Right", x: 1920, uuid: "RIGHT")
+        setMonitorsForTests([left, right])
+        let p = Workspace.get(byName: "p")
+        let q = Workspace.get(byName: "q")
+        let x = Workspace.get(byName: "x")
+        let reopened = TestWindow.new(id: 2, parent: p.rootTilingContainer)
+        let other = TestWindow.new(id: 3, parent: q.rootTilingContainer)
+        _ = TestWindow.new(id: 4, parent: x.rootTilingContainer)
+        XCTAssertTrue(left.setActiveWorkspace(p))
+        XCTAssertTrue(right.setActiveWorkspace(q))
+        remember(snapshotCurrentFrozenWorld())
+        reopened.unbindFromParent()
+        other.unbindFromParent()
+        XCTAssertTrue(left.setActiveWorkspace(x))
+        XCTAssertTrue(right.setActiveWorkspace(p), "The pin comes to the display it was clicked on")
+        _ = p.focusWorkspace()
+
+        clickPin(p)
+        await letTheRequestRun()
+        _ = try await appShows(2, reusing: reopened)
+        XCTAssertTrue(reopened.nodeWorkspace === p)
+        let binding = bindingDataForNewRegularWindow(focus.workspace, window: nil)
+        other.bind(to: binding.parent, adaptiveWeight: binding.adaptiveWeight, index: binding.index)
+        _ = try await restoreOrDetectNewWindow(other, isRegularWindow: true)
+        return (left, right, reopened, other)
+    }
+
+    func testAClosedWindowsRestoreKeepsAReopenedTabOnTheDisplayItWasClickedOn() async throws {
+        let (left, right, reopened, other) = try await reopenOnAnotherDisplayThenRestore { replaceClosedWindowsCache($0) }
+        XCTAssertEqual(reopened.nodeWorkspace?.name, "p")
+        XCTAssertEqual(other.nodeWorkspace?.name, "q", "The other window returns to its own tab")
+        XCTAssertEqual(right.activeWorkspace.name, "p", "Still on the display it was clicked on")
+        XCTAssertEqual(left.activeWorkspace.name, "x", "The other display keeps what the user chose there")
+    }
+
+    func testASavedWorldsRestoreKeepsAReopenedTabOnTheDisplayItWasClickedOn() async throws {
+        let (left, right, reopened, other) = try await reopenOnAnotherDisplayThenRestore {
+            setPendingPersistedFrozenWorldForTests($0)
+        }
+        XCTAssertEqual(reopened.nodeWorkspace?.name, "p")
+        XCTAssertEqual(other.nodeWorkspace?.name, "q")
+        XCTAssertEqual(right.activeWorkspace.name, "p")
+        XCTAssertEqual(left.activeWorkspace.name, "x")
     }
 
     func testForgettingAReopenedWindowsOldPlaceKeepsEveryOtherWindowsPlace() {
