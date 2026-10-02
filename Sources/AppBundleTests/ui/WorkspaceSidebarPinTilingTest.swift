@@ -140,6 +140,78 @@ final class WorkspaceSidebarPinTilingTest: XCTestCase {
         }
     }
 
+    /// Review round 4: a stacked pin is wrapped in a side-by-side row whose one child starts at 1.
+    /// Laid out, the stack still keeps half the display, and the split the other half at 3:1.
+    func testAStackedPinMakesRoomForASplitAsForOneWindow() async throws {
+        config.enableNormalizationFlattenContainers = true
+        config.enableNormalizationOppositeOrientationForNestedContainers = true
+        let (wide, narrow) = threeToOneTab()
+        let pin = Workspace.get(byName: "p")
+        let own = [TestWindow.new(id: 1, parent: pin.rootTilingContainer), TestWindow.new(id: 4, parent: pin.rootTilingContainer)]
+        pin.rootTilingContainer.changeOrientation(.v)
+        try await pin.layoutWorkspace()
+        try setWorkspaceSidebarTabFavorite(pin, true)
+        let tab = Workspace.get(byName: "n")
+        XCTAssertTrue(tab.workspaceMonitor.setActiveWorkspace(tab))
+        try await tab.layoutWorkspace()
+        let width = tilingWidth(of: tab.workspaceMonitor)
+        let drop = try await pausedDrop(pin, onto: tab, right: true)
+        try applyWorkspaceSidebarPinnedTabDrop(pin, drop)
+        try await pin.layoutWorkspace()
+        let root = pin.rootTilingContainer
+        XCTAssertEqual(root.orientation, .h)
+        let stack = try XCTUnwrap(root.children.last as? TilingContainer, "The pin's stack, beside the tab")
+        XCTAssertEqual(stack.allLeafWindowsRecursive.map(\.windowId), own.map(\.windowId))
+        XCTAssertEqual(stack.getWeight(.h), width / 2, accuracy: 0.5, "The stack keeps half, as beside one more window")
+        XCTAssertEqual(wide.getWeight(.h), width * 3 / 8, accuracy: 0.5, "The split takes the other half at 3:1")
+        XCTAssertEqual(narrow.getWeight(.h), width / 8, accuracy: 0.5)
+    }
+
+    /// Review round 4: a tab last laid out on a wider display, then not again, still fills an empty
+    /// pin at 3:1, not with its old lengths pushed off the display.
+    func testASplitLaidOutWiderFillsAnEmptyPin() async throws {
+        let tab = Workspace.get(byName: "n")
+        let width = tilingWidth(of: tab.workspaceMonitor)
+        let (wide, narrow) = threeToOneTab(width: width * 2)
+        let pin = Workspace.get(byName: "empty")
+        try setWorkspaceSidebarTabFavorite(pin, true)
+        XCTAssertTrue(tab.workspaceMonitor.setActiveWorkspace(tab))
+        let drop = try await pausedDrop(pin, onto: tab, right: true)
+        try applyWorkspaceSidebarPinnedTabDrop(pin, drop)
+        try await pin.layoutWorkspace()
+        XCTAssertEqual(pin.allLeafWindowsRecursive.map(\.windowId), [2, 3])
+        XCTAssertEqual(wide.getWeight(.h), width * 0.75, accuracy: 0.5)
+        XCTAssertEqual(narrow.getWeight(.h), width * 0.25, accuracy: 0.5)
+    }
+
+    /// Review round 4: a shared pin laid out on a wider display, brought to the tab's, fits it: half
+    /// for the pin's window and half for the split at 3:1, none of it pushed off.
+    func testAPinFromAWiderDisplayMakesRoomForASplitOnTheTabsDisplay() async throws {
+        let (left, right) = twoDisplays(leftWidth: 1200, rightWidth: 2400)
+        config.workspaceSidebar.sharePinnedTabs = true
+        let (wide, narrow) = threeToOneTab(width: tilingWidth(of: left))
+        let tab = Workspace.get(byName: "n")
+        let pin = Workspace.get(byName: "p")
+        let own = TestWindow.new(id: 1, parent: pin.rootTilingContainer)
+        try setWorkspaceSidebarTabFavorite(pin, true)
+        pin.preferredMonitorPoint = right.rect.topLeftCorner
+        tab.preferredMonitorPoint = left.rect.topLeftCorner
+        XCTAssertTrue(right.setActiveWorkspace(pin))
+        XCTAssertTrue(left.setActiveWorkspace(tab))
+        try await pin.layoutWorkspace()
+        try await tab.layoutWorkspace()
+        XCTAssertEqual(own.getWeight(.h), tilingWidth(of: right), accuracy: 0.5, "Laid out on the wider display")
+        let drop = try await pausedDrop(pin, onto: tab, right: true, scope: workspaceSidebarMonitorScopeId(for: left))
+        try applyWorkspaceSidebarPinnedTabDrop(pin, drop, pinGridIsShared: true)
+        XCTAssertTrue(left.activeWorkspace === pin)
+        try await pin.layoutWorkspace()
+        let width = tilingWidth(of: left)
+        XCTAssertEqual(pin.allLeafWindowsRecursive.map(\.windowId), [2, 3, 1])
+        XCTAssertEqual(own.getWeight(.h), width / 2, accuracy: 0.5)
+        XCTAssertEqual(wide.getWeight(.h), width * 3 / 8, accuracy: 0.5)
+        XCTAssertEqual(narrow.getWeight(.h), width / 8, accuracy: 0.5)
+    }
+
     /// Review: a tab whose window used last floats still joins its tiled window as a split; the
     /// floating one floats over the pin.
     func testAFloatingWindowUsedLastDoesntMakeTheTiledOneFloat() async throws {
@@ -418,13 +490,28 @@ final class WorkspaceSidebarPinTilingTest: XCTestCase {
 
     private func pins() -> [String] { workspacePinnedTabs(in: workspaceProjectDefaultId).map(\.name) }
 
-    private func twoDisplays() -> (left: Monitor, right: Monitor) {
+    /// Tab n, split side by side at 3:1 across `width`, the tiling width of its display by default.
+    private func threeToOneTab(width: CGFloat? = nil) -> (wide: Window, narrow: Window) {
+        let tab = Workspace.get(byName: "n")
+        let width = width ?? tilingWidth(of: tab.workspaceMonitor)
+        let wide = TestWindow.new(id: 2, parent: tab.rootTilingContainer)
+        let narrow = TestWindow.new(id: 3, parent: tab.rootTilingContainer)
+        wide.setWeight(.h, width * 0.75)
+        narrow.setWeight(.h, width * 0.25)
+        return (wide, narrow)
+    }
+
+    private func tilingWidth(of monitor: Monitor) -> CGFloat {
+        workspaceStandardTilingRect(monitor.visibleRectPaddedByOuterGaps).width
+    }
+
+    private func twoDisplays(leftWidth: CGFloat = 1920, rightWidth: CGFloat = 1920) -> (left: Monitor, right: Monitor) {
         let left = WorkspaceSidebarDragTestMonitor(monitorAppKitNsScreenScreensId: 1, name: "Left",
-            rect: Rect(topLeftX: 0, topLeftY: 0, width: 1920, height: 1080),
-            visibleRect: Rect(topLeftX: 0, topLeftY: 0, width: 1920, height: 1080), isMain: true)
+            rect: Rect(topLeftX: 0, topLeftY: 0, width: leftWidth, height: 1080),
+            visibleRect: Rect(topLeftX: 0, topLeftY: 0, width: leftWidth, height: 1080), isMain: true)
         let right = WorkspaceSidebarDragTestMonitor(monitorAppKitNsScreenScreensId: 2, name: "Right",
-            rect: Rect(topLeftX: 1920, topLeftY: 0, width: 1920, height: 1080),
-            visibleRect: Rect(topLeftX: 1920, topLeftY: 0, width: 1920, height: 1080), isMain: false)
+            rect: Rect(topLeftX: leftWidth, topLeftY: 0, width: rightWidth, height: 1080),
+            visibleRect: Rect(topLeftX: leftWidth, topLeftY: 0, width: rightWidth, height: 1080), isMain: false)
         setMonitorsForTests([left, right])
         Workspace.reconcileWorkspaceState()
         return (left, right)

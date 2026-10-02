@@ -106,22 +106,30 @@ private func workspaceSidebarPinnedTabJoin(_ tab: Workspace, onto other: Workspa
     return .join(other.name, placement: side, monitorScopeId: monitorScopeId)
 }
 
-/// How a joining tab's tiled `node` goes into `row`: whole, or, split the same way as the row, as
-/// its windows, which then take the share the whole split would and keep their sizes within it.
+/// How a joining tab's tiled `node` goes into `row`, which lays out `length` long: whole, or, split
+/// the same way as the row, as its windows, which keep their sizes within the share one piece takes.
+/// Weights are lengths, and layout adds the same amount to every child to fill the row. So the row's
+/// children are first made to fill it in proportion, as if laid out where the row now is: a wrapper
+/// starts its one child at 1, and a pin brought from another display keeps that display's lengths.
+/// Then the pieces end with the 1/(n + 1) of the row one WEIGHT_AUTO node would, and each of the n
+/// children gives up what it would to that node.
 @MainActor
-private func workspaceSidebarJoinedPieces(_ node: TreeNode, into row: TilingContainer) -> [(TreeNode, CGFloat)] {
-    guard let split = node as? TilingContainer, split.orientation == row.orientation else { return [(node, WEIGHT_AUTO)] }
-    let children = Array(split.children)
-    let weights = children.map { $0.getWeight(row.orientation) }
+private func makeRoomForWorkspaceSidebarJoin(_ node: TreeNode, in row: TilingContainer, length: CGFloat) -> [(TreeNode, CGFloat)] {
+    let orientation = row.orientation
+    let split = (node as? TilingContainer).flatMap { $0.orientation == orientation ? Array($0.children) : nil }
+    let pieces = split ?? [node]
+    let weights = split == nil ? [1] : pieces.map { $0.getWeight(orientation) }
     let total = weights.reduce(0, +)
-    guard total > 0 else { return children.map { ($0, WEIGHT_AUTO) } }
-    // Weights are lengths, and layout adds the same amount to every child to fill the row. An
-    // empty row keeps the split's own lengths. Otherwise the windows end with the 1/(n + 1) of the
-    // row one WEIGHT_AUTO node would, and each of the row's n children loses what it would then.
-    let count = CGFloat(row.children.count)
-    guard count > 0 else { return Array(zip(children, weights)) }
-    let share = CGFloat(row.children.sumOfDouble { $0.getWeight(row.orientation) }) / (count + 1)
-    return zip(children, weights).map { ($0, share * $1 / total + share / count) }
+    guard total > 0, length > 0 else { return pieces.map { ($0, WEIGHT_AUTO) } }
+    let children = Array(row.children)
+    let sum = CGFloat(children.sumOfDouble { $0.getWeight(orientation) })
+    guard !children.isEmpty, sum > 0 else { return zip(pieces, weights).map { ($0, length * $1 / total) } }
+    for child in children {
+        child.setWeight(orientation, child.getWeight(orientation) * length / sum)
+    }
+    let count = CGFloat(children.count)
+    let share = length / (count + 1)
+    return zip(pieces, weights).map { ($0, share * $1 / total + share / count) }
 }
 
 /// What of `tab` tiles as one piece beside another tab's windows: its one tiled node, or its whole
@@ -364,7 +372,9 @@ func joinWorkspaceTabIntoPinnedTab(_ name: String, pin: Workspace, placement: Wo
         // order, so its split isn't nested and turned by normalization; any other split joins whole.
         let row = workspaceSiblingInsertionRoot(pin, orientation: .h)
         let first = placement == .left ? row.children.count : 0
-        for (offset, (piece, weight)) in workspaceSidebarJoinedPieces(node, into: row).enumerated() {
+        let tiling = workspaceStandardTilingRect(monitor.visibleRectPaddedByOuterGaps)
+        let length = row.orientation == .h ? tiling.width : tiling.height
+        for (offset, (piece, weight)) in makeRoomForWorkspaceSidebarJoin(node, in: row, length: length).enumerated() {
             piece.bind(to: row, adaptiveWeight: weight, index: first + offset)
         }
         for floating in tab.floatingWindows {
