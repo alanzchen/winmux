@@ -311,7 +311,7 @@ private func moveWorkspaceSidebarBatchToGap(_ batch: WorkspaceSidebarDragBatch, 
             gap = .init(workspaceName: tab.name, isAfter: true, collectionId: gap.collectionId)
         }
         if leaves { focusWorkspaceSidebarBatchPrimary(batch) }
-        return true
+        return workspaceSidebarBatchStayed(zip(tabs, monitors))
     }
 }
 
@@ -332,8 +332,12 @@ private func moveWorkspaceSidebarBatchToGroup(_ batch: WorkspaceSidebarDragBatch
         for (tab, monitor) in moves { try moveWorkspaceTabToDisplay(tab, monitor, focusing: nil) }
         try saveWorkspaceSidebarIdentities(tabs)
         try workspaceSidebarOrganizationStore.assign(tabs.map(\.name), projectId: batch.projectId, to: id)
+        // A group shows its tabs in tab order, so they follow one another there in theirs.
+        for (previous, tab) in zip(tabs, tabs.dropFirst()) {
+            winMuxWorkspaceState.moveWorkspace(tab.id, relativeTo: previous.id, after: true)
+        }
         if !moves.isEmpty { focusWorkspaceSidebarBatchPrimary(batch) }
-        return true
+        return workspaceSidebarBatchStayed(moves)
     }
 }
 
@@ -352,8 +356,10 @@ private func pinWorkspaceSidebarBatch(_ batch: WorkspaceSidebarDragBatch, _ tabs
     let moves = tabs.compactMap { tab in
         workspaceSidebarPinDropDisplayChange(for: tab, monitorScopeId: monitorScopeId, pinGridIsShared: pinGridIsShared).map { (tab, $0) }
     }
-    let order = gap.flatMap { workspacePinnedTabOrder(placing: batch.names, beside: $0, in: batch.projectId) }
     let pinsTabs = batch.kind == .tabs
+    // Beside the pin shown, or, newly pinned with none, after the pins: either way in their order.
+    let order = gap.flatMap { workspacePinnedTabOrder(placing: batch.names, beside: $0, in: batch.projectId) }
+        ?? (pinsTabs ? workspacePinnedTabs(in: batch.projectId).map(\.name).filter { !batch.names.contains($0) } + batch.names : nil)
     guard pinsTabs || order != nil || !moves.isEmpty else { return false }
     syncClosedWindowsCacheToCurrentWorld()
     suppressPostDragAxObserverEvents(for: tabs.flatMap(\.allLeafWindowsRecursive).map(\.windowId))
@@ -370,8 +376,20 @@ private func pinWorkspaceSidebarBatch(_ batch: WorkspaceSidebarDragBatch, _ tabs
             for (index, name) in (order ?? []).enumerated() { state.workspaces[name, default: .init()].pinOrder = index }
         }
         if !moves.isEmpty { focusWorkspaceSidebarBatchPrimary(batch) }
-        return true
+        return workspaceSidebarBatchStayed(moves)
     }
+}
+
+/// Whether every tab is still on the display it went to once all have moved. Placing one hides the
+/// one before, which can then go back to a saved home its move didn't record, as on a display with
+/// no identity or while displays settle: the batch then goes back whole rather than split.
+@MainActor
+private func workspaceSidebarBatchStayed(_ moves: some Sequence<(Workspace, Monitor)>) -> Bool {
+    guard moves.allSatisfy({ tab, monitor in tab.workspaceMonitor.rect == monitor.rect }) else {
+        showWorkspaceSidebarError("These tabs can't all stay on that display, so none of them moved.")
+        return false
+    }
+    return true
 }
 
 /// After tabs changed display, the one dragged comes forward, with its last-used window.

@@ -523,7 +523,11 @@ func previewWorkspaceSidebarDrop(_ windowId: UInt32, subject: WindowDragSubject,
         clearWorkspaceSidebarDropPreview()
         return
     }
-    guard isActionableSidebarDropTarget(sourceWindow: sourceWindow, subject: subject, target: target) else {
+    // Chosen tabs dragged together go where all of them can, even where the dragged one alone wouldn't move.
+    let batch = currentActiveWorkspaceSidebarDrag()?.batch
+    guard batch.map({ isActionableWorkspaceSidebarBatchDropTarget($0, target: target) })
+        ?? isActionableSidebarDropTarget(sourceWindow: sourceWindow, subject: subject, target: target)
+    else {
         clearWorkspaceSidebarDropPreview()
         return
     }
@@ -548,7 +552,8 @@ func previewWorkspaceSidebarDrop(_ windowId: UInt32, subject: WindowDragSubject,
         var preview = workspaceSidebarDropPreview(sourceWindow: sourceWindow, subject: subject, targetWorkspaceName: nil,
             targetsNewWorkspace: false, targetProjectId: projectId, targetMonitorScopeId: monitorScopeId)
         preview.targetGap = gap
-        preview.separatesFromTab = workspaceTabDragLeavesWindowsBehind(dragSubjectNode(for: sourceWindow, subject: subject))
+        // A batch moves whole tabs, so no window leaves its tab for a new one.
+        preview.separatesFromTab = batch == nil && workspaceTabDragLeavesWindowsBehind(dragSubjectNode(for: sourceWindow, subject: subject))
         setWorkspaceSidebarDropPreviewIfChanged(preview, owner: owner)
         return
     }

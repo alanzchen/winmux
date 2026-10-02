@@ -251,6 +251,66 @@ final class WorkspaceSidebarTabBatchDragTest: XCTestCase {
         XCTAssertNotNil(workspaceSidebarOrganizationStore.collection(containing: "b"))
     }
 
+    /// Review: saved tabs moved to a display their homes can't name go back there once hidden, so the
+    /// batch would end split across displays. It goes back whole instead.
+    func testABatchThatWouldEndSplitAcrossDisplaysGoesBackWhole() throws {
+        setSavedWorkspaceTestEnvironment()
+        let laptop = SavedWorkspaceTestMonitor(id: 1, name: "Built-in Display", x: 0, isMain: true, uuid: "LAPTOP", isBuiltin: true)
+        let projector = SavedWorkspaceTestMonitor(id: 2, name: "Projector", x: 1920, uuid: nil)
+        setMonitorsForTests([laptop, projector])
+        Workspace.reconcileWorkspaceState()
+        for (index, name) in ["a", "b"].enumerated() {
+            let tab = Workspace.get(byName: name)
+            _ = TestWindow.new(id: UInt32(index + 1), parent: tab.rootTilingContainer)
+            XCTAssertTrue(laptop.setActiveWorkspace(tab))
+            try ensureSavedWorkspaceRecord(tab)
+        }
+        let other = Workspace.get(byName: "r")
+        _ = TestWindow.new(id: 4, parent: other.rootTilingContainer)
+        XCTAssertTrue(projector.setActiveWorkspace(other))
+        XCTAssertTrue(laptop.setActiveWorkspace(Workspace.get(byName: "a")))
+        choose(["a", "b"])
+        let batch = try beginDrag(from: "a")
+        clearActiveWorkspaceSidebarDrag()
+        let gap = gapKind(after: "r", on: workspaceSidebarMonitorScopeId(for: projector))
+        XCTAssertFalse(try applyWorkspaceSidebarBatchDrop(batch, target: gap))
+        for name in ["a", "b"] {
+            XCTAssertEqual(Workspace.existing(byName: name)?.workspaceMonitor.rect, laptop.rect, "\(name) is back where it was")
+        }
+        XCTAssertEqual(orderedWorkspaces(in: workspaceProjectDefaultId).map(\.name).filter { ["a", "b", "r"].contains($0) },
+            ["a", "b", "r"])
+    }
+
+    /// Review: the preview offers a batch drop the dragged tab alone wouldn't make, and never "New Tab".
+    func testThePreviewShowsWhereTheBatchGoes() throws {
+        let (_, _, tabs) = try displaysOfTabs()
+        choose(["a", "c"])
+        _ = try beginDrag(from: "a")
+        // a alone is already before b; with c, the drop puts c there too.
+        previewWorkspaceSidebarDrop(try window(of: "a").windowId, subject: .window, target: gapKind(before: "b", on: scope(0)))
+        XCTAssertEqual(TrayMenuModel.shared.workspaceSidebarDropPreview?.targetGap, .init(workspaceName: "b", isAfter: false))
+        clearActiveWorkspaceSidebarDrag()
+        selection.clear()
+
+        let split = TestWindow.new(id: 9, parent: tabs["a"]!.rootTilingContainer)
+        let group = try workspaceSidebarOrganizationStore.create(projectId: tabs["a"]!.projectId, workspaceNames: ["a"])
+        choose(["a", "c"])
+        beginActiveWorkspaceSidebarDrag(windowId: split.windowId, subject: .window)
+        // a alone is already before b; with c, the drop puts c there too.
+        let gap = gapKind(before: "b", on: scope(0))
+        previewWorkspaceSidebarDrop(split.windowId, subject: .window, target: gap)
+        let preview = try XCTUnwrap(TrayMenuModel.shared.workspaceSidebarDropPreview)
+        XCTAssertEqual(preview.label, "2 Tabs")
+        XCTAssertNotNil(preview.targetGap)
+        XCTAssertFalse(preview.separatesFromTab, "Whole tabs move: no New Tab")
+        // a is in the group already; c isn't.
+        previewWorkspaceSidebarDrop(split.windowId, subject: .window, target: .tabCollection(group.id, monitorScopeId: scope(0)))
+        XCTAssertEqual(TrayMenuModel.shared.workspaceSidebarDropPreview?.targetCollectionId, group.id)
+        previewWorkspaceSidebarDrop(split.windowId, subject: .window, target: .newWorkspace(projectId: tabs["a"]!.projectId,
+            monitorScopeId: scope(0)))
+        XCTAssertNil(TrayMenuModel.shared.workspaceSidebarDropPreview, "Nor a New Tab")
+    }
+
     // MARK: Groups and pins
 
     func testChosenTabsDroppedOnAGroupAllJoinIt() async throws {
@@ -298,11 +358,27 @@ final class WorkspaceSidebarTabBatchDragTest: XCTestCase {
             var intent = try XCTUnwrap(WorkspaceSidebarDropIntent.captured(for: target))
             intent.pinGridIsShared = workspaceSidebarPinGridIsShared()
             await queueWorkspaceSidebarBatchDrop(batch, target: target.kind, intent: intent)?.value
-            // With no pin to go beside, they take their places among the pins, as one tab does.
-            XCTAssertEqual(Set(pinOrder()), ["a", "b", "c"])
+            // With no pin to go beside, they go after the pins, in their order.
+            XCTAssertEqual(pinOrder(), ["c", "a", "b"])
             XCTAssertEqual(tabs["b"]!.workspaceMonitor.rect, shared ? left.rect : right.rect)
             await runWorkspaceSidebarSession { try WorkspaceSidebarTabUndo.shared.undo() }?.value
         }
+    }
+
+    /// Review: pinned with no pin to go beside, tabs keep the order shown, even where a group puts
+    /// them out of their tab order.
+    func testChosenTabsPinnedWithNoPinBesideKeepTheOrderShown() async throws {
+        let (_, _, tabs) = try displaysOfTabs()
+        _ = try workspaceSidebarOrganizationStore.create(projectId: tabs["c"]!.projectId, workspaceNames: ["c", "a"])
+        for name in ["c", "b"] {
+            XCTAssertTrue(selection.handleClick(on: name, modifiers: [.command], order: ["c", "a", "b", "r"], active: nil))
+        }
+        XCTAssertEqual(selection.names, ["c", "b"], "As shown: the group's tabs together")
+        let batch = try beginDrag(from: "b")
+        clearActiveWorkspaceSidebarDrag()
+        await queueWorkspaceSidebarBatchDrop(batch, target: .pinnedTabs(projectId: tabs["c"]!.projectId, gap: nil,
+            monitorScopeId: scope(0)), intent: .physical)?.value
+        XCTAssertEqual(pinOrder(), ["c", "b"])
     }
 
     /// D4: pins and tabs chosen together go nowhere, from a row or from a pin's tile.
@@ -368,6 +444,23 @@ final class WorkspaceSidebarTabBatchDragTest: XCTestCase {
         XCTAssertTrue(try applyWorkspaceSidebarPinnedBatchDrop(batch, grouped))
         XCTAssertEqual(workspaceSidebarOrganizationStore.collection(containing: "a")?.workspaceNames, ["r", "a", "b"])
         XCTAssertEqual(pinOrder(), ["c"])
+    }
+
+    /// Review: a group shows its tabs in tab order, so pins arranged out of it keep their order there.
+    func testChosenPinsJoinAGroupInTheirOrder() throws {
+        let (_, _, tabs) = try displaysOfTabs()
+        for name in ["a", "b"] { try setWorkspaceSidebarTabFavorite(tabs[name]!, true) }
+        try pinWorkspaceSidebarTab(tabs["b"]!, beside: .init(workspaceName: "a", isAfter: false))
+        XCTAssertEqual(pinOrder(), ["b", "a"])
+        for name in ["b", "a"] {
+            XCTAssertTrue(selection.handleClick(on: name, modifiers: [.command], order: ["b", "a", "c", "r"], active: nil))
+        }
+        let batch = try XCTUnwrap(WorkspaceSidebarDragBatch(startingWith: "a"))
+        XCTAssertEqual(batch.names, ["b", "a"])
+        let group = try workspaceSidebarOrganizationStore.create(projectId: tabs["r"]!.projectId, workspaceNames: ["r"])
+        XCTAssertTrue(try applyWorkspaceSidebarPinnedBatchDrop(batch, .group(group.id, monitorScopeId: scope(0))))
+        let shown = orderedWorkspaces(in: workspaceProjectDefaultId).map(\.name).filter { ["a", "b", "r"].contains($0) }
+        XCTAssertEqual(shown.filter { ["a", "b"].contains($0) }, ["b", "a"], "As they were dragged")
     }
 
     /// The real drag of a pin's tile, released beside another pin: the chosen pins move with it.
