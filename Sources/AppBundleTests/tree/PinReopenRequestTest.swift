@@ -26,6 +26,7 @@ final class PinReopenRequestTest: XCTestCase {
         registry.resetForTests()
         clock = 1000
         registry.now = { [weak self] in self?.clock ?? 0 }
+        registry.isProcessAlive = { _ in true }
         originalReopen = reopenRunningApplication
         reopened = []
         reopenResult = .success(TestApp.shared.pid)
@@ -104,9 +105,34 @@ final class PinReopenRequestTest: XCTestCase {
         XCTAssertFalse(runningAppHasWindows(pid: pid, windows: [tiled]), "A window that closed doesn't count")
     }
 
+    func testTheReopenIsTheDockClicksWithoutActivatingOrLaunchingAnotherCopy() {
+        let configuration = reopenConfiguration()
+        XCTAssertFalse(configuration.activates,
+            "WinMux focuses the window once placed; an app activated early could pull focus back after the user moved on")
+        XCTAssertFalse(configuration.createsNewApplicationInstance, "The running app is the one reopened")
+        XCTAssertFalse(configuration.promptsUserIfNeeded)
+        XCTAssertFalse(configuration.addsToRecentItems)
+    }
+
+    func testTheWindowsBeforeAReopenAreThoseWinMuxKnowsAndThoseOnScreen() {
+        let other = Workspace.get(byName: "other")
+        let known = TestWindow.new(id: 1, parent: other.rootTilingContainer)
+        let unbound = TestWindow.new(id: 2, parent: other.rootTilingContainer)
+        unbound.unbindFromParent()
+        let stranger = TestWindow.new(id: 3, parent: other.rootTilingContainer,
+            app: TestApp(pid: 77, bundleId: "com.example.other"))
+        var asked: [Int32] = []
+        let ids = windowIdsBeforeReopen(pid: pid, registered: [known, unbound, stranger],
+            onScreen: { asked.append($0); return [7] })
+        XCTAssertEqual(ids, [1, 2, 7], "An off-screen window the app hid on close isn't among them")
+        XCTAssertEqual(asked, [pid])
+    }
+
     func testTheAppIsAskedOnceAndTheWindowItShowsGoesToTheClickedTab() async throws {
         let pin = Workspace.get(byName: "pin")
         _ = pin.focusWorkspace()
+        // A window that closed earlier, which this reopen doesn't bring back.
+        replaceClosedWindowsCache(FrozenWorld(workspaces: [], monitors: [], windowIds: [9]))
         var outcomes: [NewWindowRequestOutcome] = []
         clickPin(pin, preexisting: [3]) { outcomes.append($0) }
         await letTheRequestRun()
@@ -120,6 +146,16 @@ final class PinReopenRequestTest: XCTestCase {
         XCTAssertEqual(outcomes, [.placed(windowId: 5)])
         XCTAssertTrue(focus.windowOrNil === window)
         XCTAssertEqual(savedTabAppFailureMessage(outcomes[0], appName: "Probe"), nil)
+        XCTAssertTrue(closedWindowsCacheContains(windowId: 9), "A new window leaves what WinMux remembers alone")
+    }
+
+    func testWhereFocusWasIsRecordedWhenTheReopenIsAsked() throws {
+        let pin = Workspace.get(byName: "pin")
+        _ = pin.focusWorkspace()
+        clickPin(pin)
+        let intent = try XCTUnwrap(registry.intents.first)
+        XCTAssertEqual(intent.focusWhenSent?.generation, intent.focusGeneration,
+            "Before any other main-actor work can move focus")
     }
 
     func testAWindowTheAppHidWhenItClosedIsWhatTheReopenBringsBack() async throws {
@@ -154,6 +190,33 @@ final class PinReopenRequestTest: XCTestCase {
 
         XCTAssertTrue(hidden.nodeWorkspace === pin, "The click asked for it here")
         XCTAssertTrue(pin.isVisible, "Restoring the old world would have switched the display back to its tab")
+        XCTAssertEqual(outcomes, [.placed(windowId: 2)])
+    }
+
+    func testAnotherClosedWindowShownLaterDoesntTakeTheReopenedOneBack() async throws {
+        let old = Workspace.get(byName: "old")
+        let otherOld = Workspace.get(byName: "other-old")
+        let pin = Workspace.get(byName: "pin")
+        _ = TestWindow.new(id: 1, parent: old.rootTilingContainer)
+        let first = TestWindow.new(id: 2, parent: old.rootTilingContainer)
+        let second = TestWindow.new(id: 3, parent: otherOld.rootTilingContainer)
+        // Both hid on close; the cached world has each where it was.
+        replaceClosedWindowsCache(snapshotCurrentFrozenWorld())
+        first.unbindFromParent()
+        second.unbindFromParent()
+        _ = pin.focusWorkspace()
+
+        var outcomes: [NewWindowRequestOutcome] = []
+        clickPin(pin) { outcomes.append($0) }
+        await letTheRequestRun()
+        _ = try await appShows(2, reusing: first)
+        // The app shows its other window too, which no request waits for.
+        let binding = bindingDataForNewRegularWindow(focus.workspace, window: nil)
+        second.bind(to: binding.parent, adaptiveWeight: binding.adaptiveWeight, index: binding.index)
+        _ = try await restoreOrDetectNewWindow(second, isRegularWindow: true)
+
+        XCTAssertTrue(first.nodeWorkspace === pin, "The cached world doesn't take it back")
+        XCTAssertTrue(pin.isVisible, "nor switch the display away from the tab clicked")
         XCTAssertEqual(outcomes, [.placed(windowId: 2)])
     }
 
@@ -196,6 +259,38 @@ final class PinReopenRequestTest: XCTestCase {
         XCTAssertTrue(focus.windowOrNil === window)
     }
 
+    func testAClickOnTheAppsNewProcessTakesThePendingReopenOver() async throws {
+        let firstPin = Workspace.get(byName: "first")
+        let secondPin = Workspace.get(byName: "second")
+        var first: [NewWindowRequestOutcome] = []
+        clickPin(firstPin) { first.append($0) }
+        await letTheRequestRun()
+        // The app quit and came back before LaunchServices replied; the next click finds its new process.
+        startReopenRequest(target, pid: 42, appURL: appURL, targetWorkspace: secondPin, focusGeneration: focusChangeGeneration,
+            preexistingWindowIds: { [] }, completion: { _ in })
+        await letTheRequestRun()
+        XCTAssertEqual(reopened.count, 1, "Not \"already opening a window\", and not asked twice")
+        XCTAssertEqual(first, [.cancelled])
+        XCTAssertTrue(registry.claim(windowId: 5, pid: pid, bundleId: appId, firstSeenUptime: clock) === secondPin)
+    }
+
+    func testAClickAfterTheDeadlineAsksTheAppAgain() async throws {
+        let pin = Workspace.get(byName: "pin")
+        var first: [NewWindowRequestOutcome] = []
+        var second: [NewWindowRequestOutcome] = []
+        clickPin(pin) { first.append($0) }
+        await letTheRequestRun()
+        // The deadline passed; the expiry watcher hasn't woken yet.
+        clock += newWindowIntentTimeout + 1
+        clickPin(pin) { second.append($0) }
+        await letTheRequestRun()
+
+        XCTAssertEqual(reopened.count, 2, "Taking over a request that already ended would time out at once")
+        XCTAssertEqual(first, [.timedOut])
+        XCTAssertEqual(second, [])
+        XCTAssertTrue(registry.claim(windowId: 5, pid: pid, bundleId: appId, firstSeenUptime: clock) === pin)
+    }
+
     func testAnAppThatShowsNoWindowSaysSoOnceItsTimeIsUp() async throws {
         var outcomes: [NewWindowRequestOutcome] = []
         let intentId = try XCTUnwrap(clickPin(Workspace.get(byName: "pin")) { outcomes.append($0) })
@@ -228,6 +323,18 @@ final class PinReopenRequestTest: XCTestCase {
         XCTAssertFalse(registry.hasPendingIntents)
     }
 
+    func testAPinRemovedWhileItsAppShowsNothingSaysNothing() async throws {
+        let pin = Workspace.get(byName: "removed")
+        var outcomes: [NewWindowRequestOutcome] = []
+        clickPin(pin) { outcomes.append($0) }
+        await letTheRequestRun()
+        removeWorkspaceFromRegistry(pin, reason: .deleted)
+
+        clock += 2 * newWindowIntentTimeout
+        registry.expireOverdueIntents()
+        XCTAssertEqual(outcomes, [.cancelled], "No \"didn't open a window\" for a tab that's gone")
+    }
+
     func testAPinRemovedWhileItsAppReopensGetsNothingAndSaysNothing() async throws {
         let pin = Workspace.get(byName: "removed")
         var outcomes: [NewWindowRequestOutcome] = []
@@ -240,6 +347,16 @@ final class PinReopenRequestTest: XCTestCase {
         XCTAssertNil(Workspace.existing(byName: "removed"), "Never recreated")
         XCTAssertEqual(outcomes, [.cancelled])
         XCTAssertNil(savedTabAppFailureMessage(.cancelled, appName: "Probe"))
+    }
+
+    func testANewProcessWindowArrivingBeforeLaunchServicesRepliesIsTheOneAskedFor() throws {
+        let pin = Workspace.get(byName: "pin")
+        clickPin(pin) // LaunchServices hasn't replied yet.
+        XCTAssertNil(registry.claim(windowId: 5, pid: 42, bundleId: appId, firstSeenUptime: clock),
+            "While the process asked runs, another process's window isn't it")
+        registry.isProcessAlive = { $0 != self.pid }
+        XCTAssertTrue(registry.claim(windowId: 5, pid: 42, bundleId: appId, firstSeenUptime: clock) === pin,
+            "Once it quit, the app's relaunched process is what the reopen reached")
     }
 
     func testAnAppThatQuitMeanwhileIsWaitedForInItsNewProcess() async throws {

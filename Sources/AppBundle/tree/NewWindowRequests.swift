@@ -162,9 +162,12 @@ func existingWindowIds(pid: Int32) -> Set<UInt32> {
 /// Every window a process has that a reopen can't be showing: those WinMux has registered, and
 /// those on screen. A window the app hid when it was closed is off screen, and may come back.
 @MainActor
-func windowIdsBeforeReopen(pid: Int32) -> Set<UInt32> {
-    Set(MacWindow.allWindows.filter { $0.app.pid == pid }.map(\.windowId))
-        .union(windowServerWindowIds(pid: pid, onScreenOnly: true))
+func windowIdsBeforeReopen(
+    pid: Int32,
+    registered: [Window] = MacWindow.allWindows,
+    onScreen: (Int32) -> Set<UInt32> = { windowServerWindowIds(pid: $0, onScreenOnly: true) },
+) -> Set<UInt32> {
+    Set(registered.filter { $0.app.pid == pid }.map(\.windowId)).union(onScreen(pid))
 }
 
 /// Whether WinMux knows a window of this process: in a workspace, minimized, hidden or full
@@ -317,17 +320,22 @@ private func startNewWindowRequest(
     return intentId
 }
 
-/// Opens a running app again through LaunchServices, which sends it the reopen Apple event that a
-/// Dock click sends ('rapp', expecting activation), without Automation permission. Returns the pid
-/// of the app it reached. Replaceable for tests.
-@MainActor
-var reopenRunningApplication: @MainActor (URL) async throws -> Int32 = { url in
+/// LaunchServices opening a running app again sends it the reopen Apple event a Dock click sends
+/// ('rapp'), with no Automation permission. Without activation: a hidden app still shows its
+/// window, and WinMux focuses that window once it's placed, unless the user moved on meanwhile.
+func reopenConfiguration() -> NSWorkspace.OpenConfiguration {
     let configuration = NSWorkspace.OpenConfiguration()
-    configuration.activates = true
+    configuration.activates = false
     configuration.addsToRecentItems = false
     configuration.promptsUserIfNeeded = false
     configuration.createsNewApplicationInstance = false
-    return try await NSWorkspace.shared.openApplication(at: url, configuration: configuration).processIdentifier
+    return configuration
+}
+
+/// Opens a running app again. Returns the pid of the app it reached. Replaceable for tests.
+@MainActor
+var reopenRunningApplication: @MainActor (URL) async throws -> Int32 = { url in
+    try await NSWorkspace.shared.openApplication(at: url, configuration: reopenConfiguration()).processIdentifier
 }
 
 /// Asks a running app that has no window for one, as a Dock click does, for `targetWorkspace`.
@@ -345,7 +353,7 @@ func startReopenRequest(
     completion: @escaping @MainActor (NewWindowRequestOutcome) -> Void,
 ) -> Int? {
     let registry = NewWindowIntentRegistry.shared
-    if let pending = registry.pendingReopen(bundleId: target.bundleId, pid: pid) {
+    if let pending = registry.pendingReopen(bundleId: target.bundleId) {
         registry.takeOver(pending, targetWorkspace: targetWorkspace, focusGeneration: focusGeneration,
             completion: { outcome in completion(outcome) })
         registry.recordFocusWhenSent(forIntent: pending.id, .current)
@@ -365,9 +373,9 @@ func startReopenRequest(
         return nil
     }
     let intentId = intent.id
+    registry.recordFocusWhenSent(forIntent: intentId, .current)
     Task { @MainActor in await watchNewWindowIntentExpiry(intentId) }
     Task { @MainActor in
-        registry.recordFocusWhenSent(forIntent: intentId, .current)
         do {
             let reachedPid = try await reopenRunningApplication(appURL)
             // The app quit meanwhile and was launched again: its first window is still the one asked for.
