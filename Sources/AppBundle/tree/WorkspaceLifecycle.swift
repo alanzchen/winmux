@@ -13,6 +13,7 @@ func switchWorkspaceProject(_ projectId: WorkspaceProjectId, on monitor: Monitor
     // sidebar shows that project's pins and tabs below it. Its last tab isn't brought back.
     if let shown = winMuxWorkspaceState.visibleWorkspace(for: monitor), workspaceIsPinnedInAllProjects(shown) {
         winMuxWorkspaceState.setContextProject(projectId, on: viewportId)
+        NewWindowIntentRegistry.shared.noteProjectSwitch(keeping: shown, in: projectId)
         debugWorkspaceSidebarProjectLog(
             "switchProject project=\(projectId.rawValue) viewport=\(viewportId.description) keptPinInAllProjects=\(shown.name)"
         )

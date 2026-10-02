@@ -752,11 +752,12 @@ private func workspaceSidebarDropPreviewTabs(
 }
 
 @MainActor
+@discardableResult
 func selectWorkspaceSidebarProject(
     _ projectId: WorkspaceProjectId,
     viewModel: TrayMenuModel = TrayMenuModel.shared,
     targetMonitorScopeId: String? = nil,
-) {
+) -> Task<Void, Never>? {
     let knownProjects = workspaceProjects()
     let resolvedTargetScopeId = targetMonitorScopeId ?? viewModel.workspaceSidebarTargetMonitorScopeId
     debugWorkspaceSidebarProjectLog(
@@ -764,9 +765,9 @@ func selectWorkspaceSidebarProject(
     )
     guard knownProjects.contains(where: { $0.id == projectId }) else {
         debugWorkspaceSidebarProjectLog("selectProjectAbort unknownProject=\(projectId.rawValue)")
-        return
+        return nil
     }
-    runWorkspaceSidebarSession {
+    return runWorkspaceSidebarSession {
         let monitor = workspaceSidebarTargetMonitor(
             scopeId: targetMonitorScopeId ?? viewModel.workspaceSidebarTargetMonitorScopeId
         )

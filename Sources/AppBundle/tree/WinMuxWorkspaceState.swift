@@ -177,8 +177,10 @@ struct WinMuxWorkspaceState {
 
     /// `contextProjectId` is the project a pin in All Projects is shown in, when the caller chose
     /// one, as switching to a project does. Otherwise the display stays in the project it's in.
+    /// `isChosen` is false when a pin in All Projects is shown again without being chosen, as a
+    /// restore shows it: no project then remembers it.
     mutating func setActiveWorkspace(_ workspace: Workspace, on viewportId: MonitorViewportId,
-                                     contextProjectId: WorkspaceProjectId? = nil) -> Bool {
+                                     contextProjectId: WorkspaceProjectId? = nil, isChosen: Bool = true) -> Bool {
         ensureMonitorViewportExists(viewportId)
         ensureProjectExists(workspace.projectId)
 
@@ -196,7 +198,7 @@ struct WinMuxWorkspaceState {
         // A project remembers the tab chosen while the display was in it, so going back there shows
         // it again. A pin in All Projects that stays on screen while the display changes project
         // wasn't chosen there, so it changes no project's memory.
-        if !isPinnedInAllProjects || becomesActive {
+        if !isPinnedInAllProjects || becomesActive && isChosen {
             viewport.lastActiveWorkspaceByProject[context] = workspace.id
         }
         monitorViewportsById[viewportId] = viewport

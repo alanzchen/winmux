@@ -12,10 +12,10 @@ extension Monitor {
     }
 
     /// `contextProjectId` is the project a pin in All Projects is shown in, as switching to a project
-    /// chooses it; otherwise the display stays in its project.
+    /// chooses it; otherwise the display stays in its project. `isChosen`: see WinMuxWorkspaceState's.
     @MainActor
-    func setActiveWorkspace(_ workspace: Workspace, contextProjectId: WorkspaceProjectId? = nil) -> Bool {
-        rect.topLeftCorner.setActiveWorkspace(workspace, contextProjectId: contextProjectId)
+    func setActiveWorkspace(_ workspace: Workspace, contextProjectId: WorkspaceProjectId? = nil, isChosen: Bool = true) -> Bool {
+        rect.topLeftCorner.setActiveWorkspace(workspace, contextProjectId: contextProjectId, isChosen: isChosen)
     }
 }
 
@@ -112,7 +112,7 @@ func gcMonitors() {
 
 extension CGPoint {
     @MainActor
-    func setActiveWorkspace(_ workspace: Workspace, contextProjectId: WorkspaceProjectId? = nil) -> Bool {
+    func setActiveWorkspace(_ workspace: Workspace, contextProjectId: WorkspaceProjectId? = nil, isChosen: Bool = true) -> Bool {
         if !isValidAssignment(workspace: workspace, screen: self) {
             return false
         }
@@ -120,7 +120,7 @@ extension CGPoint {
         guard !winMuxWorkspaceState.isWorkspaceActive(workspace.id, outside: viewportId) else {
             return false
         }
-        _ = winMuxWorkspaceState.setActiveWorkspace(workspace, on: viewportId, contextProjectId: contextProjectId)
+        _ = winMuxWorkspaceState.setActiveWorkspace(workspace, on: viewportId, contextProjectId: contextProjectId, isChosen: isChosen)
         checkWorkspaceHierarchyInvariants()
         return true
     }

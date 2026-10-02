@@ -143,9 +143,10 @@ func restoreFrozenWorldIfNeeded(_ frozenWorld: FrozenWorld, newlyDetectedWindow:
         workspace.assignProject(frozenWorkspace.projectId)
         workspace.restoreNamingStyle(frozenWorkspace.namingStyle)
         let frozenWindowById = collectFrozenWindows(frozenWorkspace)
+        // A pin in All Projects shown on the way wasn't chosen: no project remembers it for that.
         _ = topLeftCornerToMonitor[frozenWorkspace.monitor.topLeftCorner]?
             .singleOrNil()?
-            .setActiveWorkspace(workspace)
+            .setActiveWorkspace(workspace, isChosen: false)
         for frozenWindow in frozenWorkspace.floatingWindows {
             if let window = Window.get(byId: frozenWindow.id), !restoreLeavesAlone(window) {
                 applyFrozenWindowState(window, frozenWindow)
@@ -191,9 +192,10 @@ func restoreFrozenWorldIfNeeded(_ frozenWorld: FrozenWorld, newlyDetectedWindow:
         } else {
             targetWorkspace = getOrCreateMonitorViewportFallbackWorkspace(for: targetMonitor)
         }
-        // A pin in All Projects shows again in the project the display was in.
+        // A pin in All Projects shows again in the project the display was in, without being chosen there.
         _ = targetMonitor.setActiveWorkspace(targetWorkspace,
-            contextProjectId: monitor.contextProjectId.flatMap { winMuxWorkspaceState.projectsById[$0] != nil ? $0 : nil })
+            contextProjectId: monitor.contextProjectId.flatMap { winMuxWorkspaceState.projectsById[$0] != nil ? $0 : nil },
+            isChosen: false)
     }
     return true
 }

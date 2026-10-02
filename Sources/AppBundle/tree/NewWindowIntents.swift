@@ -88,10 +88,13 @@ struct NewWindowFocusSnapshot {
     let window: Window?
     /// The project the focused display was in: with a pin in All Projects on it, not the pin's own.
     var contextProjectId: WorkspaceProjectId? = nil
+    /// That display.
+    var monitorPoint: CGPoint? = nil
 
     static var current: NewWindowFocusSnapshot {
-        NewWindowFocusSnapshot(generation: focusChangeGeneration, workspace: focus.workspace, window: focus.windowOrNil,
-            contextProjectId: winMuxWorkspaceState.activeProjectId(for: focus.workspace.workspaceMonitor))
+        let monitor = focus.workspace.workspaceMonitor
+        return NewWindowFocusSnapshot(generation: focusChangeGeneration, workspace: focus.workspace, window: focus.windowOrNil,
+            contextProjectId: winMuxWorkspaceState.activeProjectId(for: monitor), monitorPoint: monitor.rect.topLeftCorner)
     }
 }
 
@@ -225,6 +228,15 @@ final class NewWindowIntentRegistry {
         intents.first { $0.id == id }?.deadlineUptime = now() + timeout
     }
 
+    /// The display switched project with the pin in All Projects `pin` on screen: a reopen asked
+    /// from that pin comes back to it in the project switched to.
+    func noteProjectSwitch(keeping pin: Workspace, in projectId: WorkspaceProjectId) {
+        let waiting = intents + claims.values.map(\.intent) + deferredPlacements.values.map(\.claim.intent)
+        for intent in waiting where intent.focusWhenSent?.workspace === pin {
+            intent.focusWhenSent?.contextProjectId = projectId
+        }
+    }
+
     /// Also for a request whose window was claimed before the request was even sent.
     func recordFocusWhenSent(forIntent id: Int, _ snapshot: NewWindowFocusSnapshot) {
         (intents.first { $0.id == id } ?? claims.values.first { $0.intent.id == id }?.intent)?.focusWhenSent = snapshot
@@ -339,12 +351,15 @@ func newWindowIntentBinding(targetWorkspace: Workspace) -> BindingData {
 
 /// Whether the user is still where they were when they chose the app. Focus that went to a
 /// permission prompt and came back to the same workspace and window isn't moving on, as long
-/// as focus hadn't moved before the request was sent either.
+/// as focus hadn't moved before the request was sent either. A tab that had no window then has
+/// `placing` now: focus on it is focus on that tab still, as after switching project with a pin in
+/// All Projects on screen.
 @MainActor
-func newWindowIntentMayTakeFocus(_ intent: NewWindowIntent) -> Bool {
+func newWindowIntentMayTakeFocus(_ intent: NewWindowIntent, placing window: Window? = nil) -> Bool {
     if focusChangeGeneration == intent.focusGeneration { return true }
     guard let sent = intent.focusWhenSent, sent.generation == intent.focusGeneration else { return false }
-    return focus.workspace === sent.workspace && focus.windowOrNil === sent.window
+    return focus.workspace === sent.workspace
+        && (focus.windowOrNil === sent.window || sent.window == nil && window != nil && focus.windowOrNil === window)
 }
 
 /// A claimed window keeps its destination: saved-workspace routing, on-window-detected rules,
@@ -364,7 +379,7 @@ func finishNewWindowIntentPlacement(_ window: Window, claim: NewWindowIntentClai
         NewWindowIntentRegistry.shared.deferPlacement(DeferredReopenPlacement(window: window, claim: claim))
         return
     }
-    if newWindowIntentMayTakeFocus(claim.intent), window.nodeWorkspace?.isVisible == true, window.focusWindow() {
+    if newWindowIntentMayTakeFocus(claim.intent, placing: window), window.nodeWorkspace?.isVisible == true, window.focusWindow() {
         // The launcher made WinMux frontmost, and neither scripted nor reopened windows activate their app.
         window.nativeFocus()
     }
@@ -401,8 +416,8 @@ func finishDeferredReopenPlacements() {
         }
         // A restore may have shown another tab where the user was looking at this one.
         let userWasHere = target.isVisible || claim.intent.focusWhenSent?.workspace === target
-        if newWindowIntentMayTakeFocus(claim.intent), userWasHere {
-            showPinInAllProjectsWhereItWasClicked(target, claim.intent.focusWhenSent)
+        if newWindowIntentMayTakeFocus(claim.intent, placing: window), userWasHere {
+            showPinInAllProjectsWhereItWasClicked(target, claim.intent)
             if window.focusWindow() { window.nativeFocus() }
         }
         noteExplicitWindowPlacement(window, in: target)
@@ -412,10 +427,12 @@ func finishDeferredReopenPlacements() {
 
 /// A pin in All Projects shows in the project its display is in, which a restore that showed
 /// another project's tab there meanwhile has changed: it comes back in the project it was clicked
-/// in, which remembers it as chosen there again.
+/// in, or switched to since with it on screen, which remembers it as chosen there again. Only on
+/// that display: an older restore that took the pin to another display left that one as it was.
 @MainActor
-private func showPinInAllProjectsWhereItWasClicked(_ target: Workspace, _ sent: NewWindowFocusSnapshot?) {
-    guard workspaceIsPinnedInAllProjects(target), let sent, sent.workspace === target, let projectId = sent.contextProjectId,
+private func showPinInAllProjectsWhereItWasClicked(_ target: Workspace, _ intent: NewWindowIntent) {
+    guard workspaceIsPinnedInAllProjects(target), let sent = intent.focusWhenSent, sent.workspace === target,
+          let projectId = sent.contextProjectId, sent.monitorPoint == target.workspaceMonitor.rect.topLeftCorner,
           winMuxWorkspaceState.projectsById[projectId] != nil else { return }
     _ = target.workspaceMonitor.setActiveWorkspace(target, contextProjectId: projectId)
 }
