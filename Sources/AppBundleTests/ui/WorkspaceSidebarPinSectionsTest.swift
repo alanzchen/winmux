@@ -515,6 +515,21 @@ final class WorkspaceSidebarPinSectionsTest: XCTestCase {
         XCTAssertEqual(activeWorkspaceProjectId(for: mainMonitor), t.a, "and the display stays in the project switched to")
     }
 
+    /// An edit that ended on the pin in All Projects, then a switch with it kept on screen: Undo
+    /// doesn't take focus back to the tab before the edit, which would take the display back to B.
+    func testUndoAfterASwitchLeavesFocusOnThePinKeptOnScreen() throws {
+        let t = try tabs()
+        let before = WorkspaceSidebarTabUndoSnapshot()
+        XCTAssertTrue(t.g.focusWorkspace())
+        try setWorkspaceSidebarTabFavorite(t.b2, true)
+        WorkspaceSidebarTabUndo.shared.record("Pin Tab", before: before)
+        XCTAssertTrue(switchWorkspaceProject(t.a, on: mainMonitor) === t.g)
+        try WorkspaceSidebarTabUndo.shared.undo()
+        XCTAssertNotEqual(appearance(t.b2)?.isFavorite, true)
+        XCTAssertTrue(mainMonitor.activeWorkspace === t.g, "Still on the pin")
+        XCTAssertEqual(activeWorkspaceProjectId(for: mainMonitor), t.a, "in the project switched to")
+    }
+
     // MARK: Review: other displays, other projects, and captures
 
     private func displays() -> (left: Monitor, right: Monitor) {
