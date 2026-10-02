@@ -117,6 +117,8 @@ enum WorkspaceSidebarAction: Equatable {
     case createTabCollectionFromTabs([String])
     case assignTabsToCollection([String], String?)
     case setTabsFavorite([String], Bool)
+    /// Several chosen tabs pinned in All Projects, or among `projectId`'s pins, the project the sidebar shows.
+    case setTabsPinScope([String], WorkspaceSidebarPinScope?, projectId: WorkspaceProjectId)
     case closeTabs([String])
     case ungroupTabCollection(String)
     case moveTabCollection(String, WorkspaceProjectId)

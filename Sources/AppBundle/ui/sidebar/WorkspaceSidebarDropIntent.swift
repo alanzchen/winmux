@@ -137,7 +137,7 @@ extension WorkspaceSidebarDropTargetKind {
     var monitorScopeId: String? {
         switch self {
             case .tabGap(_, let scope, _), .newWorkspace(_, let scope): scope
-            case .pinnedTabs(_, _, let scope), .tabCollection(_, let scope): scope
+            case .pinnedTabs(_, _, let scope, _), .tabCollection(_, let scope): scope
             case .workspace, .monitor: nil
         }
     }
@@ -147,7 +147,7 @@ extension WorkspaceSidebarDropTargetKind {
         switch self {
             case .workspace(let name): name
             case .tabGap(_, _, let gap): gap.workspaceName
-            case .pinnedTabs(_, let gap, _): gap?.workspaceName
+            case .pinnedTabs(_, let gap, _, _): gap?.workspaceName
             case .newWorkspace, .tabCollection, .monitor: nil
         }
     }

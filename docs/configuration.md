@@ -94,6 +94,21 @@ tabs-always-expanded = true
   Saved Workspace** clears its saved identity, pin, appearance and group membership.
   A pinned split shows all its windows in one joined tile; click a segment to focus
   that window.
+- Pins come in two sections. **Pin Tab** pins a tab in its project, in the lower section.
+  **Pin to All Projects** pins it in the upper section, which every project's sidebar
+  shows, above that project's own pins, with a thin line between them. Each section wraps
+  onto more rows as it fills. Drag a pin between the sections to move it: it stays pinned,
+  with its tab, windows and split, and Undo puts it back. A pin dragged down, or pinned
+  with **Pin to “Project” Only**, joins the pins of the project the sidebar shows. While
+  dragging, a section with no pins offers **Pin to All Projects** over the project's name,
+  or **Drop to Pin** over the search field, so nothing moves under the pointer. Showing a
+  pin in All Projects keeps the sidebar in the project it was showing, and switching
+  project keeps it on screen: only the project below it changes. New Tab, and windows
+  opened from it, open in that project, first among its tabs. Unpinned, or forgotten, it
+  becomes a tab of the project shown. It keeps a project of its own, where builds before
+  this one, the Dock and the command line list it; deleting that project moves it to
+  Default and keeps it, with its windows. A build before this one shows it as a pin of
+  that project, and its next change to the pins makes it one.
 - Each display's sidebar shows the pins of the tabs on that display. To show every pin
   on every display, set `share-pinned-tabs = true` (**Share pinned tabs across
   displays** in Settings). Each display's sidebar then has the same tiles, in the same

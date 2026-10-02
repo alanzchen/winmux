@@ -162,8 +162,11 @@ struct WorkspaceSidebarTabUndoSnapshot {
         let currentWindow = focus.windowOrNil
         let currentWorkspace = focus.workspace
         let currentViewports = winMuxWorkspaceState.monitorViewportsById
+        // Switching project with a pin in All Projects kept on screen moves on too, though focus stays.
+        let focusedViewport = MonitorViewportId(currentWorkspace.workspaceMonitor)
         let restoreOriginalFocus = (focusedWindow !== after.focusedWindow || focusedWorkspace !== after.focusedWorkspace) &&
-            currentWindow === after.focusedWindow && currentWorkspace === after.focusedWorkspace
+            currentWindow === after.focusedWindow && currentWorkspace === after.focusedWorkspace &&
+            currentViewports[focusedViewport]?.contextProjectId == after.viewports[focusedViewport]?.contextProjectId
         // Keep the actual Workspace objects, including an empty source pruned after a split.
         for item in items { winMuxWorkspaceState.registerWorkspace(item.workspace) }
         let retainedIds = Set(items.map { $0.workspace.id })
@@ -178,8 +181,10 @@ struct WorkspaceSidebarTabUndoSnapshot {
         // not been superseded by navigation. An appearance Undo must never switch
         // an unrelated display back to an older tab.
         var restoredViewports = currentViewports
+        // Switching project with a pin in All Projects kept on screen is navigation too.
         for (id, viewport) in viewports where viewport.activeWorkspaceId != after.viewports[id]?.activeWorkspaceId {
-            if currentViewports[id]?.activeWorkspaceId == after.viewports[id]?.activeWorkspaceId {
+            if currentViewports[id]?.activeWorkspaceId == after.viewports[id]?.activeWorkspaceId,
+               currentViewports[id]?.contextProjectId == after.viewports[id]?.contextProjectId {
                 restoredViewports[id] = viewport
             }
         }

@@ -114,7 +114,7 @@ func handleWorkspaceSidebarAction(
         case .setWorkspaceColor, .setWorkspaceEmoji, .setWorkspaceFavorite, .setWorkspacePinScope, .createTabCollection,
              .renameTabCollection, .setTabCollectionColor, .setTabCollectionEmoji, .toggleTabCollection,
              .assignTabCollection, .ungroupTabCollection, .moveTabCollection, .createTabInCollection, .toggleTabsSidebar,
-             .createTabCollectionFromTabs, .assignTabsToCollection, .setTabsFavorite:
+             .createTabCollectionFromTabs, .assignTabsToCollection, .setTabsFavorite, .setTabsPinScope:
             handleWorkspaceSidebarOrganizationAction(action,
                 targetMonitorScopeId: targetMonitorScopeId ?? viewModel.workspaceSidebarTargetMonitorScopeId)
         case .selectWorkspace(let name):
@@ -218,7 +218,7 @@ func handleWorkspaceSidebarAction(
         case .saveWorkspace(let name):
             saveWorkspaceFromSidebar(name)
         case .forgetSavedWorkspace(let name):
-            forgetSavedWorkspaceFromSidebar(name)
+            forgetSavedWorkspaceFromSidebar(name, targetMonitorScopeId: targetMonitorScopeId)
         case .setSavedWorkspacePinned(let name, let pinned):
             setSavedWorkspacePinnedFromSidebar(name, pinned: pinned)
         case .openSavedWorkspaceApps(let name):

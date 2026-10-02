@@ -69,7 +69,7 @@ final class WorkspaceSidebarDropDestinationViewTest: XCTestCase {
             switch kind {
                 case .tabGap(_, let scope, _), .newWorkspace(_, let scope):
                     XCTAssertEqual(scope, there, "\(kind)")
-                case .pinnedTabs(_, _, let scope), .tabCollection(_, let scope):
+                case .pinnedTabs(_, _, let scope, _), .tabCollection(_, let scope):
                     XCTAssertEqual(scope, there, "\(kind)")
                 case .workspace, .monitor:
                     break

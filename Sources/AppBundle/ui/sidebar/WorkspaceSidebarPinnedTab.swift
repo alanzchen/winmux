@@ -13,8 +13,10 @@ struct WorkspaceSidebarPinnedGridLayout {
     let columns: Int
     let height: CGFloat
 
-    init(workspaces: [WorkspaceSidebarWorkspaceViewModel], width: CGFloat) {
-        let widestSplit = workspaces.map { workspaceSidebarPinnedTabWindows($0).count }.max() ?? 1
+    /// `sizedLike` are every tile shown with these, whose widest split sets the tiles' width for all,
+    /// so the pin sections' columns line up.
+    init(workspaces: [WorkspaceSidebarWorkspaceViewModel], sizedLike all: [WorkspaceSidebarWorkspaceViewModel]? = nil, width: CGFloat) {
+        let widestSplit = (all ?? workspaces).map { workspaceSidebarPinnedTabWindows($0).count }.max() ?? 1
         let minimumTileWidth = max(72, CGFloat(widestSplit) * 46)
         columns = max(1, Int((max(width, 0) + 8) / (minimumTileWidth + 8)))
         height = workspaces.isEmpty ? 0 : CGFloat(min(3, (workspaces.count + columns - 1) / columns) * 62 - 8)

@@ -23,7 +23,12 @@ In Tabs mode the pinned tiles now take part in drag and drop both ways.
   unpinned tab returns to its place in the list. A tab pinned from its menu goes
   after the pins already arranged. Files without `pinOrder` load unchanged.
 - Next/previous and numbered tab commands follow the pins' new order.
-- Each drop can be undone (**Undo Move Tab**, **Undo Pin Tab**, **Undo Unpin Tab**).
+- Pins in All Projects (`pinScope: "allProjects"` beside the pin; files without it load as
+  project pins) sit in an upper section above the project's own. A pin dragged into the other
+  section moves there, still pinned; one coming down joins the pins of the project shown. Each
+  section has its own order, and tab navigation shows the upper section first.
+- Each drop can be undone (**Undo Move Tab**, **Undo Pin Tab**, **Undo Unpin Tab**,
+  **Undo Pin to All Projects**, **Undo Pin to This Project**).
   A drop that can't save its pin or group change, such as with a read-only
   organization file, changes nothing.
 - The compact rail's tiles don't drag.

@@ -64,6 +64,63 @@ func workspaceSidebarPinScopeUndoTitle(_ scope: WorkspaceSidebarPinScope?) -> St
     scope == .allProjects ? "Pin to All Projects" : "Pin to This Project"
 }
 
+/// The title of the Undo for moving several chosen tabs to `scope`'s pins.
+func workspaceSidebarTabsPinScopeUndoTitle(_ scope: WorkspaceSidebarPinScope?) -> String {
+    scope == .allProjects ? "Pin Tabs to All Projects" : "Pin Tabs to This Project"
+}
+
 private func workspaceSidebarPinScopeError(_ message: String) -> NSError {
     NSError(domain: "WinMux.SidebarOrganization", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
+}
+
+/// The pins in `section` that a list of `projectId` shows, in their tiles' order.
+@MainActor
+func workspaceSidebarPinnedTabs(in section: WorkspaceSidebarPinSection, of projectId: WorkspaceProjectId) -> [Workspace] {
+    section == .allProjects ? workspacePinnedTabsInAllProjects() : workspacePinnedTabs(in: projectId)
+}
+
+/// Several chosen tabs pinned among `scope`'s pins at once, after those arranged there, in their
+/// order: those in All Projects, or `projectId`'s, the project the sidebar shows, which pins back
+/// from All Projects come to. One write of the pins, with the project moves: all or nothing.
+@MainActor
+func setWorkspaceSidebarTabsPinScope(_ workspaces: [Workspace], _ scope: WorkspaceSidebarPinScope?,
+                                     projectId: WorkspaceProjectId) throws {
+    guard config.usesBrowserTabs else { return }
+    let store = workspaceSidebarOrganizationStore
+    // Only tabs the sidebar lists there: its own, and pins in All Projects.
+    let tabs = workspaces.filter { Workspace.existing(byName: $0.name) === $0 && workspaceIsListed($0, inProject: projectId) }
+    let changing = tabs.filter { store.state.workspaces[$0.name].map { !$0.isFavorite || $0.pinScope != scope } ?? true }
+    guard !changing.isEmpty else { return }
+    if let reason = store.readOnlyReason { throw workspaceSidebarPinScopeError(reason) }
+    let section = WorkspaceSidebarPinSection(scope)
+    let names = changing.map(\.name)
+    let order = workspaceSidebarPinnedTabs(in: section, of: projectId).map(\.name).filter { !names.contains($0) } + names
+    try withWorkspaceSidebarDropTransaction {
+        try saveWorkspaceSidebarIdentities(changing.filter { store.state.workspaces[$0.name]?.isFavorite != true })
+        try store.update { state in
+            for name in names { state.workspaces[name, default: .init()].setPinScope(scope) }
+            for index in state.collections.indices { state.collections[index].workspaceNames.removeAll(where: names.contains) }
+            for (index, name) in order.enumerated() { state.workspaces[name, default: .init()].pinOrder = index }
+        }
+        guard scope == nil else { return true }
+        for tab in changing where tab.projectId != projectId {
+            guard moveWorkspaceToProject(workspaceName: tab.name, projectId: projectId, syncsSavedRecord: true) else { return false }
+        }
+        return true
+    }
+}
+
+/// Unpins several tabs at once. Pins in All Projects become tabs of `projectId`, the project the
+/// sidebar shows, where they're listed. One write, with the project moves: all or nothing.
+@MainActor
+func unpinWorkspaceSidebarTabs(_ workspaces: [Workspace], into projectId: WorkspaceProjectId) throws {
+    let moving = workspaces.filter { workspaceIsPinnedInAllProjects($0) && $0.projectId != projectId }
+    guard !moving.isEmpty else { return try setWorkspaceSidebarTabsFavorite(workspaces, false) }
+    try withWorkspaceSidebarDropTransaction {
+        try setWorkspaceSidebarTabsFavorite(workspaces, false)
+        for tab in moving {
+            guard moveWorkspaceToProject(workspaceName: tab.name, projectId: projectId, syncsSavedRecord: true) else { return false }
+        }
+        return true
+    }
 }

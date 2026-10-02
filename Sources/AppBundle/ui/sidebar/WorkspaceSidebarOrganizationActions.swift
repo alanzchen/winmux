@@ -39,7 +39,16 @@ func handleWorkspaceSidebarOrganizationAction(_ action: WorkspaceSidebarAction, 
                 guard let workspace = Workspace.existing(byName: name) else { return }
                 try setWorkspaceSidebarTabPinScope(workspace, scope, projectId: projectId)
             case .setTabsFavorite(let names, let favorite):
-                try setWorkspaceSidebarTabsFavorite(names.compactMap(Workspace.existing(byName:)), favorite)
+                let tabs = names.compactMap(Workspace.existing(byName:))
+                if favorite {
+                    try setWorkspaceSidebarTabsFavorite(tabs, true)
+                } else if let first = tabs.first {
+                    // Pins in All Projects unpinned stay in the project the sidebar shows.
+                    try unpinWorkspaceSidebarTabs(tabs, into: workspaceSidebarContextProjectId(for: first,
+                        targetMonitorScopeId: targetMonitorScopeId))
+                }
+            case .setTabsPinScope(let names, let scope, let projectId):
+                try setWorkspaceSidebarTabsPinScope(names.compactMap(Workspace.existing(byName:)), scope, projectId: projectId)
             case .createTabCollectionFromTabs(let names):
                 let tabs = names.compactMap(Workspace.existing(byName:))
                 // A group belongs to one project; the selection comes from one page, so one project.
@@ -109,6 +118,7 @@ func workspaceSidebarOrganizationUndoTitle(_ action: WorkspaceSidebarAction) -> 
         case .assignTabCollection, .assignTabsToCollection: "Move to Group"
         case .createTabCollectionFromTabs: "Group Tabs"
         case .setTabsFavorite(_, let pinned): pinned ? "Pin Tabs" : "Unpin Tabs"
+        case .setTabsPinScope(_, let scope, _): workspaceSidebarTabsPinScopeUndoTitle(scope)
         case .ungroupTabCollection: "Ungroup Tabs"
         case .moveTabCollection: "Move Group"
         case .renameTabCollection: "Rename Group"

@@ -441,7 +441,7 @@ final class WorkspaceSidebarPinnedDragTest: XCTestCase {
             gap: .init(workspaceName: "one", isAfter: true), monitorScopeId: "monitor:0,0") },
             "The rest of the last row puts a tab last, on this display's list")
         XCTAssertGreaterThanOrEqual(last.frame.minX, tiles[1].frame.maxX)
-        XCTAssertFalse(targets.contains { if case .pinnedTabs(_, nil, _) = $0.kind { true } else { false } },
+        XCTAssertFalse(targets.contains { if case .pinnedTabs(_, nil, _, _) = $0.kind { true } else { false } },
             "Beside a pin is the only place among the pins")
 
         var preview = WorkspaceSidebarDropPreviewViewModel(sourceWindowId: 3, label: "three", appName: "Safari",

@@ -72,12 +72,15 @@ final class WorkspaceSidebarTabDragState: ObservableObject {
 @MainActor
 func workspaceSidebarTabSelectionMenuEntries(_ names: [String], workspaces: [WorkspaceSidebarWorkspaceViewModel],
                                              collections: [WorkspaceTabCollection],
+                                             contextProjectId: WorkspaceProjectId? = nil, contextProjectName: String? = nil,
                                              send: @escaping @MainActor (WorkspaceSidebarAction) -> Void,
                                              clear: @escaping @MainActor () -> Void,
                                              suggest: (@MainActor (WorkspaceProjectId, [String]) -> Void)? = nil)
     -> [WorkspaceSidebarAppMenuEntry] {
     let tabs = names.compactMap { name in workspaces.first { $0.name == name } }
-    guard tabs.count > 1, let projectId = tabs.first?.projectId else { return [] }
+    // The project the chosen tabs are listed in: a pin in All Projects is in the one the sidebar shows.
+    guard tabs.count > 1, let projectId = tabs.first(where: { !$0.appearance.isPinnedInAllProjects })?.projectId
+        ?? contextProjectId ?? tabs.first?.projectId else { return [] }
     let names = tabs.map(\.name)
     let act = { (action: WorkspaceSidebarAction) in { clear(); send(action) } }
     let groups = collections.filter { $0.projectId == projectId }
@@ -95,8 +98,16 @@ func workspaceSidebarTabSelectionMenuEntries(_ names: [String], workspaces: [Wor
         .header("\(tabs.count) Tabs"),
         .init(title: allPinned ? "Unpin \(tabs.count) Tabs" : "Pin \(tabs.count) Tabs",
             perform: act(.setTabsFavorite(names, !allPinned))),
-        .init(title: "New Group with \(tabs.count) Tabs", perform: act(.createTabCollectionFromTabs(names))),
     ]
+    // Pinned in All Projects, or back among the pins of the project the sidebar shows.
+    if !tabs.allSatisfy(\.appearance.isPinnedInAllProjects) {
+        entries.append(.init(title: "Pin \(tabs.count) Tabs to All Projects", perform: act(.setTabsPinScope(names, .allProjects, projectId: projectId))))
+    }
+    if tabs.contains(where: \.appearance.isPinnedInAllProjects) {
+        entries.append(.init(title: "Pin \(tabs.count) Tabs to “\(contextProjectName ?? "This Project")” Only",
+            perform: act(.setTabsPinScope(names, nil, projectId: projectId))))
+    }
+    entries.append(.init(title: "New Group with \(tabs.count) Tabs", perform: act(.createTabCollectionFromTabs(names))))
     if !destinations.isEmpty { entries.append(.init(title: "Add to Group", children: destinations)) }
     if let suggest { entries.append(.init(title: workspaceTopicSuggestMenuTitle, perform: { clear(); suggest(projectId, names) })) }
     return entries + [
@@ -114,7 +125,10 @@ func workspaceSidebarTabSelectionMenuEntries(_ names: [String], workspaces: [Wor
 func workspaceSidebarTabSelectionMenu(containing name: String, scope: String? = nil) -> NSMenu? {
     let selection = WorkspaceSidebarTabSelection.shared
     guard config.usesBrowserTabs, selection.isMultiple, selection.contains(name) else { return nil }
-    let projectId = TrayMenuModel.shared.workspaceSidebarWorkspaces.first { $0.name == name }?.projectId
+    // The project the panel shows, which pins in All Projects are listed with.
+    let contextProjectId = Workspace.existing(byName: name).map { workspaceSidebarContextProjectId(for: $0, targetMonitorScopeId: scope) }
+    let projectId = TrayMenuModel.shared.workspaceSidebarWorkspaces.first { $0.name == name }
+        .map { workspaceSidebarListedProjectId($0, contextProjectId: contextProjectId) }
     var suggest: (@MainActor (WorkspaceProjectId, [String]) -> Void)?
     if let projectId, workspaceTopicSuggestionsOffered(projectId: projectId, panelScopeId: scope) {
         suggest = { projectId, names in
@@ -124,7 +138,9 @@ func workspaceSidebarTabSelectionMenu(containing name: String, scope: String? = 
     let entries = workspaceSidebarTabSelectionMenuEntries(selection.names,
         workspaces: TrayMenuModel.shared.workspaceSidebarWorkspaces,
         collections: workspaceSidebarOrganizationStore.state.collections,
-        send: { handleWorkspaceSidebarAction($0) }, clear: { selection.clear() }, suggest: suggest)
+        contextProjectId: contextProjectId,
+        contextProjectName: TrayMenuModel.shared.workspaceSidebarProjects.first { $0.id == contextProjectId }?.displayName,
+        send: { handleWorkspaceSidebarAction($0, targetMonitorScopeId: scope) }, clear: { selection.clear() }, suggest: suggest)
     return entries.isEmpty ? nil : workspaceSidebarNativeAppMenu(entries)
 }
 

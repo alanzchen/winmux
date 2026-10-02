@@ -381,25 +381,42 @@ private func sidebarDragMovesWholePinnedTab(_ windowId: UInt32, subject: WindowD
 @MainActor
 @discardableResult
 private func pinSidebarSource(_ windowId: UInt32, subject: WindowDragSubject, gap: WorkspaceSidebarTabGap?,
-                              monitorScopeId: String? = nil, intent: WorkspaceSidebarDropIntent = .physical,
+                              monitorScopeId: String? = nil, section: WorkspaceSidebarPinSection = .project,
+                              projectId: WorkspaceProjectId? = nil, intent: WorkspaceSidebarDropIntent = .physical,
                               settlingId: UUID? = nil) -> Task<Void, Never>? {
     let movesPin = sidebarDragMovesWholePinnedTab(windowId, subject: subject)
-    let task = runWorkspaceSidebarSession(undoTitle: movesPin ? "Move Tab" : "Pin Tab") {
+    let changesScope = Window.get(byId: windowId).map {
+        sidebarDragChangesPinScope(dragSubjectNode(for: $0, subject: subject), to: section)
+    } == true
+    let title = changesScope ? workspaceSidebarPinScopeUndoTitle(section.scope) : movesPin ? "Move Tab" : "Pin Tab"
+    let task = runWorkspaceSidebarSession(undoTitle: title) {
         defer { if let settlingId { finishWorkspaceSidebarDockLift(id: settlingId) } }
         try intent.checkDestination()
         guard intent.targetIsUnchanged, intent.resolveSource(windowId: windowId, subject: subject) != nil else { return }
-        try applySidebarPinDrop(windowId, subject: subject, gap: gap, monitorScopeId: monitorScopeId,
-            pinGridIsShared: intent.pinGridIsShared)
+        try applySidebarPinDrop(windowId, subject: subject, gap: gap, monitorScopeId: monitorScopeId, section: section,
+            projectId: projectId, pinGridIsShared: intent.pinGridIsShared)
         await updateWorkspaceSidebarModel()
     }
     if task == nil, let settlingId { finishWorkspaceSidebarDockLift(id: settlingId) }
     return task
 }
 
-/// The pin drop's changes, in the session it runs in.
+/// Whether dragging `sourceNode` onto `section`'s pins changes a pin's scope: a whole pinned tab
+/// from the other section's pins, or a tab pinned straight into All Projects.
+@MainActor
+private func sidebarDragChangesPinScope(_ sourceNode: TreeNode, to section: WorkspaceSidebarPinSection) -> Bool {
+    guard let tab = sourceNode.nodeWorkspace else { return false }
+    let movesPin = !workspaceTabDragLeavesWindowsBehind(sourceNode)
+        && workspaceSidebarOrganizationStore.state.workspaces[tab.name]?.isFavorite == true
+    return movesPin ? WorkspaceSidebarPinSection(of: tab) != section : section == .allProjects
+}
+
+/// The pin drop's changes, in the session it runs in. `section` is the pins it goes among, of
+/// `projectId`, the project the list shows.
 @MainActor
 func applySidebarPinDrop(_ windowId: UInt32, subject: WindowDragSubject, gap: WorkspaceSidebarTabGap?,
-                         monitorScopeId: String?, pinGridIsShared: Bool = workspaceSidebarPinGridIsShared()) throws {
+                         monitorScopeId: String?, section: WorkspaceSidebarPinSection = .project,
+                         projectId: WorkspaceProjectId? = nil, pinGridIsShared: Bool = workspaceSidebarPinGridIsShared()) throws {
     guard let sourceWindow = Window.get(byId: windowId) else { return }
     let sourceNode = dragSubjectNode(for: sourceWindow, subject: subject)
     // Pinning saves the tab; don't split a window out first when that can't be saved.
@@ -433,7 +450,13 @@ func applySidebarPinDrop(_ windowId: UInt32, subject: WindowDragSubject, gap: Wo
             syncClosedWindowsCacheToCurrentWorld()
             try moveWorkspaceTabToDisplay(workspace, monitor, focusing: sourceWindow)
         }
-        try pinWorkspaceSidebarTab(workspace, beside: gap)
+        // Into All Projects, or a pin back among the project's pins: still one write of the pins.
+        let isPinned = workspaceSidebarOrganizationStore.state.workspaces[workspace.name]?.isFavorite == true
+        if section == .allProjects || isPinned && WorkspaceSidebarPinSection(of: workspace) != section {
+            try setWorkspaceSidebarTabPinScope(workspace, section.scope, projectId: projectId ?? workspace.projectId, beside: gap)
+        } else {
+            try pinWorkspaceSidebarTab(workspace, beside: gap)
+        }
     } catch {
         before.restore(replacing: WorkspaceSidebarTabUndoSnapshot())
         throw error
@@ -531,12 +554,16 @@ func previewWorkspaceSidebarDrop(_ windowId: UInt32, subject: WindowDragSubject,
         clearWorkspaceSidebarDropPreview()
         return
     }
-    if case .pinnedTabs(let projectId, let gap, let monitorScopeId) = target {
+    if case .pinnedTabs(let projectId, let gap, let monitorScopeId, let section) = target {
         var preview = workspaceSidebarDropPreview(sourceWindow: sourceWindow, subject: subject,
             targetWorkspaceName: nil, targetsNewWorkspace: false, targetProjectId: projectId,
             targetMonitorScopeId: monitorScopeId)
         preview.targetsPinned = true
         preview.targetPinnedGap = gap
+        preview.targetPinSection = section
+        preview.changesPinScope = batch == nil
+            ? sidebarDragChangesPinScope(dragSubjectNode(for: sourceWindow, subject: subject), to: section)
+            : section == .allProjects
         setWorkspaceSidebarDropPreviewIfChanged(preview, owner: owner)
         return
     }
@@ -627,12 +654,13 @@ private func isActionableSidebarDropTarget(
        let tab = sourceNode.nodeWorkspace,
        workspaceTabGapKeepsTabInPlace(tab, projectId: projectId, monitorScopeId: monitorScopeId, gap: gap)
         || !workspaceSidebarDropCanReachDisplay(tab, monitorScopeId: monitorScopeId) { return false }
-    if case .pinnedTabs(let projectId, let gap, let monitorScopeId) = target {
+    if case .pinnedTabs(let projectId, let gap, let monitorScopeId, let section) = target {
         // A window pulled out of a split gets a pinned tab of its own; a whole tab is pinned
-        // unless it already is, and a pinned one moves beside another pin. From another display,
-        // the tab also moves to the display whose pins these are, if it may go there; shared
-        // pins take it nowhere.
-        guard config.usesBrowserTabs, let workspace = sourceNode.nodeWorkspace, workspace.projectId == projectId else { return false }
+        // unless it already is, and a pinned one moves beside another pin, or to the other
+        // section's pins. From another display, the tab also moves to the display whose pins these
+        // are, if it may go there; shared pins take it nowhere.
+        guard config.usesBrowserTabs, let workspace = sourceNode.nodeWorkspace,
+              workspaceIsListed(workspace, inProject: projectId) else { return false }
         if workspaceTabDragLeavesWindowsBehind(sourceNode) {
             // It gets a new tab of its own, which may go to any display that's still there.
             if case .gone = workspaceSidebarDropDisplay(for: workspace, monitorScopeId: monitorScopeId) { return false }
@@ -641,7 +669,8 @@ private func isActionableSidebarDropTarget(
         guard workspaceSidebarPinDropCanReachDisplay(workspace, monitorScopeId: monitorScopeId,
             pinGridIsShared: pinGridIsShared) else { return false }
         if workspaceSidebarOrganizationStore.state.workspaces[workspace.name]?.isFavorite != true { return true }
-        return gap.flatMap { workspacePinnedTabOrder(moving: workspace, beside: $0) } != nil
+        return WorkspaceSidebarPinSection(of: workspace) != section
+            || gap.flatMap { workspacePinnedTabOrder(moving: workspace, beside: $0) } != nil
             || workspaceSidebarPinDropDisplayChange(for: workspace, monitorScopeId: monitorScopeId,
                 pinGridIsShared: pinGridIsShared) != nil
     }
@@ -842,9 +871,21 @@ func saveWorkspaceFromSidebar(_ workspaceName: String) -> Task<Void, Never>? {
 
 @MainActor
 @discardableResult
-func forgetSavedWorkspaceFromSidebar(_ workspaceName: String) -> Task<Void, Never>? {
+func forgetSavedWorkspaceFromSidebar(_ workspaceName: String, targetMonitorScopeId: String? = nil) -> Task<Void, Never>? {
     runWorkspaceSidebarSession {
-        try forgetSavedWorkspaceForSidebar(workspaceName: workspaceName)
+        // Forgetting unpins: a pin in All Projects stays a tab of the project the sidebar shows, as
+        // unpinning it does, rather than of its home, which would hide it there.
+        if let tab = Workspace.existing(byName: workspaceName), workspaceIsPinnedInAllProjects(tab) {
+            let projectId = workspaceSidebarContextProjectId(for: tab, targetMonitorScopeId: targetMonitorScopeId)
+            _ = try withWorkspaceSidebarDropTransaction {
+                if tab.projectId != projectId,
+                   !moveWorkspaceToProject(workspaceName: workspaceName, projectId: projectId, syncsSavedRecord: true) { return false }
+                try forgetSavedWorkspaceForSidebar(workspaceName: workspaceName)
+                return true
+            }
+        } else {
+            try forgetSavedWorkspaceForSidebar(workspaceName: workspaceName)
+        }
         await updateWorkspaceSidebarModel()
     }
 }
@@ -1234,9 +1275,9 @@ func queueWorkspaceSidebarDrop(_ windowId: UInt32, subject: WindowDragSubject, t
         case .tabCollection(let id, let monitorScopeId):
             groupSidebarSource(windowId, collectionId: id, monitorScopeId: monitorScopeId, intent: intent,
                 settlingId: settlingId)
-        case .pinnedTabs(_, let gap, let monitorScopeId):
-            pinSidebarSource(windowId, subject: subject, gap: gap, monitorScopeId: monitorScopeId,
-                intent: intent, settlingId: settlingId)
+        case .pinnedTabs(let projectId, let gap, let monitorScopeId, let section):
+            pinSidebarSource(windowId, subject: subject, gap: gap, monitorScopeId: monitorScopeId, section: section,
+                projectId: projectId, intent: intent, settlingId: settlingId)
         case .workspace(let workspaceName):
             moveSidebarSource(windowId, subject: subject,
                 toWorkspace: workspaceName, tabPlacement: placement, intent: intent, settlingId: settlingId)
