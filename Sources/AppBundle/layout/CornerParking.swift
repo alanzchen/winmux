@@ -120,6 +120,7 @@ extension Window {
             if reassert || cacheDropped {
                 _ = try? await getAxRect()
                 observedJustNow = true
+                try checkCancellation()
                 guard ifStillValid() else { return }
             }
         }

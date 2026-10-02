@@ -412,6 +412,7 @@ func setBlockingRefreshOverridesForTests(
     activeScheduledRefreshEvent = nil
     activeScheduledRefreshRequirements = nil
     pendingRefreshRequest = nil
+    owedHiddenWindowsReassertion = nil
     refreshOverrideForTests = refresh
     normalizeLayoutReasonOverrideForTests = normalizeLayoutReason
 }
@@ -576,12 +577,19 @@ func optimalHideCorner(for monitor: Monitor) -> OptimalHideCorner {
 @MainActor
 private var workspaceLayoutGeneration: UInt64 = 0
 
-/// Whether this session must re-park hidden windows even where WinMux believes them parked:
-/// wake and startup always; a settled display change only while no newer change has arrived.
+/// A reassertion a session asked for that no complete layout pass has carried out yet. A newer
+/// pass can supersede the one that asked (a command's layout during a settled refresh's); the
+/// next pass to complete re-parks instead.
+@MainActor
+private var owedHiddenWindowsReassertion: HiddenWindowsReassertion? = nil
+
+/// Whether this pass must re-park hidden windows even where WinMux believes them parked: wake
+/// and startup always; a settled display change only while no newer change has arrived.
 @MainActor
 func sessionRequiresHiddenWindowsReassertion() -> Bool {
-    refreshSessionRequirements?.hiddenWindowsReassertion?
-        .applies(atTopologyGeneration: MonitorConfigurationObserver.shared.topologyGeneration) == true
+    let topology = MonitorConfigurationObserver.shared.topologyGeneration
+    return refreshSessionRequirements?.hiddenWindowsReassertion?.applies(atTopologyGeneration: topology) == true ||
+        owedHiddenWindowsReassertion?.applies(atTopologyGeneration: topology) == true
 }
 
 /// Parks a window that must not be seen (an inactive workspace's window, an inactive tab, a
@@ -618,6 +626,10 @@ func layoutWorkspaces() async throws {
         }
         return
     }
+    if let requested = refreshSessionRequirements?.hiddenWindowsReassertion {
+        owedHiddenWindowsReassertion = requested.union(owedHiddenWindowsReassertion)
+    }
+    let owedAtStart = owedHiddenWindowsReassertion
     let layoutMonitors = monitors
     let topologyGeneration = MonitorConfigurationObserver.shared.topologyGeneration
     let presentation = layoutMonitors.map { (rect: $0.rect, visibleRect: $0.visibleRect, workspace: $0.activeWorkspace) }
@@ -682,6 +694,8 @@ func layoutWorkspaces() async throws {
             }
         }
     }
+    // Carried out, unless a session asked for more while this pass ran.
+    if owedHiddenWindowsReassertion == owedAtStart { owedHiddenWindowsReassertion = nil }
 }
 
 @MainActor

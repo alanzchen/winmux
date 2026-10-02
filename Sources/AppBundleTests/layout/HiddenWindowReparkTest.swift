@@ -837,6 +837,73 @@ final class HiddenWindowReparkTest: XCTestCase {
         XCTAssertTrue(builtin.rect.contains(floating.nativeRect.topLeftCorner))
     }
 
+    func testASettledReparkSupersededByANewerLayoutIsCarriedOutByIt() async throws {
+        let hidden = hiddenWindows(2)
+        try await settle([builtin], hidden: hidden)
+        for window in hidden { window.silentlyMove(to: CGPoint(x: 0, y: 33)) }
+        let held = expectation(description: "settled pass reading a parked window")
+        hidden[0].holdNextRead = true
+        hidden[0].onReadHeld = { held.fulfill() }
+        let settledPass = Task { try await pass(settled) }
+        await fulfillment(of: [held], timeout: 2)
+        // A command's layout runs meanwhile and supersedes the settled pass.
+        try await pass(.hotkeyBinding)
+        assertHidden(hidden, on: builtin, "the newer pass re-parks on the settled refresh's behalf")
+        hidden[0].readGate?.resume()
+        try await settledPass.value
+        assertHidden(hidden, on: builtin)
+        let confirmation = try await cost(hidden) { try await pass(.hotkeyBinding) }
+        XCTAssertEqual(confirmation.reads, 2, "Confirms the re-parks")
+        let idle = try await cost(hidden) { for _ in 0 ..< 3 { try await pass(.hotkeyBinding) } }
+        XCTAssertEqual(idle.reads + idle.writes, 0, "Owed only until a pass completes: no more re-reads")
+    }
+
+    func testAStaleFullscreenPassDoesNotOverwriteANewerLayout() async throws {
+        connect([builtin])
+        let workspace = focus.workspace
+        let root = workspace.rootTilingContainer
+        let other = window(21, in: root, Rect(topLeftX: 0, topLeftY: 33, width: 756, height: 949))
+        let fullscreen = window(20, in: root, Rect(topLeftX: 756, topLeftY: 33, width: 756, height: 949))
+        fullscreen.isFullscreen = true
+        fullscreen.markAsMostRecentChild()
+        let held = expectation(description: "fullscreen pass parking the other window")
+        other.holdNextRead = true
+        other.onReadHeld = { held.fulfill() }
+        let older = Task { try await workspace.layoutWorkspace() }
+        await fulfillment(of: [held], timeout: 2)
+        // A command leaves fullscreen and a newer layout tiles both windows.
+        fullscreen.isFullscreen = false
+        try await workspace.layoutWorkspace()
+        let tiled = fullscreen.nativeRect
+        XCTAssertLessThan(tiled.width, builtin.visibleRect.width)
+        other.readGate?.resume()
+        try await older.value
+        XCTAssertEqual(fullscreen.nativeRect, tiled, "The stale pass doesn't apply its fullscreen frame")
+        XCTAssertFalse(other.isHiddenInCorner)
+    }
+
+    func testAStalePassDoesNotShowATileANewerLayoutHid() async throws {
+        connect([builtin])
+        let (_, inactive) = tabGroup()
+        let tile = window(30, in: focus.workspace.rootTilingContainer, Rect(topLeftX: 5, topLeftY: 50, width: 300, height: 300))
+        try await pass(.globalObserverLeftMouseUp)
+        try await pass(.globalObserverLeftMouseUp)
+        let held = expectation(description: "older pass re-reading a parked tab")
+        inactive[0].holdNextRead = true
+        inactive[0].onReadHeld = { held.fulfill() }
+        let older = Task { try await pass(.globalObserver(wake)) }
+        await fulfillment(of: [held], timeout: 2)
+        // A command moves the tile to another workspace; a newer layout parks it.
+        tile.bind(to: Workspace.get(byName: "elsewhere").rootTilingContainer, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
+        try await pass(.hotkeyBinding)
+        assertHidden([tile], on: builtin)
+        let submissions = tile.frameSubmissions
+        inactive[0].readGate?.resume()
+        try await older.value
+        XCTAssertEqual(tile.frameSubmissions, submissions, "The stale pass doesn't lay the tile out again")
+        assertHidden([tile], on: builtin)
+    }
+
     func testParkingStateBoundsRetriesIndependentlyOfTheFrameCache() {
         var parking = HiddenWindowParking()
         let rect = builtin.visibleRect

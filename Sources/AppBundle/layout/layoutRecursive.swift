@@ -25,8 +25,10 @@ extension Workspace {
             try await hideAllWindowsExcept(tabGroup, context) { [rootTilingContainer] in
                 rootTilingContainer.allTabbedContainersRecursive.first(where: \.hasFullscreenTab) === tabGroup
             }
-            // Parking suspends in AX calls: don't lay out against displays that changed since.
-            guard context.isTopologyCurrent() else { return }
+            // Parking suspends in AX calls: don't lay out against displays that changed since, or
+            // over a newer layout.
+            try checkCancellation()
+            guard context.isStillCurrent() else { return }
             try await tabGroup.layoutRecursive(rect.topLeftCorner, width: rect.width, height: rect.height, virtual: rect, context)
             return
         }
@@ -38,7 +40,8 @@ extension Workspace {
             try await hideAllWindowsExcept(fullscreenWindow, context) { [rootTilingContainer] in
                 fullscreenWindow.isFullscreen && rootTilingContainer.mostRecentWindowRecursive === fullscreenWindow
             }
-            guard context.isTopologyCurrent() else { return }
+            try checkCancellation()
+            guard context.isStillCurrent() else { return }
             fullscreenWindow.lastAppliedLayoutVirtualRect = rect
             fullscreenWindow.lastAppliedLayoutPhysicalRect = nil
             fullscreenWindow.layoutFullscreen(context)
@@ -67,8 +70,8 @@ extension TreeNode {
                     try await window.layoutFloatingWindow(context)
                 }
             case .window(let window):
-                // An earlier sibling's park may have suspended across a display change.
-                guard context.isTopologyCurrent() else { return }
+                // An earlier sibling's park may have suspended across a display change or a newer layout.
+                guard context.isStillCurrent() else { return }
                 if window.windowId != currentlyManipulatedWithMouseWindowId || isPinnedDraggedWindow(window.windowId) {
                     let previousPhysicalRect = lastAppliedLayoutPhysicalRect
                     lastAppliedLayoutVirtualRect = virtual
@@ -140,18 +143,20 @@ private struct LayoutContext {
         self.layoutPassGeneration = workspaceLayoutPassGeneration
     }
 
-    /// A display change since this layout began makes its geometry stale.
+    /// A display change or a newer layout since this one began makes it stale: its geometry,
+    /// what it shows and what it hides.
     @MainActor
-    func isTopologyCurrent() -> Bool {
-        MonitorConfigurationObserver.shared.topologyGeneration == topologyGeneration
+    func isStillCurrent() -> Bool {
+        MonitorConfigurationObserver.shared.topologyGeneration == topologyGeneration &&
+            workspaceLayoutPassGeneration == layoutPassGeneration
     }
 
-    /// Parks a window this layout hides, unless the displays changed, a newer layout took over,
-    /// or (`stillHidden`) what this layout shows changed while a park awaited AX.
+    /// Parks a window this layout hides, unless the layout is stale or (`stillHidden`) what it
+    /// shows changed while a park awaited AX.
     @MainActor
     func park(_ window: Window, stillHidden: () -> Bool) async throws {
         try await parkHiddenWindow(window, in: hideCorner, reasserting: reassertHiddenWindows) {
-            isTopologyCurrent() && workspaceLayoutPassGeneration == layoutPassGeneration && stillHidden()
+            isStillCurrent() && stillHidden()
         }
     }
 }
@@ -171,7 +176,7 @@ extension Window {
         }
         let workspace = context.workspace
         let windowRect = try await getAxRect() // Probably not idempotent
-        guard context.isTopologyCurrent() else { return }
+        guard context.isStillCurrent() else { return }
         let currentMonitor = windowRect?.center.monitorApproximation
         if let currentMonitor, let windowRect, workspace != currentMonitor.activeWorkspace {
             let windowTopLeftCorner = windowRect.topLeftCorner
@@ -200,7 +205,7 @@ extension Window {
 
     @MainActor
     fileprivate func layoutFullscreen(_ context: LayoutContext) {
-        guard context.isTopologyCurrent() else { return }
+        guard context.isStillCurrent() else { return }
         let monitorRect = noOuterGapsInFullscreen
             ? context.workspace.workspaceMonitor.visibleRect
             : context.workspace.workspaceMonitor.visibleRectPaddedByOuterGaps
