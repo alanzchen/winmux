@@ -128,6 +128,10 @@ final class PinReopenRestoreRaceTest: XCTestCase {
         XCTAssertTrue(focus.windowOrNil === reopened, "The user hadn't moved on")
         XCTAssertTrue(pin.isVisible)
         XCTAssertEqual(activeFrozenRestoreCount, 0)
+
+        // Once finished, the snapshots remember it in the pin: restoring the cache again leaves it there.
+        _ = try await restoreClosedWindowsCacheIfNeeded(newlyDetectedWindow: other)
+        XCTAssertTrue(reopened.nodeWorkspace === pin)
     }
 
     func testAPopupClaimedWhileARestoreReadsItIsLeftWhereTheClaimPutIt() async throws {
@@ -171,6 +175,46 @@ final class PinReopenRestoreRaceTest: XCTestCase {
         XCTAssertTrue(reopened.nodeWorkspace === pin)
         XCTAssertFalse(reopened.isFullscreen, "The old snapshot's state isn't applied to it")
         XCTAssertFalse(reopened.isFloating)
+    }
+
+    func testARestoreLeavesAClaimedWindowItRemembersFloatingOrHiddenAloneWithoutReadingIt() async throws {
+        for remembered in ["floating", "hidden"] {
+            setUpWorkspacesForTests()
+            resetRegistry()
+            let old = Workspace.get(byName: "old")
+            let pin = Workspace.get(byName: "pin")
+            let reopened = TestWindow.new(id: 2, parent: old.rootTilingContainer)
+            if remembered == "floating" {
+                reopened.bindAsFloatingWindow(to: old)
+            } else {
+                reopened.bind(to: old.macOsNativeHiddenAppsWindowsContainer, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
+            }
+            let anchor = TestWindow.new(id: 1, parent: old.rootTilingContainer)
+            let snapshot = snapshotCurrentFrozenWorld()
+            reopened.unbindFromParent()
+            _ = pin.focusWorkspace()
+            beginFrozenRestore()
+            clickPin(pin) { _ in }
+            await letTasksRun()
+            try await appShows(reopened)
+            let readsBefore = reopened.nativeStateFetchCount
+
+            _ = try await restoreFrozenWorldIfNeeded(snapshot, newlyDetectedWindow: anchor)
+            XCTAssertTrue(reopened.nodeWorkspace === pin, "Remembered \(remembered) in old; claimed for the pin")
+            XCTAssertFalse(reopened.isFloating)
+            XCTAssertEqual(reopened.nativeStateFetchCount, readsBefore, "No AX reads for a window the restore leaves alone")
+            endFrozenRestore()
+        }
+    }
+
+    func testAWithdrawnClaimNoLongerKeepsRestoresAway() throws {
+        let pin = Workspace.get(byName: "pin")
+        let window = TestWindow.new(id: 2, parent: pin.rootTilingContainer)
+        let intentId = try XCTUnwrap(clickPin(pin) { _ in })
+        XCTAssertNotNil(registry.claim(windowId: 2, pid: pid, bundleId: appId, firstSeenUptime: clock))
+        XCTAssertTrue(registry.holdsReopenClaim(on: window))
+        registry.cancel(intentId: intentId)
+        XCTAssertFalse(registry.holdsReopenClaim(on: window), "Withdrawn: the usual rules, restores included")
     }
 
     func testAReopenWaitsForTheLastOfOverlappingRestores() async throws {
@@ -385,6 +429,18 @@ final class PinReopenRestoreRaceTest: XCTestCase {
         endFrozenRestore()
         XCTAssertTrue(reopened.nodeWorkspace === old, "Not moved into the pin")
         XCTAssertEqual(outcomes, [.cancelled])
+
+        // Even one a stale restore left in the pin itself isn't reported as placed.
+        resetRegistry()
+        var again: [NewWindowRequestOutcome] = []
+        beginFrozenRestore()
+        clickPin(pin) { again.append($0) }
+        await letTasksRun()
+        reopened.unbindFromParent()
+        try await appShows(reopened)
+        registry.isRegistered = { $0 !== reopened }
+        endFrozenRestore()
+        XCTAssertEqual(again, [.cancelled])
     }
 
     func testMovingOnWhileTheReopenWaitsKeepsTheUserThereAndStillPlacesTheWindow() async throws {
@@ -420,6 +476,23 @@ final class PinReopenRestoreRaceTest: XCTestCase {
         XCTAssertNil(savedTabAppFailureMessage(.cancelled, appName: "Probe"))
         XCTAssertTrue(reopened.nodeWorkspace === old, "Left where it is")
         XCTAssertNil(Workspace.existing(byName: "pin"), "Never recreated")
+    }
+
+    func testATabRemovedWithTheWindowStillInItReportsNothing() async throws {
+        let (_, pin, _, _, reopened, _, _) = closedWorld()
+        let elsewhere = Workspace.get(byName: "elsewhere")
+        let stay = TestWindow.new(id: 7, parent: elsewhere.rootTilingContainer)
+        var outcomes: [NewWindowRequestOutcome] = []
+        beginFrozenRestore()
+        clickPin(pin) { outcomes.append($0) }
+        await letTasksRun()
+        try await appShows(reopened)
+        _ = stay.focusWindow()
+        removeWorkspaceFromRegistry(pin, reason: .deleted)
+
+        endFrozenRestore()
+        XCTAssertEqual(outcomes, [.cancelled], "Not placed in a tab that's gone")
+        XCTAssertTrue(focus.windowOrNil === stay)
     }
 
     func testAReopenClaimedInsideARestoresOwnPathFinishesAsThatRestoreEnds() async throws {
