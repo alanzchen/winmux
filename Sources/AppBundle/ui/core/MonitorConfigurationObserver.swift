@@ -1,4 +1,5 @@
 import AppKit
+import Common
 
 @MainActor
 final class MonitorConfigurationObserver {
@@ -15,7 +16,7 @@ final class MonitorConfigurationObserver {
     private init() {}
 
     func prepareForStartup() {
-        refreshMonitorPolicy(refreshReason: "MonitorConfigurationObserver.prepareForStartup")
+        refreshMonitorPolicy(.globalObserver("MonitorConfigurationObserver.prepareForStartup"))
     }
 
     func startObserving() {
@@ -31,31 +32,36 @@ final class MonitorConfigurationObserver {
         }
     }
 
-    private func handleScreenParametersChanged() {
+    /// Lays out for the new displays at once, then, once displays have stopped changing for
+    /// `settleDelay`, refreshes again and re-parks hidden windows: macOS may still have moved
+    /// them after the first pass (it relocates windows off a display that's gone).
+    func handleScreenParametersChanged(settleDelay: Duration = .milliseconds(750)) {
         topologyGeneration &+= 1
         isSettling = true
-        refreshMonitorPolicy(refreshReason: NSApplication.didChangeScreenParametersNotification.rawValue)
-        scheduleSettledRefresh()
+        refreshMonitorPolicy(.globalObserver(NSApplication.didChangeScreenParametersNotification.rawValue))
+        scheduleSettledRefresh(after: settleDelay)
     }
 
     func noteDisplayChangeForTests() { topologyGeneration &+= 1 }
 
-    private func refreshMonitorPolicy(refreshReason: String) {
+    private func refreshMonitorPolicy(_ event: RefreshSessionEvent) {
         WorkspaceSidebarPanel.refreshAll()
         WindowTabStripPanelController.shared.refresh()
         if TrayMenuModel.shared.isEnabled {
-            scheduleRefreshSession(.globalObserver(refreshReason))
+            scheduleRefreshSession(event)
         }
     }
 
-    private func scheduleSettledRefresh() {
+    private func scheduleSettledRefresh(after delay: Duration) {
         screenChangeGeneration += 1
         let generation = screenChangeGeneration
         Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 750_000_000)
+            try? await Task.sleep(for: delay)
+            // A newer change has its own settled refresh coming.
             guard generation == screenChangeGeneration else { return }
             isSettling = false
-            refreshMonitorPolicy(refreshReason: "\(NSApplication.didChangeScreenParametersNotification.rawValue).settled")
+            // Stale (and so not re-parking) if the displays changed again before it runs.
+            refreshMonitorPolicy(.displayTopologySettled(generation: topologyGeneration))
         }
     }
 }

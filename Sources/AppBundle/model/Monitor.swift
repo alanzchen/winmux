@@ -9,6 +9,7 @@ private struct MonitorImpl {
     let visibleRect: Rect
     let isMain: Bool
     var displayIdentity: MonitorDisplayIdentity? = nil
+    var isFallbackMonitor = false
 }
 
 extension MonitorImpl: Monitor {
@@ -28,10 +29,14 @@ protocol Monitor: WinMuxAny {
     var isMain: Bool { get }
     /// Stable physical identity. nil for fake monitors and while displays reconfigure.
     var displayIdentity: MonitorDisplayIdentity? { get }
+    /// A placeholder standing in while macOS reports no screens at all (mid-reconfiguration).
+    /// Its geometry is made up: nothing may be laid out or parked against it.
+    var isFallbackMonitor: Bool { get }
 }
 
 extension Monitor {
     var displayIdentity: MonitorDisplayIdentity? { nil }
+    var isFallbackMonitor: Bool { false }
 }
 
 final class LazyMonitor: Monitor {
@@ -114,6 +119,15 @@ private let testMonitor = MonitorImpl(
     visibleRect: testMonitorRect,
     isMain: true,
 )
+/// Stands in for the display list while `NSScreen.screens` is empty.
+private let fallbackMonitor = MonitorImpl(
+    monitorAppKitNsScreenScreensId: 1,
+    name: "No Display",
+    rect: testMonitorRect,
+    visibleRect: testMonitorRect,
+    isMain: true,
+    isFallbackMonitor: true,
+)
 nonisolated(unsafe) private var monitorsOverrideForTests: [Monitor]? = nil
 
 @MainActor
@@ -135,7 +149,7 @@ var mainMonitor: Monitor {
     // return screens.first or testMonitor to avoid crash
     let primary = screens.withIndex.singleOrNil(where: \.value.isMainScreen)
     let screen = primary ?? screens.first.map { (0, $0) }
-    guard let screen else { return testMonitor }
+    guard let screen else { return fallbackMonitor }
     let monitor = LazyMonitor(monitorAppKitNsScreenScreensId: screen.index + 1, isMain: true, screen.value)
     // A temporary reconfiguration fallback is usable for this call, but must
     // not become the cached primary if the next query can resolve the real one.
@@ -180,13 +194,18 @@ var monitors: [Monitor] {
     installMonitorCacheObserverIfNeeded()
     if let cached = monitorsCache { return cached }
     let computed = computeMonitors()
-    monitorsCache = computed
+    // The placeholder for "no screens" must not outlive the moment screens come back.
+    if !computed.contains(where: \.isFallbackMonitor) { monitorsCache = computed }
     return computed
 }
 
+/// False while every display is gone and `monitors` holds only the placeholder.
+var hasRealMonitorTopology: Bool { !monitors.contains(where: \.isFallbackMonitor) }
+
 var sortedMonitors: [Monitor] {
     if Thread.isMainThread, !isUnitTest, let cached = sortedMonitorsCache { return cached }
-    let sorted = monitors.sorted {
+    let current = monitors
+    let sorted = current.sorted {
         if $0.rect.minX != $1.rect.minX {
             return $0.rect.minX < $1.rect.minX
         }
@@ -195,6 +214,6 @@ var sortedMonitors: [Monitor] {
         }
         return $0.monitorAppKitNsScreenScreensId < $1.monitorAppKitNsScreenScreensId
     }
-    if Thread.isMainThread, !isUnitTest { sortedMonitorsCache = sorted }
+    if Thread.isMainThread, !isUnitTest, !current.contains(where: \.isFallbackMonitor) { sortedMonitorsCache = sorted }
     return sorted
 }

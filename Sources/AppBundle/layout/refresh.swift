@@ -7,6 +7,10 @@ private var activeRefreshTask: Task<(), any Error>? = nil
 @MainActor
 private var activeScheduledRefreshEvent: RefreshSessionEvent? = nil
 
+/// What the active scheduled session runs for: the union of every event it coalesced.
+@MainActor
+private var activeScheduledRefreshRequirements: RefreshSessionRequirements? = nil
+
 @MainActor
 private var activeScheduledRefreshGeneration: UInt64 = 0
 
@@ -56,11 +60,29 @@ func shouldSyncFocusBackToMacOs(
     return true
 }
 
-@MainActor
-private var pendingRefreshRequest: (event: RefreshSessionEvent, optimisticallyPreLayoutWorkspaces: Bool, activatedAppPid: Int32?)? = nil
+private struct PendingRefreshRequest {
+    var event: RefreshSessionEvent
+    /// The union of every coalesced event's requirements; `event` alone may need less.
+    var requirements: RefreshSessionRequirements
+    var optimisticallyPreLayoutWorkspaces: Bool
+    var activatedAppPid: Int32?
 
-/// When two refresh requests coalesce, keep the event whose session does more work, so the
-/// follow-up session covers the requirements of every event that arrived while one was running.
+    mutating func absorb(_ event: RefreshSessionEvent, _ requirements: RefreshSessionRequirements,
+                         optimisticallyPreLayoutWorkspaces: Bool, activatedAppPid: Int32?)
+    {
+        self.event = mergeRefreshEvents(self.event, event)
+        self.requirements = self.requirements.union(requirements)
+        self.optimisticallyPreLayoutWorkspaces = self.optimisticallyPreLayoutWorkspaces || optimisticallyPreLayoutWorkspaces
+        self.activatedAppPid = activatedAppPid ?? self.activatedAppPid
+    }
+}
+
+@MainActor
+private var pendingRefreshRequest: PendingRefreshRequest? = nil
+
+/// When two refresh requests coalesce, keep the event whose session does more work as the one
+/// the session reports. What the session must do is the union of their requirements, kept
+/// separately, so no event's requirement is lost to the other.
 private func mergeRefreshEvents(_ old: RefreshSessionEvent, _ new: RefreshSessionEvent) -> RefreshSessionEvent {
     func score(_ e: RefreshSessionEvent) -> Int {
         (e.requiresWindowRefreshBarrier ? 2 : 0) + (e.canReuseLastAppliedWindowFrames ? 0 : 1)
@@ -74,8 +96,22 @@ func scheduleRefreshSession(
     optimisticallyPreLayoutWorkspaces: Bool = false,
     activatedAppPid activationPid: Int32? = nil,
 ) {
-    if shouldDropScheduledRefresh(event, activeEvent: activeScheduledRefreshEvent) ||
-        shouldDropScheduledRefresh(event, activeEvent: pendingRefreshRequest?.event)
+    scheduleRefreshSession(event, requirements: event.requirements,
+                           optimisticallyPreLayoutWorkspaces: optimisticallyPreLayoutWorkspaces, activatedAppPid: activationPid)
+}
+
+@MainActor
+private func scheduleRefreshSession(
+    _ event: RefreshSessionEvent,
+    requirements: RefreshSessionRequirements,
+    optimisticallyPreLayoutWorkspaces: Bool,
+    activatedAppPid activationPid: Int32?,
+) {
+    // A dropped event's requirements must already be covered by the session it defers to.
+    if shouldDropScheduledRefresh(event, activeEvent: activeScheduledRefreshEvent) &&
+        activeScheduledRefreshRequirements.map({ $0.union(requirements) == $0 }) == true ||
+        shouldDropScheduledRefresh(event, activeEvent: pendingRefreshRequest?.event) &&
+        pendingRefreshRequest.map({ $0.requirements.union(requirements) == $0.requirements }) == true
     {
         debugFocusLog("scheduleRefreshSession dropped event=\(event) active=\(activeScheduledRefreshEvent?.description ?? "nil") pending=\(pendingRefreshRequest?.event.description ?? "nil")")
         return
@@ -85,14 +121,13 @@ func scheduleRefreshSession(
     // and never completed until the burst quieted down. Let the active session finish, then
     // run a single follow-up session on behalf of all events that arrived in the meantime.
     if activeRefreshTask != nil {
-        pendingRefreshRequest = pendingRefreshRequest.map {
-            (mergeRefreshEvents($0.event, event), $0.optimisticallyPreLayoutWorkspaces || optimisticallyPreLayoutWorkspaces, activationPid ?? $0.activatedAppPid)
-        } ?? (event, optimisticallyPreLayoutWorkspaces, activationPid)
+        queuePendingRefresh(event, requirements, optimisticallyPreLayoutWorkspaces: optimisticallyPreLayoutWorkspaces, activatedAppPid: activationPid)
         return
     }
     activeScheduledRefreshGeneration += 1
     let generation = activeScheduledRefreshGeneration
     activeScheduledRefreshEvent = event
+    activeScheduledRefreshRequirements = requirements
     let override = scheduledRefreshOverrideForTests
     activeRefreshTask = Task { @MainActor in
         defer {
@@ -101,18 +136,25 @@ func scheduleRefreshSession(
             if activeScheduledRefreshGeneration == generation {
                 activeRefreshTask = nil
                 activeScheduledRefreshEvent = nil
+                activeScheduledRefreshRequirements = nil
                 if let pending = pendingRefreshRequest {
                     pendingRefreshRequest = nil
-                    scheduleRefreshSession(pending.event, optimisticallyPreLayoutWorkspaces: pending.optimisticallyPreLayoutWorkspaces, activatedAppPid: pending.activatedAppPid)
+                    scheduleRefreshSession(pending.event, requirements: pending.requirements,
+                                           optimisticallyPreLayoutWorkspaces: pending.optimisticallyPreLayoutWorkspaces,
+                                           activatedAppPid: pending.activatedAppPid)
                 }
             }
         }
         do {
             try checkCancellation()
             if let override {
-                try await override(event, optimisticallyPreLayoutWorkspaces, activationPid)
+                try await $refreshSessionRequirementsOverride.withValue(requirements) {
+                    try await override(event, optimisticallyPreLayoutWorkspaces, activationPid)
+                }
             } else {
-                try await runRefreshSessionBlocking(event, optimisticallyPreLayoutWorkspaces: optimisticallyPreLayoutWorkspaces, activatedAppPid: activationPid)
+                try await runRefreshSessionBlocking(event, requirements: requirements,
+                                                    optimisticallyPreLayoutWorkspaces: optimisticallyPreLayoutWorkspaces,
+                                                    activatedAppPid: activationPid)
             }
         } catch is CancellationError {
             return
@@ -121,12 +163,31 @@ func scheduleRefreshSession(
 }
 
 @MainActor
+private func queuePendingRefresh(
+    _ event: RefreshSessionEvent,
+    _ requirements: RefreshSessionRequirements,
+    optimisticallyPreLayoutWorkspaces: Bool,
+    activatedAppPid: Int32?,
+) {
+    if pendingRefreshRequest == nil {
+        pendingRefreshRequest = PendingRefreshRequest(event: event, requirements: requirements,
+                                                      optimisticallyPreLayoutWorkspaces: optimisticallyPreLayoutWorkspaces,
+                                                      activatedAppPid: activatedAppPid)
+    } else {
+        pendingRefreshRequest?.absorb(event, requirements, optimisticallyPreLayoutWorkspaces: optimisticallyPreLayoutWorkspaces,
+                                      activatedAppPid: activatedAppPid)
+    }
+}
+
+@MainActor
 func runRefreshSessionBlocking(
     _ event: RefreshSessionEvent,
+    requirements: RefreshSessionRequirements? = nil,
     layoutWorkspaces shouldLayoutWorkspaces: Bool = true,
     optimisticallyPreLayoutWorkspaces: Bool = false,
     activatedAppPid activationPid: Int32? = nil,
 ) async throws {
+    let requirements = requirements ?? event.requirements
     workspaceInteractionSessionGeneration &+= 1
     let state = signposter.beginInterval(#function, "event: \(event) axTaskLocalAppThreadToken: \(axTaskLocalAppThreadToken?.idForDebug)")
     defer { signposter.endInterval(#function, state) }
@@ -142,6 +203,7 @@ func runRefreshSessionBlocking(
     )
     try await $newFloatingWindowPresentation.withValue(presentation) {
         try await $refreshSessionEvent.withValue(event) {
+            try await $refreshSessionRequirementsOverride.withValue(requirements) {
             try await $_isStartup.withValue(event.isStartup) {
                 try await $_refreshSessionFocusSnapshot.withValue(focusSnapshot) {
                     let frontmostApplication = NSWorkspace.shared.frontmostApplication
@@ -166,7 +228,7 @@ func runRefreshSessionBlocking(
                     try checkCancellation()
 
                     refreshModel()
-                    if event.requiresWindowRefreshBarrier {
+                    if requirements.windowRefreshBarrier {
                         if let refreshOverrideForTests {
                             try await refreshOverrideForTests()
                         } else {
@@ -176,7 +238,7 @@ func runRefreshSessionBlocking(
                         gcMonitors()
                     }
 
-                    if event.requiresLayoutReasonNormalization {
+                    if requirements.layoutReasonNormalization {
                         if let normalizeLayoutReasonOverrideForTests {
                             try await normalizeLayoutReasonOverrideForTests()
                         } else {
@@ -223,6 +285,7 @@ func runRefreshSessionBlocking(
                     debugFocusLog("runRefreshSessionBlocking end event=\(event) nativeFocused=\(nativeFocused?.windowId.description ?? "nil") focus=\(debugDescribe(focus))")
                 }
             }
+            }
         }
     }
 }
@@ -240,8 +303,27 @@ func runLightSession<T>(
     workspaceInteractionSessionGeneration &+= 1
     let state = signposter.beginInterval(#function, "event: \(event) axTaskLocalAppThreadToken: \(axTaskLocalAppThreadToken?.idForDebug)")
     defer { signposter.endInterval(#function, state) }
-    activeRefreshTask?.cancel() // Give priority to runSession
+    // Give priority to runSession. The cancelled session's work is still owed (a settled
+    // display's re-park, say): the post-refresh runs it too, or, if this session ends without
+    // one, it waits as the pending request.
+    var cancelledSession: (event: RefreshSessionEvent, requirements: RefreshSessionRequirements)? =
+        activeRefreshTask == nil ? nil : activeScheduledRefreshEvent.flatMap { event in activeScheduledRefreshRequirements.map { (event, $0) } }
+    defer {
+        if let cancelledSession {
+            queuePendingRefresh(cancelledSession.event, cancelledSession.requirements, optimisticallyPreLayoutWorkspaces: false, activatedAppPid: nil)
+        }
+        // Without a post-refresh (this session threw), no running session would drain it.
+        if activeRefreshTask == nil, let pending = pendingRefreshRequest {
+            pendingRefreshRequest = nil
+            scheduleRefreshSession(pending.event, requirements: pending.requirements,
+                                   optimisticallyPreLayoutWorkspaces: pending.optimisticallyPreLayoutWorkspaces,
+                                   activatedAppPid: pending.activatedAppPid)
+        }
+    }
+    activeRefreshTask?.cancel()
     activeRefreshTask = nil
+    activeScheduledRefreshEvent = nil
+    activeScheduledRefreshRequirements = nil
     // Invalidate the cancelled task's generation so its defer doesn't spawn a coalesced
     // follow-up session in the middle of this light session. The post-refresh scheduled at
     // the end of the light session (or any later event) picks the pending request up instead.
@@ -253,6 +335,8 @@ func runLightSession<T>(
     let presentation = NewFloatingWindowPresentation(isStartup: event.isStartup, frontmostAppPid: NSWorkspace.shared.frontmostApplication?.processIdentifier)
     return try await $newFloatingWindowPresentation.withValue(presentation) {
         return try await $refreshSessionEvent.withValue(event) {
+            // Runs for its own event, never for a scheduled session it may be called from.
+            try await $refreshSessionRequirementsOverride.withValue(nil) {
             try await $_isStartup.withValue(event.isStartup) {
                 try await $_refreshSessionFocusSnapshot.withValue(focusSnapshot) {
                     let nativeObservation = try await getNativeFocusObservation()
@@ -293,11 +377,14 @@ func runLightSession<T>(
                         focusAfter?.nativeFocus() // syncFocusToMacOs
                     }
                     if shouldSchedulePostRefresh {
-                        scheduleRefreshSession(event)
+                        scheduleRefreshSession(event, requirements: cancelledSession.map { event.requirements.union($0.requirements) } ?? event.requirements,
+                                               optimisticallyPreLayoutWorkspaces: false, activatedAppPid: nil)
+                        cancelledSession = nil
                     }
                     debugFocusLog("runLightSession end event=\(event) nativeFocused=\(nativeFocused?.windowId.description ?? "nil") focusBefore=\(focusBefore?.windowId.description ?? "nil") focusAfter=\(focusAfter?.windowId.description ?? "nil") logicalFocus=\(debugDescribe(focus))")
                     return result
                 }
+            }
             }
         }
     }
@@ -310,6 +397,7 @@ func setScheduledRefreshOverrideForTests(
     activeRefreshTask?.cancel()
     activeRefreshTask = nil
     activeScheduledRefreshEvent = nil
+    activeScheduledRefreshRequirements = nil
     pendingRefreshRequest = nil
     scheduledRefreshOverrideForTests = override
 }
@@ -322,7 +410,9 @@ func setBlockingRefreshOverridesForTests(
     activeRefreshTask?.cancel()
     activeRefreshTask = nil
     activeScheduledRefreshEvent = nil
+    activeScheduledRefreshRequirements = nil
     pendingRefreshRequest = nil
+    owedHiddenWindowsReassertion = nil
     refreshOverrideForTests = refresh
     normalizeLayoutReasonOverrideForTests = normalizeLayoutReason
 }
@@ -487,10 +577,42 @@ func optimalHideCorner(for monitor: Monitor) -> OptimalHideCorner {
 @MainActor
 private var workspaceLayoutGeneration: UInt64 = 0
 
+/// A reassertion a session asked for that no complete layout pass has carried out yet. A newer
+/// pass can supersede the one that asked (a command's layout during a settled refresh's); the
+/// next pass to complete re-parks instead.
+@MainActor
+private var owedHiddenWindowsReassertion: HiddenWindowsReassertion? = nil
+
+/// Whether this pass must re-park hidden windows even where WinMux believes them parked: wake
+/// and startup always; a settled display change only while no newer change has arrived.
+@MainActor
+func sessionRequiresHiddenWindowsReassertion() -> Bool {
+    let topology = MonitorConfigurationObserver.shared.topologyGeneration
+    return refreshSessionRequirements?.hiddenWindowsReassertion?.applies(atTopologyGeneration: topology) == true ||
+        owedHiddenWindowsReassertion?.applies(atTopologyGeneration: topology) == true
+}
+
+/// Parks a window that must not be seen (an inactive workspace's window, an inactive tab, a
+/// window behind a fullscreen tab). Windows confirmed parked cost nothing; see `parkInCorner`.
+@MainActor
+func parkHiddenWindow(
+    _ window: Window,
+    in corner: OptimalHideCorner,
+    reasserting: Bool,
+    ifStillValid: () -> Bool = { true },
+) async throws {
+    guard let visibility = window as? any WorkspaceWindowVisibility else { return }
+    try await visibility.hideInCorner(corner, reassert: reasserting, ifStillValid: ifStillValid)
+}
+
 @MainActor
 func layoutWorkspaces() async throws {
     workspaceLayoutGeneration += 1
     let generation = workspaceLayoutGeneration
+    // With every display gone mid-reconfiguration, `monitors` is a placeholder. Frames computed
+    // against it would put windows anywhere, so write nothing until a real display is back:
+    // its own screen-change refresh lays everything out, and re-parks once it settles.
+    if !hasRealMonitorTopology { return }
     if !TrayMenuModel.shared.isEnabled {
         for workspace in Workspace.all {
             workspace.allLeafWindowsRecursive.forEach { window in
@@ -504,10 +626,18 @@ func layoutWorkspaces() async throws {
         }
         return
     }
+    if let requested = refreshSessionRequirements?.hiddenWindowsReassertion {
+        owedHiddenWindowsReassertion = requested.union(owedHiddenWindowsReassertion)
+    }
+    let owedAtStart = owedHiddenWindowsReassertion
+    let outcome = LayoutPassOutcome()
     let layoutMonitors = monitors
+    let topologyGeneration = MonitorConfigurationObserver.shared.topologyGeneration
     let presentation = layoutMonitors.map { (rect: $0.rect, visibleRect: $0.visibleRect, workspace: $0.activeWorkspace) }
+    // A display change makes this pass stale even where the new displays have the same rects.
     func isCurrentPresentation() -> Bool {
         guard generation == workspaceLayoutGeneration, TrayMenuModel.shared.isEnabled,
+              MonitorConfigurationObserver.shared.topologyGeneration == topologyGeneration,
               monitors.count == presentation.count else { return false }
         return zip(monitors, presentation).allSatisfy { monitor, expected in
             monitor.rect == expected.rect && monitor.visibleRect == expected.visibleRect &&
@@ -528,7 +658,7 @@ func layoutWorkspaces() async throws {
             visibleApps.append((MonitorViewportId(topLeftCorner: expected.rect.topLeftCorner), window.app))
             visibility.unhideFromCorner()
         }
-        try await workspace.layoutWorkspace()
+        try await workspace.layoutWorkspace(outcome)
     }
     guard isCurrentPresentation() else { return }
     let outgoingMonitors = Set(Workspace.all.compactMap { workspace -> MonitorViewportId? in
@@ -552,28 +682,26 @@ func layoutWorkspaces() async throws {
     }
     try checkCancellation()
     guard isCurrentPresentation() else { return }
+    let shouldReassertHiddenWindows = sessionRequiresHiddenWindowsReassertion()
     for workspace in Workspace.all where !workspace.isVisible {
         let corner = optimalHideCorner(for: workspace.workspaceMonitor, among: layoutMonitors)
-        let shouldReassertHiddenWindows = refreshSessionEvent?.requiresHiddenWindowsReassertion == true
         for window in workspace.allLeafWindowsRecursive {
             guard isCurrentPresentation() else { return }
-            guard let visibility = window as? any WorkspaceWindowVisibility else { continue }
+            guard window is any WorkspaceWindowVisibility else { continue }
             window.lastAppliedLayoutPhysicalRect = nil
             window.lastAppliedLayoutVirtualRect = nil
-            // A nil cached rect means a geometry event arrived since the window was last
-            // observed — including our own parking move, but also an app repositioning its
-            // parked window (document restore, [NSWindow center], ...). Re-observe and
-            // re-park exactly those windows: this keeps the drift self-heal the old
-            // reassert-everything-on-every-event behavior provided, while windows with a
-            // confirmed parked position cost nothing.
-            let geometryUnconfirmed = window.lastKnownActualRect == nil
-            if geometryUnconfirmed {
-                _ = try? await window.getAxRect()
-            }
-            try await visibility.hideInCorner(corner, force: shouldReassertHiddenWindows || geometryUnconfirmed) {
-                isCurrentPresentation() && window.nodeWorkspace === workspace && !workspace.isVisible
+            try await parkHiddenWindow(window, in: corner, reasserting: shouldReassertHiddenWindows) {
+                let valid = isCurrentPresentation() && window.nodeWorkspace === workspace && !workspace.isVisible
+                if !valid { outcome.markIncomplete() }
+                return valid
             }
         }
+    }
+    // Carried out, unless this pass stopped short (superseded, a tree change, a park it gave up)
+    // or a session asked for more while it ran.
+    try checkCancellation()
+    if outcome.isComplete, isCurrentPresentation(), owedHiddenWindowsReassertion == owedAtStart {
+        owedHiddenWindowsReassertion = nil
     }
 }
 

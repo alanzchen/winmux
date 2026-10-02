@@ -369,9 +369,9 @@ private final class PresentationWindow: Window {
         }
     }
     @MainActor func unhideFromCorner() { hidden = false }
-    @MainActor func hideInCorner(_ corner: OptimalHideCorner, force: Bool, ifStillValid: () -> Bool) async throws {
+    @MainActor func hideInCorner(_ corner: OptimalHideCorner, reassert: Bool, ifStillValid: () -> Bool) async throws {
         guard ifStillValid(), canHide else { return }
-        if hidden && !force { return }
+        if hidden && !reassert { return }
         hidden = true
         owner.enqueue { [self] in trace.record("hide:\(windowId)") }
     }
