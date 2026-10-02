@@ -5,6 +5,7 @@ struct WindowDragCursorProxyView: View {
     let isGroup: Bool
     let preview: WorkspaceSidebarDropPreviewViewModel?
     let style: WorkspaceSidebarDragPreviewStyle
+    var batchLabelPlacement: WindowDragCursorProxyBatchLabelPlacement = .above
 
     init(label: String, isGroup: Bool) {
         self.label = label
@@ -13,24 +14,30 @@ struct WindowDragCursorProxyView: View {
         self.style = .row
     }
 
-    init(preview: WorkspaceSidebarDropPreviewViewModel, style: WorkspaceSidebarDragPreviewStyle = .row) {
+    init(preview: WorkspaceSidebarDropPreviewViewModel, style: WorkspaceSidebarDragPreviewStyle = .row,
+         batchLabelPlacement: WindowDragCursorProxyBatchLabelPlacement = .above) {
         self.label = preview.label
         self.isGroup = preview.isTabGroup
         self.preview = preview
         self.style = style
+        self.batchLabelPlacement = batchLabelPlacement
     }
 
     var body: some View {
         if case .appIcon(let size) = style, let preview, preview.batchTabCount != nil {
-            // Chosen tabs dragged together: how many, above the pointer, which sits on the icon.
-            VStack(spacing: windowDragCursorProxyBatchLabelSpacing) {
-                WorkspaceSidebarTabDropLabel(text: preview.label)
-                    .shadow(color: .black.opacity(0.25), radius: 2, y: 1)
-                WorkspaceSidebarDragIcon(preview: preview, size: size)
-                    .shadow(color: .black.opacity(0.3), radius: 3, y: 2)
-                    .padding(6)
+            // Chosen tabs dragged together: how many, where the pointer, on the icon, doesn't cover it.
+            let count = WorkspaceSidebarTabDropLabel(text: preview.label).shadow(color: .black.opacity(0.25), radius: 2, y: 1)
+            let icon = WorkspaceSidebarDragIcon(preview: preview, size: size)
+                .shadow(color: .black.opacity(0.3), radius: 3, y: 2)
+                .padding(6)
+            switch batchLabelPlacement {
+                case .above:
+                    VStack(spacing: windowDragCursorProxyBatchLabelSpacing) { count; icon }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                case .leading:
+                    HStack(spacing: windowDragCursorProxyBatchLabelSpacing) { count; icon }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
         } else if case .appIcon(let size) = style, let preview {
             WorkspaceSidebarDragIcon(preview: preview, size: size)
                 .shadow(color: .black.opacity(0.3), radius: 3, y: 2)

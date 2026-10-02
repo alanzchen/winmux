@@ -9,8 +9,10 @@ final class WindowDragCursorProxyPanel: NSPanelHud {
     let hostingView = NSHostingView(rootView: AnyView(EmptyView()))
     var currentContent: WindowDragCursorProxyContent?
     var proxySize: CGSize = .zero
-    /// How far above the proxy's bottom the pointer sits; nil centers the proxy on it.
-    var proxyPointerFromBottom: CGFloat?
+    /// Where the pointer sits in the proxy, from its bottom-left corner; nil centers the proxy on it.
+    var proxyPointer: CGPoint?
+    /// Chosen tabs dragged as an icon, whose count moves beside the icon near the screen's top.
+    var batchProxy: (preview: WorkspaceSidebarDropPreviewViewModel, style: WorkspaceSidebarDragPreviewStyle)?
 
     override private init() {
         super.init()
@@ -31,7 +33,8 @@ final class WindowDragCursorProxyPanel: NSPanelHud {
     func show(label: String, isGroup: Bool, mouseScreenPoint: CGPoint) {
         updateContent(label: label, isGroup: isGroup)
         proxySize = windowDragCursorProxySize(label: label)
-        proxyPointerFromBottom = nil
+        proxyPointer = nil
+        batchProxy = nil
         updateFrame(mouseScreenPoint: mouseScreenPoint)
         startFollowingMouseIfNeeded()
         if !isVisible {
@@ -40,9 +43,15 @@ final class WindowDragCursorProxyPanel: NSPanelHud {
     }
 
     func show(preview: WorkspaceSidebarDropPreviewViewModel, mouseScreenPoint: CGPoint, style: WorkspaceSidebarDragPreviewStyle = .row) {
-        updateContent(preview: preview, style: style)
-        proxySize = windowDragCursorProxySize(preview: preview, style: style)
-        proxyPointerFromBottom = windowDragCursorProxyPointerFromBottom(preview: preview, style: style)
+        if case .appIcon = style, preview.batchTabCount != nil {
+            batchProxy = (preview, style)
+            layOutBatchProxy(mouseScreenPoint: mouseScreenPoint, force: true)
+        } else {
+            batchProxy = nil
+            updateContent(preview: preview, style: style)
+            proxySize = windowDragCursorProxySize(preview: preview, style: style)
+            proxyPointer = nil
+        }
         updateFrame(mouseScreenPoint: mouseScreenPoint)
         startFollowingMouseIfNeeded()
         if !isVisible {
@@ -54,6 +63,7 @@ final class WindowDragCursorProxyPanel: NSPanelHud {
         guard currentContent != nil || isVisible else { return }
         stopFollowingMouse()
         currentContent = nil
+        batchProxy = nil
         // Drop icon consumers and preview captures when the gesture finishes.
         hostingView.rootView = AnyView(EmptyView())
         // Hidden hosts can defer SwiftUI teardown; finish it before ordering out.
@@ -68,12 +78,15 @@ struct WindowDragCursorProxyContent: Equatable {
     let isGroup: Bool
     let preview: WorkspaceSidebarDropPreviewViewModel?
     let style: WorkspaceSidebarDragPreviewStyle
+    var batchLabelPlacement: WindowDragCursorProxyBatchLabelPlacement = .above
 
-    init(label: String, isGroup: Bool, preview: WorkspaceSidebarDropPreviewViewModel? = nil, style: WorkspaceSidebarDragPreviewStyle = .row) {
+    init(label: String, isGroup: Bool, preview: WorkspaceSidebarDropPreviewViewModel? = nil, style: WorkspaceSidebarDragPreviewStyle = .row,
+         batchLabelPlacement: WindowDragCursorProxyBatchLabelPlacement = .above) {
         self.label = label
         self.isGroup = isGroup
         self.preview = preview
         self.style = style
+        self.batchLabelPlacement = batchLabelPlacement
     }
 }
 
@@ -85,16 +98,31 @@ extension WindowDragCursorProxyPanel {
         currentContent = nextContent
     }
 
-    func updateContent(preview: WorkspaceSidebarDropPreviewViewModel, style: WorkspaceSidebarDragPreviewStyle = .row) {
+    func updateContent(preview: WorkspaceSidebarDropPreviewViewModel, style: WorkspaceSidebarDragPreviewStyle = .row,
+                       batchLabelPlacement: WindowDragCursorProxyBatchLabelPlacement = .above) {
         let nextContent = WindowDragCursorProxyContent(
             label: preview.label,
             isGroup: preview.isTabGroup,
             preview: preview,
             style: style,
+            batchLabelPlacement: batchLabelPlacement,
         )
         guard currentContent != nextContent else { return }
-        hostingView.rootView = AnyView(WindowDragCursorProxyView(preview: preview, style: style))
+        hostingView.rootView = AnyView(WindowDragCursorProxyView(preview: preview, style: style,
+            batchLabelPlacement: batchLabelPlacement))
         currentContent = nextContent
+    }
+
+    /// The batch's count goes above its icon, or, too near the screen's top for that, before it.
+    func layOutBatchProxy(mouseScreenPoint: CGPoint, force: Bool = false) {
+        guard let (preview, style) = batchProxy else { return }
+        let placement = windowDragCursorProxyBatchLabelPlacement(mouseScreenPoint: mouseScreenPoint,
+            iconHeight: windowDragCursorProxySize(label: preview.label, style: style).height,
+            screenFrame: windowDragCursorProxyScreenFrame(containing: mouseScreenPoint))
+        guard force || currentContent?.batchLabelPlacement != placement else { return }
+        updateContent(preview: preview, style: style, batchLabelPlacement: placement)
+        proxySize = windowDragCursorProxySize(preview: preview, style: style, batchLabelPlacement: placement)
+        proxyPointer = windowDragCursorProxyPointer(preview: preview, style: style, batchLabelPlacement: placement)
     }
 }
 
@@ -108,22 +136,47 @@ func windowDragCursorProxySize(label: String, style: WorkspaceSidebarDragPreview
 let windowDragCursorProxyBatchLabelHeight: CGFloat = 16
 let windowDragCursorProxyBatchLabelSpacing: CGFloat = 2
 
-/// The proxy for `preview`: an icon drag of several chosen tabs has their count above the icon.
-@MainActor
-func windowDragCursorProxySize(preview: WorkspaceSidebarDropPreviewViewModel, style: WorkspaceSidebarDragPreviewStyle) -> CGSize {
-    let size = windowDragCursorProxySize(label: preview.label, style: style)
-    guard case .appIcon = style, preview.batchTabCount != nil else { return size }
-    return CGSize(width: max(size.width, workspaceSidebarTabDropLabelWidth(preview.label) + 8),
-        height: size.height + windowDragCursorProxyBatchLabelSpacing + windowDragCursorProxyBatchLabelHeight)
+/// Where an icon drag of several chosen tabs shows their count.
+enum WindowDragCursorProxyBatchLabelPlacement: Equatable {
+    case above
+    /// Before the icon, at the pointer's height: too near the screen's top for above.
+    case leading
 }
 
-/// Where the pointer sits in that proxy, from its bottom: on the icon, so the count above it stays
-/// clear of the pointer, which covers what's below and right of its tip. Nil: centered, as always.
+/// Above the icon, which the pointer sits on, so the pointer, covering what's below and right of
+/// its tip, leaves the count clear; before it where the screen's top leaves no room above.
+func windowDragCursorProxyBatchLabelPlacement(mouseScreenPoint: CGPoint, iconHeight: CGFloat,
+                                              screenFrame: CGRect) -> WindowDragCursorProxyBatchLabelPlacement {
+    let above = iconHeight / 2 + windowDragCursorProxyBatchLabelSpacing + windowDragCursorProxyBatchLabelHeight
+    return screenFrame.maxY - mouseScreenPoint.y >= above ? .above : .leading
+}
+
+/// The proxy for `preview`: an icon drag of several chosen tabs has their count beside the icon.
 @MainActor
-func windowDragCursorProxyPointerFromBottom(preview: WorkspaceSidebarDropPreviewViewModel,
-                                            style: WorkspaceSidebarDragPreviewStyle) -> CGFloat? {
+func windowDragCursorProxySize(preview: WorkspaceSidebarDropPreviewViewModel, style: WorkspaceSidebarDragPreviewStyle,
+                               batchLabelPlacement: WindowDragCursorProxyBatchLabelPlacement = .above) -> CGSize {
+    let size = windowDragCursorProxySize(label: preview.label, style: style)
+    guard case .appIcon = style, preview.batchTabCount != nil else { return size }
+    let label = workspaceSidebarTabDropLabelWidth(preview.label)
+    return switch batchLabelPlacement {
+        case .above: CGSize(width: max(size.width, label + 8),
+            height: size.height + windowDragCursorProxyBatchLabelSpacing + windowDragCursorProxyBatchLabelHeight)
+        case .leading: CGSize(width: label + windowDragCursorProxyBatchLabelSpacing + size.width, height: size.height)
+    }
+}
+
+/// Where the pointer sits in that proxy, from its bottom-left corner: on the icon. Nil: centered,
+/// as for every other drag.
+@MainActor
+func windowDragCursorProxyPointer(preview: WorkspaceSidebarDropPreviewViewModel, style: WorkspaceSidebarDragPreviewStyle,
+                                  batchLabelPlacement: WindowDragCursorProxyBatchLabelPlacement = .above) -> CGPoint? {
     guard case .appIcon = style, preview.batchTabCount != nil else { return nil }
-    return windowDragCursorProxySize(label: preview.label, style: style).height / 2
+    let icon = windowDragCursorProxySize(label: preview.label, style: style)
+    let size = windowDragCursorProxySize(preview: preview, style: style, batchLabelPlacement: batchLabelPlacement)
+    return switch batchLabelPlacement {
+        case .above: CGPoint(x: size.width / 2, y: icon.height / 2)
+        case .leading: CGPoint(x: size.width - icon.width / 2, y: icon.height / 2)
+    }
 }
 extension WindowDragCursorProxyPanel {
     func startFollowingMouseIfNeeded() {
@@ -137,11 +190,12 @@ extension WindowDragCursorProxyPanel {
     }
 
     func updateFrame(mouseScreenPoint: CGPoint) {
+        layOutBatchProxy(mouseScreenPoint: mouseScreenPoint)
         guard proxySize.width > 0, proxySize.height > 0 else { return }
         let targetFrame = windowDragCursorProxyFrame(
             mouseScreenPoint: mouseScreenPoint,
             proxySize: proxySize,
-            pointerFromBottom: proxyPointerFromBottom,
+            pointer: proxyPointer,
         )
         if frame.size == targetFrame.size {
             setFrameOrigin(targetFrame.origin)
