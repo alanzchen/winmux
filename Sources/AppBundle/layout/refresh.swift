@@ -312,6 +312,13 @@ func runLightSession<T>(
         if let cancelledSession {
             queuePendingRefresh(cancelledSession.event, cancelledSession.requirements, optimisticallyPreLayoutWorkspaces: false, activatedAppPid: nil)
         }
+        // Without a post-refresh (this session threw), no running session would drain it.
+        if activeRefreshTask == nil, let pending = pendingRefreshRequest {
+            pendingRefreshRequest = nil
+            scheduleRefreshSession(pending.event, requirements: pending.requirements,
+                                   optimisticallyPreLayoutWorkspaces: pending.optimisticallyPreLayoutWorkspaces,
+                                   activatedAppPid: pending.activatedAppPid)
+        }
     }
     activeRefreshTask?.cancel()
     activeRefreshTask = nil
@@ -578,12 +585,7 @@ func sessionRequiresHiddenWindowsReassertion() -> Bool {
 }
 
 /// Parks a window that must not be seen (an inactive workspace's window, an inactive tab, a
-/// window behind a fullscreen tab).
-///
-/// A nil cached rect means a geometry event arrived since the window was last observed, or
-/// WinMux's own park hasn't been confirmed yet: re-observe and re-park exactly those windows.
-/// When the session reasserts, macOS may have moved parked windows without telling anyone, so
-/// every parked window is re-observed. Windows with a confirmed parked position cost nothing.
+/// window behind a fullscreen tab). Windows confirmed parked cost nothing; see `parkInCorner`.
 @MainActor
 func parkHiddenWindow(
     _ window: Window,
@@ -592,12 +594,7 @@ func parkHiddenWindow(
     ifStillValid: () -> Bool = { true },
 ) async throws {
     guard let visibility = window as? any WorkspaceWindowVisibility else { return }
-    let geometryUnconfirmed = window.lastKnownActualRect == nil
-    // A window that isn't parked yet reads its own frame in hideInCorner.
-    if window.isHiddenInCorner && (geometryUnconfirmed || reasserting) {
-        _ = try? await window.getAxRect()
-    }
-    try await visibility.hideInCorner(corner, force: reasserting || geometryUnconfirmed, ifStillValid: ifStillValid)
+    try await visibility.hideInCorner(corner, reassert: reasserting, ifStillValid: ifStillValid)
 }
 
 @MainActor

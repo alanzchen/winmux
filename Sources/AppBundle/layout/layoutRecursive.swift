@@ -1,12 +1,18 @@
 import AppKit
 import Common
 
+/// Bumped by every workspace layout, so a pass suspended in an AX call can tell that a newer
+/// one (another tab selected, say) has taken over and must not park what that one shows.
+@MainActor
+private var workspaceLayoutPassGeneration: UInt64 = 0
+
 extension Workspace {
     @MainActor
     func layoutWorkspace() async throws {
         if isEffectivelyEmpty { return }
         // No frames against a placeholder display (see layoutWorkspaces).
         if workspaceMonitor.isFallbackMonitor { return }
+        workspaceLayoutPassGeneration &+= 1
         let rect = workspaceMonitor.visibleRectPaddedByOuterGaps
         let context = LayoutContext(self)
         if let tabGroup = rootTilingContainer.allTabbedContainersRecursive.first(where: \.hasFullscreenTab) {
@@ -16,7 +22,11 @@ extension Workspace {
             rootTilingContainer.lastAppliedLayoutVirtualRect = rect
             tabGroup.lastAppliedLayoutPhysicalRect = rect
             tabGroup.lastAppliedLayoutVirtualRect = rect
-            try await hideAllWindowsExcept(tabGroup, context)
+            try await hideAllWindowsExcept(tabGroup, context) { [rootTilingContainer] in
+                rootTilingContainer.allTabbedContainersRecursive.first(where: \.hasFullscreenTab) === tabGroup
+            }
+            // Parking suspends in AX calls: don't lay out against displays that changed since.
+            guard context.isTopologyCurrent() else { return }
             try await tabGroup.layoutRecursive(rect.topLeftCorner, width: rect.width, height: rect.height, virtual: rect, context)
             return
         }
@@ -25,7 +35,10 @@ extension Workspace {
             lastAppliedLayoutVirtualRect = rect
             rootTilingContainer.lastAppliedLayoutPhysicalRect = rect
             rootTilingContainer.lastAppliedLayoutVirtualRect = rect
-            try await hideAllWindowsExcept(fullscreenWindow, context)
+            try await hideAllWindowsExcept(fullscreenWindow, context) { [rootTilingContainer] in
+                fullscreenWindow.isFullscreen && rootTilingContainer.mostRecentWindowRecursive === fullscreenWindow
+            }
+            guard context.isTopologyCurrent() else { return }
             fullscreenWindow.lastAppliedLayoutVirtualRect = rect
             fullscreenWindow.lastAppliedLayoutPhysicalRect = nil
             fullscreenWindow.layoutFullscreen(context)
@@ -54,6 +67,8 @@ extension TreeNode {
                     try await window.layoutFloatingWindow(context)
                 }
             case .window(let window):
+                // An earlier sibling's park may have suspended across a display change.
+                guard context.isTopologyCurrent() else { return }
                 if window.windowId != currentlyManipulatedWithMouseWindowId || isPinnedDraggedWindow(window.windowId) {
                     let previousPhysicalRect = lastAppliedLayoutPhysicalRect
                     lastAppliedLayoutVirtualRect = virtual
@@ -113,6 +128,7 @@ private struct LayoutContext {
     /// Whether this session re-parks hidden windows WinMux believes parked (see layoutWorkspaces).
     let reassertHiddenWindows: Bool
     private let topologyGeneration: UInt64
+    private let layoutPassGeneration: UInt64
 
     @MainActor
     init(_ workspace: Workspace) {
@@ -121,17 +137,22 @@ private struct LayoutContext {
         self.hideCorner = optimalHideCorner(for: workspace.workspaceMonitor)
         self.reassertHiddenWindows = sessionRequiresHiddenWindowsReassertion()
         self.topologyGeneration = MonitorConfigurationObserver.shared.topologyGeneration
+        self.layoutPassGeneration = workspaceLayoutPassGeneration
     }
 
-    /// A display change since this layout began makes its parking positions stale.
+    /// A display change since this layout began makes its geometry stale.
     @MainActor
     func isTopologyCurrent() -> Bool {
         MonitorConfigurationObserver.shared.topologyGeneration == topologyGeneration
     }
 
+    /// Parks a window this layout hides, unless the displays changed, a newer layout took over,
+    /// or (`stillHidden`) what this layout shows changed while a park awaited AX.
     @MainActor
-    func park(_ window: Window) async throws {
-        try await parkHiddenWindow(window, in: hideCorner, reasserting: reassertHiddenWindows, ifStillValid: isTopologyCurrent)
+    func park(_ window: Window, stillHidden: () -> Bool) async throws {
+        try await parkHiddenWindow(window, in: hideCorner, reasserting: reassertHiddenWindows) {
+            isTopologyCurrent() && workspaceLayoutPassGeneration == layoutPassGeneration && stillHidden()
+        }
     }
 }
 
@@ -150,6 +171,7 @@ extension Window {
         }
         let workspace = context.workspace
         let windowRect = try await getAxRect() // Probably not idempotent
+        guard context.isTopologyCurrent() else { return }
         let currentMonitor = windowRect?.center.monitorApproximation
         if let currentMonitor, let windowRect, workspace != currentMonitor.activeWorkspace {
             let windowTopLeftCorner = windowRect.topLeftCorner
@@ -178,6 +200,7 @@ extension Window {
 
     @MainActor
     fileprivate func layoutFullscreen(_ context: LayoutContext) {
+        guard context.isTopologyCurrent() else { return }
         let monitorRect = noOuterGapsInFullscreen
             ? context.workspace.workspaceMonitor.visibleRect
             : context.workspace.workspaceMonitor.visibleRectPaddedByOuterGaps
@@ -248,7 +271,8 @@ extension TilingContainer {
                 context,
             )
             for child in children where child != activeChild {
-                try await child.hideTabbedWindows(context)
+                // Selecting another tab while a park reads the window must not park that tab.
+                try await child.hideTabbedWindows(context) { self.mostRecentChild === activeChild }
             }
             return
         }
@@ -288,15 +312,15 @@ extension TilingContainer {
 
 extension TreeNode {
     @MainActor
-    fileprivate func hideTabbedWindows(_ context: LayoutContext) async throws {
+    fileprivate func hideTabbedWindows(_ context: LayoutContext, stillHidden: () -> Bool) async throws {
         switch nodeCases {
             case .window(let window):
                 window.lastAppliedLayoutPhysicalRect = nil
                 window.lastAppliedLayoutVirtualRect = nil
-                try await context.park(window)
+                try await context.park(window, stillHidden: stillHidden)
             case .tilingContainer(let container):
                 for child in container.children {
-                    try await child.hideTabbedWindows(context)
+                    try await child.hideTabbedWindows(context, stillHidden: stillHidden)
                 }
             case .workspace, .macosMinimizedWindowsContainer, .macosFullscreenWindowsContainer,
                  .macosPopupWindowsContainer, .macosHiddenAppsWindowsContainer:
@@ -305,20 +329,20 @@ extension TreeNode {
     }
 
     @MainActor
-    fileprivate func hideAllWindowsExcept(_ targetWindow: Window, _ context: LayoutContext) async throws {
+    fileprivate func hideAllWindowsExcept(_ targetWindow: Window, _ context: LayoutContext, stillShown: () -> Bool) async throws {
         switch nodeCases {
             case .window(let window):
                 guard window != targetWindow else { return }
                 window.lastAppliedLayoutPhysicalRect = nil
                 window.lastAppliedLayoutVirtualRect = nil
-                try await context.park(window)
+                try await context.park(window, stillHidden: stillShown)
             case .tilingContainer(let container):
                 for child in container.children {
-                    try await child.hideAllWindowsExcept(targetWindow, context)
+                    try await child.hideAllWindowsExcept(targetWindow, context, stillShown: stillShown)
                 }
             case .workspace(let workspace):
                 for child in workspace.children {
-                    try await child.hideAllWindowsExcept(targetWindow, context)
+                    try await child.hideAllWindowsExcept(targetWindow, context, stillShown: stillShown)
                 }
             case .macosMinimizedWindowsContainer, .macosFullscreenWindowsContainer,
                  .macosPopupWindowsContainer, .macosHiddenAppsWindowsContainer:
@@ -327,20 +351,20 @@ extension TreeNode {
     }
 
     @MainActor
-    fileprivate func hideAllWindowsExcept(_ targetNode: TreeNode, _ context: LayoutContext) async throws {
+    fileprivate func hideAllWindowsExcept(_ targetNode: TreeNode, _ context: LayoutContext, stillShown: () -> Bool) async throws {
         if self === targetNode { return }
         switch nodeCases {
             case .window(let window):
                 window.lastAppliedLayoutPhysicalRect = nil
                 window.lastAppliedLayoutVirtualRect = nil
-                try await context.park(window)
+                try await context.park(window, stillHidden: stillShown)
             case .tilingContainer(let container):
                 for child in container.children {
-                    try await child.hideAllWindowsExcept(targetNode, context)
+                    try await child.hideAllWindowsExcept(targetNode, context, stillShown: stillShown)
                 }
             case .workspace(let workspace):
                 for child in workspace.children {
-                    try await child.hideAllWindowsExcept(targetNode, context)
+                    try await child.hideAllWindowsExcept(targetNode, context, stillShown: stillShown)
                 }
             case .macosMinimizedWindowsContainer, .macosFullscreenWindowsContainer,
                  .macosPopupWindowsContainer, .macosHiddenAppsWindowsContainer:

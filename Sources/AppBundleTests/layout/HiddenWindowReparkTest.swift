@@ -41,9 +41,19 @@ private final class ParkingTestWindow: Window {
     var refusesWrites = false
     /// The app reports its own moves (kAXMoved); movedObs then drops the cached frame.
     var reportsMoves = true
+    /// The app doesn't answer frame reads.
+    var readsFail = false
     var onWrite: (() -> Void)?
+    /// Runs while a frame read is in flight, before it returns.
+    var onRead: (() -> Void)?
+    /// The next frame read waits until `readGate` is resumed; `onReadHeld` runs once it waits.
+    var holdNextRead = false
+    var onReadHeld: (() -> Void)?
+    var readGate: CheckedContinuation<Void, Never>?
     private(set) var axReads = 0
     private(set) var axWrites = 0
+    /// setAxFrame calls, including ones that turn out to be no-ops.
+    private(set) var frameSubmissions = 0
 
     @MainActor init(id: UInt32, parent: NonLeafTreeNodeObject, rect: Rect, app: TestApp) {
         nativeRect = rect
@@ -58,8 +68,17 @@ private final class ParkingTestWindow: Window {
     @MainActor override func getAxRect() async throws -> Rect? {
         axReads += 1
         let token = nativeStateObservationToken()
-        recordObservedActualRect(nativeRect, token: token)
-        return nativeRect
+        if holdNextRead {
+            holdNextRead = false
+            await withCheckedContinuation {
+                readGate = $0
+                onReadHeld?()
+            }
+        }
+        onRead?()
+        let rect = readsFail ? nil : nativeRect
+        recordObservedActualRect(rect, token: token)
+        return rect
     }
 
     @MainActor override func getAxSize() async throws -> CGSize? {
@@ -69,6 +88,7 @@ private final class ParkingTestWindow: Window {
 
     /// Like MacApp.setFrame: read the frame, write only what differs.
     override func setAxFrame(_ topLeft: CGPoint?, _ size: CGSize?) {
+        frameSubmissions += 1
         axReads += 1
         let current = nativeRect
         let target = Rect(topLeftX: topLeft?.x ?? current.minX, topLeftY: topLeft?.y ?? current.minY,
@@ -108,8 +128,8 @@ private final class ParkingTestWindow: Window {
 }
 
 extension ParkingTestWindow: WorkspaceWindowVisibility {
-    func hideInCorner(_ corner: OptimalHideCorner, force: Bool, ifStillValid: () -> Bool) async throws {
-        try await parkInCorner(corner, cornerParking, force: force, onePixelOffset: true, ifStillValid: ifStillValid)
+    func hideInCorner(_ corner: OptimalHideCorner, reassert: Bool, ifStillValid: () -> Bool) async throws {
+        try await parkInCorner(corner, cornerParking, reassert: reassert, onePixelOffset: true, ifStillValid: ifStillValid)
     }
 
     func unhideFromCorner() {
@@ -479,8 +499,10 @@ final class HiddenWindowReparkTest: XCTestCase {
         let hidden = hiddenWindows(4)
         try await settle([builtin], hidden: hidden)
         hidden[2].silentlyMove(to: CGPoint(x: 0, y: 33))
+        let submissionsBefore = hidden.map(\.frameSubmissions)
         let wakeCost = try await cost(hidden) { try await pass(.globalObserver(wake)) }
         XCTAssertEqual(wakeCost.writes, 1, "Only the moved window is written")
+        XCTAssertEqual(zip(hidden.map(\.frameSubmissions), submissionsBefore).map { $0 - $1 }, [0, 0, 1, 0])
         assertHidden(hidden, on: builtin)
     }
 
@@ -493,9 +515,11 @@ final class HiddenWindowReparkTest: XCTestCase {
         let confirmation = try await cost(hidden) { try await pass(.ax(kAXMovedNotification as String)) }
         XCTAssertEqual(confirmation.writes, 0)
         XCTAssertLessThanOrEqual(confirmation.reads, 20)
+        let submissionsBefore = hidden.map(\.frameSubmissions).reduce(0, +)
         let settledPass = try await cost(hidden) { try await pass(settled) }
         XCTAssertEqual(settledPass.writes, 0, "Nothing moved: the settled re-park only reads")
-        XCTAssertLessThanOrEqual(settledPass.reads, 20)
+        XCTAssertEqual(settledPass.reads, 10, "One read per hidden window")
+        XCTAssertEqual(hidden.map(\.frameSubmissions).reduce(0, +), submissionsBefore, "Nor submits a frame for a window in place")
         let idle = try await cost(hidden) {
             for event: RefreshSessionEvent in [.globalObserverLeftMouseUp, .hotkeyBinding, .onTabSwitched,
                                                .ax(kAXFocusedWindowChangedNotification as String), .globalObserver(screenParams)]
@@ -522,7 +546,7 @@ final class HiddenWindowReparkTest: XCTestCase {
             try await pass(settled)
             try await pass(.globalObserverLeftMouseUp)
             try await focus.workspace.layoutWorkspace()
-            try await hidden[0].hideInCorner(.bottomRightCorner, force: true) { true }
+            try await hidden[0].hideInCorner(.bottomRightCorner, reassert: true) { true }
         }
         XCTAssertEqual(zeroScreens.writes, 0)
         XCTAssertEqual(zeroScreens.reads, 0)
@@ -616,6 +640,225 @@ final class HiddenWindowReparkTest: XCTestCase {
         }
         let writes = try await cost(inactive) { try await focus.workspace.layoutWorkspace() }.writes
         XCTAssertEqual(writes, 1, "The second tab isn't parked against displays that changed again")
+    }
+
+    // MARK: Review round 1
+
+    private func cancelSettledRefresh(with lightSession: () async throws -> Void) async throws -> [HiddenWindowsReassertion?] {
+        var reassertions: [HiddenWindowsReassertion?] = []
+        var paused: CheckedContinuation<Void, Never>?
+        await withCheckedContinuation { started in
+            setScheduledRefreshOverrideForTests { _, _, _ in
+                reassertions.append(refreshSessionRequirements?.hiddenWindowsReassertion)
+                if reassertions.count == 1 {
+                    await withCheckedContinuation {
+                        paused = $0
+                        started.resume()
+                    }
+                }
+            }
+            scheduleRefreshSession(settled)
+        }
+        try? await lightSession()
+        paused?.resume()
+        try await waitForScheduledRefreshForTests()
+        return reassertions
+    }
+
+    func testACommandWithoutAFollowUpRefreshStillRunsTheSettledRefreshItCancelled() async throws {
+        let reassertions = try await cancelSettledRefresh {
+            try await runLightSession(.hotkeyBinding, .forceRun, shouldSchedulePostRefresh: false) {}
+        }
+        XCTAssertEqual(reassertions.count, 2, "\(reassertions)")
+        XCTAssertEqual(reassertions.last, .displayTopology(generation: MonitorConfigurationObserver.shared.topologyGeneration))
+    }
+
+    func testACommandThatThrowsStillRunsTheSettledRefreshItCancelled() async throws {
+        struct CommandFailed: Error {}
+        let reassertions = try await cancelSettledRefresh {
+            try await runLightSession(.hotkeyBinding, .forceRun) { throw CommandFailed() }
+        }
+        XCTAssertEqual(reassertions.count, 2, "\(reassertions)")
+        XCTAssertEqual(reassertions.last, .displayTopology(generation: MonitorConfigurationObserver.shared.topologyGeneration))
+    }
+
+    func testAFailedParkStaysUnconfirmedAfterAFullRefreshRereadsTheFrame() async throws {
+        connect([builtin])
+        let hiddenWorkspace = Workspace.get(byName: "hidden-floating")
+        let floating = window(3, in: hiddenWorkspace, Rect(topLeftX: 500, topLeftY: 400, width: 900, height: 700))
+        try await settle([builtin], hidden: [floating])
+        floating.silentlyMove(to: CGPoint(x: 40, y: 60))
+        floating.failingWrites = 1
+        try await pass(settled)
+        XCTAssertGreaterThan(floating.visibleArea(on: builtin), 1, "The re-park write failed")
+        // A full refresh re-warms floating windows' dropped frame caches (refresh()).
+        _ = try await floating.getAxRect()
+        XCTAssertNotNil(floating.lastKnownActualRect)
+        try await pass(.globalObserverLeftMouseUp)
+        assertHidden([floating], on: builtin, "still owed a retry")
+    }
+
+    func testRetriesAreBoundedWhenFrameReadsFail() async throws {
+        let hidden = hiddenWindows(1)
+        try await settle([sixK], hidden: hidden)
+        connect([builtin])
+        hidden[0].readsFail = true
+        hidden[0].refusesWrites = true
+        for _ in 0 ..< 10 { try await pass(.globalObserverLeftMouseUp) }
+        XCTAssertLessThanOrEqual(hidden[0].frameSubmissions, 1 + 1 + HiddenWindowParking.maxUnconfirmedParks)
+        let idle = try await cost(hidden) {
+            for _ in 0 ..< 10 { try await pass(.globalObserverLeftMouseUp) }
+        }
+        XCTAssertEqual(idle.reads + idle.writes, 0, "No reads or writes once retries are spent, even with the cache empty")
+
+        // A real event for the window earns one more look.
+        hidden[0].moveReportingAxEvent(to: CGPoint(x: 0, y: 33))
+        let afterEvent = try await cost(hidden) {
+            for _ in 0 ..< 5 { try await pass(.globalObserverLeftMouseUp) }
+        }
+        XCTAssertEqual(afterEvent.writes, 1)
+    }
+
+    func testAFullscreenLayoutWritesNothingOnceTheDisplaysGoAwayMidPass() async throws {
+        connect([builtin])
+        let root = focus.workspace.rootTilingContainer
+        let other = window(21, in: root, Rect(topLeftX: 0, topLeftY: 33, width: 756, height: 949))
+        let fullscreen = window(20, in: root, Rect(topLeftX: 756, topLeftY: 33, width: 756, height: 949))
+        fullscreen.isFullscreen = true
+        fullscreen.markAsMostRecentChild()
+        other.onRead = { [self] in
+            other.onRead = nil
+            connect([noDisplay])
+        }
+        let before = fullscreen.frameSubmissions
+        try await focus.workspace.layoutWorkspace()
+        XCTAssertEqual(fullscreen.frameSubmissions, before, "No fullscreen frame against the placeholder")
+        XCTAssertEqual(other.frameSubmissions, 0)
+    }
+
+    func testSelectingAnInactiveTabWhileItsParkReadsLeavesItShown() async throws {
+        connect([builtin])
+        let (active, inactive) = tabGroup()
+        try await pass(.globalObserverLeftMouseUp)
+        try await pass(.globalObserverLeftMouseUp)
+        assertHidden(inactive, on: builtin)
+        let selected = inactive[0]
+        selected.onRead = {
+            selected.onRead = nil
+            // focusWindowFromTabStrip: put it where the active tab is, make it the active tab.
+            selected.silentlyMove(to: active.nativeRect.topLeftCorner)
+            selected.markAsMostRecentChild()
+        }
+        let submissions = selected.frameSubmissions
+        try await pass(.globalObserver(wake))
+        XCTAssertEqual(selected.frameSubmissions, submissions, "The old pass doesn't park the newly selected tab")
+        XCTAssertGreaterThan(selected.visibleArea(on: builtin), 1)
+    }
+
+    func testAnOlderLayoutDoesNotParkATabANewerLayoutShows() async throws {
+        connect([builtin])
+        let (_, inactive) = tabGroup()
+        try await pass(.globalObserverLeftMouseUp)
+        try await pass(.globalObserverLeftMouseUp)
+        let tab = inactive[0]
+        let held = expectation(description: "older pass reading the tab")
+        tab.holdNextRead = true
+        tab.onReadHeld = { held.fulfill() }
+        let older = Task { try await pass(.globalObserver(wake)) }
+        await fulfillment(of: [held], timeout: 2)
+        // A command takes the tab out of its group; a newer layout shows it as an ordinary tile.
+        tab.bind(to: focus.workspace.rootTilingContainer, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
+        try await pass(.hotkeyBinding)
+        XCTAssertGreaterThan(tab.visibleArea(on: builtin), 1)
+        let submissions = tab.frameSubmissions
+        tab.readGate?.resume()
+        try await older.value
+        XCTAssertEqual(tab.frameSubmissions, submissions, "The older pass doesn't park what the newer one shows")
+        XCTAssertGreaterThan(tab.visibleArea(on: builtin), 1)
+    }
+
+    func testTilesAfterAParkThatSpannedADisplayChangeAreNotWritten() async throws {
+        connect([builtin])
+        let (_, inactive) = tabGroup()
+        let tile = window(30, in: focus.workspace.rootTilingContainer, Rect(topLeftX: 5, topLeftY: 50, width: 300, height: 300))
+        inactive[0].onRead = { [self] in
+            inactive[0].onRead = nil
+            connect([builtin]) // Displays reconfigured (same geometry, new topology).
+        }
+        try await focus.workspace.layoutWorkspace()
+        XCTAssertEqual(tile.frameSubmissions, 0, "Laid out by the refresh for the new displays, not with the stale geometry")
+    }
+
+    func testAFloatingWindowIsNotMovedAcrossDisplaysThatChangedDuringItsRead() async throws {
+        let left = ParkingTestMonitor("Left", width: 1920, height: 1080, uuid: "LEFT")
+        let right = ParkingTestMonitor("Right", x: 1920, width: 2560, height: 1440, uuid: "RIGHT", isMain: false)
+        connect([left, right])
+        let floating = window(40, in: left.activeWorkspace, Rect(topLeftX: 2500, topLeftY: 100, width: 800, height: 600))
+        floating.onRead = { [self] in
+            floating.onRead = nil
+            connect([left, right])
+        }
+        try await left.activeWorkspace.layoutWorkspace()
+        XCTAssertEqual(floating.frameSubmissions, 0)
+        try await left.activeWorkspace.layoutWorkspace()
+        XCTAssertEqual(floating.frameSubmissions, 1, "Without a display change it's moved onto its workspace's display")
+    }
+
+    func testAParkWhoseMoveEventIsSuppressedIsConfirmedByOneRead() async throws {
+        let hidden = hiddenWindows(1)
+        try await settle([sixK], hidden: hidden)
+        connect([builtin])
+        hidden[0].reportsMoves = false // e.g. post-drag suppression of the app's kAXMoved
+        try await pass(.globalObserver(screenParams))
+        XCTAssertEqual(hidden[0].nativeRect.topLeftCorner, parkedPoint(on: builtin))
+        let confirmation = try await cost(hidden) { try await pass(.globalObserverLeftMouseUp) }
+        XCTAssertEqual(confirmation.reads, 1, "Seen in place: confirmed, nothing resubmitted")
+        XCTAssertEqual(confirmation.writes, 0)
+        let idle = try await cost(hidden) { for _ in 0 ..< 5 { try await pass(.globalObserverLeftMouseUp) } }
+        XCTAssertEqual(idle.reads + idle.writes, 0)
+    }
+
+    func testAWorkspaceShownWhileNoDisplayExistsIsRestoredOnlyOnARealDisplay() async throws {
+        connect([builtin])
+        let hiddenWorkspace = Workspace.get(byName: "hidden-floating")
+        let floating = window(3, in: hiddenWorkspace, Rect(topLeftX: 500, topLeftY: 400, width: 600, height: 400))
+        try await settle([builtin], hidden: [floating])
+        XCTAssertTrue(floating.isHiddenInCorner)
+        connect([noDisplay])
+        XCTAssertTrue(noDisplay.setActiveWorkspace(hiddenWorkspace))
+        let submissions = floating.frameSubmissions
+        try await pass(.hotkeyBinding)
+        XCTAssertEqual(floating.frameSubmissions, submissions, "Not restored against the placeholder")
+        XCTAssertTrue(floating.isHiddenInCorner, "Keeps where to restore it")
+        connect([builtin])
+        XCTAssertTrue(builtin.setActiveWorkspace(hiddenWorkspace))
+        try await pass(.globalObserver(screenParams))
+        XCTAssertFalse(floating.isHiddenInCorner)
+        XCTAssertTrue(builtin.rect.contains(floating.nativeRect.topLeftCorner))
+    }
+
+    func testParkingStateBoundsRetriesIndependentlyOfTheFrameCache() {
+        var parking = HiddenWindowParking()
+        let rect = builtin.visibleRect
+        let target = parkedPoint(on: builtin)
+        let away = Rect(topLeftX: 0, topLeftY: 33, width: 100, height: 100)
+        for attempt in 1 ... HiddenWindowParking.maxUnconfirmedParks {
+            XCTAssertEqual(parking.park(corner: .bottomRightCorner, monitorVisibleRect: rect, target: target, observed: away,
+                                        reasserting: false, nativeGeneration: 7), .unconfirmed, "\(attempt)")
+            XCTAssertTrue(parking.awaitsConfirmation)
+        }
+        XCTAssertEqual(parking.park(corner: .bottomRightCorner, monitorVisibleRect: rect, target: target, observed: nil,
+                                    reasserting: false, nativeGeneration: 7), .retriesExhausted)
+        XCTAssertFalse(parking.awaitsConfirmation)
+        XCTAssertFalse(parking.mayRetry(atNativeGeneration: 7))
+        XCTAssertTrue(parking.mayRetry(atNativeGeneration: 8))
+        XCTAssertEqual(parking.park(corner: .bottomRightCorner, monitorVisibleRect: rect, target: target, observed: away,
+                                    reasserting: true, nativeGeneration: 8), .unconfirmed, "A reassertion starts over")
+        XCTAssertEqual(parking.park(corner: .bottomRightCorner, monitorVisibleRect: rect, target: target,
+                                    observed: Rect(topLeftX: target.x, topLeftY: target.y, width: 100, height: 100),
+                                    reasserting: false, nativeGeneration: 9), .confirmed)
+        XCTAssertFalse(parking.awaitsConfirmation)
+        XCTAssertTrue(parking.mayRetry(atNativeGeneration: 9))
     }
 
     // MARK: Per-display sidebar panels

@@ -180,10 +180,10 @@ final class MacWindow: Window {
 
     // todo it's part of the window layout and should be moved to layoutRecursive.swift
     @MainActor
-    func hideInCorner(_ corner: OptimalHideCorner, force: Bool = false, ifStillValid: () -> Bool = { true }) async throws {
+    func hideInCorner(_ corner: OptimalHideCorner, reassert: Bool = false, ifStillValid: () -> Bool = { true }) async throws {
         // Zoom will jump off if you do one pixel offset https://github.com/nikitabobko/WinMux/issues/527
         // todo this ad hoc won't be necessary once I implement optimization suggested by Zalim
-        try await parkInCorner(corner, cornerParking, force: force, onePixelOffset: macApp.appId != .zoom, ifStillValid: ifStillValid)
+        try await parkInCorner(corner, cornerParking, reassert: reassert, onePixelOffset: macApp.appId != .zoom, ifStillValid: ifStillValid)
     }
 
     @MainActor
