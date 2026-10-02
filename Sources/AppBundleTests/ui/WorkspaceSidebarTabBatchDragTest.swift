@@ -92,6 +92,38 @@ final class WorkspaceSidebarTabBatchDragTest: XCTestCase {
         XCTAssertEqual(tabs["a"]!.allLeafWindowsRecursive.map(\.windowId), [1, 9], "The split moved whole")
     }
 
+    /// V4 (VM smoke): an icon drag of chosen tabs says how many, above the icon, which the pointer
+    /// sits on, so the pointer, covering what's below and right of its tip, leaves the count clear.
+    /// A single tab's drag image is as it was.
+    func testABatchDragShowsHowManyTabsWhereThePointerDoesntCoverIt() throws {
+        _ = try displaysOfTabs()
+        choose(["a", "b", "c"])
+        _ = try beginDrag(from: "b")
+        let style = WorkspaceSidebarDragPreviewStyle.appIcon(size: 22)
+        let preview = workspaceSidebarSourcePreview(sourceWindow: try window(of: "b"), subject: .window)
+        XCTAssertEqual(preview.batchTabCount, 3)
+        XCTAssertEqual(preview.label, "3 Tabs")
+        let size = windowDragCursorProxySize(preview: preview, style: style)
+        let icon = windowDragCursorProxySize(label: preview.label, style: style)
+        XCTAssertGreaterThanOrEqual(size.width, workspaceSidebarTabDropLabelWidth("3 Tabs"), "The count fits")
+        XCTAssertEqual(size.height, icon.height + windowDragCursorProxyBatchLabelSpacing + windowDragCursorProxyBatchLabelHeight)
+        let pointer = try XCTUnwrap(windowDragCursorProxyPointerFromBottom(preview: preview, style: style))
+        XCTAssertEqual(pointer, icon.height / 2, "On the icon")
+        XCTAssertLessThan(pointer + 2, size.height - windowDragCursorProxyBatchLabelHeight, "Below the count")
+        let frame = windowDragCursorProxyFrame(mouseScreenPoint: .zero, proxySize: size, pointerFromBottom: pointer)
+        XCTAssertEqual(frame.size, size)
+
+        clearActiveWorkspaceSidebarDrag()
+        selection.clear()
+        _ = try beginDrag(from: "c", batch: false)
+        let single = workspaceSidebarSourcePreview(sourceWindow: try window(of: "c"), subject: .window)
+        XCTAssertNil(single.batchTabCount)
+        XCTAssertEqual(windowDragCursorProxySize(preview: single, style: style), windowDragCursorProxySize(label: single.label, style: style))
+        XCTAssertNil(windowDragCursorProxyPointerFromBottom(preview: single, style: style), "Centered on the pointer, as before")
+        XCTAssertEqual(windowDragCursorProxySize(preview: single, style: .row), windowDragCursorProxySize(label: single.label, style: .row))
+    }
+
+    // MARK: Between tabs
     // MARK: Between tabs
 
     /// Alan's report: a and b chosen, dragged onto the other display's list (the one its rail opens).
@@ -487,6 +519,7 @@ final class WorkspaceSidebarTabBatchDragTest: XCTestCase {
         updateSidebarPinnedTabDrag("a", pointer: rowRect.center)
         XCTAssertEqual(WorkspaceSidebarTabDragState.shared.draggedTabs, ["a", "b"])
         XCTAssertEqual(TrayMenuModel.shared.workspaceSidebarDropPreview?.label, "2 Tabs")
+        XCTAssertEqual(TrayMenuModel.shared.workspaceSidebarDropPreview?.batchTabCount, 2, "V4: the tile's drag image says how many")
         finishSidebarPinnedTabDrag("a", pointer: rowRect.center)
         try await waitUntil { self.pinOrder() == ["c", "a", "b"] }
         XCTAssertEqual(selection.names, [])
@@ -526,9 +559,14 @@ final class WorkspaceSidebarTabBatchDragTest: XCTestCase {
 
     @discardableResult
     private func beginDrag(from name: String) throws -> WorkspaceSidebarDragBatch {
+        try XCTUnwrap(beginDrag(from: name, batch: true))
+    }
+
+    @discardableResult
+    private func beginDrag(from name: String, batch: Bool) throws -> WorkspaceSidebarDragBatch? {
         clearActiveWorkspaceSidebarDrag()
         beginActiveWorkspaceSidebarDrag(windowId: try window(of: name).windowId, subject: .window)
-        return try XCTUnwrap(currentActiveWorkspaceSidebarDrag()?.batch)
+        return currentActiveWorkspaceSidebarDrag()?.batch
     }
 
     private func gapKind(after name: String, on scope: String, in group: String? = nil) -> WorkspaceSidebarDropTargetKind {

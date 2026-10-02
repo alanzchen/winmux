@@ -9,6 +9,8 @@ final class WindowDragCursorProxyPanel: NSPanelHud {
     let hostingView = NSHostingView(rootView: AnyView(EmptyView()))
     var currentContent: WindowDragCursorProxyContent?
     var proxySize: CGSize = .zero
+    /// How far above the proxy's bottom the pointer sits; nil centers the proxy on it.
+    var proxyPointerFromBottom: CGFloat?
 
     override private init() {
         super.init()
@@ -29,6 +31,7 @@ final class WindowDragCursorProxyPanel: NSPanelHud {
     func show(label: String, isGroup: Bool, mouseScreenPoint: CGPoint) {
         updateContent(label: label, isGroup: isGroup)
         proxySize = windowDragCursorProxySize(label: label)
+        proxyPointerFromBottom = nil
         updateFrame(mouseScreenPoint: mouseScreenPoint)
         startFollowingMouseIfNeeded()
         if !isVisible {
@@ -38,7 +41,8 @@ final class WindowDragCursorProxyPanel: NSPanelHud {
 
     func show(preview: WorkspaceSidebarDropPreviewViewModel, mouseScreenPoint: CGPoint, style: WorkspaceSidebarDragPreviewStyle = .row) {
         updateContent(preview: preview, style: style)
-        proxySize = windowDragCursorProxySize(label: preview.label, style: style)
+        proxySize = windowDragCursorProxySize(preview: preview, style: style)
+        proxyPointerFromBottom = windowDragCursorProxyPointerFromBottom(preview: preview, style: style)
         updateFrame(mouseScreenPoint: mouseScreenPoint)
         startFollowingMouseIfNeeded()
         if !isVisible {
@@ -100,6 +104,27 @@ func windowDragCursorProxySize(label: String, style: WorkspaceSidebarDragPreview
         case .appIcon(let size): CGSize(width: size + 12, height: size + 12)
     }
 }
+
+let windowDragCursorProxyBatchLabelHeight: CGFloat = 16
+let windowDragCursorProxyBatchLabelSpacing: CGFloat = 2
+
+/// The proxy for `preview`: an icon drag of several chosen tabs has their count above the icon.
+@MainActor
+func windowDragCursorProxySize(preview: WorkspaceSidebarDropPreviewViewModel, style: WorkspaceSidebarDragPreviewStyle) -> CGSize {
+    let size = windowDragCursorProxySize(label: preview.label, style: style)
+    guard case .appIcon = style, preview.batchTabCount != nil else { return size }
+    return CGSize(width: max(size.width, workspaceSidebarTabDropLabelWidth(preview.label) + 8),
+        height: size.height + windowDragCursorProxyBatchLabelSpacing + windowDragCursorProxyBatchLabelHeight)
+}
+
+/// Where the pointer sits in that proxy, from its bottom: on the icon, so the count above it stays
+/// clear of the pointer, which covers what's below and right of its tip. Nil: centered, as always.
+@MainActor
+func windowDragCursorProxyPointerFromBottom(preview: WorkspaceSidebarDropPreviewViewModel,
+                                            style: WorkspaceSidebarDragPreviewStyle) -> CGFloat? {
+    guard case .appIcon = style, preview.batchTabCount != nil else { return nil }
+    return windowDragCursorProxySize(label: preview.label, style: style).height / 2
+}
 extension WindowDragCursorProxyPanel {
     func startFollowingMouseIfNeeded() {
         DisplayRefreshDriver.shared.add(owner: self) { [weak self] _ in
@@ -116,6 +141,7 @@ extension WindowDragCursorProxyPanel {
         let targetFrame = windowDragCursorProxyFrame(
             mouseScreenPoint: mouseScreenPoint,
             proxySize: proxySize,
+            pointerFromBottom: proxyPointerFromBottom,
         )
         if frame.size == targetFrame.size {
             setFrameOrigin(targetFrame.origin)

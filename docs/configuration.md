@@ -80,7 +80,7 @@ tabs-always-expanded = true
   two tabs in the list to unpin it there, onto a group to unpin it into the group, or
   onto **New Tab** to unpin it in place. Dragged over a tab in the list and held there
   for a moment, it tiles that tab into the pin instead: the half under the pointer is
-  highlighted, labelled **Tile into Pinned Tab**, and the pin goes on that side. The tab
+  highlighted, labelled **Tile into Pin**, and the pin goes on that side. The tab
   joins whole, its split kept, and the pin stays pinned in its place. A shared pin on
   another display comes to the tab's display. Moving across a tab without the pause does
   nothing. Drag a tab onto a pinned tile and pause for a

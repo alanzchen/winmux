@@ -21,7 +21,17 @@ struct WindowDragCursorProxyView: View {
     }
 
     var body: some View {
-        if case .appIcon(let size) = style, let preview {
+        if case .appIcon(let size) = style, let preview, preview.batchTabCount != nil {
+            // Chosen tabs dragged together: how many, above the pointer, which sits on the icon.
+            VStack(spacing: windowDragCursorProxyBatchLabelSpacing) {
+                WorkspaceSidebarTabDropLabel(text: preview.label)
+                    .shadow(color: .black.opacity(0.25), radius: 2, y: 1)
+                WorkspaceSidebarDragIcon(preview: preview, size: size)
+                    .shadow(color: .black.opacity(0.3), radius: 3, y: 2)
+                    .padding(6)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+        } else if case .appIcon(let size) = style, let preview {
             WorkspaceSidebarDragIcon(preview: preview, size: size)
                 .shadow(color: .black.opacity(0.3), radius: 3, y: 2)
                 .padding(6)

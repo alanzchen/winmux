@@ -65,6 +65,7 @@ struct WorkspaceSidebarDragBatch: Equatable {
     func preview(_ preview: WorkspaceSidebarDropPreviewViewModel) -> WorkspaceSidebarDropPreviewViewModel {
         var preview = preview
         preview.label = label
+        preview.batchTabCount = names.count
         preview.isTabGroup = false
         preview.tabItems = []
         preview.windowCount = max(names.compactMap(Workspace.existing(byName:)).reduce(0) { $0 + $1.allLeafWindowsRecursive.count }, 1)

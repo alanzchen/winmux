@@ -304,9 +304,26 @@ private struct WorkspaceSidebarUndoWorkspace: Equatable {
     }
 }
 
+/// Whether two weights are the same as far as a user can tell. Layout spreads its rounding over a
+/// split, so a pass after a drop can move a weight by a few ulps: three thirds of 784 sum to
+/// 784.0000000000001, and the next pass takes that back. That's no change, and mustn't make a
+/// drop's Undo go away; a resize, of a point or more, is one.
+private func workspaceSidebarUndoWeightsMatch(_ a: CGFloat, _ b: CGFloat) -> Bool { abs(a - b) <= 1e-6 }
+
 private indirect enum WorkspaceSidebarUndoTree: Equatable {
     case window(WorkspaceSidebarUndoWindow)
     case container(Orientation, Layout, CGFloat, [WorkspaceSidebarUndoTree])
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        switch (lhs, rhs) {
+            case (.window(let a), .window(let b)): a == b
+            case (.container(let orientation, let layout, let weight, let children),
+                  .container(let otherOrientation, let otherLayout, let otherWeight, let otherChildren)):
+                orientation == otherOrientation && layout == otherLayout &&
+                    workspaceSidebarUndoWeightsMatch(weight, otherWeight) && children == otherChildren
+            default: false
+        }
+    }
 
     @MainActor init(_ node: TreeNode) {
         if let window = node as? Window { self = .window(.init(window)) }
@@ -342,6 +359,12 @@ struct WorkspaceSidebarUndoWindow: Equatable {
     let noOuterGaps: Bool
     let layoutReason: LayoutReason
     let floatingSize: CGSize?
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.window == rhs.window && lhs.originalParent == rhs.originalParent &&
+            workspaceSidebarUndoWeightsMatch(lhs.weight, rhs.weight) && lhs.isFullscreen == rhs.isFullscreen &&
+            lhs.noOuterGaps == rhs.noOuterGaps && lhs.layoutReason == rhs.layoutReason && lhs.floatingSize == rhs.floatingSize
+    }
 
     @MainActor init(_ window: Window) {
         self.window = window

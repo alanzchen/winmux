@@ -205,8 +205,17 @@ private func previewSidebarPinnedTabDrop(_ tab: Workspace, point: CGPoint) {
     let batch = activeSidebarPinnedTabDrag?.batch
     let (drop, hit) = workspaceSidebarPinnedTabDropUnderPointer(tab, batch: batch, point: point, pinGridIsShared: pinGridIsShared)
     displayedSidebarPinnedTabDrop = (drop, pinGridIsShared)
-    setWorkspaceSidebarDropPreviewIfChanged(drop.map { workspaceSidebarPinnedTabDropPreview(tab, batch: batch, drop: $0) },
-        owner: hit.surface)
+    var preview = drop.map { workspaceSidebarPinnedTabDropPreview(tab, batch: batch, drop: $0) }
+    // A join's label goes where the dragged tile, centered on the pointer, doesn't cover it.
+    if case .join(_, let placement, _) = drop, let rect = hit.target?.rect {
+        let current = TrayMenuModel.shared.workspaceSidebarDropPreview
+        preview?.targetLabelSlot = workspaceSidebarTabDropLabelSlot(pointX: point.x, targetMinX: rect.minX,
+            targetMaxX: rect.maxX, placement: placement, labelWidth: workspaceSidebarTabDropLabelWidth(workspaceSidebarPinTilingLabel),
+            clearance: workspaceSidebarDragImageHalfWidth(.appIcon(size: 22)) + 4,
+            previous: current?.receivingPinnedTabName == tab.name && current?.targetPlacement == placement
+                ? current?.targetLabelSlot : nil)
+    }
+    setWorkspaceSidebarDropPreviewIfChanged(preview, owner: hit.surface)
 }
 
 @MainActor
