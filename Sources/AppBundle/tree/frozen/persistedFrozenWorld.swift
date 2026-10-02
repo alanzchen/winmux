@@ -94,3 +94,15 @@ func finalizePersistedFrozenWorldAfterRefresh(aliveWindowIds: Set<UInt32>) {
 func persistedFrozenWorldContains(windowId: UInt32) -> Bool {
     pendingPersistedFrozenWorld?.windowIds.contains(windowId) ?? false
 }
+
+/// The world saved before WinMux restarted, once the user put `window` in `workspace` on purpose.
+@MainActor
+func supersedePendingPersistedFrozenWorld(placementOf window: Window, in workspace: Workspace) {
+    pendingPersistedFrozenWorld = pendingPersistedFrozenWorld?.superseding(placementOf: window, in: workspace)
+}
+
+@MainActor
+func setPendingPersistedFrozenWorldForTests(_ world: FrozenWorld?) {
+    pendingPersistedFrozenWorld = world
+    didRestorePersistedFrozenWorldDuringCurrentSession = false
+}

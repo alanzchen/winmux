@@ -39,6 +39,7 @@ final class PinReopenRequestTest: XCTestCase {
 
     override func tearDown() async throws {
         reopenRunningApplication = originalReopen
+        setPendingPersistedFrozenWorldForTests(nil)
         registry.resetForTests()
         replaceClosedWindowsCache(FrozenWorld(workspaces: [], monitors: [], windowIds: []))
         config = defaultConfig
@@ -217,7 +218,81 @@ final class PinReopenRequestTest: XCTestCase {
 
         XCTAssertTrue(first.nodeWorkspace === pin, "The cached world doesn't take it back")
         XCTAssertTrue(pin.isVisible, "nor switch the display away from the tab clicked")
+        XCTAssertTrue(second.nodeWorkspace === otherOld, "The other window still returns to its own tab")
         XCTAssertEqual(outcomes, [.placed(windowId: 2)])
+    }
+
+    func testAWorldSavedBeforeWinMuxRestartedDoesntTakeTheReopenedWindowBack() async throws {
+        let old = Workspace.get(byName: "old")
+        let otherOld = Workspace.get(byName: "other-old")
+        let pin = Workspace.get(byName: "pin")
+        _ = TestWindow.new(id: 1, parent: old.rootTilingContainer)
+        let first = TestWindow.new(id: 2, parent: old.rootTilingContainer)
+        let second = TestWindow.new(id: 3, parent: otherOld.rootTilingContainer)
+        // Saved as WinMux quit; both windows were hidden when it started again, so nothing restored.
+        setPendingPersistedFrozenWorldForTests(snapshotCurrentFrozenWorld())
+        first.unbindFromParent()
+        second.unbindFromParent()
+        _ = pin.focusWorkspace()
+
+        clickPin(pin)
+        await letTheRequestRun()
+        _ = try await appShows(2, reusing: first)
+        XCTAssertTrue(first.nodeWorkspace === pin)
+        let binding = bindingDataForNewRegularWindow(focus.workspace, window: nil)
+        second.bind(to: binding.parent, adaptiveWeight: binding.adaptiveWeight, index: binding.index)
+        _ = try await restoreOrDetectNewWindow(second, isRegularWindow: true)
+
+        XCTAssertTrue(first.nodeWorkspace === pin, "The saved world doesn't take it back")
+        XCTAssertTrue(pin.isVisible)
+        XCTAssertTrue(second.nodeWorkspace === otherOld, "The other window still returns to its own tab")
+    }
+
+    func testARestoreAlreadyUnderWayLeavesTheReopenedWindowAlone() async throws {
+        let old = Workspace.get(byName: "old")
+        let otherOld = Workspace.get(byName: "other-old")
+        let pin = Workspace.get(byName: "pin")
+        _ = TestWindow.new(id: 1, parent: old.rootTilingContainer)
+        let first = TestWindow.new(id: 2, parent: old.rootTilingContainer)
+        let second = TestWindow.new(id: 3, parent: otherOld.rootTilingContainer)
+        let world = snapshotCurrentFrozenWorld()
+        first.unbindFromParent()
+        second.unbindFromParent()
+        _ = pin.focusWorkspace()
+        // Another window's restore began with this snapshot and is waiting on an AX read.
+        let restoreBegan = explicitWindowPlacementCount
+
+        clickPin(pin)
+        await letTheRequestRun()
+        _ = try await appShows(2, reusing: first)
+        let binding = bindingDataForNewRegularWindow(focus.workspace, window: nil)
+        second.bind(to: binding.parent, adaptiveWeight: binding.adaptiveWeight, index: binding.index)
+        _ = try await restoreFrozenWorldIfNeeded(world, newlyDetectedWindow: second, placedSince: restoreBegan)
+
+        XCTAssertTrue(first.nodeWorkspace === pin, "Placed after the restore's snapshot: left where the user put it")
+        XCTAssertTrue(second.nodeWorkspace === otherOld)
+    }
+
+    func testForgettingAReopenedWindowsOldPlaceKeepsEveryOtherWindowsPlace() {
+        let old = Workspace.get(byName: "old")
+        let pin = Workspace.get(byName: "pin")
+        let stack = TilingContainer(parent: old.rootTilingContainer, adaptiveWeight: WEIGHT_AUTO, .v, .tabGroup,
+            index: INDEX_BIND_LAST)
+        _ = TestWindow.new(id: 1, parent: old.rootTilingContainer)
+        let reopened = TestWindow.new(id: 2, parent: stack)
+        _ = TestWindow.new(id: 3, parent: old.rootTilingContainer)
+        let world = snapshotCurrentFrozenWorld()
+        _ = pin.focusWorkspace()
+        reopened.bind(to: pin.rootTilingContainer, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
+
+        let superseded = world.superseding(placementOf: reopened, in: pin)
+        XCTAssertEqual(superseded.windowIds, [1, 3, 2], "The reopened window is remembered in its new tab")
+        let oldTab = try? XCTUnwrap(superseded.workspaces.first { $0.name == old.name })
+        XCTAssertEqual(oldTab?.rootTilingNode.children.count, 2, "Its old stack, left empty, is dropped")
+        XCTAssertEqual(superseded.monitors.first { $0.topLeftCorner == pin.workspaceMonitor.rect.topLeftCorner }?
+            .visibleWorkspace, pin.name)
+        XCTAssertEqual(world.superseding(placementOf: TestWindow.new(id: 9, parent: pin.rootTilingContainer), in: pin)
+            .windowIds, world.windowIds, "A world that never had the window is left alone")
     }
 
     func testClickingThePinAgainWhileTheAppReopensAsksItOnlyOnce() async throws {
@@ -357,6 +432,17 @@ final class PinReopenRequestTest: XCTestCase {
         registry.isProcessAlive = { $0 != self.pid }
         XCTAssertTrue(registry.claim(windowId: 5, pid: 42, bundleId: appId, firstSeenUptime: clock) === pin,
             "Once it quit, the app's relaunched process is what the reopen reached")
+    }
+
+    func testAnotherCopyOfTheAppRunningAlreadyIsntTakenForTheRelaunch() {
+        let pin = Workspace.get(byName: "pin")
+        startReopenRequest(target, pid: pid, appURL: appURL, targetWorkspace: pin, focusGeneration: focusChangeGeneration,
+            preexistingWindowIds: { [] }, runningInstancePids: { _ in [self.pid, 50] }, completion: { _ in })
+        registry.isProcessAlive = { $0 != self.pid } // The copy asked quit before LaunchServices replied.
+
+        XCTAssertNil(registry.claim(windowId: 5, pid: 50, bundleId: appId, firstSeenUptime: clock),
+            "A copy that was already running opens windows of its own")
+        XCTAssertTrue(registry.claim(windowId: 6, pid: 42, bundleId: appId, firstSeenUptime: clock) === pin)
     }
 
     func testAnAppThatQuitMeanwhileIsWaitedForInItsNewProcess() async throws {

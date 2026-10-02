@@ -350,6 +350,9 @@ func startReopenRequest(
     targetWorkspace: Workspace,
     focusGeneration: UInt64,
     preexistingWindowIds: () -> Set<UInt32>,
+    runningInstancePids: (String) -> Set<Int32> = { bundleId in
+        Set(NSRunningApplication.runningApplications(withBundleIdentifier: bundleId).map(\.processIdentifier))
+    },
     completion: @escaping @MainActor (NewWindowRequestOutcome) -> Void,
 ) -> Int? {
     let registry = NewWindowIntentRegistry.shared
@@ -366,7 +369,7 @@ func startReopenRequest(
     guard let intent = registry.register(bundleId: target.bundleId, pid: pid, targetWorkspace: targetWorkspace,
         // No permission prompt to wait for: the app has as long to take the reopen as to show its window.
         preexistingWindowIds: preexistingWindowIds(), focusGeneration: focusGeneration,
-        timeout: 2 * newWindowIntentTimeout, reopens: true,
+        timeout: 2 * newWindowIntentTimeout, reopens: true, instancePidsAtRequest: runningInstancePids(target.bundleId),
         completion: { outcome in completion(outcome) })
     else {
         completion(.failed("\(target.appName) is already opening a window"))

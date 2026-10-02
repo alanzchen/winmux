@@ -35,6 +35,8 @@ final class NewWindowIntent {
     /// The app was opened again to show its window, as a Dock click does. The window may be one
     /// it hid when it was closed, which WinMux remembers as closed.
     let reopens: Bool
+    /// The app's processes when it was asked. If the one asked quits, its relaunch is a new one.
+    let instancePidsAtRequest: Set<Int32>
     /// Where focus was when the request went to the app, which may show a permission prompt.
     var focusWhenSent: NewWindowFocusSnapshot?
     var completion: ((NewWindowRequestOutcome) -> Void)?
@@ -43,7 +45,7 @@ final class NewWindowIntent {
 
     init(id: Int, bundleId: String, pid: Int32?, targetWorkspaceId: WorkspaceId, preexistingWindowIds: Set<UInt32>,
          createdUptime: TimeInterval, deadlineUptime: TimeInterval, focusGeneration: UInt64, reopens: Bool = false,
-         completion: ((NewWindowRequestOutcome) -> Void)?) {
+         instancePidsAtRequest: Set<Int32> = [], completion: ((NewWindowRequestOutcome) -> Void)?) {
         self.id = id
         self.bundleId = bundleId
         self.pid = pid
@@ -53,6 +55,7 @@ final class NewWindowIntent {
         self.deadlineUptime = deadlineUptime
         self.focusGeneration = focusGeneration
         self.reopens = reopens
+        self.instancePidsAtRequest = instancePidsAtRequest
         self.completion = completion
     }
 }
@@ -64,8 +67,6 @@ struct NewWindowIntentClaim {
     let intent: NewWindowIntent
     let targetWorkspace: Workspace
     let claimedUptime: TimeInterval
-    /// A window WinMux remembered as closed, which a reopen brought back.
-    var wasRestorationCandidate = false
 
     /// The launcher closed after the window was claimed; it goes where any new window would.
     var isWithdrawn: Bool { intent.isCancelled }
@@ -113,6 +114,7 @@ final class NewWindowIntentRegistry {
         focusGeneration: UInt64,
         timeout: TimeInterval = newWindowIntentTimeout,
         reopens: Bool = false,
+        instancePidsAtRequest: Set<Int32> = [],
         completion: ((NewWindowRequestOutcome) -> Void)? = nil,
     ) -> NewWindowIntent? {
         expireOverdueIntents()
@@ -120,7 +122,8 @@ final class NewWindowIntentRegistry {
         let created = now()
         let intent = NewWindowIntent(id: nextId, bundleId: bundleId, pid: pid, targetWorkspaceId: targetWorkspace.id,
             preexistingWindowIds: preexistingWindowIds, createdUptime: created, deadlineUptime: created + timeout,
-            focusGeneration: focusGeneration, reopens: reopens, completion: completion)
+            focusGeneration: focusGeneration, reopens: reopens, instancePidsAtRequest: instancePidsAtRequest,
+            completion: completion)
         nextId += 1
         intents.append(intent)
         return intent
@@ -138,8 +141,10 @@ final class NewWindowIntentRegistry {
                       // on screen when the app was asked, so it's what the reopen showed.
                       (!isRestorationCandidate || intent.reopens) &&
                       // The app a reopen asked may have quit and been launched again before
-                      // LaunchServices replied with the new process.
-                      (intent.pid.map { $0 == pid || intent.reopens && !isProcessAlive($0) } ?? true) &&
+                      // LaunchServices replied: a process that wasn't running then is the relaunch.
+                      (intent.pid.map {
+                          $0 == pid || intent.reopens && !isProcessAlive($0) && !intent.instancePidsAtRequest.contains(pid)
+                      } ?? true) &&
                       !intent.preexistingWindowIds.contains(windowId) &&
                       // A window first seen before the request, promoted from a popup now, isn't it.
                       firstSeenUptime >= intent.createdUptime
@@ -150,8 +155,7 @@ final class NewWindowIntentRegistry {
             finish(intent, .cancelled)
             return nil
         }
-        claims[windowId] = NewWindowIntentClaim(intent: intent, targetWorkspace: workspace, claimedUptime: now(),
-            wasRestorationCandidate: isRestorationCandidate)
+        claims[windowId] = NewWindowIntentClaim(intent: intent, targetWorkspace: workspace, claimedUptime: now())
         return workspace
     }
 
@@ -287,9 +291,9 @@ func finishNewWindowIntentPlacement(_ window: Window, claim: NewWindowIntentClai
         let binding = newWindowIntentBinding(targetWorkspace: claim.targetWorkspace)
         window.bind(to: binding.parent, adaptiveWeight: binding.adaptiveWeight, index: binding.index)
     }
-    // The closed-windows cache still has the window where it was before it closed. Restoring that
-    // world for another window it holds would take this one back and switch the display.
-    if claim.wasRestorationCandidate { syncClosedWindowsCacheToCurrentWorld() }
+    // Snapshots kept to restore other windows still have a reopened window where it was before it
+    // closed; they mustn't take it back or switch the display away from the tab that asked.
+    if claim.intent.reopens { noteExplicitWindowPlacement(window, in: claim.targetWorkspace) }
     if broadcastsDetection { broadcastWindowDetected(window) }
     if newWindowIntentMayTakeFocus(claim.intent), window.nodeWorkspace?.isVisible == true, window.focusWindow() {
         // The launcher made WinMux frontmost, and neither scripted nor reopened windows activate their app.

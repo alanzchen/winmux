@@ -85,8 +85,21 @@ func syncClosedWindowsCacheToCurrentWorld() {
     try await restoreFrozenWorldIfNeeded(closedWindowsCache, newlyDetectedWindow: newlyDetectedWindow)
 }
 
+/// The cache once the user put `window` in `workspace` on purpose. See `FrozenWorld.superseding`.
 @MainActor
-func restoreFrozenWorldIfNeeded(_ frozenWorld: FrozenWorld, newlyDetectedWindow: Window) async throws -> Bool {
+func supersedeClosedWindowsCache(placementOf window: Window, in workspace: Workspace) {
+    closedWindowsCache = closedWindowsCache.superseding(placementOf: window, in: workspace)
+}
+
+/// `placedSince`: placements after this one are newer than the snapshot; the default is now.
+@MainActor
+func restoreFrozenWorldIfNeeded(_ frozenWorld: FrozenWorld, newlyDetectedWindow: Window,
+                                placedSince: UInt64? = nil) async throws -> Bool {
+    // The restore awaits, and meanwhile the user may put one of its windows somewhere on purpose.
+    let placementsBefore = placedSince ?? explicitWindowPlacementCount
+    func restorable(_ windowId: UInt32) -> Window? {
+        wasPlacedExplicitly(windowId, after: placementsBefore) ? nil : Window.get(byId: windowId)
+    }
     if !frozenWorld.windowIds.contains(newlyDetectedWindow.windowId) {
         return false
     }
@@ -106,20 +119,21 @@ func restoreFrozenWorldIfNeeded(_ frozenWorld: FrozenWorld, newlyDetectedWindow:
             .singleOrNil()?
             .setActiveWorkspace(workspace)
         for frozenWindow in frozenWorkspace.floatingWindows {
-            if let window = Window.get(byId: frozenWindow.id) {
+            if let window = restorable(frozenWindow.id) {
                 applyFrozenWindowState(window, frozenWindow)
                 window.bindAsFloatingWindow(to: workspace)
             }
         }
         for frozenWindow in frozenWorkspace.macosUnconventionalWindows {
-            if let window = Window.get(byId: frozenWindow.id) {
+            if let window = restorable(frozenWindow.id) {
                 try await restoreFrozenUnconventionalWindow(window, frozenWindow, on: workspace)
             }
         }
         let prevRoot = workspace.rootTilingContainer // Save prevRoot into a variable to avoid it being garbage collected earlier than needed
         let potentialOrphans = prevRoot.allLeafWindowsRecursive
         prevRoot.unbindFromParent()
-        restoreTreeRecursive(frozenContainer: frozenWorkspace.rootTilingNode, parent: workspace, index: INDEX_BIND_LAST)
+        restoreTreeRecursive(frozenContainer: frozenWorkspace.rootTilingNode, parent: workspace, index: INDEX_BIND_LAST,
+            window: restorable)
         for window in (potentialOrphans - workspace.rootTilingContainer.allLeafWindowsRecursive) {
             if let frozenWindow = frozenWindowById[window.windowId] {
                 if case .macos = frozenWindow.layoutReason {
@@ -149,7 +163,8 @@ func restoreFrozenWorldIfNeeded(_ frozenWorld: FrozenWorld, newlyDetectedWindow:
 
 @discardableResult
 @MainActor
-private func restoreTreeRecursive(frozenContainer: FrozenContainer, parent: NonLeafTreeNodeObject, index: Int) -> Bool {
+private func restoreTreeRecursive(frozenContainer: FrozenContainer, parent: NonLeafTreeNodeObject, index: Int,
+                                  window windowById: (UInt32) -> Window?) -> Bool {
     let container = TilingContainer(
         parent: parent,
         adaptiveWeight: frozenContainer.weight,
@@ -162,12 +177,12 @@ private func restoreTreeRecursive(frozenContainer: FrozenContainer, parent: NonL
         switch child {
             case .window(let w):
                 // Stop the loop if can't find the window, because otherwise all the subsequent windows will have incorrect index
-                guard let window = Window.get(byId: w.id) else { return false }
+                guard let window = windowById(w.id) else { return false }
                 applyFrozenWindowState(window, w)
                 window.bind(to: container, adaptiveWeight: w.weight, index: index)
             case .container(let c):
                 // There is no reason to continue
-                if !restoreTreeRecursive(frozenContainer: c, parent: container, index: index) { return false }
+                if !restoreTreeRecursive(frozenContainer: c, parent: container, index: index, window: windowById) { return false }
         }
     }
     return true
