@@ -447,6 +447,119 @@ final class HiddenWindowReparkTest: XCTestCase {
         XCTAssertEqual(rightShown.nativeRect.topLeftCorner, parkedPoint(on: left))
     }
 
+    // MARK: Pins in All Projects
+
+    /// Tabs mode with projects A, B and C, and A's `g` pinned in All Projects, which shows in the
+    /// project its display is in. Returns the projects and `g`, `b1` (B's) and `c1` (C's).
+    private func pinSections() throws -> (a: WorkspaceProjectId, b: WorkspaceProjectId, c: WorkspaceProjectId,
+                                          g: Workspace, b1: Workspace, c1: Workspace) {
+        setSavedWorkspaceTestEnvironment()
+        workspaceSidebarOrganizationStore = .init()
+        config.workspaceSidebar.enabled = true
+        config.workspaceSidebar.mode = .tabs
+        let a = createWorkspaceProject().id, b = createWorkspaceProject().id, c = createWorkspaceProject().id
+        let g = Workspace.get(byName: "g"), b1 = Workspace.get(byName: "b1"), c1 = Workspace.get(byName: "c1")
+        g.assignProject(a)
+        b1.assignProject(b)
+        c1.assignProject(c)
+        try setWorkspaceSidebarTabPinScope(g, .allProjects, projectId: a)
+        return (a, b, c, g, b1, c1)
+    }
+
+    private func memory(_ monitor: Monitor) -> [WorkspaceProjectId: WorkspaceId]? {
+        winMuxWorkspaceState.monitorViewportsById[MonitorViewportId(monitor)]?.lastActiveWorkspaceByProject
+    }
+
+    func testADisplayShowingAPinInAllProjectsGoingAwayLeavesTheSurvivorInItsProject() async throws {
+        defer { workspaceSidebarOrganizationStore = .init() }
+        let t = try pinSections()
+        let left = ParkingTestMonitor("Left", width: 1920, height: 1080, uuid: "LEFT")
+        let right = ParkingTestMonitor("Right", x: 1920, width: 2560, height: 1440, uuid: "RIGHT", isMain: false)
+        connect([left, right])
+        XCTAssertTrue(left.setActiveWorkspace(t.b1))
+        XCTAssertTrue(right.setActiveWorkspace(t.c1))
+        _ = window(1, in: t.b1.rootTilingContainer, Rect(topLeftX: 0, topLeftY: 25, width: 1920, height: 1055))
+        let pinWindow = window(2, in: t.g.rootTilingContainer, Rect(topLeftX: 1920, topLeftY: 25, width: 2560, height: 1415))
+        XCTAssertTrue(right.setActiveWorkspace(t.g))
+        XCTAssertEqual(activeWorkspaceProjectId(for: right), t.c, "The right display shows the pin in C")
+        let hiddenOnRight = Workspace.get(byName: "hidden-right")
+        hiddenOnRight.assignProject(t.c)
+        hiddenOnRight.seedMonitorIfNeeded(right)
+        let parkedOnRight = window(3, in: hiddenOnRight.rootTilingContainer, Rect(topLeftX: 2000, topLeftY: 100, width: 1200, height: 800))
+        try await settle([left, right], hidden: [parkedOnRight])
+
+        connect([left])
+        XCTAssertTrue(left.activeWorkspace === t.b1, "The surviving display keeps its tab")
+        XCTAssertEqual(activeWorkspaceProjectId(for: left), t.b, "and its project")
+        XCTAssertFalse(t.g.isVisible)
+        XCTAssertTrue(workspaceIsPinnedInAllProjects(t.g), "Still in All Projects")
+        XCTAssertEqual(t.g.projectId, t.a)
+        try await pass(.globalObserver(screenParams))
+        try await pass(settled)
+        assertHidden([parkedOnRight, pinWindow], on: left, "re-parked on the survivor")
+        XCTAssertEqual(pinWindow.nativeRect.topLeftCorner, parkedPoint(on: left))
+
+        // Shown there now, it's in the project the survivor is in.
+        XCTAssertTrue(t.g.focusWorkspace())
+        XCTAssertTrue(left.activeWorkspace === t.g)
+        XCTAssertEqual(activeWorkspaceProjectId(for: left), t.b)
+    }
+
+    func testTheSurvivingDisplayKeepsThePinInAllProjectsItShowsInItsProject() async throws {
+        defer { workspaceSidebarOrganizationStore = .init() }
+        let t = try pinSections()
+        let left = ParkingTestMonitor("Left", width: 1920, height: 1080, uuid: "LEFT")
+        let right = ParkingTestMonitor("Right", x: 1920, width: 2560, height: 1440, uuid: "RIGHT", isMain: false)
+        connect([left, right])
+        XCTAssertTrue(left.setActiveWorkspace(t.c1))
+        XCTAssertTrue(right.setActiveWorkspace(t.b1))
+        _ = window(1, in: t.g.rootTilingContainer, Rect(topLeftX: 0, topLeftY: 25, width: 1920, height: 1055))
+        let rightShown = window(2, in: t.b1.rootTilingContainer, Rect(topLeftX: 1920, topLeftY: 25, width: 2560, height: 1415))
+        XCTAssertTrue(left.setActiveWorkspace(t.g))
+        XCTAssertEqual(activeWorkspaceProjectId(for: left), t.c)
+        let remembered = memory(left)
+        try await settle([left, right], hidden: [])
+
+        connect([left])
+        XCTAssertTrue(left.activeWorkspace === t.g, "The survivor keeps the pin on screen")
+        XCTAssertEqual(activeWorkspaceProjectId(for: left), t.c, "in the project it was in, not the pin's own")
+        XCTAssertEqual(memory(left)?[t.c], t.g.id, "and C still remembers the pin chosen there")
+        for (project, id) in remembered ?? [:] where winMuxWorkspaceState.workspaceById[id] != nil {
+            XCTAssertEqual(memory(left)?[project], id, "Every remembered tab that's still there is remembered")
+        }
+        XCTAssertFalse(t.b1.isVisible)
+        try await pass(.globalObserver(screenParams))
+        try await pass(settled)
+        assertHidden([rightShown], on: left)
+        XCTAssertEqual(rightShown.nativeRect.topLeftCorner, parkedPoint(on: left))
+    }
+
+    func testNoScreensForAWhileKeepThePinInAllProjectsOnScreenInItsProject() async throws {
+        defer { workspaceSidebarOrganizationStore = .init() }
+        let t = try pinSections()
+        connect([sixK])
+        XCTAssertTrue(sixK.setActiveWorkspace(t.c1))
+        _ = window(1, in: t.g.rootTilingContainer, Rect(topLeftX: 0, topLeftY: 25, width: 3008, height: 1667))
+        let hidden = window(2, in: t.b1.rootTilingContainer, Rect(topLeftX: 100, topLeftY: 100, width: 1200, height: 800))
+        XCTAssertTrue(t.g.focusWorkspace())
+        XCTAssertEqual(activeWorkspaceProjectId(for: sixK), t.c)
+        let remembered = memory(sixK)
+        try await settle([sixK], hidden: [hidden])
+
+        connect([noDisplay])
+        XCTAssertTrue(noDisplay.activeWorkspace === t.g)
+        connect([builtin])
+        XCTAssertTrue(builtin.activeWorkspace === t.g)
+        XCTAssertEqual(activeWorkspaceProjectId(for: builtin), t.c, "Back on a display, the pin is still shown in C")
+        XCTAssertEqual(memory(builtin)?[t.c], t.g.id)
+        for (project, id) in remembered ?? [:] where winMuxWorkspaceState.workspaceById[id] != nil {
+            XCTAssertEqual(memory(builtin)?[project], id)
+        }
+        try await pass(.globalObserver(screenParams))
+        try await pass(settled)
+        assertHidden([hidden], on: builtin)
+    }
+
     // MARK: Confirmation and bounded retries
 
     func testAParkWriteThatFailsIsRetriedOnTheNextPass() async throws {

@@ -11,10 +11,14 @@ import AppKit
 struct FrozenMonitor: Codable, Sendable {
     let topLeftCorner: CGPoint
     let visibleWorkspace: String
+    /// The project the display was in, which a pin in All Projects shown there isn't from. Older
+    /// snapshots have none.
+    var contextProjectId: WorkspaceProjectId? = nil
 
     @MainActor init(_ monitor: Monitor) {
         topLeftCorner = monitor.rect.topLeftCorner
         visibleWorkspace = monitor.activeWorkspace.name
+        contextProjectId = winMuxWorkspaceState.activeProjectId(for: monitor)
     }
 }
 
@@ -187,7 +191,9 @@ func restoreFrozenWorldIfNeeded(_ frozenWorld: FrozenWorld, newlyDetectedWindow:
         } else {
             targetWorkspace = getOrCreateMonitorViewportFallbackWorkspace(for: targetMonitor)
         }
-        _ = targetMonitor.setActiveWorkspace(targetWorkspace)
+        // A pin in All Projects shows again in the project the display was in.
+        _ = targetMonitor.setActiveWorkspace(targetWorkspace,
+            contextProjectId: monitor.contextProjectId.flatMap { winMuxWorkspaceState.projectsById[$0] != nil ? $0 : nil })
     }
     return true
 }

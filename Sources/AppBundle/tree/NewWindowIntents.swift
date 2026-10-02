@@ -86,9 +86,12 @@ struct NewWindowFocusSnapshot {
     let generation: UInt64
     let workspace: Workspace
     let window: Window?
+    /// The project the focused display was in: with a pin in All Projects on it, not the pin's own.
+    var contextProjectId: WorkspaceProjectId? = nil
 
     static var current: NewWindowFocusSnapshot {
-        NewWindowFocusSnapshot(generation: focusChangeGeneration, workspace: focus.workspace, window: focus.windowOrNil)
+        NewWindowFocusSnapshot(generation: focusChangeGeneration, workspace: focus.workspace, window: focus.windowOrNil,
+            contextProjectId: winMuxWorkspaceState.activeProjectId(for: focus.workspace.workspaceMonitor))
     }
 }
 
@@ -398,12 +401,23 @@ func finishDeferredReopenPlacements() {
         }
         // A restore may have shown another tab where the user was looking at this one.
         let userWasHere = target.isVisible || claim.intent.focusWhenSent?.workspace === target
-        if newWindowIntentMayTakeFocus(claim.intent), userWasHere, window.focusWindow() {
-            window.nativeFocus()
+        if newWindowIntentMayTakeFocus(claim.intent), userWasHere {
+            showPinInAllProjectsWhereItWasClicked(target, claim.intent.focusWhenSent)
+            if window.focusWindow() { window.nativeFocus() }
         }
         noteExplicitWindowPlacement(window, in: target)
         registry.completeClaim(claim, window: window)
     }
+}
+
+/// A pin in All Projects shows in the project its display is in, which a restore that showed
+/// another project's tab there meanwhile has changed: it comes back in the project it was clicked
+/// in, which remembers it as chosen there again.
+@MainActor
+private func showPinInAllProjectsWhereItWasClicked(_ target: Workspace, _ sent: NewWindowFocusSnapshot?) {
+    guard workspaceIsPinnedInAllProjects(target), let sent, sent.workspace === target, let projectId = sent.contextProjectId,
+          winMuxWorkspaceState.projectsById[projectId] != nil else { return }
+    _ = target.workspaceMonitor.setActiveWorkspace(target, contextProjectId: projectId)
 }
 
 /// The launcher closed after the window was claimed but before detection placed it: it goes
