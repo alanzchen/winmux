@@ -72,6 +72,28 @@ struct NewWindowIntentClaim {
     var isWithdrawn: Bool { intent.isCancelled }
 }
 
+/// A reopened window placed while a frozen-world restore was under way. The restore works from an
+/// older snapshot and may still move it, so the placement is finished once no restore is left.
+@MainActor
+struct DeferredReopenPlacement {
+    let window: Window
+    let claim: NewWindowIntentClaim
+    /// Where and how the request put the window, which a restore may change.
+    let parent: NonLeafTreeNodeObject?
+    let isFullscreen: Bool
+    let noOuterGapsInFullscreen: Bool
+    let layoutReason: LayoutReason
+
+    init(window: Window, claim: NewWindowIntentClaim) {
+        self.window = window
+        self.claim = claim
+        parent = window.parent
+        isFullscreen = window.isFullscreen
+        noOuterGapsInFullscreen = window.noOuterGapsInFullscreen
+        layoutReason = window.layoutReason
+    }
+}
+
 /// Where focus was when WinMux sent the request to the app.
 @MainActor
 struct NewWindowFocusSnapshot {
@@ -99,6 +121,8 @@ final class NewWindowIntentRegistry {
     }
     private(set) var intents: [NewWindowIntent] = []
     private var claims: [UInt32: NewWindowIntentClaim] = [:]
+    /// By intent id, until the restores under way end or the claim's deadline passes.
+    private var deferredPlacements: [Int: DeferredReopenPlacement] = [:]
     /// Windows registered and not yet through detection, which settles their claims.
     var windowsBeingDetected: Set<UInt32> = []
     private var nextId = 1
@@ -166,6 +190,12 @@ final class NewWindowIntentRegistry {
 
     func pendingClaim(windowId: UInt32) -> NewWindowIntentClaim? { claims[windowId] }
 
+    /// Ends a claimed request that can't be placed after all, reporting nothing more.
+    func cancel(claim: NewWindowIntentClaim) {
+        claim.intent.isCancelled = true
+        finish(claim.intent, .cancelled)
+    }
+
     /// Ends the request once detection knows where its window went.
     func completeClaim(_ claim: NewWindowIntentClaim, window: Window) {
         finish(claim.intent, window.nodeWorkspace === claim.targetWorkspace
@@ -212,6 +242,10 @@ final class NewWindowIntentRegistry {
     func cancel(intentId id: Int, outcome: NewWindowRequestOutcome = .cancelled) {
         if let index = intents.firstIndex(where: { $0.id == id }) {
             finish(intents.remove(at: index), outcome)
+        } else if let deferred = deferredPlacements.removeValue(forKey: id) {
+            // Left where it is: it follows the usual rules, as a withdrawn claim does.
+            deferred.claim.intent.isCancelled = true
+            finish(deferred.claim.intent, outcome)
         } else if let claim = claims.values.first(where: { $0.intent.id == id && !$0.intent.isCancelled }) {
             claim.intent.isCancelled = true
             finish(claim.intent, outcome)
@@ -225,6 +259,23 @@ final class NewWindowIntentRegistry {
     func deadline(forIntent id: Int) -> TimeInterval? {
         intents.first { $0.id == id }?.deadlineUptime
             ?? claims.values.first { $0.intent.id == id }.map { $0.claimedUptime + newWindowIntentTimeout }
+            ?? deferredPlacements[id].map { $0.claim.claimedUptime + newWindowIntentTimeout }
+    }
+
+    /// Waits for the restores under way, within the claim's deadline.
+    func deferPlacement(_ placement: DeferredReopenPlacement) {
+        deferredPlacements[placement.claim.intent.id] = placement
+    }
+
+    /// The placements to finish now, in the order they were claimed.
+    func takeDeferredPlacements() -> [DeferredReopenPlacement] {
+        defer { deferredPlacements = [:] }
+        return deferredPlacements.values.sorted { $0.claim.claimedUptime < $1.claim.claimedUptime }
+    }
+
+    /// The app's window is already placed for a tab, waiting for restores to end.
+    func hasDeferredPlacement(bundleId: String) -> Bool {
+        deferredPlacements.values.contains { $0.claim.intent.bundleId == bundleId }
     }
 
     func expireOverdueIntents() {
@@ -242,11 +293,19 @@ final class NewWindowIntentRegistry {
             claims.removeValue(forKey: windowId)
             finish(claim.intent, .failed("WinMux couldn't place the new window"))
         }
+        // Restores that never end within the claim's time: the window stays where they left it.
+        let waitedTooLong = deferredPlacements.filter { $0.value.claim.claimedUptime + newWindowIntentTimeout < time }
+        for (id, deferred) in waitedTooLong {
+            deferredPlacements.removeValue(forKey: id)
+            finish(deferred.claim.intent, .failed("WinMux couldn't place the new window"))
+        }
     }
 
     func resetForTests() {
         intents = []
         claims = [:]
+        deferredPlacements = [:]
+        resetFrozenRestoresForTests()
         windowsBeingDetected = []
         now = { ProcessInfo.processInfo.systemUptime }
         isRestorationCandidate = { windowId in
@@ -292,6 +351,12 @@ func finishNewWindowIntentPlacement(_ window: Window, claim: NewWindowIntentClai
         window.bind(to: binding.parent, adaptiveWeight: binding.adaptiveWeight, index: binding.index)
     }
     if broadcastsDetection { broadcastWindowDetected(window) }
+    // A restore under way works from a snapshot older than this placement, across its AX waits, and
+    // would put a reopened window back where it was before it closed. It's finished once they end.
+    if claim.intent.reopens, activeFrozenRestoreCount > 0 {
+        NewWindowIntentRegistry.shared.deferPlacement(DeferredReopenPlacement(window: window, claim: claim))
+        return
+    }
     if newWindowIntentMayTakeFocus(claim.intent), window.nodeWorkspace?.isVisible == true, window.focusWindow() {
         // The launcher made WinMux frontmost, and neither scripted nor reopened windows activate their app.
         window.nativeFocus()
@@ -300,6 +365,41 @@ func finishNewWindowIntentPlacement(_ window: Window, claim: NewWindowIntentClai
     // closed; they mustn't take it back or switch the display away from the tab that asked.
     if claim.intent.reopens { noteExplicitWindowPlacement(window, in: claim.targetWorkspace) }
     NewWindowIntentRegistry.shared.completeClaim(claim, window: window)
+}
+
+/// The last restore under way ended: each reopened window placed meanwhile goes back where and as
+/// the request put it, if its tab and request still stand. It takes focus, and shows its tab again,
+/// only if the user hasn't moved on. Synchronous, so it never waits on the restore that called it.
+@MainActor
+func finishDeferredReopenPlacements() {
+    let registry = NewWindowIntentRegistry.shared
+    for deferred in registry.takeDeferredPlacements() {
+        let window = deferred.window
+        let claim = deferred.claim
+        let target = claim.targetWorkspace
+        guard !claim.isWithdrawn else { continue }
+        guard winMuxWorkspaceState.workspaceById[target.id] === target, !target.isArchived,
+              Window.get(byId: window.windowId) === window
+        else {
+            // The tab or the window went meanwhile; the window stays where it is.
+            registry.cancel(claim: claim)
+            continue
+        }
+        if window.parent !== deferred.parent {
+            let binding = newWindowIntentBinding(targetWorkspace: target)
+            window.bind(to: binding.parent, adaptiveWeight: binding.adaptiveWeight, index: binding.index)
+        }
+        window.isFullscreen = deferred.isFullscreen
+        window.noOuterGapsInFullscreen = deferred.noOuterGapsInFullscreen
+        window.layoutReason = deferred.layoutReason
+        // The restore may have shown another tab where the user was looking at this one.
+        let userWasHere = window.nodeWorkspace?.isVisible == true || claim.intent.focusWhenSent?.workspace === target
+        if newWindowIntentMayTakeFocus(claim.intent), userWasHere, window.focusWindow() {
+            window.nativeFocus()
+        }
+        noteExplicitWindowPlacement(window, in: target)
+        registry.completeClaim(claim, window: window)
+    }
 }
 
 /// The launcher closed after the window was claimed but before detection placed it: it goes

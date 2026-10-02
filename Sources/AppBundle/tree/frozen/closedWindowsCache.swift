@@ -91,6 +91,28 @@ func supersedeClosedWindowsCache(placementOf window: Window, in workspace: Works
     closedWindowsCache = closedWindowsCache.superseding(placementOf: window, in: workspace)
 }
 
+/// Frozen-world restores under way. Each works from its own snapshot across its AX waits, so a
+/// reopened window placed meanwhile is finished only once none is left. See
+/// `finishNewWindowIntentPlacement`.
+@MainActor private(set) var activeFrozenRestoreCount = 0
+
+@MainActor
+func beginFrozenRestore() {
+    activeFrozenRestoreCount += 1
+}
+
+/// On every way out of a restore: returning, throwing, or cancelled.
+@MainActor
+func endFrozenRestore() {
+    activeFrozenRestoreCount -= 1
+    if activeFrozenRestoreCount == 0 { finishDeferredReopenPlacements() }
+}
+
+@MainActor
+func resetFrozenRestoresForTests() {
+    activeFrozenRestoreCount = 0
+}
+
 @MainActor
 func restoreFrozenWorldIfNeeded(_ frozenWorld: FrozenWorld, newlyDetectedWindow: Window) async throws -> Bool {
     if !frozenWorld.windowIds.contains(newlyDetectedWindow.windowId) {
@@ -99,6 +121,8 @@ func restoreFrozenWorldIfNeeded(_ frozenWorld: FrozenWorld, newlyDetectedWindow:
     guard frozenWorld.workspaces.contains(where: { collectFrozenWindows($0)[newlyDetectedWindow.windowId] != nil }) else {
         return false
     }
+    beginFrozenRestore()
+    defer { endFrozenRestore() }
     let monitors = monitors
     let topLeftCornerToMonitor = monitors.grouped { $0.rect.topLeftCorner }
     let restoredWorkspaceNames = Set(frozenWorld.workspaces.map(\.name))

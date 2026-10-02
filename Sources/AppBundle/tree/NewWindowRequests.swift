@@ -229,6 +229,12 @@ private func requestNewWindow(
         completion(.failed("WinMux is read-only"))
         return
     }
+    // The app's window is already placed for a tab and only waits for restores to end; asking
+    // again would say it can't open another.
+    if reopensWindowlessApp, NewWindowIntentRegistry.shared.hasDeferredPlacement(bundleId: target.bundleId) {
+        completion(.cancelled)
+        return
+    }
     // Focus moving at any point after the choice, even while an app launches, means the user
     // has moved on.
     let focusGeneration = focusChangeGeneration
