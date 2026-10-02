@@ -6,15 +6,23 @@ import Common
 @MainActor
 private var workspaceLayoutPassGeneration: UInt64 = 0
 
+/// Whether a layout pass did everything it set out to: every frame and every park. A pass that
+/// stopped early (a newer layout or a tree change took over) hasn't carried out a re-park it owes.
+@MainActor
+final class LayoutPassOutcome {
+    fileprivate(set) var isComplete = true
+    func markIncomplete() { isComplete = false }
+}
+
 extension Workspace {
     @MainActor
-    func layoutWorkspace() async throws {
+    func layoutWorkspace(_ outcome: LayoutPassOutcome = LayoutPassOutcome()) async throws {
         if isEffectivelyEmpty { return }
         // No frames against a placeholder display (see layoutWorkspaces).
-        if workspaceMonitor.isFallbackMonitor { return }
+        if workspaceMonitor.isFallbackMonitor { return outcome.markIncomplete() }
         workspaceLayoutPassGeneration &+= 1
         let rect = workspaceMonitor.visibleRectPaddedByOuterGaps
-        let context = LayoutContext(self)
+        let context = LayoutContext(self, outcome)
         if let tabGroup = rootTilingContainer.allTabbedContainersRecursive.first(where: \.hasFullscreenTab) {
             lastAppliedLayoutPhysicalRect = rect
             lastAppliedLayoutVirtualRect = rect
@@ -28,7 +36,7 @@ extension Workspace {
             // Parking suspends in AX calls: don't lay out against displays that changed since, or
             // over a newer layout.
             try checkCancellation()
-            guard context.isStillCurrent() else { return }
+            guard context.proceeds(context.isStillCurrent()) else { return }
             try await tabGroup.layoutRecursive(rect.topLeftCorner, width: rect.width, height: rect.height, virtual: rect, context)
             return
         }
@@ -41,7 +49,7 @@ extension Workspace {
                 fullscreenWindow.isFullscreen && rootTilingContainer.mostRecentWindowRecursive === fullscreenWindow
             }
             try checkCancellation()
-            guard context.isStillCurrent() else { return }
+            guard context.proceeds(context.isStillCurrent()) else { return }
             fullscreenWindow.lastAppliedLayoutVirtualRect = rect
             fullscreenWindow.lastAppliedLayoutPhysicalRect = nil
             fullscreenWindow.layoutFullscreen(context)
@@ -66,15 +74,15 @@ extension TreeNode {
                 try await workspace.rootTilingContainer.layoutRecursive(point, width: width, height: height, virtual: virtual, context)
                 for window in workspace.children.filterIsInstance(of: Window.self) {
                     // Each move awaits AX; a newer layout or a command may have taken over since.
-                    guard context.isStillCurrent() else { return }
-                    guard window.parent === workspace else { continue }
+                    guard context.proceeds(context.isStillCurrent()) else { return }
+                    guard context.proceeds(window.parent === workspace) else { continue }
                     window.lastAppliedLayoutPhysicalRect = nil
                     window.lastAppliedLayoutVirtualRect = nil
                     try await window.layoutFloatingWindow(context)
                 }
             case .window(let window):
                 // An earlier sibling's park may have suspended across a display change or a newer layout.
-                guard context.isStillCurrent() else { return }
+                guard context.proceeds(context.isStillCurrent()) else { return }
                 if window.windowId != currentlyManipulatedWithMouseWindowId || isPinnedDraggedWindow(window.windowId) {
                     let previousPhysicalRect = lastAppliedLayoutPhysicalRect
                     lastAppliedLayoutVirtualRect = virtual
@@ -135,9 +143,11 @@ private struct LayoutContext {
     let reassertHiddenWindows: Bool
     private let topologyGeneration: UInt64
     private let layoutPassGeneration: UInt64
+    private let outcome: LayoutPassOutcome
 
     @MainActor
-    init(_ workspace: Workspace) {
+    init(_ workspace: Workspace, _ outcome: LayoutPassOutcome) {
+        self.outcome = outcome
         self.workspace = workspace
         self.resolvedGaps = ResolvedGaps(gaps: config.gaps, monitor: workspace.workspaceMonitor)
         self.hideCorner = optimalHideCorner(for: workspace.workspaceMonitor)
@@ -156,10 +166,17 @@ private struct LayoutContext {
 
     /// Parks a window this layout hides, unless the layout is stale or (`stillHidden`) what it
     /// shows changed while a park awaited AX.
+    /// Whether the layout may go on; if not, it stops short and says so.
+    @MainActor
+    func proceeds(_ condition: Bool) -> Bool {
+        if !condition { outcome.markIncomplete() }
+        return condition
+    }
+
     @MainActor
     func park(_ window: Window, stillHidden: () -> Bool) async throws {
         try await parkHiddenWindow(window, in: hideCorner, reasserting: reassertHiddenWindows) {
-            isStillCurrent() && window.nodeWorkspace === workspace && stillHidden()
+            proceeds(isStillCurrent() && window.nodeWorkspace === workspace && stillHidden())
         }
     }
 }
@@ -179,7 +196,7 @@ extension Window {
         }
         let workspace = context.workspace
         let windowRect = try await getAxRect() // Probably not idempotent
-        guard context.isStillCurrent() else { return }
+        guard context.proceeds(context.isStillCurrent()) else { return }
         let currentMonitor = windowRect?.center.monitorApproximation
         if let currentMonitor, let windowRect, workspace != currentMonitor.activeWorkspace {
             let windowTopLeftCorner = windowRect.topLeftCorner
@@ -208,7 +225,7 @@ extension Window {
 
     @MainActor
     fileprivate func layoutFullscreen(_ context: LayoutContext) {
-        guard context.isStillCurrent() else { return }
+        guard context.proceeds(context.isStillCurrent()) else { return }
         let monitorRect = noOuterGapsInFullscreen
             ? context.workspace.workspaceMonitor.visibleRect
             : context.workspace.workspaceMonitor.visibleRectPaddedByOuterGaps
@@ -230,7 +247,7 @@ extension TilingContainer {
             // An earlier child's layout can await AX (parking a tab). If a newer layout or a command
             // changed the tree meanwhile, stop: weights no longer apply, and the change's own
             // layout follows.
-            guard context.isStillCurrent(), child.parent === self, layout == .tiles else { return }
+            guard context.proceeds(context.isStillCurrent() && child.parent === self && layout == .tiles) else { return }
             child.setWeight(orientation, child.getWeight(orientation) + delta)
             let rawGap = context.resolvedGaps.inner.get(orientation).toDouble()
             // Gaps. Consider 4 cases:
@@ -251,7 +268,7 @@ extension TilingContainer {
                 ),
                 context,
             )
-            guard context.isStillCurrent(), child.parent === self, layout == .tiles else { return }
+            guard context.proceeds(context.isStillCurrent() && child.parent === self && layout == .tiles) else { return }
             virtualPoint = orientation == .h ? virtualPoint.addingXOffset(child.hWeight) : virtualPoint.addingYOffset(child.vWeight)
             point = orientation == .h ? point.addingXOffset(child.hWeight) : point.addingYOffset(child.vWeight)
         }
@@ -293,7 +310,7 @@ extension TilingContainer {
 
         guard let mruIndex: Int = mostRecentChild?.ownIndex else { return }
         for (index, child) in children.enumerated() {
-            guard context.isStillCurrent(), child.parent === self else { return }
+            guard context.proceeds(context.isStillCurrent() && child.parent === self) else { return }
             let padding = CGFloat(config.tabGroupPadding)
             let (lPadding, rPadding): (CGFloat, CGFloat) = switch index {
                 case 0 where children.count == 1: (0, 0)

@@ -583,11 +583,6 @@ private var workspaceLayoutGeneration: UInt64 = 0
 @MainActor
 private var owedHiddenWindowsReassertion: HiddenWindowsReassertion? = nil
 
-/// Counts parks a layout gave up on because what it was hiding changed while it awaited AX. A
-/// pass with such a park hasn't carried out an owed reassertion for every window.
-@MainActor
-private var abandonedHiddenWindowParks: UInt64 = 0
-
 /// Whether this pass must re-park hidden windows even where WinMux believes them parked: wake
 /// and startup always; a settled display change only while no newer change has arrived.
 @MainActor
@@ -607,11 +602,7 @@ func parkHiddenWindow(
     ifStillValid: () -> Bool = { true },
 ) async throws {
     guard let visibility = window as? any WorkspaceWindowVisibility else { return }
-    try await visibility.hideInCorner(corner, reassert: reasserting) {
-        let valid = ifStillValid()
-        if !valid { abandonedHiddenWindowParks &+= 1 }
-        return valid
-    }
+    try await visibility.hideInCorner(corner, reassert: reasserting, ifStillValid: ifStillValid)
 }
 
 @MainActor
@@ -639,7 +630,7 @@ func layoutWorkspaces() async throws {
         owedHiddenWindowsReassertion = requested.union(owedHiddenWindowsReassertion)
     }
     let owedAtStart = owedHiddenWindowsReassertion
-    let abandonedParksAtStart = abandonedHiddenWindowParks
+    let outcome = LayoutPassOutcome()
     let layoutMonitors = monitors
     let topologyGeneration = MonitorConfigurationObserver.shared.topologyGeneration
     let presentation = layoutMonitors.map { (rect: $0.rect, visibleRect: $0.visibleRect, workspace: $0.activeWorkspace) }
@@ -667,7 +658,7 @@ func layoutWorkspaces() async throws {
             visibleApps.append((MonitorViewportId(topLeftCorner: expected.rect.topLeftCorner), window.app))
             visibility.unhideFromCorner()
         }
-        try await workspace.layoutWorkspace()
+        try await workspace.layoutWorkspace(outcome)
     }
     guard isCurrentPresentation() else { return }
     let outgoingMonitors = Set(Workspace.all.compactMap { workspace -> MonitorViewportId? in
@@ -700,14 +691,16 @@ func layoutWorkspaces() async throws {
             window.lastAppliedLayoutPhysicalRect = nil
             window.lastAppliedLayoutVirtualRect = nil
             try await parkHiddenWindow(window, in: corner, reasserting: shouldReassertHiddenWindows) {
-                isCurrentPresentation() && window.nodeWorkspace === workspace && !workspace.isVisible
+                let valid = isCurrentPresentation() && window.nodeWorkspace === workspace && !workspace.isVisible
+                if !valid { outcome.markIncomplete() }
+                return valid
             }
         }
     }
-    // Carried out, unless this pass was superseded (its last park may just have been rejected),
-    // gave up a park, or a session asked for more while it ran.
+    // Carried out, unless this pass stopped short (superseded, a tree change, a park it gave up)
+    // or a session asked for more while it ran.
     try checkCancellation()
-    if isCurrentPresentation(), abandonedHiddenWindowParks == abandonedParksAtStart, owedHiddenWindowsReassertion == owedAtStart {
+    if outcome.isComplete, isCurrentPresentation(), owedHiddenWindowsReassertion == owedAtStart {
         owedHiddenWindowsReassertion = nil
     }
 }

@@ -927,10 +927,12 @@ final class HiddenWindowReparkTest: XCTestCase {
     func testAStalePassDoesNotDischargeAReassertionItsReplacementStillOwes() async throws {
         connect([builtin])
         let (_, inactive) = tabGroup()
-        let hidden = hiddenWindows(2)
+        let hidden = hiddenWindows(3)
         try await settle([builtin], hidden: hidden)
         let lastHidden = try XCTUnwrap(Workspace.all.filter { !$0.isVisible }.last?.allLeafWindowsRecursive.last as? ParkingTestWindow)
-        for window in hidden { window.silentlyMove(to: CGPoint(x: 0, y: 33)) }
+        let displaced = hidden.filter { $0 !== lastHidden }.prefix(1) + [lastHidden]
+        let quiet = try XCTUnwrap(hidden.first { window in !displaced.contains { $0 === window } })
+        for window in displaced { window.silentlyMove(to: CGPoint(x: 0, y: 33)) }
         // The settled pass waits on its last hidden window.
         let settledHeld = expectation(description: "settled pass on its last hidden window")
         lastHidden.holdNextRead = true
@@ -950,6 +952,8 @@ final class HiddenWindowReparkTest: XCTestCase {
         inactive[0].readGate?.resume()
         try await replacement.value
         assertHidden(hidden, on: builtin, "the replacement still re-parks on the settled refresh's behalf")
+        let afterward = try await cost([quiet]) { try await pass(.hotkeyBinding) }
+        XCTAssertEqual(afterward.reads, 0, "The completed replacement discharged the re-park: no more re-reads")
     }
 
     func testSelectingATabDuringAReassertionStillReparksTheOtherTabs() async throws {
@@ -994,6 +998,38 @@ final class HiddenWindowReparkTest: XCTestCase {
         try await pass(settled)
         try await pass(.globalObserverLeftMouseUp)
         assertHidden(hidden, on: builtin, "the given-up re-park stays owed until a pass carries it out")
+    }
+
+    func testATraversalStoppedByATreeChangeLeavesTheReparkOwed() async throws {
+        connect([builtin])
+        config.windowTabs.enabled = true
+        config.workspaceSidebar.enabled = false
+        let workspace = focus.workspace
+        let root = workspace.rootTilingContainer
+        func group(_ ids: [UInt32]) -> [ParkingTestWindow] {
+            let container = TilingContainer(parent: root, adaptiveWeight: WEIGHT_AUTO, .v, .tabGroup, index: INDEX_BIND_LAST)
+            let windows = ids.map { window($0, in: container, Rect(topLeftX: 0, topLeftY: 33, width: 500, height: 949)) }
+            windows.last?.markAsMostRecentChild()
+            return windows
+        }
+        let first = group([11, 10])
+        let tile = window(30, in: root, Rect(topLeftX: 600, topLeftY: 33, width: 300, height: 949))
+        let second = group([21, 20])
+        try await pass(.globalObserverLeftMouseUp)
+        try await pass(.globalObserverLeftMouseUp)
+        assertHidden([first[0], second[0]], on: builtin)
+        second[0].silentlyMove(to: CGPoint(x: 1000, y: 33)) // an inactive tab macOS moved back on screen
+        let held = expectation(description: "settled pass re-reading the first group's inactive tab")
+        first[0].holdNextRead = true
+        first[0].onReadHeld = { held.fulfill() }
+        let settledPass = Task { try await pass(settled) }
+        await fulfillment(of: [held], timeout: 2)
+        // A running command makes the tile floating; its own layout hasn't run yet.
+        tile.bind(to: workspace, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
+        first[0].readGate?.resume()
+        try await settledPass.value
+        try await pass(.hotkeyBinding) // the command's ordinary layout
+        assertHidden([second[0]], on: builtin, "the stopped pass left its re-park owed")
     }
 
     func testParkingStateBoundsRetriesIndependentlyOfTheFrameCache() {
