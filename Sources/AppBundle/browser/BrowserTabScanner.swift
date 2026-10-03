@@ -140,9 +140,9 @@ final class BrowserTabScanner<Node: BrowserTabAXNode> {
     private var lastDiscovery: TimeInterval = -.infinity
     /// The listed tabs, each with what its identifier said of Safari's topics.
     private var handles: [(node: Node, id: UUID, cluster: SafariTabCluster)] = []
-    /// Whether the last complete scan's tab bar accounted for every tab of its Safari topics
-    /// (`safariTabClustersAccountedFor`). Otherwise only its tabs that say they're in no topic
-    /// are acted on.
+    /// Whether the tab bar, when its tabs were last all read, accounted for every tab of its
+    /// Safari topics (`safariTabClustersAccountedFor`), even if that scan then failed, as when no
+    /// tab it listed was selected. Otherwise only tabs that say they're in no topic are acted on.
     private var tabsComplete = true
     /// The selected tab of the last complete scan, which named its container.
     private var anchor: Node?
@@ -241,6 +241,7 @@ final class BrowserTabScanner<Node: BrowserTabAXNode> {
         // A Safari topic's own button is listed with the tabs, as one, but it's no page.
         let clusters = listed.map { cluster(of: $0.record) }
         let complete = safariTabClustersAccountedFor(clusters)
+        tabsComplete = complete
         var next: [(node: Node, id: UUID, cluster: SafariTabCluster)] = []
         var tabs: [BrowserTab] = []
         var records: [(node: Node, record: BrowserTabAXRecord<Node>)] = []
@@ -262,7 +263,6 @@ final class BrowserTabScanner<Node: BrowserTabAXNode> {
         }
         container = candidate
         handles = next
-        tabsComplete = complete
         quietTabControls = quietControls
         anchor = zip(next, tabs).first { $0.1.isSelected }?.0.node
         // The selected control plus window/container notifications cover common
