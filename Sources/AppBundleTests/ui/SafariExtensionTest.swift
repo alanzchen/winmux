@@ -463,6 +463,76 @@ final class SafariExtensionTest: XCTestCase {
         XCTAssertNil(associations.described(read.tabs[0]).siteIcon, "The unread window is where the report says")
     }
 
+    /// Two profiles each have an "Inbox, Docs" window, and only one reports. If the other's read
+    /// didn't list all its tabs (`BrowserWindowTabs.isComplete`), as with a Safari topic closed, it
+    /// pairs with nothing new, but could be the report's window: as with an unread one, the window
+    /// read in full can't take the report unless the frames settle it, nor a restarted session's.
+    func testAWindowReadIncompleteStillKeepsAnotherFromTakingItsReport() {
+        let frame = CGRect(x: 0, y: 25, width: 900, height: 700)
+        let elsewhere = frame.offsetBy(dx: 950, dy: 0)
+        let icon = String(repeating: "e", count: 64)
+        let read = tabs(["Inbox", "Docs"], selected: 0, window: 1)
+        var incomplete = tabs(["Inbox", "Docs"], selected: 0, window: 2)
+        incomplete.isComplete = false
+        let candidates = { (time: TimeInterval) -> [SafariExtensionCandidate] in
+            [.init(snapshot: read, observed: time), .init(snapshot: incomplete, observed: time)]
+        }
+        let report = described(["Inbox", "Docs"], selected: 0, id: 10, bounds: elsewhere, icon: icon, sighting: [1: frame, 2: elsewhere])
+        var associations = SafariExtensionAssociations()
+        for time in [0.0, 1, 2] { associations.update(candidates(time), windows: [report], now: time) }
+        XCTAssertNil(associations.described(read.tabs[0]).siteIcon, "The incomplete window is where the report says")
+        XCTAssertNil(associations.described(incomplete.tabs[0]).siteIcon, "and its own tabs never pair by place")
+        XCTAssertEqual([1, 2].map { associations.resolution(of: $0) }, [.unresolved, .unresolved])
+        let restarted = described(["Inbox", "Docs"], selected: 0, id: 10, source: "p:new", bounds: elsewhere, icon: icon,
+            sighting: [1: frame, 2: elsewhere])
+        for time in [3.0, 4, 5] { associations.update(candidates(time), windows: [restarted], now: time) }
+        XCTAssertNil(associations.described(read.tabs[0]).siteIcon, "A restarted extension's report is no different")
+
+        let placed = described(["Inbox", "Docs"], selected: 0, id: 10, bounds: frame.offsetBy(dx: 1, dy: 2), icon: icon,
+            sighting: [1: frame, 2: elsewhere])
+        var settled = SafariExtensionAssociations()
+        for time in [0.0, 1] { settled.update(candidates(time), windows: [placed], now: time) }
+        XCTAssertEqual(settled.described(read.tabs[0]).siteIcon, icon, "Frames that rule the incomplete window out settle it")
+        XCTAssertNil(settled.described(incomplete.tabs[0]).siteIcon)
+    }
+
+    /// A paired window whose read stops listing all its tabs, as when a Safari topic closes, keeps
+    /// what its tabs' ids bound for the few seconds any mismatch does, each tab its own however they
+    /// move, but not their sound; meanwhile its report goes to no other window with the same tabs.
+    /// Read in full again, it's paired again.
+    func testAPairedWindowReadIncompleteKeepsItsReportFromAnotherWithTheSameTabs() {
+        let inbox = String(repeating: "a", count: 64), docs = String(repeating: "b", count: 64)
+        var first = tabs(["Inbox", "Docs"], selected: 0, window: 1)
+        let twin = tabs(["Inbox", "Docs"], selected: 0, window: 2)
+        let report = SafariExtensionWindow(key: .init(source: "p:s", id: 10), session: "s", tabs: [
+            .init(id: 100, title: "Inbox", isActive: true, isAudible: true, icon: inbox), .init(id: 101, title: "Docs", isActive: false, icon: docs),
+        ], measured: 0)
+        var associations = SafariExtensionAssociations()
+        for time in [0.0, 1] { associations.update([.init(snapshot: first, observed: time)], windows: [report], now: time) }
+        XCTAssertEqual(first.tabs.map { associations.described($0).siteIcon }, [inbox, docs])
+        XCTAssertEqual(associations.described(first.tabs[0]).audio, .playing)
+
+        first.isComplete = false
+        first.tabs.reverse()
+        for time in [2.0, 3, 4] {
+            associations.update([.init(snapshot: first, observed: time), .init(snapshot: twin, observed: time)], windows: [report], now: time)
+        }
+        XCTAssertEqual(first.tabs.map { associations.described($0).siteIcon }, [docs, inbox], "Each tab keeps its own")
+        XCTAssertEqual(first.tabs.map { associations.described($0).audio }, [nil, nil], "but not its sound")
+        XCTAssertEqual(first.tabs.map { associations.described($0).extensionTab?.id }, [101, 100])
+        XCTAssertEqual(twin.tabs.map { associations.described($0).siteIcon }, [nil, nil], "Its report goes to no other window")
+        XCTAssertEqual(associations.resolution(of: 2), .unresolved)
+
+        first.isComplete = true
+        first.tabs.reverse()
+        for time in [5.0, 6] {
+            associations.update([.init(snapshot: first, observed: time), .init(snapshot: twin, observed: time)], windows: [report], now: time)
+        }
+        XCTAssertEqual(associations.resolution(of: 1), .resolved(report.key))
+        XCTAssertEqual(associations.described(first.tabs[0]).audio, .playing)
+        XCTAssertNil(associations.described(twin.tabs[0]).siteIcon)
+    }
+
     func testWhileASafariWindowIsUnreadANewPairingAlsoNeedsTheFramesToSettleItButAnEstablishedOneDoesNot() {
         // The window WinMux shows could be another profile's twin of a window it hasn't read (2).
         let window = tabs(["Inbox", "Docs"], selected: 0, window: 1)

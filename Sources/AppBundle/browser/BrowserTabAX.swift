@@ -12,6 +12,15 @@ func browserTabTitle(_ title: Any, description: Any) -> String? {
     return browserTabAXError(title as CFTypeRef) == AXError.noValue.rawValue ? description as? String : nil
 }
 
+/// An identifier as a multiple-attribute read returned it: none, if the element says it has none
+/// or doesn't have such an attribute; unreadable, if the read failed any other way.
+func browserTabIdentifier(_ value: Any) -> (identifier: String?, unreadable: Bool) {
+    if let identifier = value as? String { return (identifier, false) }
+    if value is NSNull { return (nil, false) }
+    let error = browserTabAXError(value as CFTypeRef)
+    return (nil, error != AXError.noValue.rawValue && error != AXError.attributeUnsupported.rawValue)
+}
+
 /// The error code a multiple-attribute read returned in place of one attribute's value, if any.
 func browserTabAXError(_ value: CFTypeRef) -> Int32? {
     guard CFGetTypeID(value) == AXValueGetTypeID() else { return nil }
@@ -38,8 +47,9 @@ struct NativeBrowserTabNode: BrowserTabAXNode {
         guard let values = values([kAXRoleAttribute, kAXSubroleAttribute, kAXIdentifierAttribute, kAXTitleAttribute,
                                    kAXDescriptionAttribute]), values.count == 5,
               let role = values[0] as? String else { return nil }
-        return .init(role: role, subrole: values[1] as? String ?? "", identifier: values[2] as? String,
-            title: values[3] as? String, description: values[4] as? String)
+        let identifier = browserTabIdentifier(values[2])
+        return .init(role: role, subrole: values[1] as? String ?? "", identifier: identifier.identifier,
+            identifierUnreadable: identifier.unreadable, title: values[3] as? String, description: values[4] as? String)
     }
 
     func children() -> [Self]? {
@@ -84,7 +94,8 @@ struct NativeBrowserTabNode: BrowserTabAXNode {
               let title = browserTabTitle(values[2], description: values[7]),
               let selected = browserTabSelectedValue(value: values[4] as? NSNumber, selected: values[3] as? NSNumber)
         else { return nil }
-        return .init(structure: .init(role: role, subrole: subrole, identifier: values[8] as? String),
+        let identifier = browserTabIdentifier(values[8])
+        return .init(structure: .init(role: role, subrole: subrole, identifier: identifier.identifier, identifierUnreadable: identifier.unreadable),
             info: .init(title: title, selected: selected), parent: link(values[5]), window: link(values[6]),
             children: withChildren ? ((values[9] as? [AXUIElement]) ?? []).map { .init(element: $0) } : nil)
     }

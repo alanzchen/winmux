@@ -467,8 +467,13 @@ struct SafariExtensionAssociations {
     }
 
     /// `unreadAppeared` says when each unread window appeared, as `SafariExtensionCandidate.appeared` does.
+    /// A window whose read didn't list all its tabs (`BrowserWindowTabs.isComplete`) agrees with no
+    /// report, but could be any report's window, as an unread one could: so it's taken for one too.
     mutating func update(_ candidates: [SafariExtensionCandidate], windows: [SafariExtensionWindow], unread: [UInt32] = [],
                          unreadAppeared: [UInt32: TimeInterval] = [:], now: TimeInterval) {
+        let incomplete = candidates.filter { !$0.snapshot.isComplete && !unread.contains($0.snapshot.windowId) }
+        let unread = unread + incomplete.map(\.snapshot.windowId)
+        let unreadAppeared = unreadAppeared.merging(incomplete.map { ($0.snapshot.windowId, $0.appeared) }) { given, _ in given }
         for candidate in candidates {
             let native = candidate.native
             if let known = lifetimes[native.windowId], known != native { reset(native.windowId) }

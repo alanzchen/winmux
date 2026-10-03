@@ -4,9 +4,11 @@ import Foundation
 /// gathers tabs into suggested topics, which aren't Tab Groups: a topic shows in the tab bar as
 /// a button with its name and how many tabs it has, which opens or closes it, and its tabs follow
 /// it while it's open. That button has a tab's role and subrole; only its identifier tells it
-/// apart. Safari doesn't document it, so an identifier this doesn't recognize says nothing.
+/// apart. Safari doesn't document it, so an identifier this doesn't recognize says nothing, and
+/// nothing it says can be taken for a tab's unless it says it all consistently.
 enum SafariTabCluster: Equatable, Sendable {
-    /// No identifier, or one that doesn't speak of topics, as before Safari 27.
+    /// No identifier, or one that doesn't speak of topics, as before Safari 27. That alone doesn't
+    /// make it a tab: a topic's button whose identifier changed would say as little.
     case unknown
     /// A tab that says it's in no topic.
     case plain
@@ -14,41 +16,64 @@ enum SafariTabCluster: Equatable, Sendable {
     case header(id: String, isExpanded: Bool, tabCount: Int)
     /// A tab in the topic `id`.
     case member(id: String)
-    /// Speaks of topics, but doesn't say consistently what this is: maybe a topic's button.
+    /// Speaks of topics, but not consistently, or its identifier couldn't be read: maybe a topic's
+    /// button.
     case malformed
 
+    /// Safari 27.0 writes a topic's own button's identifier as
+    /// "TabBarTab?isNarrow=false&isExpanded=true&tabCount=4&isPinned=false&isCluster=true&clusterID=<UUID>&isActive=false",
+    /// and a tab's with `isExpanded=false`, an empty `tabCount`, `isCluster=false` and its topic's
+    /// `clusterID`, or an empty one. The fields' order, and fields not named here, don't matter.
     init(identifier: String?) {
-        guard let fields = safariTabIdentifierFields(identifier) else {
+        let prefix = "TabBarTab?"
+        guard let identifier, identifier.hasPrefix(prefix) else {
             self = .unknown
             return
         }
-        var values: [String: String] = [:]
-        for (name, field) in fields {
-            guard case .value(let value) = field else {
+        var fields: [Substring: Substring] = [:]
+        for pair in identifier.dropFirst(prefix.count).split(separator: "&") {
+            let parts = pair.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+            guard safariTabFlagFields.contains(parts[0]) || safariTabTopicFields.contains(parts[0]) else { continue }
+            // Named twice, or without a value: what it says can't be read.
+            guard parts.count == 2, fields.updateValue(parts[1], forKey: parts[0]) == nil else {
                 self = .malformed
                 return
             }
-            values[name] = value
         }
-        let clusterID = values["clusterID"].flatMap { $0.isEmpty ? nil : $0 }
-        switch values["isCluster"] {
-            case "true":
-                guard let clusterID, let isExpanded = ["true": true, "false": false][values["isExpanded"] ?? ""],
-                      let tabCount = values["tabCount"].flatMap({ Int($0) }), tabCount > 0
-                else {
-                    self = .malformed
-                    return
-                }
-                self = .header(id: clusterID, isExpanded: isExpanded, tabCount: tabCount)
-            case "false":
-                // A tab names its topic, or names none with an empty id; without the id, it says neither.
-                self = clusterID.map { .member(id: $0) } ?? (values["clusterID"] == nil ? .unknown : .plain)
-            case nil:
-                // Without saying whether it's a topic's button, a topic's id doesn't say what this is.
-                self = clusterID == nil ? .unknown : .malformed
-            default:
+        let tabCount = fields["tabCount"].flatMap { $0.isEmpty ? nil : Int($0) }
+        guard safariTabFlagFields.allSatisfy({ fields[$0].map { $0 == "true" || $0 == "false" } ?? true }),
+              fields["tabCount"].map({ $0.isEmpty || tabCount.map { $0 > 0 } == true }) ?? true
+        else {
+            self = .malformed
+            return
+        }
+        guard safariTabTopicFields.contains(where: { fields[$0] != nil }) else {
+            self = .unknown
+            return
+        }
+        guard let isCluster = fields["isCluster"], let clusterID = fields["clusterID"] else {
+            self = .malformed
+            return
+        }
+        if isCluster == "true" {
+            guard !clusterID.isEmpty, let tabCount, let isExpanded = fields["isExpanded"] else {
                 self = .malformed
+                return
+            }
+            self = .header(id: String(clusterID), isExpanded: isExpanded == "true", tabCount: tabCount)
+        } else {
+            // Only a topic's own button has a count or opens; every tab Safari 27.0 listed said neither.
+            guard tabCount == nil, fields["isExpanded"] != "true" else {
+                self = .malformed
+                return
+            }
+            self = clusterID.isEmpty ? .plain : .member(id: String(clusterID))
         }
+    }
+
+    /// What a listed control's identifier says, as just read.
+    init(_ structure: BrowserTabAXStructure) {
+        self = structure.identifierUnreadable ? .malformed : .init(identifier: structure.identifier)
     }
 
     /// Whether this can be a page: anything but a topic's own button, or what may be one.
@@ -60,37 +85,16 @@ enum SafariTabCluster: Equatable, Sendable {
     }
 }
 
-/// A field of a Safari tab button's identifier: its value, or a sign it can't be read.
-private enum SafariTabIdentifierField: Equatable {
-    case value(String)
-    /// Named twice, or named without a value.
-    case unreadable
-}
-
-/// The topic fields of a Safari tab button's identifier, which Safari 27.0 writes as
-/// "TabBarTab?isNarrow=false&isExpanded=true&tabCount=4&isPinned=false&isCluster=true&clusterID=<UUID>&isActive=false"
-/// for a topic's own button, and with `isCluster=false`, an empty `tabCount` and the topic's
-/// `clusterID`, or an empty one, for a tab. Nil for anything else, or one without them. Other
-/// fields, and the fields' order, don't matter here.
-private func safariTabIdentifierFields(_ identifier: String?) -> [String: SafariTabIdentifierField]? {
-    let prefix = "TabBarTab?"
-    let names: Set = ["isCluster", "clusterID", "isExpanded", "tabCount"]
-    guard let identifier, identifier.hasPrefix(prefix) else { return nil }
-    var fields: [String: SafariTabIdentifierField] = [:]
-    for pair in identifier.dropFirst(prefix.count).split(separator: "&") {
-        let parts = pair.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
-        let name = String(parts[0])
-        guard names.contains(name) else { continue }
-        fields[name] = fields[name] == nil && parts.count == 2 ? .value(String(parts[1])) : .unreadable
-    }
-    return fields["isCluster"] == nil && fields["clusterID"] == nil ? nil : fields
-}
+/// A Safari tab button identifier's fields that are `true` or `false`.
+private let safariTabFlagFields: Set<Substring> = ["isNarrow", "isExpanded", "isPinned", "isCluster", "isActive"]
+/// The fields that speak of topics.
+private let safariTabTopicFields: Set<Substring> = ["isExpanded", "tabCount", "isCluster", "clusterID"]
 
 /// Whether a Safari tab bar's buttons account for every tab of each topic they show: each topic
 /// open, listing as many tabs as it says it has, and each tab in a topic listed with its topic's
 /// button. A tab bar without topics does. Only then do the tabs listed stand one for one, in the
 /// tab bar's order, for the window's: a closed topic's tabs are missing, and otherwise which
-/// button is which isn't known.
+/// button is which isn't known. `.unknown` here must stand for a tab known some other way.
 func safariTabClustersAccountedFor(_ clusters: [SafariTabCluster]) -> Bool {
     var headers: [String: Int] = [:]
     var members: [String: Int] = [:]

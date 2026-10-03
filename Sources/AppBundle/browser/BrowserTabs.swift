@@ -59,8 +59,9 @@ struct BrowserWindowTabs: Equatable, Sendable {
     /// that may still play: another alert, such as a camera recording, takes its place.
     var knowsSound = false
     /// Whether these are all the window's tabs, in its tab bar's order, so they stand one for one
-    /// for the Safari extension's. Not while a Safari topic's tabs aren't all accounted for, as
-    /// in a closed topic (`safariTabClustersAccountedFor`).
+    /// for the Safari extension's. Not while a Safari topic's tabs aren't all accounted for, as in
+    /// a closed topic, nor while the tab bar holds a control that can't be told to be a tab or a
+    /// topic's own button (`safariTabClustersAccountedFor`).
     var isComplete = true
     /// What the WinMux Tabs extension's toolbar button in a Safari window named at the read, if
     /// anything: which extension window this is.
