@@ -73,17 +73,18 @@ struct NativeBrowserTabNode: BrowserTabAXNode {
         return .init(title: title, selected: selected)
     }
 
-    /// A Safari tab's controls come in the same round trip as the tab.
+    /// A Safari tab's controls come in the same round trip as the tab. So does its identifier,
+    /// which tells a Safari topic's own button from a tab, whenever a tab is checked again.
     func tabRecord(withChildren: Bool) -> BrowserTabAXRecord<Self>? {
         let names = [kAXRoleAttribute, kAXSubroleAttribute, kAXTitleAttribute, kAXSelectedAttribute, kAXValueAttribute,
-                     kAXParentAttribute, kAXWindowAttribute, kAXDescriptionAttribute]
-            + (withChildren ? [kAXIdentifierAttribute, kAXChildrenAttribute] : [])
+                     kAXParentAttribute, kAXWindowAttribute, kAXDescriptionAttribute, kAXIdentifierAttribute]
+            + (withChildren ? [kAXChildrenAttribute] : [])
         guard let values = values(names), values.count == names.count,
               let role = values[0] as? String, let subrole = values[1] as? String,
               let title = browserTabTitle(values[2], description: values[7]),
               let selected = browserTabSelectedValue(value: values[4] as? NSNumber, selected: values[3] as? NSNumber)
         else { return nil }
-        return .init(structure: .init(role: role, subrole: subrole, identifier: withChildren ? values[8] as? String : nil),
+        return .init(structure: .init(role: role, subrole: subrole, identifier: values[8] as? String),
             info: .init(title: title, selected: selected), parent: link(values[5]), window: link(values[6]),
             children: withChildren ? ((values[9] as? [AXUIElement]) ?? []).map { .init(element: $0) } : nil)
     }

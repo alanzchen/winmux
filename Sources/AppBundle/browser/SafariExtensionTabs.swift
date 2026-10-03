@@ -211,14 +211,15 @@ func safariExtensionComparableTitle(_ title: String) -> String {
 /// Whether an extension window lists the same tabs, in the same order, with the same one active,
 /// as a window WinMux read through Accessibility. Safari withholds a tab's title and address
 /// from the extension when it can't read that site; such a tab may differ, but the window's
-/// readable titles must agree and outnumber them.
+/// readable titles must agree and outnumber them. A window whose read didn't list all its tabs
+/// (`BrowserWindowTabs.isComplete`) agrees with none.
 func safariExtensionTabsAgree(_ tabs: [BrowserTab], _ window: SafariExtensionWindow) -> Bool {
     safariExtensionTabsAgree(SafariExtensionCandidate(snapshot: BrowserWindowTabs(windowId: 0, pid: 0, windowSession: UUID(), tabs: tabs)), window)
 }
 
 private func safariExtensionTabsAgree(_ candidate: SafariExtensionCandidate, _ window: SafariExtensionWindow) -> Bool {
     let tabs = candidate.snapshot.tabs
-    guard tabs.count == window.tabs.count, zip(tabs, window.tabs).allSatisfy({ $0.isSelected == $1.isActive }) else { return false }
+    guard candidate.snapshot.isComplete, tabs.count == window.tabs.count, zip(tabs, window.tabs).allSatisfy({ $0.isSelected == $1.isActive }) else { return false }
     var agreeing = 0
     var withheld = 0
     for (title, other) in zip(candidate.titles, window.tabs) {

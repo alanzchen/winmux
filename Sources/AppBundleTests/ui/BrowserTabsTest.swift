@@ -1380,6 +1380,314 @@ final class BrowserTabsTest: XCTestCase {
         XCTAssertEqual(cache.snapshots[1]?.tabs.count, 2, "A target from an earlier scan of the window is ignored")
     }
 
+    func testASafariTabIdentifierSaysWhetherItHeadsOrIsInATopicAndNothingElseDoes() {
+        let id = UUID().uuidString
+        XCTAssertEqual(SafariTabCluster(identifier: nil), .unknown)
+        XCTAssertEqual(SafariTabCluster(identifier: "TabBar?isSeparate=false"), .unknown)
+        XCTAssertEqual(SafariTabCluster(identifier: "TabBarTab?isPinned=true&isActive=true"), .unknown, "No topics said")
+        XCTAssertEqual(SafariTabCluster(identifier: "TabBarTab?isCluster=false&isActive=true"), .unknown, "Nor which topic")
+        XCTAssertEqual(SafariTabCluster(identifier: "TabBarTab?isNarrow=false&isExpanded=false&tabCount=&isPinned=true&isCluster=false&clusterID=&isActive=true"),
+            .plain, "A pinned tab, as Safari 27.0 named it")
+        XCTAssertEqual(SafariTabCluster(identifier: safariTabIdentifier(cluster: id, active: true)), .member(id: id))
+        XCTAssertEqual(SafariTabCluster(identifier: safariTabIdentifier(cluster: id, header: true, expanded: true, tabCount: 4)),
+            .header(id: id, isExpanded: true, tabCount: 4))
+        XCTAssertEqual(SafariTabCluster(identifier: "TabBarTab?clusterID=\(id)&tabCount=2&isNew=true&isCluster=true&isExpanded=false"),
+            .header(id: id, isExpanded: false, tabCount: 2), "In any order, among other fields")
+        for malformed in [
+            safariTabIdentifier(header: true, expanded: true, tabCount: 4),
+            safariTabIdentifier(cluster: id, header: true, expanded: true),
+            safariTabIdentifier(cluster: id, header: true, expanded: true, tabCount: 0),
+            "TabBarTab?isCluster=true&clusterID=\(id)&isExpanded=maybe&tabCount=4",
+            "TabBarTab?isCluster=true&clusterID=\(id)&isExpanded=true&tabCount=many",
+            "TabBarTab?isCluster=yes&clusterID=\(id)&isExpanded=true&tabCount=4",
+            "TabBarTab?isCluster=false&isCluster=true&clusterID=\(id)&isExpanded=true&tabCount=4",
+            "TabBarTab?isCluster&clusterID=",
+            "TabBarTab?clusterID=\(id)",
+        ] {
+            XCTAssertEqual(SafariTabCluster(identifier: malformed), .malformed, malformed)
+            XCTAssertFalse(SafariTabCluster(identifier: malformed).isPage, malformed)
+        }
+    }
+
+    /// A Safari window without topics, whether or not its tabs' identifiers speak of them, is
+    /// listed and acted on as before.
+    func testSafariTabsWithoutTopicsAreListedAndActedOnAsBefore() throws {
+        for identifier in [safariTabIdentifier(), "TabBarTab?isPinned=false&isActive=false", nil] {
+            let window = safariTopicWindow("PPPPP", selected: 0)
+            for page in window.pages { page.identifier = identifier }
+            let snapshot = try XCTUnwrap(window.scanner.scan())
+            XCTAssertEqual(snapshot.tabs.map(\.title), window.pages.map(\.title))
+            XCTAssertTrue(snapshot.isComplete)
+            for tab in snapshot.tabs {
+                XCTAssertTrue(window.scanner.select(tab.target))
+                XCTAssertTrue(window.scanner.close(tab.target))
+            }
+            XCTAssertEqual(window.pages.map(\.presses), [1, 1, 1, 1, 1])
+            XCTAssertEqual(window.pages.map(\.performed), Array(repeating: [safariCloseAction], count: 5))
+        }
+    }
+
+    /// Safari 27 lists an open topic's own button among the tabs, with a tab's role and subrole,
+    /// then the topic's tabs. The button is never listed, selected or closed; the tabs are, in
+    /// order, wherever the topic is, so they still pair with the extension's one for one.
+    func testAnOpenSafariTopicsOwnButtonIsNeverListedSelectedOrClosedButItsTabsAre() throws {
+        for order in ["PPPPTMMMMPP", "TMMMMPPPPPP", "PPPPPPTMMMM"] {
+            let window = safariTopicWindow(order)
+            let topic = try XCTUnwrap(window.topic)
+            let snapshot = try XCTUnwrap(window.scanner.scan(), order)
+            XCTAssertEqual(snapshot.tabs.map(\.title), window.pages.map(\.title), order)
+            XCTAssertEqual(snapshot.tabs.map(\.isSelected), (0..<10).map { $0 == 7 }, order)
+            XCTAssertTrue(snapshot.isComplete, order)
+            for (tab, page) in zip(snapshot.tabs, window.pages) {
+                XCTAssertTrue(window.scanner.select(tab.target), order)
+                XCTAssertTrue(window.scanner.close(tab.target), order)
+                XCTAssertEqual(page.presses, 1, order)
+                XCTAssertEqual(page.performed, [safariCloseAction], order)
+            }
+            XCTAssertEqual(topic.presses, 0, order)
+            XCTAssertEqual(topic.performed, [], order)
+            XCTAssertEqual(topic.nodes.map(\.presses), [0, 0], order)
+
+            let reported = SafariExtensionWindow(key: .init(source: "p:s", id: 1), session: "s",
+                tabs: window.pages.enumerated().map { .init(id: 100 + $0, title: $1.title, isActive: $1.selected) }, measured: 0)
+            XCTAssertEqual(safariExtensionPairs([.init(snapshot: snapshot)], [reported]), [123: reported.key], order)
+            var associations = SafariExtensionAssociations()
+            associations.update([.init(snapshot: snapshot, observed: 1)], windows: [reported], now: 1)
+            associations.update([.init(snapshot: snapshot, observed: 2)], windows: [reported], now: 2)
+            XCTAssertEqual(snapshot.tabs.map { associations.described($0).extensionTab?.id }, Array(100..<110), order)
+        }
+    }
+
+    /// A topic's own button has two texts, its name and count, where a tab has an icon and a title.
+    /// Without website icons, a tab has only its title, so the button would look like a tab with a
+    /// control more: it doesn't teach how many a quiet tab has. (The button was seen only with
+    /// icons shown; without them it's made up.)
+    func testASafariTopicsOwnButtonDoesntHideATabsSound() throws {
+        for icons in [true, false] {
+            let window = safariTopicWindow()
+            if !icons { for page in window.pages { page.nodes.removeAll { $0.role == "AXImage" } } }
+            let mute = BrowserTestNode("AXButton")
+            mute.title = "mute tab"
+            window.pages[5].append(mute)
+            XCTAssertEqual(try XCTUnwrap(window.scanner.scan()).tabs.map(\.audio), (0..<10).map { $0 == 5 ? BrowserTabAudio.playing : nil },
+                "icons: \(icons)")
+        }
+    }
+
+    /// A tab bar whose topics don't account for their tabs, or speak of them in a way that can't be
+    /// read, lists the tabs it can tell are pages, but acts only on those that say they're in no
+    /// topic, and none pairs with the extension's by place. What may be a topic's button is never
+    /// pressed.
+    func testSafariTopicsThatDontAccountForTheirTabsActOnlyOnTabsInNoTopic() throws {
+        let elsewhere = UUID().uuidString
+        let cases: [(name: String, change: (_ topic: BrowserTestNode, _ pages: [BrowserTestNode]) -> [BrowserTestNode], actionable: [Int])] = [
+            ("its count unreadable", { topic, pages in
+                topic.identifier = topic.identifier?.replacingOccurrences(of: "tabCount=4", with: "tabCount=many")
+                return pages
+            }, [0, 1, 2, 3, 8, 9]),
+            ("one tab more than listed", { topic, pages in
+                topic.identifier = topic.identifier?.replacingOccurrences(of: "tabCount=4", with: "tabCount=5")
+                return pages
+            }, [0, 1, 2, 3, 8, 9]),
+            ("a tab whose topic isn't listed", { _, pages in
+                pages[0].identifier = self.safariTabIdentifier(cluster: elsewhere)
+                return pages
+            }, [1, 2, 3, 8, 9]),
+            ("a tab that says nothing of topics", { _, pages in
+                pages[0].identifier = nil
+                return pages
+            }, [1, 2, 3, 8, 9]),
+            ("a tab that can't be read", { _, pages in
+                pages[0].identifier = "TabBarTab?isCluster=false&isCluster=true&clusterID="
+                return Array(pages.dropFirst())
+            }, [1, 2, 3, 8, 9]),
+            ("two buttons for one topic", { topic, pages in
+                pages[0].identifier = topic.identifier
+                return Array(pages.dropFirst())
+            }, [1, 2, 3, 8, 9]),
+        ]
+        for (name, change, actionable) in cases {
+            let window = safariTopicWindow()
+            let topic = try XCTUnwrap(window.topic)
+            let listed = change(topic, window.pages)
+            let snapshot = try XCTUnwrap(window.scanner.scan(), name)
+            XCTAssertEqual(snapshot.tabs.map(\.title), listed.map(\.title), name)
+            XCTAssertFalse(snapshot.isComplete, name)
+            for (tab, page) in zip(snapshot.tabs, listed) {
+                let acts = actionable.contains { window.pages[$0] === page }
+                XCTAssertEqual(window.scanner.select(tab.target), acts, "\(name): \(page.title)")
+                XCTAssertEqual(window.scanner.close(tab.target), acts, "\(name): \(page.title)")
+            }
+            XCTAssertEqual(window.pages.map(\.presses), (0..<10).map { actionable.contains($0) ? 1 : 0 }, name)
+            XCTAssertEqual(window.pages.map(\.performed), (0..<10).map { actionable.contains($0) ? [safariCloseAction] : [] }, name)
+            XCTAssertEqual(topic.presses, 0, name)
+            XCTAssertEqual(topic.performed, [], name)
+            let reported = SafariExtensionWindow(key: .init(source: "p:s", id: 1), session: "s",
+                tabs: listed.enumerated().map { .init(id: 100 + $0, title: $1.title, isActive: $1.selected) }, measured: 0)
+            XCTAssertEqual(safariExtensionPairs([.init(snapshot: snapshot)], [reported]), [:], name)
+        }
+    }
+
+    /// SYNTHETIC, not from a capture: a closed topic, whose tabs Safari doesn't list. The other tabs
+    /// show and are acted on, each by its own button, but don't pair with the extension's by
+    /// place, and the topic's button is never pressed. With the active tab inside the topic, no
+    /// tab listed is selected: no list at all.
+    func testAClosedSafariTopicLeavesItsButtonAloneAndTheOtherTabsUnpairedSynthetic() throws {
+        let window = safariTopicWindow("PPPPTPP", selected: 0, expanded: false)
+        let topic = try XCTUnwrap(window.topic)
+        let snapshot = try XCTUnwrap(window.scanner.scan())
+        XCTAssertEqual(snapshot.tabs.map(\.title), window.pages.map(\.title))
+        XCTAssertFalse(snapshot.isComplete)
+        for tab in snapshot.tabs {
+            XCTAssertTrue(window.scanner.select(tab.target))
+            XCTAssertTrue(window.scanner.close(tab.target))
+        }
+        XCTAssertEqual(window.pages.map(\.presses), Array(repeating: 1, count: 6))
+        XCTAssertEqual(window.pages.map(\.performed), Array(repeating: [safariCloseAction], count: 6))
+        XCTAssertEqual(topic.presses, 0)
+        XCTAssertEqual(topic.performed, [])
+        let reported = SafariExtensionWindow(key: .init(source: "p:s", id: 1), session: "s",
+            tabs: window.pages.enumerated().map { .init(id: 100 + $0, title: $1.title, isActive: $1.selected) }, measured: 0)
+        XCTAssertEqual(safariExtensionPairs([.init(snapshot: snapshot)], [reported]), [:])
+
+        window.pages[0].selected = false
+        topic.selected = true
+        XCTAssertNil(window.scanner.scan())
+        XCTAssertEqual(topic.presses, 0)
+    }
+
+    /// A listed tab is checked again before it's acted on: it must still be the page it was listed
+    /// as, in the same topic. A reorder acts on the same tab, wherever it went. Once a topic is
+    /// read closed, only tabs that still say they're in no topic are acted on.
+    func testASafariTabThatChangedTopicOrBecameATopicsButtonSinceItWasListedIsLeftAlone() throws {
+        let window = safariTopicWindow()
+        let topic = try XCTUnwrap(window.topic)
+        let snapshot = try XCTUnwrap(window.scanner.scan())
+        window.container.nodes.reverse()
+        XCTAssertTrue(window.scanner.select(snapshot.tabs[9].target))
+        XCTAssertEqual((window.pages + [topic]).map(\.presses), Array(repeating: 0, count: 9) + [1, 0], "Reordered, the same tab")
+        window.container.nodes.reverse()
+
+        let (plain, member) = (window.pages[0], window.pages[4])
+        let (plainIdentifier, memberIdentifier) = (plain.identifier, member.identifier)
+        plain.identifier = memberIdentifier
+        member.identifier = topic.identifier
+        for tab in [snapshot.tabs[0], snapshot.tabs[4]] {
+            XCTAssertFalse(window.scanner.select(tab.target))
+            XCTAssertFalse(window.scanner.close(tab.target))
+        }
+        XCTAssertEqual([plain, member].map(\.presses), [0, 0], "Now in a topic, or the topic's button")
+        XCTAssertEqual([plain, member].flatMap(\.performed), [])
+        plain.identifier = plainIdentifier
+        member.identifier = memberIdentifier
+        XCTAssertTrue(window.scanner.select(snapshot.tabs[4].target), "As listed again")
+
+        // The topic closes: its tabs leave the tab bar, and once read so, only tabs in no topic count.
+        let members = Array(window.pages[4...7])
+        window.container.nodes.removeAll { node in members.contains { $0 === node } }
+        topic.identifier = topic.identifier?.replacingOccurrences(of: "isExpanded=true", with: "isExpanded=false")
+        window.pages[7].selected = false
+        window.pages[0].selected = true
+        XCTAssertFalse(window.scanner.select(snapshot.tabs[5].target), "Gone from the tab bar")
+        let closed = try XCTUnwrap(window.scanner.scan())
+        XCTAssertFalse(closed.isComplete)
+        XCTAssertEqual(closed.tabs.map(\.title), (window.pages[0...3] + window.pages[8...9]).map(\.title))
+        XCTAssertTrue(window.scanner.select(closed.tabs[0].target))
+        window.pages[1].identifier = memberIdentifier
+        XCTAssertFalse(window.scanner.select(closed.tabs[1].target), "Now says it's in a topic")
+        XCTAssertFalse(window.scanner.close(closed.tabs[1].target))
+        XCTAssertEqual(window.pages[1].presses, 0)
+        XCTAssertEqual(topic.presses, 0)
+    }
+
+    /// Closing a tab by its only button, when it has neither a close action nor a close button, is
+    /// as before; a topic's own button, or what may be one, is never closed at all. Safari 27.0's
+    /// has neither: one with either is made up, to check neither is used.
+    func testOnlyATabIsClosedByItsOnlyButtonNeverATopicsOwnButton() {
+        func control(_ identifier: String?, actions: [String] = [], button: Bool = true) -> (node: BrowserTestNode, button: BrowserTestNode) {
+            let node = BrowserTestNode("AXRadioButton", subrole: "AXTabButton")
+            node.identifier = identifier
+            node.actions = actions
+            let control = BrowserTestNode("AXButton")
+            node.append(BrowserTestNode("AXStaticText"))
+            node.append(button ? control : BrowserTestNode("AXStaticText"))
+            return (node, control)
+        }
+        let id = UUID().uuidString
+        for identifier in [nil, "TabBarTab?isPinned=false&isActive=false", safariTabIdentifier(), safariTabIdentifier(cluster: id)] {
+            let tab = control(identifier)
+            XCTAssertTrue(tab.node.pressCloseControl(), identifier ?? "nil")
+            XCTAssertEqual(tab.button.presses, 1, identifier ?? "nil")
+            let closable = control(identifier, actions: ["AXPress", safariCloseAction])
+            XCTAssertTrue(closable.node.pressCloseControl(), identifier ?? "nil")
+            XCTAssertEqual(closable.node.performed, [safariCloseAction], identifier ?? "nil")
+        }
+        let observed = control(safariTabIdentifier(cluster: id, header: true, expanded: true, tabCount: 4),
+            actions: ["AXScrollToVisible", "AXShowMenu", "AXPress"], button: false)
+        XCTAssertFalse(observed.node.pressCloseControl())
+        XCTAssertEqual(observed.node.performed, [])
+        for identifier in [safariTabIdentifier(cluster: id, header: true, expanded: true, tabCount: 2),
+                           safariTabIdentifier(cluster: id, header: true, tabCount: 2), "TabBarTab?isCluster=true&clusterID=\(id)"] {
+            for actions in [[], ["AXPress", safariCloseAction]] {
+                let topic = control(identifier, actions: actions)
+                XCTAssertFalse(topic.node.pressCloseControl(), identifier)
+                XCTAssertFalse(topic.node.pressCloseControl(.init(role: "AXRadioButton", subrole: "AXTabButton", identifier: identifier)), identifier)
+                XCTAssertEqual(topic.button.presses, 0, identifier)
+                XCTAssertEqual(topic.node.performed, [], identifier)
+            }
+        }
+    }
+
+    private let safariCloseAction = "Name:Close Tab\nTarget:0x1\nSelector:_closeButtonClicked:"
+
+    /// A Safari tab button's identifier as Safari 27.0 writes it (`SafariTabCluster`).
+    private func safariTabIdentifier(cluster: String = "", header: Bool = false, expanded: Bool = false, tabCount: Int? = nil,
+                                     active: Bool = false) -> String {
+        "TabBarTab?isNarrow=false&isExpanded=\(expanded)&tabCount=\(tabCount.map(String.init) ?? "")&isPinned=false" +
+            "&isCluster=\(header)&clusterID=\(cluster)&isActive=\(active)"
+    }
+
+    /// A Safari window whose tab bar shows a topic, built as Safari 27.0 was seen to list an open
+    /// one, with made-up titles and ids: by default 11 buttons, all tabs by role, for 10 pages, the
+    /// topic's own fifth, its 4 tabs after it, the last of them active. `order` places the topic's
+    /// button ("T"), its tabs ("M") and the others ("P"); `selected` is the selected page, counting
+    /// pages only. The topic's button has two texts, its name and count, and no close action; a
+    /// tab has an icon and a title. A closed topic (`expanded: false`) wasn't seen: its identifier
+    /// here is made up.
+    private func safariTopicWindow(_ order: String = "PPPPTMMMMPP", selected: Int = 7, expanded: Bool = true) -> (root: BrowserTestNode,
+        container: BrowserTestNode, topic: BrowserTestNode?, pages: [BrowserTestNode], scanner: BrowserTabScanner<BrowserTestNode>) {
+        let root = BrowserTestNode("AXWindow")
+        let container = BrowserTestNode("AXOpaqueProviderGroup", subrole: "AXOpaqueProviderList")
+        container.identifier = "TabBar?isSeparate=false"
+        root.append(container)
+        let cluster = UUID().uuidString
+        let count = order.filter { $0 == "M" }.count
+        var topic: BrowserTestNode?
+        var pages: [BrowserTestNode] = []
+        for kind in order {
+            let node = BrowserTestNode("AXRadioButton", subrole: "AXTabButton")
+            container.append(node)
+            node.actions = ["AXScrollToVisible", "AXShowMenu", "AXPress"]
+            if kind == "T" {
+                node.title = "Topic"
+                node.identifier = safariTabIdentifier(cluster: cluster, header: true, expanded: expanded, tabCount: expanded ? count : 4)
+                node.append(BrowserTestNode("AXStaticText"))
+                node.append(BrowserTestNode("AXStaticText"))
+                topic = node
+            } else {
+                let page = pages.count
+                node.title = "Page \(page + 1)"
+                node.selected = page == selected
+                node.identifier = safariTabIdentifier(cluster: kind == "M" ? cluster : "", active: page == selected)
+                node.actions.append(safariCloseAction)
+                node.append(BrowserTestNode("AXImage"))
+                node.append(BrowserTestNode("AXStaticText"))
+                pages.append(node)
+            }
+        }
+        return (root, container, topic, pages, BrowserTabScanner(root: root, adapter: .safari, windowId: 123, pid: 45))
+    }
+
     private func fixture(_ adapter: BrowserTabAdapter) -> (root: BrowserTestNode, container: BrowserTestNode,
         tabs: [BrowserTestNode], scanner: BrowserTabScanner<BrowserTestNode>) {
         let root = BrowserTestNode("AXWindow")
