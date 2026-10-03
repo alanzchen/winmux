@@ -1781,8 +1781,32 @@ final class BrowserTabsTest: XCTestCase {
     /// with nothing more read than before. Where topics can show (Safari 27 on, or a version that
     /// can't be read), it must show it closes as a tab.
     func testBeforeSafari27ATabButtonSayingNothingOfTopicsIsATabAsBefore() throws {
-        XCTAssertEqual(["26.4", "18.6", "13.1.2", "27.0", "28", nil, "beta"].map { safariShowsTopics(version: $0) },
-            [false, false, false, true, true, true, true])
+        // Only a version that reads plainly as one before 27 says topics can't show.
+        let versions: [(String?, Bool)] = [
+            ("26.4", false), ("18.6", false), ("13.1.2", false), ("26.6.2", false), ("26", false),
+            ("27.0", true), ("27.0.1", true), ("28", true),
+            (nil, true), ("", true), ("beta", true), ("26.invalid", true), ("-1", true), ("0.0", true), ("26.", true),
+            (".26", true), ("26..1", true), ("+26", true), (" 26", true), ("26 ", true), (".", true), ("26.4.1.2", true),
+            ("26.4b", true), ("99999999999999999999.1", true), ("26.99999999999999999999", true), ("\u{FF12}\u{FF16}.4", true),
+        ]
+        for (version, showsTopics) in versions {
+            XCTAssertEqual(safariShowsTopics(version: version), showsTopics, version ?? "nil")
+        }
+        // A version that can't be read plainly keeps the stricter rule: a topic's button that lost its
+        // identifier is no tab, never acted on, and the window doesn't pair with the extension by place.
+        let lost = safariTopicWindow("PPPPTPP", selected: 0, expanded: false)
+        let lostTopic = try XCTUnwrap(lost.topic)
+        lostTopic.identifier = nil
+        let unclear = BrowserTabScanner(root: lost.root, adapter: .safari, windowId: 9, pid: 8, showsTopics: safariShowsTopics(version: "26.invalid"))
+        let unclearTabs = try XCTUnwrap(unclear.scan())
+        XCTAssertEqual(unclearTabs.tabs.map(\.title), lost.pages.map(\.title))
+        XCTAssertFalse(unclearTabs.isComplete)
+        XCTAssertEqual(unclearTabs.tabs.map { unclear.select($0.target) }, Array(repeating: true, count: 6))
+        XCTAssertEqual(lostTopic.presses, 0)
+        XCTAssertEqual(lostTopic.performed, [])
+        let reported = SafariExtensionWindow(key: .init(source: "p:s", id: 1), session: "s",
+            tabs: lost.pages.enumerated().map { .init(id: 100 + $0, title: $1.title, isActive: $1.selected) }, measured: 0)
+        XCTAssertEqual(safariExtensionPairs([.init(snapshot: unclearTabs)], [reported]), [:])
         let close = safariCloseAction
         for showsTopics in [false, true] {
             let window = try crowdedSafariWindow()

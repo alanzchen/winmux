@@ -86,10 +86,13 @@ enum SafariTabCluster: Equatable, Sendable {
 }
 
 /// Whether a Safari of this version (its `CFBundleShortVersionString`) can show topics, which came
-/// with Safari 27; one whose version can't be read may.
+/// with Safari 27. Only a version that reads plainly as one before 27, one to three numbers of
+/// ASCII digits between dots, the first above 0, says it can't; any other may be anything.
 func safariShowsTopics(version: String?) -> Bool {
-    guard let major = version?.split(separator: ".").first.flatMap({ Int($0) }) else { return true }
-    return major >= 27
+    guard let parts = version?.split(separator: ".", omittingEmptySubsequences: false), (1...3).contains(parts.count) else { return true }
+    let numbers = parts.compactMap { part in part.utf8.allSatisfy { (0x30...0x39).contains($0) } ? Int(part) : nil }
+    guard numbers.count == parts.count, numbers[0] > 0 else { return true }
+    return numbers[0] >= 27
 }
 
 /// The version of the app at `bundlePath`, as its bundle says.
