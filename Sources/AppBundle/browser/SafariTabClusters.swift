@@ -85,6 +85,18 @@ enum SafariTabCluster: Equatable, Sendable {
     }
 }
 
+/// Whether a Safari of this version (its `CFBundleShortVersionString`) can show topics, which came
+/// with Safari 27; one whose version can't be read may.
+func safariShowsTopics(version: String?) -> Bool {
+    guard let major = version?.split(separator: ".").first.flatMap({ Int($0) }) else { return true }
+    return major >= 27
+}
+
+/// The version of the app at `bundlePath`, as its bundle says.
+func appBundleVersion(_ bundlePath: String?) -> String? {
+    bundlePath.flatMap { Bundle(path: $0)?.infoDictionary?["CFBundleShortVersionString"] as? String }
+}
+
 /// A Safari tab button identifier's fields that are `true` or `false`.
 private let safariTabFlagFields: Set<Substring> = ["isNarrow", "isExpanded", "isPinned", "isCluster", "isActive"]
 /// The fields that speak of topics.

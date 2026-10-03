@@ -194,12 +194,13 @@ final class MacApp: AbstractApp {
                          loneRediscovery: TimeInterval = browserLoneTabRediscovery,
                          extensionButton: String? = nil) async throws -> BrowserTabRead {
         guard let adapter = BrowserTabAdapter(bundleId: rawAppBundleId) else { return .init() }
-        return try await thread?.runInLoop { [windows, pid] job in
+        return try await thread?.runInLoop { [windows, pid, bundlePath] job in
             guard let window = windows.threadGuarded[windowId] else { return BrowserTabRead() }
             defer { AXUIElementSetMessagingTimeout(window.ax, 1.0) }
             if window.browserTabScanner == nil {
                 window.browserTabScanner = BrowserTabScanner(root: NativeBrowserTabNode(element: window.ax),
-                    adapter: adapter, windowId: windowId, pid: pid)
+                    adapter: adapter, windowId: windowId, pid: pid,
+                    showsTopics: adapter == .safari && safariShowsTopics(version: appBundleVersion(bundlePath)))
                 window.browserTabObservation = BrowserTabAXObservation(pid: pid) {
                     Task { @MainActor in BrowserTabsModel.shared.markDirty(windowId, pid: pid) }
                 }

@@ -1687,6 +1687,25 @@ final class BrowserTabsTest: XCTestCase {
         XCTAssertEqual(window.pages[1].performed, [safariCloseAction])
         XCTAssertEqual(buttons[1].presses, 0)
 
+        // Only an action whose one selector line is exactly the close button's, wherever else its words show.
+        XCTAssertTrue(safariIsCloseAction("Name:关闭标签页\nTarget:0x7801b6d500\nSelector:_closeButtonClicked:"))
+        let lookalikes = ["Name:Close Tab\nTarget:0x1\nSelector:_closeButtonClicked:other:",
+                          "Name:Selector:_closeButtonClicked:\nTarget:0x1\nSelector:_otherAction:",
+                          "Name:Close Tab\nTarget:Selector:_closeButtonClicked:\nSelector:_otherAction:",
+                          "Name:Close Tab\nTarget:0x1\nSelector:_closeButtonClicked:\nSelector:_otherAction:"]
+        for action in lookalikes {
+            XCTAssertFalse(safariIsCloseAction(action), action)
+            window.pages[2].actions = ["AXScrollToVisible", action]
+            XCTAssertFalse(window.scanner.close(snapshot.tabs[2].target), action)
+        }
+        XCTAssertEqual(Set(window.pages[2].performed), ["AXScrollToVisible"])
+        let unproven = safariTopicWindow("PP", selected: 0)
+        unproven.pages[1].identifier = nil
+        unproven.pages[1].actions = ["AXScrollToVisible", "AXPress"] + lookalikes
+        let listed = try XCTUnwrap(unproven.scanner.scan())
+        XCTAssertEqual(listed.tabs.map(\.title), ["Page 1"], "Nor do they show a control closes as a tab")
+        XCTAssertFalse(listed.isComplete)
+
         let id = UUID().uuidString
         for identifier in [safariTabIdentifier(cluster: id, header: true, expanded: true, tabCount: 4), "TabBarTab?isCluster=true&clusterID=\(id)"] {
             let topic = BrowserTestNode("AXRadioButton", subrole: "AXTabButton")
@@ -1756,6 +1775,70 @@ final class BrowserTabsTest: XCTestCase {
         XCTAssertEqual(mixed.pages.map(\.presses), [0, 0, 0, 0])
     }
 
+    /// Before Safari 27 there are no topics, so a tab button whose identifier says nothing of them
+    /// is a tab, as it always was: in a crowded tab bar, a tab piled up offers no close action until
+    /// it's scrolled into view, yet it's listed, and selected and closed once scrolled into view,
+    /// with nothing more read than before. Where topics can show (Safari 27 on, or a version that
+    /// can't be read), it must show it closes as a tab.
+    func testBeforeSafari27ATabButtonSayingNothingOfTopicsIsATabAsBefore() throws {
+        XCTAssertEqual(["26.4", "18.6", "13.1.2", "27.0", "28", nil, "beta"].map { safariShowsTopics(version: $0) },
+            [false, false, false, true, true, true, true])
+        let close = safariCloseAction
+        for showsTopics in [false, true] {
+            let window = try crowdedSafariWindow()
+            let piled = window.tabs[12]
+            for tab in window.tabs {
+                tab.identifier = nil
+                tab.actions = tab === piled ? ["AXScrollToVisible"] : ["AXScrollToVisible", "AXShowMenu", "AXPress", close]
+            }
+            piled.supportsPress = false
+            piled.onPerform = { [unowned piled] action in
+                guard action == "AXScrollToVisible" else { return }
+                piled.supportsPress = true
+                piled.actions = ["AXScrollToVisible", "AXPress", close]
+            }
+            let scanner = BrowserTabScanner(root: window.root, adapter: .safari, windowId: 7, pid: 8, showsTopics: showsTopics)
+            let snapshot = try XCTUnwrap(scanner.scan(), "showsTopics: \(showsTopics)")
+            if showsTopics {
+                XCTAssertEqual(snapshot.tabs.map(\.title), window.tabs.filter { $0 !== piled }.map(\.title))
+                XCTAssertFalse(snapshot.isComplete)
+                XCTAssertFalse(scanner.select(snapshot.tabs[12].target), "Nor is a tab that says nothing of topics acted on")
+                XCTAssertEqual(window.tabs.map(\.presses), Array(repeating: 0, count: 24))
+            } else {
+                XCTAssertEqual(snapshot.tabs.map(\.title), window.tabs.map(\.title))
+                XCTAssertTrue(snapshot.isComplete)
+                XCTAssertTrue(scanner.select(snapshot.tabs[12].target))
+                XCTAssertEqual(piled.presses, 1)
+                XCTAssertTrue(scanner.close(snapshot.tabs[12].target))
+                XCTAssertEqual(piled.performed, ["AXScrollToVisible", close])
+                XCTAssertEqual(window.tabs.filter { $0 !== piled }.map(\.actionReads), Array(repeating: 0, count: 23))
+            }
+        }
+    }
+
+    /// Where topics can show, each tab saying nothing of them is asked once whether it closes as a
+    /// tab. A large tab bar whose tabs' records fit a read's time but not those questions too is
+    /// still listed: each read keeps what it found, even when it ran out of time, and the next goes
+    /// on from there. Only what was found is kept.
+    func testSafariTabsShownToCloseAsTabsStaySoAcrossReadsThatRunOutOfTime() throws {
+        let tree = fixture(.safari)
+        for _ in 0..<118 { tree.container.append(tab("Background", selected: false)) }
+        var time = 0.0
+        for node in tree.container.nodes {
+            node.identifier = nil
+            node.actions = ["AXScrollToVisible", "AXShowMenu", "AXPress", safariCloseAction]
+            node.onInfoRead = { time += 0.0009 }
+            node.onActionRead = { time += 0.0005 }
+        }
+        let scanner = BrowserTabScanner(root: tree.root, adapter: .safari, windowId: 123, pid: 45, now: { time })
+        var reads: [BrowserWindowTabs?] = []
+        while reads.count < 6, reads.last??.tabs == nil { reads.append(scanner.scan()) }
+        XCTAssertEqual(reads.map { $0?.tabs.count }, [nil, nil, 120], "Records alone fill the first read; the questions, the next two")
+        XCTAssertEqual(tree.container.nodes.map(\.actionReads), Array(repeating: 1, count: 120))
+        XCTAssertEqual(try XCTUnwrap(scanner.scan()).tabs.count, 120, "Then each read fits")
+        XCTAssertEqual(tree.container.nodes.map(\.actionReads), Array(repeating: 1, count: 120))
+    }
+
     /// A topic's own button that says it's selected is never the selected tab: with a tab also
     /// selected, that tab is; alone, no tab is, so there's no list. So too once it has lost its
     /// identifier.
@@ -1812,6 +1895,26 @@ final class BrowserTabsTest: XCTestCase {
         XCTAssertFalse(window.scanner.select(snapshot.tabs[4].target), "The topic changed as the tab scrolled into view")
         XCTAssertEqual(member.performed, ["AXScrollToVisible"])
         XCTAssertEqual(member.presses, 0)
+
+        // The tab moves to another window while the tab bar is read again, its topics still
+        // accounted for as read: it's checked again after that read, and left alone.
+        for closing in [false, true] {
+            let window = safariTopicWindow(selected: 0)
+            let member = window.pages[4]
+            let snapshot = try XCTUnwrap(window.scanner.scan())
+            let elsewhere = BrowserTestNode("AXWindow"), bar = BrowserTestNode("AXOpaqueProviderGroup")
+            elsewhere.append(bar)
+            window.pages[8].onStructureRead = { [unowned member, unowned container = window.container] in
+                container.nodes.removeAll { $0 === member }
+                bar.append(member)
+            }
+            withExtendedLifetime(elsewhere) {
+                let target = snapshot.tabs[4].target
+                XCTAssertFalse(closing ? window.scanner.close(target) : window.scanner.select(target), "closing: \(closing)")
+            }
+            XCTAssertEqual(member.presses, 0, "closing: \(closing)")
+            XCTAssertEqual(member.performed, [], "closing: \(closing)")
+        }
     }
 
     private let safariCloseAction = "Name:Close Tab\nTarget:0x1\nSelector:_closeButtonClicked:"
@@ -1985,7 +2088,12 @@ private final class BrowserTestNode: BrowserTabAXNode {
     var actions: [String] = []
     var performed: [String] = []
     var actionReads = 0
-    func actionNames() -> [String] { actionReads += 1; return actions }
+    var onActionRead: () -> Void = {}
+    func actionNames() -> [String] {
+        actionReads += 1
+        onActionRead()
+        return actions
+    }
     var onPerform: (String) -> Void = { _ in }
     func perform(_ action: String) -> Bool {
         performed.append(action)

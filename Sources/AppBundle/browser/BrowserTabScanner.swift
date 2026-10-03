@@ -121,23 +121,28 @@ extension BrowserTabAXNode {
         return close?.press() ?? false
     }
 
-    /// Closes this Safari tab only by that named action, found by its unlocalized selector.
-    /// Nothing else is pressed: a tab's only other button may be its sound's, and a close button
-    /// isn't guessed at. A Safari topic's own button offers no such action, and nothing that is
-    /// or may be one (`SafariTabCluster`) is ever closed: that could close the topic's tabs.
-    /// `structure`: this element's, as just read.
+    /// Closes this Safari tab only by that named action, found by its unlocalized selector
+    /// (`safariIsCloseAction`). Nothing else is pressed: a tab's only other button may be its
+    /// sound's, and a close button isn't guessed at. A Safari topic's own button offers no such
+    /// action, and nothing that is or may be one (`SafariTabCluster`) is ever closed: that could
+    /// close the topic's tabs. `structure`: this element's, as just read.
     func pressSafariCloseAction(_ structure: BrowserTabAXStructure) -> Bool {
-        guard SafariTabCluster(structure).isPage,
-              let action = actionNames().first(where: { $0.contains(browserTabCloseSelector) }) else { return false }
+        guard SafariTabCluster(structure).isPage, let action = actionNames().first(where: safariIsCloseAction) else { return false }
         return perform(action)
     }
 
     /// Whether this Safari control offers a tab's close action: what a tab whose identifier says
-    /// nothing of topics must show to be taken for one. Every tab does, even while its close
-    /// button is hidden; a topic's own button doesn't.
+    /// nothing of topics must show to be taken for one where topics can show. Every tab does, even
+    /// while its close button is hidden; a topic's own button doesn't.
     func closesAsSafariTab() -> Bool {
-        actionNames().contains { $0.contains(browserTabCloseSelector) }
+        actionNames().contains(where: safariIsCloseAction)
     }
+}
+
+/// Whether a Safari "Name:…\nTarget:…\nSelector:…" action is a tab's close action: its one
+/// selector line is exactly the close button's.
+func safariIsCloseAction(_ action: String) -> Bool {
+    action.split(separator: "\n", omittingEmptySubsequences: false).filter { $0.hasPrefix("Selector:") } == [Substring(browserTabCloseSelector)]
 }
 
 /// How long a window found to have no tab strip, whose title stays the same, has only its title
@@ -163,6 +168,15 @@ final class BrowserTabScanner<Node: BrowserTabAXNode> {
     /// Safari topics (`safariTabClustersAccountedFor`), even if that scan then failed, as when no
     /// tab it listed was selected (`actionable`).
     private var tabsComplete = true
+    /// Whether this Safari can show topics (`safariShowsTopics`). That says only whether a topic's
+    /// own button can be among the tabs, not which control is a tab: before Safari 27, a tab button
+    /// whose identifier says nothing of topics is a tab, as it always was; from then on, it must
+    /// also show it closes as one (`closesAsSafariTab`).
+    let showsTopics: Bool
+    /// The tab bar's controls whose identifiers say nothing of topics that showed they close as
+    /// tabs, while it lists them so, across reads that ran out of time before listing every tab:
+    /// so a large tab bar's tabs are each asked once. Nothing else is kept as such.
+    private var closeProven: [Node] = []
     /// The selected tab of the last complete scan, which named its container.
     private var anchor: Node?
     private let now: () -> TimeInterval
@@ -197,11 +211,12 @@ final class BrowserTabScanner<Node: BrowserTabAXNode> {
     private var markerNode: Node?
     private var walkedMarker: SafariExtensionMarker?
 
-    init(root: Node, adapter: BrowserTabAdapter, windowId: UInt32, pid: Int32, markerIdentifier: String? = nil,
+    init(root: Node, adapter: BrowserTabAdapter, windowId: UInt32, pid: Int32, markerIdentifier: String? = nil, showsTopics: Bool = true,
          now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
          isCancelled: @escaping () -> Bool = { false }) {
         self.root = root
         self.adapter = adapter
+        self.showsTopics = showsTopics
         self.windowId = windowId
         self.pid = pid
         self.markerIdentifier = markerIdentifier
@@ -257,17 +272,16 @@ final class BrowserTabScanner<Node: BrowserTabAXNode> {
             }
             listed.append((child, record))
         }
-        // A Safari topic's own button is listed with the tabs, as one, but it's no page. One that
-        // says nothing of topics is a tab only if it closes as one, which a tab listed before has
-        // shown: a tab piled up in a crowded tab bar offers no close for now.
-        var clusters: [SafariTabCluster] = []
-        for (child, record) in listed {
-            var cluster = cluster(of: record)
-            if adapter == .safari, cluster == .unknown, !handles.contains(where: { $0.node == child && $0.cluster == .unknown }) {
+        // A Safari topic's own button is listed with the tabs, as one, but it's no page. Where one
+        // can show, a control that says nothing of topics is a tab only if it closes as one, which
+        // it may have shown before: a tab piled up in a crowded tab bar offers no close for now.
+        var clusters = listed.map { cluster(of: $0.record) }
+        if adapter == .safari, showsTopics {
+            closeProven = listed.indices.filter { clusters[$0] == .unknown && closeProven.contains(listed[$0].node) }.map { listed[$0].node }
+            for index in listed.indices where clusters[index] == .unknown && !closeProven.contains(listed[index].node) {
                 guard now() < deadline, !isCancelled(), !cancelled() else { return nil }
-                if !child.closesAsSafariTab() { cluster = .malformed }
+                if listed[index].node.closesAsSafariTab() { closeProven.append(listed[index].node) } else { clusters[index] = .malformed }
             }
-            clusters.append(cluster)
         }
         let complete = safariTabClustersAccountedFor(clusters)
         tabsComplete = complete
@@ -348,7 +362,9 @@ final class BrowserTabScanner<Node: BrowserTabAXNode> {
         guard let (node, record) = validatedTab(target, until: deadline, cancelled: cancelled) else { return nil }
         switch cluster(of: record) {
             case .plain: return (node, record)
-            case .member: return topicsAccountedFor(until: deadline, cancelled: cancelled) ? (node, record) : nil
+            // The tab could have changed while the tab bar was read: what's acted on is the tab as
+            // checked after that.
+            case .member: return topicsAccountedFor(until: deadline, cancelled: cancelled) ? validatedTab(target, until: deadline, cancelled: cancelled) : nil
             default: return tabsComplete ? (node, record) : nil
         }
     }
