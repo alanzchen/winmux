@@ -447,6 +447,22 @@ final class WorkspaceSidebarPinnedDragTest: XCTestCase {
         }
     }
 
+    /// Another display's list, which a drag shows beside the sidebar, lays out its pins and takes drops
+    /// on them the same way: near a tile's side the tab is pinned there, on that display's list.
+    func testAnotherDisplaysListPinsATabRestingNearAPinsSideThereToo() async throws {
+        let (a, _, _, d) = try tabs()
+        let other = "monitor:1512.0,0.0"
+        let frame = CGRect(x: 8, y: 40, width: 244, height: 54)
+        let targets = workspaceSidebarPinnedDropTargets(names: ["a", "b", "c"], projectId: a.projectId, monitorScopeId: other,
+            frame: frame, columns: WorkspaceSidebarPinnedGridLayout(workspaces: [], width: frame.width).columns)
+        let window = try XCTUnwrap(d.allLeafWindowsRecursive.first)
+        defer { WorkspaceSidebarTabSplitHoverController.shared.reset() }
+        let tileB = try XCTUnwrap(targets.first { $0.kind == .workspace("b") }).frame
+        let drop = try await settledDrop(window, at: CGPoint(x: tileB.maxX - 10, y: tileB.midY), in: targets)
+        XCTAssertEqual(drop?.kind, .pinnedTabs(projectId: a.projectId, gap: .init(workspaceName: "b", isAfter: true),
+            monitorScopeId: other))
+    }
+
     /// A hand's jitter where two tiles meet, near a tile's side, or where its middle begins never
     /// splits the pin. A pause over the middle does, as before; moving out to the side pins the tab
     /// beside the tile again, until the next pause over the middle.
