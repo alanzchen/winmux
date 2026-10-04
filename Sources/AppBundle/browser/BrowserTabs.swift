@@ -229,25 +229,31 @@ struct BrowserTabActionFollowUp: Equatable {
 }
 
 /// The line the sidebar shows when a select or close didn't go as asked, by why. Kept together
-/// here, so they can be localized at once.
+/// here, so they can be localized at once. Only what wasn't sent is told as not done, and only
+/// that invites another try: what was sent may yet have happened, and the list is read again.
 func browserTabActionMessage(_ result: BrowserTabActionResult, kind: BrowserTabActionKind, browser: String) -> String? {
     let select = kind == .select
     switch result {
         case .dispatched(.confirmed), .notDispatched(.cancelled):
             return nil
-        case .notDispatched(.changed), .notDispatched(.unaccounted), .failed(.invalidElement):
+        case .notDispatched(.changed), .notDispatched(.unaccounted):
             return "This tab changed or moved in \(browser). The list is being refreshed; try again."
         case .notDispatched(.collapsedTopic):
             return "This tab is in a collapsed topic. Open the topic in \(browser) to \(select ? "switch to" : "close") it; " +
                 "the sidebar can't do that yet."
-        case .notDispatched(.noResponse), .failed(.timedOut):
+        case .notDispatched(.noResponse):
             return "\(browser) didn't respond. Try again."
-        case .dispatched(.unknown):
-            return select ? "\(browser) didn't switch to this tab." : "\(browser) didn't confirm closing this tab. The list is being refreshed."
         case .notDispatched(.noAction), .notDispatched(.outOfView):
             return select ? "\(browser) didn't switch to this tab." : "\(browser) didn't offer a way to close this tab."
-        case .failed(.unsupported), .failed(.other):
-            return select ? "\(browser) didn't switch to this tab." : "\(browser) didn't close this tab."
+        case .dispatched(.unknown):
+            return select ? "\(browser) couldn't confirm switching to this tab. The list is being refreshed."
+                : "\(browser) couldn't confirm closing this tab. The list is being refreshed."
+        case .failed(.timedOut):
+            return select ? "\(browser) didn't answer in time; the tab may still switch. The list is being refreshed."
+                : "\(browser) didn't answer in time; the tab may still close. The list is being refreshed."
+        case .failed(.invalidElement), .failed(.unsupported), .failed(.other):
+            return select ? "\(browser) reported an error switching to this tab. The list is being refreshed."
+                : "\(browser) reported an error closing this tab. The list is being refreshed."
     }
 }
 

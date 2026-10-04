@@ -59,7 +59,8 @@ enum BrowserTabActionResult: Equatable, Sendable {
     /// The browser was asked and answered with an error, and it wasn't seen done.
     case failed(BrowserTabAXFailure)
 
-    var isDispatched: Bool { if case .dispatched = self { true } else { false } }
+    /// Whether the browser was asked, whatever it answered: only a result never sent is not.
+    var isDispatched: Bool { if case .notDispatched = self { false } else { true } }
 
     var logName: String {
         switch self {
@@ -76,8 +77,9 @@ enum BrowserTabActionKind: String, Sendable {
 }
 
 /// How long, after an action was dispatched, its tab is read again for its effect: at once, then
-/// after each of these pauses. Bounded, and only for that one action.
+/// after each of these pauses, all within `browserTabActionConfirmationBudget`, reads included.
 let browserTabActionConfirmationPauses: [TimeInterval] = [0.03, 0.07, 0.15]
+let browserTabActionConfirmationBudget: TimeInterval = 0.25
 
 /// One action's path, for the debug log: categories and timings only, never a title or address.
 struct BrowserTabActionTrace {

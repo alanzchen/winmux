@@ -84,9 +84,9 @@ struct WorkspaceSidebarBrowserTabRowView: View {
                         .transition(.opacity)
                 }
                 Group {
-                    // Asked of the browser, not yet seen done.
+                    // Asked of the browser, not yet seen done: shown even under the pointer.
                     if tab.pending != nil {
-                        ProgressView().controlSize(.mini).opacity(isHovered ? 0 : 1)
+                        ProgressView().controlSize(.mini)
                     } else if tab.isSelected {
                         Image(systemName: "checkmark").font(.system(size: 9, weight: .semibold)).foregroundStyle(.secondary)
                             .opacity(isHovered ? 0 : 1)
@@ -115,8 +115,9 @@ struct WorkspaceSidebarBrowserTabRowView: View {
             .help("Close Tab")
             .accessibilityHidden(true)
             .frame(width: workspaceSidebarTabTrailingSlotWidth)
-            .opacity(isHovered ? 1 : 0)
-            .allowsHitTesting(isHovered)
+            // Not over a pending row's spinner: its close, if any, is under way.
+            .opacity(isHovered && tab.pending == nil ? 1 : 0)
+            .allowsHitTesting(isHovered && tab.pending == nil)
         }
         .background {
             RoundedRectangle(cornerRadius: indent.rowCornerRadius, style: .continuous)
@@ -143,7 +144,8 @@ struct WorkspaceSidebarBrowserTabRowView: View {
     }
 
     private func close() {
-        guard !isWorkspaceSidebarDragInProgress() else { return }
+        // A tab being closed isn't asked again.
+        guard !isWorkspaceSidebarDragInProgress(), tab.pending != .closing else { return }
         onClose()
     }
 }

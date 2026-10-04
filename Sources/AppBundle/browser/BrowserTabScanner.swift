@@ -412,23 +412,27 @@ final class BrowserTabScanner<Node: BrowserTabAXNode> {
     }
 
     /// What a dispatched action did, as its tab then says: read at once, then after each of
-    /// `browserTabActionConfirmationPauses`. A select is done once the tab says it's selected; a
-    /// close, once the tab, or its tab bar or window, is gone. Otherwise it isn't known, or it
-    /// failed if the browser answered with an error. Nothing is sent again.
+    /// `browserTabActionConfirmationPauses`, all within one deadline,
+    /// `browserTabActionConfirmationBudget` after the action returned, that counts the reads as well
+    /// as the pauses. A pause takes only what's left of it, and no read starts after it. So the
+    /// app's Accessibility thread is held at most the budget plus one read's tail: a select's read
+    /// is one round trip, a close's two (`isClosed`), each with a 50 ms messaging timeout, so at
+    /// most 0.30 s for a select and 0.35 s for a close. A select is done once the tab says it's
+    /// selected, a close once the tab or its window is gone. Otherwise what it did isn't known, or
+    /// it failed if the browser answered with an error. Nothing is sent again, and nothing sent is
+    /// ever told as not sent.
     private func confirmEffect(_ kind: BrowserTabActionKind, of node: Node, after call: BrowserTabAXCall, cancelled: () -> Bool,
                                trace: inout BrowserTabActionTrace) -> BrowserTabActionResult {
         trace.stage = "confirm"
         trace.dispatchAttempted = true
-        var confirmed = false
-        for pause in [0] + browserTabActionConfirmationPauses {
-            if pause > 0 {
-                guard !isCancelled(), !cancelled() else { break }
-                wait(pause)
-            }
-            if kind == .select ? node.tabInfo()?.selected == true : isClosed(node) {
-                confirmed = true
-                break
-            }
+        let deadline = now() + browserTabActionConfirmationBudget
+        func inTime() -> Bool { now() < deadline && !isCancelled() && !cancelled() }
+        var confirmed = kind == .select ? node.tabInfo()?.selected == true : isClosed(node, while: inTime)
+        for pause in browserTabActionConfirmationPauses where !confirmed {
+            guard inTime() else { break }
+            wait(min(pause, deadline - now()))
+            guard inTime() else { break }
+            confirmed = kind == .select ? node.tabInfo()?.selected == true : isClosed(node, while: inTime)
         }
         trace.postcondition = confirmed ? .confirmed : .unknown
         if confirmed { return .dispatched(.confirmed) }
@@ -436,11 +440,12 @@ final class BrowserTabScanner<Node: BrowserTabAXNode> {
         return .dispatched(.unknown)
     }
 
-    private func isClosed(_ node: Node) -> Bool {
-        if node.isGone() { return true }
-        guard let container else { return false }
-        guard let children = container.children() else { return container.isGone() || root.isGone() }
-        return !children.contains(node)
+    /// Whether a closed tab is gone: its element, or the window it was in, says it no longer
+    /// exists. A tab that left its tab bar, or a tab bar that went or lists nothing, may still be
+    /// open, moved to another window or hidden, so that says nothing. The window is read only
+    /// while `inTime`.
+    private func isClosed(_ node: Node, while inTime: () -> Bool) -> Bool {
+        node.isGone() || inTime() && root.isGone()
     }
 
     /// The listed tab, checked again as if just listed, if it may be acted on. A tab that says
@@ -456,8 +461,14 @@ final class BrowserTabScanner<Node: BrowserTabAXNode> {
             // The tab could have changed while the tab bar was read: what's acted on is the tab as
             // checked after that.
             case .member(let id):
-                switch ownTopic(id, until: deadline, cancelled: cancelled) {
-                    case .shown: return validatedTab(target, until: deadline, cancelled: cancelled)
+                let topic = ownTopic(id, until: deadline, cancelled: cancelled)
+                switch topic.state {
+                    case .shown:
+                        guard let proof = topic.proof else { return .failure(.unaccounted) }
+                        let final = validatedTab(target, until: deadline, cancelled: cancelled)
+                        guard case .success = final else { return final }
+                        if let refusal = ownTopicHolds(id, proof, until: deadline, cancelled: cancelled) { return .failure(refusal) }
+                        return final
                     case .closed: return .failure(.collapsedTopic)
                     case .unaccounted: return .failure(.unaccounted)
                     case .unread: return .failure(isCancelled() || cancelled() ? .cancelled : .noResponse)
@@ -471,24 +482,46 @@ final class BrowserTabScanner<Node: BrowserTabAXNode> {
     /// narrowing F4's check from the whole tab bar to the tab's own topic). Every control is still
     /// read: one that can't be read, isn't a tab, or says nothing reliable of topics could be this
     /// topic's button or one of its tabs.
-    private func ownTopic(_ id: String, until deadline: TimeInterval, cancelled: () -> Bool) -> SafariOwnTopic {
-        guard let container, now() < deadline, let children = container.children(), children.count <= 256 else { return .unread }
-        var headers: [(isExpanded: Bool, tabCount: Int)] = []
+    private func ownTopic(_ id: String, until deadline: TimeInterval, cancelled: () -> Bool)
+        -> (state: SafariOwnTopic, proof: (header: Node, tabCount: Int, children: [Node])?) {
+        guard let container, now() < deadline, let children = container.children(), children.count <= 256 else { return (.unread, nil) }
+        var headers: [(node: Node, isExpanded: Bool, tabCount: Int)] = []
         var members = 0
         for child in children {
-            guard now() < deadline, !isCancelled(), !cancelled(), let structure = child.structure() else { return .unread }
-            guard structure.isTab else { return .unaccounted }
+            guard now() < deadline, !isCancelled(), !cancelled(), let structure = child.structure() else { return (.unread, nil) }
+            guard structure.isTab else { return (.unaccounted, nil) }
             switch SafariTabCluster(structure) {
-                case .header(id, let isExpanded, let tabCount): headers.append((isExpanded, tabCount))
+                case .header(id, let isExpanded, let tabCount): headers.append((child, isExpanded, tabCount))
                 case .member(id): members += 1
-                case .malformed, .unknown: return .unaccounted
+                case .malformed, .unknown: return (.unaccounted, nil)
                 case .header, .member, .plain: break
             }
         }
-        guard now() < deadline else { return .unread }
-        guard headers.count == 1, let header = headers.first else { return .unaccounted }
-        guard header.isExpanded else { return .closed }
-        return members == header.tabCount ? .shown : .unaccounted
+        guard now() < deadline else { return (.unread, nil) }
+        guard headers.count == 1, let header = headers.first else { return (.unaccounted, nil) }
+        guard header.isExpanded else { return (.closed, nil) }
+        return members == header.tabCount ? (.shown, (header.node, header.tabCount, children)) : (.unaccounted, nil)
+    }
+
+    /// Whether the topic `ownTopic` showed still stands, read once more after the tab itself was
+    /// checked, within the same deadline: the tab bar lists the same controls, and the topic's own
+    /// button, the one read before, still says it's that topic's, open, with as many tabs. Nil when
+    /// it does; otherwise why not. Accessibility can't check and act at once, so this only closes
+    /// the gap the reads before the action left; a change after it still lands.
+    private func ownTopicHolds(_ id: String, _ proof: (header: Node, tabCount: Int, children: [Node]), until deadline: TimeInterval,
+                               cancelled: () -> Bool) -> BrowserTabActionRefusal? {
+        func stop() -> BrowserTabActionRefusal? { isCancelled() || cancelled() ? .cancelled : now() < deadline ? nil : .noResponse }
+        if let stop = stop() { return stop }
+        guard let container, let children = container.children() else { return stop() ?? .noResponse }
+        guard children.count == proof.children.count, children.allSatisfy({ proof.children.contains($0) }) else { return .unaccounted }
+        if let stop = stop() { return stop }
+        guard let structure = proof.header.structure() else { return stop() ?? .noResponse }
+        if let stop = stop() { return stop }
+        switch SafariTabCluster(structure) {
+            case .header(id, true, proof.tabCount) where structure.isTab: return nil
+            case .header(id, false, _): return .collapsedTopic
+            default: return .unaccounted
+        }
     }
 
     /// Scrolls a tab into its tab bar's view. Safari offers neither press nor close on a tab piled
