@@ -11,8 +11,10 @@ In Tabs mode the pinned tiles now take part in drag and drop both ways.
   dimmed and the pointer carries its icon until the drop. With every tab pinned, the
   empty list below still takes a pin.
 - A tile takes a dropped window as a tab in the list does: moving across it places the
-  tab beside it among the pins, and a brief pause over it arms a split, with the half
-  under the pointer highlighted. Dropping then tiles the window beside the pin's window
+  tab beside it among the pins, and a brief pause over its middle third arms a split, with
+  the half under the pointer highlighted. Over the outer thirds the tab is pinned beside
+  the tile however long it rests, since a hand slowing down to drop it there used to arm
+  the split (October 4). Dropping then tiles the window beside the pin's window
   on that side; the tab stays pinned. An empty pin takes the window in, and a window
   dragged in from the screen joins the pin (added September 28, after 0.6.372). For
   windows from the screen, the tile under the pointer now wins over a neighbor that only

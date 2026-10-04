@@ -218,7 +218,7 @@ extension WorkspaceSidebarView {
     }
 
     /// A tab dropped beside a tile goes there among the pins, and the insertion line shows where;
-    /// after a pause over a tile, a window joins that pin's split instead. Dropped among the other
+    /// after a pause over a tile's middle, a window joins that pin's split instead. Dropped among the other
     /// section's pins, a pin moves there, which the section's caption says while it's over them.
     private func tabsFavoriteGrid(_ favorites: [WorkspaceSidebarWorkspaceViewModel],
                                   grid: WorkspaceSidebarPinnedGridLayout, section: WorkspaceSidebarPinSection) -> some View {

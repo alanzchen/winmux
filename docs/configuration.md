@@ -83,9 +83,10 @@ tabs-always-expanded = true
   highlighted, labelled **Tile into Pin**, and the pin goes on that side. The tab
   joins whole, its split kept, and the pin stays pinned in its place. A shared pin on
   another display comes to the tab's display. Moving across a tab without the pause does
-  nothing. Drag a tab onto a pinned tile and pause for a
-  moment to tile its window beside the pin's, as in the list; the half under the pointer
-  is highlighted and chooses the side, and an empty pin takes the window in. A window
+  nothing. Drag a tab onto the middle of a pinned tile and pause for a
+  moment to tile its window beside the pin's; the half under the pointer is highlighted
+  and chooses the side, and an empty pin takes the window in. Nearer a tile's sides, the
+  tab is pinned beside it however long it rests there. A window
   dragged in from the screen joins the pin it's dropped on. A tab pinned from its menu
   goes after the pins already arranged. Pins, their order, group membership,
   colors and emoji are saved in `sidebar-organization.json` beside the saved-workspace

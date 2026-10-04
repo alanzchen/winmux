@@ -156,8 +156,8 @@ func workspaceSidebarTabGapBands(for frame: CGRect, inside maxInside: CGFloat = 
 
 /// The pinned tiles' drop targets, laid out as `WorkspaceSidebarPinnedGrid` places them. Each
 /// tile is a tab: a tab moving across it goes before or after it among the pins, by the half
-/// under the pointer, and a pause over it arms a split, as in the list. The tiles reach halfway
-/// across the space between them, and past the last one, the rest of its row puts a tab last.
+/// under the pointer, and a pause over its middle arms a split. The tiles reach halfway across
+/// the space between them, and past the last one, the rest of its row puts a tab last.
 func workspaceSidebarPinnedDropTargets(names: [String], projectId: WorkspaceProjectId, monitorScopeId: String,
                                        frame: CGRect, columns: Int,
                                        section: WorkspaceSidebarPinSection = .project) -> [WorkspaceSidebarDropTargetFrame] {
@@ -207,7 +207,17 @@ struct WorkspaceSidebarTabReorderDestination: Equatable {
             : .tabGap(projectId: projectId, monitorScopeId: monitorScopeId,
                 gap: .init(workspaceName: name, isAfter: point.y >= rect.center.y, collectionId: collectionId))
     }
+
+    /// Whether a pause at `point` may arm a split: anywhere over a row, but over a pinned tile only
+    /// in its middle third. Nearer a tile's sides, a tab goes beside it among the pins however long
+    /// it rests there, as a hand does before it lets go.
+    func pauseArmsSplit(at point: CGPoint, rect: Rect) -> Bool {
+        !arrangesPins || abs(point.x - rect.center.x) <= rect.width * workspaceSidebarPinnedTileSplitWidth / 2
+    }
 }
+
+/// The share of a pinned tile's width, in its middle, where a pause arms a split.
+let workspaceSidebarPinnedTileSplitWidth: CGFloat = 1.0 / 3
 
 struct WorkspaceSidebarDropTarget {
     let kind: WorkspaceSidebarDropTargetKind

@@ -379,13 +379,13 @@ final class WorkspaceSidebarPinnedDragTest: XCTestCase {
         let window = try XCTUnwrap(d.allLeafWindowsRecursive.first)
         let tile = pinTile(a)
         defer { WorkspaceSidebarTabSplitHoverController.shared.reset() }
-        let moving = try XCTUnwrap(workspaceSidebarDeliberateTabDropTarget(tile, sourceWindow: window, point: CGPoint(x: 20, y: 27)))
+        let moving = try XCTUnwrap(workspaceSidebarDeliberateTabDropTarget(tile, sourceWindow: window, point: CGPoint(x: 45, y: 27)))
         XCTAssertEqual(moving.kind, .pinnedTabs(projectId: a.projectId, gap: .init(workspaceName: a.name, isAfter: false),
             monitorScopeId: "s"),
             "Moving, it would be pinned before the tile")
         try await Task.sleep(for: .milliseconds(300))
-        let armed = try XCTUnwrap(workspaceSidebarDeliberateTabDropTarget(tile, sourceWindow: window, point: CGPoint(x: 20, y: 27)))
-        XCTAssertEqual(armed.kind, .workspace(a.name), "After a pause, it joins the pin")
+        let armed = try XCTUnwrap(workspaceSidebarDeliberateTabDropTarget(tile, sourceWindow: window, point: CGPoint(x: 45, y: 27)))
+        XCTAssertEqual(armed.kind, .workspace(a.name), "After a pause over its middle, it joins the pin")
         XCTAssertTrue(armed.acceptsSides)
         previewWorkspaceSidebarDrop(window.windowId, subject: .window, target: armed.kind, placement: .left)
         XCTAssertEqual(TrayMenuModel.shared.workspaceSidebarDropPreview?.targetWorkspaceName, a.name)
@@ -397,10 +397,10 @@ final class WorkspaceSidebarPinnedDragTest: XCTestCase {
 
         let empty = Workspace.get(byName: "empty")
         try setWorkspaceSidebarTabFavorite(empty, true)
-        _ = workspaceSidebarDeliberateTabDropTarget(pinTile(empty), sourceWindow: window, point: CGPoint(x: 80, y: 27))
+        _ = workspaceSidebarDeliberateTabDropTarget(pinTile(empty), sourceWindow: window, point: CGPoint(x: 60, y: 27))
         try await Task.sleep(for: .milliseconds(300))
         let intoEmpty = try XCTUnwrap(workspaceSidebarDeliberateTabDropTarget(pinTile(empty), sourceWindow: window,
-            point: CGPoint(x: 80, y: 27)))
+            point: CGPoint(x: 60, y: 27)))
         XCTAssertEqual(intoEmpty.kind, .workspace(empty.name))
         XCTAssertFalse(intoEmpty.acceptsSides, "An empty pin has no window to go beside; the window goes into it")
     }

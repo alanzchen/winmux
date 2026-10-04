@@ -125,7 +125,10 @@ func workspaceSidebarDeliberateTabDropTarget(_ target: WorkspaceSidebarDropTarge
         return target
     }
     let side: WorkspaceSidebarTabDropPlacement = point.x < target.rect.center.x ? .left : .right
-    if hover.isReady(target: name, side: side, point: point, livePoint: livePoint) {
+    // Near a pinned tile's sides, a tab always goes beside it: the pause starts over in its middle.
+    if target.tabReorderDestination?.pauseArmsSplit(at: point, rect: target.rect) == false {
+        hover.reset()
+    } else if hover.isReady(target: name, side: side, point: point, livePoint: livePoint) {
         var armed = target
         armed.acceptsSides = !sourceWindow.isFloating && workspaceTabDropTargetWindow(workspace)?.isFloating == false
         return armed
