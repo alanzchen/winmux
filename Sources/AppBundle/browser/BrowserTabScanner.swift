@@ -513,7 +513,7 @@ final class BrowserTabScanner<Node: BrowserTabAXNode> {
         func stop() -> BrowserTabActionRefusal? { isCancelled() || cancelled() ? .cancelled : now() < deadline ? nil : .noResponse }
         if let stop = stop() { return stop }
         guard let container, let children = container.children() else { return stop() ?? .noResponse }
-        guard children.count == proof.children.count, children.allSatisfy({ proof.children.contains($0) }) else { return .unaccounted }
+        guard sameControls(children, proof.children) else { return .unaccounted }
         if let stop = stop() { return stop }
         guard let structure = proof.header.structure() else { return stop() ?? .noResponse }
         if let stop = stop() { return stop }
@@ -522,6 +522,14 @@ final class BrowserTabScanner<Node: BrowserTabAXNode> {
             case .header(id, false, _): return .collapsedTopic
             default: return .unaccounted
         }
+    }
+
+    /// Whether two lists of a tab bar's controls name the same controls, each once, in any order. A
+    /// list naming one control twice is never the same as another, even one as long whose every
+    /// control it names: the topic's button listed again in place of one of its tabs isn't the topic.
+    private func sameControls(_ listed: [Node], _ other: [Node]) -> Bool {
+        func unique(_ nodes: [Node]) -> Bool { nodes.indices.allSatisfy { !nodes[..<$0].contains(nodes[$0]) } }
+        return listed.count == other.count && unique(listed) && unique(other) && listed.allSatisfy(other.contains)
     }
 
     /// Scrolls a tab into its tab bar's view. Safari offers neither press nor close on a tab piled

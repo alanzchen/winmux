@@ -16,7 +16,7 @@ final class BrowserTabsModel: ObservableObject {
     private var iconsEnabled = false
     private var iconAssociations = BrowserTabIconAssociations()
     private var pendingSelections = BrowserTabPendingSelections()
-    private var pendingCloses = BrowserTabPendingCloses()
+    private var closeRequests = BrowserTabCloseRequests()
     private let safariExtension: SafariExtensionBridge
     private var safariAssociations = SafariExtensionAssociations()
     private var safariEvidence: SafariExtensionEvidence?
@@ -47,7 +47,7 @@ final class BrowserTabsModel: ObservableObject {
         safariExtension.setEnabled(enabled)
         if !enabled {
             pendingSelections = .init()
-            pendingCloses = .init()
+            closeRequests = .init()
             safariAssociations = .init()
             safariEvidence = nil
             safariFrames = .init()
@@ -160,9 +160,9 @@ final class BrowserTabsModel: ObservableObject {
         updateSafariAssociations()
         let now = ProcessInfo.processInfo.systemUptime
         pendingSelections.expire(now: now)
-        pendingCloses.expire(now: now)
+        closeRequests.expire(now: now)
         let next = cache.snapshots.mapValues { value in
-            browserTabsShown(pendingCloses.apply(pendingSelections.apply(value)), read: cache.observed[value.windowId], now: now,
+            browserTabsShown(closeRequests.apply(pendingSelections.apply(value)), read: cache.observed[value.windowId], now: now,
                 safari: safariAssociations, iconOrigins: iconsEnabled ? iconAssociations.origins : [:])
         }
         if snapshots != next { snapshots = next }
@@ -249,29 +249,39 @@ final class BrowserTabsModel: ObservableObject {
               let app = window.app as? MacApp
         else { return }
         let token = generation
-        pendingCloses.begin(target, now: ProcessInfo.processInfo.systemUptime)
+        // Claimed here, on the main actor, before anything is sent: a second close of the tab, even
+        // from a row drawn before the first, starts nothing.
+        let started = closeRequests.request(target, now: ProcessInfo.processInfo.systemUptime,
+            perform: { (try? await app.closeBrowserTab(target)) ?? .notDispatched(.cancelled) },
+            finished: { [weak self] result in
+                guard let self, self.generation == token else { return }
+                await self.finishClose(target, result, window: window, app: app)
+            })
+        guard started != nil else { return }
         publish()
-        Task { [weak self] in
-            let result = (try? await app.closeBrowserTab(target)) ?? .notDispatched(.cancelled)
-            guard let self, self.generation == token else { return }
-            let followUp = BrowserTabActionFollowUp(result, kind: .close, browser: window.app.name ?? "The browser")
-            self.pendingCloses.end(target)
-            if followUp.applies { self.cache.removeTab(target) }
-            self.reread(target.windowId, unknown: followUp.rereads)
-            self.publish()
-            guard let message = followUp.message else { return }
-            // A tab can ask before it closes, such as for unsent form data: its prompt says why it's
-            // still open. In a window that isn't on screen the prompt would stay out of view, so
-            // it's brought forward, as closing a hidden window does.
-            if result == .dispatched(.unknown), await self.closePromptShows(target, window: window, app: app) { return }
-            MessageModel.shared.message = Message(description: "Close Tab Error", body: message)
-        }
+    }
+
+    /// What the sidebar does once a close comes back (`BrowserTabActionFollowUp`).
+    private func finishClose(_ target: BrowserTabTarget, _ result: BrowserTabActionResult, window: Window, app: MacApp) async {
+        let followUp = BrowserTabActionFollowUp(result, kind: .close, browser: window.app.name ?? "The browser")
+        if followUp.applies { cache.removeTab(target) }
+        reread(target.windowId, unknown: followUp.rereads)
+        publish()
+        guard let message = followUp.message else { return }
+        // A tab can ask before it closes, such as for unsent form data: its prompt says why it's
+        // still open. In a window that isn't on screen the prompt would stay out of view, so it's
+        // brought forward, as closing a hidden window does.
+        if result == .dispatched(.unknown), await closePromptShows(target, window: window, app: app) { return }
+        MessageModel.shared.message = Message(description: "Close Tab Error", body: message)
     }
 
     func select(_ target: BrowserTabTarget, monitorScopeId: String?) {
         guard config.workspaceSidebar.usesTabsList, config.workspaceSidebar.browserTabs,
               TrayMenuModel.shared.isEnabled, !serverArgs.isReadOnly
         else { return }
+        // A tab being closed isn't selected, and one already being selected isn't asked again.
+        let now = ProcessInfo.processInfo.systemUptime
+        guard !closeRequests.isClosing(target, now: now), !pendingSelections.isAwaiting(target, now: now) else { return }
         selectionTask?.cancel()
         guard let window = Window.get(byId: target.windowId) else {
             focusWindowFromSidebar(target.windowId, targetMonitorScopeId: monitorScopeId)

@@ -160,6 +160,12 @@ struct BrowserTabPendingSelections {
         if confirmed { entries[windowId]?.switched = now } else { entries[windowId] = nil }
     }
 
+    /// Whether a select of `target` is under way and not yet answered: another click on it waits for it.
+    func isAwaiting(_ target: BrowserTabTarget, now: TimeInterval) -> Bool {
+        guard let entry = entries[target.windowId] else { return false }
+        return entry.target == target && entry.switched == nil && now - entry.since < Self.lifetime
+    }
+
     mutating func observe(_ snapshot: BrowserWindowTabs, readStarted: TimeInterval) {
         guard let entry = entries[snapshot.windowId], let switched = entry.switched, readStarted >= switched else { return }
         let confirmed = snapshot.tabs.contains { $0.target == entry.target && $0.isSelected }
@@ -187,16 +193,33 @@ struct BrowserTabPendingSelections {
 }
 
 /// Tabs the sidebar asked the browser to close, shown as closing until the answer comes. A tab
-/// leaves the list only once it's seen gone, or at the next read that no longer lists it.
+/// leaves the list only once it's seen gone, or at the next read that no longer lists it. One close
+/// at a time per tab: each claim is its own attempt, and only it ends its claim.
 struct BrowserTabPendingCloses {
-    private var entries: [BrowserTabTarget: TimeInterval] = [:]
+    private var entries: [BrowserTabTarget: (attempt: Int, since: TimeInterval)] = [:]
+    private var attempts = 0
     static let lifetime: TimeInterval = 3
 
-    mutating func begin(_ target: BrowserTabTarget, now: TimeInterval) { entries[target] = now }
-    mutating func end(_ target: BrowserTabTarget) { entries[target] = nil }
+    /// Claims `target` for a close: the claim's attempt, or nil while another close of it is under way.
+    @discardableResult
+    mutating func begin(_ target: BrowserTabTarget, now: TimeInterval) -> Int? {
+        if let entry = entries[target], now - entry.since < Self.lifetime { return nil }
+        attempts += 1
+        entries[target] = (attempts, now)
+        return attempts
+    }
+
+    /// The close `attempt` is over. A later claim on the same tab, made once this one lapsed, stays.
+    mutating func end(_ target: BrowserTabTarget, attempt: Int) {
+        if entries[target]?.attempt == attempt { entries[target] = nil }
+    }
+
+    func isClosing(_ target: BrowserTabTarget, now: TimeInterval) -> Bool {
+        entries[target].map { now - $0.since < Self.lifetime } ?? false
+    }
 
     mutating func expire(now: TimeInterval) {
-        entries = entries.filter { now - $0.value < Self.lifetime }
+        entries = entries.filter { now - $0.value.since < Self.lifetime }
     }
 
     func apply(_ snapshot: BrowserWindowTabs) -> BrowserWindowTabs {
@@ -209,6 +232,30 @@ struct BrowserTabPendingCloses {
         }
         return snapshot
     }
+}
+
+/// The sidebar's closes of browser tabs under way. A tab is asked to close once at a time, however
+/// often its close is clicked meanwhile, and from however stale a row: a click before the row shows
+/// it closing starts nothing more.
+@MainActor
+final class BrowserTabCloseRequests {
+    private(set) var pending = BrowserTabPendingCloses()
+
+    /// Starts closing `target` with `perform`, then hands its result to `finished`, unless a close
+    /// of it is already under way: then nil, and nothing is sent.
+    func request(_ target: BrowserTabTarget, now: TimeInterval, perform: @escaping @MainActor () async -> BrowserTabActionResult,
+                 finished: @escaping @MainActor (BrowserTabActionResult) async -> Void) -> Task<Void, Never>? {
+        guard let attempt = pending.begin(target, now: now) else { return nil }
+        return Task { @MainActor [weak self] in
+            let result = await perform()
+            self?.pending.end(target, attempt: attempt)
+            await finished(result)
+        }
+    }
+
+    func isClosing(_ target: BrowserTabTarget, now: TimeInterval) -> Bool { pending.isClosing(target, now: now) }
+    func expire(now: TimeInterval) { pending.expire(now: now) }
+    func apply(_ snapshot: BrowserWindowTabs) -> BrowserWindowTabs { pending.apply(snapshot) }
 }
 
 /// What the sidebar does once a select or close comes back, by what it did.
