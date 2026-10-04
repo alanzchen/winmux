@@ -106,15 +106,16 @@ struct NativeBrowserTabNode: BrowserTabAXNode {
         return browserTabAXError(value) == AXError.noValue.rawValue ? .none : .unreadable
     }
 
-    func press() -> Bool {
+    func press() -> BrowserTabAXCall {
         var actions: CFArray?
         guard AXUIElementCopyActionNames(element, &actions) == .success,
-              (actions as? [String])?.contains(kAXPressAction) == true else { return false }
+              (actions as? [String])?.contains(kAXPressAction) == true else { return .unavailable }
         // A user action can require compositing a heavy page. Keep passive reads
         // short while allowing a bounded, more generous action round trip.
         AXUIElementSetMessagingTimeout(element, 0.2)
         defer { AXUIElementSetMessagingTimeout(element, 0.05) }
-        return AXUIElementPerformAction(element, kAXPressAction as CFString) == .success
+        let error = AXUIElementPerformAction(element, kAXPressAction as CFString)
+        return error == .success ? .succeeded : .failed(.init(error))
     }
 
     func actionNames() -> [String] {
@@ -125,10 +126,17 @@ struct NativeBrowserTabNode: BrowserTabAXNode {
     }
 
     /// `action` comes from `actionNames()` just before, on this AX thread.
-    func perform(_ action: String) -> Bool {
+    func perform(_ action: String) -> BrowserTabAXCall {
         AXUIElementSetMessagingTimeout(element, 0.2)
         defer { AXUIElementSetMessagingTimeout(element, 0.05) }
-        return AXUIElementPerformAction(element, action as CFString) == .success
+        let error = AXUIElementPerformAction(element, action as CFString)
+        return error == .success ? .succeeded : .failed(.init(error))
+    }
+
+    func isGone() -> Bool {
+        AXUIElementSetMessagingTimeout(element, 0.05)
+        var role: CFTypeRef?
+        return AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &role) == .invalidUIElement
     }
 
     func iconCandidate(for snapshot: BrowserWindowTabs) -> BrowserTabIconCandidate? {

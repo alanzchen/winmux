@@ -246,7 +246,7 @@ final class BrowserTabsModel: ObservableObject {
         else { return }
         let token = generation
         Task { [weak self] in
-            let closed = (try? await app.closeBrowserTab(target)) == true
+            let closed = (try? await app.closeBrowserTab(target))?.isDispatched == true
             guard let self, self.generation == token else { return }
             self.schedule.reset(target.windowId)
             guard closed else {
@@ -292,7 +292,7 @@ final class BrowserTabsModel: ObservableObject {
         let token = generation
         selectionTask = Task { [weak self] in
             // Cancelled or not, a press that ran reports whether it did; none that didn't switched the tab.
-            let pressed = (try? await app.selectBrowserTab(target)) == true
+            let pressed = (try? await app.selectBrowserTab(target))?.isDispatched == true
             guard let self, self.generation == token else { return }
             self.pendingSelections.settle(attempt: attempt, windowId: target.windowId, refused: !pressed,
                 now: ProcessInfo.processInfo.systemUptime)

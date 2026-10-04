@@ -229,24 +229,24 @@ final class MacApp: AbstractApp {
         } ?? .init()
     }
 
-    func selectBrowserTab(_ target: BrowserTabTarget) async throws -> Bool {
-        guard !serverArgs.isReadOnly, target.pid == pid else { return false }
-        return try await thread?.runInLoop { [windows] job in
-            guard let window = windows.threadGuarded[target.windowId] else { return false }
+    func selectBrowserTab(_ target: BrowserTabTarget) async throws -> BrowserTabActionResult {
+        guard !serverArgs.isReadOnly, target.pid == pid else { return .notDispatched(.changed) }
+        return try await thread?.runInLoop { [windows] job -> BrowserTabActionResult in
+            guard let window = windows.threadGuarded[target.windowId] else { return .notDispatched(.changed) }
             defer { AXUIElementSetMessagingTimeout(window.ax, 1.0) }
             try job.checkCancellation()
-            return window.browserTabScanner?.select(target, cancelled: { job.isCancelled }) ?? false
-        } ?? false
+            return window.browserTabScanner?.select(target, cancelled: { job.isCancelled }) ?? .notDispatched(.changed)
+        } ?? .notDispatched(.changed)
     }
 
-    func closeBrowserTab(_ target: BrowserTabTarget) async throws -> Bool {
-        guard !serverArgs.isReadOnly, target.pid == pid else { return false }
-        return try await thread?.runInLoop { [windows] job in
-            guard let window = windows.threadGuarded[target.windowId] else { return false }
+    func closeBrowserTab(_ target: BrowserTabTarget) async throws -> BrowserTabActionResult {
+        guard !serverArgs.isReadOnly, target.pid == pid else { return .notDispatched(.changed) }
+        return try await thread?.runInLoop { [windows] job -> BrowserTabActionResult in
+            guard let window = windows.threadGuarded[target.windowId] else { return .notDispatched(.changed) }
             defer { AXUIElementSetMessagingTimeout(window.ax, 1.0) }
             try job.checkCancellation()
-            return window.browserTabScanner?.close(target, cancelled: { job.isCancelled }) ?? false
-        } ?? false
+            return window.browserTabScanner?.close(target, cancelled: { job.isCancelled }) ?? .notDispatched(.changed)
+        } ?? .notDispatched(.changed)
     }
 
     func clearBrowserTabs() async {

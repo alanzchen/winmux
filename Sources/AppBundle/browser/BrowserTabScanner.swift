@@ -90,12 +90,15 @@ protocol BrowserTabAXNode: Equatable {
     func window() -> Self?
     func tabInfo() -> BrowserTabAXInfo?
     func tabRecord(withChildren: Bool) -> BrowserTabAXRecord<Self>?
-    func press() -> Bool
+    /// Presses the element, if it offers that, and says whether it was called and what it answered.
+    func press() -> BrowserTabAXCall
     /// The element's actions, including an app's own named ("Name:…") actions.
     func actionNames() -> [String]
-    func perform(_ action: String) -> Bool
+    func perform(_ action: String) -> BrowserTabAXCall
     /// The element's own title, read from a window.
     func windowTitle() -> String?
+    /// Whether the app says the element no longer exists.
+    func isGone() -> Bool
 }
 
 extension BrowserTabAXNode {
@@ -108,17 +111,18 @@ extension BrowserTabAXNode {
     func tabRecord() -> BrowserTabAXRecord<Self>? { tabRecord(withChildren: false) }
 
     func actionNames() -> [String] { [] }
-    func perform(_ action: String) -> Bool { false }
+    func perform(_ action: String) -> BrowserTabAXCall { .unavailable }
     func windowTitle() -> String? { nil }
+    func isGone() -> Bool { false }
 
     /// Closes this tab with its own control, found without localized text. Safari's tabs offer
     /// a named action for the method their close button calls, even while the button is hidden
     /// (it appears only under the pointer). Otherwise the tab's close button, or its only button.
-    func pressCloseControl() -> Bool {
+    func pressCloseControl() -> BrowserTabAXCall {
         if let action = actionNames().first(where: { $0.contains(browserTabCloseSelector) }) { return perform(action) }
-        guard let buttons = children()?.filter({ $0.structure()?.role == "AXButton" }) else { return false }
+        guard let buttons = children()?.filter({ $0.structure()?.role == "AXButton" }) else { return .unavailable }
         let close = buttons.first { $0.structure()?.subrole == "AXCloseButton" } ?? (buttons.count == 1 ? buttons[0] : nil)
-        return close?.press() ?? false
+        return close?.press() ?? .unavailable
     }
 
     /// Closes this Safari tab only by that named action, found by its unlocalized selector
@@ -126,8 +130,8 @@ extension BrowserTabAXNode {
     /// sound's, and a close button isn't guessed at. A Safari topic's own button offers no such
     /// action, and nothing that is or may be one (`SafariTabCluster`) is ever closed: that could
     /// close the topic's tabs. `structure`: this element's, as just read.
-    func pressSafariCloseAction(_ structure: BrowserTabAXStructure) -> Bool {
-        guard SafariTabCluster(structure).isPage, let action = actionNames().first(where: safariIsCloseAction) else { return false }
+    func pressSafariCloseAction(_ structure: BrowserTabAXStructure) -> BrowserTabAXCall {
+        guard SafariTabCluster(structure).isPage, let action = actionNames().first(where: safariIsCloseAction) else { return .unavailable }
         return perform(action)
     }
 
@@ -193,6 +197,10 @@ final class BrowserTabScanner<Node: BrowserTabAXNode> {
     private var anchor: Node?
     private let now: () -> TimeInterval
     private let isCancelled: () -> Bool
+    /// Pauses this thread while an action's effect is awaited (`browserTabActionConfirmationPauses`).
+    private let wait: (TimeInterval) -> Void
+    /// Where each select or close says what it did (`BrowserTabActionTrace`).
+    private let log: (String) -> Void
     private(set) var observedNodes: [Node] = []
     /// Whether the last discovery read the whole window and found no tab at all, as in Safari's
     /// Settings or a window whose one tab hides the tab bar. A failed or partial read never says so.
@@ -225,7 +233,9 @@ final class BrowserTabScanner<Node: BrowserTabAXNode> {
 
     init(root: Node, adapter: BrowserTabAdapter, windowId: UInt32, pid: Int32, markerIdentifier: String? = nil, showsTopics: Bool = true,
          now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
-         isCancelled: @escaping () -> Bool = { false }) {
+         isCancelled: @escaping () -> Bool = { false },
+         wait: @escaping (TimeInterval) -> Void = { Thread.sleep(forTimeInterval: $0) },
+         log: @escaping (String) -> Void = { browserTabActionLog.debug("\($0, privacy: .public)") }) {
         self.root = root
         self.adapter = adapter
         self.showsTopics = showsTopics
@@ -234,6 +244,8 @@ final class BrowserTabScanner<Node: BrowserTabAXNode> {
         self.markerIdentifier = markerIdentifier
         self.now = now
         self.isCancelled = isCancelled
+        self.wait = wait
+        self.log = log
         self.observedNodes = [root]
     }
 
@@ -341,44 +353,116 @@ final class BrowserTabScanner<Node: BrowserTabAXNode> {
         return SafariExtensionMarker(structure.description)
     }
 
-    func select(_ target: BrowserTabTarget, cancelled: () -> Bool = { false }) -> Bool {
-        act(on: target, cancelled: cancelled) { node, _ in node.press() }
+    func select(_ target: BrowserTabTarget, cancelled: () -> Bool = { false }) -> BrowserTabActionResult {
+        run(.select, on: target, cancelled: cancelled) { node, _ in node.press() }
     }
 
     /// Closes exactly the tab the sidebar listed; a tab that has since moved or changed
     /// identity is left alone.
-    func close(_ target: BrowserTabTarget, cancelled: () -> Bool = { false }) -> Bool {
-        act(on: target, cancelled: cancelled) { node, record in
+    func close(_ target: BrowserTabTarget, cancelled: () -> Bool = { false }) -> BrowserTabActionResult {
+        run(.close, on: target, cancelled: cancelled) { node, record in
             adapter == .safari ? node.pressSafariCloseAction(record.structure) : node.pressCloseControl()
         }
     }
 
-    /// Presses or closes the listed tab. Safari accepts both on a tab scrolled out of its crowded
-    /// tab bar, one that names no parent, yet does neither; and a tab piled up with others offers
-    /// neither. Either is scrolled into view, checked again as if just listed, and acted on only
-    /// if it then names its tab bar. Otherwise it's left, and the action says it wasn't done.
-    private func act(on target: BrowserTabTarget, cancelled: () -> Bool, _ action: (Node, BrowserTabAXRecord<Node>) -> Bool) -> Bool {
-        guard let (node, record) = actionable(target, cancelled: cancelled) else { return false }
-        if record.parent != .none, action(node, record) { return true }
-        guard !isCancelled(), !cancelled(), reveal(node), let (shown, record) = actionable(target, cancelled: cancelled),
-              record.parent != .none else { return false }
-        return action(shown, record)
+    private func run(_ kind: BrowserTabActionKind, on target: BrowserTabTarget, cancelled: () -> Bool,
+                     _ dispatch: (Node, BrowserTabAXRecord<Node>) -> BrowserTabAXCall) -> BrowserTabActionResult {
+        let started = now()
+        var trace = BrowserTabActionTrace(kind: kind)
+        let result = act(kind, on: target, cancelled: cancelled, trace: &trace, dispatch)
+        log(trace.line(result, elapsed: now() - started))
+        return result
+    }
+
+    /// Presses or closes the listed tab, once. Safari accepts both on a tab scrolled out of its
+    /// crowded tab bar, one that names no parent, yet does neither; and a tab piled up with others
+    /// offers neither. Either is scrolled into view, checked again as if just listed, and acted on
+    /// only if it then names its tab bar; that's the one second try, only ever for an action that
+    /// wasn't sent. One that was is never sent again: its tab is read for its effect
+    /// (`confirmEffect`), and what it did is told as it was seen.
+    private func act(_ kind: BrowserTabActionKind, on target: BrowserTabTarget, cancelled: () -> Bool, trace: inout BrowserTabActionTrace,
+                     _ dispatch: (Node, BrowserTabAXRecord<Node>) -> BrowserTabAXCall) -> BrowserTabActionResult {
+        let first: (node: Node, record: BrowserTabAXRecord<Node>)
+        switch actionable(target, cancelled: cancelled) {
+            case .failure(let refusal): return .notDispatched(refusal)
+            case .success(let tab): first = tab
+        }
+        trace.describe(first.record, tabClass: tabClass(first.record))
+        if first.record.parent != .none {
+            trace.stage = "dispatch"
+            let call = dispatch(first.node, first.record)
+            trace.call = call
+            if call != .unavailable { return confirmEffect(kind, of: first.node, after: call, cancelled: cancelled, trace: &trace) }
+        }
+        trace.stage = "reveal"
+        guard !isCancelled(), !cancelled() else { return .notDispatched(.cancelled) }
+        guard reveal(first.node) else { return .notDispatched(first.record.parent == .none ? .outOfView : .noAction) }
+        let shown: (node: Node, record: BrowserTabAXRecord<Node>)
+        switch actionable(target, cancelled: cancelled) {
+            case .failure(let refusal): return .notDispatched(refusal)
+            case .success(let tab): shown = tab
+        }
+        trace.describe(shown.record, tabClass: tabClass(shown.record))
+        guard shown.record.parent != .none else { return .notDispatched(.outOfView) }
+        trace.stage = "dispatch"
+        let call = dispatch(shown.node, shown.record)
+        trace.call = call
+        guard call != .unavailable else { return .notDispatched(.noAction) }
+        return confirmEffect(kind, of: shown.node, after: call, cancelled: cancelled, trace: &trace)
+    }
+
+    /// What a dispatched action did, as its tab then says: read at once, then after each of
+    /// `browserTabActionConfirmationPauses`. A select is done once the tab says it's selected; a
+    /// close, once the tab, or its tab bar or window, is gone. Otherwise it isn't known, or it
+    /// failed if the browser answered with an error. Nothing is sent again.
+    private func confirmEffect(_ kind: BrowserTabActionKind, of node: Node, after call: BrowserTabAXCall, cancelled: () -> Bool,
+                               trace: inout BrowserTabActionTrace) -> BrowserTabActionResult {
+        trace.stage = "confirm"
+        trace.dispatchAttempted = true
+        var confirmed = false
+        for pause in [0] + browserTabActionConfirmationPauses {
+            if pause > 0 {
+                guard !isCancelled(), !cancelled() else { break }
+                wait(pause)
+            }
+            if kind == .select ? node.tabInfo()?.selected == true : isClosed(node) {
+                confirmed = true
+                break
+            }
+        }
+        trace.postcondition = confirmed ? .confirmed : .unknown
+        if confirmed { return .dispatched(.confirmed) }
+        if case .failed(let failure) = call { return .failed(failure) }
+        return .dispatched(.unknown)
+    }
+
+    private func isClosed(_ node: Node) -> Bool {
+        if node.isGone() { return true }
+        guard let container else { return false }
+        guard let children = container.children() else { return container.isGone() || root.isGone() }
+        return !children.contains(node)
     }
 
     /// The listed tab, checked again as if just listed, if it may be acted on. A tab that says
     /// it's in no topic may; one in a topic, only if the tab bar, read again now, still shows that
     /// topic open with all its tabs (`ownTopic`), as a topic can close or change at any time;
     /// any other, only if the tab bar did when last read in full.
-    private func actionable(_ target: BrowserTabTarget, cancelled: () -> Bool) -> (Node, BrowserTabAXRecord<Node>)? {
+    private func actionable(_ target: BrowserTabTarget, cancelled: () -> Bool) -> Result<(node: Node, record: BrowserTabAXRecord<Node>), BrowserTabActionRefusal> {
         let deadline = now() + 0.2
-        guard let (node, record) = validatedTab(target, until: deadline, cancelled: cancelled) else { return nil }
-        switch cluster(of: record) {
-            case .plain: return (node, record)
+        let checked = validatedTab(target, until: deadline, cancelled: cancelled)
+        guard case .success(let tab) = checked else { return checked }
+        switch cluster(of: tab.record) {
+            case .plain: return checked
             // The tab could have changed while the tab bar was read: what's acted on is the tab as
             // checked after that.
             case .member(let id):
-                return ownTopic(id, until: deadline, cancelled: cancelled) == .shown ? validatedTab(target, until: deadline, cancelled: cancelled) : nil
-            default: return tabsComplete ? (node, record) : nil
+                switch ownTopic(id, until: deadline, cancelled: cancelled) {
+                    case .shown: return validatedTab(target, until: deadline, cancelled: cancelled)
+                    case .closed: return .failure(.collapsedTopic)
+                    case .unaccounted: return .failure(.unaccounted)
+                    case .unread: return .failure(isCancelled() || cancelled() ? .cancelled : .noResponse)
+                }
+            default: return tabsComplete ? checked : .failure(.unaccounted)
         }
     }
 
@@ -411,7 +495,7 @@ final class BrowserTabScanner<Node: BrowserTabAXNode> {
     /// up with others in a crowded tab bar until then.
     private func reveal(_ node: Node) -> Bool {
         let scroll = "AXScrollToVisible"
-        return node.actionNames().contains(scroll) && node.perform(scroll)
+        return node.actionNames().contains(scroll) && node.perform(scroll) == .succeeded
     }
 
     /// The full scan already established exactly one selection. Bookend the URL
@@ -420,9 +504,9 @@ final class BrowserTabScanner<Node: BrowserTabAXNode> {
     func confirmsSelection(in snapshot: BrowserWindowTabs, until deadline: TimeInterval,
                            cancelled: () -> Bool = { false }) -> Bool {
         guard snapshot.tabs.filter(\.isSelected).count == 1, let selected = snapshot.tabs.first(where: \.isSelected),
-              let (_, record) = validatedTab(selected.target, until: deadline, cancelled: cancelled)
+              case .success(let tab) = validatedTab(selected.target, until: deadline, cancelled: cancelled)
         else { return false }
-        return record.info.selected && browserTabLabel(record.info.title, adapter: adapter).title == selected.title
+        return tab.record.info.selected && browserTabLabel(tab.record.info.title, adapter: adapter).title == selected.title
     }
 
     /// A Safari window whose one tab hides the tab bar, as that tab, named by the window's title:
@@ -482,25 +566,43 @@ final class BrowserTabScanner<Node: BrowserTabAXNode> {
         return (audio, quiet)
     }
 
+    /// The listed tab as it is now, or why it can't be taken for the one listed. Revalidates only
+    /// this exact live control: a large tab strip must not make an explicit selection depend on
+    /// successfully rereading every other tab.
     private func validatedTab(_ target: BrowserTabTarget, until deadline: TimeInterval,
-                              cancelled: () -> Bool) -> (Node, BrowserTabAXRecord<Node>)? {
+                              cancelled: () -> Bool) -> Result<(node: Node, record: BrowserTabAXRecord<Node>), BrowserTabActionRefusal> {
         guard target.pid == pid, target.windowId == windowId, target.windowSession == windowSession,
-              let handle = handles.first(where: { $0.id == target.tabId }), let container,
-              !isCancelled(), !cancelled(), now() < deadline, container.window() == root, now() < deadline,
-              let children = container.children(), children.contains(handle.node),
-              !cancelled(), now() < deadline,
-              let record = handle.node.tabRecord(), isTab(record, of: container),
-              // Still the same page, in the same topic: never a topic's own button.
-              cluster(of: record) == handle.cluster,
-              record.window == .element(root) || record.parent == .none, now() < deadline,
-              // A tab out of view is taken on its tab bar's word, so the bar must still hold the
-              // tab that was selected, which named it.
-              record.parent != .none || anchorHolds(in: container, children: children),
-              now() < deadline, !isCancelled(), !cancelled()
-        else { return nil }
-        // Revalidate only this exact live control. A large tab strip must not make
-        // an explicit selection depend on successfully rereading every other tab.
-        return (handle.node, record)
+              let handle = handles.first(where: { $0.id == target.tabId }), let container else { return .failure(.changed) }
+        /// Why to stop here, if anything says so: a cancel, or no time left.
+        func stop() -> BrowserTabActionRefusal? { isCancelled() || cancelled() ? .cancelled : now() < deadline ? nil : .noResponse }
+        if let stop = stop() { return .failure(stop) }
+        guard let window = container.window() else { return .failure(stop() ?? .noResponse) }
+        guard window == root else { return .failure(.changed) }
+        if let stop = stop() { return .failure(stop) }
+        guard let children = container.children() else { return .failure(stop() ?? .noResponse) }
+        guard children.contains(handle.node) else { return .failure(.changed) }
+        if let stop = stop() { return .failure(stop) }
+        guard let record = handle.node.tabRecord(), record.parent != .unreadable else { return .failure(stop() ?? .noResponse) }
+        // Still the same page, in the same topic: never a topic's own button.
+        guard isTab(record, of: container), cluster(of: record) == handle.cluster,
+              record.window == .element(root) || record.parent == .none else { return .failure(.changed) }
+        if let stop = stop() { return .failure(stop) }
+        // A tab out of view is taken on its tab bar's word, so the bar must still hold the tab
+        // that was selected, which named it.
+        guard record.parent != .none || anchorHolds(in: container, children: children) else { return .failure(.outOfView) }
+        if let stop = stop() { return .failure(stop) }
+        return .success((handle.node, record))
+    }
+
+    /// What kind of tab a listed control is, for the debug log.
+    private func tabClass(_ record: BrowserTabAXRecord<Node>) -> String {
+        switch cluster(of: record) {
+            case .unknown: adapter == .safari ? "unknown" : "\(adapter)"
+            case .plain: "plain"
+            case .member: "member"
+            case .header: "header"
+            case .malformed: "malformed"
+        }
     }
 
     /// Whether a control its container lists is one of that container's tabs. Safari's tabs

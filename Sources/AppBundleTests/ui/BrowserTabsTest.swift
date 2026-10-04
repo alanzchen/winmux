@@ -90,9 +90,9 @@ final class BrowserTabsTest: XCTestCase {
         XCTAssertTrue(tree.scanner.observedNodes.contains(tree.tabs[0]), "Incomplete icon confirmation must keep the selected tab's subscriptions")
         XCTAssertNil(tree.scanner.scan())
         XCTAssertEqual(tree.root.structureReads, rootReads)
-        XCTAssertTrue(tree.scanner.select(snapshot.tabs[0].target), "An unrelated unreadable tab cannot block an exact live target")
+        XCTAssertTrue(tree.scanner.select(snapshot.tabs[0].target).isDispatched, "An unrelated unreadable tab cannot block an exact live target")
         tree.container.nodes.removeFirst()
-        XCTAssertFalse(tree.scanner.select(snapshot.tabs[0].target), "A removed handle is rejected even before another complete scan")
+        XCTAssertFalse(tree.scanner.select(snapshot.tabs[0].target).isDispatched, "A removed handle is rejected even before another complete scan")
     }
 
     func testLargeCachedStripGetsABoundedBudgetBasedOnItsSize() throws {
@@ -100,7 +100,7 @@ final class BrowserTabsTest: XCTestCase {
         for _ in 0..<118 { tree.container.append(tab("Background", selected: false)) }
         var time = 0.0
         tree.container.nodes.forEach { $0.onInfoRead = { time += 0.0009 } }
-        let scanner = BrowserTabScanner(root: tree.root, adapter: .chromium, windowId: 123, pid: 45, now: { time })
+        let scanner = BrowserTabScanner(root: tree.root, adapter: .chromium, windowId: 123, pid: 45, now: { time }, wait: { _ in })
         XCTAssertEqual(try XCTUnwrap(scanner.scan()).tabs.count, 120)
         let snapshot = try XCTUnwrap(scanner.scan())
         XCTAssertEqual(snapshot.tabs.count, 120, "A 108 ms complete cached scan fits the scaled 150 ms cap")
@@ -126,7 +126,7 @@ final class BrowserTabsTest: XCTestCase {
     func testCachedChromeStructureIsPeriodicallyRediscovered() throws {
         let tree = fixture(.chromium)
         var time = 0.0
-        let scanner = BrowserTabScanner(root: tree.root, adapter: .chromium, windowId: 123, pid: 45, now: { time })
+        let scanner = BrowserTabScanner(root: tree.root, adapter: .chromium, windowId: 123, pid: 45, now: { time }, wait: { _ in })
         let first = try XCTUnwrap(scanner.scan())
         let extra = BrowserTestNode("AXTabGroup")
         tree.root.append(extra)
@@ -164,7 +164,7 @@ final class BrowserTabsTest: XCTestCase {
             tab.title = "unused"
             tab.reportsNoTitle = true
         }
-        let scanner = BrowserTabScanner(root: window.root, adapter: .safari, windowId: 7, pid: 8)
+        let scanner = BrowserTabScanner(root: window.root, adapter: .safari, windowId: 7, pid: 8, wait: { _ in })
         let snapshot = try XCTUnwrap(scanner.scan())
         XCTAssertEqual(snapshot.tabs.map(\.title), (1...24).map { String(format: "Tab %02d", $0) })
         XCTAssertEqual(snapshot.tabs.filter(\.isSelected).map(\.title), ["Tab 01"])
@@ -175,27 +175,27 @@ final class BrowserTabsTest: XCTestCase {
     func testATabOutOfViewIsActedOnOnlyOnceItsBarShowsIt() throws {
         // Natively, Safari accepts a press or close on a tab that names no parent and does neither.
         let window = try crowdedSafariWindow()
-        let scanner = BrowserTabScanner(root: window.root, adapter: .safari, windowId: 7, pid: 8)
+        let scanner = BrowserTabScanner(root: window.root, adapter: .safari, windowId: 7, pid: 8, wait: { _ in })
         let snapshot = try XCTUnwrap(scanner.scan())
         let close = "Name:close tab\nTarget:0x0\n\(browserTabCloseSelector)"
         let (hidden, other) = (window.tabs[4], window.tabs[5])
         hidden.reportsNoWindow = true
         hidden.actions = ["AXScrollToVisible", "AXPress", close]
-        XCTAssertFalse(scanner.select(snapshot.tabs[4].target), "Scrolling that leaves it out of view says so")
-        XCTAssertFalse(scanner.close(snapshot.tabs[4].target))
+        XCTAssertFalse(scanner.select(snapshot.tabs[4].target).isDispatched, "Scrolling that leaves it out of view says so")
+        XCTAssertFalse(scanner.close(snapshot.tabs[4].target).isDispatched)
         XCTAssertEqual(hidden.presses, 0)
         XCTAssertEqual(hidden.performed, ["AXScrollToVisible", "AXScrollToVisible"])
         other.actions = ["AXPress", close]
-        XCTAssertFalse(scanner.select(snapshot.tabs[5].target), "Nor is one that can't be scrolled into view pressed")
+        XCTAssertFalse(scanner.select(snapshot.tabs[5].target).isDispatched, "Nor is one that can't be scrolled into view pressed")
         XCTAssertEqual(other.presses, 0)
         // Once scrolling shows it, it names its bar again and is pressed or closed.
         hidden.onPerform = { action in
             if action == "AXScrollToVisible" { hidden.reportsNoParent = false; hidden.reportsNoWindow = false }
         }
-        XCTAssertTrue(scanner.select(snapshot.tabs[4].target))
+        XCTAssertTrue(scanner.select(snapshot.tabs[4].target).isDispatched)
         XCTAssertEqual(hidden.presses, 1)
         hidden.reportsNoParent = true
-        XCTAssertTrue(scanner.close(snapshot.tabs[4].target))
+        XCTAssertTrue(scanner.close(snapshot.tabs[4].target).isDispatched)
         XCTAssertEqual(hidden.performed.last, close)
     }
 
@@ -203,7 +203,7 @@ final class BrowserTabsTest: XCTestCase {
         // Natively, Safari's piled-up tabs have no title, only a description, and offer only
         // AXScrollToVisible until they're in view.
         let window = try crowdedSafariWindow()
-        let scanner = BrowserTabScanner(root: window.root, adapter: .safari, windowId: 7, pid: 8)
+        let scanner = BrowserTabScanner(root: window.root, adapter: .safari, windowId: 7, pid: 8, wait: { _ in })
         let snapshot = try XCTUnwrap(scanner.scan())
         let piled = window.tabs[12]
         let close = "Name:close tab\nTarget:0x0\n\(browserTabCloseSelector)"
@@ -214,13 +214,13 @@ final class BrowserTabsTest: XCTestCase {
             piled.supportsPress = true
             piled.actions = ["AXScrollToVisible", "AXPress", close]
         }
-        XCTAssertTrue(scanner.select(snapshot.tabs[12].target))
+        XCTAssertTrue(scanner.select(snapshot.tabs[12].target).isDispatched)
         XCTAssertEqual(piled.presses, 1)
         piled.actions = ["AXScrollToVisible"]
-        XCTAssertTrue(scanner.close(snapshot.tabs[12].target))
+        XCTAssertTrue(scanner.close(snapshot.tabs[12].target).isDispatched)
         XCTAssertEqual(piled.performed, ["AXScrollToVisible", "AXScrollToVisible", close])
         // A tab already in view is pressed without scrolling.
-        XCTAssertTrue(scanner.select(snapshot.tabs[20].target))
+        XCTAssertTrue(scanner.select(snapshot.tabs[20].target).isDispatched)
         XCTAssertEqual(window.tabs[20].performed, [])
     }
 
@@ -231,7 +231,7 @@ final class BrowserTabsTest: XCTestCase {
 
     private func checkATabThatChangesWhileScrollingIntoView(closing: Bool) throws {
         let window = try crowdedSafariWindow()
-        let scanner = BrowserTabScanner(root: window.root, adapter: .safari, windowId: 7, pid: 8)
+        let scanner = BrowserTabScanner(root: window.root, adapter: .safari, windowId: 7, pid: 8, wait: { _ in })
         let snapshot = try XCTUnwrap(scanner.scan())
         let close = "Name:close tab\nTarget:0x0\n\(browserTabCloseSelector)"
         let elsewhere = BrowserTestNode("AXGroup")
@@ -264,7 +264,7 @@ final class BrowserTabsTest: XCTestCase {
                         apply(tab)
                     }
                     let target = snapshot.tabs[window.tabs.firstIndex { $0 === tab }!].target
-                    let done = closing ? scanner.close(target, cancelled: { cancelled }) : scanner.select(target, cancelled: { cancelled })
+                    let done = closing ? scanner.close(target, cancelled: { cancelled }).isDispatched : scanner.select(target, cancelled: { cancelled }).isDispatched
                     XCTAssertFalse(done, "\(change), piled: \(piled), closing: \(closing)")
                     XCTAssertEqual(tab.presses, 0, "\(change), piled: \(piled), closing: \(closing)")
                     XCTAssertEqual(tab.performed, ["AXScrollToVisible"], "\(change), piled: \(piled), closing: \(closing)")
@@ -289,12 +289,12 @@ final class BrowserTabsTest: XCTestCase {
 
     func testOnlyTheTabBarsOwnUnselectedTabsMayLackAParent() throws {
         let window = try crowdedSafariWindow()
-        let scanner = BrowserTabScanner(root: window.root, adapter: .safari, windowId: 7, pid: 8)
+        let scanner = BrowserTabScanner(root: window.root, adapter: .safari, windowId: 7, pid: 8, wait: { _ in })
         let snapshot = try XCTUnwrap(scanner.scan())
         // The selected tab always shows, so it must name its tab bar.
         window.tabs[0].reportsNoParent = true
         XCTAssertNil(scanner.scan())
-        XCTAssertNil(BrowserTabScanner(root: window.root, adapter: .safari, windowId: 7, pid: 8).scan())
+        XCTAssertNil(BrowserTabScanner(root: window.root, adapter: .safari, windowId: 7, pid: 8, wait: { _ in }).scan())
         window.tabs[0].reportsNoParent = false
         // A tab that names some other parent, or whose parent can't be read, isn't the bar's.
         let elsewhere = BrowserTestNode("AXGroup")
@@ -313,36 +313,36 @@ final class BrowserTabsTest: XCTestCase {
         window.tabs[4].owner = otherWindow
         withExtendedLifetime(otherWindow) {
             XCTAssertNil(scanner.scan())
-            XCTAssertFalse(scanner.select(snapshot.tabs[4].target))
+            XCTAssertFalse(scanner.select(snapshot.tabs[4].target).isDispatched)
         }
         window.tabs[4].owner = window.root
         window.tabs[4].windowUnreadable = true
         window.tabs[4].actions = ["Name:Close Tab\nTarget:0x0\n\(browserTabCloseSelector)"]
         XCTAssertNil(scanner.scan())
-        XCTAssertFalse(scanner.select(snapshot.tabs[4].target))
-        XCTAssertFalse(scanner.close(snapshot.tabs[4].target))
+        XCTAssertFalse(scanner.select(snapshot.tabs[4].target).isDispatched)
+        XCTAssertFalse(scanner.close(snapshot.tabs[4].target).isDispatched)
         window.tabs[4].windowUnreadable = false
         XCTAssertEqual(try XCTUnwrap(scanner.scan()).tabs.map(\.id), snapshot.tabs.map(\.id))
         // A tab its tab bar no longer lists can't be pressed.
         window.tabBar.nodes.remove(at: 5)
-        XCTAssertFalse(scanner.select(snapshot.tabs[5].target))
+        XCTAssertFalse(scanner.select(snapshot.tabs[5].target).isDispatched)
         XCTAssertEqual(window.tabs.map(\.presses), Array(repeating: 0, count: 24))
         XCTAssertEqual(window.tabs[4].performed, [])
     }
 
     func testATabOutOfViewIsPressedOnlyWhileItsTabBarStillHoldsTheSelectedTab() throws {
         let window = try crowdedSafariWindow()
-        let scanner = BrowserTabScanner(root: window.root, adapter: .safari, windowId: 7, pid: 8)
+        let scanner = BrowserTabScanner(root: window.root, adapter: .safari, windowId: 7, pid: 8, wait: { _ in })
         let snapshot = try XCTUnwrap(scanner.scan())
         // The selected tab no longer names the bar, as when Safari replaces its tab bar: the
         // failed read keeps the old handles, but a tab taken on the bar's word isn't pressed.
         window.tabs[0].reportsNoParent = true
         XCTAssertNil(scanner.scan())
-        XCTAssertFalse(scanner.select(snapshot.tabs[4].target))
-        XCTAssertTrue(scanner.select(snapshot.tabs[10].target), "A tab that names its bar still can be")
+        XCTAssertFalse(scanner.select(snapshot.tabs[4].target).isDispatched)
+        XCTAssertTrue(scanner.select(snapshot.tabs[10].target).isDispatched, "A tab that names its bar still can be")
         window.tabs[0].reportsNoParent = false
         window.tabBar.nodes.removeFirst()
-        XCTAssertFalse(scanner.select(snapshot.tabs[4].target), "Nor once the bar stops listing that tab")
+        XCTAssertFalse(scanner.select(snapshot.tabs[4].target).isDispatched, "Nor once the bar stops listing that tab")
         XCTAssertEqual(window.tabs.map(\.presses), (0..<24).map { $0 == 10 ? 1 : 0 })
     }
 
@@ -352,14 +352,14 @@ final class BrowserTabsTest: XCTestCase {
         tree.tabs[1].reportsNoWindow = true
         let snapshot = try XCTUnwrap(tree.scanner.scan())
         XCTAssertEqual(snapshot.tabs.map(\.title), ["Alpha", "Beta"])
-        XCTAssertFalse(tree.scanner.select(snapshot.tabs[1].target), "Not pressed while it names no tab strip")
+        XCTAssertFalse(tree.scanner.select(snapshot.tabs[1].target).isDispatched, "Not pressed while it names no tab strip")
         tree.tabs[1].actions = ["AXScrollToVisible"]
         tree.tabs[1].onPerform = { _ in tree.tabs[1].reportsNoParent = false; tree.tabs[1].reportsNoWindow = false }
-        XCTAssertTrue(tree.scanner.select(snapshot.tabs[1].target))
+        XCTAssertTrue(tree.scanner.select(snapshot.tabs[1].target).isDispatched)
         tree.tabs[1].reportsNoParent = true
         tree.tabs[0].reportsNoParent = true
         XCTAssertNil(tree.scanner.scan(), "The selected tab must name its tab strip")
-        XCTAssertFalse(tree.scanner.select(snapshot.tabs[1].target))
+        XCTAssertFalse(tree.scanner.select(snapshot.tabs[1].target).isDispatched)
         XCTAssertEqual(tree.tabs.map(\.presses), [0, 1])
     }
 
@@ -377,7 +377,7 @@ final class BrowserTabsTest: XCTestCase {
         let root = BrowserTestNode("AXWindow")
         root.append(BrowserTestNode("AXToolbar"))
         root.append(BrowserTestNode("AXGroup"))
-        let scanner = BrowserTabScanner(root: root, adapter: .safari, windowId: 1, pid: 2)
+        let scanner = BrowserTabScanner(root: root, adapter: .safari, windowId: 1, pid: 2, wait: { _ in })
         XCTAssertNil(scanner.scan())
         XCTAssertTrue(scanner.foundNoTabStrip, "Such as Safari's Settings, or a lone tab with the tab bar hidden")
         let unknown = BrowserTestNode("AXGroup")
@@ -403,7 +403,7 @@ final class BrowserTabsTest: XCTestCase {
         tree.container.nodes.reverse()
         let second = try XCTUnwrap(tree.scanner.scan())
         XCTAssertEqual(second.tabs.map(\.id), first.tabs.reversed().map(\.id))
-        XCTAssertTrue(tree.scanner.select(first.tabs[0].target))
+        XCTAssertTrue(tree.scanner.select(first.tabs[0].target).isDispatched)
         XCTAssertEqual(tree.tabs[0].presses, 1)
         XCTAssertEqual(tree.tabs[1].presses, 0)
     }
@@ -419,25 +419,25 @@ final class BrowserTabsTest: XCTestCase {
         tree.tabs[1].selected = true
         let single = try XCTUnwrap(tree.scanner.scan())
         XCTAssertFalse(single.isGroup)
-        XCTAssertFalse(tree.scanner.select(first.tabs[0].target))
+        XCTAssertFalse(tree.scanner.select(first.tabs[0].target).isDispatched)
         let otherWindow = BrowserTestNode("AXWindow")
         tree.container.owner = otherWindow
-        XCTAssertFalse(tree.scanner.select(first.tabs[1].target))
+        XCTAssertFalse(tree.scanner.select(first.tabs[1].target).isDispatched)
         XCTAssertEqual(tree.tabs.map(\.presses), [0, 0])
     }
 
     func testModeRestartDoesNotReuseIdsAndWrongProcessCannotSelect() throws {
         let tree = fixture(.chromium)
         let first = try XCTUnwrap(tree.scanner.scan())
-        let restarted = BrowserTabScanner(root: tree.root, adapter: .chromium, windowId: 123, pid: 45)
+        let restarted = BrowserTabScanner(root: tree.root, adapter: .chromium, windowId: 123, pid: 45, wait: { _ in })
         let second = try XCTUnwrap(restarted.scan())
         XCTAssertNotEqual(first.windowSession, second.windowSession)
         XCTAssertTrue(Set(first.tabs.map(\.id)).isDisjoint(with: second.tabs.map(\.id)))
-        XCTAssertFalse(restarted.select(first.tabs[0].target))
+        XCTAssertFalse(restarted.select(first.tabs[0].target).isDispatched)
         let wrong = BrowserTabTarget(windowId: 123, pid: 46, windowSession: first.windowSession, tabId: first.tabs[0].id)
-        XCTAssertFalse(tree.scanner.select(wrong))
+        XCTAssertFalse(tree.scanner.select(wrong).isDispatched)
         tree.tabs[0].supportsPress = false
-        XCTAssertFalse(tree.scanner.select(first.tabs[0].target))
+        XCTAssertFalse(tree.scanner.select(first.tabs[0].target).isDispatched)
     }
 
     func testAmbiguousSelectionAndNativeGroupsNeverPublishPartialTabList() {
@@ -455,9 +455,9 @@ final class BrowserTabsTest: XCTestCase {
         let tree = fixture(.chromium)
         var time = 0.0
         let scanner = BrowserTabScanner(root: tree.root, adapter: .chromium, windowId: 123, pid: 45,
-            now: { time += 0.05; return time })
+            now: { time += 0.05; return time }, wait: { _ in })
         XCTAssertNil(scanner.scan())
-        let cancelled = BrowserTabScanner(root: tree.root, adapter: .chromium, windowId: 123, pid: 45, isCancelled: { true })
+        let cancelled = BrowserTabScanner(root: tree.root, adapter: .chromium, windowId: 123, pid: 45, isCancelled: { true }, wait: { _ in })
         XCTAssertNil(cancelled.scan())
         XCTAssertNil(tree.scanner.scan(cancelled: { true }))
         for _ in 0..<260 { tree.container.append(tab("Extra", selected: false)) }
@@ -754,7 +754,7 @@ final class BrowserTabsTest: XCTestCase {
         pending.settle(attempt: c, windowId: 123, refused: true, now: 1.4)
         XCTAssertEqual(pending.apply(snapshot).tabs.map(\.isSelected), [true, false, false])
         // A click in another window cuts this press short before it presses: each window keeps its own.
-        let other = try XCTUnwrap(BrowserTabScanner(root: fixture(.chromium).root, adapter: .chromium, windowId: 456, pid: 45).scan())
+        let other = try XCTUnwrap(BrowserTabScanner(root: fixture(.chromium).root, adapter: .chromium, windowId: 456, pid: 45, wait: { _ in }).scan())
         let here = pending.begin(third, now: 2)
         _ = pending.begin(other.tabs[1].target, now: 2.1)
         pending.settle(attempt: here, windowId: 123, refused: true, now: 2.2)
@@ -1005,7 +1005,7 @@ final class BrowserTabsTest: XCTestCase {
     func testASafariScanWhoseSoundReadsRunOutOfTimeSaysNothing() {
         let tree = fixture(.safari)
         var time = 0.0
-        let scanner = BrowserTabScanner(root: tree.root, adapter: .safari, windowId: 123, pid: 45, now: { time })
+        let scanner = BrowserTabScanner(root: tree.root, adapter: .safari, windowId: 123, pid: 45, now: { time }, wait: { _ in })
         for tab in tree.tabs {
             tab.append(BrowserTestNode("AXImage"))
             tab.append(BrowserTestNode("AXStaticText"))
@@ -1043,7 +1043,7 @@ final class BrowserTabsTest: XCTestCase {
         speaker.axDescription = "Mute This Tab"
         field.append(speaker)
         var time = 0.0
-        let scanner = BrowserTabScanner(root: root, adapter: .safari, windowId: 1, pid: 2, now: { time })
+        let scanner = BrowserTabScanner(root: root, adapter: .safari, windowId: 1, pid: 2, now: { time }, wait: { _ in })
         XCTAssertNil(scanner.scan())
         XCTAssertEqual(try XCTUnwrap(scanner.loneTab()).tabs.map(\.audio), [.playing])
         XCTAssertEqual(speaker.structureReads, 1, "Read with the walk, not on its own")
@@ -1099,7 +1099,7 @@ final class BrowserTabsTest: XCTestCase {
         for node in [other, unsigned, button] { toolbar.append(node) }
         tree.root.append(toolbar)
         var time = 0.0
-        let scanner = BrowserTabScanner(root: tree.root, adapter: .safari, windowId: 123, pid: 45, markerIdentifier: identifier, now: { time })
+        let scanner = BrowserTabScanner(root: tree.root, adapter: .safari, windowId: 123, pid: 45, markerIdentifier: identifier, now: { time }, wait: { _ in })
         let first = try XCTUnwrap(scanner.scan())
         XCTAssertEqual(first.marker, .init(session: "3f2a9c1e", window: 1401, tab: 1402))
         XCTAssertEqual(button.structureReads, 1, "Read with the walk")
@@ -1135,14 +1135,14 @@ final class BrowserTabsTest: XCTestCase {
         XCTAssertEqual(button.structureReads, reads)
         button.unreadable = false
 
-        let plain = BrowserTabScanner(root: tree.root, adapter: .safari, windowId: 123, pid: 45, now: { time })
+        let plain = BrowserTabScanner(root: tree.root, adapter: .safari, windowId: 123, pid: 45, now: { time }, wait: { _ in })
         XCTAssertNil(try XCTUnwrap(plain.scan()).marker, "Without the extension, WinMux looks for no button")
         plain.markerIdentifier = identifier
         XCTAssertEqual(try XCTUnwrap(plain.scan()).marker?.tab, 1402, "Once it has the extension, the next read walks the window for it")
         let chrome = fixture(.chromium)
         chrome.root.append(toolbar)
         XCTAssertNil(try XCTUnwrap(BrowserTabScanner(root: chrome.root, adapter: .chromium, windowId: 1, pid: 2,
-            markerIdentifier: identifier).scan()).marker)
+            markerIdentifier: identifier, wait: { _ in }).scan()).marker)
     }
 
     func testASafariWindowWithoutATabBarCarriesWhatItsExtensionButtonNames() throws {
@@ -1155,7 +1155,7 @@ final class BrowserTabsTest: XCTestCase {
         button.axDescription = "WinMux Tabs \u{00B7} 3f2a9c1e-7-8"
         toolbar.append(button)
         root.append(toolbar)
-        let scanner = BrowserTabScanner(root: root, adapter: .safari, windowId: 1, pid: 2, markerIdentifier: identifier, now: { 0 })
+        let scanner = BrowserTabScanner(root: root, adapter: .safari, windowId: 1, pid: 2, markerIdentifier: identifier, now: { 0 }, wait: { _ in })
         XCTAssertNil(scanner.scan())
         XCTAssertEqual(try XCTUnwrap(scanner.loneTab(afterWalk: true)).marker, .init(session: "3f2a9c1e", window: 7, tab: 8))
         XCTAssertEqual(button.structureReads, 1, "Right after the walk that read it, the button isn't asked again")
@@ -1180,7 +1180,7 @@ final class BrowserTabsTest: XCTestCase {
         root.ownTitle = "Lo-fi radio"
         root.append(BrowserTestNode("AXToolbar"))
         var time = 0.0
-        let scanner = BrowserTabScanner(root: root, adapter: .safari, windowId: 1, pid: 2, now: { time })
+        let scanner = BrowserTabScanner(root: root, adapter: .safari, windowId: 1, pid: 2, now: { time }, wait: { _ in })
         XCTAssertNil(scanner.loneTab(), "Only once a full read found no tab strip")
         XCTAssertNil(scanner.scan())
         let lone = try XCTUnwrap(scanner.loneTab())
@@ -1192,7 +1192,7 @@ final class BrowserTabsTest: XCTestCase {
         time = 29
         XCTAssertEqual(try XCTUnwrap(scanner.loneTab()), lone, "While its title stays, the same tab")
         XCTAssertEqual(root.structureReads, walked, "and only the title is read")
-        XCTAssertFalse(scanner.select(lone.tabs[0].target), "There's no tab control to press")
+        XCTAssertFalse(scanner.select(lone.tabs[0].target).isDispatched, "There's no tab control to press")
         root.ownTitle = "Jazz radio"
         XCTAssertNil(scanner.loneTab(), "A new title may be a new tab, so the window is walked again")
         XCTAssertNil(scanner.scan())
@@ -1227,7 +1227,7 @@ final class BrowserTabsTest: XCTestCase {
         time = 90
         XCTAssertNil(scanner.scan())
         XCTAssertNil(scanner.loneTab(), "A read that couldn't see everything says nothing")
-        let chrome = BrowserTabScanner(root: BrowserTestNode("AXWindow"), adapter: .chromium, windowId: 3, pid: 2)
+        let chrome = BrowserTabScanner(root: BrowserTestNode("AXWindow"), adapter: .chromium, windowId: 3, pid: 2, wait: { _ in })
         XCTAssertNil(chrome.scan())
         XCTAssertNil(chrome.loneTab(), "Chromium windows without a strip aren't browser windows")
     }
@@ -1335,9 +1335,9 @@ final class BrowserTabsTest: XCTestCase {
         tree.tabs[1].append(closeBeta)
         let snapshot = try XCTUnwrap(tree.scanner.scan())
         XCTAssertEqual(snapshot.tabs.count, 2, "A tab's own controls aren't tabs")
-        XCTAssertTrue(tree.scanner.close(snapshot.tabs[1].target), "A tab's only button is its close button")
+        XCTAssertTrue(tree.scanner.close(snapshot.tabs[1].target).isDispatched, "A tab's only button is its close button")
         XCTAssertEqual(closeBeta.presses, 1)
-        XCTAssertTrue(tree.scanner.close(snapshot.tabs[0].target), "Among several buttons, the close button")
+        XCTAssertTrue(tree.scanner.close(snapshot.tabs[0].target).isDispatched, "Among several buttons, the close button")
         XCTAssertEqual(closeAlpha.presses, 1)
         XCTAssertEqual(tree.tabs.map(\.presses), [0, 0], "Closing never selects the tab")
     }
@@ -1347,11 +1347,11 @@ final class BrowserTabsTest: XCTestCase {
         let close = "Name:关闭标签页\nTarget:0x7801b6d500\nSelector:_closeButtonClicked:"
         tree.tabs[1].actions = ["AXScrollToVisible", "AXShowMenu", "AXPress", close]
         let snapshot = try XCTUnwrap(tree.scanner.scan())
-        XCTAssertTrue(tree.scanner.close(snapshot.tabs[1].target), "Found by selector, whatever the language")
+        XCTAssertTrue(tree.scanner.close(snapshot.tabs[1].target).isDispatched, "Found by selector, whatever the language")
         XCTAssertEqual(tree.tabs[1].performed, [close])
         XCTAssertEqual(tree.tabs.map(\.presses), [0, 0], "Not the tab's press, which would select it")
         tree.tabs[0].actions = ["AXPress", "Name:Other\nTarget:0x1\nSelector:_otherAction:"]
-        XCTAssertFalse(tree.scanner.close(snapshot.tabs[0].target), "Another named action isn't a close")
+        XCTAssertFalse(tree.scanner.close(snapshot.tabs[0].target).isDispatched, "Another named action isn't a close")
         XCTAssertEqual(tree.tabs[0].performed, [])
     }
 
@@ -1361,11 +1361,11 @@ final class BrowserTabsTest: XCTestCase {
         tree.tabs[1].append(first)
         tree.tabs[1].append(second)
         let snapshot = try XCTUnwrap(tree.scanner.scan())
-        XCTAssertFalse(tree.scanner.close(snapshot.tabs[0].target), "No close button")
-        XCTAssertFalse(tree.scanner.close(snapshot.tabs[1].target), "Two unnamed buttons: guessing could do something else")
+        XCTAssertFalse(tree.scanner.close(snapshot.tabs[0].target).isDispatched, "No close button")
+        XCTAssertFalse(tree.scanner.close(snapshot.tabs[1].target).isDispatched, "Two unnamed buttons: guessing could do something else")
         XCTAssertEqual(first.presses + second.presses, 0)
         tree.container.nodes.removeFirst()
-        XCTAssertFalse(tree.scanner.close(snapshot.tabs[0].target), "A tab that's gone")
+        XCTAssertFalse(tree.scanner.close(snapshot.tabs[0].target).isDispatched, "A tab that's gone")
     }
 
     func testAClosedTabLeavesTheListBeforeTheNextRead() {
@@ -1440,8 +1440,8 @@ final class BrowserTabsTest: XCTestCase {
             XCTAssertEqual(snapshot.tabs.map(\.title), window.pages.map(\.title))
             XCTAssertTrue(snapshot.isComplete)
             for tab in snapshot.tabs {
-                XCTAssertTrue(window.scanner.select(tab.target))
-                XCTAssertTrue(window.scanner.close(tab.target))
+                XCTAssertTrue(window.scanner.select(tab.target).isDispatched)
+                XCTAssertTrue(window.scanner.close(tab.target).isDispatched)
             }
             XCTAssertEqual(window.pages.map(\.presses), [1, 1, 1, 1, 1])
             XCTAssertEqual(window.pages.map(\.performed), Array(repeating: [safariCloseAction], count: 5))
@@ -1460,8 +1460,8 @@ final class BrowserTabsTest: XCTestCase {
             XCTAssertEqual(snapshot.tabs.map(\.isSelected), (0..<10).map { $0 == 7 }, order)
             XCTAssertTrue(snapshot.isComplete, order)
             for (tab, page) in zip(snapshot.tabs, window.pages) {
-                XCTAssertTrue(window.scanner.select(tab.target), order)
-                XCTAssertTrue(window.scanner.close(tab.target), order)
+                XCTAssertTrue(window.scanner.select(tab.target).isDispatched, order)
+                XCTAssertTrue(window.scanner.close(tab.target).isDispatched, order)
                 XCTAssertEqual(page.presses, 1, order)
                 XCTAssertEqual(page.performed, [safariCloseAction], order)
             }
@@ -1536,8 +1536,8 @@ final class BrowserTabsTest: XCTestCase {
             XCTAssertFalse(snapshot.isComplete, name)
             for (tab, page) in zip(snapshot.tabs, listed) {
                 let acts = actionable.contains { window.pages[$0] === page }
-                XCTAssertEqual(window.scanner.select(tab.target), acts, "\(name): \(page.title)")
-                XCTAssertEqual(window.scanner.close(tab.target), acts, "\(name): \(page.title)")
+                XCTAssertEqual(window.scanner.select(tab.target).isDispatched, acts, "\(name): \(page.title)")
+                XCTAssertEqual(window.scanner.close(tab.target).isDispatched, acts, "\(name): \(page.title)")
             }
             XCTAssertEqual(window.pages.map(\.presses), (0..<10).map { actionable.contains($0) ? 1 : 0 }, name)
             XCTAssertEqual(window.pages.map(\.performed), (0..<10).map { actionable.contains($0) ? [safariCloseAction] : [] }, name)
@@ -1560,8 +1560,8 @@ final class BrowserTabsTest: XCTestCase {
         XCTAssertEqual(snapshot.tabs.map(\.title), window.pages.map(\.title))
         XCTAssertFalse(snapshot.isComplete)
         for tab in snapshot.tabs {
-            XCTAssertTrue(window.scanner.select(tab.target))
-            XCTAssertTrue(window.scanner.close(tab.target))
+            XCTAssertTrue(window.scanner.select(tab.target).isDispatched)
+            XCTAssertTrue(window.scanner.close(tab.target).isDispatched)
         }
         XCTAssertEqual(window.pages.map(\.presses), Array(repeating: 1, count: 6))
         XCTAssertEqual(window.pages.map(\.performed), Array(repeating: [safariCloseAction], count: 6))
@@ -1585,7 +1585,7 @@ final class BrowserTabsTest: XCTestCase {
         let topic = try XCTUnwrap(window.topic)
         let snapshot = try XCTUnwrap(window.scanner.scan())
         window.container.nodes.reverse()
-        XCTAssertTrue(window.scanner.select(snapshot.tabs[9].target))
+        XCTAssertTrue(window.scanner.select(snapshot.tabs[9].target).isDispatched)
         XCTAssertEqual((window.pages + [topic]).map(\.presses), Array(repeating: 0, count: 9) + [1, 0], "Reordered, the same tab")
         window.container.nodes.reverse()
 
@@ -1594,14 +1594,14 @@ final class BrowserTabsTest: XCTestCase {
         plain.identifier = memberIdentifier
         member.identifier = topic.identifier
         for tab in [snapshot.tabs[0], snapshot.tabs[4]] {
-            XCTAssertFalse(window.scanner.select(tab.target))
-            XCTAssertFalse(window.scanner.close(tab.target))
+            XCTAssertFalse(window.scanner.select(tab.target).isDispatched)
+            XCTAssertFalse(window.scanner.close(tab.target).isDispatched)
         }
         XCTAssertEqual([plain, member].map(\.presses), [0, 0], "Now in a topic, or the topic's button")
         XCTAssertEqual([plain, member].flatMap(\.performed), [])
         plain.identifier = plainIdentifier
         member.identifier = memberIdentifier
-        XCTAssertTrue(window.scanner.select(snapshot.tabs[4].target), "As listed again")
+        XCTAssertTrue(window.scanner.select(snapshot.tabs[4].target).isDispatched, "As listed again")
 
         // The topic closes: its tabs leave the tab bar, and once read so, only tabs in no topic count.
         let members = Array(window.pages[4...7])
@@ -1609,14 +1609,14 @@ final class BrowserTabsTest: XCTestCase {
         topic.identifier = topic.identifier?.replacingOccurrences(of: "isExpanded=true", with: "isExpanded=false")
         window.pages[7].selected = false
         window.pages[0].selected = true
-        XCTAssertFalse(window.scanner.select(snapshot.tabs[5].target), "Gone from the tab bar")
+        XCTAssertFalse(window.scanner.select(snapshot.tabs[5].target).isDispatched, "Gone from the tab bar")
         let closed = try XCTUnwrap(window.scanner.scan())
         XCTAssertFalse(closed.isComplete)
         XCTAssertEqual(closed.tabs.map(\.title), (window.pages[0...3] + window.pages[8...9]).map(\.title))
-        XCTAssertTrue(window.scanner.select(closed.tabs[0].target))
+        XCTAssertTrue(window.scanner.select(closed.tabs[0].target).isDispatched)
         window.pages[1].identifier = memberIdentifier
-        XCTAssertFalse(window.scanner.select(closed.tabs[1].target), "Now says it's in a topic")
-        XCTAssertFalse(window.scanner.close(closed.tabs[1].target))
+        XCTAssertFalse(window.scanner.select(closed.tabs[1].target).isDispatched, "Now says it's in a topic")
+        XCTAssertFalse(window.scanner.close(closed.tabs[1].target).isDispatched)
         XCTAssertEqual(window.pages[1].presses, 0)
         XCTAssertEqual(topic.presses, 0)
     }
@@ -1631,7 +1631,7 @@ final class BrowserTabsTest: XCTestCase {
         let open = try XCTUnwrap(window.scanner.scan())
         XCTAssertEqual(open.tabs.map(\.title), window.pages.map(\.title))
         XCTAssertTrue(open.isComplete)
-        for tab in open.tabs { XCTAssertTrue(window.scanner.select(tab.target)) }
+        for tab in open.tabs { XCTAssertTrue(window.scanner.select(tab.target).isDispatched) }
         XCTAssertEqual(window.pages.map(\.presses), Array(repeating: 1, count: 8))
 
         let members = Array(window.pages[3...5])
@@ -1640,7 +1640,7 @@ final class BrowserTabsTest: XCTestCase {
         let closed = try XCTUnwrap(window.scanner.scan())
         XCTAssertFalse(closed.isComplete)
         XCTAssertEqual(closed.tabs.map(\.title), (window.pages[0...2] + window.pages[6...7]).map(\.title))
-        XCTAssertEqual(closed.tabs.map { window.scanner.select($0.target) }, [true, true, true, true, true],
+        XCTAssertEqual(closed.tabs.map { window.scanner.select($0.target).isDispatched }, [true, true, true, true, true],
             "The open topic's tabs too: the closed one says nothing of them")
         XCTAssertEqual(window.pages.map(\.presses), [2, 2, 2, 1, 1, 1, 2, 2])
         XCTAssertEqual([first, second].map(\.presses), [0, 0])
@@ -1657,8 +1657,8 @@ final class BrowserTabsTest: XCTestCase {
         topic.identifier = topic.identifier?.replacingOccurrences(of: "isExpanded=true", with: "isExpanded=false")
         window.pages[7].selected = false
         XCTAssertNil(window.scanner.scan())
-        XCTAssertFalse(window.scanner.select(snapshot.tabs[4].target), "A tab in the topic")
-        XCTAssertTrue(window.scanner.select(snapshot.tabs[0].target), "A tab in none")
+        XCTAssertFalse(window.scanner.select(snapshot.tabs[4].target).isDispatched, "A tab in the topic")
+        XCTAssertTrue(window.scanner.select(snapshot.tabs[0].target).isDispatched, "A tab in none")
         XCTAssertEqual(window.pages.map(\.presses), [1] + Array(repeating: 0, count: 9))
         XCTAssertEqual(topic.presses, 0)
     }
@@ -1678,13 +1678,13 @@ final class BrowserTabsTest: XCTestCase {
             buttons.append(button)
         }
         let snapshot = try XCTUnwrap(window.scanner.scan())
-        for tab in snapshot.tabs { XCTAssertFalse(window.scanner.close(tab.target), tab.title) }
+        for tab in snapshot.tabs { XCTAssertFalse(window.scanner.close(tab.target).isDispatched, tab.title) }
         XCTAssertEqual(buttons.map(\.presses), [0, 0, 0, 0])
         XCTAssertEqual(window.pages.map(\.presses), [0, 0, 0, 0], "Nor is the tab pressed")
         XCTAssertEqual(window.pages.map(\.performed), Array(repeating: ["AXScrollToVisible"], count: 4), "Only scrolled into view, to try again")
         window.pages[1].performed = []
         window.pages[1].actions.append(safariCloseAction)
-        XCTAssertTrue(window.scanner.close(snapshot.tabs[1].target))
+        XCTAssertTrue(window.scanner.close(snapshot.tabs[1].target).isDispatched)
         XCTAssertEqual(window.pages[1].performed, [safariCloseAction])
         XCTAssertEqual(buttons[1].presses, 0)
 
@@ -1697,7 +1697,7 @@ final class BrowserTabsTest: XCTestCase {
         for action in lookalikes {
             XCTAssertFalse(safariIsCloseAction(action), action)
             window.pages[2].actions = ["AXScrollToVisible", action]
-            XCTAssertFalse(window.scanner.close(snapshot.tabs[2].target), action)
+            XCTAssertFalse(window.scanner.close(snapshot.tabs[2].target).isDispatched, action)
         }
         XCTAssertEqual(Set(window.pages[2].performed), ["AXScrollToVisible"])
         let unproven = safariTopicWindow("PP", selected: 0)
@@ -1714,7 +1714,7 @@ final class BrowserTabsTest: XCTestCase {
             topic.actions = ["AXPress", safariCloseAction]
             let button = BrowserTestNode("AXButton")
             topic.append(button)
-            XCTAssertFalse(topic.pressSafariCloseAction(try XCTUnwrap(topic.structure())), identifier)
+            XCTAssertEqual(topic.pressSafariCloseAction(try XCTUnwrap(topic.structure())), .unavailable, identifier)
             XCTAssertEqual(topic.performed, [], identifier)
             XCTAssertEqual(button.presses, 0, identifier)
         }
@@ -1740,8 +1740,8 @@ final class BrowserTabsTest: XCTestCase {
                 XCTAssertEqual(snapshot.tabs.map(\.title), window.pages.map(\.title), "\(name), \(order)")
                 XCTAssertFalse(snapshot.isComplete, "\(name), \(order)")
                 let plain = order.filter { $0 != "T" }.map { $0 == "P" }
-                XCTAssertEqual(snapshot.tabs.map { window.scanner.select($0.target) }, plain, "\(name), \(order)")
-                XCTAssertEqual(snapshot.tabs.map { window.scanner.close($0.target) }, plain, "\(name), \(order)")
+                XCTAssertEqual(snapshot.tabs.map { window.scanner.select($0.target).isDispatched }, plain, "\(name), \(order)")
+                XCTAssertEqual(snapshot.tabs.map { window.scanner.close($0.target).isDispatched }, plain, "\(name), \(order)")
                 XCTAssertEqual(topic.presses, 0, "\(name), \(order)")
                 XCTAssertEqual(topic.performed, [], "\(name), \(order)")
                 let reported = SafariExtensionWindow(key: .init(source: "p:s", id: 1), session: "s",
@@ -1762,8 +1762,8 @@ final class BrowserTabsTest: XCTestCase {
         legacy.pages[3].actions = ["AXScrollToVisible"]
         XCTAssertEqual(try XCTUnwrap(legacy.scanner.scan()), listed, "As a tab piled up in a crowded tab bar, offering no close for now")
         for tab in listed.tabs {
-            XCTAssertTrue(legacy.scanner.select(tab.target))
-            XCTAssertTrue(legacy.scanner.close(tab.target) == (tab != listed.tabs[3]))
+            XCTAssertTrue(legacy.scanner.select(tab.target).isDispatched)
+            XCTAssertTrue(legacy.scanner.close(tab.target).isDispatched == (tab != listed.tabs[3]))
         }
         // One never seen to close as a tab isn't one, and the window no longer accounts for its tabs.
         let mixed = safariTopicWindow("PPPP", selected: 0)
@@ -1772,7 +1772,7 @@ final class BrowserTabsTest: XCTestCase {
         let partial = try XCTUnwrap(mixed.scanner.scan())
         XCTAssertEqual(partial.tabs.map(\.title), mixed.pages.prefix(3).map(\.title))
         XCTAssertFalse(partial.isComplete)
-        for tab in partial.tabs { XCTAssertFalse(mixed.scanner.select(tab.target)) }
+        for tab in partial.tabs { XCTAssertFalse(mixed.scanner.select(tab.target).isDispatched) }
         XCTAssertEqual(mixed.pages.map(\.presses), [0, 0, 0, 0])
     }
 
@@ -1798,11 +1798,11 @@ final class BrowserTabsTest: XCTestCase {
         let lost = safariTopicWindow("PPPPTPP", selected: 0, expanded: false)
         let lostTopic = try XCTUnwrap(lost.topic)
         lostTopic.identifier = nil
-        let unclear = BrowserTabScanner(root: lost.root, adapter: .safari, windowId: 9, pid: 8, showsTopics: safariShowsTopics(version: "26.invalid"))
+        let unclear = BrowserTabScanner(root: lost.root, adapter: .safari, windowId: 9, pid: 8, showsTopics: safariShowsTopics(version: "26.invalid"), wait: { _ in })
         let unclearTabs = try XCTUnwrap(unclear.scan())
         XCTAssertEqual(unclearTabs.tabs.map(\.title), lost.pages.map(\.title))
         XCTAssertFalse(unclearTabs.isComplete)
-        XCTAssertEqual(unclearTabs.tabs.map { unclear.select($0.target) }, Array(repeating: true, count: 6))
+        XCTAssertEqual(unclearTabs.tabs.map { unclear.select($0.target).isDispatched }, Array(repeating: true, count: 6))
         XCTAssertEqual(lostTopic.presses, 0)
         XCTAssertEqual(lostTopic.performed, [])
         let reported = SafariExtensionWindow(key: .init(source: "p:s", id: 1), session: "s",
@@ -1822,19 +1822,19 @@ final class BrowserTabsTest: XCTestCase {
                 piled.supportsPress = true
                 piled.actions = ["AXScrollToVisible", "AXPress", close]
             }
-            let scanner = BrowserTabScanner(root: window.root, adapter: .safari, windowId: 7, pid: 8, showsTopics: showsTopics)
+            let scanner = BrowserTabScanner(root: window.root, adapter: .safari, windowId: 7, pid: 8, showsTopics: showsTopics, wait: { _ in })
             let snapshot = try XCTUnwrap(scanner.scan(), "showsTopics: \(showsTopics)")
             if showsTopics {
                 XCTAssertEqual(snapshot.tabs.map(\.title), window.tabs.filter { $0 !== piled }.map(\.title))
                 XCTAssertFalse(snapshot.isComplete)
-                XCTAssertFalse(scanner.select(snapshot.tabs[12].target), "Nor is a tab that says nothing of topics acted on")
+                XCTAssertFalse(scanner.select(snapshot.tabs[12].target).isDispatched, "Nor is a tab that says nothing of topics acted on")
                 XCTAssertEqual(window.tabs.map(\.presses), Array(repeating: 0, count: 24))
             } else {
                 XCTAssertEqual(snapshot.tabs.map(\.title), window.tabs.map(\.title))
                 XCTAssertTrue(snapshot.isComplete)
-                XCTAssertTrue(scanner.select(snapshot.tabs[12].target))
+                XCTAssertTrue(scanner.select(snapshot.tabs[12].target).isDispatched)
                 XCTAssertEqual(piled.presses, 1)
-                XCTAssertTrue(scanner.close(snapshot.tabs[12].target))
+                XCTAssertTrue(scanner.close(snapshot.tabs[12].target).isDispatched)
                 XCTAssertEqual(piled.performed, ["AXScrollToVisible", close])
                 XCTAssertEqual(window.tabs.filter { $0 !== piled }.map(\.actionReads), Array(repeating: 0, count: 23))
             }
@@ -1855,7 +1855,7 @@ final class BrowserTabsTest: XCTestCase {
             node.onInfoRead = { time += 0.0009 }
             node.onActionRead = { time += 0.0005 }
         }
-        let scanner = BrowserTabScanner(root: tree.root, adapter: .safari, windowId: 123, pid: 45, now: { time })
+        let scanner = BrowserTabScanner(root: tree.root, adapter: .safari, windowId: 123, pid: 45, now: { time }, wait: { _ in })
         var reads: [BrowserWindowTabs?] = []
         while reads.count < 6, reads.last??.tabs == nil { reads.append(scanner.scan()) }
         XCTAssertEqual(reads.map { $0?.tabs.count }, [nil, nil, 120], "Records alone fill the first read; the questions, the next two")
@@ -1899,12 +1899,12 @@ final class BrowserTabsTest: XCTestCase {
                     window.pages[9].unreadable = true
                     XCTAssertNil(window.scanner.scan(), "A scan that can't read every tab")
             }
-            XCTAssertFalse(window.scanner.select(snapshot.tabs[4].target), change)
-            XCTAssertFalse(window.scanner.close(snapshot.tabs[4].target), change)
+            XCTAssertFalse(window.scanner.select(snapshot.tabs[4].target).isDispatched, change)
+            XCTAssertFalse(window.scanner.close(snapshot.tabs[4].target).isDispatched, change)
             XCTAssertEqual(window.pages[4].presses, 0, change)
             XCTAssertEqual(window.pages[4].performed, [], change)
-            XCTAssertTrue(window.scanner.select(snapshot.tabs[0].target), change)
-            XCTAssertTrue(window.scanner.close(snapshot.tabs[0].target), change)
+            XCTAssertTrue(window.scanner.select(snapshot.tabs[0].target).isDispatched, change)
+            XCTAssertTrue(window.scanner.close(snapshot.tabs[0].target).isDispatched, change)
             XCTAssertEqual(topic.presses, 0, change)
         }
 
@@ -1917,7 +1917,7 @@ final class BrowserTabsTest: XCTestCase {
             member.reportsNoParent = false
             container.nodes.removeAll { $0 === other }
         }
-        XCTAssertFalse(window.scanner.select(snapshot.tabs[4].target), "The topic changed as the tab scrolled into view")
+        XCTAssertFalse(window.scanner.select(snapshot.tabs[4].target).isDispatched, "The topic changed as the tab scrolled into view")
         XCTAssertEqual(member.performed, ["AXScrollToVisible"])
         XCTAssertEqual(member.presses, 0)
 
@@ -1935,7 +1935,7 @@ final class BrowserTabsTest: XCTestCase {
             }
             withExtendedLifetime(elsewhere) {
                 let target = snapshot.tabs[4].target
-                XCTAssertFalse(closing ? window.scanner.close(target) : window.scanner.select(target), "closing: \(closing)")
+                XCTAssertFalse(closing ? window.scanner.close(target).isDispatched : window.scanner.select(target).isDispatched, "closing: \(closing)")
             }
             XCTAssertEqual(member.presses, 0, "closing: \(closing)")
             XCTAssertEqual(member.performed, [], "closing: \(closing)")
@@ -1960,7 +1960,7 @@ final class BrowserTabsTest: XCTestCase {
     /// Selects then closes every listed tab, as the sidebar does, and says which the scanner refused.
     private func refusedActions(_ snapshot: BrowserWindowTabs, _ scanner: BrowserTabScanner<BrowserTestNode>) -> [String] {
         snapshot.tabs.flatMap { tab in
-            (scanner.select(tab.target) ? [] : ["select \(tab.title)"]) + (scanner.close(tab.target) ? [] : ["close \(tab.title)"])
+            (scanner.select(tab.target).isDispatched ? [] : ["select \(tab.title)"]) + (scanner.close(tab.target).isDispatched ? [] : ["close \(tab.title)"])
         }
     }
 
@@ -2023,6 +2023,123 @@ final class BrowserTabsTest: XCTestCase {
         XCTAssertEqual(refusedActions(snapshot, window.scanner), [], "Every listed tab should act")
     }
 
+    // Phase B1 (2026-10-04): what a select or close did, as the browser then shows it.
+
+    /// A select the browser accepted is done only once its tab then says it's selected, read at
+    /// once and after short pauses; otherwise what it did isn't known. It's sent once, whatever
+    /// the browser answers: an error is no reason to press again, as the press may have landed.
+    func testASelectIsConfirmedOnlyOnceItsTabSaysItsSelectedAndIsSentOnce() throws {
+        let window = safariTopicWindow("PPPP", selected: 0)
+        let snapshot = try XCTUnwrap(window.scanner.scan())
+        XCTAssertEqual(window.scanner.select(snapshot.tabs[1].target), .dispatched(.unknown), "Accepted, but never seen selected")
+        XCTAssertEqual(window.pages[1].presses, 1)
+        let page = window.pages[2]
+        page.onPress = { [unowned page] in page.selected = true }
+        XCTAssertEqual(window.scanner.select(snapshot.tabs[2].target), .dispatched(.confirmed))
+        page.selected = false
+
+        var pauses: [TimeInterval] = []
+        let slow = BrowserTabScanner(root: window.root, adapter: .safari, windowId: 123, pid: 45, wait: { [unowned page = window.pages[3]] pause in
+            pauses.append(pause)
+            if pauses.count == 2 { page.selected = true }
+        })
+        let tabs = try XCTUnwrap(slow.scan()).tabs
+        XCTAssertEqual(slow.select(tabs[3].target), .dispatched(.confirmed), "Selected once Safari had a moment")
+        XCTAssertEqual(pauses, Array(browserTabActionConfirmationPauses.prefix(2)))
+
+        let failing = window.pages[1]
+        failing.pressFailure = .timedOut
+        XCTAssertEqual(window.scanner.select(snapshot.tabs[1].target), .failed(.timedOut))
+        XCTAssertEqual(failing.presses, 2, "Pressed once more, not twice")
+        XCTAssertEqual(failing.performed, [], "and not scrolled into view to press again")
+        failing.onPress = { [unowned failing] in failing.selected = true }
+        XCTAssertEqual(window.scanner.select(snapshot.tabs[1].target), .dispatched(.confirmed), "An error, yet it landed")
+    }
+
+    /// A close the browser accepted is done only once its tab is gone: from its tab bar, as an
+    /// element, or with its window. Otherwise what it did isn't known. It's never sent twice.
+    func testACloseIsConfirmedOnlyOnceItsTabIsGoneAndIsNeverSentTwice() throws {
+        let window = safariTopicWindow("PPPPPP", selected: 0)
+        let snapshot = try XCTUnwrap(window.scanner.scan())
+        XCTAssertEqual(window.scanner.close(snapshot.tabs[1].target), .dispatched(.unknown), "Accepted, but the tab stayed")
+        XCTAssertEqual(window.pages[1].performed, [safariCloseAction], "Sent once, and not after scrolling it into view")
+
+        let closing = window.pages[2]
+        closing.onPerform = { [unowned closing, unowned container = window.container] action in
+            if action.hasSuffix("_closeButtonClicked:") { container.nodes.removeAll { $0 === closing } }
+        }
+        XCTAssertEqual(window.scanner.close(snapshot.tabs[2].target), .dispatched(.confirmed), "Gone from its tab bar")
+        let destroyed = window.pages[3]
+        destroyed.onPerform = { [unowned destroyed] _ in destroyed.gone = true }
+        XCTAssertEqual(window.scanner.close(snapshot.tabs[3].target), .dispatched(.confirmed), "Its element gone")
+
+        let failing = window.pages[4]
+        failing.performFailure = .timedOut
+        XCTAssertEqual(window.scanner.close(snapshot.tabs[4].target), .failed(.timedOut))
+        XCTAssertEqual(failing.performed, [safariCloseAction], "An error is no reason to close again")
+        failing.onPerform = { [unowned failing, unowned container = window.container] _ in container.nodes.removeAll { $0 === failing } }
+        XCTAssertEqual(window.scanner.close(snapshot.tabs[4].target), .dispatched(.confirmed), "An error, yet it closed")
+
+        // The last tab closes its window: the tab bar can't be read, and says it's gone.
+        let last = window.pages[5]
+        last.onPerform = { [unowned container = window.container] _ in
+            container.unreadable = true
+            container.gone = true
+        }
+        XCTAssertEqual(window.scanner.close(snapshot.tabs[5].target), .dispatched(.confirmed))
+    }
+
+    /// An action that isn't sent says why, in categories only.
+    func testABrowserTabActionThatIsntSentSaysWhy() throws {
+        let window = safariTopicWindow(selected: 0)
+        let topic = try XCTUnwrap(window.topic)
+        let snapshot = try XCTUnwrap(window.scanner.scan())
+        XCTAssertEqual(window.scanner.select(snapshot.tabs[0].target, cancelled: { true }), .notDispatched(.cancelled))
+        window.container.nodes.removeAll { $0 === window.pages[1] }
+        XCTAssertEqual(window.scanner.close(snapshot.tabs[1].target), .notDispatched(.changed), "Closed meanwhile")
+        let plain = window.pages[2].identifier
+        window.pages[2].identifier = window.pages[4].identifier
+        XCTAssertEqual(window.scanner.select(snapshot.tabs[2].target), .notDispatched(.changed), "Now in a topic")
+        window.pages[2].identifier = plain
+        window.pages[3].supportsPress = false
+        window.pages[3].actions = ["AXShowMenu"]
+        XCTAssertEqual(window.scanner.select(snapshot.tabs[3].target), .notDispatched(.noAction))
+        window.pages[8].reportsNoParent = true
+        window.pages[8].actions = ["AXPress"]
+        XCTAssertEqual(window.scanner.select(snapshot.tabs[8].target), .notDispatched(.outOfView))
+        topic.identifier = topic.identifier?.replacingOccurrences(of: "tabCount=4", with: "tabCount=5")
+        XCTAssertEqual(window.scanner.select(snapshot.tabs[5].target), .notDispatched(.unaccounted), "Its topic lost a tab")
+        topic.identifier = topic.identifier?.replacingOccurrences(of: "tabCount=5", with: "tabCount=4")
+            .replacingOccurrences(of: "isExpanded=true", with: "isExpanded=false")
+        XCTAssertEqual(window.scanner.close(snapshot.tabs[5].target), .notDispatched(.collapsedTopic))
+        window.container.unreadable = true
+        XCTAssertEqual(window.scanner.select(snapshot.tabs[9].target), .notDispatched(.noResponse))
+        XCTAssertEqual(window.pages.map(\.presses) + [topic.presses], Array(repeating: 0, count: 11))
+    }
+
+    /// Each select or close leaves one debug line saying how it went: categories and timings,
+    /// never a title, address or topic id.
+    func testEachBrowserTabActionLeavesOneDebugLineWithoutTitles() throws {
+        var lines: [String] = []
+        let window = safariTopicWindow()
+        let scanner = BrowserTabScanner(root: window.root, adapter: .safari, windowId: 123, pid: 45, wait: { _ in }, log: { lines.append($0) })
+        let snapshot = try XCTUnwrap(scanner.scan())
+        let member = window.pages[5]
+        member.onPress = { [unowned member] in member.selected = true }
+        _ = scanner.select(snapshot.tabs[5].target)
+        _ = scanner.close(snapshot.tabs[0].target)
+        _ = scanner.select(snapshot.tabs[1].target, cancelled: { true })
+        XCTAssertEqual(lines.count, 3)
+        XCTAssertTrue(lines[0].hasPrefix("select result=dispatched.confirmed stage=confirm class=member link=parent ax=succeeded " +
+            "dispatchAttempted=true postcondition=confirmed ms="), lines[0])
+        XCTAssertTrue(lines[1].hasPrefix("close result=dispatched.unknown stage=confirm class=plain link=parent ax=succeeded " +
+            "dispatchAttempted=true postcondition=unknown ms="), lines[1])
+        XCTAssertTrue(lines[2].hasPrefix("select result=notDispatched.cancelled stage=check class=unread link=unread ax=none " +
+            "dispatchAttempted=false postcondition=none ms="), lines[2])
+        let topicId = try XCTUnwrap(window.topic?.identifier?.split(separator: "&").first { $0.hasPrefix("clusterID=") }?.dropFirst(10))
+        XCTAssertFalse(lines.contains { $0.contains("Page") || $0.contains("Topic") || $0.contains(topicId) })
+    }
+
     private let safariCloseAction = "Name:Close Tab\nTarget:0x1\nSelector:_closeButtonClicked:"
 
     /// A Safari tab button's identifier as Safari 27.0 writes it (`SafariTabCluster`).
@@ -2071,7 +2188,7 @@ final class BrowserTabsTest: XCTestCase {
                 pages.append(node)
             }
         }
-        return (root, container, topic, pages, BrowserTabScanner(root: root, adapter: .safari, windowId: 123, pid: 45))
+        return (root, container, topic, pages, BrowserTabScanner(root: root, adapter: .safari, windowId: 123, pid: 45, wait: { _ in }))
     }
 
     private func fixture(_ adapter: BrowserTabAdapter) -> (root: BrowserTestNode, container: BrowserTestNode,
@@ -2086,7 +2203,7 @@ final class BrowserTabsTest: XCTestCase {
             if adapter == .safari { tab.identifier = safariTabIdentifier(active: tab.selected) }
             container.append(tab)
         }
-        return (root, container, tabs, BrowserTabScanner(root: root, adapter: adapter, windowId: 123, pid: 45))
+        return (root, container, tabs, BrowserTabScanner(root: root, adapter: adapter, windowId: 123, pid: 45, wait: { _ in }))
     }
 
     /// A Safari window with 24 tabs, from the capture in test-fixtures/accessibility.
@@ -2190,7 +2307,19 @@ private final class BrowserTestNode: BrowserTabAXNode {
         else { return nil }
         return .init(title: title, selected: selected)
     }
-    func press() -> Bool { if supportsPress { presses += 1 }; return supportsPress }
+    /// What a press or an action answers once called: nil, success.
+    var pressFailure: BrowserTabAXFailure?
+    var performFailure: BrowserTabAXFailure?
+    var onPress: () -> Void = {}
+    func press() -> BrowserTabAXCall {
+        guard supportsPress else { return .unavailable }
+        presses += 1
+        onPress()
+        return pressFailure.map { .failed($0) } ?? .succeeded
+    }
+    /// Says it no longer exists, as an element whose tab closed does.
+    var gone = false
+    func isGone() -> Bool { gone }
     var actions: [String] = []
     var performed: [String] = []
     var actionReads = 0
@@ -2201,11 +2330,11 @@ private final class BrowserTestNode: BrowserTabAXNode {
         return actions
     }
     var onPerform: (String) -> Void = { _ in }
-    func perform(_ action: String) -> Bool {
+    func perform(_ action: String) -> BrowserTabAXCall {
         performed.append(action)
-        guard actions.contains(action) else { return false }
+        guard actions.contains(action) else { return .unavailable }
         onPerform(action)
-        return true
+        return performFailure.map { .failed($0) } ?? .succeeded
     }
     var ownTitle: String?
     func windowTitle() -> String? { ownTitle }
