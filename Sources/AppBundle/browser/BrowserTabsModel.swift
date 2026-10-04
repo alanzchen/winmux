@@ -9,14 +9,13 @@ final class BrowserTabsModel: ObservableObject {
     private var cache = BrowserTabSnapshotCache()
     private var task: Task<Void, Never>?
     private var cleanup: Task<Void, Never>?
-    private var selectionTask: Task<Void, Never>?
     private var generation = 0
     private var schedule = BrowserTabReadSchedule()
     private var watched: [String: Set<UInt32>] = [:]
     private var iconsEnabled = false
     private var iconAssociations = BrowserTabIconAssociations()
-    private var pendingSelections = BrowserTabPendingSelections()
-    private var closeRequests = BrowserTabCloseRequests()
+    private let selectRequests = BrowserTabSelectRequests()
+    private let closeRequests = BrowserTabCloseRequests()
     private let safariExtension: SafariExtensionBridge
     private var safariAssociations = SafariExtensionAssociations()
     private var safariEvidence: SafariExtensionEvidence?
@@ -46,8 +45,8 @@ final class BrowserTabsModel: ObservableObject {
     func setEnabled(_ enabled: Bool) {
         safariExtension.setEnabled(enabled)
         if !enabled {
-            pendingSelections = .init()
-            closeRequests = .init()
+            selectRequests.reset()
+            closeRequests.reset()
             safariAssociations = .init()
             safariEvidence = nil
             safariFrames = .init()
@@ -67,7 +66,7 @@ final class BrowserTabsModel: ObservableObject {
             generation += 1
             task?.cancel()
             task = nil
-            selectionTask?.cancel()
+            selectRequests.cancel()
             cache = .init()
             snapshots = [:]
             schedule = .init()
@@ -148,7 +147,7 @@ final class BrowserTabsModel: ObservableObject {
                 if !iconsEnabled { result.iconCandidate = nil }
                 iconAssociations.update(result, now: ProcessInfo.processInfo.systemUptime)
                 cache.receive(result, now: ProcessInfo.processInfo.systemUptime, started: readStarted)
-                pendingSelections.observe(result, readStarted: readStarted)
+                selectRequests.observe(result, readStarted: readStarted)
                 publish()
             } else {
                 cache.recordFailure(windowId: window.windowId, now: ProcessInfo.processInfo.systemUptime)
@@ -159,10 +158,10 @@ final class BrowserTabsModel: ObservableObject {
     private func publish() {
         updateSafariAssociations()
         let now = ProcessInfo.processInfo.systemUptime
-        pendingSelections.expire(now: now)
-        closeRequests.expire(now: now)
+        selectRequests.expire()
+        closeRequests.expire()
         let next = cache.snapshots.mapValues { value in
-            browserTabsShown(closeRequests.apply(pendingSelections.apply(value)), read: cache.observed[value.windowId], now: now,
+            browserTabsShown(closeRequests.apply(selectRequests.apply(value)), read: cache.observed[value.windowId], now: now,
                 safari: safariAssociations, iconOrigins: iconsEnabled ? iconAssociations.origins : [:])
         }
         if snapshots != next { snapshots = next }
@@ -251,7 +250,7 @@ final class BrowserTabsModel: ObservableObject {
         let token = generation
         // Claimed here, on the main actor, before anything is sent: a second close of the tab, even
         // from a row drawn before the first, starts nothing.
-        let started = closeRequests.request(target, now: ProcessInfo.processInfo.systemUptime,
+        let started = closeRequests.request(target,
             perform: { (try? await app.closeBrowserTab(target)) ?? .notDispatched(.cancelled) },
             finished: { [weak self] result in
                 guard let self, self.generation == token else { return }
@@ -279,10 +278,9 @@ final class BrowserTabsModel: ObservableObject {
         guard config.workspaceSidebar.usesTabsList, config.workspaceSidebar.browserTabs,
               TrayMenuModel.shared.isEnabled, !serverArgs.isReadOnly
         else { return }
-        // A tab being closed isn't selected, and one already being selected isn't asked again.
-        let now = ProcessInfo.processInfo.systemUptime
-        guard !closeRequests.isClosing(target, now: now), !pendingSelections.isAwaiting(target, now: now) else { return }
-        selectionTask?.cancel()
+        // A tab being closed isn't selected.
+        guard selectRequests.mayRequest(target, unlessClosing: closeRequests) else { return }
+        selectRequests.cancel()
         guard let window = Window.get(byId: target.windowId) else {
             focusWindowFromSidebar(target.windowId, targetMonitorScopeId: monitorScopeId)
             return
@@ -294,26 +292,31 @@ final class BrowserTabsModel: ObservableObject {
         }
         guard browserTabSelectionAllowed(workspace: workspace, monitorScopeId: monitorScopeId) else { return }
         // Show the chosen tab as pending now, and as selected once the browser is seen to select it.
-        let attempt = pendingSelections.begin(target, now: ProcessInfo.processInfo.systemUptime)
-        publish()
         let token = generation
-        selectionTask = Task { [weak self] in
-            // Cancelled or not, a press that ran says what it did; one that didn't switched nothing.
-            let result = (try? await app.selectBrowserTab(target)) ?? .notDispatched(.cancelled)
-            guard let self, self.generation == token else { return }
-            let followUp = BrowserTabActionFollowUp(result, kind: .select, browser: window.app.name ?? "The browser")
-            self.pendingSelections.settle(attempt: attempt, windowId: target.windowId, confirmed: followUp.applies,
-                now: ProcessInfo.processInfo.systemUptime)
-            self.publish()
-            self.reread(target.windowId, unknown: followUp.rereads)
-            guard !Task.isCancelled else { return }
-            if let message = followUp.message { MessageModel.shared.message = Message(description: "Switch Tab Error", body: message) }
-            guard Window.get(byId: target.windowId) === window else { return }
-            if let workspace = window.toLiveFocusOrNil()?.workspace,
-               !browserTabSelectionAllowed(workspace: workspace, monitorScopeId: monitorScopeId) { return }
-            // A stale tab focuses only its original window. No index/title fallback.
-            focusWindowFromSidebar(target.windowId, targetMonitorScopeId: monitorScopeId)
-        }
+        // Cancelled or not, a press that ran says what it did; one that didn't switched nothing.
+        selectRequests.request(target, unlessClosing: closeRequests,
+            perform: { (try? await app.selectBrowserTab(target)) ?? .notDispatched(.cancelled) },
+            finished: { [weak self] result, cancelled in
+                guard let self, self.generation == token else { return }
+                self.finishSelect(target, result, cancelled: cancelled, window: window, monitorScopeId: monitorScopeId)
+            })
+        publish()
+    }
+
+    /// What the sidebar does once a select comes back (`BrowserTabActionFollowUp`): a select a later
+    /// click cancelled shows nothing more.
+    private func finishSelect(_ target: BrowserTabTarget, _ result: BrowserTabActionResult, cancelled: Bool, window: Window,
+                              monitorScopeId: String?) {
+        let followUp = BrowserTabActionFollowUp(result, kind: .select, browser: window.app.name ?? "The browser")
+        publish()
+        reread(target.windowId, unknown: followUp.rereads)
+        guard !cancelled else { return }
+        if let message = followUp.message { MessageModel.shared.message = Message(description: "Switch Tab Error", body: message) }
+        guard Window.get(byId: target.windowId) === window else { return }
+        if let workspace = window.toLiveFocusOrNil()?.workspace,
+           !browserTabSelectionAllowed(workspace: workspace, monitorScopeId: monitorScopeId) { return }
+        // A stale tab focuses only its original window. No index/title fallback.
+        focusWindowFromSidebar(target.windowId, targetMonitorScopeId: monitorScopeId)
     }
 
     /// Reads the window again soon after an action: at once, and again after any read under way,

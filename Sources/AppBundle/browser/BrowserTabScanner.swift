@@ -519,7 +519,7 @@ final class BrowserTabScanner<Node: BrowserTabAXNode> {
         if let stop = stop() { return stop }
         switch SafariTabCluster(structure) {
             case .header(id, true, proof.tabCount) where structure.isTab: return nil
-            case .header(id, false, _): return .collapsedTopic
+            case .header(id, false, _) where structure.isTab: return .collapsedTopic
             default: return .unaccounted
         }
     }

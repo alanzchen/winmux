@@ -2297,7 +2297,8 @@ final class BrowserTabsTest: XCTestCase {
         closing.onPerform = { [unowned closing] _ in closing.gone = true }
         for (index, gone) in [(1, false), (2, true)] {
             let target = snapshot.tabs[index].target
-            let attempt = try XCTUnwrap(closes.begin(target, now: 0))
+            let attempt = index
+            closes.show(target, attempt: attempt, now: 0)
             XCTAssertEqual(closes.apply(try XCTUnwrap(cache.snapshots[123])).tabs.first { $0.target == target }?.pending, .closing)
             let followUp = BrowserTabActionFollowUp(window.scanner.close(target), kind: .close, browser: "Safari")
             closes.end(target, attempt: attempt)
@@ -2309,66 +2310,133 @@ final class BrowserTabsTest: XCTestCase {
         let listed = try XCTUnwrap(cache.snapshots[123])
         XCTAssertEqual(listed.tabs.map(\.title), ["Page 1", "Page 2", "Page 4"])
         XCTAssertEqual(closes.apply(listed).tabs.map(\.pending), [nil, nil, nil])
-        closes.begin(snapshot.tabs[0].target, now: 10)
+        closes.show(snapshot.tabs[0].target, attempt: 3, now: 10)
         closes.expire(now: 12.9)
         XCTAssertEqual(closes.apply(listed).tabs.map(\.pending), [.closing, nil, nil])
         closes.expire(now: 13)
         XCTAssertEqual(closes.apply(listed).tabs.map(\.pending), [nil, nil, nil], "Nothing lingers")
     }
 
-    /// Closing a tab again before its first close comes back, as two clicks before the row redraws,
-    /// or a click on a stale row, do: one close is sent, the second starts nothing, the tab shows
-    /// closing once, and it ends as the one close did. A close that outlived its spinner and ends
-    /// after another began leaves that one's spinner alone. A select waits likewise for its own.
+    /// A tab is asked to close once until its close comes back, however long that takes: a second
+    /// close starts nothing, at once or once its spinner lapsed, nor does a select of the tab, nor
+    /// a close after browser tabs were turned off and on, which leaves the close under way to end
+    /// as it does, and its end leaves what came after alone. Once it's back, the tab may be closed again.
     @MainActor
-    func testATabClosedAgainBeforeItsCloseComesBackIsAskedToCloseOnce() async throws {
+    func testATabIsAskedToCloseOnceUntilItsCloseComesBackHoweverLongThatTakes() async throws {
+        var time = 0.0
         let window = safariTopicWindow("PPPP", selected: 0)
         let snapshot = try XCTUnwrap(window.scanner.scan())
-        let target = snapshot.tabs[1].target
+        let (target, other) = (snapshot.tabs[1].target, snapshot.tabs[2].target)
         let page = window.pages[1]
         page.onPerform = { [unowned page] _ in page.gone = true }
-        let requests = BrowserTabCloseRequests()
-        final class Gate { var release: CheckedContinuation<Void, Never>?; var results: [BrowserTabActionResult] = [] }
+        final class Gate {
+            var release: CheckedContinuation<Void, Never>?
+            var releaseOther: CheckedContinuation<Void, Never>?
+            var performs = 0
+            var results: [BrowserTabActionResult] = []
+        }
         let gate = Gate()
         let scanner = window.scanner
-        let first = requests.request(target, now: 0, perform: {
-            await withCheckedContinuation { gate.release = $0 }
-            return scanner.close(target)
-        }, finished: { gate.results.append($0) })
-        let second = requests.request(target, now: 0.1, perform: {
-            await withCheckedContinuation { gate.release = $0 }
-            return scanner.close(target)
-        }, finished: { gate.results.append($0) })
-        XCTAssertNotNil(first)
-        XCTAssertNil(second, "The second close starts nothing")
-        XCTAssertEqual(requests.apply(snapshot).tabs.map(\.pending), [nil, .closing, nil, nil])
-        XCTAssertTrue(requests.isClosing(target, now: 0.2))
+        let closes = BrowserTabCloseRequests(clock: { time })
+        let selects = BrowserTabSelectRequests(clock: { time })
+        func close() -> Task<Void, Never>? {
+            closes.request(target, perform: {
+                gate.performs += 1
+                await withCheckedContinuation { gate.release = $0 }
+                return scanner.close(target)
+            }, finished: { gate.results.append($0) })
+        }
+        let first = try XCTUnwrap(close())
+        XCTAssertNil(close(), "A second close at once starts nothing")
+        XCTAssertEqual(closes.apply(snapshot).tabs.map(\.pending), [nil, .closing, nil, nil])
+        while gate.release == nil { await Task.yield() }
+
+        time = 3.1
+        closes.expire()
+        XCTAssertEqual(closes.apply(snapshot).tabs.map(\.pending), [nil, nil, nil, nil], "Its spinner lapsed")
+        XCTAssertTrue(closes.isClosing(target), "but its close is still under way")
+        XCTAssertFalse(selects.mayRequest(target, unlessClosing: closes))
+        XCTAssertNil(selects.request(target, unlessClosing: closes, perform: {
+            gate.performs += 100
+            return .dispatched(.confirmed)
+        }, finished: { _, _ in }), "so the tab isn't selected meanwhile")
+        XCTAssertNil(close(), "nor is another close started")
+
+        closes.reset()
+        XCTAssertNil(close(), "Turned off and on, the close under way still holds the tab")
+        let otherClose = try XCTUnwrap(closes.request(other, perform: {
+            await withCheckedContinuation { gate.releaseOther = $0 }
+            return .dispatched(.unknown)
+        }, finished: { _ in }))
+        XCTAssertEqual(closes.apply(snapshot).tabs.map(\.pending), [nil, nil, .closing, nil])
+        gate.release?.resume()
+        await first.value
+        XCTAssertEqual(gate.performs, 1, "One close sent")
+        XCTAssertEqual(page.performed, [safariCloseAction])
+        XCTAssertEqual(gate.results, [.dispatched(.confirmed)])
+        XCTAssertEqual(closes.apply(snapshot).tabs.map(\.pending), [nil, nil, .closing, nil], "Its end leaves the other close's spinner alone")
+        XCTAssertFalse(closes.isClosing(target), "Back, the tab may be closed again")
+        XCTAssertNotNil(closes.request(target, perform: { .dispatched(.unknown) }, finished: { _ in }))
+        while gate.releaseOther == nil { await Task.yield() }
+        gate.releaseOther?.resume()
+        await otherClose.value
+    }
+
+    /// The last tab clicked is the one selected, even back in a window whose earlier select is still
+    /// coming back: A, then B in another window, then A again. B, overtaken before it pressed,
+    /// presses nothing and settles only its own window; the cancelled first A, coming back last,
+    /// settles nothing. A select that failed, tried again at once, is sent again.
+    @MainActor
+    func testTheLastClickedTabIsSelectedEvenBackInAWindowWhoseEarlierSelectIsStillComingBack() async throws {
+        let time = 0.0
+        let one = safariTopicWindow("PP", selected: 0)
+        let two = safariTopicWindow("PP", selected: 0)
+        let first = BrowserTabScanner(root: one.root, adapter: .safari, windowId: 1, pid: 45, wait: { _ in })
+        let second = BrowserTabScanner(root: two.root, adapter: .safari, windowId: 2, pid: 45, wait: { _ in })
+        let (shownOne, shownTwo) = (try XCTUnwrap(first.scan()), try XCTUnwrap(second.scan()))
+        let (a, b) = (shownOne.tabs[1].target, shownTwo.tabs[1].target)
+        let page = one.pages[1]
+        page.onPress = { [unowned page] in page.selected = true }
+        final class Gate {
+            var release: CheckedContinuation<Void, Never>?
+            var finished: [(String, BrowserTabActionResult, Bool)] = []
+        }
+        let gate = Gate()
+        let closes = BrowserTabCloseRequests(clock: { time })
+        let selects = BrowserTabSelectRequests(clock: { time })
+        // As MacApp runs it: a select cancelled before its turn sends nothing.
+        func select(_ name: String, _ target: BrowserTabTarget, on scanner: BrowserTabScanner<BrowserTestNode>, held: Bool = false) -> Task<Void, Never>? {
+            selects.request(target, unlessClosing: closes, perform: {
+                if held { await withCheckedContinuation { gate.release = $0 } }
+                return Task.isCancelled ? .notDispatched(.cancelled) : scanner.select(target)
+            }, finished: { gate.finished.append((name, $0, $1)) })
+        }
+        let firstA = try XCTUnwrap(select("first A", a, on: first, held: true))
+        let onlyB = try XCTUnwrap(select("B", b, on: second))
+        let lastA = try XCTUnwrap(select("last A", a, on: first), "The last click is taken")
+        await onlyB.value
+        await lastA.value
         while gate.release == nil { await Task.yield() }
         gate.release?.resume()
-        await first?.value
-        XCTAssertEqual(page.performed, [safariCloseAction], "One close sent")
-        XCTAssertEqual(gate.results, [.dispatched(.confirmed)])
-        XCTAssertEqual(requests.apply(snapshot).tabs.map(\.pending), [nil, nil, nil, nil])
-        XCTAssertFalse(requests.isClosing(target, now: 0.3))
+        await firstA.value
+        XCTAssertEqual(page.presses, 1, "A is pressed once, by the last click")
+        XCTAssertEqual(two.pages[1].presses, 0, "B, overtaken before it pressed, isn't")
+        XCTAssertEqual(gate.finished.map(\.0), ["B", "last A", "first A"])
+        XCTAssertEqual(gate.finished.map(\.1), [.notDispatched(.cancelled), .dispatched(.confirmed), .notDispatched(.cancelled)])
+        XCTAssertEqual(gate.finished.map(\.2), [true, false, true])
+        XCTAssertEqual(selects.apply(shownOne).tabs.map(\.isSelected), [false, true], "A shows selected")
+        XCTAssertEqual(selects.apply(shownTwo).tabs.map(\.isSelected), [true, false], "B never took over")
+        XCTAssertEqual(selects.apply(shownTwo).tabs.map(\.pending), [nil, nil])
 
-        var closes = BrowserTabPendingCloses()
-        let early = try XCTUnwrap(closes.begin(target, now: 10))
-        XCTAssertNil(closes.begin(target, now: 12.9))
-        closes.expire(now: 13)
-        let late = try XCTUnwrap(closes.begin(target, now: 13.1))
-        closes.end(target, attempt: early)
-        XCTAssertEqual(closes.apply(snapshot).tabs.map(\.pending)[1], .closing, "The late close's spinner stays")
-        closes.end(target, attempt: late)
-        XCTAssertNil(closes.apply(snapshot).tabs.map(\.pending)[1])
-
-        var selections = BrowserTabPendingSelections()
-        let choice = selections.begin(target, now: 20)
-        XCTAssertTrue(selections.isAwaiting(target, now: 20.1), "Another click on it waits")
-        XCTAssertFalse(selections.isAwaiting(snapshot.tabs[2].target, now: 20.1))
-        selections.settle(attempt: choice, windowId: target.windowId, confirmed: true, now: 20.2)
-        XCTAssertFalse(selections.isAwaiting(target, now: 20.3), "Once answered, it may be clicked again")
-        _ = selections.begin(target, now: 30)
-        XCTAssertFalse(selections.isAwaiting(target, now: 33), "Nor does a lapsed one hold it")
+        page.selected = false
+        page.pressFailure = .other
+        page.onPress = {}
+        await select("failing A", a, on: first)?.value
+        XCTAssertEqual(gate.finished.last?.1, .failed(.other))
+        page.pressFailure = nil
+        let again = try XCTUnwrap(select("A again", a, on: first), "Tried again at once, it's sent again")
+        await again.value
+        XCTAssertEqual(page.presses, 3)
     }
 
     /// Each way a select or close can go wrong has its own short line, never with the tab's title;

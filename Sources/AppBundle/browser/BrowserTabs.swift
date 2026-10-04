@@ -160,12 +160,6 @@ struct BrowserTabPendingSelections {
         if confirmed { entries[windowId]?.switched = now } else { entries[windowId] = nil }
     }
 
-    /// Whether a select of `target` is under way and not yet answered: another click on it waits for it.
-    func isAwaiting(_ target: BrowserTabTarget, now: TimeInterval) -> Bool {
-        guard let entry = entries[target.windowId] else { return false }
-        return entry.target == target && entry.switched == nil && now - entry.since < Self.lifetime
-    }
-
     mutating func observe(_ snapshot: BrowserWindowTabs, readStarted: TimeInterval) {
         guard let entry = entries[snapshot.windowId], let switched = entry.switched, readStarted >= switched else { return }
         let confirmed = snapshot.tabs.contains { $0.target == entry.target && $0.isSelected }
@@ -175,6 +169,9 @@ struct BrowserTabPendingSelections {
     mutating func expire(now: TimeInterval) {
         entries = entries.filter { now - $0.value.since < Self.lifetime }
     }
+
+    /// Forgets every choice shown, keeping the count of attempts, so a click from before can't settle one after.
+    mutating func clear() { entries = [:] }
 
     func apply(_ snapshot: BrowserWindowTabs) -> BrowserWindowTabs {
         guard let entry = entries[snapshot.windowId], snapshot.tabs.contains(where: { $0.target == entry.target }) else { return snapshot }
@@ -192,35 +189,25 @@ struct BrowserTabPendingSelections {
     }
 }
 
-/// Tabs the sidebar asked the browser to close, shown as closing until the answer comes. A tab
-/// leaves the list only once it's seen gone, or at the next read that no longer lists it. One close
-/// at a time per tab: each claim is its own attempt, and only it ends its claim.
+/// Tabs shown closing in the sidebar, each until its close comes back, a few seconds at most. A
+/// tab leaves the list only once it's seen gone, or at the next read that no longer lists it. Only
+/// what's shown: whether a close is under way is `BrowserTabCloseRequests`'s, and each close's
+/// own attempt ends only its own spinner.
 struct BrowserTabPendingCloses {
     private var entries: [BrowserTabTarget: (attempt: Int, since: TimeInterval)] = [:]
-    private var attempts = 0
     static let lifetime: TimeInterval = 3
 
-    /// Claims `target` for a close: the claim's attempt, or nil while another close of it is under way.
-    @discardableResult
-    mutating func begin(_ target: BrowserTabTarget, now: TimeInterval) -> Int? {
-        if let entry = entries[target], now - entry.since < Self.lifetime { return nil }
-        attempts += 1
-        entries[target] = (attempts, now)
-        return attempts
-    }
+    mutating func show(_ target: BrowserTabTarget, attempt: Int, now: TimeInterval) { entries[target] = (attempt, now) }
 
-    /// The close `attempt` is over. A later claim on the same tab, made once this one lapsed, stays.
     mutating func end(_ target: BrowserTabTarget, attempt: Int) {
         if entries[target]?.attempt == attempt { entries[target] = nil }
-    }
-
-    func isClosing(_ target: BrowserTabTarget, now: TimeInterval) -> Bool {
-        entries[target].map { now - $0.since < Self.lifetime } ?? false
     }
 
     mutating func expire(now: TimeInterval) {
         entries = entries.filter { now - $0.value.since < Self.lifetime }
     }
+
+    mutating func clear() { entries = [:] }
 
     func apply(_ snapshot: BrowserWindowTabs) -> BrowserWindowTabs {
         guard entries.keys.contains(where: { $0.windowId == snapshot.windowId }) else { return snapshot }
@@ -235,26 +222,90 @@ struct BrowserTabPendingCloses {
 }
 
 /// The sidebar's closes of browser tabs under way. A tab is asked to close once at a time, however
-/// often its close is clicked meanwhile, and from however stale a row: a click before the row shows
-/// it closing starts nothing more.
+/// often its close is clicked meanwhile, from however stale a row, and however long its close takes
+/// to come back: it's claimed until then, though its spinner may lapse sooner.
 @MainActor
 final class BrowserTabCloseRequests {
     private(set) var pending = BrowserTabPendingCloses()
+    /// The closes under way, by tab, each until its own close comes back.
+    private var inFlight: [BrowserTabTarget: Int] = [:]
+    private var attempts = 0
+    private let clock: () -> TimeInterval
+
+    init(clock: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) { self.clock = clock }
 
     /// Starts closing `target` with `perform`, then hands its result to `finished`, unless a close
     /// of it is already under way: then nil, and nothing is sent.
-    func request(_ target: BrowserTabTarget, now: TimeInterval, perform: @escaping @MainActor () async -> BrowserTabActionResult,
+    func request(_ target: BrowserTabTarget, perform: @escaping @MainActor () async -> BrowserTabActionResult,
                  finished: @escaping @MainActor (BrowserTabActionResult) async -> Void) -> Task<Void, Never>? {
-        guard let attempt = pending.begin(target, now: now) else { return nil }
+        guard inFlight[target] == nil else { return nil }
+        attempts += 1
+        let attempt = attempts
+        inFlight[target] = attempt
+        pending.show(target, attempt: attempt, now: clock())
         return Task { @MainActor [weak self] in
             let result = await perform()
+            if self?.inFlight[target] == attempt { self?.inFlight[target] = nil }
             self?.pending.end(target, attempt: attempt)
             await finished(result)
         }
     }
 
-    func isClosing(_ target: BrowserTabTarget, now: TimeInterval) -> Bool { pending.isClosing(target, now: now) }
-    func expire(now: TimeInterval) { pending.expire(now: now) }
+    func isClosing(_ target: BrowserTabTarget) -> Bool { inFlight[target] != nil }
+    func expire() { pending.expire(now: clock()) }
+    /// As browser tabs are turned off: nothing is shown closing any more, but a close under way
+    /// still holds its tab until it comes back, as nothing calls it off.
+    func reset() { pending.clear() }
+    func apply(_ snapshot: BrowserWindowTabs) -> BrowserWindowTabs { pending.apply(snapshot) }
+}
+
+/// The sidebar's selects of browser tabs, as the model runs them. Each click cancels the one before
+/// it, which then sends nothing it hasn't yet; the tab shows pending until its own answer comes,
+/// and an answer settles only its own click (`BrowserTabPendingSelections`).
+@MainActor
+final class BrowserTabSelectRequests {
+    private(set) var pending = BrowserTabPendingSelections()
+    private var task: Task<Void, Never>?
+    private let clock: () -> TimeInterval
+
+    init(clock: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) { self.clock = clock }
+
+    /// Whether `target` may be selected now: not while it's being closed (`closes`). Another click on
+    /// a tab being selected is a new choice, the latest, which cancels the one before.
+    func mayRequest(_ target: BrowserTabTarget, unlessClosing closes: BrowserTabCloseRequests) -> Bool {
+        !closes.isClosing(target)
+    }
+
+    /// Cancels the select under way, if any: one that hasn't sent its press yet sends nothing.
+    func cancel() { task?.cancel() }
+
+    /// Selects `target` with `perform`, after cancelling the select before it, and hands the result
+    /// to `finished` with whether a later click cancelled this one: nil, and nothing sent, while
+    /// `target` may not be selected (`mayRequest`).
+    @discardableResult
+    func request(_ target: BrowserTabTarget, unlessClosing closes: BrowserTabCloseRequests,
+                 perform: @escaping @MainActor () async -> BrowserTabActionResult,
+                 finished: @escaping @MainActor (_ result: BrowserTabActionResult, _ cancelled: Bool) async -> Void) -> Task<Void, Never>? {
+        guard mayRequest(target, unlessClosing: closes) else { return nil }
+        task?.cancel()
+        let attempt = pending.begin(target, now: clock())
+        let next = Task { @MainActor [weak self] in
+            let result = await perform()
+            if let self { self.pending.settle(attempt: attempt, windowId: target.windowId, confirmed: result == .dispatched(.confirmed), now: self.clock()) }
+            await finished(result, Task.isCancelled)
+        }
+        task = next
+        return next
+    }
+
+    func observe(_ snapshot: BrowserWindowTabs, readStarted: TimeInterval) { pending.observe(snapshot, readStarted: readStarted) }
+    func expire() { pending.expire(now: clock()) }
+    /// As browser tabs are turned off: the select under way is cancelled, and nothing is shown
+    /// pending; a select from before that comes back after settles nothing.
+    func reset() {
+        task?.cancel()
+        pending.clear()
+    }
     func apply(_ snapshot: BrowserWindowTabs) -> BrowserWindowTabs { pending.apply(snapshot) }
 }
 
