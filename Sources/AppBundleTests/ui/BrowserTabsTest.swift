@@ -1941,6 +1941,87 @@ final class BrowserTabsTest: XCTestCase {
         }
     }
 
+    // Phase A (2026-10-04): what a sidebar click or close does in Safari 27 windows, with and without
+    // topics, through the scanner's production path. Each asserts what the user needs: every tab the
+    // sidebar lists can be selected and closed, before and after Safari's selection moves.
+
+    /// Safari's selection moves to `page`, as a click in Safari does: only its tab says it's
+    /// selected and active, and the tab bar may re-lay out its tabs narrower.
+    private func moveSafariSelection(to page: BrowserTestNode, in window: (root: BrowserTestNode, container: BrowserTestNode,
+        topic: BrowserTestNode?, pages: [BrowserTestNode], scanner: BrowserTabScanner<BrowserTestNode>), narrow: Bool = false) {
+        for tab in window.pages {
+            tab.selected = tab === page
+            tab.identifier = tab.identifier?.replacingOccurrences(of: "isActive=\(!tab.selected)", with: "isActive=\(tab.selected)")
+                .replacingOccurrences(of: "isNarrow=\(!narrow)", with: "isNarrow=\(narrow)")
+        }
+    }
+
+    /// Selects then closes every listed tab, as the sidebar does, and says which the scanner refused.
+    private func refusedActions(_ snapshot: BrowserWindowTabs, _ scanner: BrowserTabScanner<BrowserTestNode>) -> [String] {
+        snapshot.tabs.flatMap { tab in
+            (scanner.select(tab.target) ? [] : ["select \(tab.title)"]) + (scanner.close(tab.target) ? [] : ["close \(tab.title)"])
+        }
+    }
+
+    func testPhaseAWithoutTopicsEveryTabIsSelectedAndClosedBeforeAndAfterTheSelectionMoves() throws {
+        let window = safariTopicWindow("PPPPPP", selected: 0)
+        let snapshot = try XCTUnwrap(window.scanner.scan())
+        XCTAssertEqual(refusedActions(snapshot, window.scanner), [])
+        moveSafariSelection(to: window.pages[3], in: window, narrow: true)
+        XCTAssertEqual(refusedActions(snapshot, window.scanner), [], "Before the next read")
+        XCTAssertEqual(refusedActions(try XCTUnwrap(window.scanner.scan()), window.scanner), [], "After it")
+    }
+
+    func testPhaseAInAnOpenTopicAsCapturedEveryTabIsSelectedAndClosedBeforeAndAfterTheSelectionMoves() throws {
+        let window = safariTopicWindow()
+        let topic = try XCTUnwrap(window.topic)
+        let snapshot = try XCTUnwrap(window.scanner.scan())
+        XCTAssertTrue(snapshot.isComplete)
+        XCTAssertEqual(refusedActions(snapshot, window.scanner), [])
+        for page in [window.pages[1], window.pages[5]] {
+            moveSafariSelection(to: page, in: window, narrow: page === window.pages[5])
+            XCTAssertEqual(refusedActions(snapshot, window.scanner), [], "Before the next read, \(page.title) selected")
+            XCTAssertEqual(refusedActions(try XCTUnwrap(window.scanner.scan()), window.scanner), [], "After it")
+        }
+        XCTAssertEqual(topic.presses + topic.performed.count, 0)
+    }
+
+    /// SYNTHETIC: a closed topic whose tabs Safari no longer lists (as the first diagnosis supposed).
+    /// The tabs shown can be selected and closed; the topic's own aren't shown at all.
+    func testPhaseAWithATopicClosedAndItsTabsGoneTheTabsShownAreSelectedAndClosedSynthetic() throws {
+        let window = safariTopicWindow("PPPTPPP", selected: 0, expanded: false)
+        let snapshot = try XCTUnwrap(window.scanner.scan())
+        XCTAssertFalse(snapshot.isComplete)
+        XCTAssertEqual(snapshot.tabs.count, 6, "Only the tabs outside the topic are listed")
+        XCTAssertEqual(refusedActions(snapshot, window.scanner), [])
+        moveSafariSelection(to: window.pages[4], in: window)
+        XCTAssertEqual(refusedActions(try XCTUnwrap(window.scanner.scan()), window.scanner), [])
+    }
+
+    /// SYNTHETIC: a closed topic whose tabs Safari still lists, so the sidebar shows every tab. Each
+    /// should be selectable and closable as listed; today the topic's own are refused.
+    func testPhaseAWithATopicClosedButItsTabsListedEveryListedTabIsSelectedAndClosedSynthetic() throws {
+        let window = safariTopicWindow("PPPTMMMPPP", selected: 0)
+        let topic = try XCTUnwrap(window.topic)
+        topic.identifier = topic.identifier?.replacingOccurrences(of: "isExpanded=true", with: "isExpanded=false")
+        let snapshot = try XCTUnwrap(window.scanner.scan())
+        XCTAssertEqual(snapshot.tabs.map(\.title), window.pages.map(\.title), "Every tab is listed")
+        XCTAssertEqual(refusedActions(snapshot, window.scanner), [], "Every listed tab should act")
+        XCTAssertEqual(topic.presses + topic.performed.count, 0)
+    }
+
+    /// SYNTHETIC: two topics, one open and one closed. The open topic accounts for all its tabs, so
+    /// they should be selectable and closable; today they're refused for the other topic's sake.
+    func testPhaseAWithOneTopicClosedTheOpenTopicsTabsAreSelectedAndClosedSynthetic() throws {
+        let window = safariTopicWindow("PPTMMMPTPP", selected: 0)
+        let closed = try XCTUnwrap(window.topic)
+        closed.identifier = closed.identifier?.replacingOccurrences(of: "isExpanded=true", with: "isExpanded=false")
+            .replacingOccurrences(of: "tabCount=0", with: "tabCount=3")
+        let snapshot = try XCTUnwrap(window.scanner.scan())
+        XCTAssertFalse(snapshot.isComplete)
+        XCTAssertEqual(refusedActions(snapshot, window.scanner), [], "Every listed tab should act")
+    }
+
     private let safariCloseAction = "Name:Close Tab\nTarget:0x1\nSelector:_closeButtonClicked:"
 
     /// A Safari tab button's identifier as Safari 27.0 writes it (`SafariTabCluster`).
