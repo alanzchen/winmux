@@ -94,6 +94,10 @@ final class WorkspaceSidebarTabSplitHoverController {
             let side: WorkspaceSidebarTabDropPlacement = point.x < hitTarget.rect.center.x ? .left : .right
             guard side == placement else { return nil }
         }
+        // A split shown over a pinned tile's middle, or a window shown going into an empty pin, isn't
+        // made by a release nearer the tile's side: that's not where the drop was shown.
+        if case .workspace = displayed.target.kind,
+           hitTarget.tabReorderDestination?.pauseArmsSplit(at: point, rect: hitTarget.rect) == false { return nil }
         return displayed.target
     }
 
