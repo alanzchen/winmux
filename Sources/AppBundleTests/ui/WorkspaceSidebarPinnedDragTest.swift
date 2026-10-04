@@ -414,6 +414,137 @@ final class WorkspaceSidebarPinnedDragTest: XCTestCase {
         XCTAssertNil(drop(b, .workspace(a.name), reorder: pin), "b already follows a")
     }
 
+    // MARK: A list tab dropped among the pins
+
+    /// Alan, October 2026: a tab dragged onto the pins split with a pin unless it was dropped on
+    /// one precise spot. A hand slows down and rests a moment before it lets go, and that rest is
+    /// the pause that arms a split. Near a tile's sides the tab is pinned beside the tile, however
+    /// long it rests there, on the first row and the next alike.
+    func testATabRestingNearAPinsSideIsPinnedBesideItInsteadOfSplittingIt() async throws {
+        let (a, _, _, d) = try tabs()
+        try pinE()
+        let (targets, tiles) = try renderedPins(["a", "b", "c", "e"])
+        let window = try XCTUnwrap(d.allLeafWindowsRecursive.first)
+        defer { WorkspaceSidebarTabSplitHoverController.shared.reset() }
+        let (tileA, tileB, tileC, tileE) = (tiles[0], tiles[1], tiles[2], tiles[3])
+        XCTAssertEqual(tileE.minX, tileA.minX, "Three pins fit a row at the default width; e wraps")
+        let ab = tileA.maxX, bc = tileB.maxX
+        let places: [(CGPoint, String, Bool)] = [
+            (CGPoint(x: tileA.minX + 12, y: tileA.midY), "a", false),
+            (CGPoint(x: ab - 20, y: tileA.midY), "a", true),
+            (CGPoint(x: ab - 10, y: tileA.midY), "a", true),
+            (CGPoint(x: ab + 10, y: tileB.midY), "b", false),
+            (CGPoint(x: ab + 20, y: tileB.midY), "b", false),
+            (CGPoint(x: bc - 12, y: tileB.midY), "b", true),
+            (CGPoint(x: bc + 12, y: tileC.midY), "c", false),
+            (CGPoint(x: tileC.maxX - 12, y: tileC.midY), "c", true),
+            (CGPoint(x: tileE.minX + 12, y: tileE.midY), "e", false),
+        ]
+        for (point, name, isAfter) in places {
+            let drop = try await settledDrop(window, at: point, in: targets)
+            XCTAssertEqual(drop?.kind, .pinnedTabs(projectId: a.projectId, gap: .init(workspaceName: name, isAfter: isAfter),
+                monitorScopeId: pinScope), "Resting at \(point): pinned \(isAfter ? "after" : "before") \(name)")
+        }
+    }
+
+    /// A hand's jitter where two tiles meet, near a tile's side, or where its middle begins never
+    /// splits the pin. A pause over the middle does, as before; moving out to the side pins the tab
+    /// beside the tile again, until the next pause over the middle.
+    func testJitterNearAPinsSideNeverSplitsItButAPauseOverItsMiddleDoes() async throws {
+        let (a, _, _, d) = try tabs()
+        let (targets, tiles) = try renderedPins(["a", "b", "c"])
+        let window = try XCTUnwrap(d.allLeafWindowsRecursive.first)
+        defer { WorkspaceSidebarTabSplitHoverController.shared.reset() }
+        let tileB = tiles[1]
+        let afterA = WorkspaceSidebarDropTargetKind.pinnedTabs(projectId: a.projectId,
+            gap: .init(workspaceName: "a", isAfter: true), monitorScopeId: pinScope)
+        let beforeB = WorkspaceSidebarDropTargetKind.pinnedTabs(projectId: a.projectId,
+            gap: .init(workspaceName: "b", isAfter: false), monitorScopeId: pinScope)
+        // Under 2 points either way, a hand at rest, for half a second.
+        for x in [tileB.minX, tileB.minX + 10, tileB.minX + tileB.width / 3] {
+            WorkspaceSidebarTabSplitHoverController.shared.reset()
+            for step in 0 ..< 15 {
+                let point = CGPoint(x: x + (step.isMultiple(of: 2) ? 0.75 : -0.75), y: tileB.midY)
+                let kind = resolve(window, at: point, in: targets)?.kind
+                XCTAssertTrue(kind == afterA || kind == beforeB, "Jittering at \(point): \(String(describing: kind))")
+                try await Task.sleep(for: .milliseconds(35))
+            }
+        }
+        let middle = CGPoint(x: tileB.midX - 6, y: tileB.midY)
+        WorkspaceSidebarTabSplitHoverController.shared.reset()
+        XCTAssertEqual(resolve(window, at: middle, in: targets)?.kind, beforeB, "Moving over the middle, it's still pinned beside b")
+        try await Task.sleep(for: .milliseconds(300))
+        let split = try XCTUnwrap(resolve(window, at: middle, in: targets))
+        XCTAssertEqual(split.kind, .workspace("b"), "Paused over the middle, it tiles into b")
+        XCTAssertTrue(split.acceptsSides)
+        XCTAssertEqual(resolve(window, at: CGPoint(x: tileB.minX + 10, y: tileB.midY), in: targets)?.kind, beforeB,
+            "Out at b's side, it's pinned beside b again")
+        XCTAssertEqual(resolve(window, at: middle, in: targets)?.kind, beforeB, "Back over the middle, it needs another pause")
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertEqual(resolve(window, at: middle, in: targets)?.kind, .workspace("b"))
+    }
+
+    /// The release makes the drop shown, though the hand slips a point as it lets go, and moves
+    /// each window once: the tab pinned whole beside b, or, after a pause over b's middle, tiled into b.
+    func testTheReleaseMakesTheDropShownAndMovesEachWindowOnce() async throws {
+        for splits in [false, true] {
+            try await setUp()
+            let (_, b, _, d) = try tabs()
+            let (targets, tiles) = try renderedPins(["a", "b", "c"])
+            let window = try XCTUnwrap(d.allLeafWindowsRecursive.first)
+            let tileB = tiles[1]
+            let point = CGPoint(x: splits ? tileB.midX - 6 : tileB.minX + 10, y: tileB.midY)
+            let settled = try await settledDrop(window, at: point, in: targets)
+            let shown = try XCTUnwrap(settled)
+            let placement: WorkspaceSidebarTabDropPlacement? = shown.acceptsSides
+                ? (point.x < shown.rect.center.x ? .left : .right) : nil
+            let controller = WorkspaceSidebarTabSplitHoverController.shared
+            let hit = try XCTUnwrap(target(at: point, in: targets))
+            controller.noteDisplayed(source: window.windowId, hitKind: hit.kind, target: shown, placement: placement)
+            let release = CGPoint(x: point.x + 1, y: point.y + 1)
+            let releaseHit = try XCTUnwrap(target(at: release, in: targets))
+            let committed = try XCTUnwrap(controller.commitTarget(source: window.windowId, hitTarget: releaseHit, point: release))
+            XCTAssertEqual(committed.kind, shown.kind, "The drop made is the one shown")
+            let intent = try XCTUnwrap(WorkspaceSidebarDropIntent.captured(for: committed,
+                source: .init(window: window, subject: .window)))
+            _ = await queueWorkspaceSidebarDrop(window.windowId, subject: .window, target: committed.kind, placement: placement,
+                intent: intent)?.value
+            if splits {
+                XCTAssertEqual(b.allLeafWindowsRecursive.map(\.windowId), [4, 2], "Tiled into b, on the left")
+                XCTAssertEqual(pins(), ["a", "b", "c"], "b stays pinned in its place")
+            } else {
+                XCTAssertEqual(pins(), ["a", "d", "b", "c"], "Pinned before b")
+                XCTAssertEqual(d.allLeafWindowsRecursive.map(\.windowId), [4], "Whole, in its own tab")
+                XCTAssertEqual(b.allLeafWindowsRecursive.map(\.windowId), [2], "b isn't split")
+            }
+            let windows = ["a", "b", "c", "d"].flatMap { Workspace.existing(byName: $0)?.allLeafWindowsRecursive ?? [] }
+            XCTAssertEqual(windows.map(\.windowId).sorted(), [1, 2, 3, 4], "Every window once")
+            controller.reset()
+        }
+    }
+
+    /// A drag given up with Escape after a pause armed a split changes nothing, and the next one
+    /// needs its own pause.
+    func testADragGivenUpChangesNothingAndTheNextOneNeedsItsOwnPause() async throws {
+        let (a, b, _, d) = try tabs()
+        let (targets, tiles) = try renderedPins(["a", "b", "c"])
+        let window = try XCTUnwrap(d.allLeafWindowsRecursive.first)
+        let middle = CGPoint(x: tiles[1].midX - 6, y: tiles[1].midY)
+        WorkspaceSidebarDragSessions.shared.noteLeftMouseDown()
+        XCTAssertTrue(WorkspaceSidebarDragSessions.shared.acceptUpdate())
+        let armed = try await settledDrop(window, at: middle, in: targets)
+        XCTAssertEqual(armed?.kind, .workspace("b"))
+        XCTAssertTrue(cancelWorkspaceSidebarDragSession())
+        XCTAssertEqual(pins(), ["a", "b", "c"])
+        XCTAssertEqual(b.allLeafWindowsRecursive.map(\.windowId), [2])
+        XCTAssertEqual(d.allLeafWindowsRecursive.map(\.windowId), [4])
+        WorkspaceSidebarDragSessions.shared.noteLeftMouseDown()
+        XCTAssertTrue(WorkspaceSidebarDragSessions.shared.acceptUpdate())
+        defer { _ = cancelWorkspaceSidebarDragSession() }
+        XCTAssertEqual(resolve(window, at: middle, in: targets)?.kind, .pinnedTabs(projectId: a.projectId,
+            gap: .init(workspaceName: "b", isAfter: false), monitorScopeId: pinScope))
+    }
+
     func testRenderedPinsTakeDropsBesideEachTileAndMarkWhereTheTabGoes() throws {
         var fixture = WorkspaceSidebarSnapshot.empty
         fixture.configuration = WorkspaceSidebarConfiguration(collapsedWidth: 44, expandedWidth: 280,
@@ -499,6 +630,75 @@ final class WorkspaceSidebarPinnedDragTest: XCTestCase {
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.2))
         host.layoutSubtreeIfNeeded()
         return probe.targets
+    }
+
+    private let pinScope = "monitor:0.0,0.0"
+
+    /// Tab e, with window 5, pinned after a, b and c.
+    @discardableResult
+    private func pinE() throws -> Workspace {
+        let e = Workspace.get(byName: "e")
+        _ = TestWindow.new(id: 5, parent: e.rootTilingContainer)
+        try setWorkspaceSidebarTabFavorite(e, true)
+        return e
+    }
+
+    /// The drop targets of a Tabs sidebar at the default 280 points, with `names` pinned in that
+    /// order and d in the list, and the pin tiles' frames among them.
+    private func renderedPins(_ names: [String]) throws -> (targets: [WorkspaceSidebarDropTargetFrame], tiles: [CGRect]) {
+        var fixture = WorkspaceSidebarSnapshot.empty
+        fixture.configuration = WorkspaceSidebarConfiguration(collapsedWidth: 44, expandedWidth: 280,
+            topPadding: 12, showMonitorSelector: false, showsClock: false, showsSeconds: false,
+            showsDate: false, showsWeekday: false, showsStatusPills: false, chromeStyle: .solid, solidChromeColor: .midnight,
+            solidChromeCustomColor: "#191B20", showAppIcons: false, usesTabsList: true, alwaysExpanded: true)
+        fixture.visibleWidth = 280
+        fixture.targetMonitorScopeId = pinScope
+        fixture.projects = [.init(id: workspaceProjectDefaultId, displayName: "Research", colorHex: nil, emoji: nil)]
+        fixture.workspaces = (names + ["d"]).enumerated().map { index, name in
+            let window = WorkspaceSidebarWindowViewModel(windowId: UInt32(100 + index), workspaceName: name, appName: "Notes",
+                appBundleId: "com.apple.Notes", appBundlePath: nil, title: name, isFocused: false)
+            return .init(name: name, projectId: workspaceProjectDefaultId, displayName: name, sidebarLabel: "",
+                isGeneratedName: true, monitorScopeId: pinScope, monitorName: nil, isFocused: false, isVisible: false,
+                items: [.init(kind: .window(window))],
+                appearance: name == "d" ? .init() : .init(isFavorite: true, pinOrder: index))
+        }
+        let targets = try renderedDropTargets(fixture)
+        let tiles = targets.filter { $0.tabReorderDestination?.arrangesPins == true }
+        XCTAssertEqual(tiles.map(\.kind), names.map { .workspace($0) })
+        return (targets, tiles.map(\.frame))
+    }
+
+    /// What the sidebar finds under `point`, as a drag gets it.
+    private func target(at point: CGPoint, in targets: [WorkspaceSidebarDropTargetFrame]) -> WorkspaceSidebarDropTarget? {
+        workspaceSidebarLocalDropTarget(at: point, targets: targets, surface: CGRect(x: 0, y: 0, width: 280, height: 620)).map {
+            WorkspaceSidebarDropTarget(kind: $0.kind, rect: Rect(topLeftX: $0.frame.minX, topLeftY: $0.frame.minY,
+                width: $0.frame.width, height: $0.frame.height), acceptsSides: $0.acceptsSides,
+                tabReorderDestination: $0.tabReorderDestination)
+        }
+    }
+
+    /// The drop `window`'s drag shows with the pointer at `point`, as each drag event resolves it.
+    private func resolve(_ window: AppBundle.Window, at point: CGPoint,
+                         in targets: [WorkspaceSidebarDropTargetFrame]) -> WorkspaceSidebarDropTarget? {
+        guard let target = target(at: point, in: targets) else {
+            WorkspaceSidebarTabSplitHoverController.shared.reset()
+            return nil
+        }
+        return workspaceSidebarDeliberateTabDropTarget(target, sourceWindow: window, point: point)
+    }
+
+    /// The drop shown once `window`'s tab, dragged up onto the pins, slows to a stop at `point` and
+    /// rests there a moment, as a hand does before it lets go.
+    private func settledDrop(_ window: AppBundle.Window, at point: CGPoint,
+                             in targets: [WorkspaceSidebarDropTargetFrame]) async throws -> WorkspaceSidebarDropTarget? {
+        WorkspaceSidebarTabSplitHoverController.shared.reset()
+        for rise in [20, 12, 6, 3, 1.5, 0.5] as [CGFloat] {
+            _ = resolve(window, at: CGPoint(x: point.x, y: point.y + rise), in: targets)
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        _ = resolve(window, at: point, in: targets)
+        try await Task.sleep(for: .milliseconds(300))
+        return resolve(window, at: point, in: targets)
     }
 }
 
