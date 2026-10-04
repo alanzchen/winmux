@@ -1497,8 +1497,8 @@ final class BrowserTabsTest: XCTestCase {
 
     /// A tab bar whose topics don't account for their tabs, or speak of them in a way that can't be
     /// read, lists the tabs it can tell are pages, but acts only on those that say they're in no
-    /// topic, and none pairs with the extension's by place. What may be a topic's button is never
-    /// pressed.
+    /// topic or whose own topic still accounts for its tabs, and none pairs with the extension's by
+    /// place. What may be a topic's button is never pressed.
     func testSafariTopicsThatDontAccountForTheirTabsActOnlyOnTabsInNoTopic() throws {
         let elsewhere = UUID().uuidString
         let cases: [(name: String, change: (_ topic: BrowserTestNode, _ pages: [BrowserTestNode]) -> [BrowserTestNode], actionable: [Int])] = [
@@ -1513,7 +1513,7 @@ final class BrowserTabsTest: XCTestCase {
             ("a tab whose topic isn't listed", { _, pages in
                 pages[0].identifier = self.safariTabIdentifier(cluster: elsewhere)
                 return pages
-            }, [1, 2, 3, 8, 9]),
+            }, [1, 2, 3, 4, 5, 6, 7, 8, 9]),
             ("a tab that says nothing of topics", { _, pages in
                 pages[0].identifier = nil
                 return pages
@@ -1622,8 +1622,8 @@ final class BrowserTabsTest: XCTestCase {
     }
 
     /// Two topics, each with its own button and tabs: open, all their tabs are acted on. Once one
-    /// is read closed (SYNTHETIC, not from a capture), only tabs in no topic are, the other topic's
-    /// included.
+    /// is read closed (SYNTHETIC, not from a capture), the window no longer pairs by place, but the
+    /// open topic still accounts for its own tabs, which are acted on as before.
     func testTwoSafariTopicsAreEachAccountedForByTheirOwnTabs() throws {
         let window = safariTopicWindow("TMMPTMMMPP", selected: 0)
         let first = try XCTUnwrap(window.container.nodes.first)
@@ -1640,8 +1640,9 @@ final class BrowserTabsTest: XCTestCase {
         let closed = try XCTUnwrap(window.scanner.scan())
         XCTAssertFalse(closed.isComplete)
         XCTAssertEqual(closed.tabs.map(\.title), (window.pages[0...2] + window.pages[6...7]).map(\.title))
-        XCTAssertEqual(closed.tabs.map { window.scanner.select($0.target) }, [false, false, true, true, true])
-        XCTAssertEqual(window.pages.map(\.presses), [1, 1, 2, 1, 1, 1, 2, 2])
+        XCTAssertEqual(closed.tabs.map { window.scanner.select($0.target) }, [true, true, true, true, true],
+            "The open topic's tabs too: the closed one says nothing of them")
+        XCTAssertEqual(window.pages.map(\.presses), [2, 2, 2, 1, 1, 1, 2, 2])
         XCTAssertEqual([first, second].map(\.presses), [0, 0])
     }
 
@@ -1998,15 +1999,15 @@ final class BrowserTabsTest: XCTestCase {
         XCTAssertEqual(refusedActions(try XCTUnwrap(window.scanner.scan()), window.scanner), [])
     }
 
-    /// SYNTHETIC: a closed topic whose tabs Safari still lists, so the sidebar shows every tab. Each
-    /// should be selectable and closable as listed; today the topic's own are refused.
-    func testPhaseAWithATopicClosedButItsTabsListedEveryListedTabIsSelectedAndClosedSynthetic() throws {
+    /// SYNTHETIC: a closed topic whose tabs Safari still lists, so the sidebar shows every tab. Its
+    /// tabs aren't selected or closed yet (that awaits the extension's help); every other tab is.
+    func testPhaseAWithATopicClosedButItsTabsListedOnlyItsTabsAreLeftAloneSynthetic() throws {
         let window = safariTopicWindow("PPPTMMMPPP", selected: 0)
         let topic = try XCTUnwrap(window.topic)
         topic.identifier = topic.identifier?.replacingOccurrences(of: "isExpanded=true", with: "isExpanded=false")
         let snapshot = try XCTUnwrap(window.scanner.scan())
         XCTAssertEqual(snapshot.tabs.map(\.title), window.pages.map(\.title), "Every tab is listed")
-        XCTAssertEqual(refusedActions(snapshot, window.scanner), [], "Every listed tab should act")
+        XCTAssertEqual(refusedActions(snapshot, window.scanner), ["Page 4", "Page 5", "Page 6"].flatMap { ["select \($0)", "close \($0)"] })
         XCTAssertEqual(topic.presses + topic.performed.count, 0)
     }
 

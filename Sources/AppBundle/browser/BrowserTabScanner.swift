@@ -145,6 +145,18 @@ func safariIsCloseAction(_ action: String) -> Bool {
     action.split(separator: "\n", omittingEmptySubsequences: false).filter { $0.hasPrefix("Selector:") } == [Substring(browserTabCloseSelector)]
 }
 
+/// How a tab bar, read again, shows a tab's Safari topic.
+enum SafariOwnTopic: Equatable, Sendable {
+    /// Its one button, open, and as many of its tabs as it says it has.
+    case shown
+    /// Its button says it's closed.
+    case closed
+    /// Not as it says: no button, two, a count that's off, or a control that may be one of its own.
+    case unaccounted
+    /// The tab bar couldn't be read in time.
+    case unread
+}
+
 /// How long a window found to have no tab strip, whose title stays the same, has only its title
 /// read before it is walked again: less while its browser plays sound.
 let browserLoneTabRediscovery: TimeInterval = 30
@@ -354,9 +366,9 @@ final class BrowserTabScanner<Node: BrowserTabAXNode> {
     }
 
     /// The listed tab, checked again as if just listed, if it may be acted on. A tab that says
-    /// it's in no topic may; one in a topic, only if the tab bar, read again now, accounts for its
-    /// topics' tabs, as a topic can close or change at any time; any other, only if the tab bar
-    /// did when last read in full.
+    /// it's in no topic may; one in a topic, only if the tab bar, read again now, still shows that
+    /// topic open with all its tabs (`ownTopic`), as a topic can close or change at any time;
+    /// any other, only if the tab bar did when last read in full.
     private func actionable(_ target: BrowserTabTarget, cancelled: () -> Bool) -> (Node, BrowserTabAXRecord<Node>)? {
         let deadline = now() + 0.2
         guard let (node, record) = validatedTab(target, until: deadline, cancelled: cancelled) else { return nil }
@@ -364,21 +376,35 @@ final class BrowserTabScanner<Node: BrowserTabAXNode> {
             case .plain: return (node, record)
             // The tab could have changed while the tab bar was read: what's acted on is the tab as
             // checked after that.
-            case .member: return topicsAccountedFor(until: deadline, cancelled: cancelled) ? validatedTab(target, until: deadline, cancelled: cancelled) : nil
+            case .member(let id):
+                return ownTopic(id, until: deadline, cancelled: cancelled) == .shown ? validatedTab(target, until: deadline, cancelled: cancelled) : nil
             default: return tabsComplete ? (node, record) : nil
         }
     }
 
-    /// Whether the tab bar, read again, accounts for every tab of its Safari topics. Any control
-    /// that can't be read, or isn't a tab, says it doesn't.
-    private func topicsAccountedFor(until deadline: TimeInterval, cancelled: () -> Bool) -> Bool {
-        guard let container, now() < deadline, let children = container.children(), children.count <= 256 else { return false }
-        var clusters: [SafariTabCluster] = []
+    /// How the tab bar, read again, shows the Safari topic `id`. Only that topic counts: other
+    /// topics, open or closed, don't say anything about this one's tabs (Phase A, 2026-10-04,
+    /// narrowing F4's check from the whole tab bar to the tab's own topic). Every control is still
+    /// read: one that can't be read, isn't a tab, or says nothing reliable of topics could be this
+    /// topic's button or one of its tabs.
+    private func ownTopic(_ id: String, until deadline: TimeInterval, cancelled: () -> Bool) -> SafariOwnTopic {
+        guard let container, now() < deadline, let children = container.children(), children.count <= 256 else { return .unread }
+        var headers: [(isExpanded: Bool, tabCount: Int)] = []
+        var members = 0
         for child in children {
-            guard now() < deadline, !isCancelled(), !cancelled(), let structure = child.structure(), structure.isTab else { return false }
-            clusters.append(SafariTabCluster(structure))
+            guard now() < deadline, !isCancelled(), !cancelled(), let structure = child.structure() else { return .unread }
+            guard structure.isTab else { return .unaccounted }
+            switch SafariTabCluster(structure) {
+                case .header(id, let isExpanded, let tabCount): headers.append((isExpanded, tabCount))
+                case .member(id): members += 1
+                case .malformed, .unknown: return .unaccounted
+                case .header, .member, .plain: break
+            }
         }
-        return now() < deadline && safariTabClustersAccountedFor(clusters)
+        guard now() < deadline else { return .unread }
+        guard headers.count == 1, let header = headers.first else { return .unaccounted }
+        guard header.isExpanded else { return .closed }
+        return members == header.tabCount ? .shown : .unaccounted
     }
 
     /// Scrolls a tab into its tab bar's view. Safari offers neither press nor close on a tab piled
