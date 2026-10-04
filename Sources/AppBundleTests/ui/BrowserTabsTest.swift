@@ -688,7 +688,7 @@ final class BrowserTabsTest: XCTestCase {
         assertWatch(model, [], "The other sidebar's reads end with it")
     }
 
-    func testAChosenBrowserTabShowsSelectedAtOnceAndUntilTheBrowserSaysOtherwise() throws {
+    func testAChosenBrowserTabShowsPendingThenSelectedOnceSeenSoAndUntilTheBrowserSaysOtherwise() throws {
         let tree = fixture(.chromium)
         tree.container.append(tab("Gamma", selected: false))
         let before = try XCTUnwrap(tree.scanner.scan())
@@ -696,8 +696,11 @@ final class BrowserTabsTest: XCTestCase {
         let third = before.tabs[2].target
         var pending = BrowserTabPendingSelections()
         let attempt = pending.begin(third, now: 10)
-        XCTAssertEqual(pending.apply(before).tabs.map(\.isSelected), [false, false, true], "The row chosen is the one shown selected")
-        pending.settle(attempt: attempt, windowId: 123, refused: false, now: 10.2)
+        XCTAssertEqual(pending.apply(before).tabs.map(\.isSelected), [true, false, false], "Not selected before it's seen so")
+        XCTAssertEqual(pending.apply(before).tabs.map(\.pending), [nil, nil, .selecting], "but pending")
+        pending.settle(attempt: attempt, windowId: 123, confirmed: true, now: 10.2)
+        XCTAssertEqual(pending.apply(before).tabs.map(\.isSelected), [false, false, true], "Seen selected, it shows so")
+        XCTAssertEqual(pending.apply(before).tabs.map(\.pending), [nil, nil, nil])
         pending.observe(before, readStarted: 10.1)
         pending.observe(before, readStarted: 11.1)
         XCTAssertEqual(pending.apply(before).tabs.map(\.isSelected), [false, false, true],
@@ -710,19 +713,21 @@ final class BrowserTabsTest: XCTestCase {
 
         // A read well after the switch that shows another tab wins, as when the browser declined.
         let second = pending.begin(before.tabs[1].target, now: 20)
-        pending.settle(attempt: second, windowId: 123, refused: false, now: 20.1)
+        pending.settle(attempt: second, windowId: 123, confirmed: true, now: 20.1)
         pending.observe(after, readStarted: 21.1)
         XCTAssertEqual(pending.apply(after).tabs.map(\.isSelected), [false, false, true])
-        // A press the browser refused shows the real selection straight away.
+        // A press not seen done shows the real selection straight away.
         let refused = pending.begin(before.tabs[1].target, now: 30)
-        pending.settle(attempt: refused, windowId: 123, refused: true, now: 30.1)
+        pending.settle(attempt: refused, windowId: 123, confirmed: false, now: 30.1)
         XCTAssertEqual(pending.apply(after).tabs.map(\.isSelected), [false, false, true])
-        // Nothing lingers: a choice unconfirmed for three seconds lapses.
+        XCTAssertEqual(pending.apply(after).tabs.map(\.pending), [nil, nil, nil])
+        // Nothing lingers: a choice unanswered for three seconds lapses.
         _ = pending.begin(before.tabs[1].target, now: 40)
         pending.expire(now: 42.9)
-        XCTAssertEqual(pending.apply(after).tabs.map(\.isSelected), [false, true, false])
-        pending.expire(now: 43)
         XCTAssertEqual(pending.apply(after).tabs.map(\.isSelected), [false, false, true])
+        XCTAssertEqual(pending.apply(after).tabs.map(\.pending), [nil, .selecting, nil])
+        pending.expire(now: 43)
+        XCTAssertEqual(pending.apply(after).tabs.map(\.pending), [nil, nil, nil])
         // A choice whose tab has since closed changes nothing.
         _ = pending.begin(BrowserTabTarget(windowId: 123, pid: 45, windowSession: after.windowSession, tabId: UUID()), now: 50)
         XCTAssertEqual(pending.apply(after).tabs.map(\.isSelected), [false, false, true])
@@ -736,30 +741,31 @@ final class BrowserTabsTest: XCTestCase {
         }())
         let (second, third) = (snapshot.tabs[1].target, snapshot.tabs[2].target)
         var pending = BrowserTabPendingSelections()
-        // The same tab clicked twice, and the first press comes back refused.
+        // The same tab clicked twice, and the first press comes back not seen done.
         let again = pending.begin(third, now: 0)
         let latest = pending.begin(third, now: 0.1)
-        pending.settle(attempt: again, windowId: 123, refused: true, now: 0.2)
-        XCTAssertEqual(pending.apply(snapshot).tabs.map(\.isSelected), [false, false, true], "The second click still shows")
-        pending.settle(attempt: latest, windowId: 123, refused: false, now: 0.3)
+        pending.settle(attempt: again, windowId: 123, confirmed: false, now: 0.2)
+        XCTAssertEqual(pending.apply(snapshot).tabs.map(\.pending), [nil, nil, .selecting], "The second click still shows")
+        pending.settle(attempt: latest, windowId: 123, confirmed: true, now: 0.3)
         pending.observe(snapshot, readStarted: 0.4)
         XCTAssertEqual(pending.apply(snapshot).tabs.map(\.isSelected), [false, false, true])
         // Second, then third, then second again: only the last press settles the choice.
         let a = pending.begin(second, now: 1)
         let b = pending.begin(third, now: 1.1)
         let c = pending.begin(second, now: 1.2)
-        pending.settle(attempt: a, windowId: 123, refused: true, now: 1.3)
-        pending.settle(attempt: b, windowId: 123, refused: true, now: 1.3)
-        XCTAssertEqual(pending.apply(snapshot).tabs.map(\.isSelected), [false, true, false])
-        pending.settle(attempt: c, windowId: 123, refused: true, now: 1.4)
+        pending.settle(attempt: a, windowId: 123, confirmed: false, now: 1.3)
+        pending.settle(attempt: b, windowId: 123, confirmed: false, now: 1.3)
+        XCTAssertEqual(pending.apply(snapshot).tabs.map(\.pending), [nil, .selecting, nil])
+        pending.settle(attempt: c, windowId: 123, confirmed: false, now: 1.4)
         XCTAssertEqual(pending.apply(snapshot).tabs.map(\.isSelected), [true, false, false])
+        XCTAssertEqual(pending.apply(snapshot).tabs.map(\.pending), [nil, nil, nil])
         // A click in another window cuts this press short before it presses: each window keeps its own.
         let other = try XCTUnwrap(BrowserTabScanner(root: fixture(.chromium).root, adapter: .chromium, windowId: 456, pid: 45, wait: { _ in }).scan())
         let here = pending.begin(third, now: 2)
         _ = pending.begin(other.tabs[1].target, now: 2.1)
-        pending.settle(attempt: here, windowId: 123, refused: true, now: 2.2)
+        pending.settle(attempt: here, windowId: 123, confirmed: false, now: 2.2)
         XCTAssertEqual(pending.apply(snapshot).tabs.map(\.isSelected), [true, false, false])
-        XCTAssertEqual(pending.apply(other).tabs.map(\.isSelected), [false, true])
+        XCTAssertEqual(pending.apply(other).tabs.map(\.pending), [nil, .selecting])
     }
 
     func testAReadBegunBeforeAClickNeverConfirmsIt() throws {
@@ -778,17 +784,17 @@ final class BrowserTabsTest: XCTestCase {
         let (second, third) = (read.tabs[1].target, read.tabs[2].target)
         var pending = BrowserTabPendingSelections()
         let toSecond = pending.begin(second, now: 1)
-        pending.settle(attempt: toSecond, windowId: 123, refused: false, now: 1.1)
+        pending.settle(attempt: toSecond, windowId: 123, confirmed: true, now: 1.1)
         pending.observe(selecting(1), readStarted: 1.2)
         // Third, whose tab strip still shows the second tab, then quickly the second again.
         let toThird = pending.begin(third, now: 2)
-        pending.settle(attempt: toThird, windowId: 123, refused: false, now: 2.1)
+        pending.settle(attempt: toThird, windowId: 123, confirmed: true, now: 2.1)
         pending.observe(selecting(1), readStarted: 2.2)
         let back = pending.begin(second, now: 2.3)
         pending.observe(selecting(1), readStarted: 2.25)
-        XCTAssertEqual(pending.apply(selecting(2)).tabs.map(\.isSelected), [false, true, false],
+        XCTAssertEqual(pending.apply(selecting(2)).tabs.map(\.pending), [nil, .selecting, nil],
             "A read from before the click back, still showing the second tab, doesn't confirm it")
-        pending.settle(attempt: back, windowId: 123, refused: false, now: 2.4)
+        pending.settle(attempt: back, windowId: 123, confirmed: true, now: 2.4)
         pending.observe(selecting(1), readStarted: 2.35)
         XCTAssertEqual(pending.apply(selecting(2)).tabs.map(\.isSelected), [false, true, false],
             "Nor does one begun after the click but before its press, arriving later")
@@ -2138,6 +2144,97 @@ final class BrowserTabsTest: XCTestCase {
             "dispatchAttempted=false postcondition=none ms="), lines[2])
         let topicId = try XCTUnwrap(window.topic?.identifier?.split(separator: "&").first { $0.hasPrefix("clusterID=") }?.dropFirst(10))
         XCTAssertFalse(lines.contains { $0.contains("Page") || $0.contains("Topic") || $0.contains(topicId) })
+    }
+
+    /// A sidebar click shows its tab pending, not selected, while the browser is asked. Once the
+    /// tab is seen selected it shows selected; otherwise the real selection shows again, the window
+    /// is read again at once, and a short line says why.
+    func testASidebarSelectShowsPendingThenSelectedOnlyOnceTheTabIsSeenSelected() throws {
+        let window = safariTopicWindow("PPPP", selected: 0)
+        let snapshot = try XCTUnwrap(window.scanner.scan())
+        var pending = BrowserTabPendingSelections()
+        for seen in [true, false] {
+            let index = seen ? 1 : 2
+            let page = window.pages[index]
+            page.onPress = { [unowned page] in page.selected = seen }
+            let attempt = pending.begin(snapshot.tabs[index].target, now: 0)
+            XCTAssertEqual(pending.apply(snapshot).tabs.map(\.isSelected), [true, false, false, false], "seen: \(seen)")
+            XCTAssertEqual(pending.apply(snapshot).tabs.map(\.pending), (0..<4).map { $0 == index ? .selecting : nil })
+            let followUp = BrowserTabActionFollowUp(window.scanner.select(snapshot.tabs[index].target), kind: .select, browser: "Safari")
+            pending.settle(attempt: attempt, windowId: 123, confirmed: followUp.applies, now: 0.1)
+            XCTAssertEqual(pending.apply(snapshot).tabs.map(\.isSelected), (0..<4).map { seen ? $0 == index : $0 == 0 }, "seen: \(seen)")
+            XCTAssertEqual(pending.apply(snapshot).tabs.map(\.pending), [nil, nil, nil, nil])
+            XCTAssertEqual(followUp.rereads, !seen)
+            XCTAssertEqual(followUp.message, seen ? nil : "Safari didn't switch to this tab.")
+            page.selected = false
+        }
+    }
+
+    /// A sidebar close shows its tab closing while the browser is asked, and takes it off the list
+    /// only once it's seen gone; otherwise the row stays, the window is read again, and a short
+    /// line says so.
+    func testASidebarCloseKeepsTheRowUntilTheTabIsSeenGone() throws {
+        let window = safariTopicWindow("PPPP", selected: 0)
+        let snapshot = try XCTUnwrap(window.scanner.scan())
+        var cache = BrowserTabSnapshotCache()
+        cache.receive(snapshot, now: 0)
+        var closes = BrowserTabPendingCloses()
+        let closing = window.pages[2]
+        closing.onPerform = { [unowned closing, unowned container = window.container] _ in container.nodes.removeAll { $0 === closing } }
+        for (index, gone) in [(1, false), (2, true)] {
+            let target = snapshot.tabs[index].target
+            closes.begin(target, now: 0)
+            XCTAssertEqual(closes.apply(try XCTUnwrap(cache.snapshots[123])).tabs.first { $0.target == target }?.pending, .closing)
+            let followUp = BrowserTabActionFollowUp(window.scanner.close(target), kind: .close, browser: "Safari")
+            closes.end(target)
+            if followUp.applies { cache.removeTab(target) }
+            XCTAssertEqual(followUp.applies, gone)
+            XCTAssertEqual(followUp.rereads, !gone)
+            XCTAssertEqual(followUp.message, gone ? nil : "Safari didn't confirm closing this tab. The list is being refreshed.")
+        }
+        let listed = try XCTUnwrap(cache.snapshots[123])
+        XCTAssertEqual(listed.tabs.map(\.title), ["Page 1", "Page 2", "Page 4"])
+        XCTAssertEqual(closes.apply(listed).tabs.map(\.pending), [nil, nil, nil])
+        closes.begin(snapshot.tabs[0].target, now: 10)
+        closes.expire(now: 12.9)
+        XCTAssertEqual(closes.apply(listed).tabs.map(\.pending), [.closing, nil, nil])
+        closes.expire(now: 13)
+        XCTAssertEqual(closes.apply(listed).tabs.map(\.pending), [nil, nil, nil], "Nothing lingers")
+    }
+
+    /// Each way a select or close can go wrong has its own short line, never with the tab's title;
+    /// one that went as asked, or that a later click called off, has none. Only what's seen done
+    /// applies at once; anything else has the window read again.
+    func testEachWayABrowserTabActionCanGoWrongHasItsOwnShortLine() {
+        let changed = "This tab changed or moved in Safari. The list is being refreshed; try again."
+        let slow = "Safari didn't respond. Try again."
+        let notSwitched = "Safari didn't switch to this tab."
+        let cases: [(BrowserTabActionResult, select: String?, close: String?)] = [
+            (.dispatched(.confirmed), nil, nil),
+            (.notDispatched(.cancelled), nil, nil),
+            (.notDispatched(.changed), changed, changed),
+            (.notDispatched(.unaccounted), changed, changed),
+            (.failed(.invalidElement), changed, changed),
+            (.notDispatched(.collapsedTopic),
+             "This tab is in a collapsed topic. Open the topic in Safari to switch to it; the sidebar can't do that yet.",
+             "This tab is in a collapsed topic. Open the topic in Safari to close it; the sidebar can't do that yet."),
+            (.notDispatched(.noResponse), slow, slow),
+            (.failed(.timedOut), slow, slow),
+            (.dispatched(.unknown), notSwitched, "Safari didn't confirm closing this tab. The list is being refreshed."),
+            (.notDispatched(.noAction), notSwitched, "Safari didn't offer a way to close this tab."),
+            (.notDispatched(.outOfView), notSwitched, "Safari didn't offer a way to close this tab."),
+            (.failed(.unsupported), notSwitched, "Safari didn't close this tab."),
+            (.failed(.other), notSwitched, "Safari didn't close this tab."),
+        ]
+        for (result, select, close) in cases {
+            XCTAssertEqual(browserTabActionMessage(result, kind: .select, browser: "Safari"), select, result.logName)
+            XCTAssertEqual(browserTabActionMessage(result, kind: .close, browser: "Safari"), close, result.logName)
+            for kind in [BrowserTabActionKind.select, .close] {
+                let followUp = BrowserTabActionFollowUp(result, kind: kind, browser: "Safari")
+                XCTAssertEqual(followUp.applies, result == .dispatched(.confirmed), result.logName)
+                XCTAssertEqual(followUp.rereads, result != .dispatched(.confirmed) && result != .notDispatched(.cancelled), result.logName)
+            }
+        }
     }
 
     private let safariCloseAction = "Name:Close Tab\nTarget:0x1\nSelector:_closeButtonClicked:"

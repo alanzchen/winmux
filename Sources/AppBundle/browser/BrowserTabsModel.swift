@@ -16,6 +16,7 @@ final class BrowserTabsModel: ObservableObject {
     private var iconsEnabled = false
     private var iconAssociations = BrowserTabIconAssociations()
     private var pendingSelections = BrowserTabPendingSelections()
+    private var pendingCloses = BrowserTabPendingCloses()
     private let safariExtension: SafariExtensionBridge
     private var safariAssociations = SafariExtensionAssociations()
     private var safariEvidence: SafariExtensionEvidence?
@@ -46,6 +47,7 @@ final class BrowserTabsModel: ObservableObject {
         safariExtension.setEnabled(enabled)
         if !enabled {
             pendingSelections = .init()
+            pendingCloses = .init()
             safariAssociations = .init()
             safariEvidence = nil
             safariFrames = .init()
@@ -158,8 +160,9 @@ final class BrowserTabsModel: ObservableObject {
         updateSafariAssociations()
         let now = ProcessInfo.processInfo.systemUptime
         pendingSelections.expire(now: now)
+        pendingCloses.expire(now: now)
         let next = cache.snapshots.mapValues { value in
-            browserTabsShown(pendingSelections.apply(value), read: cache.observed[value.windowId], now: now,
+            browserTabsShown(pendingCloses.apply(pendingSelections.apply(value)), read: cache.observed[value.windowId], now: now,
                 safari: safariAssociations, iconOrigins: iconsEnabled ? iconAssociations.origins : [:])
         }
         if snapshots != next { snapshots = next }
@@ -237,7 +240,8 @@ final class BrowserTabsModel: ObservableObject {
     }
 
     /// Closes one browser tab, as middle-clicking it in a browser's tab bar does. The window
-    /// stays where it is; the list drops the tab at once and rereads it right after.
+    /// stays where it is; the tab shows as closing until the browser answers, and leaves the list
+    /// only once it's seen gone (`BrowserTabActionFollowUp`).
     func close(_ target: BrowserTabTarget) {
         guard config.workspaceSidebar.usesTabsList, config.workspaceSidebar.browserTabs,
               TrayMenuModel.shared.isEnabled, !serverArgs.isReadOnly,
@@ -245,29 +249,22 @@ final class BrowserTabsModel: ObservableObject {
               let app = window.app as? MacApp
         else { return }
         let token = generation
+        pendingCloses.begin(target, now: ProcessInfo.processInfo.systemUptime)
+        publish()
         Task { [weak self] in
-            let closed = (try? await app.closeBrowserTab(target))?.isDispatched == true
+            let result = (try? await app.closeBrowserTab(target)) ?? .notDispatched(.cancelled)
             guard let self, self.generation == token else { return }
-            self.schedule.reset(target.windowId)
-            guard closed else {
-                MessageModel.shared.message = Message(description: "Close Tab Error",
-                    body: "\(window.app.name ?? "The browser") didn't offer a way to close this tab.")
-                return
-            }
-            self.cache.removeTab(target)
+            let followUp = BrowserTabActionFollowUp(result, kind: .close, browser: window.app.name ?? "The browser")
+            self.pendingCloses.end(target)
+            if followUp.applies { self.cache.removeTab(target) }
+            self.reread(target.windowId, unknown: followUp.rereads)
             self.publish()
-            // A tab can ask before it closes, such as for unsent form data. In a window that
-            // isn't on screen the prompt would stay out of view, so bring it forward, as closing
-            // a hidden window does. A read that still lists the tab restores its row.
-            guard Window.get(byId: target.windowId) === window, windowIsHiddenFromView(window) else { return }
-            for _ in 0..<windowMiddleClickSheetPollCount {
-                do { try await Task.sleep(for: windowMiddleClickSheetPollInterval) } catch { return }
-                guard Window.get(byId: target.windowId) === window else { return }
-                if (try? await app.windowShowsSheet(target.windowId)) == true {
-                    focusWindowFromSidebar(target.windowId)
-                    return
-                }
-            }
+            guard let message = followUp.message else { return }
+            // A tab can ask before it closes, such as for unsent form data: its prompt says why it's
+            // still open. In a window that isn't on screen the prompt would stay out of view, so
+            // it's brought forward, as closing a hidden window does.
+            if result == .dispatched(.unknown), await self.closePromptShows(target, window: window, app: app) { return }
+            MessageModel.shared.message = Message(description: "Close Tab Error", body: message)
         }
     }
 
@@ -286,25 +283,48 @@ final class BrowserTabsModel: ObservableObject {
             return
         }
         guard browserTabSelectionAllowed(workspace: workspace, monitorScopeId: monitorScopeId) else { return }
-        // Show the chosen tab as selected now, not once the next read confirms it.
+        // Show the chosen tab as pending now, and as selected once the browser is seen to select it.
         let attempt = pendingSelections.begin(target, now: ProcessInfo.processInfo.systemUptime)
         publish()
         let token = generation
         selectionTask = Task { [weak self] in
-            // Cancelled or not, a press that ran reports whether it did; none that didn't switched the tab.
-            let pressed = (try? await app.selectBrowserTab(target))?.isDispatched == true
+            // Cancelled or not, a press that ran says what it did; one that didn't switched nothing.
+            let result = (try? await app.selectBrowserTab(target)) ?? .notDispatched(.cancelled)
             guard let self, self.generation == token else { return }
-            self.pendingSelections.settle(attempt: attempt, windowId: target.windowId, refused: !pressed,
+            let followUp = BrowserTabActionFollowUp(result, kind: .select, browser: window.app.name ?? "The browser")
+            self.pendingSelections.settle(attempt: attempt, windowId: target.windowId, confirmed: followUp.applies,
                 now: ProcessInfo.processInfo.systemUptime)
-            if !pressed { self.publish() }
-            self.schedule.reset(target.windowId)
+            self.publish()
+            self.reread(target.windowId, unknown: followUp.rereads)
             guard !Task.isCancelled else { return }
+            if let message = followUp.message { MessageModel.shared.message = Message(description: "Switch Tab Error", body: message) }
             guard Window.get(byId: target.windowId) === window else { return }
             if let workspace = window.toLiveFocusOrNil()?.workspace,
                !browserTabSelectionAllowed(workspace: workspace, monitorScopeId: monitorScopeId) { return }
             // A stale tab focuses only its original window. No index/title fallback.
             focusWindowFromSidebar(target.windowId, targetMonitorScopeId: monitorScopeId)
         }
+    }
+
+    /// Reads the window again soon after an action: at once, and again after any read under way,
+    /// when what the action did isn't known.
+    private func reread(_ windowId: UInt32, unknown: Bool) {
+        if unknown { schedule.invalidate(windowId, now: ProcessInfo.processInfo.systemUptime) } else { schedule.reset(windowId) }
+    }
+
+    /// Whether a tab asked to close shows a prompt first: brought forward if its window is out of view.
+    private func closePromptShows(_ target: BrowserTabTarget, window: Window, app: MacApp) async -> Bool {
+        guard Window.get(byId: target.windowId) === window else { return false }
+        guard windowIsHiddenFromView(window) else { return (try? await app.windowShowsSheet(target.windowId)) == true }
+        for _ in 0..<windowMiddleClickSheetPollCount {
+            do { try await Task.sleep(for: windowMiddleClickSheetPollInterval) } catch { return false }
+            guard Window.get(byId: target.windowId) === window else { return false }
+            if (try? await app.windowShowsSheet(target.windowId)) == true {
+                focusWindowFromSidebar(target.windowId)
+                return true
+            }
+        }
+        return false
     }
 }
 

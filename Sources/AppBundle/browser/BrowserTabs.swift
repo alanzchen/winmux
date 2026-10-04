@@ -45,7 +45,14 @@ struct BrowserTab: Hashable, Identifiable, Sendable {
     /// Whether it's playing sound or muted, as the Safari extension or a Chromium tab's
     /// accessible name says.
     var audio: BrowserTabAudio? = nil
+    /// What the sidebar asked of it that the browser hasn't yet been seen to do.
+    var pending: BrowserTabPendingAction? = nil
     var id: UUID { target.tabId }
+}
+
+enum BrowserTabPendingAction: Hashable, Sendable {
+    case selecting
+    case closing
 }
 
 struct BrowserWindowTabs: Equatable, Sendable {
@@ -122,10 +129,11 @@ struct BrowserTabSnapshotCache {
     }
 }
 
-/// The tab just chosen in the sidebar, shown as its window's selected tab at once. Only reads begun
-/// after its press count: one that shows the tab selected confirms it, and once the browser has
-/// had a moment to redraw its tab strip, any read shows what's really selected. Reads begun sooner
-/// can still show a tab from before, even one an earlier click chose, and would flash it back.
+/// The tab just chosen in the sidebar: shown as pending until the browser is seen to select it,
+/// then as its window's selected tab. Only reads begun after that count: one that shows the tab
+/// selected confirms it, and once the browser has had a moment to redraw its tab strip, any read
+/// shows what's really selected. Reads begun sooner can still show a tab from before, even one an
+/// earlier click chose, and would flash it back. A choice not seen done shows the real selection.
 struct BrowserTabPendingSelections {
     private struct Entry {
         let target: BrowserTabTarget
@@ -145,10 +153,11 @@ struct BrowserTabPendingSelections {
         return attempts
     }
 
-    /// The press is over. A refused one shows the real selection at once; otherwise reads decide.
-    mutating func settle(attempt: Int, windowId: UInt32, refused: Bool, now: TimeInterval) {
+    /// The press is over: `confirmed` if the browser was seen to select the tab. One that wasn't
+    /// shows the real selection at once; otherwise reads decide.
+    mutating func settle(attempt: Int, windowId: UInt32, confirmed: Bool, now: TimeInterval) {
         guard entries[windowId]?.attempt == attempt else { return }
-        if refused { entries[windowId] = nil } else { entries[windowId]?.switched = now }
+        if confirmed { entries[windowId]?.switched = now } else { entries[windowId] = nil }
     }
 
     mutating func observe(_ snapshot: BrowserWindowTabs, readStarted: TimeInterval) {
@@ -166,10 +175,79 @@ struct BrowserTabPendingSelections {
         var snapshot = snapshot
         snapshot.tabs = snapshot.tabs.map { tab in
             var tab = tab
-            tab.isSelected = tab.target == entry.target
+            if entry.switched == nil {
+                if tab.target == entry.target { tab.pending = .selecting }
+            } else {
+                tab.isSelected = tab.target == entry.target
+            }
             return tab
         }
         return snapshot
+    }
+}
+
+/// Tabs the sidebar asked the browser to close, shown as closing until the answer comes. A tab
+/// leaves the list only once it's seen gone, or at the next read that no longer lists it.
+struct BrowserTabPendingCloses {
+    private var entries: [BrowserTabTarget: TimeInterval] = [:]
+    static let lifetime: TimeInterval = 3
+
+    mutating func begin(_ target: BrowserTabTarget, now: TimeInterval) { entries[target] = now }
+    mutating func end(_ target: BrowserTabTarget) { entries[target] = nil }
+
+    mutating func expire(now: TimeInterval) {
+        entries = entries.filter { now - $0.value < Self.lifetime }
+    }
+
+    func apply(_ snapshot: BrowserWindowTabs) -> BrowserWindowTabs {
+        guard entries.keys.contains(where: { $0.windowId == snapshot.windowId }) else { return snapshot }
+        var snapshot = snapshot
+        snapshot.tabs = snapshot.tabs.map { tab in
+            var tab = tab
+            if entries[tab.target] != nil { tab.pending = .closing }
+            return tab
+        }
+        return snapshot
+    }
+}
+
+/// What the sidebar does once a select or close comes back, by what it did.
+struct BrowserTabActionFollowUp: Equatable {
+    /// Show the tab selected, or take it off the list, now: only once it's seen done.
+    let applies: Bool
+    /// Read the window again at once, as what happened isn't known, or the list is out of date.
+    let rereads: Bool
+    /// One short line to tell the user, never the tab's title; nil when it went as asked or a
+    /// later action called it off.
+    let message: String?
+
+    init(_ result: BrowserTabActionResult, kind: BrowserTabActionKind, browser: String) {
+        applies = result == .dispatched(.confirmed)
+        rereads = !applies && result != .notDispatched(.cancelled)
+        message = browserTabActionMessage(result, kind: kind, browser: browser)
+    }
+}
+
+/// The line the sidebar shows when a select or close didn't go as asked, by why. Kept together
+/// here, so they can be localized at once.
+func browserTabActionMessage(_ result: BrowserTabActionResult, kind: BrowserTabActionKind, browser: String) -> String? {
+    let select = kind == .select
+    switch result {
+        case .dispatched(.confirmed), .notDispatched(.cancelled):
+            return nil
+        case .notDispatched(.changed), .notDispatched(.unaccounted), .failed(.invalidElement):
+            return "This tab changed or moved in \(browser). The list is being refreshed; try again."
+        case .notDispatched(.collapsedTopic):
+            return "This tab is in a collapsed topic. Open the topic in \(browser) to \(select ? "switch to" : "close") it; " +
+                "the sidebar can't do that yet."
+        case .notDispatched(.noResponse), .failed(.timedOut):
+            return "\(browser) didn't respond. Try again."
+        case .dispatched(.unknown):
+            return select ? "\(browser) didn't switch to this tab." : "\(browser) didn't confirm closing this tab. The list is being refreshed."
+        case .notDispatched(.noAction), .notDispatched(.outOfView):
+            return select ? "\(browser) didn't switch to this tab." : "\(browser) didn't offer a way to close this tab."
+        case .failed(.unsupported), .failed(.other):
+            return select ? "\(browser) didn't switch to this tab." : "\(browser) didn't close this tab."
     }
 }
 

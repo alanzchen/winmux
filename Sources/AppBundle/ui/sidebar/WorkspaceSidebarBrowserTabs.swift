@@ -72,7 +72,7 @@ struct WorkspaceSidebarBrowserTabRowView: View {
                 }.frame(width: workspaceSidebarTabIconSize, height: workspaceSidebarTabIconSize)
                 Text(tab.title)
                     .font(.system(size: 13, weight: isShown ? .medium : .regular))
-                    .foregroundStyle(Color.primary.opacity(isShown ? 0.95 : 0.82))
+                    .foregroundStyle(Color.primary.opacity(isShown ? 0.95 : tab.pending == .closing ? 0.45 : 0.82))
                     .lineLimit(1).truncationMode(.tail)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 if let audio = tab.audio {
@@ -84,7 +84,10 @@ struct WorkspaceSidebarBrowserTabRowView: View {
                         .transition(.opacity)
                 }
                 Group {
-                    if tab.isSelected {
+                    // Asked of the browser, not yet seen done.
+                    if tab.pending != nil {
+                        ProgressView().controlSize(.mini).opacity(isHovered ? 0 : 1)
+                    } else if tab.isSelected {
                         Image(systemName: "checkmark").font(.system(size: 9, weight: .semibold)).foregroundStyle(.secondary)
                             .opacity(isHovered ? 0 : 1)
                     }
@@ -135,6 +138,7 @@ struct WorkspaceSidebarBrowserTabRowView: View {
         .help(tab.title)
         .accessibilityLabel(workspaceSidebarBrowserTabAccessibilityLabel(tab, appName: window.appName))
         .accessibilityAddTraits(isShown ? .isSelected : [])
+        .accessibilityValue(tab.pending == .selecting ? "Switching" : tab.pending == .closing ? "Closing" : "")
         .id(tab.target.rowId)
     }
 
