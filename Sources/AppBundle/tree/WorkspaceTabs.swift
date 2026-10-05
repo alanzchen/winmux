@@ -109,8 +109,9 @@ func workspaceTabNeighbor(of workspace: Workspace) -> Workspace? {
 }
 
 /// Tabs mode: a tab whose windows have all gone, however they went. It closes once it's off
-/// screen. A pinned or saved tab stays, as does a new tab that hasn't had a window yet, and
-/// the tab the launcher is choosing an app for.
+/// screen. A pinned tab stays, as does a saved one unless its last window closed (see
+/// `workspaceTabClosesWithLastWindow`), a new tab that hasn't had a window yet, and the tab the
+/// launcher is choosing an app for.
 @MainActor
 func workspaceTabWasLeftEmpty(_ tab: Workspace) -> Bool {
     workspaceTabWasLeftEmptyIgnoringLauncher(tab) && WorkspaceLauncherPanel.shared.workspace !== tab
@@ -143,8 +144,8 @@ func workspaceTabReplacingEmptyTab(_ tab: Workspace) -> Workspace? {
     return nearest.first(where: workspaceHasLifecycleWindows) ?? nearest.first(where: \.isKeptWhenEmpty)
 }
 
-/// Closing a tab's last window moves to the next tab, as closing a browser tab does. A saved
-/// workspace stays: like a pinned tab, it's kept even when empty.
+/// Closing a tab's last window moves to the next tab, as closing a browser tab does. A pinned tab
+/// stays, kept even when empty; so does a saved one, unless it closes with its last window.
 @MainActor
 func workspaceTabAfterLastWindowClosed(_ workspace: Workspace) -> Workspace? {
     guard config.usesBrowserTabs, !workspace.isArchived, !workspace.isKeptWhenEmpty,

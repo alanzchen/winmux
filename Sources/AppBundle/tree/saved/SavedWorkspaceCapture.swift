@@ -235,6 +235,24 @@ private func slotOwnerIsRunning(_ slot: SavedWindowSlot, facts: SavedWorkspaceCa
     return facts.runningApps[slot.bundleId]?.contains { $0.pid == pid } == true
 }
 
+/// The app quit: the slot waits for its next launch. If a newer instance runs instead, it waits
+/// until that instance has shown windows and had its chance to bring this one back.
+@MainActor
+private func savedSlotAwaitsItsAppsNextLaunch(_ slot: SavedWindowSlot, facts: SavedWorkspaceCaptureFacts) -> Bool {
+    guard !slotOwnerIsRunning(slot, facts: facts) else { return false }
+    let instances = facts.runningApps[slot.bundleId] ?? []
+    return !instances.contains { facts.registeredWindowPids.contains($0.pid) || savedWorkspaceRuntime.firstWindowSeenByPid[$0.pid] != nil }
+}
+
+/// The slot's app quit and hasn't opened again, or has only just: its windows may still come back
+/// to the slot. `WorkspaceTabClosePolicy.waitsForAppRelaunch` keeps a tab for that.
+@MainActor
+func savedSlotWaitsForItsAppToRelaunch(_ slot: SavedWindowSlot, facts: SavedWorkspaceCaptureFacts) -> Bool {
+    guard !slotOwnerIsRunning(slot, facts: facts) else { return false }
+    return savedSlotAwaitsItsAppsNextLaunch(slot, facts: facts) ||
+        savedWorkspaceRuntime.isAnyInstanceArmed(bundleId: slot.bundleId, runningApps: facts.runningApps, at: facts.now)
+}
+
 /// Whether a saved slot whose window isn't in the workspace keeps its place.
 ///
 /// Cmd-Q (the app quit) keeps it: the app's windows come back when it relaunches. Cmd-W (the
@@ -270,13 +288,7 @@ func savedSlotKeepsWaiting(
         // Alive but not registered yet (a refresh is still registering windows).
         if runtime.aliveWindowPidsDuringRefresh[windowId] == pid { return true }
     }
-    // The app quit: wait for its next launch. If a newer instance runs instead, the slot waits
-    // until that instance has shown windows and had its chance to bring this one back.
-    if !slotOwnerIsRunning(slot, facts: facts) {
-        let instances = facts.runningApps[slot.bundleId] ?? []
-        let hasShownWindows = instances.contains { facts.registeredWindowPids.contains($0.pid) || runtime.firstWindowSeenByPid[$0.pid] != nil }
-        if !hasShownWindows { return true }
-    }
+    if savedSlotAwaitsItsAppsNextLaunch(slot, facts: facts) { return true }
     if facts.startupRestoreActive || runtime.isAnyInstanceArmed(bundleId: slot.bundleId, runningApps: facts.runningApps, at: facts.now) {
         return true
     }

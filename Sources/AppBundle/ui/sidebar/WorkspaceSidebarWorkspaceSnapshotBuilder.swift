@@ -12,8 +12,10 @@ func buildWorkspaceSidebarWorkspaceViewModels(
     let runningApps = savedWorkspaceStore.isEmpty ? nil : savedWorkspaceRuntime.environment.runningApps()
     for workspace in orderedWorkspacesForPresentation() {
         // Keep automatic identities reserved for app restoration without showing empty
-        // tabs after their windows close. Explicitly kept tabs and the active empty tab stay.
-        if savedWorkspaceStore.record(named: workspace.name)?.keepWhenEmpty == false,
+        // tabs after their windows close, nor a saved tab closing with its last window.
+        // Explicitly kept tabs and the active empty tab stay.
+        if let record = savedWorkspaceStore.record(named: workspace.name),
+           record.keepWhenEmpty == false || workspaceTabClosesWithLastWindow(workspace),
            !isUserFacingWorkspace(workspace, focusedWorkspace: currentFocus.workspace) { continue }
         workspaces.append(await makeWorkspaceSidebarWorkspaceViewModel(
             workspace,

@@ -41,6 +41,7 @@ final class WorkspaceTabsCloseWithLastWindowTest: XCTestCase {
     override func tearDown() async throws {
         if let defaultAppIsFrontmost { newWindowAppIsFrontmost = defaultAppIsFrontmost }
         setServerReadOnlyForTests(false)
+        WorkspaceTabClosePolicy.waitsForAppRelaunch = false
         NewWindowIntentRegistry.shared.resetForTests()
         workspaceSidebarOrganizationStore = .init()
         setMonitorsForTests(nil)
@@ -305,6 +306,80 @@ final class WorkspaceTabsCloseWithLastWindowTest: XCTestCase {
         resumeSavedWorkspaceCapture(after: .screenLocked)
         later(2)
         assertStays(b)
+    }
+
+    func testATabWaitsAMomentAndAWindowBackInTimeKeepsIt() throws {
+        let (_, b, _, window) = threeTabs()
+        try rename(b)
+        close(window)
+        later(WorkspaceTabClosePolicy.delay / 2)
+        assertStays(b)
+        // The window is put back, as the closed-windows cache does once the lock screen is gone.
+        window.bind(to: b.rootTilingContainer, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
+        later(2)
+        assertStays(b)
+        XCTAssertNil(b.lastWindowClosedAt)
+        XCTAssertEqual(config.workspaceSidebar.workspaceLabels[b.name], "Notes")
+    }
+
+    func testATabWaitingToCloseWhenTheScreenLocksStays() throws {
+        let (_, b, _, window) = threeTabs()
+        try rename(b)
+        close(window)
+        later(WorkspaceTabClosePolicy.delay / 4)
+        suspendSavedWorkspaceCapture(.screenLocked)
+        later(2)
+        resumeSavedWorkspaceCapture(after: .screenLocked)
+        later(2)
+        assertStays(b)
+    }
+
+    func testWindowsOfSeveralRunningAppsVanishingAtOnceDontCloseTheirTabs() throws {
+        let (a, b, _, window) = threeTabs()
+        let running: (Window) -> Bool = { _ in true }
+        let first = try XCTUnwrap(a.allLeafWindowsRecursive.first)
+        XCTAssertFalse(vanishedWindowsCloseTheirTabs([first, window], appIsRunning: running), "The screen is locking")
+        XCTAssertTrue(vanishedWindowsCloseTheirTabs([window], appIsRunning: running))
+        XCTAssertTrue(vanishedWindowsCloseTheirTabs([first, window], appIsRunning: { $0 === window }),
+            "An app that quit took its own windows")
+        try rename(b)
+        window.removeClosedWindowFromTree(closesItsTab: false)
+        later(2)
+        assertStays(b)
+    }
+
+    func testSidebarModeKeepsSavedWorkspaces() throws {
+        let (_, b, _, window) = threeTabs()
+        config.workspaceSidebar.mode = .sidebar
+        try rename(b)
+        close(window)
+        later(2)
+        assertStays(b)
+    }
+
+    // MARK: The policy for an app that quit
+
+    func testWithTheRelaunchPolicyOnATabWaitsForItsAppThatQuitAndGetsItsWindowBack() async throws {
+        WorkspaceTabClosePolicy.waitsForAppRelaunch = true
+        let (a, b, _, window) = threeTabs()
+        try rename(b)
+        editorQuits()
+        close(window)
+        later(SavedWorkspaceTiming.closedWindowGrace + 1)
+        assertStays(b)
+        let launched = clock
+        running[editorId] = [SavedRunningApp(pid: 502, launchDate: launched)]
+        let relaunched = TestApp(pid: 502, bundleId: editorId, name: "Editor", launchDate: launched)
+        XCTAssertTrue(a.focusWorkspace())
+        let next = TestWindow.new(id: 20, parent: a.rootTilingContainer, app: relaunched, title: "Notes")
+        let restored = try await restoreOrDetectNewWindow(next, isRegularWindow: true)
+        XCTAssertTrue(restored)
+        XCTAssertTrue(next.nodeWorkspace === b, "Back in its tab, as before")
+        Workspace.reconcileWorkspaceState()
+
+        close(next)
+        later(2)
+        assertClosed(b)
     }
 
     // MARK: The sidebar

@@ -6,16 +6,21 @@ extension Workspace {
     @MainActor
     var isSaved: Bool { savedWorkspaceStore.contains(workspaceName: name) }
 
+    /// A saved tab stays when its windows go, unless it closes with its last window: see
+    /// `workspaceTabClosesWithLastWindow`.
     @MainActor
     var isKeptWhenEmpty: Bool {
-        isConfiguredPersistent || savedWorkspaceStore.record(named: name).map { $0.keepWhenEmpty != false } == true
+        isConfiguredPersistent || !workspaceTabClosesWithLastWindow(self) &&
+            savedWorkspaceStore.record(named: name).map { $0.keepWhenEmpty != false } == true
     }
 
     /// Let startup/title routing finish before deciding that an automatically grouped tab
-    /// is empty. In read-only mode its persisted identity must remain reserved.
+    /// is empty. In read-only mode its persisted identity must remain reserved. A tab closing
+    /// with its last window waits only while that may not have been a close.
     @MainActor
     var isAwaitingSavedWorkspaceRestoration: Bool {
         guard let record = savedWorkspaceStore.record(named: name) else { return false }
+        if workspaceTabClosesWithLastWindow(self) { return workspaceTabCloseWaits(self, record: record) }
         return isStartup || savedWorkspaceRuntime.isStartupRestoreActive ||
             !savedWorkspaceRuntime.windowsAwaitingTitle.isEmpty || savedWorkspaceStore.isReadOnly ||
             workspaceSidebarOrganizationStore.readOnlyReason != nil || savedWorkspaceRuntime.isCaptureSuspended ||

@@ -254,17 +254,16 @@ func installSavedWorkspaceObservers() {
         observe(workspaceCenter, NSWorkspace.willPowerOffNotification) {
             savedWorkspaceStore.flushNow()
             savedWorkspaceRuntime.frozenForShutdownUntil = savedWorkspaceRuntime.now.addingTimeInterval(SavedWorkspaceTiming.shutdownFreeze)
+            keepTabsWaitingToClose()
         },
         observe(workspaceCenter, NSWorkspace.willSleepNotification) {
-            savedWorkspaceStore.flushNow()
-            savedWorkspaceRuntime.suspensions.insert(.asleep)
+            suspendSavedWorkspaceCapture(.asleep)
         },
         observe(workspaceCenter, NSWorkspace.didWakeNotification) {
             resumeSavedWorkspaceCapture(after: .asleep)
         },
         observe(workspaceCenter, NSWorkspace.sessionDidResignActiveNotification) {
-            savedWorkspaceStore.flushNow()
-            savedWorkspaceRuntime.suspensions.insert(.sessionInactive)
+            suspendSavedWorkspaceCapture(.sessionInactive)
         },
         observe(workspaceCenter, NSWorkspace.sessionDidBecomeActiveNotification) {
             resumeSavedWorkspaceCapture(after: .sessionInactive)
@@ -276,13 +275,20 @@ func installSavedWorkspaceObservers() {
     let distributedCenter = DistributedNotificationCenter.default()
     runtime.distributedObserverTokens += [
         observe(distributedCenter, Notification.Name("com.apple.screenIsLocked")) {
-            savedWorkspaceStore.flushNow()
-            savedWorkspaceRuntime.suspensions.insert(.screenLocked)
+            suspendSavedWorkspaceCapture(.screenLocked)
         },
         observe(distributedCenter, Notification.Name("com.apple.screenIsUnlocked")) {
             resumeSavedWorkspaceCapture(after: .screenLocked)
         },
     ]
+}
+
+/// Windows may vanish while capture is suspended, and just before, without being closed.
+@MainActor
+func suspendSavedWorkspaceCapture(_ suspension: SavedWorkspaceSuspension) {
+    savedWorkspaceStore.flushNow()
+    savedWorkspaceRuntime.suspensions.insert(suspension)
+    keepTabsWaitingToClose()
 }
 
 @MainActor

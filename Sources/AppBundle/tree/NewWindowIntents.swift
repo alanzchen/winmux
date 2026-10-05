@@ -291,6 +291,14 @@ final class NewWindowIntentRegistry {
 
     func isPending(intentId id: Int) -> Bool { intents.contains { $0.id == id } }
 
+    /// Whether a window asked for `workspace` may still come: a request waiting for its window, or
+    /// one whose window is claimed and not placed yet.
+    func isWaitingForWindow(in workspace: Workspace) -> Bool {
+        intents.contains { $0.targetWorkspaceId == workspace.id } ||
+            claims.values.contains { !$0.isWithdrawn && $0.targetWorkspace === workspace } ||
+            deferredPlacements.values.contains { $0.claim.targetWorkspace === workspace }
+    }
+
     /// Until the request ends, including while its claimed window is still being detected.
     /// A withdrawn claim is kept for detection to see until it expires.
     func deadline(forIntent id: Int) -> TimeInterval? {

@@ -461,10 +461,10 @@ private func refresh() async throws {
     let mapping = try await MacApp.refreshAllAndGetAliveWindowIds(frontmostAppBundleId: NSWorkspace.shared.frontmostApplication?.bundleIdentifier)
     let aliveWindowIds = mapping.values.flatMap { $0 }.toSet()
 
-    for window in MacWindow.allWindows {
-        if !aliveWindowIds.contains(window.windowId) {
-            window.garbageCollect(skipClosedWindowsCache: false)
-        }
+    let vanished = MacWindow.allWindows.filter { !aliveWindowIds.contains($0.windowId) }
+    let closesTabs = vanishedWindowsCloseTheirTabs(vanished) { ($0 as? MacWindow)?.macApp.nsApp.isTerminated == false }
+    for window in vanished {
+        window.garbageCollect(skipClosedWindowsCache: false, closesItsTab: closesTabs)
     }
     // Saved-workspace routing must not give a slot whose window is alive but not registered yet
     // to another window of the same app.

@@ -107,13 +107,14 @@ final class MacWindow: Window {
 
     // skipClosedWindowsCache is an optimization when it's definitely not necessary to cache closed window.
     //                        If you are unsure, it's better to pass `false`
+    // closesItsTab: false when the window may not have closed. See `vanishedWindowsCloseTheirTabs`.
     @MainActor
-    func garbageCollect(skipClosedWindowsCache: Bool) {
+    func garbageCollect(skipClosedWindowsCache: Bool, closesItsTab: Bool = true) {
         if MacWindow.allWindowsMap.removeValue(forKey: windowId) == nil {
             return
         }
         if !skipClosedWindowsCache { cacheClosedWindowIfNeeded() }
-        removeClosedWindowFromTree()
+        removeClosedWindowFromTree(closesItsTab: closesItsTab)
     }
 
     @MainActor override var title: String { get async throws { try await macApp.getAxTitle(windowId) ?? "" } }
