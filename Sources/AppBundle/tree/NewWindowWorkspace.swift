@@ -6,13 +6,6 @@ import Common
     window.app.pid == NSWorkspace.shared.frontmostApplication?.processIdentifier
 }
 
-/// What a window a refresh listed but hasn't registered yet is, as its registration will classify
-/// it; nil when its app isn't known. Tests replace it.
-@MainActor var registeringWindowType: @MainActor (_ windowId: UInt32, _ pid: Int32) async throws -> AxUiElementWindowType? = { windowId, pid in
-    guard let app = MacApp.allAppsMap[pid] else { return nil }
-    return try await app.getAxUiElementWindowType(windowId, getWindowLevel(for: windowId))
-}
-
 /// With `open-new-windows-in-new-workspace`, a window the user opens gets its own empty
 /// workspace in the same project and display; in Tabs mode, a new tab right after the one it
 /// opened from. Runs after `on-window-detected`, so a rule that already moved the window to
@@ -35,20 +28,14 @@ func shouldMoveNewWindowToNewWorkspace(_ window: Window, detectedIn initialWorks
 /// window the pin would take. Its saved place may have expired while the app hid the window, or
 /// the app opens a new one.
 ///
-/// A refresh registers windows one by one. Other windows of the app it listed but hasn't
-/// registered yet are classified first, as their registration will: popups don't count, while
-/// windows, dialogs and any AX can't tell about do. The window then goes to the pin only if
-/// nothing has placed it meanwhile and the pin is still free. Returns whether it went there.
+/// A refresh registers windows one by one. While a refresh still has another window of the app to
+/// register, in any of its processes, that one may be a popup or a window: this one then gets its
+/// new tab, as before, even if the other turns out to be a popup. Decided at once, with nothing to
+/// wait for. Returns whether it went to the pin.
 @MainActor
-func moveNewWindowToEmptyPinIfNeeded(_ window: Window, detectedIn initialWorkspace: Workspace?, isNewRegularWindow: Bool) async -> Bool {
-    guard emptyPinHome(for: window, detectedIn: initialWorkspace, isNewRegularWindow: isNewRegularWindow) != nil else { return false }
-    let registering = windowsBeingRegistered(with: window)
-    for (windowId, pid) in registering {
-        guard (try? await registeringWindowType(windowId, pid)) == .popup else { return false }
-    }
-    // Asking took a while: the window, its tab, the pin and the app's windows may have changed.
-    guard windowsBeingRegistered(with: window).allSatisfy({ other in registering.contains { $0.windowId == other.windowId } }),
-          let (pin, monitor) = emptyPinHome(for: window, detectedIn: initialWorkspace, isNewRegularWindow: isNewRegularWindow)
+func moveNewWindowToEmptyPinIfNeeded(_ window: Window, detectedIn initialWorkspace: Workspace?, isNewRegularWindow: Bool) -> Bool {
+    guard let (pin, monitor) = emptyPinHome(for: window, detectedIn: initialWorkspace, isNewRegularWindow: isNewRegularWindow),
+          !appHasWindowsBeingRegistered(window)
     else { return false }
     // A shared pin with no window isn't on any display yet: it comes to this one, as a click
     // brings it, so the window stays on the display it opened on.
@@ -106,16 +93,16 @@ private func appHasOtherRegisteredWindow(_ window: Window, bundleId: String) -> 
     }
 }
 
-/// The other windows of the app, in any of its processes, that the refreshes under way listed
-/// and haven't registered yet, by id.
+/// Whether the refreshes under way listed another window of the app, in any of its processes,
+/// that they haven't registered yet.
 @MainActor
-private func windowsBeingRegistered(with window: Window) -> [(windowId: UInt32, pid: Int32)] {
+private func appHasWindowsBeingRegistered(_ window: Window) -> Bool {
     let runtime = savedWorkspaceRuntime
     let bundleId = window.app.rawAppBundleId
-    return runtime.aliveWindowPidsDuringRefresh.filter { windowId, pid in
+    return runtime.aliveWindowPidsDuringRefresh.contains { windowId, pid in
         windowId != window.windowId && Window.get(byId: windowId) == nil &&
             (pid == window.app.pid || bundleId != nil && runtime.bundleIdsByPidDuringRefresh[pid] == bundleId)
-    }.map { (windowId: $0.key, pid: $0.value) }.sorted { $0.windowId < $1.windowId }
+    }
 }
 
 @MainActor

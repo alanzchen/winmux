@@ -16,11 +16,8 @@ final class SavedWorkspaceEmptyPinTest: XCTestCase {
         [telegram: [SavedRunningApp(pid: 18293, launchDate: savedTestNow.addingTimeInterval(-86400))]]
     }
 
-    private var defaultRegisteringWindowType: (@MainActor (UInt32, Int32) async throws -> AxUiElementWindowType?)?
-
     override func setUp() async throws {
         defaultAppIsFrontmost = newWindowAppIsFrontmost
-        defaultRegisteringWindowType = registeringWindowType
         setUpWorkspacesForTests()
         resetWorkspaceTabsForTests()
         setSavedWorkspaceTestEnvironment(runningApps: running)
@@ -34,7 +31,6 @@ final class SavedWorkspaceEmptyPinTest: XCTestCase {
 
     override func tearDown() async throws {
         if let defaultAppIsFrontmost { newWindowAppIsFrontmost = defaultAppIsFrontmost }
-        if let defaultRegisteringWindowType { registeringWindowType = defaultRegisteringWindowType }
         NewWindowIntentRegistry.shared.resetForTests()
         workspaceSidebarOrganizationStore = .init()
         setMonitorsForTests(nil)
@@ -111,15 +107,6 @@ final class SavedWorkspaceEmptyPinTest: XCTestCase {
     /// That refresh has registered everything it listed, or stopped.
     private func refreshEnds(_ listing: UInt64) {
         savedWorkspaceRuntime.endRefreshWindowListing(listing)
-    }
-
-    /// What AX says each window still being registered is, as its registration will classify it.
-    /// Records which it was asked about.
-    private func classifying(_ types: [UInt32: AxUiElementWindowType], asked: (@MainActor (UInt32) -> Void)? = nil) {
-        registeringWindowType = { windowId, _ in
-            asked?(windowId)
-            return types[windowId]
-        }
     }
 
     /// Detection of a popup the app shows.
@@ -226,24 +213,11 @@ final class SavedWorkspaceEmptyPinTest: XCTestCase {
         XCTAssertTrue(window.nodeWorkspace === pin)
     }
 
-    func testAWindowStillRegisteringThatCantBeClassifiedKeepsItOut() async throws {
-        // Whatever it is, it can't be ruled out.
+    func testAWindowTheRefreshListedButNeverRegisteredKeepsItOut() async throws {
+        // Whatever it was, it can't be ruled out.
         let pin = try emptyTab("22")
         let work = workOnAnotherTab()
         let listing = refreshLists([571: telegramApp, 572: telegramApp])
-        classifying([:])
-
-        let window = try await shows(571)
-        refreshEnds(listing)
-
-        assertInANewTab(window, not: [pin, work])
-    }
-
-    func testAWindowStillRegisteringWhoseClassificationFailsKeepsItOut() async throws {
-        let pin = try emptyTab("22")
-        let work = workOnAnotherTab()
-        let listing = refreshLists([571: telegramApp, 580: telegramApp])
-        registeringWindowType = { _, _ in throw CancellationError() }
 
         let window = try await shows(571)
         refreshEnds(listing)
@@ -347,34 +321,44 @@ final class SavedWorkspaceEmptyPinTest: XCTestCase {
 
     // MARK: Windows the refresh hasn't registered yet
 
-    func testAPopupStillRegisteringDoesntKeepTheWindowFromThePin() async throws {
+    func testAPopupStillRegisteringKeepsTheWindowOutOfThePin() async throws {
+        // A known limit, as before empty pins: the refresh hasn't classified 580 yet, so it may
+        // be a window, and the decision doesn't wait for it. The window gets its new tab.
         let pin = try emptyTab("22")
-        _ = workOnAnotherTab()
-        let tabCount = Workspace.all.count
+        let work = workOnAnotherTab()
         let listing = refreshLists([571: telegramApp, 580: telegramApp])
-        classifying([580: .popup])
 
         let window = try await shows(571)
         try await showsPopup(580)
         refreshEnds(listing)
 
-        XCTAssertTrue(window.nodeWorkspace === pin)
-        XCTAssertEqual(Workspace.all.count, tabCount, "No new tab")
+        assertInANewTab(window, not: [pin, work])
+        XCTAssertTrue(pin.isEffectivelyEmpty)
     }
 
     func testAPopupRegisteredBeforeTheWindowDoesntKeepItFromThePin() async throws {
         let pin = try emptyTab("22")
         _ = workOnAnotherTab()
         let listing = refreshLists([571: telegramApp, 580: telegramApp])
-        var asked: [UInt32] = []
-        classifying([:]) { asked.append($0) }
 
         try await showsPopup(580)
         let window = try await shows(571)
         refreshEnds(listing)
 
         XCTAssertTrue(window.nodeWorkspace === pin)
-        XCTAssertEqual(asked, [], "A registered popup needs no asking")
+    }
+
+    func testAPopupAnotherProcessOfTheAppRegisteredBeforeTheWindowDoesntKeepItFromThePin() async throws {
+        let pin = try emptyTab("22")
+        _ = workOnAnotherTab()
+        let helper = TestApp(pid: 30004, bundleId: telegram)
+        let listing = refreshLists([572: telegramApp, 701: helper])
+
+        try await showsPopup(701, app: helper)
+        let window = try await shows(572)
+        refreshEnds(listing)
+
+        XCTAssertTrue(window.nodeWorkspace === pin)
     }
 
     func testTwoWindowsOfTheAppInOneRefreshOpenTabsInOrderAndTheLastKeepsFocus() async throws {
@@ -382,7 +366,6 @@ final class SavedWorkspaceEmptyPinTest: XCTestCase {
         let work = workOnAnotherTab()
         newWindowAppIsFrontmost = { _ in true }
         let listing = refreshLists([571: telegramApp, 572: telegramApp])
-        classifying([571: .window, 572: .window])
 
         let first = try await shows(571)
         let second = try await shows(572)
@@ -397,78 +380,13 @@ final class SavedWorkspaceEmptyPinTest: XCTestCase {
         XCTAssertTrue(focus.windowOrNil === second, "The newest window keeps focus")
     }
 
-    func testAWindowMovedWhileItsAppsOtherWindowIsClassifiedStaysWhereItWasMoved() async throws {
-        let pin = try emptyTab("22")
-        _ = workOnAnotherTab()
-        let mail = Workspace.get(byName: "mail")
-        let listing = refreshLists([571: telegramApp, 580: telegramApp])
-        registeringWindowType = { _, _ in
-            // The user drags it to another tab meanwhile.
-            if let window = Window.get(byId: 571) {
-                _ = moveWindowToWorkspace(window, mail, CmdIo(stdin: .emptyStdin), focusFollowsWindow: false, failIfNoop: true)
-            }
-            return .popup
-        }
-
-        let window = try await shows(571)
-        refreshEnds(listing)
-
-        XCTAssertTrue(window.nodeWorkspace === mail)
-        XCTAssertTrue(pin.isEffectivelyEmpty)
-    }
-
-    func testAWindowClaimedWhileItsAppsOtherWindowIsClassifiedGoesWhereTheClaimSays() async throws {
-        // Another registration of the same window claims it for a launcher request meanwhile.
-        let pin = try emptyTab("22")
-        _ = workOnAnotherTab()
-        let asked = Workspace.get(byName: "asked")
-        let registry = NewWindowIntentRegistry.shared
-        let listing = refreshLists([571: telegramApp, 580: telegramApp])
-        registeringWindowType = { [telegram] _, _ in
-            XCTAssertNotNil(registry.register(bundleId: telegram, pid: 18293, targetWorkspace: asked, preexistingWindowIds: [],
-                focusGeneration: focusChangeGeneration, timeout: newWindowIntentTimeout, completion: nil))
-            XCTAssertTrue(registry.claim(windowId: 571, pid: 18293, bundleId: telegram, firstSeenUptime: registry.now()) === asked)
-            return .popup
-        }
-
-        let window = try await shows(571)
-        XCTAssertFalse(window.nodeWorkspace === pin, "The claim decides, not the pin")
-        // As registration does once detection is done.
-        settleClaimLeftAfterDetection(window)
-        refreshEnds(listing)
-
-        XCTAssertTrue(window.nodeWorkspace === asked)
-        XCTAssertTrue(pin.isEffectivelyEmpty)
-    }
-
-    func testAWindowOfTheAppListedByANewerRefreshWhileTheOtherIsClassifiedKeepsItOut() async throws {
-        let pin = try emptyTab("22")
+    func testAnAppWithNoEmptyPinGetsItsNewTabAsBefore() async throws {
         let work = workOnAnotherTab()
         let listing = refreshLists([571: telegramApp, 580: telegramApp])
-        var newer: UInt64?
-        registeringWindowType = { [self] _, _ in
-            newer = newer ?? refreshLists([590: telegramApp])
-            return .popup
-        }
 
         let window = try await shows(571)
         refreshEnds(listing)
-        if let newer { refreshEnds(newer) }
 
-        assertInANewTab(window, not: [pin, work])
-    }
-
-    func testAnAppWithNoEmptyPinGetsItsNewTabRightAwayWithoutAsking() async throws {
-        let work = workOnAnotherTab()
-        let listing = refreshLists([571: telegramApp, 580: telegramApp])
-        var asked: [UInt32] = []
-        classifying([580: .popup]) { asked.append($0) }
-
-        let window = try await shows(571)
-
-        assertInANewTab(window, not: [work])
-        XCTAssertEqual(asked, [], "Only an app with an empty pin waits for AX")
-        refreshEnds(listing)
         assertInANewTab(window, not: [work])
     }
 
@@ -476,7 +394,6 @@ final class SavedWorkspaceEmptyPinTest: XCTestCase {
         let pin = try emptyTab("22")
         let work = workOnAnotherTab()
         let listing = refreshLists([900: first, 901: second])
-        classifying([900: .window, 901: .window])
 
         let firstWindow = try await shows(900, app: first)
         let secondWindow = try await shows(901, app: second)
@@ -501,56 +418,50 @@ final class SavedWorkspaceEmptyPinTest: XCTestCase {
         let pin = try emptyTab("22")
         _ = workOnAnotherTab()
         let listing = refreshLists([572: telegramApp, 700: TestApp(pid: 30003, bundleId: "com.example.chat")])
-        var asked: [UInt32] = []
-        classifying([:]) { asked.append($0) }
 
         let window = try await shows(572)
         refreshEnds(listing)
 
         XCTAssertTrue(window.nodeWorkspace === pin)
-        XCTAssertEqual(asked, [])
     }
 
-    func testAnotherProcessOfTheAppWithOnlyAPopupDoesntKeepItOut() async throws {
+    func testThePinIsChosenAtOnceWithoutWaiting() throws {
+        // Synchronous: nothing can move the window, claim it or fill the pin between the
+        // decision and the move.
         let pin = try emptyTab("22")
-        _ = workOnAnotherTab()
-        let helper = TestApp(pid: 30004, bundleId: telegram)
-        let listing = refreshLists([572: telegramApp, 701: helper])
-        classifying([701: .popup])
+        let work = workOnAnotherTab()
+        let window = TestWindow.new(id: 572, parent: work.rootTilingContainer, app: telegramApp)
 
-        let window = try await shows(572)
-        try await showsPopup(701, app: helper)
-        refreshEnds(listing)
-
+        XCTAssertTrue(moveNewWindowToEmptyPinIfNeeded(window, detectedIn: work, isNewRegularWindow: true))
         XCTAssertTrue(window.nodeWorkspace === pin)
+    }
+
+    func testAWindowClaimedAfterDetectionCheckedIsLeftToTheClaim() throws {
+        // Another registration of the same window claimed it for a launcher request; that
+        // registration places it once this detection is done.
+        let pin = try emptyTab("22")
+        let work = workOnAnotherTab()
+        let asked = Workspace.get(byName: "asked")
+        let registry = NewWindowIntentRegistry.shared
+        XCTAssertNotNil(registry.register(bundleId: telegram, pid: 18293, targetWorkspace: asked, preexistingWindowIds: [],
+            focusGeneration: focusChangeGeneration, timeout: newWindowIntentTimeout, completion: nil))
+        XCTAssertTrue(registry.claim(windowId: 572, pid: 18293, bundleId: telegram, firstSeenUptime: registry.now()) === asked)
+        let window = TestWindow.new(id: 572, parent: work.rootTilingContainer, app: telegramApp)
+
+        XCTAssertFalse(moveNewWindowToEmptyPinIfNeeded(window, detectedIn: work, isNewRegularWindow: true))
+        XCTAssertTrue(pin.isEffectivelyEmpty)
     }
 
     // MARK: Refreshes that overlap
-
-    func testAnOlderRefreshEndingDoesntDecideForANewerOne() async throws {
-        let pin = try emptyTab("22")
-        _ = workOnAnotherTab()
-        let older = refreshLists([40: TestApp(pid: 77, bundleId: "com.example.editor")])
-        let newer = refreshLists([571: telegramApp, 580: telegramApp])
-        classifying([580: .popup])
-
-        let window = try await shows(571)
-        // The older refresh was cancelled, and only now unwinds.
-        refreshEnds(older)
-        try await showsPopup(580)
-        refreshEnds(newer)
-
-        XCTAssertTrue(window.nodeWorkspace === pin)
-    }
 
     func testAnOlderRefreshEndingKeepsANewerOnesWindowsStillRegistering() async throws {
         let pin = try emptyTab("22")
         let work = workOnAnotherTab()
         let older = refreshLists([40: TestApp(pid: 77, bundleId: "com.example.editor")])
         let newer = refreshLists([571: telegramApp, 572: telegramApp])
+        // The older refresh was cancelled, and only now unwinds.
         refreshEnds(older)
         XCTAssertEqual(savedWorkspaceRuntime.aliveWindowPidsDuringRefresh[572], 18293, "The newer refresh still lists 572")
-        classifying([572: .window])
 
         let window = try await shows(571)
         refreshEnds(newer)
@@ -558,6 +469,20 @@ final class SavedWorkspaceEmptyPinTest: XCTestCase {
         assertInANewTab(window, not: [pin, work])
         XCTAssertTrue(savedWorkspaceRuntime.aliveWindowPidsDuringRefresh.isEmpty, "Each refresh took only its own listing away")
         XCTAssertTrue(savedWorkspaceRuntime.bundleIdsByPidDuringRefresh.isEmpty)
+    }
+
+    func testANewerRefreshEndingFirstKeepsAnOlderOnesWindowsStillRegistering() async throws {
+        let pin = try emptyTab("22")
+        let work = workOnAnotherTab()
+        let older = refreshLists([571: telegramApp, 572: telegramApp])
+        let newer = refreshLists([40: TestApp(pid: 77, bundleId: "com.example.editor")])
+        refreshEnds(newer)
+
+        let window = try await shows(571)
+        refreshEnds(older)
+
+        assertInANewTab(window, not: [pin, work])
+        XCTAssertTrue(savedWorkspaceRuntime.aliveWindowPidsDuringRefresh.isEmpty)
     }
 
     // MARK: Which pin
