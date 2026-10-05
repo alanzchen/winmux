@@ -36,7 +36,8 @@ final class WinMuxToastTest: XCTestCase {
     }
 
     /// The toast's window never takes focus or clicks: it can't become key or main, doesn't
-    /// activate WinMux, lets the mouse through, and sits below the sidebar. It goes on its own.
+    /// activate WinMux, and lets the mouse through. Its layer is below the sidebar's when that stays
+    /// on top. It goes on its own.
     func testTheToastNeverTakesFocusOrClicksAndGoesOnItsOwn() {
         var time = 0.0
         let panel = WinMuxToastPanel(model: WinMuxToastModel(clock: { time }, announce: { _ in }))

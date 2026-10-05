@@ -66,7 +66,8 @@ func winMuxAnnounce(_ text: String) {
 }
 
 /// The toast's window: a non-activating panel that never becomes key or main and lets every
-/// click through, at the overlay layer, below the sidebar, so it sits beside it.
+/// click through, at the overlay layer. That's below a sidebar that stays on top, but not one
+/// lowered beneath other windows, so it's placed beside the sidebar, never over it.
 @MainActor
 final class WinMuxToastPanel: NSPanelHud {
     static let shared = WinMuxToastPanel()
@@ -108,6 +109,7 @@ final class WinMuxToastPanel: NSPanelHud {
     func expire() {
         model.expire()
         if let shown = model.shown {
+            timer?.invalidate()
             timer = .scheduledTimer(withTimeInterval: max(0.05, shown.until - model.now), repeats: false) { _ in
                 Task { @MainActor [weak self] in self?.expire() }
             }
