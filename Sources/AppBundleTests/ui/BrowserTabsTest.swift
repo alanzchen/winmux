@@ -2284,6 +2284,42 @@ final class BrowserTabsTest: XCTestCase {
         }
     }
 
+    /// Safari can take a press yet show its tab selected only after the read-back budget, as when
+    /// its window is out of view until WinMux brings it forward. That select did switch: the next
+    /// read says so, and nothing is told. The tab isn't shown selected before then, nor sent again.
+    @MainActor
+    func testASelectSafariShowsOnlyAfterItsReadBackIsConfirmedByTheNextReadWithoutANotice() async throws {
+        var time = 0.0
+        let window = safariTopicWindow("PPPP", selected: 0)
+        let scanner = BrowserTabScanner(root: window.root, adapter: .safari, windowId: 123, pid: 45, now: { time }, wait: { time += $0 })
+        let snapshot = try XCTUnwrap(scanner.scan())
+        let target = snapshot.tabs[2].target
+        let page = window.pages[2]
+        var notices: [BrowserTabActionNotice] = []
+        var results: [BrowserTabActionResult] = []
+        let selects = BrowserTabSelectRequests(clock: { time }, notify: { notices.append($0) })
+        await selects.request(target, browser: "Safari", monitorScopeId: "monitor:0,0", unlessClosing: BrowserTabCloseRequests(clock: { time }),
+            perform: { scanner.select(target) }, finished: { result, _ in results.append(result) })?.value
+        XCTAssertEqual(results, [.dispatched(.unknown)], "Not seen selected within the read-back budget")
+        XCTAssertEqual(notices, [], "but it may still be: nothing is told yet")
+        XCTAssertEqual(selects.apply(snapshot).tabs.map(\.isSelected), [true, false, false, false], "Not shown selected before it's seen so")
+        XCTAssertEqual(selects.apply(snapshot).tabs.map(\.pending), [nil, nil, .selecting, nil], "but still pending")
+
+        // Safari's tab bar catches up, and the window's next read sees it.
+        time += 0.3
+        window.pages[0].selected = false
+        page.selected = true
+        let readStarted = time
+        let reread = try XCTUnwrap(scanner.scan())
+        selects.observe(reread, readStarted: readStarted)
+        time += 5
+        selects.expire()
+        XCTAssertEqual(notices, [], "Seen selected: nothing to tell")
+        XCTAssertEqual(selects.apply(reread).tabs.map(\.isSelected), [false, false, true, false])
+        XCTAssertEqual(selects.apply(reread).tabs.map(\.pending), [nil, nil, nil, nil])
+        XCTAssertEqual(page.presses, 1, "Pressed once")
+    }
+
     /// A sidebar close shows its tab closing while the browser is asked, and takes it off the list
     /// only once it's seen gone; otherwise the row stays, the window is read again, and a short
     /// line says so.
