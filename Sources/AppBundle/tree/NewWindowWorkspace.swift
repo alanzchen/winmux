@@ -22,6 +22,63 @@ func shouldMoveNewWindowToNewWorkspace(_ window: Window, detectedIn initialWorks
     return initialWorkspace.allLeafWindowsRecursive.contains { $0 !== window }
 }
 
+/// Tabs mode: a pin with no window is its app's home. A window that would get a new tab goes into
+/// the first such pin of its app the window's display lists instead, while WinMux knows no other
+/// window of that app: then no window of it is in use anywhere, so this one isn't an unrelated
+/// window the pin would take. Its saved place may have expired while the app hid the window, or
+/// the app opens a new one. Returns whether it moved the window.
+@MainActor
+func moveNewWindowToEmptyPinIfNeeded(_ window: Window, detectedIn initialWorkspace: Workspace?, isNewRegularWindow: Bool) -> Bool {
+    guard config.usesBrowserTabs, !serverArgs.isReadOnly, !savedWorkspaceStore.isReadOnly,
+          shouldMoveNewWindowToNewWorkspace(window, detectedIn: initialWorkspace, isNewRegularWindow: isNewRegularWindow),
+          let initialWorkspace, let bundleId = window.app.rawAppBundleId,
+          bundleId != winMuxAppId, bundleId != lockScreenAppBundleId,
+          !appHasOtherKnownWindow(window, bundleId: bundleId)
+    else { return false }
+    let monitor = window.nodeMonitor ?? initialWorkspace.workspaceMonitor
+    guard let pin = emptyPinHome(bundleId: bundleId, projectId: workspaceContextProjectId(of: initialWorkspace), monitor: monitor)
+    else { return false }
+    // A shared pin with no window isn't on any display yet: it comes to this one, as a click
+    // brings it, so the window stays on the display it opened on.
+    if pin.workspaceMonitor.rect.topLeftCorner != monitor.rect.topLeftCorner {
+        pin.preferredMonitorPoint = monitor.rect.topLeftCorner
+        noteSavedWorkspacePlacedByUser(pin, on: monitor)
+    }
+    // Focus as for a new tab: it follows a window from the app in use.
+    _ = moveWindowToWorkspace(window, pin, CmdIo(stdin: .emptyStdin),
+        focusFollowsWindow: !isStartup && newWindowAppIsFrontmost(window), failIfNoop: true)
+    return window.nodeWorkspace === pin
+}
+
+/// The first pin listed on `monitor`'s display for `projectId` with no window at all, whose apps
+/// include `bundleId`: its saved apps, or its saved places' apps. Pins in All Projects come first,
+/// then the project's own, each in their tiles' order. A pin on screen, or another display's
+/// unless shared pins bring it here, is never one.
+@MainActor
+private func emptyPinHome(bundleId: String, projectId: WorkspaceProjectId, monitor: Monitor) -> Workspace? {
+    (workspacePinnedTabsInAllProjects() + workspacePinnedTabs(in: projectId)).first { pin in
+        guard !pin.isArchived, !pin.isVisible, !workspaceHasLifecycleWindows(pin),
+              let record = savedWorkspaceStore.record(named: pin.name),
+              (record.launchApps ?? []).contains(where: { $0.bundleId == bundleId }) ||
+              record.layout.allSlots.contains(where: { $0.bundleId == bundleId })
+        else { return false }
+        if pin.workspaceMonitor.rect.topLeftCorner == monitor.rect.topLeftCorner { return true }
+        return config.workspaceSidebar.sharesPinnedTabs && !MonitorConfigurationObserver.shared.isSettling && workspaceTabCanMove(pin, to: monitor)
+    }
+}
+
+/// Whether WinMux knows another window of the app: in a workspace, minimized, hidden or full
+/// screen, as a pin reopen counts them, or one of its process still registering in this refresh.
+@MainActor
+private func appHasOtherKnownWindow(_ window: Window, bundleId: String) -> Bool {
+    let isKnown = registeredSavedWorkspaceWindows().contains {
+        $0 !== window && $0.app.rawAppBundleId == bundleId && $0.isBound && !($0.parent is MacosPopupWindowsContainer)
+    }
+    return isKnown || savedWorkspaceRuntime.aliveWindowPidsDuringRefresh.contains { windowId, pid in
+        pid == window.app.pid && windowId != window.windowId && Window.get(byId: windowId) == nil
+    }
+}
+
 @MainActor
 func moveNewWindowToNewWorkspaceIfNeeded(_ window: Window, detectedIn initialWorkspace: Workspace?, isNewRegularWindow: Bool) {
     guard shouldMoveNewWindowToNewWorkspace(window, detectedIn: initialWorkspace, isNewRegularWindow: isNewRegularWindow),

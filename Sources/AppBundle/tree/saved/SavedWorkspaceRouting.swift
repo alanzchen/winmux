@@ -40,7 +40,9 @@ func restoreOrDetectNewWindow(_ window: Window, isRegularWindow: Bool) async thr
     }
     let detectedIn = window.nodeWorkspace
     try await tryOnWindowDetected(window)
-    moveNewWindowToNewWorkspaceIfNeeded(window, detectedIn: detectedIn, isNewRegularWindow: isRegularWindow)
+    if !moveNewWindowToEmptyPinIfNeeded(window, detectedIn: detectedIn, isNewRegularWindow: isRegularWindow) {
+        moveNewWindowToNewWorkspaceIfNeeded(window, detectedIn: detectedIn, isNewRegularWindow: isRegularWindow)
+    }
     return false
 }
 

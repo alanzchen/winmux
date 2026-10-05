@@ -27,11 +27,17 @@ func currentSavedWorkspaceCaptureFacts(titleByWindowId: [UInt32: String]) -> Sav
 
 @MainActor
 func registeredSavedWorkspaceWindowPids() -> Set<Int32> {
-    guard isUnitTest else { return MacWindow.allWindowsMap.values.map(\.macApp.pid).toSet() }
-    let windows = Workspace.all.flatMap(\.allLeafWindowsRecursive) +
+    registeredSavedWorkspaceWindows().map(\.app.pid).toSet()
+}
+
+/// Every window WinMux has registered. Unit tests don't register theirs, so there it's those in
+/// the trees.
+@MainActor
+func registeredSavedWorkspaceWindows() -> [Window] {
+    guard isUnitTest else { return MacWindow.allWindows }
+    return Workspace.all.flatMap(\.allLeafWindowsRecursive) +
         macosMinimizedWindowsContainer.children.filterIsInstance(of: Window.self) +
         macosPopupWindowsContainer.children.filterIsInstance(of: Window.self)
-    return windows.map(\.app.pid).toSet()
 }
 
 // MARK: - Scheduling
