@@ -11,12 +11,7 @@ func buildWorkspaceSidebarWorkspaceViewModels(
     // Read running apps once per build, and only when something is saved.
     let runningApps = savedWorkspaceStore.isEmpty ? nil : savedWorkspaceRuntime.environment.runningApps()
     for workspace in orderedWorkspacesForPresentation() {
-        // Keep automatic identities reserved for app restoration without showing empty
-        // tabs after their windows close, nor a saved tab closing with its last window.
-        // Explicitly kept tabs and the active empty tab stay.
-        if let record = savedWorkspaceStore.record(named: workspace.name),
-           record.keepWhenEmpty == false || workspaceTabClosesWithLastWindow(workspace),
-           !isUserFacingWorkspace(workspace, focusedWorkspace: currentFocus.workspace) { continue }
+        if !workspaceSidebarHasRow(workspace, focusedWorkspace: currentFocus.workspace) { continue }
         workspaces.append(await makeWorkspaceSidebarWorkspaceViewModel(
             workspace,
             currentFocus: currentFocus,
@@ -26,6 +21,17 @@ func buildWorkspaceSidebarWorkspaceViewModels(
         ))
     }
     return workspaceSidebarIdentityLabels(workspaces, mode: config.workspaceSidebar.dockIdentityLabels)
+}
+
+/// Whether the sidebar has a row for `workspace`. Automatic identities are kept for app
+/// restoration, and a saved tab closing with its last window for its grace, without showing them
+/// empty. Explicitly kept tabs and the active empty tab stay.
+@MainActor
+func workspaceSidebarHasRow(_ workspace: Workspace, focusedWorkspace: Workspace) -> Bool {
+    guard let record = savedWorkspaceStore.record(named: workspace.name),
+          record.keepWhenEmpty == false || workspaceTabClosesWithLastWindow(workspace)
+    else { return true }
+    return isUserFacingWorkspace(workspace, focusedWorkspace: focusedWorkspace)
 }
 
 @MainActor

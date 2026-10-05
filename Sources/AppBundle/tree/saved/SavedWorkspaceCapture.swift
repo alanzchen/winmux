@@ -167,13 +167,10 @@ func captureSavedWorkspace(
     }
 
     // Layout. Windows being routed, or waiting for a title to be routed, are neither live here
-    // nor missing; nor are windows still being detected, which a restore may yet put back, or
-    // whose detection was interrupted.
-    let registry = NewWindowIntentRegistry.shared
+    // nor missing; nor are windows still being detected, which a restore may yet put back.
     let excludedWindowIds = runtime.routingInFlightWindowIds
         .union(runtime.windowsAwaitingTitle.keys)
-        .union(registry.windowsBeingDetected)
-        .union(registry.windowsWithInterruptedDetection.keys)
+        .union(NewWindowIntentRegistry.shared.windowsBeingDetected)
         .union(excludingWindowId.map { [$0] } ?? [])
     let snapshot = snapshotLiveSavedLayout(
         workspace,

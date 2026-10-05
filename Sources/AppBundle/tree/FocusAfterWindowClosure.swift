@@ -6,7 +6,6 @@ extension Window {
     @MainActor
     func removeClosedWindowFromTree() {
         let parent = unbindFromParent().parent
-        NewWindowIntentRegistry.shared.windowsWithInterruptedDetection.removeValue(forKey: windowId)
         // First, so focus leaves a tab that closes, as it leaves one that isn't saved.
         noteWindowClosed(self, from: parent)
         let deadWindowWorkspace = parent.nodeWorkspace

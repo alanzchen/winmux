@@ -125,12 +125,9 @@ final class WorkspaceTabsCloseWithLastWindowTest: XCTestCase {
     /// What registering a window does once it's in the tree: detects it, which restores it or places
     /// it as new, listed as being detected meanwhile.
     private func detect(_ window: Window) async throws {
-        _ = try await detectNewlyRegisteredWindow(window, isRegularWindow: true)
-    }
-
-    /// What the next refresh's registration does with a window already registered.
-    private func registerAgain(_ window: Window) async throws {
-        try await finishInterruptedWindowDetection(window)
+        NewWindowIntentRegistry.shared.windowsBeingDetected.insert(window.windowId)
+        defer { NewWindowIntentRegistry.shared.windowsBeingDetected.remove(window.windowId) }
+        _ = try await restoreOrDetectNewWindow(window, isRegularWindow: true)
     }
 
     /// A gate that suspends until `release` is resumed.
@@ -405,23 +402,6 @@ final class WorkspaceTabsCloseWithLastWindowTest: XCTestCase {
         openTheGate()
         try await detection.value
         XCTAssertTrue(back.nodeWorkspace === b)
-        XCTAssertEqual(config.workspaceSidebar.workspaceLabels[b.name], "Notes")
-    }
-
-    func testAWindowWhoseRestoreWasInterruptedKeepsItsTabAndTheNextRefreshPutsItBack() async throws {
-        let (_, b, back, hidden) = try windowComingBackFromTheCache()
-        hidden.nativeStateGate = { throw CancellationError() }
-        do {
-            try await detect(back)
-            XCTFail("The restore was interrupted")
-        } catch is CancellationError {}
-        checkpoint(after: 1)
-        assertStays(b, "Not a window the user moved")
-        hidden.nativeStateGate = nil
-        try await registerAgain(back)
-        XCTAssertTrue(back.nodeWorkspace === b, "The next refresh finishes putting it back")
-        afterTheGrace()
-        assertStays(b)
         XCTAssertEqual(config.workspaceSidebar.workspaceLabels[b.name], "Notes")
     }
 

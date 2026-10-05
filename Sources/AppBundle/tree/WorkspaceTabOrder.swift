@@ -93,10 +93,10 @@ func workspaceDisplayTabsInSidebarOrder(around anchor: Workspace, includingPinsI
         projectId: projectId)
 }
 
-/// Whether the Tabs list shows `tab`: a tab that isn't left empty, among those the sidebar shows.
+/// Whether the Tabs list shows `tab`: it has a sidebar row, and isn't left empty.
 @MainActor
 func workspaceTabIsListedInSidebar(_ tab: Workspace) -> Bool {
-    isUserFacingWorkspace(tab) && !workspaceTabWasLeftEmpty(tab)
+    workspaceSidebarHasRow(tab, focusedWorkspace: focus.workspace) && !workspaceTabWasLeftEmpty(tab)
 }
 
 /// `projectId`'s `tabs` in the order its sidebar shows them: pins first, then each group together.

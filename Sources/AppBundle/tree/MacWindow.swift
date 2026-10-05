@@ -26,7 +26,6 @@ final class MacWindow: Window {
             // No AX round-trip for known windows: this runs for every window on every refresh
             // barrier, and lastKnownActualRect stays correct without polling because moved /
             // resized AX events invalidate it and consumers re-fetch on demand.
-            try await finishInterruptedWindowDetection(existing)
             return existing
         }
         // Before any AX round-trip: a launcher request counts only windows first seen after it.
@@ -57,7 +56,7 @@ final class MacWindow: Window {
 
         try await debugWindowsIfRecording(window)
         let focusBeforeDetectionCallbacks = focusChangeGeneration
-        let wasRestored = try await detectNewlyRegisteredWindow(window, isRegularWindow: windowType == .window)
+        let wasRestored = try await restoreOrDetectNewWindow(window, isRegularWindow: windowType == .window)
         // A concurrent registration may have claimed it after detection checked for a claim.
         settleClaimLeftAfterDetection(window)
         window.popupPresentationState.wasRestored = wasRestored
