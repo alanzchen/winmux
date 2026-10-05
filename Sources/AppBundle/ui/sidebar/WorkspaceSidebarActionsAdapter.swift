@@ -110,7 +110,7 @@ func handleWorkspaceSidebarAction(
                 BrowserTabsModel.shared.select(target, monitorScopeId: monitorScopeId)
             }
         case .closeBrowserTab(let target):
-            BrowserTabsModel.shared.close(target)
+            BrowserTabsModel.shared.close(target, monitorScopeId: targetMonitorScopeId ?? viewModel.workspaceSidebarTargetMonitorScopeId)
         case .setWorkspaceColor, .setWorkspaceEmoji, .setWorkspaceFavorite, .setWorkspacePinScope, .createTabCollection,
              .renameTabCollection, .setTabCollectionColor, .setTabCollectionEmoji, .toggleTabCollection,
              .assignTabCollection, .ungroupTabCollection, .moveTabCollection, .createTabInCollection, .toggleTabsSidebar,
@@ -140,7 +140,9 @@ func handleWorkspaceSidebarAction(
             focusWindowFromSidebar(windowId)
         case .closeWindow(let windowId):
             if config.usesBrowserTabs { WorkspaceSidebarTabUndo.shared.clear() }
-            closeWindowFromMiddleClick(windowId) { focusWindowFromSidebar(windowId) }
+            closeWindowFromMiddleClick(windowId, monitorScopeId: targetMonitorScopeId ?? viewModel.workspaceSidebarTargetMonitorScopeId) {
+                focusWindowFromSidebar(windowId)
+            }
         case .closeTabWindows(let name):
             closeWorkspaceSidebarTabWindows(name)
         case .closeTabs(let names):

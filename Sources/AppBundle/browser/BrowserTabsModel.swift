@@ -244,7 +244,7 @@ final class BrowserTabsModel: ObservableObject {
     /// Closes one browser tab, as middle-clicking it in a browser's tab bar does. The window
     /// stays where it is; the tab shows as closing until the browser answers, and leaves the list
     /// only once it's seen gone (`BrowserTabActionFollowUp`).
-    func close(_ target: BrowserTabTarget) {
+    func close(_ target: BrowserTabTarget, monitorScopeId: String? = nil) {
         guard config.workspaceSidebar.usesTabsList, config.workspaceSidebar.browserTabs,
               TrayMenuModel.shared.isEnabled, !serverArgs.isReadOnly,
               let window = Window.get(byId: target.windowId), window.app.pid == target.pid,
@@ -257,14 +257,15 @@ final class BrowserTabsModel: ObservableObject {
             perform: { (try? await app.closeBrowserTab(target)) ?? .notDispatched(.cancelled) },
             finished: { [weak self] result in
                 guard let self, self.generation == token else { return }
-                await self.finishClose(target, result, window: window, app: app)
+                await self.finishClose(target, result, window: window, app: app, monitorScopeId: monitorScopeId)
             })
         guard started != nil else { return }
         publish()
     }
 
     /// What the sidebar does once a close comes back (`BrowserTabActionFollowUp`).
-    private func finishClose(_ target: BrowserTabTarget, _ result: BrowserTabActionResult, window: Window, app: MacApp) async {
+    private func finishClose(_ target: BrowserTabTarget, _ result: BrowserTabActionResult, window: Window, app: MacApp,
+                             monitorScopeId: String?) async {
         let followUp = BrowserTabActionFollowUp(result, kind: .close, browser: window.app.name ?? "The browser")
         if followUp.applies { cache.removeTab(target) }
         reread(target.windowId, unknown: followUp.rereads)
@@ -274,7 +275,7 @@ final class BrowserTabsModel: ObservableObject {
         // still open. In a window that isn't on screen the prompt would stay out of view, so it's
         // brought forward, as closing a hidden window does.
         if result == .dispatched(.unknown), await closePromptShows(target, window: window, app: app) { return }
-        showBrowserTabActionNotice(.init(kind: .close, message: message))
+        showBrowserTabActionNotice(.init(kind: .close, message: message, monitorScopeId: monitorScopeId))
     }
 
     func select(_ target: BrowserTabTarget, monitorScopeId: String?) {
@@ -415,10 +416,12 @@ private func windowServerFrames(_ ids: [UInt32]) -> [UInt32: CGRect] {
     return frames
 }
 
-/// Tells the user how a sidebar select or close of a browser tab went, when it didn't go as asked.
+/// Tells the user how a sidebar select or close of a browser tab went, when it didn't go as asked:
+/// a toast beside the sidebar that asked, as nothing needs them to act.
 @MainActor
 func showBrowserTabActionNotice(_ notice: BrowserTabActionNotice) {
-    MessageModel.shared.message = Message(description: notice.kind == .select ? "Switch Tab Error" : "Close Tab Error", body: notice.message)
+    WinMuxToastPanel.shared.show(.init(title: notice.kind == .select ? "Switch Tab" : "Close Tab", body: notice.message,
+        monitorScopeId: notice.monitorScopeId))
 }
 
 @MainActor

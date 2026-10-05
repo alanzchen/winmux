@@ -120,9 +120,10 @@ func windowIsHiddenFromView(_ window: Window) -> Bool {
 
 /// Presses the window's close button, as Command-W would once the window is focused.
 /// A hidden window closes in place. If it shows a sheet while closing, usually a prompt to
-/// save changes, `reveal` brings it into view so the prompt can be answered.
+/// save changes, `reveal` brings it into view so the prompt can be answered. A window that
+/// couldn't be closed says so beside the sidebar `monitorScopeId`, or on the pointer's display.
 @MainActor
-func closeWindowFromMiddleClick(_ windowId: UInt32, reveal: @escaping @MainActor () -> Void) {
+func closeWindowFromMiddleClick(_ windowId: UInt32, monitorScopeId: String? = nil, reveal: @escaping @MainActor () -> Void) {
     guard !serverArgs.isReadOnly, let token: RunSessionGuard = .isServerEnabled else { return }
     Task { @MainActor in
         var closedHiddenWindow: MacWindow?
@@ -131,13 +132,13 @@ func closeWindowFromMiddleClick(_ windowId: UInt32, reveal: @escaping @MainActor
                 guard let macWindow = Window.get(byId: windowId) as? MacWindow else { return }
                 let isHidden = windowIsHiddenFromView(macWindow)
                 guard try await macWindow.macApp.pressCloseButton(windowId) else {
-                    showWindowCloseError("This window could not be closed.")
+                    showWindowCloseError("This window could not be closed.", monitorScopeId: monitorScopeId)
                     return
                 }
                 if isHidden { closedHiddenWindow = macWindow }
             }
         } catch {
-            showWindowCloseError("This window could not be closed. \(error.localizedDescription)")
+            showWindowCloseError("This window could not be closed. \(error.localizedDescription)", monitorScopeId: monitorScopeId)
             return
         }
         guard let macWindow = closedHiddenWindow else { return }
@@ -154,7 +155,8 @@ func closeWindowFromMiddleClick(_ windowId: UInt32, reveal: @escaping @MainActor
     }
 }
 
+/// A toast, as nothing needs the user to act: the window stays as it was.
 @MainActor
-private func showWindowCloseError(_ body: String) {
-    MessageModel.shared.message = Message(description: "Close Window Error", body: body)
+private func showWindowCloseError(_ body: String, monitorScopeId: String?) {
+    WinMuxToastPanel.shared.show(.init(title: "Close Window", body: body, monitorScopeId: monitorScopeId))
 }
