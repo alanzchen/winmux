@@ -479,7 +479,7 @@ private func refresh() async throws {
             uniquingKeysWith: { first, _ in first },
         ),
     )
-    // A refresh that stopped early still places the windows that waited for it.
+    // Only this refresh's listing goes, even when it ends after a newer one began.
     defer { savedWorkspaceRuntime.endRefreshWindowListing(listing) }
     // One task per app so the per-window AX round-trips of different apps overlap;
     // a single slow app no longer delays every other app's window registration.
@@ -493,7 +493,6 @@ private func refresh() async throws {
         }
         try await group.waitForAll()
     }
-    placeWindowsAwaitingEmptyPin()
     // Floating windows are the only windows whose real frame can't be derived from the applied
     // layout, and some synchronous consumers (interaction-opacity parking, agent pane info)
     // read the cached rect directly. Re-warm just the ones invalidated by move/resize events —

@@ -35,27 +35,21 @@ func shouldMoveNewWindowToNewWorkspace(_ window: Window, detectedIn initialWorks
 /// window the pin would take. Its saved place may have expired while the app hid the window, or
 /// the app opens a new one.
 ///
-/// A refresh registers windows one by one. Windows of the app it listed but hasn't registered
-/// yet may be popups, which don't count, or windows, which do: with `mayWait`, the window then
-/// stays where it opened, without a new tab, until the refresh has registered them all.
-/// Returns whether it moved the window or left it waiting.
+/// A refresh registers windows one by one. Other windows of the app it listed but hasn't
+/// registered yet are classified first, as their registration will: popups don't count, while
+/// windows, dialogs and any AX can't tell about do. The window then goes to the pin only if
+/// nothing has placed it meanwhile and the pin is still free. Returns whether it went there.
 @MainActor
-func moveNewWindowToEmptyPinIfNeeded(_ window: Window, detectedIn initialWorkspace: Workspace?, isNewRegularWindow: Bool,
-                                     mayWait: Bool = true) -> Bool {
-    guard config.usesBrowserTabs, !serverArgs.isReadOnly, !savedWorkspaceStore.isReadOnly,
-          shouldMoveNewWindowToNewWorkspace(window, detectedIn: initialWorkspace, isNewRegularWindow: isNewRegularWindow),
-          let initialWorkspace, let bundleId = window.app.rawAppBundleId,
-          bundleId != winMuxAppId, bundleId != lockScreenAppBundleId,
-          !appHasOtherRegisteredWindow(window, bundleId: bundleId)
-    else { return false }
-    let monitor = window.nodeMonitor ?? initialWorkspace.workspaceMonitor
-    guard let pin = emptyPinHome(bundleId: bundleId, projectId: workspaceContextProjectId(of: initialWorkspace), monitor: monitor)
-    else { return false }
-    if appHasWindowsBeingRegistered(window, bundleId: bundleId) {
-        guard mayWait else { return false }
-        savedWorkspaceRuntime.windowsAwaitingEmptyPin.append(SavedEmptyPinWait(window: window, detectedIn: initialWorkspace))
-        return true
+func moveNewWindowToEmptyPinIfNeeded(_ window: Window, detectedIn initialWorkspace: Workspace?, isNewRegularWindow: Bool) async -> Bool {
+    guard emptyPinHome(for: window, detectedIn: initialWorkspace, isNewRegularWindow: isNewRegularWindow) != nil else { return false }
+    let registering = windowsBeingRegistered(with: window)
+    for (windowId, pid) in registering {
+        guard (try? await registeringWindowType(windowId, pid)) == .popup else { return false }
     }
+    // Asking took a while: the window, its tab, the pin and the app's windows may have changed.
+    guard windowsBeingRegistered(with: window).allSatisfy({ other in registering.contains { $0.windowId == other.windowId } }),
+          let (pin, monitor) = emptyPinHome(for: window, detectedIn: initialWorkspace, isNewRegularWindow: isNewRegularWindow)
+    else { return false }
     // A shared pin with no window isn't on any display yet: it comes to this one, as a click
     // brings it, so the window stays on the display it opened on.
     if pin.workspaceMonitor.rect.topLeftCorner != monitor.rect.topLeftCorner {
@@ -68,12 +62,30 @@ func moveNewWindowToEmptyPinIfNeeded(_ window: Window, detectedIn initialWorkspa
     return window.nodeWorkspace === pin
 }
 
+/// The empty pin that would take the window now, and the display it opened on: none once a claim,
+/// a title wait, a rule or the user has placed it, or once WinMux has registered another window
+/// of its app.
+@MainActor
+private func emptyPinHome(for window: Window, detectedIn initialWorkspace: Workspace?,
+                          isNewRegularWindow: Bool) -> (pin: Workspace, monitor: Monitor)? {
+    guard config.usesBrowserTabs, !serverArgs.isReadOnly, !savedWorkspaceStore.isReadOnly,
+          shouldMoveNewWindowToNewWorkspace(window, detectedIn: initialWorkspace, isNewRegularWindow: isNewRegularWindow),
+          NewWindowIntentRegistry.shared.pendingClaim(windowId: window.windowId) == nil,
+          let initialWorkspace, let bundleId = window.app.rawAppBundleId,
+          bundleId != winMuxAppId, bundleId != lockScreenAppBundleId,
+          !appHasOtherRegisteredWindow(window, bundleId: bundleId)
+    else { return nil }
+    let monitor = window.nodeMonitor ?? initialWorkspace.workspaceMonitor
+    return firstEmptyPin(bundleId: bundleId, projectId: workspaceContextProjectId(of: initialWorkspace), monitor: monitor)
+        .map { ($0, monitor) }
+}
+
 /// The first pin listed on `monitor`'s display for `projectId` with no window at all, whose apps
 /// include `bundleId`: its saved apps, or its saved places' apps. Pins in All Projects come first,
 /// then the project's own, each in their tiles' order. A pin on screen, or another display's
 /// unless shared pins bring it here, is never one.
 @MainActor
-private func emptyPinHome(bundleId: String, projectId: WorkspaceProjectId, monitor: Monitor) -> Workspace? {
+private func firstEmptyPin(bundleId: String, projectId: WorkspaceProjectId, monitor: Monitor) -> Workspace? {
     (workspacePinnedTabsInAllProjects() + workspacePinnedTabs(in: projectId)).first { pin in
         guard !pin.isArchived, !pin.isVisible, !workspaceHasLifecycleWindows(pin),
               let record = savedWorkspaceStore.record(named: pin.name),
@@ -94,30 +106,16 @@ private func appHasOtherRegisteredWindow(_ window: Window, bundleId: String) -> 
     }
 }
 
-/// Whether the refresh under way listed another window of the app, in any of its processes, that
-/// it hasn't registered yet.
+/// The other windows of the app, in any of its processes, that the refreshes under way listed
+/// and haven't registered yet, by id.
 @MainActor
-private func appHasWindowsBeingRegistered(_ window: Window, bundleId: String) -> Bool {
+private func windowsBeingRegistered(with window: Window) -> [(windowId: UInt32, pid: Int32)] {
     let runtime = savedWorkspaceRuntime
-    return runtime.aliveWindowPidsDuringRefresh.contains { windowId, pid in
+    let bundleId = window.app.rawAppBundleId
+    return runtime.aliveWindowPidsDuringRefresh.filter { windowId, pid in
         windowId != window.windowId && Window.get(byId: windowId) == nil &&
-            (pid == window.app.pid || runtime.bundleIdsByPidDuringRefresh[pid] == bundleId)
-    }
-}
-
-/// The refresh has registered the windows it listed: each window that waited for them goes to
-/// its app's empty pin if it's still the app's only window, or else to the new tab it would have
-/// had. One a claim or the user has placed meanwhile stays where it is.
-@MainActor
-func placeWindowsAwaitingEmptyPin() {
-    let waits = savedWorkspaceRuntime.windowsAwaitingEmptyPin
-    guard !waits.isEmpty else { return }
-    savedWorkspaceRuntime.windowsAwaitingEmptyPin = []
-    for wait in waits where wait.window.isBound {
-        if !moveNewWindowToEmptyPinIfNeeded(wait.window, detectedIn: wait.detectedIn, isNewRegularWindow: true, mayWait: false) {
-            moveNewWindowToNewWorkspaceIfNeeded(wait.window, detectedIn: wait.detectedIn, isNewRegularWindow: true)
-        }
-    }
+            (pid == window.app.pid || bundleId != nil && runtime.bundleIdsByPidDuringRefresh[pid] == bundleId)
+    }.map { (windowId: $0.key, pid: $0.value) }.sorted { $0.windowId < $1.windowId }
 }
 
 @MainActor

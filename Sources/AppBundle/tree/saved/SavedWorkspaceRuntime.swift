@@ -77,14 +77,6 @@ struct SavedTitleWait: Equatable, Sendable {
     let pid: Int32
 }
 
-/// A window its app's empty pin would take, left where it opened until the refresh registering it
-/// has registered the app's other windows it listed.
-@MainActor
-struct SavedEmptyPinWait {
-    let window: Window
-    let detectedIn: Workspace
-}
-
 let savedWorkspaceConcurrentAppLaunches = 4
 
 @MainActor
@@ -141,12 +133,14 @@ final class SavedWorkspaceRuntime {
     var titleRetryTask: Task<Void, Never>?
     /// Window ids (with owner pid) that are alive but may not be registered yet. Filled only
     /// while a refresh registers windows, so routing can't hand a still-arriving saved window's
-    /// slot to another window of the same app.
+    /// slot to another window of the same app. With refreshes overlapping, every one's windows.
     var aliveWindowPidsDuringRefresh: [UInt32: Int32] = [:]
-    /// The bundle ids of the processes whose windows a refresh is registering.
+    /// The bundle ids of the processes whose windows refreshes are registering.
     var bundleIdsByPidDuringRefresh: [Int32: String] = [:]
-    /// Placed once the refresh has registered the windows it listed.
-    var windowsAwaitingEmptyPin: [SavedEmptyPinWait] = []
+    /// What each refresh under way listed. A cancelled refresh may still be ending while a newer
+    /// one registers: each takes away only its own.
+    private var refreshWindowListings: [UInt64: (alive: [UInt32: Int32], bundleIds: [Int32: String])] = [:]
+    private var lastRefreshWindowListing: UInt64 = 0
     var didInstallObservers = false
     fileprivate var observerTokens: [NSObjectProtocol] = []
     fileprivate var distributedObserverTokens: [NSObjectProtocol] = []
@@ -155,15 +149,23 @@ final class SavedWorkspaceRuntime {
 
     /// Lists the windows a refresh is about to register. Returns its listing, to end it with.
     func beginRefreshWindowListing(alive: [UInt32: Int32], bundleIds: [Int32: String]) -> UInt64 {
-        aliveWindowPidsDuringRefresh = alive
-        bundleIdsByPidDuringRefresh = bundleIds
-        return 0
+        lastRefreshWindowListing += 1
+        refreshWindowListings[lastRefreshWindowListing] = (alive, bundleIds)
+        mergeRefreshWindowListings()
+        return lastRefreshWindowListing
     }
 
+    /// The refresh has registered what it listed, or stopped: its listing goes, and only its.
     func endRefreshWindowListing(_ listing: UInt64) {
-        placeWindowsAwaitingEmptyPin()
-        aliveWindowPidsDuringRefresh = [:]
-        bundleIdsByPidDuringRefresh = [:]
+        guard refreshWindowListings.removeValue(forKey: listing) != nil else { return }
+        mergeRefreshWindowListings()
+    }
+
+    private func mergeRefreshWindowListings() {
+        // A newer listing's view of a window or process wins.
+        let listings = refreshWindowListings.sorted { $0.key < $1.key }.map(\.value)
+        aliveWindowPidsDuringRefresh = listings.reduce(into: [:]) { $0.merge($1.alive) { _, newer in newer } }
+        bundleIdsByPidDuringRefresh = listings.reduce(into: [:]) { $0.merge($1.bundleIds) { _, newer in newer } }
     }
 
     var isStartupRestoreActive: Bool {
