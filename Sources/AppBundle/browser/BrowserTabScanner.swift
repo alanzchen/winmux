@@ -427,12 +427,23 @@ final class BrowserTabScanner<Node: BrowserTabAXNode> {
         trace.dispatchAttempted = true
         let deadline = now() + browserTabActionConfirmationBudget
         func inTime() -> Bool { now() < deadline && !isCancelled() && !cancelled() }
-        var confirmed = kind == .select ? node.tabInfo()?.selected == true : isClosed(node, while: inTime)
+        /// One read of what came of it, noted for the debug log.
+        func done() -> Bool {
+            guard kind == .select else {
+                let closed = isClosed(node, while: inTime)
+                trace.lastRead = closed ? "gone" : "present"
+                return closed
+            }
+            let info = node.tabInfo()
+            trace.lastRead = info.map { $0.selected ? "selected" : "notSelected" } ?? "unreadable"
+            return info?.selected == true
+        }
+        var confirmed = done()
         for pause in browserTabActionConfirmationPauses where !confirmed {
             guard inTime() else { break }
             wait(min(pause, deadline - now()))
             guard inTime() else { break }
-            confirmed = kind == .select ? node.tabInfo()?.selected == true : isClosed(node, while: inTime)
+            confirmed = done()
         }
         trace.postcondition = confirmed ? .confirmed : .unknown
         if confirmed { return .dispatched(.confirmed) }

@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 enum BrowserTabAdapter: Sendable {
     case safari
@@ -133,18 +134,45 @@ struct BrowserTabSnapshotCache {
 /// then as its window's selected tab. Only reads begun after that count: one that shows the tab
 /// selected confirms it, and once the browser has had a moment to redraw its tab strip, any read
 /// shows what's really selected. Reads begun sooner can still show a tab from before, even one an
-/// earlier click chose, and would flash it back. A choice not seen done shows the real selection.
+/// earlier click chose, and would flash it back. A choice not sent shows the real selection.
+///
+/// A press the browser took, but that its tab wasn't seen to carry out in the press's own read-back,
+/// stays pending while its window is read again, for at least `confirmationWindow`: Safari can show
+/// the switch only later, as when its window is out of view until WinMux brings it forward. A read
+/// begun since that shows the tab selected settles it as done. Otherwise the real selection shows
+/// once that grace is over, at the next pass that looks, and what to tell the user is handed back,
+/// for the latest click only; any later click, even one that asks nothing, calls that off. The tab
+/// is known only as listed: one the browser lists afresh, even for the same page, isn't it.
+///
+/// A choice whose press hasn't come back stops showing after `lifetime`, but keeps its place: a
+/// press can wait its turn on the browser's Accessibility thread for longer, and the latest click's
+/// answer still counts when it comes. One a later click or a reset called off isn't shown again.
 struct BrowserTabPendingSelections {
     private struct Entry {
         let target: BrowserTabTarget
         let attempt: Int
         let since: TimeInterval
         var switched: TimeInterval? = nil
+        var unconfirmed: Unconfirmed? = nil
+        /// Whether it stopped showing while its press hadn't come back.
+        var lapsed = false
+    }
+    /// A press taken but not yet seen done: when it came back, what to tell if it's never seen done,
+    /// and what the reads since said of its tab, for the debug log.
+    private struct Unconfirmed {
+        let since: TimeInterval
+        var notice: BrowserTabActionNotice?
+        var reads = 0
+        var listed: Bool? = nil
     }
     private var entries: [UInt32: Entry] = [:]
     private var attempts = 0
     static let lifetime: TimeInterval = 3
     static let redraw: TimeInterval = 1
+    /// How long after a press came back taken but not seen done its window's reads may still see
+    /// it done: a grace, not a deadline. It ends at the first pass after it, which also lets a read
+    /// already under way finish. The window is read again at once, then at each pass.
+    static let confirmationWindow: TimeInterval = 1.5
 
     /// Each click is its own attempt, so a press it superseded can't settle it, even for the same tab.
     mutating func begin(_ target: BrowserTabTarget, now: TimeInterval) -> Int {
@@ -154,27 +182,89 @@ struct BrowserTabPendingSelections {
     }
 
     /// The press is over: `confirmed` if the browser was seen to select the tab. One that wasn't
-    /// shows the real selection at once; otherwise reads decide.
-    mutating func settle(attempt: Int, windowId: UInt32, confirmed: Bool, now: TimeInterval) {
-        guard entries[windowId]?.attempt == attempt else { return }
-        if confirmed { entries[windowId]?.switched = now } else { entries[windowId] = nil }
+    /// shows the real selection at once; otherwise reads decide. `cancelled`: a later click or a
+    /// reset called it off, so a choice that had stopped showing isn't shown again.
+    mutating func settle(attempt: Int, windowId: UInt32, confirmed: Bool, now: TimeInterval, cancelled: Bool = false) {
+        guard let entry = entries[windowId], entry.attempt == attempt else { return }
+        guard confirmed, !(entry.lapsed && cancelled) else {
+            entries[windowId] = nil
+            return
+        }
+        entries[windowId]?.switched = now
+        entries[windowId]?.lapsed = false
     }
 
-    mutating func observe(_ snapshot: BrowserWindowTabs, readStarted: TimeInterval) {
-        guard let entry = entries[snapshot.windowId], let switched = entry.switched, readStarted >= switched else { return }
+    /// The press was taken but its tab wasn't seen selected: it stays pending while reads begun from
+    /// `now` may still see it so, for `confirmationWindow`. `notice`: what to tell if none does.
+    /// `cancelled` as for `settle`.
+    mutating func awaitConfirmation(attempt: Int, windowId: UInt32, now: TimeInterval, notice: BrowserTabActionNotice?,
+                                    cancelled: Bool = false) {
+        guard let entry = entries[windowId], entry.attempt == attempt else { return }
+        guard !(entry.lapsed && cancelled) else {
+            entries[windowId] = nil
+            return
+        }
+        entries[windowId]?.lapsed = false
+        entries[windowId]?.unconfirmed = .init(since: now, notice: notice)
+    }
+
+    /// A later click calls off what every choice before it would still tell, even if it goes no
+    /// further itself. What they show is left to their reads.
+    mutating func withdrawNotices() {
+        for id in entries.keys { entries[id]?.unconfirmed?.notice = nil }
+    }
+
+    /// Whether a press taken in this window is still waiting to be seen done.
+    func awaitsConfirmation(_ windowId: UInt32) -> Bool { entries[windowId]?.unconfirmed != nil }
+
+    /// Takes in a read. Returns how long after its press came back a read saw a press that its
+    /// read-back didn't see done carried out after all; nil otherwise.
+    @discardableResult
+    mutating func observe(_ snapshot: BrowserWindowTabs, readStarted: TimeInterval) -> TimeInterval? {
+        guard let entry = entries[snapshot.windowId] else { return nil }
         let confirmed = snapshot.tabs.contains { $0.target == entry.target && $0.isSelected }
+        if var unconfirmed = entry.unconfirmed {
+            guard readStarted >= unconfirmed.since else { return nil }
+            guard !confirmed else {
+                entries[snapshot.windowId] = nil
+                return readStarted - unconfirmed.since
+            }
+            unconfirmed.reads += 1
+            unconfirmed.listed = snapshot.tabs.contains { $0.target == entry.target }
+            entries[snapshot.windowId]?.unconfirmed = unconfirmed
+            return nil
+        }
+        guard let switched = entry.switched, readStarted >= switched else { return nil }
         if confirmed || readStarted - switched >= Self.redraw { entries[snapshot.windowId] = nil }
+        return nil
     }
 
-    mutating func expire(now: TimeInterval) {
-        entries = entries.filter { now - $0.value.since < Self.lifetime }
+    /// Lets choices lapse: one taken but not seen done within `confirmationWindow` of its press
+    /// coming back, and the rest once shown for `lifetime`, though one whose press hasn't come back
+    /// only stops showing. Returns each of the first, with what to tell only if it's the latest
+    /// click's: one a later click overtook says nothing more.
+    @discardableResult
+    mutating func expire(now: TimeInterval) -> [BrowserTabUnconfirmedSelect] {
+        var lapsed: [BrowserTabUnconfirmedSelect] = []
+        for (id, entry) in entries {
+            if let unconfirmed = entry.unconfirmed {
+                guard now - unconfirmed.since >= Self.confirmationWindow else { continue }
+                lapsed.append(.init(notice: entry.attempt == attempts ? unconfirmed.notice : nil, reads: unconfirmed.reads,
+                    listed: unconfirmed.listed))
+                entries[id] = nil
+            } else if now - entry.since >= Self.lifetime {
+                if entry.switched == nil { entries[id]?.lapsed = true } else { entries[id] = nil }
+            }
+        }
+        return lapsed
     }
 
     /// Forgets every choice shown, keeping the count of attempts, so a click from before can't settle one after.
     mutating func clear() { entries = [:] }
 
     func apply(_ snapshot: BrowserWindowTabs) -> BrowserWindowTabs {
-        guard let entry = entries[snapshot.windowId], snapshot.tabs.contains(where: { $0.target == entry.target }) else { return snapshot }
+        guard let entry = entries[snapshot.windowId], !entry.lapsed, snapshot.tabs.contains(where: { $0.target == entry.target })
+        else { return snapshot }
         var snapshot = snapshot
         snapshot.tabs = snapshot.tabs.map { tab in
             var tab = tab
@@ -187,6 +277,14 @@ struct BrowserTabPendingSelections {
         }
         return snapshot
     }
+}
+
+/// A select taken but never seen done: what to tell, unless a later click overtook it, and, for the
+/// debug log, how many reads looked and whether the last listed its tab.
+struct BrowserTabUnconfirmedSelect: Equatable {
+    let notice: BrowserTabActionNotice?
+    let reads: Int
+    let listed: Bool?
 }
 
 /// Tabs shown closing in the sidebar, each until its close comes back, a few seconds at most. A
@@ -259,16 +357,35 @@ final class BrowserTabCloseRequests {
     func apply(_ snapshot: BrowserWindowTabs) -> BrowserWindowTabs { pending.apply(snapshot) }
 }
 
+/// What to tell the user about a browser tab action that didn't go as asked, and which sidebar
+/// asked, if one did.
+struct BrowserTabActionNotice: Equatable {
+    let kind: BrowserTabActionKind
+    let message: String
+    var monitorScopeId: String? = nil
+}
+
 /// The sidebar's selects of browser tabs, as the model runs them. Each click cancels the one before
 /// it, which then sends nothing it hasn't yet; the tab shows pending until its own answer comes,
-/// and an answer settles only its own click (`BrowserTabPendingSelections`).
+/// and an answer settles only its own click (`BrowserTabPendingSelections`). What a select that
+/// didn't go as asked tells the user goes to `notify`; a later click calls that off. A select the
+/// browser took but wasn't seen to carry out says so only if the window's reads don't see it done
+/// within its grace, `BrowserTabPendingSelections.confirmationWindow`; nothing is sent again meanwhile.
 @MainActor
 final class BrowserTabSelectRequests {
     private(set) var pending = BrowserTabPendingSelections()
     private var task: Task<Void, Never>?
     private let clock: () -> TimeInterval
+    private let notify: @MainActor (BrowserTabActionNotice) -> Void
+    private let log: (String) -> Void
 
-    init(clock: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) { self.clock = clock }
+    init(clock: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
+         notify: @escaping @MainActor (BrowserTabActionNotice) -> Void = { _ in },
+         log: @escaping (String) -> Void = { browserTabActionLog.debug("\($0, privacy: .public)") }) {
+        self.clock = clock
+        self.notify = notify
+        self.log = log
+    }
 
     /// Whether `target` may be selected now: not while it's being closed (`closes`). Another click on
     /// a tab being selected is a new choice, the latest, which cancels the one before.
@@ -276,14 +393,21 @@ final class BrowserTabSelectRequests {
         !closes.isClosing(target)
     }
 
-    /// Cancels the select under way, if any: one that hasn't sent its press yet sends nothing.
-    func cancel() { task?.cancel() }
+    /// Cancels the select under way, if any: one that hasn't sent its press yet sends nothing. A
+    /// later click calls this, so nothing a select before it would still tell is told, even if the
+    /// click goes no further, as on a row whose window has gone.
+    func cancel() {
+        task?.cancel()
+        pending.withdrawNotices()
+    }
 
     /// Selects `target` with `perform`, after cancelling the select before it, and hands the result
     /// to `finished` with whether a later click cancelled this one: nil, and nothing sent, while
-    /// `target` may not be selected (`mayRequest`).
+    /// `target` may not be selected (`mayRequest`). `browser` names the browser in what the user
+    /// is told; `monitorScopeId` is the sidebar that asked.
     @discardableResult
-    func request(_ target: BrowserTabTarget, unlessClosing closes: BrowserTabCloseRequests,
+    func request(_ target: BrowserTabTarget, browser: String = "The browser", monitorScopeId: String? = nil,
+                 unlessClosing closes: BrowserTabCloseRequests,
                  perform: @escaping @MainActor () async -> BrowserTabActionResult,
                  finished: @escaping @MainActor (_ result: BrowserTabActionResult, _ cancelled: Bool) async -> Void) -> Task<Void, Never>? {
         guard mayRequest(target, unlessClosing: closes) else { return nil }
@@ -291,15 +415,42 @@ final class BrowserTabSelectRequests {
         let attempt = pending.begin(target, now: clock())
         let next = Task { @MainActor [weak self] in
             let result = await perform()
-            if let self { self.pending.settle(attempt: attempt, windowId: target.windowId, confirmed: result == .dispatched(.confirmed), now: self.clock()) }
-            await finished(result, Task.isCancelled)
+            let cancelled = Task.isCancelled
+            if let self {
+                let notice = cancelled ? nil : browserTabActionMessage(result, kind: .select, browser: browser)
+                    .map { BrowserTabActionNotice(kind: .select, message: $0, monitorScopeId: monitorScopeId) }
+                if result.isDispatched, result != .dispatched(.confirmed) {
+                    // Taken, and maybe done: the window's next reads decide.
+                    self.pending.awaitConfirmation(attempt: attempt, windowId: target.windowId, now: self.clock(), notice: notice,
+                        cancelled: cancelled)
+                } else {
+                    self.pending.settle(attempt: attempt, windowId: target.windowId, confirmed: result == .dispatched(.confirmed),
+                        now: self.clock(), cancelled: cancelled)
+                    if let notice { self.notify(notice) }
+                }
+            }
+            await finished(result, cancelled)
         }
         task = next
         return next
     }
 
-    func observe(_ snapshot: BrowserWindowTabs, readStarted: TimeInterval) { pending.observe(snapshot, readStarted: readStarted) }
-    func expire() { pending.expire(now: clock()) }
+    func observe(_ snapshot: BrowserWindowTabs, readStarted: TimeInterval) {
+        if let after = pending.observe(snapshot, readStarted: readStarted) {
+            log("select followUp=confirmedByRead ms=\(Int((after * 1000).rounded()))")
+        }
+    }
+
+    /// Whether a select taken in this window waits for its reads to see it done.
+    func awaitsConfirmation(_ windowId: UInt32) -> Bool { pending.awaitsConfirmation(windowId) }
+
+    func expire() {
+        for lapsed in pending.expire(now: clock()) {
+            log("select followUp=unconfirmed reads=\(lapsed.reads) target=\(lapsed.listed.map { $0 ? "listed" : "unlisted" } ?? "unread") " +
+                "notice=\(lapsed.notice != nil)")
+            if let notice = lapsed.notice { notify(notice) }
+        }
+    }
     /// As browser tabs are turned off: the select under way is cancelled, and nothing is shown
     /// pending; a select from before that comes back after settles nothing.
     func reset() {
@@ -328,7 +479,9 @@ struct BrowserTabActionFollowUp: Equatable {
 
 /// The line the sidebar shows when a select or close didn't go as asked, by why. Kept together
 /// here, so they can be localized at once. Only what wasn't sent is told as not done, and only
-/// that invites another try: what was sent may yet have happened, and the list is read again.
+/// that invites another try: what was sent may yet have happened, and the list is read again. A
+/// select that was sent is told only once its window's reads have had their chance, so its line
+/// doesn't say the list is being refreshed.
 func browserTabActionMessage(_ result: BrowserTabActionResult, kind: BrowserTabActionKind, browser: String) -> String? {
     let select = kind == .select
     switch result {
@@ -344,13 +497,13 @@ func browserTabActionMessage(_ result: BrowserTabActionResult, kind: BrowserTabA
         case .notDispatched(.noAction), .notDispatched(.outOfView):
             return select ? "\(browser) didn't switch to this tab." : "\(browser) didn't offer a way to close this tab."
         case .dispatched(.unknown):
-            return select ? "\(browser) couldn't confirm switching to this tab. The list is being refreshed."
+            return select ? "\(browser) couldn't confirm switching to this tab."
                 : "\(browser) couldn't confirm closing this tab. The list is being refreshed."
         case .failed(.timedOut):
-            return select ? "\(browser) didn't answer in time; the tab may still switch. The list is being refreshed."
+            return select ? "\(browser) didn't answer in time; the tab may still switch."
                 : "\(browser) didn't answer in time; the tab may still close. The list is being refreshed."
         case .failed(.invalidElement), .failed(.unsupported), .failed(.other):
-            return select ? "\(browser) reported an error switching to this tab. The list is being refreshed."
+            return select ? "\(browser) reported an error switching to this tab."
                 : "\(browser) reported an error closing this tab. The list is being refreshed."
     }
 }

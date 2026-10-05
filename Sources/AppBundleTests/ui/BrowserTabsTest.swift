@@ -716,7 +716,7 @@ final class BrowserTabsTest: XCTestCase {
         pending.settle(attempt: second, windowId: 123, confirmed: true, now: 20.1)
         pending.observe(after, readStarted: 21.1)
         XCTAssertEqual(pending.apply(after).tabs.map(\.isSelected), [false, false, true])
-        // A press not seen done shows the real selection straight away.
+        // A press not sent shows the real selection straight away.
         let refused = pending.begin(before.tabs[1].target, now: 30)
         pending.settle(attempt: refused, windowId: 123, confirmed: false, now: 30.1)
         XCTAssertEqual(pending.apply(after).tabs.map(\.isSelected), [false, false, true])
@@ -2256,13 +2256,15 @@ final class BrowserTabsTest: XCTestCase {
             "dispatchAttempted=true postcondition=unknown ms="), lines[1])
         XCTAssertTrue(lines[2].hasPrefix("select result=notDispatched.cancelled stage=check class=unread link=unread ax=none " +
             "dispatchAttempted=false postcondition=none ms="), lines[2])
+        // The last read of what came of it: the tab selected, still there, or not read at all.
+        XCTAssertEqual(lines.map { $0.split(separator: " ").last }, ["read=selected", "read=present", "read=none"])
         let topicId = try XCTUnwrap(window.topic?.identifier?.split(separator: "&").first { $0.hasPrefix("clusterID=") }?.dropFirst(10))
         XCTAssertFalse(lines.contains { $0.contains("Page") || $0.contains("Topic") || $0.contains(topicId) })
     }
 
     /// A sidebar click shows its tab pending, not selected, while the browser is asked. Once the
-    /// tab is seen selected it shows selected; otherwise the real selection shows again, the window
-    /// is read again at once, and a short line says why.
+    /// tab is seen selected it shows selected; otherwise the window is read again at once, and once
+    /// its reads have had their chance the real selection shows again, with a short line saying why.
     func testASidebarSelectShowsPendingThenSelectedOnlyOnceTheTabIsSeenSelected() throws {
         let window = safariTopicWindow("PPPP", selected: 0)
         let snapshot = try XCTUnwrap(window.scanner.scan())
@@ -2275,12 +2277,370 @@ final class BrowserTabsTest: XCTestCase {
             XCTAssertEqual(pending.apply(snapshot).tabs.map(\.isSelected), [true, false, false, false], "seen: \(seen)")
             XCTAssertEqual(pending.apply(snapshot).tabs.map(\.pending), (0..<4).map { $0 == index ? .selecting : nil })
             let followUp = BrowserTabActionFollowUp(window.scanner.select(snapshot.tabs[index].target), kind: .select, browser: "Safari")
-            pending.settle(attempt: attempt, windowId: 123, confirmed: followUp.applies, now: 0.1)
+            if followUp.applies {
+                pending.settle(attempt: attempt, windowId: 123, confirmed: true, now: 0.1)
+            } else {
+                // Taken but not seen done: pending while its reads may still see it so, then the real selection.
+                pending.awaitConfirmation(attempt: attempt, windowId: 123, now: 0.1, notice: nil)
+                XCTAssertEqual(pending.apply(snapshot).tabs.map(\.pending), (0..<4).map { $0 == index ? .selecting : nil })
+                pending.expire(now: 0.1 + BrowserTabPendingSelections.confirmationWindow)
+            }
             XCTAssertEqual(pending.apply(snapshot).tabs.map(\.isSelected), (0..<4).map { seen ? $0 == index : $0 == 0 }, "seen: \(seen)")
             XCTAssertEqual(pending.apply(snapshot).tabs.map(\.pending), [nil, nil, nil, nil])
             XCTAssertEqual(followUp.rereads, !seen)
-            XCTAssertEqual(followUp.message, seen ? nil : "Safari couldn't confirm switching to this tab. The list is being refreshed.")
+            XCTAssertEqual(followUp.message, seen ? nil : "Safari couldn't confirm switching to this tab.")
             page.selected = false
+        }
+    }
+
+    /// Safari can take a press yet show its tab selected only after the read-back budget, as when
+    /// its window is out of view until WinMux brings it forward. That select did switch: the next
+    /// read says so, and nothing is told. The tab isn't shown selected before then, nor sent again.
+    @MainActor
+    func testASelectSafariShowsOnlyAfterItsReadBackIsConfirmedByTheNextReadWithoutANotice() async throws {
+        var time = 0.0
+        let window = safariTopicWindow("PPPP", selected: 0)
+        let scanner = BrowserTabScanner(root: window.root, adapter: .safari, windowId: 123, pid: 45, now: { time }, wait: { time += $0 })
+        let snapshot = try XCTUnwrap(scanner.scan())
+        let target = snapshot.tabs[2].target
+        let page = window.pages[2]
+        var notices: [BrowserTabActionNotice] = []
+        var results: [BrowserTabActionResult] = []
+        let selects = BrowserTabSelectRequests(clock: { time }, notify: { notices.append($0) })
+        await selects.request(target, browser: "Safari", monitorScopeId: "monitor:0,0", unlessClosing: BrowserTabCloseRequests(clock: { time }),
+            perform: { scanner.select(target) }, finished: { result, _ in results.append(result) })?.value
+        XCTAssertEqual(results, [.dispatched(.unknown)], "Not seen selected within the read-back budget")
+        XCTAssertEqual(notices, [], "but it may still be: nothing is told yet")
+        XCTAssertEqual(selects.apply(snapshot).tabs.map(\.isSelected), [true, false, false, false], "Not shown selected before it's seen so")
+        XCTAssertEqual(selects.apply(snapshot).tabs.map(\.pending), [nil, nil, .selecting, nil], "but still pending")
+
+        // Safari's tab bar catches up, and the window's next read sees it.
+        time += 0.3
+        window.pages[0].selected = false
+        page.selected = true
+        let readStarted = time
+        let reread = try XCTUnwrap(scanner.scan())
+        selects.observe(reread, readStarted: readStarted)
+        time += 5
+        selects.expire()
+        XCTAssertEqual(notices, [], "Seen selected: nothing to tell")
+        XCTAssertEqual(selects.apply(reread).tabs.map(\.isSelected), [false, false, true, false])
+        XCTAssertEqual(selects.apply(reread).tabs.map(\.pending), [nil, nil, nil, nil])
+        XCTAssertEqual(page.presses, 1, "Pressed once")
+    }
+
+    /// A select Safari took but never carried out stays pending, not selected, and is told only once
+    /// the window's reads have had `confirmationWindow` to see it done: then the real selection
+    /// shows, and one short line says so. A read begun before the press came back doesn't count,
+    /// and nothing is sent again meanwhile.
+    @MainActor
+    func testASelectSafariTookButNeverCarriedOutIsToldOnlyOnceItsReadsHadTheirChance() async throws {
+        var time = 0.0
+        let window = safariTopicWindow("PPPP", selected: 0)
+        let scanner = BrowserTabScanner(root: window.root, adapter: .safari, windowId: 123, pid: 45, now: { time }, wait: { time += $0 })
+        let snapshot = try XCTUnwrap(scanner.scan())
+        let target = snapshot.tabs[2].target
+        var notices: [BrowserTabActionNotice] = []
+        var lines: [String] = []
+        let selects = BrowserTabSelectRequests(clock: { time }, notify: { notices.append($0) }, log: { lines.append($0) })
+        await selects.request(target, browser: "Safari", monitorScopeId: "monitor:0,0", unlessClosing: BrowserTabCloseRequests(clock: { time }),
+            perform: { scanner.select(target) }, finished: { _, _ in })?.value
+        let returned = time
+        XCTAssertTrue(selects.awaitsConfirmation(123))
+        var shownSelected = snapshot
+        shownSelected.tabs = snapshot.tabs.map { tab in
+            var tab = tab
+            tab.isSelected = tab.target == target
+            return tab
+        }
+        selects.observe(shownSelected, readStarted: returned - 0.01)
+        XCTAssertEqual(selects.apply(snapshot).tabs.map(\.pending), [nil, nil, .selecting, nil], "A read begun before the press came back doesn't count")
+        for step in 1...5 {
+            time = returned + Double(step) * 0.25
+            selects.observe(try XCTUnwrap(scanner.scan()), readStarted: time)
+            selects.expire()
+            XCTAssertEqual(notices, [], "step \(step): its reads may still see it")
+            XCTAssertEqual(selects.apply(snapshot).tabs.map(\.pending), [nil, nil, .selecting, nil], "step \(step)")
+            XCTAssertEqual(selects.apply(snapshot).tabs.map(\.isSelected), [true, false, false, false], "step \(step): not shown selected")
+        }
+        time = returned + BrowserTabPendingSelections.confirmationWindow + 0.01
+        selects.expire()
+        XCTAssertEqual(notices, [.init(kind: .select, message: "Safari couldn't confirm switching to this tab.",
+            monitorScopeId: "monitor:0,0")])
+        XCTAssertFalse(selects.awaitsConfirmation(123))
+        XCTAssertEqual(selects.apply(snapshot).tabs.map(\.pending), [nil, nil, nil, nil])
+        XCTAssertEqual(selects.apply(snapshot).tabs.map(\.isSelected), [true, false, false, false], "The real selection shows")
+        XCTAssertEqual(window.pages[2].presses, 1, "Pressed once")
+        XCTAssertEqual(lines, ["select followUp=unconfirmed reads=5 target=listed notice=true"])
+        selects.expire()
+        XCTAssertEqual(notices.count, 1, "Told once")
+    }
+
+    /// A select taken but not seen done says nothing once a later click has overtaken it, in its own
+    /// window or another; the later click's tab is the one shown pending.
+    @MainActor
+    func testASelectNotSeenDoneSaysNothingOnceALaterClickOvertookIt() async throws {
+        var time = 0.0
+        let one = safariTopicWindow("PPP", selected: 0)
+        let two = safariTopicWindow("PP", selected: 0)
+        let first = BrowserTabScanner(root: one.root, adapter: .safari, windowId: 1, pid: 45, now: { time }, wait: { time += $0 })
+        let second = BrowserTabScanner(root: two.root, adapter: .safari, windowId: 2, pid: 45, now: { time }, wait: { time += $0 })
+        let (shownOne, shownTwo) = (try XCTUnwrap(first.scan()), try XCTUnwrap(second.scan()))
+        var notices: [BrowserTabActionNotice] = []
+        let closes = BrowserTabCloseRequests(clock: { time })
+        let selects = BrowserTabSelectRequests(clock: { time }, notify: { notices.append($0) })
+        func select(_ target: BrowserTabTarget, on scanner: BrowserTabScanner<BrowserTestNode>) async {
+            await selects.request(target, browser: "Safari", unlessClosing: closes, perform: { scanner.select(target) }, finished: { _, _ in })?.value
+        }
+        // In its own window: the second tab, not seen selected, then the third.
+        await select(shownOne.tabs[1].target, on: first)
+        await select(shownOne.tabs[2].target, on: first)
+        XCTAssertEqual(selects.apply(shownOne).tabs.map(\.pending), [nil, nil, .selecting])
+        // In another window, seen selected at once.
+        let page = two.pages[1]
+        page.onPress = { [unowned page] in page.selected = true }
+        await select(shownTwo.tabs[1].target, on: second)
+        time += 5
+        selects.expire()
+        XCTAssertEqual(notices, [], "Overtaken, so nothing to tell")
+        XCTAssertEqual(selects.apply(shownOne).tabs.map(\.pending), [nil, nil, nil])
+        XCTAssertEqual(one.pages.map(\.presses), [0, 1, 1])
+    }
+
+    /// Were Safari to put a new element in place of the tab it switched to, that tab couldn't be told
+    /// from any other: no title, place or address stands in for the one listed. Its select isn't
+    /// seen done, so once its reads have had their chance it's told as not confirmed, and the debug
+    /// log says the tab was no longer listed. Nothing is pressed again.
+    @MainActor
+    func testATabWhoseElementSafariReplacedIsNeverGuessedAtAndIsToldAsNotConfirmed() async throws {
+        var time = 0.0
+        let window = safariTopicWindow("PPPP", selected: 0)
+        let scanner = BrowserTabScanner(root: window.root, adapter: .safari, windowId: 123, pid: 45, now: { time }, wait: { time += $0 })
+        let snapshot = try XCTUnwrap(scanner.scan())
+        let target = snapshot.tabs[2].target
+        let page = window.pages[2]
+        let replacement = BrowserTestNode("AXRadioButton", subrole: "AXTabButton")
+        replacement.title = page.title
+        replacement.identifier = safariTabIdentifier(active: true)
+        replacement.actions = page.actions
+        replacement.append(BrowserTestNode("AXImage"))
+        replacement.append(BrowserTestNode("AXStaticText"))
+        let (container, selectedPage) = (window.container, window.pages[0])
+        page.onPress = { [unowned page] in
+            page.unreadable = true
+            selectedPage.selected = false
+            replacement.selected = true
+            container.nodes[2] = replacement
+            replacement.ancestor = container
+            replacement.owner = container.owner
+        }
+        var notices: [BrowserTabActionNotice] = []
+        var lines: [String] = []
+        let selects = BrowserTabSelectRequests(clock: { time }, notify: { notices.append($0) }, log: { lines.append($0) })
+        await selects.request(target, browser: "Safari", unlessClosing: BrowserTabCloseRequests(clock: { time }),
+            perform: { scanner.select(target) }, finished: { _, _ in })?.value
+        let returned = time
+        time += 0.25
+        let reread = try XCTUnwrap(scanner.scan())
+        XCTAssertEqual(reread.tabs.map(\.isSelected), [false, false, true, false])
+        XCTAssertNotEqual(reread.tabs[2].target, target, "Listed afresh")
+        selects.observe(reread, readStarted: time)
+        time = returned + BrowserTabPendingSelections.confirmationWindow + 0.01
+        selects.expire()
+        XCTAssertEqual(notices.map(\.message), ["Safari couldn't confirm switching to this tab."])
+        XCTAssertEqual(lines, ["select followUp=unconfirmed reads=1 target=unlisted notice=true"])
+        XCTAssertEqual(page.presses + replacement.presses, 1)
+    }
+
+    /// A click called off before it asks anything, such as one on a row whose window has since gone,
+    /// still overtakes the select before it: that select's notice, saved while its reads may still
+    /// see it done, is never told. It was sent, so its reads still decide what shows.
+    @MainActor
+    func testACancelWithNoNewSelectCallsOffTheNoticeTheSelectBeforeItSaved() async throws {
+        var time = 0.0
+        let window = safariTopicWindow("PPPP", selected: 0)
+        let scanner = BrowserTabScanner(root: window.root, adapter: .safari, windowId: 123, pid: 45, now: { time }, wait: { time += $0 })
+        let target = try XCTUnwrap(scanner.scan()).tabs[2].target
+        var notices: [BrowserTabActionNotice] = []
+        let selects = BrowserTabSelectRequests(clock: { time }, notify: { notices.append($0) })
+        await selects.request(target, browser: "Safari", unlessClosing: BrowserTabCloseRequests(clock: { time }),
+            perform: { scanner.select(target) }, finished: { _, _ in })?.value
+        XCTAssertTrue(selects.awaitsConfirmation(123))
+        selects.cancel()
+        XCTAssertTrue(selects.awaitsConfirmation(123), "Sent: its reads still decide what shows")
+        time += BrowserTabPendingSelections.confirmationWindow + 0.01
+        selects.expire()
+        XCTAssertEqual(notices, [], "Called off: nothing told")
+        XCTAssertEqual(window.pages[2].presses, 1)
+    }
+
+    /// The same through the model: a click on a row whose window has gone cancels the select before
+    /// it and goes no further, and that select's notice is never told.
+    @MainActor
+    func testAClickOnARowWhoseWindowWentCallsOffTheNoticeOfTheSelectBeforeIt() async throws {
+        setUpWorkspacesForTests()
+        let wasEnabled = TrayMenuModel.shared.isEnabled
+        defer {
+            config = defaultConfig
+            TrayMenuModel.shared.isEnabled = wasEnabled
+        }
+        config.workspaceSidebar.mode = .tabs
+        config.workspaceSidebar.browserTabs = true
+        TrayMenuModel.shared.isEnabled = true
+        var time = 0.0
+        let window = safariTopicWindow("PPPP", selected: 0)
+        let scanner = BrowserTabScanner(root: window.root, adapter: .safari, windowId: 123, pid: 45, now: { time }, wait: { time += $0 })
+        let target = try XCTUnwrap(scanner.scan()).tabs[2].target
+        var notices: [BrowserTabActionNotice] = []
+        let selects = BrowserTabSelectRequests(clock: { time }, notify: { notices.append($0) })
+        let model = BrowserTabsModel(safariExtension: SafariExtensionBridge(configuration: { nil }, icons: SafariExtensionIcons()),
+            selectRequests: selects)
+        // The select before, as the model's select runs it.
+        await selects.request(target, browser: "Safari", unlessClosing: BrowserTabCloseRequests(clock: { time }),
+            perform: { scanner.select(target) }, finished: { _, _ in })?.value
+        XCTAssertTrue(selects.awaitsConfirmation(123))
+        let gone = BrowserTabTarget(windowId: 987_654, pid: 45, windowSession: UUID(), tabId: UUID())
+        XCTAssertNil(Window.get(byId: gone.windowId))
+        model.select(gone, monitorScopeId: nil)
+        try await Task.sleep(for: .milliseconds(100))
+        time += BrowserTabPendingSelections.confirmationWindow + 0.01
+        selects.expire()
+        XCTAssertEqual(notices, [], "Called off by the later click: nothing told")
+    }
+
+    /// A select waiting its turn on the browser's Accessibility thread can come back after its
+    /// spinner lapsed (`lifetime`). The latest click's answer still gets its reads, whether Safari
+    /// answered or reported an error: one that then shows its tab selected says nothing; otherwise
+    /// one notice once they've had their chance.
+    @MainActor
+    func testASelectComingBackAfterItsSpinnerLapsedStillGetsItsReadsAndNotice() async throws {
+        let cases: [(BrowserTabAXFailure?, Bool)] = [(nil, true), (nil, false), (.timedOut, true), (.timedOut, false)]
+        for (failure, seen) in cases {
+            let name = "failure: \(failure.map(\.rawValue) ?? "none"), seen: \(seen)"
+            var time = 0.0
+            let window = safariTopicWindow("PPPP", selected: 0)
+            let scanner = BrowserTabScanner(root: window.root, adapter: .safari, windowId: 123, pid: 45, now: { time }, wait: { time += $0 })
+            let snapshot = try XCTUnwrap(scanner.scan())
+            let target = snapshot.tabs[2].target
+            let page = window.pages[2]
+            page.pressFailure = failure
+            final class Gate {
+                var release: CheckedContinuation<Void, Never>?
+                var results: [BrowserTabActionResult] = []
+            }
+            let gate = Gate()
+            var notices: [BrowserTabActionNotice] = []
+            let selects = BrowserTabSelectRequests(clock: { time }, notify: { notices.append($0) })
+            let task = try XCTUnwrap(selects.request(target, browser: "Safari", unlessClosing: BrowserTabCloseRequests(clock: { time }),
+                perform: {
+                    await withCheckedContinuation { gate.release = $0 }
+                    return scanner.select(target)
+                }, finished: { result, _ in gate.results.append(result) }))
+            while gate.release == nil { await Task.yield() }
+            time = BrowserTabPendingSelections.lifetime + 0.5
+            selects.expire()
+            XCTAssertEqual(selects.apply(snapshot).tabs.map(\.pending), [nil, nil, nil, nil], "\(name): its spinner lapsed")
+            gate.release?.resume()
+            await task.value
+            XCTAssertEqual(gate.results, [failure.map { .failed($0) } ?? .dispatched(.unknown)], name)
+            let returned = time
+            XCTAssertTrue(selects.awaitsConfirmation(123), "\(name): its reads still decide")
+            XCTAssertEqual(selects.apply(snapshot).tabs.map(\.pending), [nil, nil, .selecting, nil], name)
+            XCTAssertEqual(notices, [], "\(name): not told at once")
+            if seen {
+                window.pages[0].selected = false
+                page.selected = true
+            }
+            time += 0.25
+            selects.observe(try XCTUnwrap(scanner.scan()), readStarted: time)
+            time = returned + BrowserTabPendingSelections.confirmationWindow + 0.01
+            selects.expire()
+            let message = failure == nil ? "Safari couldn't confirm switching to this tab." : "Safari didn't answer in time; the tab may still switch."
+            XCTAssertEqual(notices.map(\.message), seen ? [] : [message], name)
+            XCTAssertEqual(page.presses, 1, name)
+        }
+    }
+
+    /// A select that comes back after its spinner lapsed, but that a click in another window
+    /// overtook, or from before browser tabs were turned off and on, shows and says nothing more.
+    @MainActor
+    func testALateSelectAnotherClickOrAResetCalledOffIsNeverRevived() async throws {
+        for resets in [false, true] {
+            var time = 0.0
+            let one = safariTopicWindow("PPP", selected: 0)
+            let two = safariTopicWindow("PP", selected: 0)
+            let first = BrowserTabScanner(root: one.root, adapter: .safari, windowId: 1, pid: 45, now: { time }, wait: { time += $0 })
+            let second = BrowserTabScanner(root: two.root, adapter: .safari, windowId: 2, pid: 45, now: { time }, wait: { time += $0 })
+            let (shownOne, shownTwo) = (try XCTUnwrap(first.scan()), try XCTUnwrap(second.scan()))
+            final class Gate { var release: CheckedContinuation<Void, Never>? }
+            let gate = Gate()
+            var notices: [BrowserTabActionNotice] = []
+            let closes = BrowserTabCloseRequests(clock: { time })
+            let selects = BrowserTabSelectRequests(clock: { time }, notify: { notices.append($0) })
+            let late = shownOne.tabs[1].target
+            // Pressed whenever its turn comes, even once called off: the worst case.
+            let held = try XCTUnwrap(selects.request(late, browser: "Safari", unlessClosing: closes, perform: {
+                await withCheckedContinuation { gate.release = $0 }
+                return first.select(late)
+            }, finished: { _, _ in }))
+            while gate.release == nil { await Task.yield() }
+            time = BrowserTabPendingSelections.lifetime + 0.5
+            selects.expire()
+            if resets {
+                selects.reset()
+            } else {
+                let page = two.pages[1]
+                page.onPress = { [unowned page] in page.selected = true }
+                let other = shownTwo.tabs[1].target
+                await selects.request(other, browser: "Safari", unlessClosing: closes, perform: { second.select(other) }, finished: { _, _ in })?.value
+            }
+            gate.release?.resume()
+            await held.value
+            XCTAssertFalse(selects.awaitsConfirmation(1), "resets: \(resets)")
+            XCTAssertEqual(selects.apply(shownOne).tabs.map(\.pending), [nil, nil, nil], "resets: \(resets)")
+            time += 5
+            selects.expire()
+            XCTAssertEqual(notices, [], "resets: \(resets)")
+        }
+    }
+
+    /// A select Safari answered with an error is taken as one it may still have carried out, as an
+    /// unseen one is: its reads decide, silently if they see it done, or with one notice once
+    /// they've had their chance. Nothing is pressed again.
+    @MainActor
+    func testASelectSafariAnsweredWithAnErrorWaitsForItsReadsAsAnUnseenOneDoes() async throws {
+        let cases: [(BrowserTabAXFailure, Bool, String)] = [
+            (.timedOut, true, ""), (.timedOut, false, "Safari didn't answer in time; the tab may still switch."),
+            (.other, true, ""), (.other, false, "Safari reported an error switching to this tab."),
+        ]
+        for (failure, seen, message) in cases {
+            let name = "\(failure.rawValue), seen: \(seen)"
+            var time = 0.0
+            let window = safariTopicWindow("PPPP", selected: 0)
+            let scanner = BrowserTabScanner(root: window.root, adapter: .safari, windowId: 123, pid: 45, now: { time }, wait: { time += $0 })
+            let snapshot = try XCTUnwrap(scanner.scan())
+            let target = snapshot.tabs[2].target
+            let page = window.pages[2]
+            page.pressFailure = failure
+            var notices: [BrowserTabActionNotice] = []
+            var results: [BrowserTabActionResult] = []
+            let selects = BrowserTabSelectRequests(clock: { time }, notify: { notices.append($0) })
+            await selects.request(target, browser: "Safari", unlessClosing: BrowserTabCloseRequests(clock: { time }),
+                perform: { scanner.select(target) }, finished: { result, _ in results.append(result) })?.value
+            let returned = time
+            XCTAssertEqual(results, [.failed(failure)], name)
+            XCTAssertEqual(notices, [], "\(name): not told at once")
+            XCTAssertEqual(selects.apply(snapshot).tabs.map(\.pending), [nil, nil, .selecting, nil], name)
+            if seen {
+                window.pages[0].selected = false
+                page.selected = true
+            }
+            time += 0.25
+            selects.observe(try XCTUnwrap(scanner.scan()), readStarted: time)
+            time = returned + BrowserTabPendingSelections.confirmationWindow + 0.01
+            selects.expire()
+            XCTAssertEqual(notices.map(\.message), seen ? [] : [message], name)
+            XCTAssertEqual(page.presses, 1, name)
         }
     }
 
@@ -2445,7 +2805,7 @@ final class BrowserTabsTest: XCTestCase {
     func testEachWayABrowserTabActionCanGoWrongHasItsOwnShortLine() {
         let changed = "This tab changed or moved in Safari. The list is being refreshed; try again."
         let notSwitched = "Safari didn't switch to this tab."
-        let errorSwitching = "Safari reported an error switching to this tab. The list is being refreshed."
+        let errorSwitching = "Safari reported an error switching to this tab."
         let errorClosing = "Safari reported an error closing this tab. The list is being refreshed."
         let cases: [(BrowserTabActionResult, select: String?, close: String?)] = [
             (.dispatched(.confirmed), nil, nil),
@@ -2459,9 +2819,9 @@ final class BrowserTabsTest: XCTestCase {
             (.notDispatched(.noAction), notSwitched, "Safari didn't offer a way to close this tab."),
             (.notDispatched(.outOfView), notSwitched, "Safari didn't offer a way to close this tab."),
             // Sent: it may have happened, so these say only what's known, and don't invite another try.
-            (.dispatched(.unknown), "Safari couldn't confirm switching to this tab. The list is being refreshed.",
+            (.dispatched(.unknown), "Safari couldn't confirm switching to this tab.",
              "Safari couldn't confirm closing this tab. The list is being refreshed."),
-            (.failed(.timedOut), "Safari didn't answer in time; the tab may still switch. The list is being refreshed.",
+            (.failed(.timedOut), "Safari didn't answer in time; the tab may still switch.",
              "Safari didn't answer in time; the tab may still close. The list is being refreshed."),
             (.failed(.invalidElement), errorSwitching, errorClosing),
             (.failed(.unsupported), errorSwitching, errorClosing),

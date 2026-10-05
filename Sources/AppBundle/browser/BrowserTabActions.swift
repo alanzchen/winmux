@@ -90,6 +90,9 @@ struct BrowserTabActionTrace {
     var call: BrowserTabAXCall? = nil
     var dispatchAttempted = false
     var postcondition: BrowserTabActionPostcondition? = nil
+    /// What the last read of a dispatched action's effect said: for a select, its tab selected, not
+    /// selected, or not answered; for a close, its tab gone or still there.
+    var lastRead: String? = nil
 
     mutating func describe<Node>(_ record: BrowserTabAXRecord<Node>, tabClass: String) {
         self.tabClass = tabClass
@@ -108,7 +111,8 @@ struct BrowserTabActionTrace {
             case .failed(let failure)?: failure.rawValue
         }
         return "\(kind.rawValue) result=\(result.logName) stage=\(stage) class=\(tabClass) link=\(link) ax=\(ax) " +
-            "dispatchAttempted=\(dispatchAttempted) postcondition=\(postcondition?.rawValue ?? "none") ms=\(Int((elapsed * 1000).rounded()))"
+            "dispatchAttempted=\(dispatchAttempted) postcondition=\(postcondition?.rawValue ?? "none") ms=\(Int((elapsed * 1000).rounded())) " +
+            "read=\(lastRead ?? "none")"
     }
 }
 
