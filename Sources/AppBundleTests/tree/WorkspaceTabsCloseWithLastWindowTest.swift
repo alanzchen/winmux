@@ -90,8 +90,8 @@ final class WorkspaceTabsCloseWithLastWindowTest: XCTestCase {
 
     /// The windows vanish from one refresh together; `quit` are those whose app has terminated.
     private func vanishTogether(_ windows: [Window], quit: [Window] = []) {
-        let closes = vanishedWindowsCloseTheirTabs(windows) { window in !quit.contains { $0 === window } }
-        for window in windows { window.removeClosedWindowFromTree(closesItsTab: closes) }
+        let closeDelay = workspaceTabCloseDelay(forVanished: windows) { window in !quit.contains { $0 === window } }
+        for window in windows { window.removeClosedWindowFromTree(closeDelay: closeDelay(window)) }
         Workspace.reconcileWorkspaceState()
     }
 
@@ -111,9 +111,10 @@ final class WorkspaceTabsCloseWithLastWindowTest: XCTestCase {
 
     /// What a refresh session's window refresh does: lists and registers windows, then reconciles.
     private func windowRefresh(takes: TimeInterval = 0, returning: [TestWindow] = []) async throws {
+        let listing = beginWindowListing()
         clock = clock.addingTimeInterval(takes)
         for window in returning { _ = try await restoreOrDetectNewWindow(window, isRegularWindow: true) }
-        Workspace.reconcileWorkspaceState()
+        reconcileAfterWindowListing(listing)
     }
 
     /// Window `id` of `app`, found again by a refresh: it shows up first on the tab on screen.

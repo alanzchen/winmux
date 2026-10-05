@@ -457,14 +457,15 @@ func refreshModel() {
 
 @MainActor
 private func refresh() async throws {
+    let windowListing = beginWindowListing()
     // Garbage collect terminated apps and windows before working with all windows
     let mapping = try await MacApp.refreshAllAndGetAliveWindowIds(frontmostAppBundleId: NSWorkspace.shared.frontmostApplication?.bundleIdentifier)
     let aliveWindowIds = mapping.values.flatMap { $0 }.toSet()
 
     let vanished = MacWindow.allWindows.filter { !aliveWindowIds.contains($0.windowId) }
-    let closesTabs = vanishedWindowsCloseTheirTabs(vanished) { ($0 as? MacWindow)?.macApp.nsApp.isTerminated == false }
+    let closeDelay = workspaceTabCloseDelay(forVanished: vanished) { ($0 as? MacWindow)?.macApp.nsApp.isTerminated == false }
     for window in vanished {
-        window.garbageCollect(skipClosedWindowsCache: false, closesItsTab: closesTabs)
+        window.garbageCollect(skipClosedWindowsCache: false, closeDelay: closeDelay(window))
     }
     // Saved-workspace routing must not give a slot whose window is alive but not registered yet
     // to another window of the same app.
@@ -513,7 +514,7 @@ private func refresh() async throws {
     finalizePersistedFrozenWorldAfterRefresh(aliveWindowIds: aliveWindowIds)
 
     // Garbage collect workspaces after apps, because workspaces contain apps.
-    Workspace.reconcileWorkspaceState()
+    reconcileAfterWindowListing(windowListing)
 }
 
 func refreshObs(_: AXObserver, _ ax: AXUIElement, notif: CFString, _: UnsafeMutableRawPointer?) {

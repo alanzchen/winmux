@@ -75,9 +75,16 @@ func workspaceNavigationTabs(current: Workspace) -> [Workspace] {
     let projectId = workspaceContextProjectId(of: current)
     let tabs = orderedUserFacingWorkspaces(in: projectId, focusedWorkspace: current)
     guard config.usesBrowserTabs else { return tabs }
-    let organization = workspaceSidebarOrganizationStore.state
     let pinnedEverywhere = userFacingWorkspaces(workspacePinnedTabsInAllProjects(), focusedWorkspace: current)
-    return workspaceTabOrder(pinnedEverywhere + tabs.filter { !workspaceIsPinnedInAllProjects($0) }, name: { $0.name },
+    return workspaceTabsInSidebarOrder(pinnedEverywhere + tabs.filter { !workspaceIsPinnedInAllProjects($0) }, projectId: projectId)
+}
+
+/// `projectId`'s `tabs` in the order its sidebar shows them: pins first, then each group together.
+@MainActor
+func workspaceTabsInSidebarOrder(_ tabs: [Workspace], projectId: WorkspaceProjectId) -> [Workspace] {
+    guard config.usesBrowserTabs else { return tabs }
+    let organization = workspaceSidebarOrganizationStore.state
+    return workspaceTabOrder(tabs, name: { $0.name },
         isPinned: { organization.workspaces[$0.name]?.isFavorite == true },
         pinOrder: { organization.workspaces[$0.name]?.pinOrder }, isPinnedInAllProjects: workspaceIsPinnedInAllProjects,
         collections: organization.collections.filter { $0.projectId == projectId })

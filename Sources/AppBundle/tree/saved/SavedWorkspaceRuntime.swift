@@ -90,6 +90,12 @@ final class SavedWorkspaceRuntime {
     var workspacesAwaitingProject: Set<String>?
     var suspensions: Set<SavedWorkspaceSuspension> = []
     var frozenForShutdownUntil: Date?
+    /// When WinMux last saw the screen locked or capture suspended, or that end: windows listed
+    /// soon after may not be back yet.
+    var lastSeenLockedAt: Date?
+    var wasLockedAtLastWindowListing = false
+    /// When the last refresh that listed every window started.
+    var lastWindowListingStartedAt: Date?
     /// Slot id → when its window vanished while its app kept running.
     var vanishedSlots: [String: SavedVanishedSlot] = [:]
     /// A failed organization write must keep a name reserved without retrying every refresh.
@@ -254,7 +260,6 @@ func installSavedWorkspaceObservers() {
         observe(workspaceCenter, NSWorkspace.willPowerOffNotification) {
             savedWorkspaceStore.flushNow()
             savedWorkspaceRuntime.frozenForShutdownUntil = savedWorkspaceRuntime.now.addingTimeInterval(SavedWorkspaceTiming.shutdownFreeze)
-            keepTabsWaitingToClose()
         },
         observe(workspaceCenter, NSWorkspace.willSleepNotification) {
             suspendSavedWorkspaceCapture(.asleep)
@@ -283,12 +288,10 @@ func installSavedWorkspaceObservers() {
     ]
 }
 
-/// Windows may vanish while capture is suspended, and just before, without being closed.
 @MainActor
 func suspendSavedWorkspaceCapture(_ suspension: SavedWorkspaceSuspension) {
     savedWorkspaceStore.flushNow()
     savedWorkspaceRuntime.suspensions.insert(suspension)
-    keepTabsWaitingToClose()
 }
 
 @MainActor
@@ -300,5 +303,8 @@ func resumeSavedWorkspaceCapture(after suspension: SavedWorkspaceSuspension) {
     savedWorkspaceRuntime.windowsAwaitingTitle = [:]
     savedWorkspaceRuntime.titleRetryTask?.cancel()
     savedWorkspaceRuntime.titleRetryTask = nil
+    // Tabs whose windows went meanwhile, or just before, are checked once windows are back.
+    savedWorkspaceRuntime.lastSeenLockedAt = savedWorkspaceRuntime.now
     scheduleSavedWorkspaceCheckpoint()
+    scheduleWorkspaceTabCloseChecks()
 }

@@ -98,7 +98,8 @@ func workspaceTabNeighbor(of workspace: Workspace) -> Workspace? {
     // Pins in All Projects aren't among a project's tabs; one of them has its display's project's.
     let candidates = workspaceIsPinnedInAllProjects(workspace)
         ? workspaceNavigationTabs(current: workspace)
-        : orderedWorkspaces(in: workspace.projectId).filter { !workspaceIsPinnedInAllProjects($0) }
+        : workspaceTabsInSidebarOrder(orderedWorkspaces(in: workspace.projectId).filter { !workspaceIsPinnedInAllProjects($0) },
+            projectId: workspace.projectId)
     let tabs = candidates.filter { tab in
         tab === workspace || tab.workspaceMonitor.rect == monitor.rect
     }
@@ -125,12 +126,15 @@ func workspaceTabWasLeftEmptyIgnoringLauncher(_ tab: Workspace) -> Bool {
 
 /// A tab left empty on screen gives its display to the next tab there, or the previous one,
 /// in the order the sidebar shows; tabs with windows first. With no other tab on that
-/// display, it stays, and the sidebar doesn't list it.
+/// display, it stays, and the sidebar doesn't list it; a saved one closing with its last window
+/// gives its display a blank tab instead, so its saved name, group and label can go.
 @MainActor
 func leaveTabsLeftEmptyOnScreen() {
     guard config.usesBrowserTabs else { return }
     for tab in Workspace.all where tab.isVisible && workspaceTabWasLeftEmpty(tab) {
-        guard let next = workspaceTabReplacingEmptyTab(tab) else { continue }
+        let blank = { tab.isSaved && workspaceTabClosesWithLastWindow(tab)
+            ? createBlankWorkspace(projectId: tab.projectId, monitor: tab.workspaceMonitor) : nil }
+        guard let next = workspaceTabReplacingEmptyTab(tab) ?? blank() else { continue }
         if focus.workspace === tab { _ = next.focusWorkspace() } else { _ = tab.workspaceMonitor.setActiveWorkspace(next) }
     }
 }

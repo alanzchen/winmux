@@ -2,12 +2,12 @@ import Foundation
 
 extension Window {
     /// A window that closed leaves the tree, and focus moves on as closing it should. Its tab
-    /// closes with its last window unless `closesItsTab` is false: see `noteWindowClosed`.
+    /// closes with its last window once a refresh `closeDelay` later confirms it: see `noteWindowClosed`.
     @MainActor
-    func removeClosedWindowFromTree(closesItsTab: Bool = true) {
+    func removeClosedWindowFromTree(closeDelay: TimeInterval = WorkspaceTabClosePolicy.delay) {
         let parent = unbindFromParent().parent
         // First, so focus leaves a tab that closes, as it leaves one that isn't saved.
-        if closesItsTab { noteWindowClosed(self, from: parent) }
+        noteWindowClosed(self, from: parent, closeDelay: closeDelay)
         let deadWindowWorkspace = parent.nodeWorkspace
         let currentFocus = focus
         let previousFocus = prevFocus
