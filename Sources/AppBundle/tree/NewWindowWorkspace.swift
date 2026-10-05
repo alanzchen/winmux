@@ -6,6 +6,13 @@ import Common
     window.app.pid == NSWorkspace.shared.frontmostApplication?.processIdentifier
 }
 
+/// What a window a refresh listed but hasn't registered yet is, as its registration will classify
+/// it; nil when its app isn't known. Tests replace it.
+@MainActor var registeringWindowType: @MainActor (_ windowId: UInt32, _ pid: Int32) async throws -> AxUiElementWindowType? = { windowId, pid in
+    guard let app = MacApp.allAppsMap[pid] else { return nil }
+    return try await app.getAxUiElementWindowType(windowId, getWindowLevel(for: windowId))
+}
+
 /// With `open-new-windows-in-new-workspace`, a window the user opens gets its own empty
 /// workspace in the same project and display; in Tabs mode, a new tab right after the one it
 /// opened from. Runs after `on-window-detected`, so a rule that already moved the window to

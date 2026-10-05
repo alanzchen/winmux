@@ -153,6 +153,19 @@ final class SavedWorkspaceRuntime {
 
     var now: Date { environment.now() }
 
+    /// Lists the windows a refresh is about to register. Returns its listing, to end it with.
+    func beginRefreshWindowListing(alive: [UInt32: Int32], bundleIds: [Int32: String]) -> UInt64 {
+        aliveWindowPidsDuringRefresh = alive
+        bundleIdsByPidDuringRefresh = bundleIds
+        return 0
+    }
+
+    func endRefreshWindowListing(_ listing: UInt64) {
+        placeWindowsAwaitingEmptyPin()
+        aliveWindowPidsDuringRefresh = [:]
+        bundleIdsByPidDuringRefresh = [:]
+    }
+
     var isStartupRestoreActive: Bool {
         guard let runtimeReadyAt else { return true }
         return now.timeIntervalSince(runtimeReadyAt) < SavedWorkspaceTiming.restoreWindow
