@@ -156,7 +156,7 @@ final class BrowserTabsModel: ObservableObject {
                 cache.recordFailure(windowId: window.windowId, now: ProcessInfo.processInfo.systemUptime)
             }
             // A select the browser took but wasn't seen to carry out has its window read again at
-            // each pass, until a read sees it done or its time is up.
+            // each pass, until a read sees it done or a pass finds its grace over.
             if selectRequests.awaitsConfirmation(window.windowId) { schedule.reset(window.windowId) }
         }
     }
