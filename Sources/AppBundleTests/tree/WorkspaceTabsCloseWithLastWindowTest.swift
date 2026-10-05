@@ -220,6 +220,17 @@ final class WorkspaceTabsCloseWithLastWindowTest: XCTestCase {
         assertStays(c)
     }
 
+    func testUnpinningAnEmptyPinLaterLeavesItAsBefore() throws {
+        let (_, b, _, window) = threeTabs()
+        try setWorkspaceSidebarTabFavorite(b, true)
+        close(window)
+        later(2)
+        try setWorkspaceSidebarTabFavorite(b, false)
+        later(2)
+        assertStays(b)
+        XCTAssertTrue(b.isKeptWhenEmpty, "Its last window closed while it was a pin, which stays")
+    }
+
     func testAConfiguredPersistentWorkspaceStays() throws {
         let (_, b, _, window) = threeTabs()
         try rename(b)
