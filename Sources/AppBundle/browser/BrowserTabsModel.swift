@@ -14,7 +14,7 @@ final class BrowserTabsModel: ObservableObject {
     private var watched: [String: Set<UInt32>] = [:]
     private var iconsEnabled = false
     private var iconAssociations = BrowserTabIconAssociations()
-    private let selectRequests = BrowserTabSelectRequests()
+    private let selectRequests = BrowserTabSelectRequests(notify: showBrowserTabActionNotice)
     private let closeRequests = BrowserTabCloseRequests()
     private let safariExtension: SafariExtensionBridge
     private var safariAssociations = SafariExtensionAssociations()
@@ -271,7 +271,7 @@ final class BrowserTabsModel: ObservableObject {
         // still open. In a window that isn't on screen the prompt would stay out of view, so it's
         // brought forward, as closing a hidden window does.
         if result == .dispatched(.unknown), await closePromptShows(target, window: window, app: app) { return }
-        MessageModel.shared.message = Message(description: "Close Tab Error", body: message)
+        showBrowserTabActionNotice(.init(kind: .close, message: message))
     }
 
     func select(_ target: BrowserTabTarget, monitorScopeId: String?) {
@@ -294,7 +294,7 @@ final class BrowserTabsModel: ObservableObject {
         // Show the chosen tab as pending now, and as selected once the browser is seen to select it.
         let token = generation
         // Cancelled or not, a press that ran says what it did; one that didn't switched nothing.
-        selectRequests.request(target, unlessClosing: closeRequests,
+        selectRequests.request(target, browser: window.app.name ?? "The browser", monitorScopeId: monitorScopeId, unlessClosing: closeRequests,
             perform: { (try? await app.selectBrowserTab(target)) ?? .notDispatched(.cancelled) },
             finished: { [weak self] result, cancelled in
                 guard let self, self.generation == token else { return }
@@ -303,15 +303,14 @@ final class BrowserTabsModel: ObservableObject {
         publish()
     }
 
-    /// What the sidebar does once a select comes back (`BrowserTabActionFollowUp`): a select a later
-    /// click cancelled shows nothing more.
+    /// What the sidebar does once a select comes back (`BrowserTabActionFollowUp`); what the user is
+    /// told is `selectRequests`'. A select a later click cancelled does nothing more.
     private func finishSelect(_ target: BrowserTabTarget, _ result: BrowserTabActionResult, cancelled: Bool, window: Window,
                               monitorScopeId: String?) {
         let followUp = BrowserTabActionFollowUp(result, kind: .select, browser: window.app.name ?? "The browser")
         publish()
         reread(target.windowId, unknown: followUp.rereads)
         guard !cancelled else { return }
-        if let message = followUp.message { MessageModel.shared.message = Message(description: "Switch Tab Error", body: message) }
         guard Window.get(byId: target.windowId) === window else { return }
         if let workspace = window.toLiveFocusOrNil()?.workspace,
            !browserTabSelectionAllowed(workspace: workspace, monitorScopeId: monitorScopeId) { return }
@@ -411,6 +410,12 @@ private func windowServerFrames(_ ids: [UInt32]) -> [UInt32: CGRect] {
         frames[number] = frame
     }
     return frames
+}
+
+/// Tells the user how a sidebar select or close of a browser tab went, when it didn't go as asked.
+@MainActor
+func showBrowserTabActionNotice(_ notice: BrowserTabActionNotice) {
+    MessageModel.shared.message = Message(description: notice.kind == .select ? "Switch Tab Error" : "Close Tab Error", body: notice.message)
 }
 
 @MainActor

@@ -259,16 +259,30 @@ final class BrowserTabCloseRequests {
     func apply(_ snapshot: BrowserWindowTabs) -> BrowserWindowTabs { pending.apply(snapshot) }
 }
 
+/// What to tell the user about a browser tab action that didn't go as asked, and which sidebar
+/// asked, if one did.
+struct BrowserTabActionNotice: Equatable {
+    let kind: BrowserTabActionKind
+    let message: String
+    var monitorScopeId: String? = nil
+}
+
 /// The sidebar's selects of browser tabs, as the model runs them. Each click cancels the one before
 /// it, which then sends nothing it hasn't yet; the tab shows pending until its own answer comes,
-/// and an answer settles only its own click (`BrowserTabPendingSelections`).
+/// and an answer settles only its own click (`BrowserTabPendingSelections`). What a select that
+/// didn't go as asked tells the user goes to `notify`; a later click calls that off.
 @MainActor
 final class BrowserTabSelectRequests {
     private(set) var pending = BrowserTabPendingSelections()
     private var task: Task<Void, Never>?
     private let clock: () -> TimeInterval
+    private let notify: @MainActor (BrowserTabActionNotice) -> Void
 
-    init(clock: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) { self.clock = clock }
+    init(clock: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
+         notify: @escaping @MainActor (BrowserTabActionNotice) -> Void = { _ in }) {
+        self.clock = clock
+        self.notify = notify
+    }
 
     /// Whether `target` may be selected now: not while it's being closed (`closes`). Another click on
     /// a tab being selected is a new choice, the latest, which cancels the one before.
@@ -281,9 +295,11 @@ final class BrowserTabSelectRequests {
 
     /// Selects `target` with `perform`, after cancelling the select before it, and hands the result
     /// to `finished` with whether a later click cancelled this one: nil, and nothing sent, while
-    /// `target` may not be selected (`mayRequest`).
+    /// `target` may not be selected (`mayRequest`). `browser` names the browser in what the user
+    /// is told; `monitorScopeId` is the sidebar that asked.
     @discardableResult
-    func request(_ target: BrowserTabTarget, unlessClosing closes: BrowserTabCloseRequests,
+    func request(_ target: BrowserTabTarget, browser: String = "The browser", monitorScopeId: String? = nil,
+                 unlessClosing closes: BrowserTabCloseRequests,
                  perform: @escaping @MainActor () async -> BrowserTabActionResult,
                  finished: @escaping @MainActor (_ result: BrowserTabActionResult, _ cancelled: Bool) async -> Void) -> Task<Void, Never>? {
         guard mayRequest(target, unlessClosing: closes) else { return nil }
@@ -291,8 +307,14 @@ final class BrowserTabSelectRequests {
         let attempt = pending.begin(target, now: clock())
         let next = Task { @MainActor [weak self] in
             let result = await perform()
-            if let self { self.pending.settle(attempt: attempt, windowId: target.windowId, confirmed: result == .dispatched(.confirmed), now: self.clock()) }
-            await finished(result, Task.isCancelled)
+            let cancelled = Task.isCancelled
+            if let self {
+                self.pending.settle(attempt: attempt, windowId: target.windowId, confirmed: result == .dispatched(.confirmed), now: self.clock())
+                if !cancelled, let message = browserTabActionMessage(result, kind: .select, browser: browser) {
+                    self.notify(.init(kind: .select, message: message, monitorScopeId: monitorScopeId))
+                }
+            }
+            await finished(result, cancelled)
         }
         task = next
         return next
