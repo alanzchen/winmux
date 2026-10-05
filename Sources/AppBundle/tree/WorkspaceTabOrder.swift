@@ -79,6 +79,19 @@ func workspaceNavigationTabs(current: Workspace) -> [Workspace] {
     return workspaceTabsInSidebarOrder(pinnedEverywhere + tabs.filter { !workspaceIsPinnedInAllProjects($0) }, projectId: projectId)
 }
 
+/// The tabs `anchor`'s display lists, with `anchor` wherever it is, in the order that display's
+/// sidebar shows them: those of the project the display is in, and with `includingPinsInAllProjects`
+/// the pins in All Projects. Filtered to the display before grouping, as the sidebar is, so a group
+/// split across displays keeps each display's own order.
+@MainActor
+func workspaceDisplayTabsInSidebarOrder(around anchor: Workspace, includingPinsInAllProjects: Bool,
+                                        isListed: (Workspace) -> Bool) -> [Workspace] {
+    let projectId = workspaceContextProjectId(of: anchor)
+    let pinsInAllProjects = includingPinsInAllProjects ? workspacePinnedTabsInAllProjects() : []
+    let tabs = pinsInAllProjects + orderedWorkspaces(in: projectId).filter { !workspaceIsPinnedInAllProjects($0) }
+    return workspaceTabsInSidebarOrder(tabs.filter { $0 === anchor || isListed($0) }, projectId: projectId)
+}
+
 /// `projectId`'s `tabs` in the order its sidebar shows them: pins first, then each group together.
 @MainActor
 func workspaceTabsInSidebarOrder(_ tabs: [Workspace], projectId: WorkspaceProjectId) -> [Workspace] {

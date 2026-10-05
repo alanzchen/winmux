@@ -13,7 +13,7 @@ final class Workspace: TreeNode, NonLeafTreeNodeObject, Hashable, Comparable {
     var hasHadWindows = false
     /// Its last window closed, rather than moved to another tab, and it has had none since. In Tabs
     /// mode a tab that isn't pinned then closes, saved or not: see `workspaceTabClosesWithLastWindow`.
-    var lastWindowClose: WorkspaceLastWindowClose?
+    var lastWindowClosed = false
     // Keep an explicitly moved blank workspace available until it is visited or used.
     var retainsEmptyAfterProjectMove = false
 
@@ -85,7 +85,6 @@ final class Workspace: TreeNode, NonLeafTreeNodeObject, Hashable, Comparable {
         ensureVisibleActiveProjectWorkspaces()
         checkWorkspaceHierarchyInvariants(requireActiveMonitorViewports: true)
         scheduleSavedWorkspaceCheckpoint()
-        scheduleWorkspaceTabCloseChecks()
     }
 
     nonisolated static func == (lhs: Workspace, rhs: Workspace) -> Bool {
@@ -140,7 +139,7 @@ extension Workspace {
         }
         if workspaceHasLifecycleWindows(self) {
             hasHadWindows = true
-            lastWindowClose = nil
+            lastWindowClosed = false
             if lifecycle == .transient { lifecycle = .durable }
         }
     }

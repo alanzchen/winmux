@@ -96,12 +96,8 @@ func workspaceForDropOnNewTab(projectId: WorkspaceProjectId, monitor: Monitor, s
 func workspaceTabNeighbor(of workspace: Workspace) -> Workspace? {
     let monitor = workspace.workspaceMonitor
     // Pins in All Projects aren't among a project's tabs; one of them has its display's project's.
-    let candidates = workspaceIsPinnedInAllProjects(workspace)
-        ? workspaceNavigationTabs(current: workspace)
-        : workspaceTabsInSidebarOrder(orderedWorkspaces(in: workspace.projectId).filter { !workspaceIsPinnedInAllProjects($0) },
-            projectId: workspace.projectId)
-    let tabs = candidates.filter { tab in
-        tab === workspace || tab.workspaceMonitor.rect == monitor.rect
+    let tabs = workspaceDisplayTabsInSidebarOrder(around: workspace, includingPinsInAllProjects: workspaceIsPinnedInAllProjects(workspace)) {
+        $0.workspaceMonitor.rect == monitor.rect
     }
     guard let index = tabs.firstIndex(where: { $0 === workspace }) else { return nil }
     // Windows, or a saved workspace, which is a tab even while empty.
@@ -111,8 +107,8 @@ func workspaceTabNeighbor(of workspace: Workspace) -> Workspace? {
 
 /// Tabs mode: a tab whose windows have all gone, however they went. It closes once it's off
 /// screen. A pinned tab stays, as does a saved one unless its last window closed (see
-/// `workspaceTabClosesWithLastWindow`), a new tab that hasn't had a window yet, and the tab the
-/// launcher is choosing an app for.
+/// `workspaceTabClosesWithLastWindow`: it closes at once, though its identity goes only later), a
+/// new tab that hasn't had a window yet, and the tab the launcher is choosing an app for.
 @MainActor
 func workspaceTabWasLeftEmpty(_ tab: Workspace) -> Bool {
     workspaceTabWasLeftEmptyIgnoringLauncher(tab) && WorkspaceLauncherPanel.shared.workspace !== tab
@@ -121,18 +117,19 @@ func workspaceTabWasLeftEmpty(_ tab: Workspace) -> Bool {
 @MainActor
 func workspaceTabWasLeftEmptyIgnoringLauncher(_ tab: Workspace) -> Bool {
     config.usesBrowserTabs && tab.hasHadWindows && !tab.isArchived && !workspaceHasLifecycleWindows(tab) &&
-        !tab.isKeptWhenEmpty && !tab.isAwaitingSavedWorkspaceRestoration
+        !tab.isKeptWhenEmpty && (workspaceTabClosesWithLastWindow(tab) || !tab.isAwaitingSavedWorkspaceRestoration)
 }
 
 /// A tab left empty on screen gives its display to the next tab there, or the previous one,
 /// in the order the sidebar shows; tabs with windows first. With no other tab on that
-/// display, it stays, and the sidebar doesn't list it; a saved one closing with its last window
-/// gives its display a blank tab instead, so its saved name, group and label can go.
+/// display, it stays, and the sidebar doesn't list it; a saved one closing with its last window,
+/// once nothing saved waits for it any more, gives its display a blank tab instead, so its saved
+/// name, group and label can go.
 @MainActor
 func leaveTabsLeftEmptyOnScreen() {
     guard config.usesBrowserTabs else { return }
     for tab in Workspace.all where tab.isVisible && workspaceTabWasLeftEmpty(tab) {
-        let blank = { tab.isSaved && workspaceTabClosesWithLastWindow(tab)
+        let blank = { tab.isSaved && workspaceTabClosesWithLastWindow(tab) && !tab.isAwaitingSavedWorkspaceRestoration
             ? createBlankWorkspace(projectId: tab.projectId, monitor: tab.workspaceMonitor) : nil }
         guard let next = workspaceTabReplacingEmptyTab(tab) ?? blank() else { continue }
         if focus.workspace === tab { _ = next.focusWorkspace() } else { _ = tab.workspaceMonitor.setActiveWorkspace(next) }
@@ -142,7 +139,9 @@ func leaveTabsLeftEmptyOnScreen() {
 @MainActor
 func workspaceTabReplacingEmptyTab(_ tab: Workspace) -> Workspace? {
     let monitor = tab.workspaceMonitor
-    let tabs = workspaceNavigationTabs(current: tab).filter { $0 === tab || (!$0.isVisible && $0.workspaceMonitor.rect == monitor.rect) }
+    let tabs = workspaceDisplayTabsInSidebarOrder(around: tab, includingPinsInAllProjects: true) {
+        !$0.isVisible && $0.workspaceMonitor.rect == monitor.rect
+    }
     guard let index = tabs.firstIndex(where: { $0 === tab }) else { return nil }
     let nearest = Array(tabs[(index + 1)...]) + tabs[..<index].reversed()
     return nearest.first(where: workspaceHasLifecycleWindows) ?? nearest.first(where: \.isKeptWhenEmpty)

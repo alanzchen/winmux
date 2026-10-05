@@ -16,16 +16,17 @@ extension Workspace {
 
     /// Let startup/title routing finish before deciding that an automatically grouped tab
     /// is empty. In read-only mode its persisted identity must remain reserved. A tab closing
-    /// with its last window waits only while that may not have been a close.
+    /// with its last window is kept, out of sight, the same way.
     @MainActor
     var isAwaitingSavedWorkspaceRestoration: Bool {
         guard let record = savedWorkspaceStore.record(named: name) else { return false }
-        if workspaceTabClosesWithLastWindow(self) { return workspaceTabCloseWaits(self, record: record) }
+        let closesWithLastWindow = workspaceTabClosesWithLastWindow(self)
         return isStartup || savedWorkspaceRuntime.isStartupRestoreActive ||
             !savedWorkspaceRuntime.windowsAwaitingTitle.isEmpty || savedWorkspaceStore.isReadOnly ||
             workspaceSidebarOrganizationStore.readOnlyReason != nil || savedWorkspaceRuntime.isCaptureSuspended ||
             savedWorkspaceRuntime.workspacesAwaitingProject?.contains(name) == true ||
-            (record.keepWhenEmpty == false && !record.layout.allSlots.isEmpty)
+            ((record.keepWhenEmpty == false || closesWithLastWindow) && !record.layout.allSlots.isEmpty) ||
+            closesWithLastWindow && workspaceTabCloseIsHeld(self, record: record)
     }
 }
 
@@ -39,9 +40,10 @@ func captureAutomaticWorkspaceIdentitiesBeforePruning() {
     guard !isStartup, !runtime.isStartupRestoreActive, !runtime.isCaptureSuspended,
           !savedWorkspaceStore.isReadOnly, !MonitorConfigurationObserver.shared.isSettling,
           runtime.environment.frontmostAppBundleId() != lockScreenAppBundleId else { return }
-    let empty = Workspace.all.filter {
-        !workspaceHasLifecycleWindows($0) && savedWorkspaceStore.record(named: $0.name)?.keepWhenEmpty == false &&
-            runtime.workspacesAwaitingProject?.contains($0.name) != true
+    let empty = Workspace.all.filter { workspace in
+        guard let record = savedWorkspaceStore.record(named: workspace.name) else { return false }
+        return !workspaceHasLifecycleWindows(workspace) && (record.keepWhenEmpty == false || workspaceTabClosesWithLastWindow(workspace)) &&
+            runtime.workspacesAwaitingProject?.contains(workspace.name) != true
     }
     guard !empty.isEmpty else { return }
     let facts = currentSavedWorkspaceCaptureFacts(titleByWindowId: [:])

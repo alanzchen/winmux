@@ -417,8 +417,9 @@ final class WorkspaceTabsCloseWithLastWindowTest: XCTestCase {
             _ = TestWindow.new(id: UInt32(index + 1), parent: tab.rootTilingContainer, app: other)
         }
         for tab in [b, c, d] { tab.preferredMonitorPoint = left.rect.topLeftCorner }
-        XCTAssertTrue(right.setActiveWorkspace(a))
+        a.preferredMonitorPoint = right.rect.topLeftCorner
         XCTAssertTrue(left.setActiveWorkspace(b))
+        XCTAssertTrue(right.setActiveWorkspace(a))
         let group = try workspaceSidebarOrganizationStore.create(projectId: a.projectId, workspaceNames: [])
         try assignWorkspaceToSidebarCollection(a, collectionId: group.id)
         try assignWorkspaceToSidebarCollection(c, collectionId: group.id)
@@ -592,6 +593,9 @@ final class WorkspaceTabsCloseWithLastWindowTest: XCTestCase {
         Workspace.reconcileWorkspaceState()
 
         close(next)
+        afterTheGrace()
+        assertStays(b, "Its app opened moments ago: its saved place waits while it's armed")
+        checkpoint(after: SavedWorkspaceTiming.restoreWindow)
         afterTheGrace()
         assertClosed(b)
     }
