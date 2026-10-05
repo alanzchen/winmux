@@ -2288,7 +2288,7 @@ final class BrowserTabsTest: XCTestCase {
             XCTAssertEqual(pending.apply(snapshot).tabs.map(\.isSelected), (0..<4).map { seen ? $0 == index : $0 == 0 }, "seen: \(seen)")
             XCTAssertEqual(pending.apply(snapshot).tabs.map(\.pending), [nil, nil, nil, nil])
             XCTAssertEqual(followUp.rereads, !seen)
-            XCTAssertEqual(followUp.message, seen ? nil : "Safari couldn't confirm switching to this tab. The list is being refreshed.")
+            XCTAssertEqual(followUp.message, seen ? nil : "Safari couldn't confirm switching to this tab.")
             page.selected = false
         }
     }
@@ -2365,7 +2365,7 @@ final class BrowserTabsTest: XCTestCase {
         }
         time = returned + BrowserTabPendingSelections.confirmationWindow + 0.01
         selects.expire()
-        XCTAssertEqual(notices, [.init(kind: .select, message: "Safari couldn't confirm switching to this tab. The list is being refreshed.",
+        XCTAssertEqual(notices, [.init(kind: .select, message: "Safari couldn't confirm switching to this tab.",
             monitorScopeId: "monitor:0,0")])
         XCTAssertFalse(selects.awaitsConfirmation(123))
         XCTAssertEqual(selects.apply(snapshot).tabs.map(\.pending), [nil, nil, nil, nil])
@@ -2447,7 +2447,7 @@ final class BrowserTabsTest: XCTestCase {
         selects.observe(reread, readStarted: time)
         time = returned + BrowserTabPendingSelections.confirmationWindow + 0.01
         selects.expire()
-        XCTAssertEqual(notices.map(\.message), ["Safari couldn't confirm switching to this tab. The list is being refreshed."])
+        XCTAssertEqual(notices.map(\.message), ["Safari couldn't confirm switching to this tab."])
         XCTAssertEqual(lines, ["select followUp=unconfirmed reads=1 target=unlisted notice=true"])
         XCTAssertEqual(page.presses + replacement.presses, 1)
     }
@@ -2613,7 +2613,7 @@ final class BrowserTabsTest: XCTestCase {
     func testEachWayABrowserTabActionCanGoWrongHasItsOwnShortLine() {
         let changed = "This tab changed or moved in Safari. The list is being refreshed; try again."
         let notSwitched = "Safari didn't switch to this tab."
-        let errorSwitching = "Safari reported an error switching to this tab. The list is being refreshed."
+        let errorSwitching = "Safari reported an error switching to this tab."
         let errorClosing = "Safari reported an error closing this tab. The list is being refreshed."
         let cases: [(BrowserTabActionResult, select: String?, close: String?)] = [
             (.dispatched(.confirmed), nil, nil),
@@ -2627,9 +2627,9 @@ final class BrowserTabsTest: XCTestCase {
             (.notDispatched(.noAction), notSwitched, "Safari didn't offer a way to close this tab."),
             (.notDispatched(.outOfView), notSwitched, "Safari didn't offer a way to close this tab."),
             // Sent: it may have happened, so these say only what's known, and don't invite another try.
-            (.dispatched(.unknown), "Safari couldn't confirm switching to this tab. The list is being refreshed.",
+            (.dispatched(.unknown), "Safari couldn't confirm switching to this tab.",
              "Safari couldn't confirm closing this tab. The list is being refreshed."),
-            (.failed(.timedOut), "Safari didn't answer in time; the tab may still switch. The list is being refreshed.",
+            (.failed(.timedOut), "Safari didn't answer in time; the tab may still switch.",
              "Safari didn't answer in time; the tab may still close. The list is being refreshed."),
             (.failed(.invalidElement), errorSwitching, errorClosing),
             (.failed(.unsupported), errorSwitching, errorClosing),

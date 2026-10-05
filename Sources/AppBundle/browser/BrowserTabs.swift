@@ -439,7 +439,9 @@ struct BrowserTabActionFollowUp: Equatable {
 
 /// The line the sidebar shows when a select or close didn't go as asked, by why. Kept together
 /// here, so they can be localized at once. Only what wasn't sent is told as not done, and only
-/// that invites another try: what was sent may yet have happened, and the list is read again.
+/// that invites another try: what was sent may yet have happened, and the list is read again. A
+/// select that was sent is told only once its window's reads have had their chance, so its line
+/// doesn't say the list is being refreshed.
 func browserTabActionMessage(_ result: BrowserTabActionResult, kind: BrowserTabActionKind, browser: String) -> String? {
     let select = kind == .select
     switch result {
@@ -455,13 +457,13 @@ func browserTabActionMessage(_ result: BrowserTabActionResult, kind: BrowserTabA
         case .notDispatched(.noAction), .notDispatched(.outOfView):
             return select ? "\(browser) didn't switch to this tab." : "\(browser) didn't offer a way to close this tab."
         case .dispatched(.unknown):
-            return select ? "\(browser) couldn't confirm switching to this tab. The list is being refreshed."
+            return select ? "\(browser) couldn't confirm switching to this tab."
                 : "\(browser) couldn't confirm closing this tab. The list is being refreshed."
         case .failed(.timedOut):
-            return select ? "\(browser) didn't answer in time; the tab may still switch. The list is being refreshed."
+            return select ? "\(browser) didn't answer in time; the tab may still switch."
                 : "\(browser) didn't answer in time; the tab may still close. The list is being refreshed."
         case .failed(.invalidElement), .failed(.unsupported), .failed(.other):
-            return select ? "\(browser) reported an error switching to this tab. The list is being refreshed."
+            return select ? "\(browser) reported an error switching to this tab."
                 : "\(browser) reported an error closing this tab. The list is being refreshed."
     }
 }
