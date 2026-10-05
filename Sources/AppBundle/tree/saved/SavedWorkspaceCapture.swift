@@ -167,9 +167,13 @@ func captureSavedWorkspace(
     }
 
     // Layout. Windows being routed, or waiting for a title to be routed, are neither live here
-    // nor missing.
+    // nor missing; nor are windows still being detected, which a restore may yet put back, or
+    // whose detection was interrupted.
+    let registry = NewWindowIntentRegistry.shared
     let excludedWindowIds = runtime.routingInFlightWindowIds
         .union(runtime.windowsAwaitingTitle.keys)
+        .union(registry.windowsBeingDetected)
+        .union(registry.windowsWithInterruptedDetection.keys)
         .union(excludingWindowId.map { [$0] } ?? [])
     let snapshot = snapshotLiveSavedLayout(
         workspace,
@@ -178,8 +182,12 @@ func captureSavedWorkspace(
         excludingWindowIds: excludedWindowIds,
     )
     let previousSlots = record.layout.allSlots
+    // An app's window choosing a saved place, waiting for its title or being routed, may take any of
+    // its app's places: they wait for it, whatever their grace.
+    let appsChoosingAPlace = Set(runtime.routingInFlightWindowIds.union(runtime.windowsAwaitingTitle.keys)
+        .compactMap { Window.get(byId: $0)?.app.rawAppBundleId })
     let protectedSlotIds = forceKeepSlotIds.union(previousSlots.filter { slot in
-        slot.lastWindowId.map(excludedWindowIds.contains) == true
+        slot.lastWindowId.map(excludedWindowIds.contains) == true || appsChoosingAPlace.contains(slot.bundleId)
     }.map(\.id))
     let missingSlots = previousSlots.filter {
         !snapshot.liveTiled.contains($0.id) && !snapshot.liveFloating.contains($0.id) && !protectedSlotIds.contains($0.id)
@@ -263,6 +271,8 @@ func savedSlotKeepsWaiting(
                       Workspace.existing(byName: previousWorkspaceName) != nil
                 else { return true }
             }
+            // A restore under way may yet put it back here.
+            if activeFrozenRestoreCount > 0 { return true }
             // The window is alive somewhere else: the user moved it.
             runtime.vanishedSlots.removeValue(forKey: slot.id)
             return false

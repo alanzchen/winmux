@@ -81,15 +81,22 @@ func workspaceNavigationTabs(current: Workspace) -> [Workspace] {
 
 /// The tabs `anchor`'s display lists, with `anchor` wherever it is, in the order that display's
 /// sidebar shows them: those of the project the display is in, and with `includingPinsInAllProjects`
-/// the pins in All Projects. Filtered to the display before grouping, as the sidebar is, so a group
-/// split across displays keeps each display's own order.
+/// the pins in All Projects. Filtered to what the display lists before grouping, as the sidebar is, so
+/// a group split across displays, or with a member out of the list, keeps the order shown.
 @MainActor
 func workspaceDisplayTabsInSidebarOrder(around anchor: Workspace, includingPinsInAllProjects: Bool,
                                         isListed: (Workspace) -> Bool) -> [Workspace] {
     let projectId = workspaceContextProjectId(of: anchor)
     let pinsInAllProjects = includingPinsInAllProjects ? workspacePinnedTabsInAllProjects() : []
     let tabs = pinsInAllProjects + orderedWorkspaces(in: projectId).filter { !workspaceIsPinnedInAllProjects($0) }
-    return workspaceTabsInSidebarOrder(tabs.filter { $0 === anchor || isListed($0) }, projectId: projectId)
+    return workspaceTabsInSidebarOrder(tabs.filter { $0 === anchor || isListed($0) && workspaceTabIsListedInSidebar($0) },
+        projectId: projectId)
+}
+
+/// Whether the Tabs list shows `tab`: a tab that isn't left empty, among those the sidebar shows.
+@MainActor
+func workspaceTabIsListedInSidebar(_ tab: Workspace) -> Bool {
+    isUserFacingWorkspace(tab) && !workspaceTabWasLeftEmpty(tab)
 }
 
 /// `projectId`'s `tabs` in the order its sidebar shows them: pins first, then each group together.

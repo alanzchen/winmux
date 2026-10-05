@@ -26,7 +26,7 @@ extension Workspace {
             workspaceSidebarOrganizationStore.readOnlyReason != nil || savedWorkspaceRuntime.isCaptureSuspended ||
             savedWorkspaceRuntime.workspacesAwaitingProject?.contains(name) == true ||
             ((record.keepWhenEmpty == false || closesWithLastWindow) && !record.layout.allSlots.isEmpty) ||
-            closesWithLastWindow && workspaceTabCloseIsHeld(self, record: record)
+            closesWithLastWindow && workspaceTabCloseIsHeld(self)
     }
 }
 

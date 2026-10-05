@@ -152,6 +152,9 @@ final class NewWindowIntentRegistry {
     private var deferredPlacements: [Int: DeferredReopenPlacement] = [:]
     /// Windows registered and not yet through detection, which settles their claims.
     var windowsBeingDetected: Set<UInt32> = []
+    /// Windows registered whose detection was interrupted, with whether each is a regular window:
+    /// they may not be where they belong yet. See `finishInterruptedWindowDetection`.
+    var windowsWithInterruptedDetection: [UInt32: Bool] = [:]
     private var nextId = 1
 
     var hasPendingIntents: Bool { !intents.isEmpty }
@@ -366,6 +369,7 @@ final class NewWindowIntentRegistry {
         deferredPlacements = [:]
         resetFrozenRestoresForTests()
         windowsBeingDetected = []
+        windowsWithInterruptedDetection = [:]
         now = { ProcessInfo.processInfo.systemUptime }
         isRestorationCandidate = { windowId in
             persistedFrozenWorldContains(windowId: windowId) || closedWindowsCacheContains(windowId: windowId)

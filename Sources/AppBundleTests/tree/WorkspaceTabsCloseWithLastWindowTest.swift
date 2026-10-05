@@ -125,13 +125,13 @@ final class WorkspaceTabsCloseWithLastWindowTest: XCTestCase {
     /// What registering a window does once it's in the tree: detects it, which restores it or places
     /// it as new, listed as being detected meanwhile.
     private func detect(_ window: Window) async throws {
-        NewWindowIntentRegistry.shared.windowsBeingDetected.insert(window.windowId)
-        defer { NewWindowIntentRegistry.shared.windowsBeingDetected.remove(window.windowId) }
-        _ = try await restoreOrDetectNewWindow(window, isRegularWindow: true)
+        _ = try await detectNewlyRegisteredWindow(window, isRegularWindow: true)
     }
 
     /// What the next refresh's registration does with a window already registered.
-    private func registerAgain(_ window: Window) async throws {}
+    private func registerAgain(_ window: Window) async throws {
+        try await finishInterruptedWindowDetection(window)
+    }
 
     /// A gate that suspends until `release` is resumed.
     private func gate() async {

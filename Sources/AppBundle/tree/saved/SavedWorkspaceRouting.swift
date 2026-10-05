@@ -46,6 +46,41 @@ func restoreOrDetectNewWindow(_ window: Window, isRegularWindow: Bool) async thr
     return false
 }
 
+/// Detection of a window just registered. If it's interrupted, a restore may not have put the window
+/// back yet: until the next refresh finishes that (`finishInterruptedWindowDetection`), it isn't one
+/// the user moved, and the saved place it may go back to keeps waiting for it.
+@MainActor
+func detectNewlyRegisteredWindow(_ window: Window, isRegularWindow: Bool) async throws -> Bool {
+    let registry = NewWindowIntentRegistry.shared
+    // Registration lists it already; anything else detecting a window lists it here.
+    let lists = registry.windowsBeingDetected.insert(window.windowId).inserted
+    defer { if lists { registry.windowsBeingDetected.remove(window.windowId) } }
+    do {
+        let wasRestored = try await restoreOrDetectNewWindow(window, isRegularWindow: isRegularWindow)
+        registry.windowsWithInterruptedDetection.removeValue(forKey: window.windowId)
+        return wasRestored
+    } catch {
+        registry.windowsWithInterruptedDetection[window.windowId] = isRegularWindow
+        throw error
+    }
+}
+
+/// A window whose detection was interrupted, found again by a refresh: put back where it was
+/// before it closed, or in the saved place waiting for it, as its detection would have. Otherwise it
+/// stays where it is.
+@MainActor
+func finishInterruptedWindowDetection(_ window: Window) async throws {
+    let registry = NewWindowIntentRegistry.shared
+    guard let isRegularWindow = registry.windowsWithInterruptedDetection[window.windowId],
+          registry.windowsBeingDetected.insert(window.windowId).inserted
+    else { return }
+    defer { registry.windowsBeingDetected.remove(window.windowId) }
+    var isPlaced = try await restorePersistedFrozenWorldIfNeeded(newlyDetectedWindow: window)
+    if !isPlaced { isPlaced = try await restoreClosedWindowsCacheIfNeeded(newlyDetectedWindow: window) }
+    if !isPlaced { _ = try await routeNewWindowToSavedWorkspaceIfNeeded(window, isRegularWindow: isRegularWindow) }
+    registry.windowsWithInterruptedDetection.removeValue(forKey: window.windowId)
+}
+
 /// Routes a window that was first classified as a popup and has just been promoted. Dialogs
 /// never claim slots, so the window is classified again.
 @MainActor

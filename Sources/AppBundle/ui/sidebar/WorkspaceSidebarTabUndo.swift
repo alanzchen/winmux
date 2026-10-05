@@ -171,6 +171,8 @@ struct WorkspaceSidebarTabUndoSnapshot {
         for item in items { winMuxWorkspaceState.registerWorkspace(item.workspace) }
         let retainedIds = Set(items.map { $0.workspace.id })
         for item in items { item.restore() }
+        // Binding a window into a tab clears its close marker, so it's put back once every tree is.
+        for item in items { item.workspace.lastWindowClosed = item.lastWindowClosed }
         for workspace in Workspace.all where !retainedIds.contains(workspace.id) {
             // Never unregister a workspace with a live window, even if an unexpected
             // native container transition escaped the snapshot checks.
@@ -270,6 +272,7 @@ private struct WorkspaceSidebarUndoWorkspace: Equatable {
     let namingStyle: WorkspaceNamingStyle
     let lifecycle: WorkspaceLifecycle
     let hasHadWindows: Bool
+    let lastWindowClosed: Bool
     let preferredMonitorPoint: CGPoint?
     let retainsEmptyAfterProjectMove: Bool
     let tree: WorkspaceSidebarUndoTree
@@ -282,6 +285,7 @@ private struct WorkspaceSidebarUndoWorkspace: Equatable {
         namingStyle = workspace.namingStyle
         lifecycle = workspace.lifecycle
         hasHadWindows = workspace.hasHadWindows
+        lastWindowClosed = workspace.lastWindowClosed
         preferredMonitorPoint = workspace.preferredMonitorPoint
         retainsEmptyAfterProjectMove = workspace.retainsEmptyAfterProjectMove
         tree = .init(workspace.rootTilingContainer)
@@ -296,7 +300,8 @@ private struct WorkspaceSidebarUndoWorkspace: Equatable {
 
     func matchesStructure(_ other: Self) -> Bool {
         workspace === other.workspace && projectId == other.projectId && namingStyle == other.namingStyle &&
-            hasHadWindows == other.hasHadWindows && preferredMonitorPoint == other.preferredMonitorPoint &&
+            hasHadWindows == other.hasHadWindows && lastWindowClosed == other.lastWindowClosed &&
+            preferredMonitorPoint == other.preferredMonitorPoint &&
             retainsEmptyAfterProjectMove == other.retainsEmptyAfterProjectMove && tree == other.tree &&
             floating == other.floating && unconventional == other.unconventional
     }

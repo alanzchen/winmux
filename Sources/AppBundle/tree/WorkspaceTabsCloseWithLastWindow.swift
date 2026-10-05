@@ -27,16 +27,11 @@ func workspaceTabClosesWithLastWindow(_ tab: Workspace) -> Bool {
 }
 
 /// Whether a saved tab closing with its last window keeps its identity a while longer, besides its
-/// saved places' grace: a window asked for it may still come, or a window of one of its apps is
-/// still choosing a saved place, as a relaunched app's new windows do while their titles arrive.
+/// saved places, which wait out their grace and for its apps' windows still choosing a place
+/// (`captureSavedWorkspace`): a window asked for it may still come.
 @MainActor
-func workspaceTabCloseIsHeld(_ tab: Workspace, record: SavedWorkspaceRecord) -> Bool {
-    if NewWindowIntentRegistry.shared.isWaitingForWindow(in: tab) { return true }
-    let runtime = savedWorkspaceRuntime
-    let bundleIds = Set(record.layout.allSlots.map(\.bundleId))
-    return Set(runtime.windowsAwaitingTitle.keys).union(runtime.routingInFlightWindowIds).contains { windowId in
-        Window.get(byId: windowId)?.app.rawAppBundleId.map(bundleIds.contains) == true
-    }
+func workspaceTabCloseIsHeld(_ tab: Workspace) -> Bool {
+    NewWindowIntentRegistry.shared.isWaitingForWindow(in: tab)
 }
 
 /// A window closed: `parent` is where it was. If it was its tab's last window, the tab closes with
