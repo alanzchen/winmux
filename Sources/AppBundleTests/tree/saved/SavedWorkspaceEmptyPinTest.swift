@@ -336,6 +336,24 @@ final class SavedWorkspaceEmptyPinTest: XCTestCase {
         XCTAssertTrue(elsewhere.isEffectivelyEmpty)
     }
 
+    func testAPinInAllProjectsTakesTheWindowInTheProjectTheDisplayIsIn() async throws {
+        let a = createWorkspaceProject().id
+        let b = createWorkspaceProject().id
+        let pin = try emptyTab("22", projectId: a)
+        let work = Workspace.get(byName: "work")
+        work.assignProject(b)
+        _ = TestWindow.new(id: 40, parent: work.rootTilingContainer, app: TestApp(pid: 77, bundleId: "com.example.editor"))
+        XCTAssertTrue(work.focusWorkspace())
+        newWindowAppIsFrontmost = { _ in true }
+
+        let window = try await shows(572)
+
+        XCTAssertTrue(window.nodeWorkspace === pin)
+        XCTAssertTrue(focus.workspace === pin)
+        XCTAssertEqual(pin.projectId, a, "It stays in its own project")
+        XCTAssertEqual(activeWorkspaceProjectId(for: mainMonitor), b, "The display stays in its project")
+    }
+
     // MARK: Displays
 
     private func twoDisplays() -> (left: Monitor, right: Monitor, work: Workspace, shownRight: Workspace) {
@@ -442,5 +460,28 @@ final class SavedWorkspaceEmptyPinTest: XCTestCase {
         XCTAssertTrue(placed)
         XCTAssertEqual(window.nodeWorkspace?.name, "chats")
         XCTAssertTrue(pin.isEffectivelyEmpty)
+    }
+
+    func testAWindowWaitingForItsTitleToFindItsSavedPlaceIsLeftForIt() async throws {
+        let pin = try emptyTab("22")
+        for (name, title) in [("one", "Alan — Telegram"), ("two", "Work — Telegram")] {
+            let layout = SavedWorkspaceLayout(root: savedRoot(.tiles, .h, [
+                savedSlot(name, bundleId: telegram, title: title, windowId: name == "one" ? 11 : 12, pid: 900),
+            ]))
+            savedWorkspaceStore.insert(SavedWorkspaceRecord(workspaceName: name, layout: layout))
+        }
+        materializeSavedWorkspaceNames()
+        let work = workOnAnotherTab()
+        let relaunched = TestApp(pid: 30001, bundleId: telegram, launchDate: savedTestNow.addingTimeInterval(-5))
+
+        let window = TestWindow.new(id: 900, parent: work.rootTilingContainer, app: relaunched, title: "")
+        _ = try await restoreOrDetectNewWindow(window, isRegularWindow: true)
+
+        XCTAssertNotNil(savedWorkspaceRuntime.windowsAwaitingTitle[900])
+        XCTAssertTrue(window.nodeWorkspace === work, "Saved routing places it once its title is known")
+        XCTAssertTrue(pin.isEffectivelyEmpty)
+        window.customTitle = "Work — Telegram"
+        await retrySavedWorkspaceRoutingForWindowsAwaitingTitles()
+        XCTAssertEqual(window.nodeWorkspace?.name, "two")
     }
 }
