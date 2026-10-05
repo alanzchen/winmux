@@ -57,15 +57,17 @@ func workspaceTabCloseWaits(_ tab: Workspace, record: SavedWorkspaceRecord) -> B
 }
 
 /// A window closed: `parent` is where it was. If it was its tab's last window, the tab closes with
-/// it, unless the tab is pinned. Not while capture is suspended or the lock screen is up: windows
-/// vanish then without being closed.
+/// it, unless the tab is pinned or the config keeps it: decided now, so a pin unpinned later stays
+/// as it was. Not while capture is suspended or the lock screen is up: windows vanish then
+/// without being closed.
 @MainActor
 func noteWindowClosed(_ window: Window, from parent: NonLeafTreeNodeObject) {
     guard config.usesBrowserTabs else { return }
     let runtime = savedWorkspaceRuntime
     let tab = parent.nodeWorkspace ?? minimizedWindowOwner(window, parent)
-    guard let tab, !workspaceHasLifecycleWindows(tab), !runtime.isCaptureSuspended,
-          runtime.environment.frontmostAppBundleId() != lockScreenAppBundleId
+    guard let tab, !workspaceHasLifecycleWindows(tab), !tab.isConfiguredPersistent,
+          workspaceSidebarOrganizationStore.state.workspaces[tab.name]?.isFavorite != true,
+          !runtime.isCaptureSuspended, runtime.environment.frontmostAppBundleId() != lockScreenAppBundleId
     else { return }
     tab.hasHadWindows = true
     tab.lastWindowClosedAt = runtime.now
