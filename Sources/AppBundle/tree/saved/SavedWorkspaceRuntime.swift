@@ -135,6 +135,8 @@ final class SavedWorkspaceRuntime {
     /// while a refresh registers windows, so routing can't hand a still-arriving saved window's
     /// slot to another window of the same app.
     var aliveWindowPidsDuringRefresh: [UInt32: Int32] = [:]
+    /// The bundle ids of the processes whose windows a refresh is registering.
+    var bundleIdsByPidDuringRefresh: [Int32: String] = [:]
     var didInstallObservers = false
     fileprivate var observerTokens: [NSObjectProtocol] = []
     fileprivate var distributedObserverTokens: [NSObjectProtocol] = []

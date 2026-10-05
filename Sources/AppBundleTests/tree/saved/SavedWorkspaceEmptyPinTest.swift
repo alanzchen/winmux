@@ -92,6 +92,29 @@ final class SavedWorkspaceEmptyPinTest: XCTestCase {
         return window
     }
 
+    /// A refresh under way has listed these windows of these apps' processes, and registers them
+    /// one by one.
+    private func refreshLists(_ windows: [UInt32: TestApp]) {
+        savedWorkspaceRuntime.aliveWindowPidsDuringRefresh = windows.mapValues(\.pid)
+        savedWorkspaceRuntime.bundleIdsByPidDuringRefresh = Dictionary(
+            windows.values.compactMap { app in app.rawAppBundleId.map { (app.pid, $0) } },
+            uniquingKeysWith: { first, _ in first },
+        )
+    }
+
+    /// The refresh has registered everything it listed.
+    private func refreshEnds() {
+        placeWindowsAwaitingEmptyPin()
+        savedWorkspaceRuntime.aliveWindowPidsDuringRefresh = [:]
+        savedWorkspaceRuntime.bundleIdsByPidDuringRefresh = [:]
+    }
+
+    /// Detection of a popup the app shows.
+    private func showsPopup(_ id: UInt32, app: TestApp? = nil) async throws {
+        let popup = TestWindow.new(id: id, parent: macosPopupWindowsContainer, app: app ?? telegramApp)
+        _ = try await restoreOrDetectNewWindow(popup, isRegularWindow: false)
+    }
+
     private func assertInANewTab(_ window: Window, not tabs: [Workspace], file: StaticString = #filePath, line: UInt = #line) {
         let target = window.nodeWorkspace
         XCTAssertNotNil(target, file: file, line: line)
@@ -190,14 +213,14 @@ final class SavedWorkspaceEmptyPinTest: XCTestCase {
         XCTAssertTrue(window.nodeWorkspace === pin)
     }
 
-    func testAnotherWindowOfTheAppStillRegisteringKeepsItOut() async throws {
-        // A refresh registers the app's windows one by one: the first isn't the only one.
+    func testAWindowTheRefreshListedButNeverRegisteredKeepsItOut() async throws {
+        // Whatever it was, it can't be ruled out.
         let pin = try emptyTab("22")
         let work = workOnAnotherTab()
-        savedWorkspaceRuntime.aliveWindowPidsDuringRefresh = [571: 18293, 572: 18293]
-        defer { savedWorkspaceRuntime.aliveWindowPidsDuringRefresh = [:] }
+        refreshLists([571: telegramApp, 572: telegramApp])
 
         let window = try await shows(571)
+        refreshEnds()
 
         assertInANewTab(window, not: [pin, work])
     }
@@ -294,6 +317,146 @@ final class SavedWorkspaceEmptyPinTest: XCTestCase {
 
         XCTAssertEqual(window.nodeWorkspace?.name, "mail")
         XCTAssertTrue(pin.isEffectivelyEmpty)
+    }
+
+    // MARK: Windows the refresh hasn't registered yet
+
+    func testAPopupRegisteredAfterTheWindowInTheSameRefreshDoesntKeepItFromThePin() async throws {
+        let pin = try emptyTab("22")
+        let work = workOnAnotherTab()
+        let tabCount = Workspace.all.count
+        refreshLists([571: telegramApp, 580: telegramApp])
+
+        let window = try await shows(571)
+        XCTAssertTrue(window.nodeWorkspace === work, "It waits where it opened until the refresh knows what 580 is")
+        XCTAssertEqual(Workspace.all.count, tabCount, "No new tab meanwhile")
+        try await showsPopup(580)
+        refreshEnds()
+
+        XCTAssertTrue(window.nodeWorkspace === pin)
+        XCTAssertEqual(Workspace.all.count, tabCount)
+    }
+
+    func testAPopupRegisteredBeforeTheWindowInTheSameRefreshDoesntKeepItFromThePin() async throws {
+        let pin = try emptyTab("22")
+        _ = workOnAnotherTab()
+        refreshLists([571: telegramApp, 580: telegramApp])
+
+        try await showsPopup(580)
+        let window = try await shows(571)
+        XCTAssertTrue(window.nodeWorkspace === pin)
+        refreshEnds()
+
+        XCTAssertTrue(window.nodeWorkspace === pin)
+    }
+
+    func testTwoWindowsOfTheAppInOneRefreshBothGetNewTabs() async throws {
+        let pin = try emptyTab("22")
+        let work = workOnAnotherTab()
+        refreshLists([571: telegramApp, 572: telegramApp])
+
+        let first = try await shows(571)
+        let second = try await shows(572)
+        refreshEnds()
+
+        assertInANewTab(first, not: [pin, work])
+        assertInANewTab(second, not: [pin, work, first.nodeWorkspace!])
+        XCTAssertTrue(pin.isEffectivelyEmpty)
+    }
+
+    func testAWindowMovedWhileItWaitsStaysWhereItWasMoved() async throws {
+        let pin = try emptyTab("22")
+        let work = workOnAnotherTab()
+        refreshLists([571: telegramApp, 580: telegramApp])
+        let window = try await shows(571)
+        XCTAssertTrue(window.nodeWorkspace === work)
+
+        let mail = Workspace.get(byName: "mail")
+        XCTAssertTrue(moveWindowToWorkspace(window, mail, CmdIo(stdin: .emptyStdin), focusFollowsWindow: false, failIfNoop: true))
+        try await showsPopup(580)
+        refreshEnds()
+
+        XCTAssertTrue(window.nodeWorkspace === mail)
+        XCTAssertTrue(pin.isEffectivelyEmpty)
+    }
+
+    func testAWindowALateClaimPlacesWhileItWaitsStaysWhereTheClaimPutIt() async throws {
+        // Another registration of the same window claimed it for the tab on screen after its
+        // detection checked for a claim.
+        let pin = try emptyTab("22")
+        let work = workOnAnotherTab()
+        refreshLists([571: telegramApp, 580: telegramApp])
+        let window = try await shows(571)
+        let registry = NewWindowIntentRegistry.shared
+        XCTAssertNotNil(registry.register(bundleId: telegram, pid: 18293, targetWorkspace: work, preexistingWindowIds: [],
+            focusGeneration: focusChangeGeneration, timeout: newWindowIntentTimeout, completion: nil))
+        XCTAssertTrue(registry.claim(windowId: 571, pid: 18293, bundleId: telegram, firstSeenUptime: registry.now()) === work)
+
+        settleClaimLeftAfterDetection(window)
+        try await showsPopup(580)
+        refreshEnds()
+
+        XCTAssertTrue(window.nodeWorkspace === work)
+        XCTAssertTrue(pin.isEffectivelyEmpty)
+    }
+
+    func testAnAppWithNoEmptyPinGetsItsNewTabRightAway() async throws {
+        let work = workOnAnotherTab()
+        refreshLists([571: telegramApp, 580: telegramApp])
+
+        let window = try await shows(571)
+
+        assertInANewTab(window, not: [work])
+        refreshEnds()
+        assertInANewTab(window, not: [work])
+    }
+
+    private func sameBundleProcessesInOneRefresh(registeringFirst first: TestApp, then second: TestApp) async throws {
+        let pin = try emptyTab("22")
+        let work = workOnAnotherTab()
+        refreshLists([900: first, 901: second])
+
+        let firstWindow = try await shows(900, app: first)
+        XCTAssertFalse(firstWindow.nodeWorkspace === pin)
+        let secondWindow = try await shows(901, app: second)
+        refreshEnds()
+
+        XCTAssertTrue(pin.isEffectivelyEmpty, "Neither process's window is the app's only one")
+        assertInANewTab(firstWindow, not: [pin, work])
+        assertInANewTab(secondWindow, not: [pin, work, firstWindow.nodeWorkspace!])
+    }
+
+    func testTwoProcessesOfTheAppInOneRefreshNeitherIsTaken() async throws {
+        try await sameBundleProcessesInOneRefresh(registeringFirst: TestApp(pid: 30001, bundleId: telegram),
+            then: TestApp(pid: 30002, bundleId: telegram))
+    }
+
+    func testTwoProcessesOfTheAppInOneRefreshNeitherIsTakenTheOtherWayRound() async throws {
+        try await sameBundleProcessesInOneRefresh(registeringFirst: TestApp(pid: 30002, bundleId: telegram),
+            then: TestApp(pid: 30001, bundleId: telegram))
+    }
+
+    func testAnotherAppsWindowStillRegisteringDoesntKeepItOut() async throws {
+        let pin = try emptyTab("22")
+        _ = workOnAnotherTab()
+        refreshLists([572: telegramApp, 700: TestApp(pid: 30003, bundleId: "com.example.chat")])
+
+        let window = try await shows(572)
+
+        XCTAssertTrue(window.nodeWorkspace === pin)
+    }
+
+    func testAnotherProcessOfTheAppWithOnlyAPopupDoesntKeepItOut() async throws {
+        let pin = try emptyTab("22")
+        _ = workOnAnotherTab()
+        let helper = TestApp(pid: 30004, bundleId: telegram)
+        refreshLists([572: telegramApp, 701: helper])
+
+        let window = try await shows(572)
+        try await showsPopup(701, app: helper)
+        refreshEnds()
+
+        XCTAssertTrue(window.nodeWorkspace === pin)
     }
 
     // MARK: Which pin

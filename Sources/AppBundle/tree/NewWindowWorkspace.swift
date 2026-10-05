@@ -80,6 +80,9 @@ private func appHasOtherKnownWindow(_ window: Window, bundleId: String) -> Bool 
 }
 
 @MainActor
+func placeWindowsAwaitingEmptyPin() {}
+
+@MainActor
 func moveNewWindowToNewWorkspaceIfNeeded(_ window: Window, detectedIn initialWorkspace: Workspace?, isNewRegularWindow: Bool) {
     guard shouldMoveNewWindowToNewWorkspace(window, detectedIn: initialWorkspace, isNewRegularWindow: isNewRegularWindow),
           let initialWorkspace else { return }
