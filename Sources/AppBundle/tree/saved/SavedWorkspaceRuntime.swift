@@ -77,6 +77,14 @@ struct SavedTitleWait: Equatable, Sendable {
     let pid: Int32
 }
 
+/// A window its app's empty pin would take, left where it opened until the refresh registering it
+/// has registered the app's other windows it listed.
+@MainActor
+struct SavedEmptyPinWait {
+    let window: Window
+    let detectedIn: Workspace
+}
+
 let savedWorkspaceConcurrentAppLaunches = 4
 
 @MainActor
@@ -137,6 +145,8 @@ final class SavedWorkspaceRuntime {
     var aliveWindowPidsDuringRefresh: [UInt32: Int32] = [:]
     /// The bundle ids of the processes whose windows a refresh is registering.
     var bundleIdsByPidDuringRefresh: [Int32: String] = [:]
+    /// Placed once the refresh has registered the windows it listed.
+    var windowsAwaitingEmptyPin: [SavedEmptyPinWait] = []
     var didInstallObservers = false
     fileprivate var observerTokens: [NSObjectProtocol] = []
     fileprivate var distributedObserverTokens: [NSObjectProtocol] = []

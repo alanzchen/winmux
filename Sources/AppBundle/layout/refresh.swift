@@ -472,7 +472,17 @@ private func refresh() async throws {
         mapping.flatMap { app, windowIds in windowIds.map { ($0, app.pid) } },
         uniquingKeysWith: { first, _ in first },
     )
-    defer { savedWorkspaceRuntime.aliveWindowPidsDuringRefresh = [:] }
+    // An empty pin takes its app's window only once the app's other windows listed here are known.
+    savedWorkspaceRuntime.bundleIdsByPidDuringRefresh = savedWorkspaceStore.isEmpty ? [:] : Dictionary(
+        mapping.keys.compactMap { app in app.rawAppBundleId.map { (app.pid, $0) } },
+        uniquingKeysWith: { first, _ in first },
+    )
+    defer {
+        // A refresh that stopped early still places the windows that waited for it.
+        placeWindowsAwaitingEmptyPin()
+        savedWorkspaceRuntime.aliveWindowPidsDuringRefresh = [:]
+        savedWorkspaceRuntime.bundleIdsByPidDuringRefresh = [:]
+    }
     // One task per app so the per-window AX round-trips of different apps overlap;
     // a single slow app no longer delays every other app's window registration.
     try await withThrowingTaskGroup(of: Void.self) { group in
@@ -485,6 +495,7 @@ private func refresh() async throws {
         }
         try await group.waitForAll()
     }
+    placeWindowsAwaitingEmptyPin()
     // Floating windows are the only windows whose real frame can't be derived from the applied
     // layout, and some synchronous consumers (interaction-opacity parking, agent pane info)
     // read the cached rect directly. Re-warm just the ones invalidated by move/resize events —

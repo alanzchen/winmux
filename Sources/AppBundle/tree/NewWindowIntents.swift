@@ -400,6 +400,8 @@ func newWindowIntentMayTakeFocus(_ intent: NewWindowIntent, placing window: Wind
 /// focus unless the user moved on while it was opening. The request then completes.
 @MainActor
 func finishNewWindowIntentPlacement(_ window: Window, claim: NewWindowIntentClaim, broadcastsDetection: Bool = true) {
+    // Its tab is the one asked for, not an empty pin it may have been waiting for.
+    savedWorkspaceRuntime.windowsAwaitingEmptyPin.removeAll { $0.window === window }
     // Another registration may have bound it by the usual rules first.
     if window.nodeWorkspace !== claim.targetWorkspace {
         let binding = newWindowIntentBinding(targetWorkspace: claim.targetWorkspace)
