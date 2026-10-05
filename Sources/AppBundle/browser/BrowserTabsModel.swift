@@ -14,7 +14,7 @@ final class BrowserTabsModel: ObservableObject {
     private var watched: [String: Set<UInt32>] = [:]
     private var iconsEnabled = false
     private var iconAssociations = BrowserTabIconAssociations()
-    private let selectRequests = BrowserTabSelectRequests(notify: showBrowserTabActionNotice)
+    private let selectRequests: BrowserTabSelectRequests
     private let closeRequests = BrowserTabCloseRequests()
     private let safariExtension: SafariExtensionBridge
     private var safariAssociations = SafariExtensionAssociations()
@@ -23,9 +23,12 @@ final class BrowserTabsModel: ObservableObject {
     /// Safari windows to walk in full at their next read: a lone tab's speaker shows only there.
     private var rediscover: Set<UInt32> = []
 
-    init(snapshots: [UInt32: BrowserWindowTabs] = [:], safariExtension: SafariExtensionBridge = .shared) {
+    /// `selectRequests`: the sidebar's selects, which tell the user in a toast unless a test says otherwise.
+    init(snapshots: [UInt32: BrowserWindowTabs] = [:], safariExtension: SafariExtensionBridge = .shared,
+         selectRequests: BrowserTabSelectRequests? = nil) {
         self.snapshots = snapshots
         self.safariExtension = safariExtension
+        self.selectRequests = selectRequests ?? BrowserTabSelectRequests(notify: showBrowserTabActionNotice)
         safariExtension.sightSafariWindows = { [weak self] measured in self?.sightSafariWindows(measured: measured) ?? [:] }
         safariExtension.reportArrived = { [weak self] in
             guard let self, self.task != nil else { return false }
