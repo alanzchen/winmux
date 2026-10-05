@@ -641,6 +641,51 @@ final class WorkspaceTabsCloseWithLastWindowTest: XCTestCase {
         XCTAssertTrue(focus.workspace === e)
     }
 
+    /// The tabs the sidebar lists, in order.
+    private func listedTabs() async -> [String] {
+        await updateWorkspaceSidebarModel()
+        return TrayMenuModel.shared.workspaceSidebarWorkspaces.filter { !$0.isLeftEmpty }.map(\.name)
+    }
+
+    /// Unsaved tabs a, b, c on one display, in that order: b, off screen, has only a window of an app
+    /// that's hidden, and the sidebar lists it.
+    private func tabWithAHiddenAppsWindow() async throws -> (a: Workspace, b: Workspace, c: Workspace) {
+        let a = focus.workspace
+        let b = Workspace.get(byName: "tab-b")
+        let c = Workspace.get(byName: "tab-c")
+        _ = TestWindow.new(id: 1, parent: a.rootTilingContainer, app: other)
+        _ = TestWindow.new(id: 2, parent: b.macOsNativeHiddenAppsWindowsContainer, app: editor)
+        _ = TestWindow.new(id: 3, parent: c.rootTilingContainer, app: other)
+        XCTAssertTrue(try XCTUnwrap(a.allLeafWindowsRecursive.first).focusWindow())
+        Workspace.reconcileWorkspaceState()
+        let listed = await listedTabs()
+        XCTAssertEqual(listed.filter { [a.name, b.name, c.name].contains($0) }, [a.name, b.name, c.name])
+        return (a, b, c)
+    }
+
+    func testClosingATabMovesToTheNextTabListedEvenIfItsOnlyWindowsAppIsHidden() async throws {
+        let (a, b, _) = try await tabWithAHiddenAppsWindow()
+        close(try XCTUnwrap(a.allLeafWindowsRecursive.first))
+        XCTAssertTrue(focus.workspace === b, "The sidebar lists a, b, c")
+    }
+
+    func testATabClosingInTheBackgroundGivesItsDisplayToTheNextTabListedEvenIfItsOnlyWindowsAppIsHidden() async throws {
+        let left = SavedWorkspaceTestMonitor(id: 1, name: "Left", x: 0, isMain: true, uuid: "LEFT", isBuiltin: true)
+        let right = SavedWorkspaceTestMonitor(id: 2, name: "Right", x: 1920, uuid: "RIGHT")
+        setMonitorsForTests([left, right])
+        let (a, b, c) = try await tabWithAHiddenAppsWindow()
+        for tab in [a, b, c] { tab.preferredMonitorPoint = left.rect.topLeftCorner }
+        let e = Workspace.get(byName: "tab-e")
+        e.preferredMonitorPoint = right.rect.topLeftCorner
+        let elsewhere = TestWindow.new(id: 9, parent: e.rootTilingContainer, app: other)
+        XCTAssertTrue(right.setActiveWorkspace(e))
+        XCTAssertTrue(elsewhere.focusWindow())
+        XCTAssertTrue(left.activeWorkspace === a)
+        close(try XCTUnwrap(a.allLeafWindowsRecursive.first))
+        XCTAssertTrue(left.activeWorkspace === b, "The left list shows a, b, c")
+        XCTAssertTrue(focus.workspace === e)
+    }
+
     func testATabClosingOnAnotherDisplayLeavesItAtOnceWithoutTakingFocus() async throws {
         let left = SavedWorkspaceTestMonitor(id: 1, name: "Left", x: 0, isMain: true, uuid: "LEFT", isBuiltin: true)
         let right = SavedWorkspaceTestMonitor(id: 2, name: "Right", x: 1920, uuid: "RIGHT")
