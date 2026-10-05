@@ -432,12 +432,30 @@ final class SavedWorkspaceEmptyPinTest: XCTestCase {
         }
 
         let window = try await shows(571)
+        XCTAssertFalse(window.nodeWorkspace === pin, "The claim decides, not the pin")
         // As registration does once detection is done.
         settleClaimLeftAfterDetection(window)
         refreshEnds(listing)
 
         XCTAssertTrue(window.nodeWorkspace === asked)
         XCTAssertTrue(pin.isEffectivelyEmpty)
+    }
+
+    func testAWindowOfTheAppListedByANewerRefreshWhileTheOtherIsClassifiedKeepsItOut() async throws {
+        let pin = try emptyTab("22")
+        let work = workOnAnotherTab()
+        let listing = refreshLists([571: telegramApp, 580: telegramApp])
+        var newer: UInt64?
+        registeringWindowType = { [self] _, _ in
+            newer = newer ?? refreshLists([590: telegramApp])
+            return .popup
+        }
+
+        let window = try await shows(571)
+        refreshEnds(listing)
+        if let newer { refreshEnds(newer) }
+
+        assertInANewTab(window, not: [pin, work])
     }
 
     func testAnAppWithNoEmptyPinGetsItsNewTabRightAwayWithoutAsking() async throws {
