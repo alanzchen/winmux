@@ -66,9 +66,13 @@ final class TestWindow: Window, CustomStringConvertible {
         unbindFromParent()
     }
 
-    override var title: String {
+    /// Runs inside the title read: suspend to model a title that takes a while to read.
+    @MainActor var titleGate: (@MainActor () async -> Void)?
+
+    @MainActor override var title: String {
         get async { // redundant async. todo create bug report to Swift
-            customTitle ?? description
+            if let titleGate { await titleGate() }
+            return customTitle ?? description
         }
     }
 

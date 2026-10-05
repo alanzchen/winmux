@@ -13,6 +13,8 @@ final class WorkspaceTabsCloseWithLastWindowTest: XCTestCase {
     private var wasEnabled = true
     private var previousApp: (any AbstractApp)?
     private var clock = savedTestNow
+    /// Lets a gated native read or title read go on.
+    private var release: CheckedContinuation<Void, Never>?
     private let editorId = "com.test.editor"
     /// Running since long before WinMux started, so it's never armed.
     private lazy var editor = TestApp(pid: 501, bundleId: editorId, name: "Editor", launchDate: savedTestNow.addingTimeInterval(-86400))
@@ -118,6 +120,33 @@ final class WorkspaceTabsCloseWithLastWindowTest: XCTestCase {
         running[editorId] = [SavedRunningApp(pid: 502, launchDate: clock)]
         let relaunched = TestApp(pid: 502, bundleId: editorId, name: "Editor", launchDate: clock)
         return TestWindow.new(id: id, parent: tab.rootTilingContainer, app: relaunched, title: title)
+    }
+
+    /// What registering a window does once it's in the tree: detects it, which restores it or places
+    /// it as new, listed as being detected meanwhile.
+    private func detect(_ window: Window) async throws {
+        NewWindowIntentRegistry.shared.windowsBeingDetected.insert(window.windowId)
+        defer { NewWindowIntentRegistry.shared.windowsBeingDetected.remove(window.windowId) }
+        _ = try await restoreOrDetectNewWindow(window, isRegularWindow: true)
+    }
+
+    /// What the next refresh's registration does with a window already registered.
+    private func registerAgain(_ window: Window) async throws {}
+
+    /// A gate that suspends until `release` is resumed.
+    private func gate() async {
+        await withCheckedContinuation { release = $0 }
+    }
+
+    /// Waits until the gated read has started.
+    private func waitForTheGate(file: StaticString = #filePath, line: UInt = #line) async {
+        for _ in 0 ..< 10_000 where release == nil { await Task.yield() }
+        XCTAssertNotNil(release, "The gated read never started", file: file, line: line)
+    }
+
+    private func openTheGate() {
+        release?.resume()
+        release = nil
     }
 
     /// Whether the Tabs list shows the tab.
@@ -347,6 +376,114 @@ final class WorkspaceTabsCloseWithLastWindowTest: XCTestCase {
         XCTAssertEqual(config.workspaceSidebar.workspaceLabels[b.name], "B")
     }
 
+    // MARK: Windows on their way back
+
+    /// b's window closed and comes back from the closed-windows cache. The restore first reads the
+    /// native state of another app's window in a, hidden with its app (as it would a minimized one),
+    /// while the returning window waits in a, the tab in use.
+    private func windowComingBackFromTheCache() throws -> (a: Workspace, b: Workspace, back: TestWindow, hidden: TestWindow) {
+        let (a, b, _, window) = threeTabs()
+        try rename(b)
+        let hidden = TestWindow.new(id: 7, parent: a.macOsNativeHiddenAppsWindowsContainer, app: other)
+        hidden.layoutReason = .macos(prevParentKind: .tilingContainer, prevWorkspaceName: a.name)
+        // As the refresh that no longer finds the window does, before it takes it out of the tree.
+        cacheClosedWindowIfNeeded()
+        close(window)
+        later(5)
+        return (a, b, TestWindow.new(id: 2, parent: a.rootTilingContainer, app: editor, title: "Notes"), hidden)
+    }
+
+    func testAWindowTheClosedWindowsCacheIsPuttingBackKeepsItsTabWhileTheRestoreWaits() async throws {
+        let (_, b, back, hidden) = try windowComingBackFromTheCache()
+        hidden.nativeStateGate = { [unowned self] in await gate() }
+        let detection = Task { try await detect(back) }
+        await waitForTheGate()
+        // Something reconciles, and a checkpoint runs, while the restore waits.
+        checkpoint(after: 1)
+        assertStays(b, "The window is on its way back to it")
+        hidden.nativeStateGate = nil
+        openTheGate()
+        try await detection.value
+        XCTAssertTrue(back.nodeWorkspace === b)
+        XCTAssertEqual(config.workspaceSidebar.workspaceLabels[b.name], "Notes")
+    }
+
+    func testAWindowWhoseRestoreWasInterruptedKeepsItsTabAndTheNextRefreshPutsItBack() async throws {
+        let (_, b, back, hidden) = try windowComingBackFromTheCache()
+        hidden.nativeStateGate = { throw CancellationError() }
+        do {
+            try await detect(back)
+            XCTFail("The restore was interrupted")
+        } catch is CancellationError {}
+        checkpoint(after: 1)
+        assertStays(b, "Not a window the user moved")
+        hidden.nativeStateGate = nil
+        try await registerAgain(back)
+        XCTAssertTrue(back.nodeWorkspace === b, "The next refresh finishes putting it back")
+        afterTheGrace()
+        assertStays(b)
+        XCTAssertEqual(config.workspaceSidebar.workspaceLabels[b.name], "Notes")
+    }
+
+    func testAnAppsWindowStillReadingItsTitleWhenItsArmingEndsKeepsItsSavedPlace() async throws {
+        let a = focus.workspace
+        let b = Workspace.get(byName: "tab-b")
+        let d = Workspace.get(byName: "tab-d")
+        _ = TestWindow.new(id: 1, parent: a.rootTilingContainer, app: other)
+        let first = TestWindow.new(id: 2, parent: b.rootTilingContainer, app: editor, title: "Notes B")
+        let second = TestWindow.new(id: 4, parent: d.rootTilingContainer, app: editor, title: "Notes C")
+        XCTAssertTrue(a.allLeafWindowsRecursive[0].focusWindow())
+        Workspace.reconcileWorkspaceState()
+        try rename(b, "B")
+        try rename(d, "C")
+        captureSavedWorkspaces(facts: facts(titles: [2: "Notes B", 4: "Notes C"]))
+        editorQuits()
+        close(first, second)
+
+        // Five seconds later the editor opens again, and its first window goes back to d.
+        later(5)
+        let forD = editorRelaunchesWithWindow(20, title: "Notes C", in: a)
+        _ = try await restoreOrDetectNewWindow(forD, isRegularWindow: true)
+        XCTAssertTrue(forD.nodeWorkspace === d)
+        checkpoint(after: 20)
+        assertStays(b, "Its saved place waits while the editor is armed")
+
+        // Just before arming ends, its window for b is admitted and reads its title.
+        checkpoint(after: 24.9)
+        let relaunched = try XCTUnwrap(forD.app as? TestApp)
+        let forB = TestWindow.new(id: 21, parent: a.rootTilingContainer, app: relaunched, title: "Notes B")
+        forB.titleGate = { [unowned self] in await gate() }
+        let routing = Task { try await restoreOrDetectNewWindow(forB, isRegularWindow: true) }
+        await waitForTheGate()
+        checkpoint(after: 0.2)
+        assertStays(b, "Arming is over and its grace long gone, but its app's window is choosing a place")
+        forB.titleGate = nil
+        openTheGate()
+        _ = try await routing.value
+        XCTAssertTrue(forB.nodeWorkspace === b)
+        XCTAssertEqual(config.workspaceSidebar.workspaceLabels[b.name], "B")
+    }
+
+    // MARK: Undo
+
+    func testUndoingAMoveIntoATabWaitingToCloseLeavesItWaitingToClose() throws {
+        let (a, b, _, window) = threeTabs()
+        try rename(b)
+        savedWorkspaceRuntime.runtimeReadyAt = clock.addingTimeInterval(-10)
+        close(window)
+        XCTAssertTrue(b.isKeptWhenEmpty, "Listed while windows come back after WinMux started")
+        let before = WorkspaceSidebarTabUndoSnapshot()
+        let moved = try XCTUnwrap(a.allLeafWindowsRecursive.first)
+        moved.bind(to: b.rootTilingContainer, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
+        WorkspaceSidebarTabUndo.shared.record("Move Tab", before: before)
+        try WorkspaceSidebarTabUndo.shared.undo()
+        XCTAssertTrue(b.allLeafWindowsRecursive.isEmpty)
+        XCTAssertTrue(moved.nodeWorkspace === a)
+        checkpoint(after: SavedWorkspaceTiming.restoreWindow)
+        afterTheGrace()
+        assertClosed(b)
+    }
+
     func testTheOnlyTabOnADisplayIsntListedThenLeavesItABlankTabOnceItsSavedPlacesAreGone() async throws {
         let left = SavedWorkspaceTestMonitor(id: 1, name: "Left", x: 0, isMain: true, uuid: "LEFT", isBuiltin: true)
         let right = SavedWorkspaceTestMonitor(id: 2, name: "Right", x: 1920, uuid: "RIGHT")
@@ -444,6 +581,64 @@ final class WorkspaceTabsCloseWithLastWindowTest: XCTestCase {
         XCTAssertTrue(left.activeWorkspace === c, "The left sidebar shows b, c, d")
         XCTAssertTrue(right.activeWorkspace === a)
         XCTAssertTrue(focus.workspace === a)
+    }
+
+    /// Tabs a, b, c, d on one display, in that order, a and c grouped and so listed a, c, b, d. a's
+    /// window has closed: a is out of the list, its identity waiting out its grace. The list shows b, c, d.
+    private func groupWithAHiddenMember() throws -> (a: Workspace, b: Workspace, c: Workspace, d: Workspace) {
+        let a = focus.workspace
+        let b = Workspace.get(byName: "tab-b")
+        let c = Workspace.get(byName: "tab-c")
+        let d = Workspace.get(byName: "tab-d")
+        for (index, tab) in [a, b, c, d].enumerated() {
+            _ = TestWindow.new(id: UInt32(index + 1), parent: tab.rootTilingContainer, app: other)
+        }
+        let group = try workspaceSidebarOrganizationStore.create(projectId: a.projectId, workspaceNames: [])
+        try assignWorkspaceToSidebarCollection(a, collectionId: group.id)
+        try assignWorkspaceToSidebarCollection(c, collectionId: group.id)
+        XCTAssertTrue(try XCTUnwrap(b.allLeafWindowsRecursive.first).focusWindow())
+        Workspace.reconcileWorkspaceState()
+        captureSavedWorkspaces(facts: facts())
+        close(try XCTUnwrap(a.allLeafWindowsRecursive.first))
+        assertStays(a)
+        XCTAssertFalse(isUserFacingWorkspace(a))
+        return (a, b, c, d)
+    }
+
+    func testClosingATabMovesToTheNextTabListedNotPastAHiddenGroupMember() throws {
+        let (_, b, c, _) = try groupWithAHiddenMember()
+        close(try XCTUnwrap(b.allLeafWindowsRecursive.first))
+        XCTAssertTrue(focus.workspace === c, "The list shows b, c, d")
+    }
+
+    func testATabClosingInTheBackgroundGivesItsDisplayToTheNextTabListedNotPastAHiddenGroupMember() throws {
+        let left = SavedWorkspaceTestMonitor(id: 1, name: "Left", x: 0, isMain: true, uuid: "LEFT", isBuiltin: true)
+        let right = SavedWorkspaceTestMonitor(id: 2, name: "Right", x: 1920, uuid: "RIGHT")
+        setMonitorsForTests([left, right])
+        let a = focus.workspace
+        let b = Workspace.get(byName: "tab-b")
+        let c = Workspace.get(byName: "tab-c")
+        let d = Workspace.get(byName: "tab-d")
+        let e = Workspace.get(byName: "tab-e")
+        for (index, tab) in [a, b, c, d, e].enumerated() {
+            _ = TestWindow.new(id: UInt32(index + 1), parent: tab.rootTilingContainer, app: other)
+            tab.preferredMonitorPoint = (tab === e ? right : left).rect.topLeftCorner
+        }
+        XCTAssertTrue(left.setActiveWorkspace(b))
+        XCTAssertTrue(right.setActiveWorkspace(e))
+        XCTAssertTrue(try XCTUnwrap(e.allLeafWindowsRecursive.first).focusWindow())
+        let group = try workspaceSidebarOrganizationStore.create(projectId: a.projectId, workspaceNames: [])
+        try assignWorkspaceToSidebarCollection(a, collectionId: group.id)
+        try assignWorkspaceToSidebarCollection(c, collectionId: group.id)
+        Workspace.reconcileWorkspaceState()
+        captureSavedWorkspaces(facts: facts())
+        close(try XCTUnwrap(a.allLeafWindowsRecursive.first))
+        assertStays(a)
+        XCTAssertFalse(isUserFacingWorkspace(a))
+        XCTAssertTrue(left.activeWorkspace === b)
+        close(try XCTUnwrap(b.allLeafWindowsRecursive.first))
+        XCTAssertTrue(left.activeWorkspace === c, "The left list shows b, c, d")
+        XCTAssertTrue(focus.workspace === e)
     }
 
     func testATabClosingOnAnotherDisplayLeavesItAtOnceWithoutTakingFocus() async throws {
