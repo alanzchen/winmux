@@ -650,6 +650,124 @@ final class WorkspaceSidebarPinnedDragTest: XCTestCase {
         }
     }
 
+    // MARK: A pin dropped on another pin
+
+    /// Alan, October 2026: a pin dragged onto another pin's middle and held there a moment tiles into
+    /// it, as a tab from the list does, on the half pointed at, without going through the list first.
+    /// That pin keeps its place and its windows; the dragged pin stays pinned in its place, empty, as a
+    /// pin does when its windows move out. Undo puts both back.
+    func testAPinPausedOverAnotherPinsMiddleTilesIntoItOnTheHalfPointedAt() async throws {
+        for left in [true, false] {
+            try await setUp()
+            let (a, b, c, d) = try tabs()
+            let surface = try pinGridSurface(["a", "b", "c"])
+            WorkspaceSidebarTemporaryDropSurfaces.shared.register(surface)
+            defer { WorkspaceSidebarTemporaryDropSurfaces.shared.unregister(surface) }
+            let records = ["a", "b"].map { workspaceSidebarOrganizationStore.state.workspaces[$0] }
+            let tile = surface.tiles[1]
+            let middle = CGPoint(x: tile.midX + (left ? -6 : 6), y: tile.midY)
+            try await dragPin("a", to: middle)
+            let preview = TrayMenuModel.shared.workspaceSidebarDropPreview
+            XCTAssertEqual(preview?.targetWorkspaceName, "b", "b's half lights up, as for a tab from the list")
+            XCTAssertEqual(preview?.targetPlacement, left ? .left : .right)
+            XCTAssertNil(preview?.targetPinnedGap)
+            XCTAssertEqual(b.allLeafWindowsRecursive.map(\.windowId), [2], "Nothing moves before the release")
+            finishSidebarPinnedTabDrag("a", pointer: middle)
+            try await waitUntil { b.allLeafWindowsRecursive.count == 2 }
+            XCTAssertEqual(b.allLeafWindowsRecursive.map(\.windowId), left ? [1, 2] : [2, 1])
+            XCTAssertEqual(a.allLeafWindowsRecursive.map(\.windowId), [], "a's window went into b")
+            XCTAssertEqual(pins(), ["a", "b", "c"], "Both stay pinned, in their places")
+            XCTAssertEqual(["a", "b"].map { workspaceSidebarOrganizationStore.state.workspaces[$0] }, records)
+            XCTAssertEqual(c.allLeafWindowsRecursive.map(\.windowId), [3])
+            XCTAssertEqual(d.allLeafWindowsRecursive.map(\.windowId), [4])
+            guard left else { continue }
+            XCTAssertEqual(WorkspaceSidebarTabUndo.shared.title, "Undo Split Tabs")
+            await runWorkspaceSidebarSession { try WorkspaceSidebarTabUndo.shared.undo() }?.value
+            XCTAssertEqual(a.allLeafWindowsRecursive.map(\.windowId), [1], "Undo puts a's window back")
+            XCTAssertEqual(b.allLeafWindowsRecursive.map(\.windowId), [2])
+            XCTAssertEqual(pins(), ["a", "b", "c"])
+        }
+    }
+
+    /// A pin that's a split tiles in whole, its windows in their order, as a tab from the list does.
+    func testAPinThatsASplitTilesIntoAnotherPinWhole() async throws {
+        let (a, b, c, d) = try tabs()
+        _ = TestWindow.new(id: 5, parent: a.rootTilingContainer)
+        let surface = try pinGridSurface(["a", "b", "c"])
+        WorkspaceSidebarTemporaryDropSurfaces.shared.register(surface)
+        defer { WorkspaceSidebarTemporaryDropSurfaces.shared.unregister(surface) }
+        let middle = CGPoint(x: surface.tiles[1].midX - 6, y: surface.tiles[1].midY)
+        try await dragPin("a", to: middle)
+        finishSidebarPinnedTabDrag("a", pointer: middle)
+        try await waitUntil { b.allLeafWindowsRecursive.count == 3 }
+        XCTAssertEqual(b.allLeafWindowsRecursive.map(\.windowId), [1, 5, 2])
+        XCTAssertEqual(a.allLeafWindowsRecursive.map(\.windowId), [])
+        XCTAssertEqual(pins(), ["a", "b", "c"])
+        let windows = [a, b, c, d].flatMap(\.allLeafWindowsRecursive).map(\.windowId)
+        XCTAssertEqual(windows.sorted(), [1, 2, 3, 4, 5], "Every window once")
+    }
+
+    /// Near another pin's side a pin still rearranges, however long it rests, and over an empty pin's
+    /// middle too, which has no window to go beside. A drag given up after a split was shown moves nothing.
+    func testAPinRestingNearAnotherPinsSideStillRearrangesAndAGivenUpDragMovesNothing() async throws {
+        let (a, b, c, _) = try tabs()
+        try setWorkspaceSidebarTabFavorite(Workspace.get(byName: "z"), true)
+        let surface = try pinGridSurface(["a", "b", "c", "z"])
+        WorkspaceSidebarTemporaryDropSurfaces.shared.register(surface)
+        defer { WorkspaceSidebarTemporaryDropSurfaces.shared.unregister(surface) }
+        let tileB = surface.tiles[1]
+        let side = CGPoint(x: tileB.minX + 10, y: tileB.midY)
+        try await dragPin("c", to: side)
+        XCTAssertEqual(TrayMenuModel.shared.workspaceSidebarDropPreview?.targetPinnedGap, .init(workspaceName: "b", isAfter: false))
+        XCTAssertNil(TrayMenuModel.shared.workspaceSidebarDropPreview?.targetWorkspaceName)
+        finishSidebarPinnedTabDrag("c", pointer: side)
+        try await waitUntil { self.pins() == ["a", "c", "b", "z"] }
+        XCTAssertEqual(b.allLeafWindowsRecursive.map(\.windowId), [2])
+        XCTAssertEqual(c.allLeafWindowsRecursive.map(\.windowId), [3])
+
+        let emptyMiddle = CGPoint(x: surface.tiles[3].midX - 6, y: surface.tiles[3].midY)
+        try await dragPin("a", to: emptyMiddle)
+        XCTAssertNil(TrayMenuModel.shared.workspaceSidebarDropPreview?.targetWorkspaceName, "No split with an empty pin")
+        XCTAssertTrue(cancelWorkspaceSidebarDragSession())
+
+        let middle = CGPoint(x: tileB.midX - 6, y: tileB.midY)
+        try await dragPin("a", to: middle)
+        XCTAssertEqual(TrayMenuModel.shared.workspaceSidebarDropPreview?.targetWorkspaceName, "b")
+        XCTAssertTrue(cancelWorkspaceSidebarDragSession())
+        finishSidebarPinnedTabDrag("a", pointer: middle)
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertEqual(a.allLeafWindowsRecursive.map(\.windowId), [1])
+        XCTAssertEqual(b.allLeafWindowsRecursive.map(\.windowId), [2])
+        XCTAssertEqual(pins(), ["a", "c", "b", "z"])
+    }
+
+    /// A pin's split shown over another pin's middle isn't made by a release that slipped out to that
+    /// pin's side, as for a tab from the list, and nor is the rearrange there, which wasn't shown.
+    func testAPinReleasedAfterSlippingOutOfAnotherPinsMiddleMovesNothing() async throws {
+        for left in [true, false] {
+            try await setUp()
+            WorkspaceSidebarTabUndo.shared.clear()
+            let (_, b, c, _) = try tabs()
+            let surface = try pinGridSurface(["a", "b", "c"])
+            WorkspaceSidebarTemporaryDropSurfaces.shared.register(surface)
+            defer { WorkspaceSidebarTemporaryDropSurfaces.shared.unregister(surface) }
+            let tile = surface.tiles[1]
+            let edge = tile.minX + tile.width * (left ? 1 : 2) / 3
+            let slip: CGFloat = left ? 0.5 : 2
+            let shownAt = CGPoint(x: left ? edge + slip : edge - slip, y: tile.midY)
+            let releasedAt = CGPoint(x: left ? edge - slip : edge + slip, y: tile.midY)
+            let label = "shown at \(shownAt.x), released at \(releasedAt.x)"
+            try await dragPin("c", to: shownAt)
+            XCTAssertEqual(TrayMenuModel.shared.workspaceSidebarDropPreview?.targetWorkspaceName, "b", label)
+            finishSidebarPinnedTabDrag("c", pointer: releasedAt)
+            try await Task.sleep(for: .milliseconds(400))
+            XCTAssertEqual(b.allLeafWindowsRecursive.map(\.windowId), [2], label)
+            XCTAssertEqual(c.allLeafWindowsRecursive.map(\.windowId), [3], label)
+            XCTAssertEqual(pins(), ["a", "b", "c"], label)
+            XCTAssertNil(WorkspaceSidebarTabUndo.shared.title, "No drop ran: \(label)")
+        }
+    }
+
     func testRenderedPinsTakeDropsBesideEachTileAndMarkWhereTheTabGoes() throws {
         var fixture = WorkspaceSidebarSnapshot.empty
         fixture.configuration = WorkspaceSidebarConfiguration(collapsedWidth: 44, expandedWidth: 280,
@@ -823,6 +941,25 @@ final class WorkspaceSidebarPinnedDragTest: XCTestCase {
             placement: placement, pinGridIsShared: workspaceSidebarPinGridIsShared())
     }
 
+    /// The pin tiles of a rendered sidebar with `names` pinned, as a surface a drag finds them on.
+    private func pinGridSurface(_ names: [String]) throws -> PinGridSurface {
+        TrayMenuModel.shared.isEnabled = true
+        let (targets, tiles) = try renderedPins(names)
+        return PinGridSurface(targets: targets, tiles: tiles)
+    }
+
+    /// Drags pin `name` up to `point`, slowing to a stop there as each drag event shows, and rests a moment.
+    private func dragPin(_ name: String, to point: CGPoint) async throws {
+        WorkspaceSidebarDragSessions.shared.noteLeftMouseDown()
+        for rise in [20, 12, 6, 3, 1.5, 0.5] as [CGFloat] {
+            updateSidebarPinnedTabDrag(name, pointer: CGPoint(x: point.x, y: point.y + rise))
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        updateSidebarPinnedTabDrag(name, pointer: point)
+        try await Task.sleep(for: .milliseconds(300))
+        updateSidebarPinnedTabDrag(name, pointer: point)
+    }
+
     private func waitUntil(_ condition: () -> Bool, timeout: Duration = .seconds(2)) async throws {
         let deadline = ContinuousClock.now + timeout
         while !condition() {
@@ -850,8 +987,13 @@ private final class PinGridSurface: WorkspaceSidebarTemporaryDropSurface {
     let stackingOrder = 1
     let dropDestination: WorkspaceSidebarDropDestinationIdentity? = .init(monitorScopeId: "monitor:0.0,0.0")
     let targets: [WorkspaceSidebarDropTargetFrame]
+    /// The pin tiles' frames among them.
+    let tiles: [CGRect]
 
-    init(targets: [WorkspaceSidebarDropTargetFrame]) { self.targets = targets }
+    init(targets: [WorkspaceSidebarDropTargetFrame], tiles: [CGRect] = []) {
+        self.targets = targets
+        self.tiles = tiles
+    }
 
     func surfaceRectNormalized(containing point: CGPoint) -> Rect? {
         pinSurfaceBounds.contains(point) ? Rect(topLeftX: 0, topLeftY: 0, width: pinSurfaceBounds.width,
