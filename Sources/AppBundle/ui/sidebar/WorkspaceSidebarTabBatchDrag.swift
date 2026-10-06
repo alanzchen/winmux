@@ -223,7 +223,7 @@ func workspaceSidebarBatchDropUndoTitle(_ batch: WorkspaceSidebarDragBatch, targ
 func workspaceSidebarPinnedBatchDropUndoTitle(_ batch: WorkspaceSidebarDragBatch, _ drop: WorkspaceSidebarPinnedTabDrop) -> String {
     switch drop {
         case .rearrange(_, _, let move?): move.scope == .allProjects ? "Pin \(batch.label) to All Projects" : "Pin \(batch.label) to This Project"
-        case .rearrange, .join: "Move \(batch.label)"
+        case .rearrange, .join, .split: "Move \(batch.label)"
         case .list, .unpin: "Unpin \(batch.label)"
         case .group: "Move \(batch.label) to Group"
     }
@@ -296,7 +296,7 @@ func applyWorkspaceSidebarPinnedBatchDrop(_ batch: WorkspaceSidebarDragBatch, _ 
             guard workspaceSidebarBatchCanJoinGroup(tabs, id: id, monitorScopeId: monitorScopeId)
             else { return try refuseWorkspaceSidebarBatch(tabs, monitorScopeId: monitorScopeId) }
             return try moveWorkspaceSidebarBatchToGroup(batch, tabs, id: id, monitorScopeId: monitorScopeId)
-        case .unpin, .join:
+        case .unpin, .join, .split:
             return false
     }
 }
