@@ -768,6 +768,73 @@ final class WorkspaceSidebarPinnedDragTest: XCTestCase {
         }
     }
 
+    /// Astra S1: a hidden app's window, used last, stays in its pin, which takes only its laid-out and
+    /// floating windows into the other. It mustn't take focus back there: the pin it joined stays on
+    /// screen, its window from the move focused. A list tab joining a pin goes the same way.
+    func testAPinTiledIntoAnotherKeepsFocusThereThoughAHiddenAppsWindowStaysBehind() async throws {
+        let (a, b, _, d) = try tabs()
+        let hidden = TestWindow.new(id: 6, parent: a.macOsNativeHiddenAppsWindowsContainer)
+        XCTAssertTrue(a.mostRecentWindowRecursive === hidden, "The hidden app's window was used last")
+        XCTAssertFalse(focus.workspace === a || focus.workspace === b)
+        let surface = try pinGridSurface(["a", "b", "c"])
+        WorkspaceSidebarTemporaryDropSurfaces.shared.register(surface)
+        defer { WorkspaceSidebarTemporaryDropSurfaces.shared.unregister(surface) }
+        let middle = CGPoint(x: surface.tiles[1].midX - 6, y: surface.tiles[1].midY)
+        try await dragPin("a", to: middle)
+        finishSidebarPinnedTabDrag("a", pointer: middle)
+        try await waitUntil { b.allLeafWindowsRecursive.count == 2 }
+        XCTAssertEqual(b.allLeafWindowsRecursive.map(\.windowId), [1, 2])
+        XCTAssertTrue(hidden.nodeWorkspace === a, "The hidden app's window stays in its pin")
+        XCTAssertTrue(focus.workspace === b, "The pin it joined stays on screen")
+        XCTAssertEqual(focus.windowOrNil?.windowId, 1)
+        XCTAssertTrue(b.isVisible)
+
+        let alsoHidden = TestWindow.new(id: 7, parent: d.macOsNativeHiddenAppsWindowsContainer)
+        XCTAssertTrue(d.mostRecentWindowRecursive === alsoHidden)
+        try joinWorkspaceTabIntoPinnedTab("d", pin: b, placement: .left)
+        XCTAssertEqual(b.allLeafWindowsRecursive.map(\.windowId), [1, 2, 4])
+        XCTAssertTrue(alsoHidden.nodeWorkspace === d)
+        XCTAssertTrue(focus.workspace === b, "A list tab joining a pin leaves it on screen too")
+        XCTAssertEqual(focus.windowOrNil?.windowId, 4)
+    }
+
+    /// Astra S2: a split waiting to run is made only while both pins are still listed in the project
+    /// whose list it was dropped on. One pinned in All Projects, moved to another project's own pins
+    /// meanwhile, takes nothing in: no window, focus or display changes.
+    func testAQueuedPinSplitIsntMadeOnceItsPinsLeaveTheListsProject() async throws {
+        let (a, b, c, d) = try tabs()
+        let other = createWorkspaceProject().id
+        b.assignProject(other)
+        try setWorkspaceSidebarTabPinScope(b, .allProjects, projectId: other)
+        XCTAssertTrue(workspaceIsListed(b, inProject: a.projectId), "Pinned in All Projects, b is in a's project's list")
+        XCTAssertFalse(b.isVisible)
+        let surface = try pinGridSurface(["a", "b", "c"])
+        WorkspaceSidebarTemporaryDropSurfaces.shared.register(surface)
+        defer { WorkspaceSidebarTemporaryDropSurfaces.shared.unregister(surface) }
+        let middle = CGPoint(x: surface.tiles[1].midX - 6, y: surface.tiles[1].midY)
+        try await dragPin("a", to: middle)
+        XCTAssertEqual(TrayMenuModel.shared.workspaceSidebarDropPreview?.targetWorkspaceName, "b")
+        let focusBefore = focus.workspace
+        let gate = SessionGateApp()
+        appForTests = gate
+        defer {
+            gate.open()
+            appForTests = nil
+        }
+        finishSidebarPinnedTabDrag("a", pointer: middle)
+        try await waitUntil { gate.isWaiting }
+        try setWorkspaceSidebarTabPinScope(b, nil, projectId: other)
+        XCTAssertFalse(workspaceIsListed(b, inProject: a.projectId), "b is now only the other project's")
+        gate.open()
+        try await Task.sleep(for: .milliseconds(400))
+        XCTAssertEqual(a.allLeafWindowsRecursive.map(\.windowId), [1])
+        XCTAssertEqual(b.allLeafWindowsRecursive.map(\.windowId), [2])
+        XCTAssertEqual(c.allLeafWindowsRecursive.map(\.windowId), [3])
+        XCTAssertEqual(d.allLeafWindowsRecursive.map(\.windowId), [4])
+        XCTAssertTrue(focus.workspace === focusBefore, "Focus stays where it was")
+        XCTAssertFalse(b.isVisible, "b isn't brought on screen")
+    }
+
     func testRenderedPinsTakeDropsBesideEachTileAndMarkWhereTheTabGoes() throws {
         var fixture = WorkspaceSidebarSnapshot.empty
         fixture.configuration = WorkspaceSidebarConfiguration(collapsedWidth: 44, expandedWidth: 280,
@@ -1010,6 +1077,30 @@ private extension WorkspaceSidebarDropTargetKind {
     func withGap(_ gap: WorkspaceSidebarTabGap) -> Self {
         guard case .tabGap(let projectId, let monitorScopeId, _) = self else { return self }
         return .tabGap(projectId: projectId, monitorScopeId: monitorScopeId, gap: gap)
+    }
+}
+
+/// An app the sidebar's next session asks for its focused window, which answers only once opened, so
+/// the session's changes wait until then.
+private final class SessionGateApp: AbstractApp {
+    let pid: Int32 = 9_871
+    let name: String? = "Gate"
+    let rawAppBundleId: String? = nil
+    let bundlePath: String? = nil
+    let execPath: String? = nil
+    @MainActor private var waiting: [CheckedContinuation<Void, Never>] = []
+    @MainActor private var isOpen = false
+    @MainActor var isWaiting: Bool { !waiting.isEmpty }
+
+    @MainActor func getFocusedWindow() async throws -> AppBundle.Window? {
+        if !isOpen { await withCheckedContinuation { waiting.append($0) } }
+        return nil
+    }
+
+    @MainActor func open() {
+        isOpen = true
+        waiting.forEach { $0.resume() }
+        waiting = []
     }
 }
 
