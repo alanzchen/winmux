@@ -15,7 +15,8 @@ struct WorkspaceTabCollection: Codable, Equatable, Identifiable {
     @MainActor
     func containsVisibleWorkspace(on scopeId: String? = nil) -> Bool {
         workspaceNames.contains {
-            guard let workspace = Workspace.existing(byName: $0), workspace.isVisible else { return false }
+            guard let workspace = Workspace.existing(byName: $0), workspace.isVisible,
+                  !config.usesBrowserTabs || workspaceTabIsShown(workspace) else { return false }
             guard let scopeId, !workspaceSidebarMonitorScopeIsSentinel(scopeId) else { return true }
             return workspaceSidebarMonitorScopeId(for: workspace.workspaceMonitor) == scopeId
         }

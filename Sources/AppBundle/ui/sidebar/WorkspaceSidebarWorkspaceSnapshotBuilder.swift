@@ -25,9 +25,11 @@ func buildWorkspaceSidebarWorkspaceViewModels(
 
 /// Whether the sidebar has a row for `workspace`. Automatic identities are kept for app
 /// restoration, and a saved tab closing with its last window for its grace, without showing them
-/// empty. Explicitly kept tabs and the active empty tab stay.
+/// empty. Explicitly kept tabs and the active empty tab stay. In Tabs mode the list shows only the
+/// rows of tabs `workspaceTabIsShown` (`isLeftEmpty` marks the others).
 @MainActor
 func workspaceSidebarHasRow(_ workspace: Workspace, focusedWorkspace: Workspace) -> Bool {
+    if config.usesBrowserTabs, workspaceTabIsShown(workspace) { return true }
     guard let record = savedWorkspaceStore.record(named: workspace.name),
           record.keepWhenEmpty == false || workspaceTabClosesWithLastWindow(workspace)
     else { return true }
@@ -58,7 +60,7 @@ private func makeWorkspaceSidebarWorkspaceViewModel(
         apps: buildWorkspaceSidebarAppSummaries(for: workspace),
         savedState: runningApps.flatMap { workspaceSidebarSavedState(for: workspace, runningApps: $0) },
         appearance: workspaceSidebarOrganizationStore.state.workspaces[workspace.name] ?? .init(),
-        isLeftEmpty: workspaceTabWasLeftEmpty(workspace),
+        isLeftEmpty: config.usesBrowserTabs && !workspaceTabIsShown(workspace),
         knownDisplay: availableMonitors.count > 1 && config.workspaceSidebar.sharesPinnedTabs && isPinned
             ? workspaceSidebarTabKnownDisplay(workspace, among: availableMonitors) : nil,
         // Kept whether or not pins are shared: turning sharing on shows the pins before their

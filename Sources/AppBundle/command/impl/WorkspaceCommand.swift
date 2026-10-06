@@ -143,7 +143,7 @@ private func resolveRelativeWorkspaceCandidates(current: Workspace, stdin: Strin
             }
     }
 
-    return workspaceNavigationTabs(current: current)
+    return workspaceNavigationTabs(current: current, keepingCurrent: true)
 }
 
 @MainActor

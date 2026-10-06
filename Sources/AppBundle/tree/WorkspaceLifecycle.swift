@@ -113,10 +113,10 @@ func closestWorkspaceForDeletion(
     projectId: WorkspaceProjectId,
     monitor: Monitor,
 ) -> Workspace? {
-    let scopedCandidates = userFacingWorkspaces(
-        orderedWorkspaces(in: projectId),
-        focusedWorkspace: focus.workspace,
-    )
+    // Tabs mode: the tabs shown, and the one going.
+    let scopedCandidates = (config.usesBrowserTabs
+        ? orderedWorkspaces(in: projectId).filter { $0 === workspace || workspaceTabIsShown($0) }
+        : userFacingWorkspaces(orderedWorkspaces(in: projectId), focusedWorkspace: focus.workspace))
         .filter { isValidAssignment(workspace: $0, screen: monitor.rect.topLeftCorner) && savedHomeAllows($0, on: monitor) }
     let automaticCandidates = scopedCandidates.filter(\.usesAutomaticDisplayName)
     let candidates = workspace.usesAutomaticDisplayName && automaticCandidates.contains(workspace)
@@ -335,11 +335,12 @@ func availablePreferredWorkspace(projectId: WorkspaceProjectId, monitor: Monitor
         .first { workspaceIsAvailableForMonitor($0, monitor: monitor) }
 }
 
-/// A reserved automatic identity is waiting for its app, not an empty project landing page.
+/// A reserved automatic identity is waiting for its app, not an empty project landing page. In Tabs
+/// mode neither is a saved tab that isn't shown.
 @MainActor
 private func workspaceIsProjectFallbackCandidate(_ workspace: Workspace) -> Bool {
-    !workspace.isSaved || workspace.isKeptWhenEmpty || workspaceHasLifecycleWindows(workspace) ||
-        workspace.retainsEmptyAfterProjectMove
+    !workspace.isSaved || (config.usesBrowserTabs ? workspaceTabIsShown(workspace) : workspace.isKeptWhenEmpty) ||
+        workspaceHasLifecycleWindows(workspace) || workspace.retainsEmptyAfterProjectMove
 }
 
 @MainActor

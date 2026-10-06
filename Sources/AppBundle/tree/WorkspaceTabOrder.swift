@@ -68,15 +68,16 @@ func workspacePinnedTabOrder(moving tab: Workspace, beside gap: WorkspaceSidebar
     return moved == pins ? nil : moved
 }
 
-/// Tabs mode: the tabs in the order the sidebar shows them, from `current`'s project as the user
-/// sees it: the pins in All Projects, the project's own pins, then its other tabs.
+/// Tabs mode: the tabs the sidebar shows, in its order, from `current`'s project as the user sees
+/// it: the pins in All Projects, the project's own pins, then its other tabs. `keepingCurrent`
+/// keeps `current` in its place even when it isn't shown, to go to the tab before or after it.
 @MainActor
-func workspaceNavigationTabs(current: Workspace) -> [Workspace] {
+func workspaceNavigationTabs(current: Workspace, keepingCurrent: Bool = false) -> [Workspace] {
     let projectId = workspaceContextProjectId(of: current)
-    let tabs = orderedUserFacingWorkspaces(in: projectId, focusedWorkspace: current)
-    guard config.usesBrowserTabs else { return tabs }
-    let pinnedEverywhere = userFacingWorkspaces(workspacePinnedTabsInAllProjects(), focusedWorkspace: current)
-    return workspaceTabsInSidebarOrder(pinnedEverywhere + tabs.filter { !workspaceIsPinnedInAllProjects($0) }, projectId: projectId)
+    guard config.usesBrowserTabs else { return orderedUserFacingWorkspaces(in: projectId, focusedWorkspace: current) }
+    let tabs = workspacePinnedTabsInAllProjects() + orderedWorkspaces(in: projectId).filter { !workspaceIsPinnedInAllProjects($0) }
+    return workspaceTabsInSidebarOrder(tabs.filter { workspaceTabIsShown($0) || keepingCurrent && $0 === current },
+        projectId: projectId)
 }
 
 /// The tabs `anchor`'s display lists, with `anchor` wherever it is, in the order that display's
@@ -89,14 +90,8 @@ func workspaceDisplayTabsInSidebarOrder(around anchor: Workspace, includingPinsI
     let projectId = workspaceContextProjectId(of: anchor)
     let pinsInAllProjects = includingPinsInAllProjects ? workspacePinnedTabsInAllProjects() : []
     let tabs = pinsInAllProjects + orderedWorkspaces(in: projectId).filter { !workspaceIsPinnedInAllProjects($0) }
-    return workspaceTabsInSidebarOrder(tabs.filter { $0 === anchor || isListed($0) && workspaceTabIsListedInSidebar($0) },
+    return workspaceTabsInSidebarOrder(tabs.filter { $0 === anchor || isListed($0) && workspaceTabIsShown($0) },
         projectId: projectId)
-}
-
-/// Whether the Tabs list shows `tab`: it has a sidebar row, and isn't left empty.
-@MainActor
-func workspaceTabIsListedInSidebar(_ tab: Workspace) -> Bool {
-    workspaceSidebarHasRow(tab, focusedWorkspace: focus.workspace) && !workspaceTabWasLeftEmpty(tab)
 }
 
 /// `projectId`'s `tabs` in the order its sidebar shows them: pins first, then each group together.

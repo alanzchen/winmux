@@ -310,7 +310,7 @@ extension WorkspaceSidebarView {
     func tabCollectionDisclosure(_ group: WorkspaceTabCollection, isSearching: Bool = false) -> WorkspaceSidebarTabCollectionDisclosure {
         WorkspaceSidebarTabCollectionDisclosure(group: group,
             containsActiveTab: snapshot.workspaces.contains {
-                group.workspaceNames.contains($0.name) && $0.isVisible &&
+                group.workspaceNames.contains($0.name) && $0.isVisible && !$0.isLeftEmpty &&
                     (workspaceSidebarMonitorScopeIsSentinel(snapshot.targetMonitorScopeId) || $0.monitorScopeId == snapshot.targetMonitorScopeId)
             }, isSearching: isSearching)
     }

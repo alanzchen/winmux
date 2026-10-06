@@ -1,7 +1,7 @@
 @MainActor
 func automaticWorkspaceDisplayIndex(_ workspace: Workspace, focusedWorkspace: Workspace?) -> Int? {
     if config.usesBrowserTabs {
-        return workspaceNavigationTabs(current: workspace).firstIndex(of: workspace).map { $0 + 1 }
+        return workspaceNavigationTabs(current: workspace, keepingCurrent: true).firstIndex(of: workspace).map { $0 + 1 }
     }
     return orderedWorkspacesForPresentation()
         .filter { $0.projectId == workspace.projectId }
