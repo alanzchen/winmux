@@ -70,14 +70,16 @@ func workspacePinnedTabOrder(moving tab: Workspace, beside gap: WorkspaceSidebar
 
 /// Tabs mode: the tabs the sidebar shows, in its order, from `current`'s project as the user sees
 /// it: the pins in All Projects, the project's own pins, then its other tabs. `keepingCurrent`
-/// keeps `current` in its place even when it isn't shown, to go to the tab before or after it.
+/// keeps `current` in its place even when it isn't shown, to go to the tab before or after it;
+/// `alsoListing` keeps those tabs too.
 @MainActor
-func workspaceNavigationTabs(current: Workspace, keepingCurrent: Bool = false) -> [Workspace] {
+func workspaceNavigationTabs(current: Workspace, keepingCurrent: Bool = false, alsoListing: Set<WorkspaceId> = []) -> [Workspace] {
     let projectId = workspaceContextProjectId(of: current)
     guard config.usesBrowserTabs else { return orderedUserFacingWorkspaces(in: projectId, focusedWorkspace: current) }
     let tabs = workspacePinnedTabsInAllProjects() + orderedWorkspaces(in: projectId).filter { !workspaceIsPinnedInAllProjects($0) }
-    return workspaceTabsInSidebarOrder(tabs.filter { workspaceTabIsShown($0) || keepingCurrent && $0 === current },
-        projectId: projectId)
+    return workspaceTabsInSidebarOrder(tabs.filter {
+        workspaceTabIsShown($0) || keepingCurrent && $0 === current || alsoListing.contains($0.id)
+    }, projectId: projectId)
 }
 
 /// The tabs `anchor`'s display lists, with `anchor` wherever it is, in the order that display's
@@ -105,7 +107,11 @@ func workspaceTabsInSidebarOrder(_ tabs: [Workspace], projectId: WorkspaceProjec
         collections: organization.collections.filter { $0.projectId == projectId })
 }
 
+/// The tabs numbers name, in order. In a command sequence, also those listed when it began
+/// (`CmdEnv.tabsListedAtSequenceStart`), so a number names the same tab throughout it.
 @MainActor
-func numberedWorkspaceNavigationTabs(current: Workspace) -> [Workspace] {
-    config.usesBrowserTabs ? workspaceNavigationTabs(current: current) : scopedAutomaticDisplayWorkspaces(current: current)
+func numberedWorkspaceNavigationTabs(current: Workspace, listedAtSequenceStart: Set<WorkspaceId> = []) -> [Workspace] {
+    config.usesBrowserTabs
+        ? workspaceNavigationTabs(current: current, alsoListing: listedAtSequenceStart)
+        : scopedAutomaticDisplayWorkspaces(current: current)
 }

@@ -29,6 +29,7 @@ struct MoveNodeToWorkspaceCommand: Command {
                         isNext: nextPrev == .next,
                         wrapAround: args.wrapAround,
                         usesStdin: args.useStdin,
+                        listedAtSequenceStart: env.tabsListedAtSequenceStart,
                     )
                 guard let ws else { return io.err("Can't resolve next or prev workspace") }
                 targetWorkspace = ws
@@ -37,6 +38,7 @@ struct MoveNodeToWorkspaceCommand: Command {
                     named: name.raw,
                     sourceWorkspace: subjectWs ?? target.workspace,
                     sourceMonitor: window.nodeMonitor ?? target.workspace.workspaceMonitor,
+                    listedAtSequenceStart: env.tabsListedAtSequenceStart,
                 ) else {
                     return io.err("Workspace '\(name.raw)' doesn't exist")
                 }
@@ -52,10 +54,12 @@ private func createNextTransientBlankWorkspaceForMoveIfAllowed(
     isNext: Bool,
     wrapAround: Bool,
     usesStdin: Bool,
+    listedAtSequenceStart: Set<WorkspaceId>,
 ) -> Workspace? {
     guard isNext, !wrapAround, !usesStdin else { return nil }
-    let nextWorkspaceIndex = numberedWorkspaceNavigationTabs(current: current).count + 1
-    return createAdjacentTransientBlankWorkspaceIfAllowed(named: String(nextWorkspaceIndex), from: current)
+    let nextWorkspaceIndex = numberedWorkspaceNavigationTabs(current: current, listedAtSequenceStart: listedAtSequenceStart).count + 1
+    return createAdjacentTransientBlankWorkspaceIfAllowed(named: String(nextWorkspaceIndex), from: current,
+        listedAtSequenceStart: listedAtSequenceStart)
 }
 
 @MainActor
@@ -63,12 +67,15 @@ private func resolveMoveTargetWorkspace(
     named workspaceName: String,
     sourceWorkspace: Workspace,
     sourceMonitor: Monitor,
+    listedAtSequenceStart: Set<WorkspaceId>,
 ) -> Workspace? {
     if let targetIndex = parsePositiveWorkspaceDisplayIndex(workspaceName) {
-        if let workspace = numberedWorkspaceNavigationTabs(current: sourceWorkspace).getOrNil(atIndex: targetIndex - 1) {
+        if let workspace = numberedWorkspaceNavigationTabs(current: sourceWorkspace, listedAtSequenceStart: listedAtSequenceStart)
+            .getOrNil(atIndex: targetIndex - 1) {
             return workspace
         }
-        return createAdjacentTransientBlankWorkspaceIfAllowed(named: workspaceName, from: sourceWorkspace)
+        return createAdjacentTransientBlankWorkspaceIfAllowed(named: workspaceName, from: sourceWorkspace,
+            listedAtSequenceStart: listedAtSequenceStart)
     }
 
     let existedBefore = Workspace.existing(byName: workspaceName) != nil

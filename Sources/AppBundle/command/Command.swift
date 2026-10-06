@@ -98,6 +98,11 @@ extension [Command] {
 
     @MainActor
     func runCmdSeq(_ env: CmdEnv, _ io: sending CmdIo) async throws -> Bool {
+        // Only this sequence's commands see it, through their env; a sequence run within one keeps it.
+        var env = env
+        if config.usesBrowserTabs, env.tabsListedAtSequenceStart.isEmpty {
+            env.tabsListedAtSequenceStart = Set(Workspace.all.filter(workspaceTabIsShown).map(\.id))
+        }
         var isSucc = true
         for command in self {
             let commandSucc = try await command.run(env, io)

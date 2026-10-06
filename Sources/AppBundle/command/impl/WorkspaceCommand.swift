@@ -9,7 +9,7 @@ struct WorkspaceCommand: Command {
     func run(_ env: CmdEnv, _ io: CmdIo) -> Bool {
         guard let target = args.resolveTargetOrReportError(env, io) else { return false }
         let focusedWs = target.workspace
-        switch resolveWorkspaceTarget(from: focusedWs, io: io) {
+        switch resolveWorkspaceTarget(from: focusedWs, io: io, listedAtSequenceStart: env.tabsListedAtSequenceStart) {
             case .focus(let workspace):
                 return focusOrReportNoop(workspace, focusedWorkspace: focusedWs, io: io, failIfNoop: args.failIfNoop)
             case .backAndForth:
@@ -26,7 +26,8 @@ struct WorkspaceCommand: Command {
     }
 
     @MainActor
-    private func resolveWorkspaceTarget(from focusedWs: Workspace, io: CmdIo) -> ResolvedWorkspaceTarget {
+    private func resolveWorkspaceTarget(from focusedWs: Workspace, io: CmdIo,
+                                        listedAtSequenceStart: Set<WorkspaceId>) -> ResolvedWorkspaceTarget {
         switch args.target.val {
             case .relative(let nextPrev):
                 guard let workspace = getNextPrevWorkspace(
@@ -40,24 +41,27 @@ struct WorkspaceCommand: Command {
                         isNext: nextPrev == .next,
                         wrapAround: args.wrapAround,
                         usesStdin: args.useStdin,
+                        listedAtSequenceStart: listedAtSequenceStart,
                     ) else {
                     return .error
                 }
                 return .focus(workspace)
             case .direct(let name):
-                return resolveDirectWorkspaceTarget(named: name.raw, from: focusedWs, io: io)
+                return resolveDirectWorkspaceTarget(named: name.raw, from: focusedWs, io: io, listedAtSequenceStart: listedAtSequenceStart)
         }
     }
 
     @MainActor
-    private func resolveDirectWorkspaceTarget(named workspaceName: String, from focusedWs: Workspace, io: CmdIo) -> ResolvedWorkspaceTarget {
-        if let workspace = findDirectWorkspaceTarget(named: workspaceName, from: focusedWs) {
+    private func resolveDirectWorkspaceTarget(named workspaceName: String, from focusedWs: Workspace, io: CmdIo,
+                                              listedAtSequenceStart: Set<WorkspaceId>) -> ResolvedWorkspaceTarget {
+        if let workspace = findDirectWorkspaceTarget(named: workspaceName, from: focusedWs, listedAtSequenceStart: listedAtSequenceStart) {
             return args.autoBackAndForth && workspace == focusedWs ? .backAndForth : .focus(workspace)
         }
         if args.autoBackAndForth && focusedWs.name == workspaceName {
             return .backAndForth
         }
-        guard let workspace = createAdjacentTransientBlankWorkspaceIfAllowed(named: workspaceName, from: focusedWs) else {
+        guard let workspace = createAdjacentTransientBlankWorkspaceIfAllowed(named: workspaceName, from: focusedWs,
+            listedAtSequenceStart: listedAtSequenceStart) else {
             _ = io.err("Workspace '\(workspaceName)' doesn't exist")
             return .error
         }
@@ -87,16 +91,20 @@ private func createNextTransientBlankWorkspaceIfAllowed(
     isNext: Bool,
     wrapAround: Bool,
     usesStdin: Bool,
+    listedAtSequenceStart: Set<WorkspaceId>,
 ) -> Workspace? {
     guard isNext, !wrapAround, !usesStdin else { return nil }
-    let nextWorkspaceIndex = numberedWorkspaceNavigationTabs(current: current).count + 1
-    return createAdjacentTransientBlankWorkspaceIfAllowed(named: String(nextWorkspaceIndex), from: current)
+    let nextWorkspaceIndex = numberedWorkspaceNavigationTabs(current: current, listedAtSequenceStart: listedAtSequenceStart).count + 1
+    return createAdjacentTransientBlankWorkspaceIfAllowed(named: String(nextWorkspaceIndex), from: current,
+        listedAtSequenceStart: listedAtSequenceStart)
 }
 
 @MainActor
-private func findDirectWorkspaceTarget(named workspaceName: String, from current: Workspace) -> Workspace? {
+private func findDirectWorkspaceTarget(named workspaceName: String, from current: Workspace,
+                                       listedAtSequenceStart: Set<WorkspaceId>) -> Workspace? {
     if let targetIndex = parsePositiveWorkspaceDisplayIndex(workspaceName) {
-        if let workspace = numberedWorkspaceNavigationTabs(current: current).getOrNil(atIndex: targetIndex - 1) {
+        if let workspace = numberedWorkspaceNavigationTabs(current: current, listedAtSequenceStart: listedAtSequenceStart)
+            .getOrNil(atIndex: targetIndex - 1) {
             return workspace
         }
         guard let workspace = Workspace.existing(byName: workspaceName),

@@ -24,11 +24,12 @@ func scopedAutomaticDisplayWorkspaces(current: Workspace) -> [Workspace] {
 }
 
 @MainActor
-func createAdjacentTransientBlankWorkspaceIfAllowed(named workspaceName: String, from current: Workspace) -> Workspace? {
+func createAdjacentTransientBlankWorkspaceIfAllowed(named workspaceName: String, from current: Workspace,
+                                                    listedAtSequenceStart: Set<WorkspaceId> = []) -> Workspace? {
     guard let targetIndex = parsePositiveWorkspaceDisplayIndex(workspaceName) else {
         return nil
     }
-    let automaticDisplayWorkspaces = numberedWorkspaceNavigationTabs(current: current)
+    let automaticDisplayWorkspaces = numberedWorkspaceNavigationTabs(current: current, listedAtSequenceStart: listedAtSequenceStart)
     guard targetIndex == automaticDisplayWorkspaces.count + 1 else { return nil }
     if let lastWorkspace = automaticDisplayWorkspaces.last,
        automaticDisplayWorkspaces.count > 1,
