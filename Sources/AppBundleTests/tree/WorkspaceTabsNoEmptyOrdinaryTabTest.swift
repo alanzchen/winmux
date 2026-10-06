@@ -238,6 +238,36 @@ final class WorkspaceTabsNoEmptyOrdinaryTabTest: XCTestCase {
         XCTAssertTrue(focus.workspace === c, "Closing a's last window moves to c, past hidden b")
     }
 
+    // MARK: Numbers in a command sequence
+
+    /// Runs commands as a keybinding does, one sequence.
+    private func runSequence(_ raws: [String]) async throws {
+        let commands = try raws.map { try XCTUnwrap(parseCommand($0).cmdOrNil, $0) }
+        _ = try await commands.runCmdSeq(.defaultEnv, .emptyStdin)
+    }
+
+    func testAMoveThenFollowByNumberGoesToTheSameTabWhenTheMoveEmptiesASavedTab() async throws {
+        let (a, b, _, _) = threeTabs()
+        try rename(a, "Mail")
+        let window = try XCTUnwrap(a.allLeafWindowsRecursive.first)
+        XCTAssertTrue(window.focusWindow())
+        try await runSequence(["move-node-to-workspace 2", "workspace 2"])
+        XCTAssertTrue(window.nodeWorkspace === b, "Moved to tab 2, b")
+        XCTAssertTrue(focus.workspace === b, "and followed it there")
+        await assertListed(a, false, "a is empty now")
+    }
+
+    func testAMoveToANewNumberThenFollowGoesToTheNewTabWhenTheMoveEmptiesASavedTab() async throws {
+        let (a, b, c, _) = threeTabs()
+        try rename(a, "Mail")
+        let window = try XCTUnwrap(a.allLeafWindowsRecursive.first)
+        XCTAssertTrue(window.focusWindow())
+        try await runSequence(["move-node-to-workspace 4", "workspace 4"])
+        let tab = try XCTUnwrap(window.nodeWorkspace)
+        XCTAssertFalse([a, b, c].contains { $0 === tab }, "A new tab 4")
+        XCTAssertTrue(focus.workspace === tab, "and followed it there")
+    }
+
     func testNextAndPreviousFromTheHiddenTabInUseKeepItsPlace() async throws {
         let (a, b, c, window) = threeTabs()
         try rename(b)
