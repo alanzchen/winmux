@@ -137,7 +137,7 @@ final class WorkspaceTopicCoordinatorTest: XCTestCase {
         let prompts = await provider.prompts
         XCTAssertEqual(prompts.count, 4, "One request per tab; the empty tab wasn't sent")
         XCTAssertTrue(prompts.allSatisfy { !$0.contains("setUpWorkspacesForTests") })
-        XCTAssertEqual(coordinator.request?.prepared.skipped.map(\.reason), [.empty], "The empty tab")
+        XCTAssertEqual(coordinator.request?.prepared.skipped.map(\.reason), [], "The empty tab isn't listed, so it's left out")
     }
 
     func testUnavailableSaysWhyAndSendsNothing() async throws {
@@ -295,14 +295,16 @@ final class WorkspaceTopicCoordinatorTest: XCTestCase {
         XCTAssertFalse(prompts.joined().contains("Lab results"), "A changed title isn't covered by the old consent")
         XCTAssertEqual(coordinator.includedBrowserTabs, [])
 
-        coordinator.setBrowserTab(try XCTUnwrap(coordinator.request?.prepared.skipped.first?.token), included: true)
+        let labResults = coordinator.request?.prepared.skipped.first { $0.reason == .browser(appName: "Safari") }?.token
+        coordinator.setBrowserTab(try XCTUnwrap(labResults), included: true)
         try await WorkspaceTopicTestEnvironment.settle(coordinator)
         coordinator.cancel()
         XCTAssertEqual(coordinator.includedBrowserTabs, [], "Consent ends with the preview")
+        let sentBefore = await provider.prompts.count
         await suggest()
         try await WorkspaceTopicTestEnvironment.settle(coordinator)
-        let last = await provider.prompts.last ?? ""
-        XCTAssertFalse(last.contains("Lab results"))
+        let sentAfter = await provider.prompts.dropFirst(sentBefore)
+        XCTAssertFalse(sentAfter.joined().contains("Lab results"))
     }
 
     func testAnotherProjectOrDisplayListClosesThePreview() async throws {
