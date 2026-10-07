@@ -255,15 +255,11 @@ final class WorkspaceLauncherPanel: NSPanelHud {
             dismiss()
             return
         }
-        guard NSApp.isActive else {
-            // The user moved on to another app: don't take focus back to show the error inline.
-            dismiss()
-            MessageModel.shared.message = Message(description: "App Launcher", body: message)
-            return
-        }
-        model.state = .failed(message)
-        announce(message)
-        makeKey()
+        // Keep the original failure presentation for deliberate inspection, without changing
+        // a later launcher's state. Its diagnostic is captured by this occurrence.
+        dismiss()
+        MessageModel.shared.message = Message(description: "App Launcher", body: message)
+
     }
 
     private func announce(_ text: String) {

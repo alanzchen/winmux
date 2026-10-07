@@ -304,9 +304,9 @@ struct SettingsSaveFeedback: View {
     @ObservedObject var model: ShortcutSettingsModel
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            if let message = editor.error ?? model.errorMessage {
-                Label(message, systemImage: "exclamationmark.triangle")
-                    .foregroundStyle(.red).font(.callout).textSelection(.enabled).lineLimit(3).help(message)
+            if editor.error != nil || model.errorMessage != nil {
+                // Retry/revert remain durable choices; the diagnostic itself is in the toast.
+                Text("Changes need attention.").font(.callout).foregroundStyle(.secondary)
                 HStack {
                     if editor.error != nil {
                         if editor.canRetry { Button("Retry") { editor.retry() } }

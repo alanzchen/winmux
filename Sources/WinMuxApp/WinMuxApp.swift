@@ -13,7 +13,7 @@ struct WinMuxApp: App {
 
     init() {
         #if !DEBUG
-            AutomaticUpdates.start()
+            AutomaticUpdates.start(reportError: showWinMuxError)
         #endif
         initAppBundle()
     }
@@ -32,10 +32,8 @@ struct WinMuxApp: App {
                 openShortcutSettingsWindow(openWindow)
             }
         getMessageWindow(messageModel: messageModel)
-            .onChange(of: messageModel.message) { message in
-                if message != nil {
-                    openWindow(id: messageWindowId)
-                }
+            .onChange(of: messageModel.detailRequestId) { _ in
+                openWindow(id: messageWindowId)
             }
     }
 }

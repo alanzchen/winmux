@@ -6,7 +6,13 @@ import SwiftUI
 @MainActor
 final class SettingsConfigDocument: ObservableObject {
     @Published var text = ""
-    @Published var validationMessage: String?
+    @Published var validationMessage: String? {
+        didSet {
+            if let validationMessage {
+                MessageModel.shared.message = Message(description: "TOML Editor Error", body: validationMessage)
+            }
+        }
+    }
     @Published var saveMessage: String?
     var baseline = ""
     var targetUrl: URL?
@@ -57,11 +63,8 @@ struct ShortcutAdvancedView: View {
                 }
                 .controlSize(.small)
             }
-            if let validation = document.validationMessage {
-                ScrollView {
-                    Text(validation).font(.system(size: 12, design: .monospaced)).foregroundStyle(.red)
-                        .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
-                }.frame(maxHeight: 100)
+            if document.validationMessage != nil {
+                Text("Configuration needs attention.").font(.caption).foregroundStyle(.secondary)
             } else if let message = document.saveMessage {
                 Text(message).font(.caption).foregroundStyle(.secondary)
             }

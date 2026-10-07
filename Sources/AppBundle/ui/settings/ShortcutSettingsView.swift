@@ -266,14 +266,6 @@ struct ShortcutCategoryView: View {
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 14) {
-                if let error = model.errorMessage {
-                    Text(error)
-                        .foregroundStyle(.white)
-                        .padding()
-                        .background(Color.red)
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                }
-
                 let sections = model.sections.filter { $0.category == category && $0.id != "managed-move" }
                 ForEach(sections) { section in
                     ShortcutSectionView(model: model, section: section)

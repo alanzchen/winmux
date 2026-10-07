@@ -142,7 +142,13 @@ final class SettingsEditor: ObservableObject {
     private var heldUnset: Set<String> = []
     var hasWindowStacks: () -> Bool = { workspacesHaveWindowStacks() }
     @Published private(set) var isSaving = false
-    @Published private(set) var error: String?
+    @Published private(set) var error: String? {
+        didSet {
+            errorGeneration += 1
+            if let error { reportError(error) }
+        }
+    }
+    private var errorGeneration = 0
     @Published private(set) var undoTitle: String?
     @Published private(set) var status = "Changes save automatically"
     private let persistence: SettingsPersistence
@@ -415,8 +421,8 @@ final class SettingsEditor: ObservableObject {
                     updateUndoTitle()
                     request.onSuccess?()
                 } catch {
-                    self.error = error.localizedDescription
                     failedRequest = request
+                    self.error = error.localizedDescription
                     status = "Not saved"
                     // Keep later user edits queued until retry/revert resolves the failure.
                     break
@@ -425,6 +431,27 @@ final class SettingsEditor: ObservableObject {
             isSaving = false
             worker = nil
         }
+    }
+
+    private func reportError(_ body: String) {
+        let generation = errorGeneration
+        let available: @MainActor () -> Bool = { [weak self] in
+            guard let self else { return false }
+            return self.errorGeneration == generation && self.error != nil && !self.isSaving
+        }
+        var actions: [MessageAction] = []
+        if canRetry {
+            actions.append(.init(title: "Retry", isAvailable: available, perform: { [weak self] in
+                if available() { self?.retry() }
+            }))
+        }
+        actions.append(.init(title: "Revert unsaved changes", isAvailable: available, perform: { [weak self] in
+            guard let self, available() else { return }
+            let revertDocument = self.hasPendingDocument
+            self.revertDrafts()
+            if revertDocument { ShortcutSettingsModel.shared.settingsDocument.loadFromDisk() }
+        }))
+        MessageModel.shared.message = Message(description: "Settings Error", body: body, actions: actions)
     }
 
     private func updateUndoTitle() { undoTitle = history.last.map { "Undo \($0.title)" } }

@@ -4,6 +4,43 @@ import XCTest
 
 @MainActor
 final class SettingsEditorTest: XCTestCase {
+    override func tearDown() {
+        MessageModel.shared.message = nil
+        MessageModel.shared.detailMessage = nil
+        WinMuxToastPanel.shared.dismiss()
+        super.tearDown()
+    }
+
+    func testFailedSaveToastsWithOriginalDiagnosticAndOperationBoundRecoveryActions() async throws {
+        let previous = config
+        defer { config = previous }
+        let disk = SettingsTestDisk()
+        config = parseConfig(disk.text).config
+        let editor = SettingsEditor(configuration: config, persistence: disk.persistence)
+        disk.failWrites = true
+        let field = SettingsCatalog.field("workspace-sidebar.show-workspace-tooltips")
+        editor.setDraft(.bool(false), for: field)
+        editor.commit(field)
+        await editor.waitUntilIdle()
+        let diagnostic = try XCTUnwrap(WinMuxToastPanel.shared.model.shown?.notice.details)
+        XCTAssertEqual(diagnostic.body, "Test write denied")
+        XCTAssertNil(MessageModel.shared.detailMessage)
+        WinMuxToastPanel.shared.detailsPanel.button.performClick(nil)
+        XCTAssertEqual(MessageModel.shared.detailMessage, diagnostic)
+        let retry = try XCTUnwrap(diagnostic.actions.first { $0.title == "Retry" })
+        XCTAssertTrue(retry.isAvailable())
+        disk.failWrites = false
+        retry.perform()
+        await editor.waitUntilIdle()
+        XCTAssertNil(editor.error)
+        XCTAssertFalse(retry.isAvailable())
+        let writes = disk.writes.count
+        retry.perform()
+        await editor.waitUntilIdle()
+        XCTAssertEqual(disk.writes.count, writes, "Old Details cannot retry another operation")
+        XCTAssertEqual(MessageModel.shared.detailMessage, diagnostic)
+    }
+
     func testCatalogValuesRoundTripAndSearchFindsLabelsAndTOMLKeys() {
         let saved = config
         defer { config = saved }

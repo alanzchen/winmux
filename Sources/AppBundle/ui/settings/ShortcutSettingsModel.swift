@@ -18,7 +18,11 @@ public final class ShortcutSettingsModel: ObservableObject {
     @Published var requestedSettingsPage: SettingsSidebarItem?
     let settingsDocument = SettingsConfigDocument()
     @Published var settingsRevision: Int = 0
-    @Published var errorMessage: String? = nil
+    @Published var errorMessage: String? = nil {
+        didSet {
+            if let errorMessage { MessageModel.shared.message = Message(description: "Shortcut Settings Error", body: errorMessage) }
+        }
+    }
 
     var actionsById: [String: Action] = [:]
     var actionIdByCommand: [String: String] = [:]

@@ -26,6 +26,7 @@ private let winmuxNewIssueURL = "https://github.com/alanzchen/winmux/issues/new"
             }
         }.keyboardShortcut("E", modifiers: .command)
         OpenShortcutSettingsButton()
+        WinMuxErrorDetailsMenuButton()
         if let checkForUpdates {
             Button("Check for Updates…") {
                 checkForUpdates()

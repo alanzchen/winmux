@@ -176,6 +176,13 @@ struct WorkspaceTopicSuggestionView: View {
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .transaction { if reducesMotion { $0.animation = nil } }
         .onChange(of: coordinator.phase) { phase in
+            switch phase {
+                case .failed(let failure):
+                    MessageModel.shared.message = Message(description: "Topic Group Suggestions Error", body: failure.message)
+                case .notApplied(let message):
+                    MessageModel.shared.message = Message(description: "Topic Group Suggestions Error", body: message)
+                default: break
+            }
             // Nothing to group, but a browser tab could be included: show how.
             if phase == .ready, coordinator.groups.isEmpty,
                coordinator.request?.prepared.skipped.contains(where: { if case .browser = $0.reason { true } else { false } }) == true {
@@ -221,11 +228,11 @@ struct WorkspaceTopicSuggestionView: View {
                         fraction: total == 0 ? nil : Double(done) / Double(total))
                 case .unavailable(let reason):
                     notice(reason.message, systemImage: "exclamationmark.circle")
-                case .failed(let failure):
-                    notice(failure.message, systemImage: "exclamationmark.triangle")
+                case .failed:
+                    Text("Suggestions could not be completed.").font(.caption)
                     Button("Try Again") { coordinator.suggestAgain() }
-                case .notApplied(let message):
-                    notice(message, systemImage: "exclamationmark.triangle")
+                case .notApplied:
+                    Text("Suggestions were not applied.").font(.caption)
                     Button("Suggest Again") { coordinator.suggestAgain() }
                 case .ready, .applying:
                     if coordinator.groups.isEmpty {
