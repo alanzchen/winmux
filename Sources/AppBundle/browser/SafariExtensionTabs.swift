@@ -37,6 +37,8 @@ struct SafariExtensionWindow: Equatable, Sendable {
     /// From an extension older than protocol 2, which doesn't say when it measured. A newer one's
     /// report without a usable measurement says nothing about when it was measured, either.
     var legacy = false
+    /// Event streams may request separate action proof; legacy metadata never does.
+    var supportsPush = false
     /// Where Safari says the window is, in the same top-left screen coordinates WinMux uses.
     var bounds: CGRect? = nil
     var tabs: [SafariExtensionTab]
@@ -69,7 +71,7 @@ struct SafariExtensionState: Equatable, Sendable {
     var order: Int? = nil
     /// Whether Safari lets the extension read every website. Without that, titles are missing.
     let allSites: Bool
-    let windows: [SafariExtensionWindow]
+    var windows: [SafariExtensionWindow]
     var push: BrowserPushEnvelope? = nil
 }
 
@@ -117,7 +119,8 @@ enum SafariExtensionMessage: Equatable, Sendable {
                 let source = "\(profile):\(session)" + (push.map { ":" + $0.epoch } ?? "")
                 var windows: [SafariExtensionWindow] = []
                 for raw in rawWindows {
-                    guard let window = decodeWindow(raw, source: source, session: session, version: version) else { return nil }
+                    guard var window = decodeWindow(raw, source: source, session: session, version: version) else { return nil }
+                    window.supportsPush = push != nil
                     windows.append(window)
                 }
                 // Safari's ids are unique within a session, so a report repeating one is wrong throughout.
@@ -459,6 +462,21 @@ struct SafariExtensionAssociations {
     /// Report windows a window's button named this way, for this window lifetime: each keeps
     /// counting while the window's button names it and the latest report still agrees.
     private var trustedMarkers: [UInt32: SafariExtensionWindowKey] = [:]
+    /// Action authority is independent of metadata matching. A current trusted toolbar marker
+    /// proves this native window owns the report; a later no-reorder report and AX read must
+    /// corroborate every clicked row's stable native handle and extension id before it can act.
+    private struct ActionBinding {
+        let window: SafariExtensionWindowKey
+        let tab: SafariExtensionTabKey
+        let order: Int
+        let nativeTabs: [BrowserTabTarget]
+        let extensionTabs: [SafariExtensionTabKey]
+        let received: TimeInterval
+        let read: TimeInterval
+        var verified = false
+    }
+    private var actionBindings: [BrowserTabTarget: ActionBinding] = [:]
+
     /// Each window's tabs, by Safari's ids, in the latest report it was described by.
     private var reportedTabs: [UInt32: [SafariExtensionTabKey]] = [:]
     /// Windows whose tabs agreed with the extension in the latest observation, and those that
@@ -567,6 +585,52 @@ struct SafariExtensionAssociations {
         if !proposed.isEmpty || !untrusted.isEmpty { awaitsReport = true }
         lapsed = agreed.subtracting(agreeing)
         rereads = lapsed.union(reordered).union(untrusted.filter { markerClaims[$0] == nil })
+        updateActionBindings(candidates, windows: byKey, marked: marked)
+
+    }
+
+    private mutating func updateActionBindings(_ candidates: [SafariExtensionCandidate],
+                                                windows: [SafariExtensionWindowKey: SafariExtensionWindow],
+                                                marked: [UInt32: SafariExtensionWindowKey]) {
+        var next: [BrowserTabTarget: ActionBinding] = [:]
+        for candidate in candidates {
+            let snapshot = candidate.snapshot
+            guard snapshot.isComplete, snapshot.marker != nil, agreeing.contains(snapshot.windowId),
+                  let key = marked[snapshot.windowId], confirmed[snapshot.windowId] == key,
+                  let window = windows[key], window.supportsPush, let order = window.order else { continue }
+            let nativeTabs = snapshot.tabs.map(\.target)
+            let extensionTabs = window.tabs.compactMap(window.tabKey)
+            guard nativeTabs.count == extensionTabs.count else { continue }
+            for (index, tab) in snapshot.tabs.enumerated() {
+                guard let bound = bound[tab.target], bound == extensionTabs[index], proposed[tab.target] == nil,
+                      !window.tabs[index].title.isEmpty, window.tabs[index].title == candidate.titles[index] else { continue }
+                var proof = actionBindings[tab.target]
+                if proof?.window != key || proof?.tab != bound || proof?.order != order ||
+                    proof?.nativeTabs != nativeTabs || proof?.extensionTabs != extensionTabs {
+                    guard candidate.readStarted >= window.received else { continue }
+                    proof = ActionBinding(window: key, tab: bound, order: order, nativeTabs: nativeTabs,
+                        extensionTabs: extensionTabs, received: window.received, read: candidate.observed)
+                }
+                guard var proof else { continue }
+                if candidate.readStarted >= window.received, window.received > proof.received, window.measured >= proof.read,
+                   candidate.observed - proof.read >= Self.confirmation { proof.verified = true }
+                next[tab.target] = proof
+                if !proof.verified { awaitsReport = true; rereads.insert(snapshot.windowId) }
+            }
+        }
+        actionBindings = next
+    }
+
+    /// Only marker-owned, temporally corroborated rows can produce a Safari command address.
+    /// Metadata's title/position matches and its resolved/settled flags are never action proof.
+    func actionBinding(for target: BrowserTabTarget, in snapshot: BrowserWindowTabs)
+        -> (window: SafariExtensionWindowKey, tab: SafariExtensionTabKey)? {
+        guard snapshot.windowId == target.windowId, snapshot.windowSession == target.windowSession,
+              snapshot.isComplete, snapshot.marker != nil, agreeing.contains(target.windowId),
+              let proof = actionBindings[target], proof.verified,
+              trustedMarkers[target.windowId] == proof.window, bound[target] == proof.tab,
+              snapshot.tabs.map(\.target) == proof.nativeTabs else { return nil }
+        return (proof.window, proof.tab)
     }
 
     /// The windows whose toolbar buttons count (`MarkerClaim`), out of those whose buttons name a
@@ -718,13 +782,13 @@ struct SafariExtensionAssociations {
     /// The tab with what the extension says about it. Sound shows only while the window agrees
     /// with the extension, as it goes stale fastest; a window the extension doesn't describe
     /// keeps the sound its read found.
-    func described(_ tab: BrowserTab) -> BrowserTab {
+    func described(_ tab: BrowserTab, includeSound: Bool = true) -> BrowserTab {
         var tab = tab
         let described = tabs[tab.target]
         tab.siteIcon = described?.icon
         tab.host = described?.host
         tab.extensionTab = bound[tab.target]
-        if agreeing.contains(tab.target.windowId) {
+        if includeSound, agreeing.contains(tab.target.windowId) {
             tab.audio = described.flatMap { $0.isMuted ? .muted : $0.isAudible ? .playing : nil }
         }
         return tab

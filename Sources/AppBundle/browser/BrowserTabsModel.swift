@@ -144,7 +144,7 @@ final class BrowserTabsModel: ObservableObject {
         iconAssociations.retain(Set(cache.snapshots.values.flatMap { $0.tabs.map(\.target) }))
         publish()
         schedule.retain(Set(ownerPids.keys))
-        schedule.relax(settledSafariWindows(now: now).union(settledChromeWindows(now: now)))
+        schedule.relax(settledSafariWindows(now: now))
         rediscover = rediscover.filter { ownerPids[$0] != nil }
         schedule.focus(focus.windowOrNil?.windowId)
         // Hidden rails retain their cache but do no browser work. Revealing them
@@ -199,7 +199,8 @@ final class BrowserTabsModel: ObservableObject {
         let next = cache.snapshots.mapValues { value in
             browserTabsShown(closeRequests.apply(selectRequests.apply(value)), read: cache.observed[value.windowId], now: now,
                 safari: MacApp.allAppsMap[value.pid]?.rawAppBundleId == chromeBundleId ? chromeAssociations : safariAssociations,
-                iconOrigins: iconsEnabled ? iconAssociations.origins : [:])
+                iconOrigins: iconsEnabled ? iconAssociations.origins : [:],
+                useExtensionSound: MacApp.allAppsMap[value.pid]?.rawAppBundleId != chromeBundleId)
         }
         if snapshots != next { snapshots = next }
     }
@@ -293,13 +294,6 @@ final class BrowserTabsModel: ObservableObject {
         if chromeAssociations.awaitsReport { chromeExtension.requestResync(atMostEvery: 10) }
         // Changed reports require fresh AX corroboration before new tab identities can be used.
         if reported { for id in chromeAssociations.rereads { schedule.invalidate(id, now: ProcessInfo.processInfo.systemUptime) } }
-    }
-
-    private func settledChromeWindows(now: TimeInterval) -> Set<UInt32> {
-        // Chrome's optional origin icons still need the normal two AX observations. Host-only
-        // extension metadata cannot replace that address evidence or slow its refresh cadence.
-        guard chromeExtension.allSites, !iconsEnabled else { return [] }
-        return safariExtensionSettledWindows(Array(cache.snapshots.values), chromeAssociations, windows: chromeExtension.windows, now: now)
     }
 
     private func liveChromeWindows() -> [UInt32] {
@@ -432,31 +426,37 @@ final class BrowserTabsModel: ObservableObject {
     }
 
     private func selectUsingExtensionOrAX(_ target: BrowserTabTarget, app: MacApp) async -> BrowserTabActionResult {
-        guard !Task.isCancelled else { return .notDispatched(.cancelled) }
         let isChrome = app.rawAppBundleId == chromeBundleId
-        let bridge = isChrome ? chromeExtension : safariExtension
+        return await Self.routeSelection(target, browser: isChrome ? "chrome" : "safari",
+            bridge: isChrome ? chromeExtension : safariExtension,
+            snapshot: { self.cache.snapshots[target.windowId] },
+            associations: { isChrome ? self.chromeAssociations : self.safariAssociations },
+            validateNative: { try await app.browserTabExtensionSelectionRefusal(target) },
+            ax: { (try? await app.selectBrowserTab(target)) ?? .notDispatched(.cancelled) })
+    }
+
+    /// Shared by the real sidebar route and synthetic integration tests. Chrome has no positive
+    /// per-profile native-window ownership proof in this integration, so it always uses AX.
+    static func routeSelection(_ target: BrowserTabTarget, browser: String, bridge: SafariExtensionBridge,
+                               snapshot: () -> BrowserWindowTabs?, associations: () -> SafariExtensionAssociations,
+                               validateNative: () async throws -> BrowserTabActionRefusal?,
+                               ax: () async -> BrowserTabActionResult) async -> BrowserTabActionResult {
+        guard !Task.isCancelled else { return .notDispatched(.cancelled) }
         func address() -> BrowserPushTarget? {
-            let associations = isChrome ? chromeAssociations : safariAssociations
-            guard let snapshot = cache.snapshots[target.windowId], snapshot.windowSession == target.windowSession,
-                  associations.settles(snapshot), case .resolved(let window) = associations.resolution(of: target.windowId),
-                  let tab = associations.bound[target] else { return nil }
-            return bridge.pushTarget(window: window, tab: tab)
+            guard browser == "safari", let snapshot = snapshot(),
+                  let binding = associations().actionBinding(for: target, in: snapshot) else { return nil }
+            return bridge.pushTarget(window: binding.window, tab: binding.tab)
         }
-        // Revalidate the exact native control and its owning scanner lifetime, as AX selection
-        // does. A replacement native window cannot inherit a cached extension command address.
         if let candidate = address() {
             do {
-                if let refusal = try await app.browserTabExtensionSelectionRefusal(target) { return .notDispatched(refusal) }
+                if let refusal = try await validateNative() { return .notDispatched(refusal) }
             } catch { return .notDispatched(.cancelled) }
             guard !Task.isCancelled else { return .notDispatched(.cancelled) }
             if candidate == address() {
-                return await browserTabSelectWithFallback(push: { await bridge.select(candidate) },
-                    ax: { (try? await app.selectBrowserTab(target)) ?? .notDispatched(.cancelled) })
+                return await browserTabSelectWithFallback(push: { await bridge.select(candidate) }, ax: ax)
             }
         }
-        // Old, absent, ambiguous or unconfirmed extension: the existing identity-checked AX path.
-        return await browserTabSelectWithFallback(push: nil,
-            ax: { (try? await app.selectBrowserTab(target)) ?? .notDispatched(.cancelled) })
+        return await browserTabSelectWithFallback(push: nil, ax: ax)
     }
 
     /// What the sidebar does once a select comes back (`BrowserTabActionFollowUp`); what the user is
@@ -536,17 +536,18 @@ let browserTabSoundLifetime: TimeInterval = 10
 /// A window's tabs as the sidebar shows them: with what the Safari extension says about them,
 /// and their icons, and the sound a read found only while that read is recent.
 func browserTabsShown(_ snapshot: BrowserWindowTabs, read: TimeInterval?, now: TimeInterval,
-                      safari: SafariExtensionAssociations, iconOrigins: [BrowserTabTarget: URL]) -> BrowserWindowTabs {
+                      safari: SafariExtensionAssociations, iconOrigins: [BrowserTabTarget: URL],
+                      useExtensionSound: Bool = true) -> BrowserWindowTabs {
     var snapshot = snapshot
     let heard = read.map { now - $0 < browserTabSoundLifetime } ?? false
     snapshot.tabs = snapshot.tabs.map { tab in
         var tab = tab
         if !heard { tab.audio = nil }
-        tab = safari.described(tab)
+        tab = safari.described(tab, includeSound: useExtensionSound)
         tab.iconOrigin = iconOrigins[tab.target]
         return tab
     }
-    snapshot.knowsSound = safari.agreeing.contains(snapshot.windowId)
+    snapshot.knowsSound = useExtensionSound && safari.agreeing.contains(snapshot.windowId)
     snapshot.marker = nil
     return snapshot
 }

@@ -22,8 +22,9 @@ children appear in the expanded list and search.
 in Settings to restore ordinary window rows. This uses the Accessibility permission
 WinMux already needs; it does not request Automation or require an extension. The
 optional [Safari extension](#safari-extension) adds website icons, host names and sound.
-The optional [Chrome extension](#chrome-extension) adds host names and sound. Both report
-changes as events and can select a tab through a confirmed extension connection.
+The optional [Chrome extension](#chrome-extension) adds host names and event-driven metadata.
+Both report changes as events. Safari selection can use a confirmed extension connection
+with separate native-window and row ownership proof; Chrome selection and sound stay on Accessibility.
 
 ## Sound
 
@@ -93,8 +94,10 @@ Safari's icon. Settings › Workspace Panel › Tabs › Content shows whether i
 opens Safari's extension settings.
 
 The extension titles its own toolbar button (below). With the event protocol described below,
-selection can use the extension after WinMux confirms its connection and the exact native tab;
-otherwise selection uses Accessibility. Closing still uses Accessibility. WinMux trusts an
+selection can use the extension only when its current toolbar marker positively identifies
+the clicked native window and a later no-reorder report plus AX read corroborates the row’s
+stable native handle and extension tab id. A metadata match by title, order or active tab
+never authorizes a command. Without this separate proof, selection uses Accessibility. Closing still uses Accessibility. WinMux trusts an
 extension description only when it agrees with the tab strip it read:
 
 - A Safari window takes the extension's details only when it has the same tabs, in the same
@@ -110,8 +113,9 @@ extension description only when it agrees with the tab strip it read:
   report, so this takes a few seconds. A title naming anything else (the button hasn't caught up
   with a switch, a tab moved, or the extension reloaded) names nothing, nor does one two windows
   show at once. Those windows, and windows without the button, are matched by the rules below.
-  WinMux only reads the button. Its title can contribute to the native-window binding used
-  by extension selection; closing and moving retain their existing Accessibility paths.
+  WinMux only reads the button. A currently trusted marker is required for extension selection
+  in this Preview; bounds-based metadata matches alone use AX. Closing and moving retain
+  their existing Accessibility paths.
 - Two windows with the same tabs, such as two one-tab windows on the same page, are told apart
   by where they were when Safari reported. WinMux notes where Safari's windows are a few times
   a second, and compares the bounds in each report only with where windows were when that
@@ -164,8 +168,9 @@ Private Browsing windows are left out entirely, even when the extension is allow
 The extension sends these reports to WinMux on this Mac when tabs change, a second after a
 Safari window gains focus (once WinMux has moved its windows), and when WinMux's answer asks
 for another, leaving out one that would say nothing new; and once a minute regardless. WinMux
-keeps them in memory, with up to 512 icons; it never drops one a tab shows. It forgets a Safari profile that stops reporting after two
-and a half minutes, and forgets everything when Safari quits or browser tabs are turned off.
+keeps them in memory, with up to 512 icons; it never drops one a tab shows. Each window expires
+two and a half minutes after its own last report; activity in another window cannot renew it.
+It forgets a Safari profile that stops reporting after two and a half minutes, and forgets everything when Safari quits or browser tabs are turned off.
 
 ### The toolbar button's title
 
@@ -268,9 +273,12 @@ origin, and WinMux and its helper verify each other's code signatures over their
 Chrome reports normal windows' ids, bounds, tab ids, titles, host names, active/pinned state,
 and audible/muted state. Incognito windows are excluded by the manifest and again when
 serializing reports. The helper assigns each connection a separate profile scope; ids from
-another profile or a reconnected stream cannot act on an old binding. The same native-window,
-read-time, twin and unread-window checks used for Safari apply, without Safari's toolbar marker.
-Ambiguous bindings retain the Accessibility path.
+another profile or a reconnected stream cannot reuse an old stream binding. Display metadata
+uses the existing read-time, twin and unread-window association checks. These associations
+do not prove native-window ownership: Chrome AX windows are pooled across profiles and lack
+Safari’s toolbar marker. **All Chrome selections therefore use the existing exact-element AX
+route before any extension command is sent.** Extension audio never overrides Chrome AX
+audio or establishes authoritative silence; Chrome keeps its ordinary AX sound and read cadence.
 
 Chrome's existing **Website icons for Chrome-family tabs** setting remains optional and off
 by default. This extension does not export favicon URLs or images and does not change that
@@ -289,7 +297,9 @@ title, address, favicon, audio, mute and loading events query only affected wind
 window upserts/removals. A sequence gap drops that stream's identity evidence and requests a
 full snapshot. A full reconciliation remains once per minute, with bounded recovery and
 identity-confirmation reports. This does not relocate frequent polling into an extension.
-Unchanged windows retain their original observation timestamps and bounds evidence.
+Unchanged windows retain their original observation timestamps and bounds evidence, and
+expire at 150 seconds even while other windows keep reporting. Chrome resync requests use
+the existing native port and share the caller’s rate limit.
 
 An old Safari extension keeps its existing full-report and AX-selection behavior. A new
 Safari extension connected to an older app continues full reports and negotiates legacy
@@ -300,7 +310,13 @@ The historical Safari 27.0 wake failure noted above still applies. WinMux requir
 stream's challenge/acknowledgement before sending selection commands. Without a recent
 acknowledgement, selection uses AX.
 
-A selection command identifies the browser, native profile scope, extension session, stream
+Safari command eligibility is separate from metadata association: a current trusted toolbar
+marker must prove native-window ownership, and a later no-reorder report and AX read must
+corroborate the clicked row. Missing, stale or ambiguous proof takes the exact-element AX
+route before dispatch. The target window’s own report must be less than 90 seconds old;
+a fresh delta for another window cannot renew it. Chrome always selects through AX.
+
+A Safari selection command identifies the browser, native profile scope, extension session, stream
 epoch, extension window and tab, sequence and unique request. Before dispatch WinMux reuses
 its exact native-control/lifetime/topic checks, and rechecks that the binding is still current.
 The extension checks that the tab is still in that normal, nonprivate window. A confirmed
@@ -315,12 +331,11 @@ settle another request. Closing remains AX; this does not redesign Safari close 
 
 The 250 ms maintenance pass remains for report expiry, audio expiry, pending actions,
 backoff and native-window evidence. Event reports update the changed-window store immediately;
-new or changed native identity still needs AX corroboration. Fully corroborated Chrome windows
-now use the same 15-second safety reread as fully described Safari windows, except when
-Chrome-family website icons are enabled: their AX origin-confirmation cadence stays unchanged.
-Event disagreement
-invalidates the affected window immediately; AX notifications and the existing 1/4-second
-fallback cadence remain. No hidden-refresh or identity checks were removed. These are scheduling
+new or changed native identity still needs AX corroboration. Chrome retains the ordinary
+1/4-second AX cadence for sound and optional origin icons, regardless of extension metadata.
+Its AX audio still expires at ten seconds and cannot be restored by an older extension report.
+Safari retains its existing 15-second safety reread for fully described windows. Event
+disagreement invalidates the affected window immediately; AX notifications remain. No hidden-refresh or identity checks were removed. These are scheduling
 policies, not latency guarantees.
 
 API sources: [Apple native messaging](https://developer.apple.com/documentation/safariservices/messaging-between-the-app-and-javascript-in-a-safari-web-extension),
@@ -394,7 +409,10 @@ browser selection flow remain pending desktop validation.
 The new transport and commands have source/API and synthetic production-path coverage only.
 JavaScriptCore runs both shipped background scripts against synthetic tabs; Swift tests cover
 parsing, sequences/recovery, delta evidence, exact-scoped results, timeout/no retry, cancellation,
-expiry, bounded frames and an explicit installer under a temporary home. Existing twin/moved-tab,
+per-window expiry, bounded frames and an explicit installer under a temporary home. Review
+regressions exercise the actual model selection route for a two-profile false metadata match,
+marker-owned row corroboration and reorder, Chrome sound contradictions and its ten-second
+boundary, A-only deltas across B’s expiry, and rate-limited Chrome resync. Existing twin/moved-tab,
 AX, scheduling, sound and pending-action regressions remain in the normal suite. The historical
 live-browser observations above are baseline evidence, not validation of these new commands.
 

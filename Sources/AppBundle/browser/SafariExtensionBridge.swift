@@ -145,7 +145,9 @@ final class SafariExtensionBridge {
         let time = now()
         return states.values.filter { time - $0.received < Self.stateLifetime }
             .sorted { $0.state.profile < $1.state.profile }.flatMap { report in
-                report.state.windows.map { window in
+                report.state.windows.filter { window in
+                    time - (report.state.push == nil ? report.received : window.received) < Self.stateLifetime
+                }.map { window in
                     var window = window
                     if report.state.push != nil { return window }
                     window.received = report.received
@@ -182,8 +184,14 @@ final class SafariExtensionBridge {
             return
         }
         let time = now()
-        let live = states.filter { time - $0.value.received < Self.stateLifetime }
-        if live.count != states.count {
+        var live = states.filter { time - $0.value.received < Self.stateLifetime }
+        var removed = live.count != states.count
+        for (profile, var report) in live where report.state.push != nil {
+            let count = report.state.windows.count
+            report.state.windows.removeAll { time - $0.received >= Self.stateLifetime }
+            if count != report.state.windows.count { live[profile] = report; removed = true }
+        }
+        if removed {
             states = live
             streams = streams.filter { live[$0.key] != nil }
             ready = ready.filter { live[$0.key] != nil }
@@ -269,7 +277,7 @@ final class SafariExtensionBridge {
                             return answer(["ok": false, "events": 1, "snapshot": true])
                         }
                         let changed = Set(state.windows.map { $0.key.id }).union(push.removed)
-                        let kept = previous.windows.filter { !changed.contains($0.key.id) }
+                        let kept = previous.windows.filter { !changed.contains($0.key.id) && time - $0.received < Self.stateLifetime }
                         state = SafariExtensionState(profile: state.profile, session: state.session, time: state.time,
                             measured: state.measured, order: state.order, allSites: state.allSites,
                             windows: kept + state.windows, push: push)
@@ -299,6 +307,7 @@ final class SafariExtensionBridge {
                     let windows = state.windows.map { value -> SafariExtensionWindow in
                         guard push.snapshot || value.received == -.infinity else { return value }
                         var value = value
+                        value.supportsPush = true
                         value.received = time
                         value.measured = measured ?? -.infinity
                         value.sighting = sighting
@@ -356,8 +365,8 @@ final class SafariExtensionBridge {
               let report = states.values.first(where: { $0.state.windows.contains { $0.key == window } }),
               let stream = streams[report.state.profile], stream.valid,
               let readyAt = ready[report.state.profile], now() - readyAt < 90,
-              now() - report.received < 90,
-              report.state.windows.first(where: { $0.key == window })?.tabs.contains(where: { $0.id == tab.id }) == true
+              let described = report.state.windows.first(where: { $0.key == window }), now() - described.received < 90,
+              described.tabs.contains(where: { $0.id == tab.id })
         else { return nil }
         return .init(browser: browser, profile: report.state.profile, session: stream.session, epoch: stream.epoch,
                      window: window.id, tab: tab.id, sequence: stream.sequence)
@@ -366,7 +375,9 @@ final class SafariExtensionBridge {
     func select(_ target: BrowserPushTarget) async -> BrowserTabActionResult {
         guard !Task.isCancelled, target.browser == browser, streams[target.profile]?.session == target.session,
               streams[target.profile]?.sequence == target.sequence, streams[target.profile]?.epoch == target.epoch,
-              streams[target.profile]?.valid == true, ready[target.profile].map({ now() - $0 < 90 }) == true else {
+              streams[target.profile]?.valid == true, ready[target.profile].map({ now() - $0 < 90 }) == true,
+              let window = states[target.profile]?.state.windows.first(where: { $0.key.id == target.window }),
+              now() - window.received < 90, window.tabs.contains(where: { $0.id == target.tab }) else {
             return .notDispatched(.changed)
         }
         let request = UUID().uuidString
@@ -411,7 +422,18 @@ final class SafariExtensionBridge {
     /// running, so starting WinMux can't open Safari.
     func requestResync(atMostEvery interval: TimeInterval = 0) {
         let time = now()
-        guard enabled, time - lastResync >= interval, let configuration,
+        guard enabled, time - lastResync >= interval else { return }
+        if browser == "chrome" {
+            let connected = streams.filter { $0.value.valid && pushSenders[$0.key] != nil }
+            guard !connected.isEmpty else { return }
+            lastResync = time
+            for (profile, stream) in connected {
+                sendPush(["protocol": 1, "kind": "snapshot", "request": UUID().uuidString, "browser": browser,
+                    "profile": profile, "session": stream.session, "epoch": stream.epoch], profile: profile)
+            }
+            return
+        }
+        guard let configuration,
               !NSRunningApplication.runningApplications(withBundleIdentifier: safariBundleId).isEmpty else { return }
         lastResync = time
         dispatchSafariExtensionResync(configuration.extensionId)
