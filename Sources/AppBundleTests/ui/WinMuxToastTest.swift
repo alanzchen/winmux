@@ -77,8 +77,12 @@ final class WinMuxToastTest: XCTestCase {
         panel.expire()
         XCTAssertFalse(panel.isVisible)
         XCTAssertFalse(panel.detailsPanel.isVisible)
+        panel.show(first)
+        let laterOccurrence = panel.model.shown?.id
         originalAction()
         XCTAssertEqual(opened.last?.diagnostic.body, full, "Already captured details survive expiration")
+        XCTAssertEqual(panel.model.shown?.id, laterOccurrence, "An equal diagnostic later is still a separate occurrence")
+        XCTAssertTrue(panel.isVisible)
     }
 
     func testOnlyDetailsReceivesInputAndFocusedControlKeepsItsErrorUntilActivation() throws {
@@ -86,12 +90,13 @@ final class WinMuxToastTest: XCTestCase {
         var opened: [WinMuxToastNotice] = []
         let panel = WinMuxToastPanel(model: .init(clock: { time }, announce: { _ in }), openDetails: { opened.append($0) })
         defer { panel.dismiss() }
-        let first = WinMuxToastNotice(title: "First", body: "First error")
+        let first = WinMuxToastNotice(title: "E", body: "X")
         let second = WinMuxToastNotice(title: "Second", body: "Second error")
         panel.show(first)
         let button = panel.detailsPanel.button
         XCTAssertTrue(panel.ignoresMouseEvents, "The body passes through at the window boundary")
         XCTAssertFalse(panel.detailsPanel.ignoresMouseEvents, "The control has its own receiving window")
+        XCTAssertTrue(panel.detailsPanel.parent === panel, "The control stays above its own toast across reordering")
         XCTAssertTrue(panel.frame.contains(panel.detailsPanel.frame))
         XCTAssertEqual(panel.detailsPanel.contentView, button)
         XCTAssertTrue(button.hitTest(CGPoint(x: 20, y: 12)) === button)
@@ -102,8 +107,13 @@ final class WinMuxToastTest: XCTestCase {
         XCTAssertTrue(button.acceptsFirstMouse(for: nil))
         button.setAccessibilityFocused(true)
         XCTAssertTrue(panel.model.isInteracting)
+        let focusedOccurrence = panel.model.shown?.id
+        panel.detailsPanel.resignKey()
+        XCTAssertTrue(panel.model.isInteracting, "Losing key never clears independent accessibility focus")
         time = 20
         panel.expire()
+        panel.show(first)
+        XCTAssertEqual(panel.model.shown?.id, focusedOccurrence, "A held duplicate coalesces even past the original deadline")
         panel.show(second)
         XCTAssertEqual(panel.model.shown?.notice, first, "An active control is never replaced underneath its user")
         XCTAssertTrue(button.accessibilityPerformPress())
@@ -116,6 +126,52 @@ final class WinMuxToastTest: XCTestCase {
         XCTAssertNil(panel.model.shown)
     }
 
+    func testMenuDetailsConsumesOnlyItsOccurrenceAndFrameworkRepeatsCoalesce() {
+        let panel = WinMuxToastPanel.shared
+        var firstOpens = 0
+        var duplicateOpens = 0
+        showWinMuxError(title: "Update Error", body: "The connection failed.") { firstOpens += 1 }
+        let first = panel.model.shown!
+        showWinMuxError(title: "Update Error", body: "The connection failed.") { duplicateOpens += 1 }
+        XCTAssertEqual(panel.model.shown?.count, 2)
+        panel.detailsPanel.button.setAccessibilityFocused(true)
+        showWorkspaceSidebarError("A deferred error")
+        panel.activateDetails(first) // The status-menu action uses this same production method.
+        XCTAssertEqual(firstOpens, 1, "Coalescing retains the corresponding original presenter")
+        XCTAssertEqual(duplicateOpens, 0)
+        XCTAssertEqual(panel.model.shown?.notice.body, "A deferred error")
+    }
+
+    func testPerformanceReportSaveFailureUsesTheCommonToast() async throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("winmux-report-fixture-\(UUID())")
+        try Data("a file, not a report directory".utf8).write(to: file)
+        defer { try? FileManager.default.removeItem(at: file) }
+        let recorder = DockPerformanceRecorder(outputDirectory: file)
+        recorder.start()
+        recorder.stop()
+        let deadline = Date().addingTimeInterval(3)
+        while recorder.isSaving && Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertFalse(recorder.isSaving)
+        let diagnostic = try XCTUnwrap(WinMuxToastPanel.shared.model.shown?.notice.details)
+        XCTAssertEqual(diagnostic.description, "Performance Report Error")
+        XCTAssertTrue(diagnostic.body.hasPrefix("Could not save report:"))
+        XCTAssertNil(MessageModel.shared.detailMessage)
+        WinMuxToastPanel.shared.detailsPanel.button.performClick(nil)
+        XCTAssertEqual(MessageModel.shared.detailMessage, diagnostic)
+    }
+
+    func testTheScheduledTimerRemovesBothPanelsWithoutManualExpiration() async throws {
+        let panel = WinMuxToastPanel(model: .init(announce: { _ in }))
+        defer { panel.dismiss() }
+        panel.show(.init(title: "Neutral Error", body: "This toast expires on its own."))
+        XCTAssertTrue(panel.isVisible)
+        XCTAssertTrue(panel.detailsPanel.isVisible)
+        try await Task.sleep(for: .seconds(WinMuxToastModel.lifetime + 0.3))
+        XCTAssertNil(panel.model.shown)
+        XCTAssertFalse(panel.isVisible)
+        XCTAssertFalse(panel.detailsPanel.isVisible)
+    }
+
     /// A toast shows its notice for a few seconds and is read out each time. The same notice again
     /// while it shows is counted on the one toast and stays up longer; another takes its place.
     func testAToastShowsForAFewSecondsCountsRepeatsAndIsReadOut() {
@@ -124,11 +180,11 @@ final class WinMuxToastTest: XCTestCase {
         let model = WinMuxToastModel(clock: { time }, announce: { announced.append($0) })
         let notice = WinMuxToastNotice(title: "Switch Tab", body: "Safari couldn't confirm switching to this tab.", monitorScopeId: "monitor:0,0")
         model.show(notice)
-        XCTAssertEqual(model.shown, .init(notice: notice, count: 1, until: 100 + WinMuxToastModel.lifetime))
+        XCTAssertEqual(model.shown, .init(id: model.shown!.id, notice: notice, count: 1, until: 100 + WinMuxToastModel.lifetime))
         XCTAssertTrue((3...5).contains(WinMuxToastModel.lifetime))
         time += 2
         model.show(notice)
-        XCTAssertEqual(model.shown, .init(notice: notice, count: 2, until: 102 + WinMuxToastModel.lifetime), "One toast, counted, up longer")
+        XCTAssertEqual(model.shown, .init(id: model.shown!.id, notice: notice, count: 2, until: 102 + WinMuxToastModel.lifetime), "One toast, counted, up longer")
         time += WinMuxToastModel.lifetime - 0.1
         model.expire()
         XCTAssertNotNil(model.shown)
@@ -153,7 +209,7 @@ final class WinMuxToastTest: XCTestCase {
     func testTheToastNeverTakesFocusOrClicksAndGoesOnItsOwn() {
         var time = 0.0
         let panel = WinMuxToastPanel(model: WinMuxToastModel(clock: { time }, announce: { _ in }))
-        defer { panel.orderOut(nil) }
+        defer { panel.dismiss() }
         let keyBefore = NSApp.keyWindow
         let activeBefore = NSApp.isActive
         panel.show(.init(title: "Close Window", body: "This window could not be closed."))

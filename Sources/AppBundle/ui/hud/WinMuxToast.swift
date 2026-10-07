@@ -6,7 +6,11 @@ import SwiftUI
 @MainActor
 final class WinMuxToastOriginalPresentation {
     let show: () -> Void
-    init(_ show: @escaping () -> Void) { self.show = show }
+    let coalescingKey: [String]?
+    init(coalescingKey: [String]? = nil, _ show: @escaping () -> Void) {
+        self.coalescingKey = coalescingKey
+        self.show = show
+    }
 }
 
 struct WinMuxToastNotice: Equatable {
@@ -26,8 +30,10 @@ struct WinMuxToastNotice: Equatable {
     }
 
     static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.title == rhs.title && lhs.body == rhs.body && lhs.monitorScopeId == rhs.monitorScopeId
-            && lhs.details == rhs.details && lhs.original === rhs.original
+        let samePresentation = lhs.original === rhs.original
+            || (lhs.original?.coalescingKey != nil && lhs.original?.coalescingKey == rhs.original?.coalescingKey)
+        return lhs.title == rhs.title && lhs.body == rhs.body && lhs.monitorScopeId == rhs.monitorScopeId
+            && lhs.details == rhs.details && samePresentation
     }
 
     var diagnostic: Message {
@@ -38,7 +44,7 @@ struct WinMuxToastNotice: Equatable {
 /// For framework-owned error UI: keep its exact presentation until Details is selected.
 @MainActor
 public func showWinMuxError(title: String, body: String, original: @escaping @MainActor () -> Void) {
-    WinMuxToastPanel.shared.show(.init(title: title, body: body, original: .init(original)))
+    WinMuxToastPanel.shared.show(.init(title: title, body: body, original: .init(coalescingKey: [title, body], original)))
 }
 
 /// What the toast shows, and until when. The same notice again while it shows is counted, not
@@ -46,6 +52,7 @@ public func showWinMuxError(title: String, body: String, original: @escaping @Ma
 @MainActor
 final class WinMuxToastModel: ObservableObject {
     struct Shown: Equatable {
+        let id: UUID
         let notice: WinMuxToastNotice
         var count: Int
         var until: TimeInterval
@@ -72,12 +79,12 @@ final class WinMuxToastModel: ObservableObject {
             return
         }
         let now = clock()
-        if var shown, shown.notice == notice, now < shown.until {
+        if var shown, shown.notice == notice, isInteracting || now < shown.until {
             shown.count += 1
             shown.until = now + Self.lifetime
             self.shown = shown
         } else {
-            shown = .init(notice: notice, count: 1, until: now + Self.lifetime)
+            shown = .init(id: UUID(), notice: notice, count: 1, until: now + Self.lifetime)
         }
         announce(String(notice.body.prefix(600)))
     }
@@ -124,7 +131,7 @@ final class WinMuxToastPanel: NSPanelHud {
     private let hostingView: NSHostingView<WinMuxToastView>
     let detailsPanel = WinMuxToastDetailsPanel()
     private var timer: Timer?
-    private let openDetails: (WinMuxToastNotice) -> Void
+    private let presentDetails: (WinMuxToastNotice) -> Void
 
     init(model: WinMuxToastModel = WinMuxToastModel(),
          openDetails: @escaping (WinMuxToastNotice) -> Void = { notice in
@@ -132,7 +139,7 @@ final class WinMuxToastPanel: NSPanelHud {
              else { MessageModel.shared.openDetails(notice.diagnostic) }
          }) {
         self.model = model
-        self.openDetails = openDetails
+        self.presentDetails = openDetails
         hostingView = NSHostingView(rootView: WinMuxToastView(model: model))
         super.init()
         applyWinMuxLayer(.overlay)
@@ -142,6 +149,7 @@ final class WinMuxToastPanel: NSPanelHud {
         isExcludedFromWindowsMenu = true
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient, .ignoresCycle]
         contentView = hostingView
+        addChildWindow(detailsPanel, ordered: .above)
         detailsPanel.button.interactionChanged = { [weak self] value in
             guard let self else { return }
             self.model.setInteracting(value)
@@ -166,20 +174,23 @@ final class WinMuxToastPanel: NSPanelHud {
             let place = winMuxToastPlace(monitorScopeId: shown.notice.monitorScopeId)
             setFrame(winMuxToastFrame(size: hostingView.fittingSize, beside: place.surface, in: place.screen), display: true)
             let notice = shown.notice
-            detailsPanel.button.invoke = { [weak self] in
-                guard let self else { return }
-                // Dismiss this occurrence before showing the original UI; a later error is separate.
-                self.detailsPanel.clearInteraction()
-                if self.model.shown?.notice == notice { self.model.dismiss() }
-                self.displayCurrent()
-                self.openDetails(notice)
-            }
+            detailsPanel.button.invoke = { [weak self] in self?.activateDetails(shown) }
             detailsPanel.button.setAccessibilityHelp("Show complete details for \(notice.title)")
             detailsPanel.setFrame(CGRect(x: frame.maxX - 66, y: frame.minY + 8, width: 54, height: 24), display: true)
         }
         orderFrontRegardless()
         detailsPanel.orderFrontRegardless()
         scheduleExpiration()
+    }
+
+    /// Both the native button and the status-menu keyboard route use the captured occurrence.
+    func activateDetails(_ occurrence: WinMuxToastModel.Shown) {
+        if model.shown?.id == occurrence.id {
+            detailsPanel.clearInteraction()
+            model.dismiss()
+            displayCurrent()
+        }
+        presentDetails(occurrence.notice)
     }
 
     private func scheduleExpiration() {
@@ -249,7 +260,7 @@ final class WinMuxToastDetailsPanel: NSPanelHud {
 
     override func resignKey() {
         super.resignKey()
-        button.clearInteraction()
+        button.windowResignedKey()
     }
 }
 
@@ -301,6 +312,11 @@ final class WinMuxToastDetailsButton: NSButton {
     override func keyDown(with event: NSEvent) {
         if event.keyCode == 36 || event.keyCode == 49 { showDetails() }
         else { super.keyDown(with: event) }
+    }
+
+    func windowResignedKey() {
+        focused = false
+        updateInteraction()
     }
 
     func clearInteraction() {
@@ -395,9 +411,9 @@ struct WinMuxToastView: View {
 /// How wide the toast's text is: as wide as its longer line, up to 260 points, past which the
 /// body wraps. A definite width, so the toast's height counts every wrapped line.
 func winMuxToastTextWidth(_ notice: WinMuxToastNotice) -> CGFloat {
-    let title = (notice.title as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 12, weight: .semibold)]).width
-    let body = (notice.body as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 12)]).width
-    return min(260, (max(title, body) + 2).rounded(.up))
+    let title = (String(notice.title.prefix(120)) as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 12, weight: .semibold)]).width
+    let body = (String(notice.body.prefix(600)) as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 12)]).width
+    return min(260, max(66, (max(title, body) + 2).rounded(.up)))
 }
 
 /// A keyboard-only route to the same control from WinMux's status menu, without a global
@@ -406,11 +422,9 @@ struct WinMuxErrorDetailsMenuButton: View {
     @ObservedObject private var model = WinMuxToastPanel.shared.model
 
     var body: some View {
-        if let notice = model.shown?.notice {
+        if let shown = model.shown {
             Button("Show Error Details") {
-                if let original = notice.original { original.show() }
-                else { MessageModel.shared.openDetails(notice.diagnostic) }
-                if model.shown?.notice == notice { WinMuxToastPanel.shared.dismiss() }
+                WinMuxToastPanel.shared.activateDetails(shown)
             }
             .keyboardShortcut("e", modifiers: [.command, .option])
         }

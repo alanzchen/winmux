@@ -41,6 +41,44 @@ final class SettingsEditorTest: XCTestCase {
         XCTAssertEqual(MessageModel.shared.detailMessage, diagnostic)
     }
 
+    func testOldErrorRecoveryCannotRevertNewerDraftsQueuedEditsOrUnsavedDocumentText() async throws {
+        let previous = config
+        let document = ShortcutSettingsModel.shared.settingsDocument
+        let previousText = document.text
+        defer { config = previous; document.text = previousText }
+        for editsDocument in [false, true] {
+            let disk = SettingsTestDisk()
+            config = parseConfig(disk.text).config
+            let editor = SettingsEditor(configuration: config, persistence: disk.persistence)
+            disk.failWrites = true
+            let first = SettingsCatalog.field("workspace-sidebar.show-workspace-tooltips")
+            editor.setDraft(.bool(false), for: first)
+            editor.commit(first)
+            await editor.waitUntilIdle()
+            let error = try XCTUnwrap(WinMuxToastPanel.shared.model.shown?.notice.details)
+            let revert = try XCTUnwrap(error.actions.first { $0.title == "Revert unsaved changes" })
+            XCTAssertTrue(revert.isAvailable())
+            if editsDocument {
+                document.text += "\n# newer unsaved editor text"
+            } else {
+                let second = SettingsCatalog.field("workspace-sidebar.show-app-tooltips")
+                editor.setDraft(.bool(false), for: second)
+                XCTAssertFalse(revert.isAvailable(), "A draft alone invalidates old recovery")
+                editor.commit(second)
+            }
+            XCTAssertFalse(revert.isAvailable())
+            let drafts = editor.drafts
+            let text = document.text
+            for action in error.actions { action.perform() }
+            await editor.waitUntilIdle()
+            XCTAssertEqual(editor.drafts, drafts)
+            XCTAssertEqual(document.text, text)
+            XCTAssertNotNil(editor.error)
+            XCTAssertTrue(editor.canRetry, "The current Settings recovery controls remain available")
+            XCTAssertTrue(disk.writes.isEmpty)
+        }
+    }
+
     func testCatalogValuesRoundTripAndSearchFindsLabelsAndTOMLKeys() {
         let saved = config
         defer { config = saved }

@@ -125,9 +125,9 @@ struct SettingsEditError: LocalizedError {
 @MainActor
 final class SettingsEditor: ObservableObject {
     @Published private(set) var configuration: Config { didSet { updateProjection() } }
-    @Published private(set) var drafts: [String: SettingsValue] = [:] { didSet { updateProjection() } }
+    @Published private(set) var drafts: [String: SettingsValue] = [:] { didSet { recoveryGeneration += 1; updateProjection() } }
     /// Drafts restored by removing their key; their value follows the projection.
-    @Published private(set) var unsetDrafts: Set<String> = [] { didSet { updateProjection() } }
+    @Published private(set) var unsetDrafts: Set<String> = [] { didSet { recoveryGeneration += 1; updateProjection() } }
     /// The configuration with unsaved drafts applied, for availability and the preview.
     private(set) var projection: Config
     /// Turning on Tabs mode's panel moves window stack entries into separate workspaces,
@@ -149,10 +149,11 @@ final class SettingsEditor: ObservableObject {
         }
     }
     private var errorGeneration = 0
+    private var recoveryGeneration = 0
     @Published private(set) var undoTitle: String?
     @Published private(set) var status = "Changes save automatically"
     private let persistence: SettingsPersistence
-    private var queue: [Request] = []
+    private var queue: [Request] = [] { didSet { recoveryGeneration += 1 } }
     private var worker: Task<Void, Never>?
     private var failedRequest: Request?
     private var history: [History] = []
@@ -435,9 +436,13 @@ final class SettingsEditor: ObservableObject {
 
     private func reportError(_ body: String) {
         let generation = errorGeneration
+        let recovery = recoveryGeneration
+        let document = ShortcutSettingsModel.shared.settingsDocument
+        let documentRevision = document.editRevision
         let available: @MainActor () -> Bool = { [weak self] in
             guard let self else { return false }
-            return self.errorGeneration == generation && self.error != nil && !self.isSaving
+            return self.errorGeneration == generation && self.recoveryGeneration == recovery
+                && document.editRevision == documentRevision && self.error != nil && !self.isSaving
         }
         var actions: [MessageAction] = []
         if canRetry {

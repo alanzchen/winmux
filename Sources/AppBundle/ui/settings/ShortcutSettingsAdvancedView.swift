@@ -5,7 +5,8 @@ import SwiftUI
 
 @MainActor
 final class SettingsConfigDocument: ObservableObject {
-    @Published var text = ""
+    @Published var text = "" { didSet { editRevision += 1 } }
+    private(set) var editRevision = 0
     @Published var validationMessage: String? {
         didSet {
             if let validationMessage {

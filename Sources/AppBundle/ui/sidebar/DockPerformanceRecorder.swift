@@ -188,7 +188,10 @@ final class DockPerformanceRecorder: ObservableObject {
                     self.lastReport = url
                     let suspects = report.panels.reduce(0) { $0 + $1.summary.suspectedFrames }
                     self.status = "Saved report: \(suspects) possible timing issues. These are not measured GPU frame drops."
-                case .failure(let error): self.status = "Could not save report: \(error.localizedDescription)"
+                case .failure(let error):
+                    self.status = "Performance report was not saved."
+                    MessageModel.shared.message = Message(description: "Performance Report Error",
+                        body: "Could not save report: \(error.localizedDescription)")
             }
         }
     }
