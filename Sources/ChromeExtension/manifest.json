@@ -1,0 +1,18 @@
+{
+  "manifest_version": 3,
+  "name": "WinMux Tabs for Chrome",
+  "version": "1.0.0",
+  "minimum_chrome_version": "120",
+  "description": "Reports normal-window tab changes to WinMux on this Mac. Selects only explicitly requested bound tabs.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEApBxU8OfWf3UZUggbISIBr0kh0DO1dj3jpwusuruuIvpqBDb+AkfcvGMVGlSHd70i1/gBvckBGapjiSC1ErPGwJ+TTpX5v2vZV/eid/wtsuU/TdkKUsucUjzin7dX+35EcU/icH9baHwmiw4YiNL4NVH5M78odZykTVXOVPatmwz40YQ3IJVCEnvUSJErJvyEgFbcDM12NnbaacT8G2swF8Kkpv0Dch2a+k3i7byLCle/UPhfgP0y9w8ohXhSDaL/8G4ry22uiI1MjehnFjnwfdt7Pqu+ootC641Z62xMinLZRJusncFeQz9nidsGQOKoP/U5eMXc+S5D+fp+Qots2wIDAQAB",
+  "permissions": [
+    "tabs",
+    "nativeMessaging",
+    "storage",
+    "alarms"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "incognito": "not_allowed"
+}

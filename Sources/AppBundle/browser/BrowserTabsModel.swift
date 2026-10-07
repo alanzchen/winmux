@@ -20,6 +20,11 @@ final class BrowserTabsModel: ObservableObject {
     private var safariAssociations = SafariExtensionAssociations()
     private var safariEvidence: SafariExtensionEvidence?
     private var safariFrames = SafariExtensionFrameTrack()
+    private let chromeExtension = SafariExtensionBridge(browser: "chrome", configuration: { nil }, icons: SafariExtensionIcons())
+    private var chromeAssociations = SafariExtensionAssociations()
+    private var chromeEvidence: SafariExtensionEvidence?
+    private var chromeFrames = SafariExtensionFrameTrack()
+    private var chromeServer: ChromePushServer?
     /// Safari windows to walk in full at their next read: a lone tab's speaker shows only there.
     private var rediscover: Set<UInt32> = []
 
@@ -29,6 +34,12 @@ final class BrowserTabsModel: ObservableObject {
         self.snapshots = snapshots
         self.safariExtension = safariExtension
         self.selectRequests = selectRequests ?? BrowserTabSelectRequests(notify: showBrowserTabActionNotice)
+        chromeExtension.sightSafariWindows = { [weak self] measured in self?.sightChromeWindows(measured: measured) ?? [:] }
+        chromeExtension.reportArrived = { [weak self] in
+            guard let self, self.task != nil else { return false }
+            self.publish()
+            return self.chromeAssociations.awaitsReport || self.chromeAssociations.awaitsAnotherReport(self.chromeExtension.windows)
+        }
         safariExtension.sightSafariWindows = { [weak self] measured in self?.sightSafariWindows(measured: measured) ?? [:] }
         safariExtension.reportArrived = { [weak self] in
             guard let self, self.task != nil else { return false }
@@ -47,12 +58,28 @@ final class BrowserTabsModel: ObservableObject {
 
     func setEnabled(_ enabled: Bool) {
         safariExtension.setEnabled(enabled)
+        chromeExtension.setEnabled(enabled)
+        if enabled, chromeServer == nil, !isUnitTest,
+           let helper = Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/winmux") as URL?,
+           FileManager.default.isExecutableFile(atPath: helper.path) {
+            chromeServer = ChromePushServer(helper: helper, handle: { [weak self] profile, data, peer in
+                guard let raw = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      let envelope = try? JSONSerialization.data(withJSONObject: ["profile": profile, "message": raw]),
+                      let message = SafariExtensionMessage.decode(envelope) else { return Data("{\"ok\":false}".utf8) }
+                return await self?.receiveChrome(message, rawSequence: (raw["push"] as? [String: Any])?["seq"] as? Int,
+                                                profile: profile, peer: peer) ?? Data()
+            }, disconnected: { [weak self] profile in await self?.disconnectChrome(profile) })
+        }
+        if !enabled { chromeServer?.stop(); chromeServer = nil }
         if !enabled {
             selectRequests.reset()
             closeRequests.reset()
             safariAssociations = .init()
             safariEvidence = nil
             safariFrames = .init()
+            chromeFrames = .init()
+            chromeAssociations = .init()
+            chromeEvidence = nil
             rediscover = []
         }
         let icons = enabled && config.workspaceSidebar.browserTabIcons
@@ -111,11 +138,13 @@ final class BrowserTabsModel: ObservableObject {
         let ownerPids = Dictionary(uniqueKeysWithValues: owners.map { ($0.windowId, $0.app.pid) })
         cache.reconcile(owners: ownerPids, now: now)
         safariExtension.retain(safariIsRunning: MacApp.allAppsMap.values.contains { $0.rawAppBundleId == safariBundleId })
+        chromeExtension.retain(safariIsRunning: MacApp.allAppsMap.values.contains { $0.rawAppBundleId == chromeBundleId })
+        trackChromeFrames(now: now)
         trackSafariFrames(now: now)
         iconAssociations.retain(Set(cache.snapshots.values.flatMap { $0.tabs.map(\.target) }))
         publish()
         schedule.retain(Set(ownerPids.keys))
-        schedule.relax(settledSafariWindows(now: now))
+        schedule.relax(settledSafariWindows(now: now).union(settledChromeWindows(now: now)))
         rediscover = rediscover.filter { ownerPids[$0] != nil }
         schedule.focus(focus.windowOrNil?.windowId)
         // Hidden rails retain their cache but do no browser work. Revealing them
@@ -163,12 +192,14 @@ final class BrowserTabsModel: ObservableObject {
 
     private func publish() {
         updateSafariAssociations()
+        updateChromeAssociations()
         let now = ProcessInfo.processInfo.systemUptime
         selectRequests.expire()
         closeRequests.expire()
         let next = cache.snapshots.mapValues { value in
             browserTabsShown(closeRequests.apply(selectRequests.apply(value)), read: cache.observed[value.windowId], now: now,
-                safari: safariAssociations, iconOrigins: iconsEnabled ? iconAssociations.origins : [:])
+                safari: MacApp.allAppsMap[value.pid]?.rawAppBundleId == chromeBundleId ? chromeAssociations : safariAssociations,
+                iconOrigins: iconsEnabled ? iconAssociations.origins : [:])
         }
         if snapshots != next { snapshots = next }
     }
@@ -244,6 +275,75 @@ final class BrowserTabsModel: ObservableObject {
         return safariFrames.sighting(measured: measured)
     }
 
+    private func updateChromeAssociations() {
+        let chrome = cache.snapshots.values.filter { MacApp.allAppsMap[$0.pid]?.rawAppBundleId == chromeBundleId }
+        let read = Set(chrome.map(\.windowId))
+        let unread = safariExtensionUnreadWindows(live: liveChromeWindows(), read: read)
+        let evidence = SafariExtensionEvidence(observed: Dictionary(uniqueKeysWithValues: chrome.map { ($0.windowId, cache.observed[$0.windowId] ?? 0) }),
+            reports: chromeExtension.generation, unread: unread)
+        guard evidence != chromeEvidence else { return }
+        let reported = evidence.reports != chromeEvidence?.reports
+        chromeEvidence = evidence
+        chromeAssociations.update(chrome.map { .init(snapshot: $0, observed: cache.observed[$0.windowId] ?? 0,
+                readStarted: cache.readStarted[$0.windowId], appeared: chromeFrames.appeared($0.windowId) ?? .infinity) },
+            windows: chromeExtension.windows, unread: unread,
+            unreadAppeared: Dictionary(uniqueKeysWithValues: unread.map { ($0, chromeFrames.appeared($0) ?? .infinity) }),
+            now: ProcessInfo.processInfo.systemUptime)
+        // Chrome reports where its windows are only with its tabs; ask again rather than wait a minute.
+        if chromeAssociations.awaitsReport { chromeExtension.requestResync(atMostEvery: 10) }
+        // Changed reports require fresh AX corroboration before new tab identities can be used.
+        if reported { for id in chromeAssociations.rereads { schedule.invalidate(id, now: ProcessInfo.processInfo.systemUptime) } }
+    }
+
+    private func settledChromeWindows(now: TimeInterval) -> Set<UInt32> {
+        // Chrome's optional origin icons still need the normal two AX observations. Host-only
+        // extension metadata cannot replace that address evidence or slow its refresh cadence.
+        guard chromeExtension.allSites, !iconsEnabled else { return [] }
+        return safariExtensionSettledWindows(Array(cache.snapshots.values), chromeAssociations, windows: chromeExtension.windows, now: now)
+    }
+
+    private func liveChromeWindows() -> [UInt32] {
+        MacWindow.allWindowsMap.values.filter { $0.app.rawAppBundleId == chromeBundleId }.map(\.windowId)
+    }
+
+    /// Notes where each Chrome window is, a few times a second while a sidebar shows browser
+    /// tabs, so a report arriving knows which windows have held still since Chrome measured them.
+    /// Frames come from the window server, in one request, rather than WinMux's cache, which
+    /// lags a move until its notification arrives. Each window's counts of the writes WinMux ran
+    /// and the moves it heard about catch a move and a move back between two samples; a window
+    /// with a write running counts as moving.
+    private func trackChromeFrames(now: TimeInterval) {
+        let windows = MacWindow.allWindowsMap.values.filter { $0.app.rawAppBundleId == chromeBundleId }
+        guard !chromeExtension.pushSenders.isEmpty else {
+            chromeFrames = .init()
+            return
+        }
+        // With no Chrome window, nothing is sampled, but any that opens later is new.
+        guard !windows.isEmpty else {
+            chromeFrames.observe([UInt32: SafariExtensionFrameSample](), now: now)
+            return
+        }
+        // Hidden sidebars read no browser windows; nothing is paired meanwhile.
+        guard !schedule.watched.isEmpty else {
+            chromeFrames.pause()
+            return
+        }
+        let frames = windowServerFrames(windows.map(\.windowId))
+        chromeFrames.observe(Dictionary(windows.map { window in
+            let writes = window.macApp.frameWriteLedger.state(window.windowId)
+            return (window.windowId, SafariExtensionFrameSample(
+                frame: frames[window.windowId]
+                    ?? window.lastKnownActualRect.map { CGRect(x: $0.topLeftX, y: $0.topLeftY, width: $0.width, height: $0.height) },
+                identity: ObjectIdentifier(window), generation: window.nativeStateObservationToken(),
+                writes: writes.version, writing: writes.writing))
+        }, uniquingKeysWith: { first, _ in first }), now: now)
+    }
+
+    private func sightChromeWindows(measured: TimeInterval) -> [UInt32: CGRect] {
+        trackChromeFrames(now: ProcessInfo.processInfo.systemUptime)
+        return chromeFrames.sighting(measured: measured)
+    }
+
     /// Closes one browser tab, as middle-clicking it in a browser's tab bar does. The window
     /// stays where it is; the tab shows as closing until the browser answers, and leaves the list
     /// only once it's seen gone (`BrowserTabActionFollowUp`).
@@ -302,12 +402,61 @@ final class BrowserTabsModel: ObservableObject {
         let token = generation
         // Cancelled or not, a press that ran says what it did; one that didn't switched nothing.
         selectRequests.request(target, browser: window.app.name ?? "The browser", monitorScopeId: monitorScopeId, unlessClosing: closeRequests,
-            perform: { (try? await app.selectBrowserTab(target)) ?? .notDispatched(.cancelled) },
+            perform: { [weak self] in await self?.selectUsingExtensionOrAX(target, app: app) ?? .notDispatched(.cancelled) },
             finished: { [weak self] result, cancelled in
                 guard let self, self.generation == token else { return }
                 self.finishSelect(target, result, cancelled: cancelled, window: window, monitorScopeId: monitorScopeId)
             })
         publish()
+    }
+
+    private func receiveChrome(_ message: SafariExtensionMessage, rawSequence: Int?, profile: String, peer: ChromePushPeer) -> Data {
+        switch message {
+            case .state(let state): guard state.push?.browser == "chrome" else { return Data("{\"ok\":false}".utf8) }
+            case .control(let control): guard control.browser == "chrome" else { return Data("{\"ok\":false}".utf8) }
+            case .icons: return Data("{\"ok\":false}".utf8)
+        }
+        chromeExtension.pushSenders[profile] = { data in
+            guard let command = try? JSONSerialization.jsonObject(with: data),
+                  let envelope = try? JSONSerialization.data(withJSONObject: ["command": command]) else { return }
+            peer.send(envelope)
+        }
+        let answer = chromeExtension.receive(message)
+        guard let reply = try? JSONSerialization.jsonObject(with: answer) else { return Data() }
+        return (try? JSONSerialization.data(withJSONObject: ["reply": reply, "seq": rawSequence ?? 0])) ?? Data()
+    }
+
+    private func disconnectChrome(_ profile: String) {
+        chromeExtension.disconnect(profile)
+        publish()
+    }
+
+    private func selectUsingExtensionOrAX(_ target: BrowserTabTarget, app: MacApp) async -> BrowserTabActionResult {
+        guard !Task.isCancelled else { return .notDispatched(.cancelled) }
+        let isChrome = app.rawAppBundleId == chromeBundleId
+        let bridge = isChrome ? chromeExtension : safariExtension
+        func address() -> BrowserPushTarget? {
+            let associations = isChrome ? chromeAssociations : safariAssociations
+            guard let snapshot = cache.snapshots[target.windowId], snapshot.windowSession == target.windowSession,
+                  associations.settles(snapshot), case .resolved(let window) = associations.resolution(of: target.windowId),
+                  let tab = associations.bound[target] else { return nil }
+            return bridge.pushTarget(window: window, tab: tab)
+        }
+        // Revalidate the exact native control and its owning scanner lifetime, as AX selection
+        // does. A replacement native window cannot inherit a cached extension command address.
+        if let candidate = address() {
+            do {
+                if let refusal = try await app.browserTabExtensionSelectionRefusal(target) { return .notDispatched(refusal) }
+            } catch { return .notDispatched(.cancelled) }
+            guard !Task.isCancelled else { return .notDispatched(.cancelled) }
+            if candidate == address() {
+                return await browserTabSelectWithFallback(push: { await bridge.select(candidate) },
+                    ax: { (try? await app.selectBrowserTab(target)) ?? .notDispatched(.cancelled) })
+            }
+        }
+        // Old, absent, ambiguous or unconfirmed extension: the existing identity-checked AX path.
+        return await browserTabSelectWithFallback(push: nil,
+            ax: { (try? await app.selectBrowserTab(target)) ?? .notDispatched(.cancelled) })
     }
 
     /// What the sidebar does once a select comes back (`BrowserTabActionFollowUp`); what the user is

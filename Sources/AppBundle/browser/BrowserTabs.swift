@@ -40,8 +40,8 @@ struct BrowserTab: Hashable, Identifiable, Sendable {
     /// From the WinMux Tabs Safari extension: the tab's website icon, by key, and its host name.
     var siteIcon: String? = nil
     var host: String? = nil
-    /// Which Safari tab the extension says this is. Selecting and closing never go by it: they
-    /// act on the tab WinMux read through Accessibility.
+    /// Which extension tab was bound to this exact native control. Selection can use it only
+    /// with current window/stream evidence and a confirmed command transport; close stays AX.
     var extensionTab: SafariExtensionTabKey? = nil
     /// Whether it's playing sound or muted, as the Safari extension or a Chromium tab's
     /// accessible name says.

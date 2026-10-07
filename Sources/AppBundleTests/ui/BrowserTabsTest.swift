@@ -2842,6 +2842,22 @@ final class BrowserTabsTest: XCTestCase {
     }
 
     /// Says an action wasn't sent: its result says so, and no tab was pressed or asked to act meanwhile.
+    func testExtensionSelectionRevalidatesNativeLifetimeAndMovedControlWithoutPressing() throws {
+        for adapter in [BrowserTabAdapter.safari, .chromium] {
+            let f = fixture(adapter)
+            let scanner = BrowserTabScanner(root: f.root, adapter: adapter, windowId: 1, pid: 2)
+            let snapshot = try XCTUnwrap(scanner.scan())
+            let target = snapshot.tabs[0].target
+            XCTAssertNil(scanner.extensionSelectionRefusal(target))
+            let replacement = BrowserTabScanner(root: f.root, adapter: adapter, windowId: 1, pid: 2)
+            _ = replacement.scan()
+            XCTAssertEqual(replacement.extensionSelectionRefusal(target), .changed)
+            let moved = f.container.nodes.removeFirst()
+            XCTAssertEqual(scanner.extensionSelectionRefusal(target), .changed)
+            XCTAssertEqual(moved.presses, 0)
+        }
+    }
+
     private func assertNotSent(_ result: @autoclosure () -> BrowserTabActionResult, _ message: @autoclosure () -> String = "",
                                file: StaticString = #filePath, line: UInt = #line) {
         let before = BrowserTestNode.pageActions

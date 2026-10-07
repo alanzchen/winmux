@@ -119,6 +119,7 @@ PY
 # Insert the independently signed helper before the final bundle signature.
 mkdir -p "$app/Contents/Helpers"
 /usr/bin/install -m 755 "$cli" "$app/Contents/Helpers/winmux"
+python3 -B script/package-chrome-extension.py "$app/Contents/Resources/WinMuxTabs-Chrome"
 python3 -B script/verify-bundle-executables.py "$app"
 sign_args=(--force --sign "$CODESIGN_IDENTITY")
 if [[ "$CODESIGN_IDENTITY" != - ]]; then sign_args+=(--options runtime --timestamp); fi
@@ -228,7 +229,8 @@ fi
 mkdir -p "$dist/bin" "$dist/docs"
 ditto "$app" "$dist/WinMux.app"
 /usr/bin/install -m 755 script/winmux-launcher.sh "$dist/bin/winmux"
-cp docs/cli.md docs/releasing.md "$dist/docs/"
+cp docs/cli.md docs/releasing.md docs/browser-tabs.md "$dist/docs/"
+cp "$app/Contents/Resources/WinMuxTabs-Chrome.zip" "$dist/WinMuxTabs-Chrome.zip"
 cat > "$dist/README.txt" <<'EOF'
 Requires an Apple Silicon Mac (arm64).
 Copy WinMux.app to /Applications. Install bin/winmux on your PATH to run the CLI

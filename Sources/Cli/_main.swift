@@ -8,6 +8,7 @@ let usage =
     USAGE: \(CommandLine.arguments.first ?? "winmux") [-h|--help] [-v|--version] <subcommand> [<args>...]
 
     SUBCOMMANDS:
+    chrome-extension install   Register the installed app as Chrome’s native host
     \(subcommandDescriptions.sortedBy { $0[0] }.toPaddingTable(columnSeparator: "   ").joined(separator: "\n"))
     """
 private let cliUsageOrParseErrorExitCode: Int32 = 2
@@ -15,6 +16,7 @@ private let cliUsageOrParseErrorExitCode: Int32 = 2
 @main
 struct Main {
     static func main() async {
+        if ChromeNativeHost.handle(Array(CommandLine.arguments.dropFirst())) { return }
         let args = CommandLine.arguments.slice(1...) ?? []
 
         if args.isEmpty {

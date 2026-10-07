@@ -37,6 +37,21 @@ let unavailableUntil = 0;
 // What the last report WinMux took in full said (`WinMuxTabs.reportKey`). Only the heartbeat and
 // WinMux asking send the same again.
 let lastReport = null;
+// A page lifetime is a new event stream, even when Safari retained its browsing session.
+const pushEpoch = crypto.randomUUID();
+let pushSequence = 0;
+let pushEnabled = false;
+let pushNeedsSnapshot = true;
+const changedWindows = new Set();
+const handledCommands = new Set();
+const selecting = new Map();
+let latestSelectionRequest = null;
+
+function changedWindow(id) {
+    if (Number.isInteger(id) && id >= 0) changedWindows.add(id);
+    else pushNeedsSnapshot = true;
+}
+
 // The title each tab's toolbar button was given, so it's set only when it changes. Safari may drop
 // it as the tab loads a page, so loading forgets it, and so does Safari unloading this page.
 const stamped = new Map();
@@ -164,7 +179,12 @@ async function send() {
         // their tab order is the one the order count names only if no move came in meanwhile.
         const measured = Date.now();
         const orderBefore = data.order;
-        const windows = await browser.windows.getAll({ populate: true });
+        const full = !pushEnabled || pushNeedsSnapshot || force || changedWindows.size === 0;
+        const dirty = [...changedWindows];
+        changedWindows.clear();
+        pushNeedsSnapshot = false;
+        const windows = full ? await browser.windows.getAll({ populate: true })
+            : (await Promise.all(dirty.map((id) => browser.windows.get(id, { populate: true }).catch(() => null)))).filter(Boolean);
         const order = data.order === orderBefore ? orderBefore : undefined;
         // A forced send (the heartbeat, at least once a minute) titles every window's button again.
         stampWindows(windows, data.session, force);
@@ -174,18 +194,36 @@ async function send() {
             version, session: data.session, measured, order, time: Date.now(), allSites,
             windows: WinMuxTabs.stateWindows(windows, (tab) => iconFor(data, tab), version),
         });
-        const key = WinMuxTabs.reportKey(message);
+        const removed = full ? [] : dirty.filter((id) => !message.windows.some((w) => w.id === id));
+        // Older apps reject this type rather than interpreting a delta as a full report.
+        if (!full) message.type = "events";
+        const key = WinMuxTabs.reportKey(message) + JSON.stringify(removed);
+        if (version >= 2) {
+            message.push = { v: 1, browser: "safari", epoch: pushEpoch, seq: pushSequence + 1,
+                kind: full ? "snapshot" : "delta", removed };
+        }
         if (!force && key === lastReport) return;
         lastReport = null;
+        if (message.push) pushSequence += 1;
         const reply = await browser.runtime.sendNativeMessage(nativeApplication, message);
+        pushEnabled = reply?.events === 1;
+        if (!full && !pushEnabled && reply?.reason === "invalid") {
+            pushNeedsSnapshot = true;
+            sendAgain = true;
+            return;
+        }
+        if (reply?.snapshot === true) { pushNeedsSnapshot = true; sendAgain = true; return; }
         const spoken = WinMuxTabs.negotiatedVersion(reply, version);
         if (spoken !== version) {
             // An older WinMux: say it again in its version, without tab ids.
+            pushEnabled = false;
+            pushNeedsSnapshot = true;
             peerVersion = spoken;
             sendAgain = true;
             return;
         }
         if (reply?.ok !== true) {
+            pushNeedsSnapshot = true;
             markUnavailable();
             return;
         }
@@ -214,6 +252,7 @@ async function send() {
         if (wanted.length > iconsPerMessage && Object.keys(icons).length > 0) sendAgain = true;
         showPending(data);
     } catch {
+        pushNeedsSnapshot = true;
         markUnavailable();
     } finally {
         sending = false;
@@ -391,6 +430,9 @@ async function makeIcon(data, tabId, report) {
         data.originIcons = WinMuxTabs.trimmed({ ...data.originIcons, [origin]: { key: icon.key, used: now } }, cachedIcons);
         data.tabIcons[tabId] = { key: icon.key, origin };
         await save(data);
+        // Origin fallback can affect other windows too. Preserve that existing icon behavior,
+        // even when an unrelated tab event has already queued a partial report.
+        pushNeedsSnapshot = true;
         scheduleSend();
         return;
     }
@@ -463,6 +505,22 @@ browser.runtime.onMessage.addListener((message, sender) => {
     });
 });
 
+// Capture exact affected windows; lifecycle changes invalidate both sides of an attachment.
+browser.tabs.onUpdated.addListener((id, changes, tab) => changedWindow(tab?.windowId));
+browser.tabs.onActivated.addListener((info) => {
+    for (const entry of selecting.values()) {
+        if (entry.window === info?.windowId && entry.tab === info?.tabId) entry.reply("activated");
+    }
+    changedWindow(info?.windowId);
+});
+browser.tabs.onCreated.addListener((tab) => changedWindow(tab?.windowId));
+browser.tabs.onRemoved.addListener((id, info) => changedWindow(info?.windowId));
+browser.tabs.onMoved.addListener((id, info) => changedWindow(info?.windowId));
+browser.tabs.onAttached.addListener((id, info) => changedWindow(info?.newWindowId));
+browser.tabs.onDetached.addListener((id, info) => changedWindow(info?.oldWindowId));
+browser.windows.onCreated.addListener((window) => changedWindow(window?.id));
+browser.windows.onRemoved.addListener(changedWindow);
+
 browser.tabs.onUpdated.addListener((tabId, changes) => {
     // A tab that goes to another address drops its page's unfinished icon, and a report it kept.
     // Safari also reports the address when it hasn't changed, as a page finishes loading.
@@ -477,7 +535,7 @@ browser.tabs.onUpdated.addListener((tabId, changes) => {
     }
     // A page loading may reset the tab's toolbar title.
     if ("url" in changes || "status" in changes) stamped.delete(tabId);
-    if (["title", "url", "status", "audible", "mutedInfo", "pinned"].some((key) => key in changes)) scheduleSend();
+    if (["title", "url", "favIconUrl", "status", "audible", "mutedInfo", "pinned"].some((key) => key in changes)) scheduleSend();
 });
 /** Counts a change that may reorder tabs, remembered across page unloads. */
 function countOrderChange(data) {
@@ -503,6 +561,7 @@ browser.tabs.onRemoved.addListener(async (tabId) => {
     scheduleSend();
 });
 browser.tabs.onReplaced?.addListener(async (added, removed) => {
+    pushNeedsSnapshot = true;
     stamped.delete(removed);
     titleWrites.delete(removed);
     const data = await loaded;
@@ -534,6 +593,7 @@ browser.runtime.onStartup.addListener(() => scheduleSend(0, true));
 try {
     browser.runtime.connectNative(nativeApplication).onMessage.addListener((message) => {
         if ((message?.name ?? message?.type) === "resync") scheduleSend(0, true);
+        if (message?.name === "winmux-push" || message?.protocol === 1) handlePushCommand(message.userInfo ?? message);
     });
 } catch {}
 
@@ -541,3 +601,52 @@ ensureHeartbeat();
 // Safari can unload and reload this page while WinMux is away: the retry it was waiting for
 // comes when that pause ends.
 loaded.then(() => isUnavailable() ? retryIn(unavailableUntil - Date.now()) : scheduleSend());
+
+// A dispatch acknowledgement proves delivery only for this page lifetime, never that Safari
+// can wake a suspended page. Missing result/postcondition is unknown, never retried by WinMux.
+async function handlePushCommand(command) {
+    const data = await loaded;
+    if (command?.protocol !== 1 || command.browser !== "safari" || command.session !== data.session
+        || command.epoch !== pushEpoch || typeof command.request !== "string") return;
+    const reply = (kind) => browser.runtime.sendNativeMessage(nativeApplication, {
+        v: 2, type: "push-control", protocol: 1, browser: "safari", session: data.session, epoch: pushEpoch,
+        request: command.request, kind, window: command.window, tab: command.tab,
+    }).catch(() => {});
+    if (command.kind === "probe") { await reply("ready"); return; }
+    if (command.kind === "snapshot") { scheduleSend(0, true); return; }
+    if (command.kind === "cancel") {
+        handledCommands.add(command.request);
+        if (handledCommands.size > 256) handledCommands.delete(handledCommands.values().next().value);
+        if (latestSelectionRequest === command.request) latestSelectionRequest = null;
+        selecting.delete(command.request);
+        return;
+    }
+    if (command.kind !== "select" || handledCommands.has(command.request)) return;
+    latestSelectionRequest = command.request;
+    handledCommands.add(command.request);
+    // A bounded page-local replay guard; expired requests remain ineligible after eviction.
+    if (handledCommands.size > 256) handledCommands.delete(handledCommands.values().next().value);
+    const order = data.order;
+    const current = () => latestSelectionRequest === command.request && command.seq === pushSequence && !sending && sendTimer === null
+        && changedWindows.size === 0 && data.order === order && Number.isFinite(command.expires) && Date.now() <= command.expires;
+    let dispatched = false;
+    try {
+        const tab = await browser.tabs.get(command.tab);
+        const window = await browser.windows.get(command.window);
+        if (!current() || tab.windowId !== command.window || tab.incognito || window.incognito
+            || window.type !== "normal") { await reply("refused"); return; }
+        selecting.set(command.request, { window: command.window, tab: command.tab, reply });
+        setTimeout(() => selecting.delete(command.request), 2000);
+        dispatched = true;
+        await browser.tabs.update(command.tab, { active: true });
+        await reply("result");
+        const selected = await browser.tabs.get(command.tab);
+        if (tab.active && selected.windowId === command.window && selected.active && !selected.incognito) await reply("activated");
+        changedWindow(command.window);
+        scheduleSend(0);
+    } catch {
+        // Once tabs.update was invoked, even rejection may follow a side effect. Silence is an
+        // unknown outcome at the native deadline; only a failure before invocation is refused.
+        if (!dispatched) await reply("refused");
+    }
+}

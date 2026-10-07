@@ -70,10 +70,12 @@ struct SafariExtensionState: Equatable, Sendable {
     /// Whether Safari lets the extension read every website. Without that, titles are missing.
     let allSites: Bool
     let windows: [SafariExtensionWindow]
+    var push: BrowserPushEnvelope? = nil
 }
 
 enum SafariExtensionMessage: Equatable, Sendable {
     case state(SafariExtensionState)
+    case control(BrowserPushControl)
     /// Validated PNGs by the SHA-256 the extension sent them under.
     case icons(profile: String, session: String, [String: Data])
 
@@ -99,12 +101,20 @@ enum SafariExtensionMessage: Equatable, Sendable {
         let profile = (envelope["profile"] as? String).flatMap { name in
             UUID(uuidString: name)?.uuidString ?? ((1...64).contains(name.count) ? "profile:\(name)" : nil)
         } ?? "session:\(session)"
+        if message["type"] as? String == "push-control" {
+            return BrowserPushControl.decode(message, profile: profile, session: session).map(Self.control)
+        }
         switch message["type"] as? String {
-            case "state":
+            case "state", "events":
                 guard let time = (message["time"] as? NSNumber)?.doubleValue, time.isFinite,
                       let rawWindows = message["windows"] as? [[String: Any]], rawWindows.count <= maximumWindows
                 else { return nil }
-                let source = "\(profile):\(session)"
+                let push = BrowserPushEnvelope.decode(message["push"])
+                if message["push"] != nil && push == nil { return nil }
+                if message["type"] as? String == "events", push?.snapshot != false { return nil }
+                // A reloaded page can retain session storage. Its new transport epoch must not
+                // inherit any old window/tab bindings, even if the browser reuses numeric ids.
+                let source = "\(profile):\(session)" + (push.map { ":" + $0.epoch } ?? "")
                 var windows: [SafariExtensionWindow] = []
                 for raw in rawWindows {
                     guard let window = decodeWindow(raw, source: source, session: session, version: version) else { return nil }
@@ -115,9 +125,10 @@ enum SafariExtensionMessage: Equatable, Sendable {
                 guard Set(windows.map(\.key)).count == windows.count, Set(tabIds).count == tabIds.count else { return nil }
                 let measured = version >= 2 ? (message["measured"] as? NSNumber)?.doubleValue : nil
                 let order = version >= 2 ? integer(message["order"]).flatMap { $0 >= 0 ? $0 : nil } : nil
+                if let push, !Set(push.removed).isDisjoint(with: windows.map { $0.key.id }) { return nil }
                 return .state(.init(profile: profile, session: session, time: time,
                     measured: measured.flatMap { $0.isFinite && $0 <= time ? $0 : nil }, order: order,
-                    allSites: message["allSites"] as? Bool ?? false, windows: windows))
+                    allSites: message["allSites"] as? Bool ?? false, windows: windows, push: push))
             case "icons":
                 guard let raw = message["icons"] as? [String: String], raw.count <= maximumIcons else { return nil }
                 var icons: [String: Data] = [:]
@@ -146,7 +157,7 @@ enum SafariExtensionMessage: Equatable, Sendable {
     }
 
     private static func decodeWindow(_ raw: [String: Any], source: String, session: String, version: Int) -> SafariExtensionWindow? {
-        guard let id = (raw["id"] as? NSNumber)?.intValue,
+        guard raw["incognito"] as? Bool != true, let id = integer(raw["id"]), id >= 0,
               let rawTabs = raw["tabs"] as? [[String: Any]], rawTabs.count <= maximumTabs
         else { return nil }
         var bounds: CGRect? = nil
@@ -158,6 +169,7 @@ enum SafariExtensionMessage: Equatable, Sendable {
         }
         var tabs: [SafariExtensionTab] = []
         for tab in rawTabs {
+            guard tab["incognito"] as? Bool != true else { return nil }
             guard let title = tab["title"] as? String, let active = tab["active"] as? Bool else { return nil }
             let id = version >= 2 ? integer(tab["id"]) : nil
             guard version < 2 || id != nil else { return nil }

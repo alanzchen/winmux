@@ -21,8 +21,9 @@ children appear in the expanded list and search.
 `workspace-sidebar.browser-tabs` defaults to `true`. Turn off **Show browser tabs**
 in Settings to restore ordinary window rows. This uses the Accessibility permission
 WinMux already needs; it does not request Automation or require an extension. The
-optional [WinMux Tabs Safari extension](#safari-extension) adds website icons and
-sound to Safari's tabs.
+optional [Safari extension](#safari-extension) adds website icons, host names and sound.
+The optional [Chrome extension](#chrome-extension) adds host names and sound. Both report
+changes as events and can select a tab through a confirmed extension connection.
 
 ## Sound
 
@@ -91,9 +92,10 @@ Without that access Safari hides tabs' titles from the extension, and those tabs
 Safari's icon. Settings › Workspace Panel › Tabs › Content shows whether it's reporting and
 opens Safari's extension settings.
 
-The extension changes nothing in your pages or tabs; it only titles its own toolbar button
-(below). Selecting and closing tabs still use Accessibility, as above. The extension only
-describes tabs, and WinMux trusts a description only when it agrees with the tab strip it read:
+The extension titles its own toolbar button (below). With the event protocol described below,
+selection can use the extension after WinMux confirms its connection and the exact native tab;
+otherwise selection uses Accessibility. Closing still uses Accessibility. WinMux trusts an
+extension description only when it agrees with the tab strip it read:
 
 - A Safari window takes the extension's details only when it has the same tabs, in the same
   order, with the same tab selected, and no other window matches as well. A match must hold
@@ -108,7 +110,8 @@ describes tabs, and WinMux trusts a description only when it agrees with the tab
   report, so this takes a few seconds. A title naming anything else (the button hasn't caught up
   with a switch, a tab moved, or the extension reloaded) names nothing, nor does one two windows
   show at once. Those windows, and windows without the button, are matched by the rules below.
-  The button is only ever read: selecting, closing and moving never depend on it.
+  WinMux only reads the button. Its title can contribute to the native-window binding used
+  by extension selection; closing and moving retain their existing Accessibility paths.
 - Two windows with the same tabs, such as two one-tab windows on the same page, are told apart
   by where they were when Safari reported. WinMux notes where Safari's windows are a few times
   a second, and compares the bounds in each report only with where windows were when that
@@ -227,6 +230,104 @@ builds from `swift build` or `make run` don't include the extension; only the Xc
 (`make release`, `make install`) embeds it, and then only with a Developer ID signature and
 team. See [Local development](development.md#build-an-app-and-matching-cli) to try one.
 
+## Chrome extension
+
+The Preview includes **WinMux Tabs for Chrome**, an optional Manifest V3 extension for
+Google Chrome 120 or later on macOS. Chrome Beta/Dev/Canary, Chromium, Brave and Edge keep
+the existing Accessibility integration; this native-host installer targets Google Chrome only.
+The version floor is an API requirement, not a claim of live testing across those versions.
+
+Setup is explicit; installing or starting WinMux never registers a Chrome native host:
+
+1. Keep the Preview app at its intended location, normally `/Applications/WinMux.app`.
+2. Extract `WinMuxTabs-Chrome.zip` from the portable release archive to a permanent folder.
+   The same zip and unpacked folder are inside `WinMux.app/Contents/Resources/` for a DMG
+   installation. Copy the folder out of the app before loading it, so app updates do not
+   replace files beneath a loaded extension.
+3. Run the embedded CLI once to register the host for your macOS account:
+
+   ```sh
+   /Applications/WinMux.app/Contents/Helpers/winmux chrome-extension install
+   ```
+
+   If the app lives elsewhere, use that path. Run the command again after moving the app.
+   It writes only `~/Library/Application Support/Google/Chrome/NativeMessagingHosts/com.zimengxiong.winmux.tabs.json`.
+4. Open `chrome://extensions`, enable Developer mode, choose **Load unpacked**, and select
+   the extracted folder containing `manifest.json`. Its stable ID is
+   `hnanakkjaimkfkpgmcoaglbgiiaohgbj`. Enable it in each Chrome profile you want to report.
+5. Keep **Show browser tabs** enabled in WinMux. Chrome starts a copy of the embedded CLI
+   for each extension connection; it is a native-messaging helper, with no daemon/login item.
+   A lost connection backs off, then reconnects with a full snapshot.
+
+To update, replace the extracted extension files with those from the new Preview and use
+**Reload** in Chrome's extension page. To remove, remove the extension and delete the above
+host-manifest file. The manifest key keeps the ID stable without a Web Store listing; it is
+public identity material, not an authenticity secret. Chrome restricts the host to that
+origin, and WinMux and its helper verify each other's code signatures over their local socket.
+
+Chrome reports normal windows' ids, bounds, tab ids, titles, host names, active/pinned state,
+and audible/muted state. Incognito windows are excluded by the manifest and again when
+serializing reports. The helper assigns each connection a separate profile scope; ids from
+another profile or a reconnected stream cannot act on an old binding. The same native-window,
+read-time, twin and unread-window checks used for Safari apply, without Safari's toolbar marker.
+Ambiguous bindings retain the Accessibility path.
+
+Chrome's existing **Website icons for Chrome-family tabs** setting remains optional and off
+by default. This extension does not export favicon URLs or images and does not change that
+origin-only download path. Favicon events trigger metadata refresh, but this is not a favicon
+fix. Without the extension or host registration, all existing AX listing, selection, close,
+sound and optional-icon behavior remains available.
+
+## Event reports and selection
+
+The event transport is version 1, negotiated as `events: 1` in replies alongside the existing
+Safari metadata version 2. Deltas use a distinct `events` message type, so an older app
+rejects them and receives a full snapshot instead. A nested `push` envelope names the browser, page/connection epoch,
+monotonic sequence and snapshot/delta kind. A fresh background page or native connection
+starts with a full snapshot. Subsequent tab activation, creation/removal/movement/attachment,
+title, address, favicon, audio, mute and loading events query only affected windows and send
+window upserts/removals. A sequence gap drops that stream's identity evidence and requests a
+full snapshot. A full reconciliation remains once per minute, with bounded recovery and
+identity-confirmation reports. This does not relocate frequent polling into an extension.
+Unchanged windows retain their original observation timestamps and bounds evidence.
+
+An old Safari extension keeps its existing full-report and AX-selection behavior. A new
+Safari extension connected to an older app continues full reports and negotiates legacy
+metadata versions. Safari 18.4+ remains the extension requirement. Apple documents app-to-web-
+extension delivery through `SFSafariApplication.dispatchMessage` and a JavaScript
+`runtime.connectNative` listener; it does **not** promise that this wakes a suspended page.
+The historical Safari 27.0 wake failure noted above still applies. WinMux requires an exact
+stream's challenge/acknowledgement before sending selection commands. Without a recent
+acknowledgement, selection uses AX.
+
+A selection command identifies the browser, native profile scope, extension session, stream
+epoch, extension window and tab, sequence and unique request. Before dispatch WinMux reuses
+its exact native-control/lifetime/topic checks, and rechecks that the binding is still current.
+The extension checks that the tab is still in that normal, nonprivate window. A confirmed
+outcome requires both the command result and its matching activation event (or an explicit
+active-state read when the tab was already active). If delivery or completion is uncertain,
+the outcome is **unknown** and the existing selection feedback/read-back path tells the user
+if it cannot confirm the switch. WinMux never blindly retries the command or falls back to
+an AX press after possible dispatch. An explicit refusal before invocation may use the
+identity-checked AX path. Later clicks cancel waiting and send a best-effort cancellation for commands not yet invoked;
+stale replies cannot
+settle another request. Closing remains AX; this does not redesign Safari close actions.
+
+The 250 ms maintenance pass remains for report expiry, audio expiry, pending actions,
+backoff and native-window evidence. Event reports update the changed-window store immediately;
+new or changed native identity still needs AX corroboration. Fully corroborated Chrome windows
+now use the same 15-second safety reread as fully described Safari windows, except when
+Chrome-family website icons are enabled: their AX origin-confirmation cadence stays unchanged.
+Event disagreement
+invalidates the affected window immediately; AX notifications and the existing 1/4-second
+fallback cadence remain. No hidden-refresh or identity checks were removed. These are scheduling
+policies, not latency guarantees.
+
+API sources: [Apple native messaging](https://developer.apple.com/documentation/safariservices/messaging-between-the-app-and-javascript-in-a-safari-web-extension),
+[Chrome native messaging](https://developer.chrome.com/docs/extensions/develop/concepts/native-messaging),
+[MV3 worker lifetime](https://developer.chrome.com/docs/extensions/develop/concepts/service-workers/lifecycle),
+and [stable manifest key](https://developer.chrome.com/docs/extensions/reference/manifest/key).
+
 ## Current boundaries
 
 - The sidebar selects and closes browser tabs. Closing uses that exact tab's own close
@@ -287,3 +388,17 @@ The full arm64 suite completed 1,548 tests with 7 existing skips and no failures
 `swift build --arch arm64` also passed. The Mac locked during additional live checks,
 so notification delivery, typing an uncommitted address, and the full sidebar-to-
 browser selection flow remain pending desktop validation.
+
+### Event-push Preview validation
+
+The new transport and commands have source/API and synthetic production-path coverage only.
+JavaScriptCore runs both shipped background scripts against synthetic tabs; Swift tests cover
+parsing, sequences/recovery, delta evidence, exact-scoped results, timeout/no retry, cancellation,
+expiry, bounded frames and an explicit installer under a temporary home. Existing twin/moved-tab,
+AX, scheduling, sound and pending-action regressions remain in the normal suite. The historical
+live-browser observations above are baseline evidence, not validation of these new commands.
+
+Still needed on disposable browser profiles: a notarized Safari build's command probe/delivery
+while active and after suspension; Chrome's signed-host launch and reconnect; two profiles with
+identical windows; tab activation during detach/reorder; and disconnect after a dispatched select.
+No personal browser data, extension installation, or UI was used for this implementation.

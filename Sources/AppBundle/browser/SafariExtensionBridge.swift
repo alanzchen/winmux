@@ -68,6 +68,7 @@ final class SafariExtensionIcons: ObservableObject {
 @MainActor
 final class SafariExtensionBridge {
     static let shared = SafariExtensionBridge(configuration: isUnitTest ? { nil } : { .load() })
+    let browser: String
     let icons: SafariExtensionIcons
     private(set) var lastContact: TimeInterval? = nil
     /// Counts changes to the reported windows, so pairing runs again only after one.
@@ -75,6 +76,16 @@ final class SafariExtensionBridge {
     private let loadConfiguration: () -> SafariExtensionConfiguration?
     private var loadedConfiguration: SafariExtensionConfiguration??
     private var states: [String: (state: SafariExtensionState, received: TimeInterval, measured: TimeInterval, sighting: [UInt32: CGRect])] = [:]
+    private var streams: [String: BrowserPushSequence] = [:]
+    private var challenges: [String: (request: String, since: TimeInterval)] = [:]
+    private var ready: [String: TimeInterval] = [:]
+    var pushSenders: [String: (Data) -> Void] = [:]
+    private struct Command {
+        var confirmation: BrowserPushConfirmation
+        let continuation: CheckedContinuation<BrowserTabActionResult, Never>
+        let timeout: Task<Void, Never>
+    }
+    private var commands: [String: Command] = [:]
     private var failedIcons: [String: TimeInterval] = [:]
     private var enabled = false
     private var server: SafariExtensionServer?
@@ -101,9 +112,10 @@ final class SafariExtensionBridge {
     static let maximumImages = 512
 
     /// `clock` is the wall clock the extension stamps its reports with, in seconds.
-    init(configuration: @escaping () -> SafariExtensionConfiguration?, icons: SafariExtensionIcons = .shared,
+    init(browser: String = "safari", configuration: @escaping () -> SafariExtensionConfiguration?, icons: SafariExtensionIcons = .shared,
          now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
          clock: @escaping () -> TimeInterval = { Date().timeIntervalSince1970 }) {
+        self.browser = browser
         self.loadConfiguration = configuration
         self.icons = icons
         self.now = now
@@ -135,6 +147,7 @@ final class SafariExtensionBridge {
             .sorted { $0.state.profile < $1.state.profile }.flatMap { report in
                 report.state.windows.map { window in
                     var window = window
+                    if report.state.push != nil { return window }
                     window.received = report.received
                     window.measured = report.measured
                     window.order = report.state.order
@@ -172,11 +185,31 @@ final class SafariExtensionBridge {
         let live = states.filter { time - $0.value.received < Self.stateLifetime }
         if live.count != states.count {
             states = live
+            streams = streams.filter { live[$0.key] != nil }
+            ready = ready.filter { live[$0.key] != nil }
+            challenges = challenges.filter { live[$0.key] != nil }
             generation += 1
         }
     }
 
+    func disconnect(_ profile: String) {
+        states[profile] = nil
+        streams[profile] = nil
+        ready[profile] = nil
+        challenges[profile] = nil
+        pushSenders[profile] = nil
+        for (id, command) in commands where command.confirmation.target.profile == profile {
+            finishCommand(id, .dispatched(.unknown))
+        }
+        generation += 1
+    }
+
     func clear() {
+        for id in Array(commands.keys) { finishCommand(id, .dispatched(.unknown)) }
+        streams = [:]
+        challenges = [:]
+        ready = [:]
+        pushSenders = [:]
         states = [:]
         failedIcons = [:]
         if !icons.images.isEmpty { icons.images = [:] }
@@ -197,16 +230,85 @@ final class SafariExtensionBridge {
         guard let message else { return answer(["ok": false, "reason": "invalid"]) }
         let time = now()
         switch message {
-            case .state(let state):
-                if let previous = states[state.profile]?.state, previous.session == state.session, previous.time > state.time {
-                    return answer(["ok": true])
+            case .control(let control):
+                guard control.browser == browser, let stream = streams[control.profile], stream.valid,
+                      stream.session == control.session, stream.epoch == control.epoch else { return answer(["ok": false]) }
+                if control.kind == "ready", challenges[control.profile]?.request == control.request {
+                    ready[control.profile] = time
+                    challenges[control.profile] = nil
+                } else if var command = commands[control.request] {
+                    command.confirmation.receive(control)
+                    commands[control.request] = command
+                    if let outcome = command.confirmation.outcome { finishCommand(control.request, outcome) }
+                }
+                return answer(["ok": true])
+            case .state(var state):
+                if state.push == nil, let previous = states[state.profile]?.state,
+                   previous.session == state.session, previous.time > state.time { return answer(["ok": true]) }
+                if let push = state.push {
+                    guard push.browser == browser else { return answer(["ok": false]) }
+                    var stream = streams[state.profile] ?? BrowserPushSequence()
+                    let restarted = stream.session != state.session || stream.epoch != push.epoch
+                    let acceptance = stream.receive(session: state.session, envelope: push)
+                    streams[state.profile] = stream
+                    switch acceptance {
+                        case .snapshotRequired:
+                            states[state.profile] = nil
+                            ready[state.profile] = nil
+                            challenges[state.profile] = nil
+                            generation += 1
+                            _ = reportArrived()
+                            return answer(["ok": false, "events": 1, "snapshot": true])
+                        case .duplicate: return answer(["ok": true, "events": 1])
+                        case .accept: break
+                    }
+                    if restarted { ready[state.profile] = nil; challenges[state.profile] = nil }
+                    if !push.snapshot {
+                        guard let previous = states[state.profile]?.state, previous.session == state.session else {
+                            streams[state.profile] = nil
+                            return answer(["ok": false, "events": 1, "snapshot": true])
+                        }
+                        let changed = Set(state.windows.map { $0.key.id }).union(push.removed)
+                        let kept = previous.windows.filter { !changed.contains($0.key.id) }
+                        state = SafariExtensionState(profile: state.profile, session: state.session, time: state.time,
+                            measured: state.measured, order: state.order, allSites: state.allSites,
+                            windows: kept + state.windows, push: push)
+                    }
+                    let ids = state.windows.flatMap { $0.tabs.compactMap(\.id) }
+                    guard state.windows.count <= SafariExtensionMessage.maximumWindows, Set(ids).count == ids.count else {
+                        streams[state.profile] = nil
+                        states[state.profile] = nil
+                        ready[state.profile] = nil
+                        generation += 1
+                        _ = reportArrived()
+                        return answer(["ok": false, "events": 1, "snapshot": true])
+                    }
+                } else {
+                    streams[state.profile] = nil
+                    ready[state.profile] = nil
                 }
                 // The extension notes when it began measuring windows, before asking Safari for them.
                 // A report without that (an older extension's), one that took too long, or one
                 // from a clock that moved, says nothing about where windows were.
                 let transit = state.measured.map { clock() - $0 / 1000 }
                 let measured = transit.flatMap { (-1...Self.maximumTransit).contains($0) ? time - max(0, $0) : nil }
-                states[state.profile] = (state, time, measured ?? -.infinity, measured.map(sightSafariWindows) ?? [:])
+                let sighting = measured.map(sightSafariWindows) ?? [:]
+                if let push = state.push {
+                    // Kept windows already carry their original evidence. Never give a delta's
+                    // fresh bounds/timestamp to an unchanged window from an earlier report.
+                    let windows = state.windows.map { value -> SafariExtensionWindow in
+                        guard push.snapshot || value.received == -.infinity else { return value }
+                        var value = value
+                        value.received = time
+                        value.measured = measured ?? -.infinity
+                        value.sighting = sighting
+                        value.order = state.order
+                        return value
+                    }
+                    state = SafariExtensionState(profile: state.profile, session: state.session, time: state.time,
+                        measured: state.measured, order: state.order, allSites: state.allSites, windows: windows, push: push)
+                }
+                states[state.profile] = (state, time, measured ?? -.infinity, sighting)
                 generation += 1
                 lastContact = time
                 let referenced = referencedIcons
@@ -214,7 +316,7 @@ final class SafariExtensionBridge {
                 let wanted = Set(state.windows.flatMap { $0.tabs.compactMap(\.icon) }).filter { key in
                     icons.images[key] == nil && time - (failedIcons[key] ?? -.infinity) > 300
                 }.sorted()
-                var reply: [String: Any] = ["ok": true, "want": Array(wanted.prefix(max(0, min(2 * SafariExtensionMessage.maximumIcons, room))))]
+                var reply: [String: Any] = ["ok": true, "events": 1, "want": Array(wanted.prefix(max(0, min(2 * SafariExtensionMessage.maximumIcons, room))))]
                 if reportArrived() {
                     reply["again"] = againDelay
                     againDelay = min(Self.maximumAgain, againDelay * 2)
@@ -222,6 +324,13 @@ final class SafariExtensionBridge {
                     againDelay = Self.firstAgain
                 }
                 // Up to twice what one message carries, so the extension sees that more remain.
+                if let push = state.push, ready[state.profile].map({ time - $0 < 90 }) != true,
+                   challenges[state.profile].map({ time - $0.since >= 60 }) ?? true {
+                    let request = UUID().uuidString
+                    challenges[state.profile] = (request, time)
+                    sendPush(["protocol": 1, "kind": "probe", "request": request, "browser": browser,
+                              "profile": state.profile, "session": state.session, "epoch": push.epoch], profile: state.profile)
+                }
                 return answer(reply)
             case .icons(let profile, let session, let received):
                 guard states[profile]?.state.session == session else { return answer(["ok": true]) }
@@ -239,6 +348,61 @@ final class SafariExtensionBridge {
                 if next != icons.images { icons.images = next }
                 return answer(["ok": true])
         }
+    }
+
+    /// Available only after a round trip through the app-to-extension transport, for this stream.
+    func pushTarget(window: SafariExtensionWindowKey, tab: SafariExtensionTabKey) -> BrowserPushTarget? {
+        guard window.source == tab.source,
+              let report = states.values.first(where: { $0.state.windows.contains { $0.key == window } }),
+              let stream = streams[report.state.profile], stream.valid,
+              let readyAt = ready[report.state.profile], now() - readyAt < 90,
+              now() - report.received < 90,
+              report.state.windows.first(where: { $0.key == window })?.tabs.contains(where: { $0.id == tab.id }) == true
+        else { return nil }
+        return .init(browser: browser, profile: report.state.profile, session: stream.session, epoch: stream.epoch,
+                     window: window.id, tab: tab.id, sequence: stream.sequence)
+    }
+
+    func select(_ target: BrowserPushTarget) async -> BrowserTabActionResult {
+        guard !Task.isCancelled, target.browser == browser, streams[target.profile]?.session == target.session,
+              streams[target.profile]?.sequence == target.sequence, streams[target.profile]?.epoch == target.epoch,
+              streams[target.profile]?.valid == true, ready[target.profile].map({ now() - $0 < 90 }) == true else {
+            return .notDispatched(.changed)
+        }
+        let request = UUID().uuidString
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                let timeout = Task { [weak self] in
+                    do { try await Task.sleep(for: .seconds(2)) } catch { return }
+                    self?.finishCommand(request, .dispatched(.unknown))
+                }
+                commands[request] = Command(confirmation: .init(request: request, target: target),
+                    continuation: continuation, timeout: timeout)
+                sendPush(["protocol": 1, "kind": "select", "request": request, "browser": browser,
+                          "profile": target.profile, "session": target.session, "epoch": target.epoch,
+                          "window": target.window, "tab": target.tab, "seq": target.sequence,
+                          "expires": Date().timeIntervalSince1970 * 1000 + 1500], profile: target.profile)
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in
+                guard let self, self.commands[request] != nil else { return }
+                self.sendPush(["protocol": 1, "kind": "cancel", "request": request, "browser": self.browser,
+                    "profile": target.profile, "session": target.session, "epoch": target.epoch], profile: target.profile)
+                self.finishCommand(request, .dispatched(.unknown))
+            }
+        }
+    }
+
+    private func finishCommand(_ request: String, _ result: BrowserTabActionResult) {
+        guard let command = commands.removeValue(forKey: request) else { return }
+        command.timeout.cancel()
+        command.continuation.resume(returning: result)
+    }
+
+    private func sendPush(_ message: [String: Any], profile: String) {
+        guard let data = try? JSONSerialization.data(withJSONObject: message) else { return }
+        if let send = pushSenders[profile] { send(data) }
+        else if browser == "safari", let configuration { dispatchSafariPush(configuration.extensionId, data) }
     }
 
     /// Asks the extension to report now rather than at its next once-a-minute check-in. Best
@@ -426,4 +590,9 @@ private func safariExtensionTransfer(_ descriptor: Int32, count: Int, until dead
         return true
     }
     return complete ? data : nil
+}
+
+private func dispatchSafariPush(_ extensionId: String, _ data: Data) {
+    guard let message = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
+    SFSafariApplication.dispatchMessage(withName: "winmux-push", toExtensionWithIdentifier: extensionId, userInfo: message) { _ in }
 }

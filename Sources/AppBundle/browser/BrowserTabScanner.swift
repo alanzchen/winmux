@@ -353,6 +353,14 @@ final class BrowserTabScanner<Node: BrowserTabAXNode> {
         return SafariExtensionMarker(structure.description)
     }
 
+    /// Reuses the exact-control and topic checks before an extension command. No AX action runs.
+    func extensionSelectionRefusal(_ target: BrowserTabTarget, cancelled: () -> Bool = { false }) -> BrowserTabActionRefusal? {
+        switch actionable(target, cancelled: cancelled) {
+            case .failure(let refusal): return refusal
+            case .success: return nil
+        }
+    }
+
     func select(_ target: BrowserTabTarget, cancelled: () -> Bool = { false }) -> BrowserTabActionResult {
         run(.select, on: target, cancelled: cancelled) { node, _ in node.press() }
     }

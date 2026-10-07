@@ -229,6 +229,17 @@ final class MacApp: AbstractApp {
         } ?? .init()
     }
 
+    func browserTabExtensionSelectionRefusal(_ target: BrowserTabTarget) async throws -> BrowserTabActionRefusal? {
+        guard !serverArgs.isReadOnly, target.pid == pid else { return .changed }
+        guard let thread else { return .changed }
+        return try await thread.runInLoop { [windows] job -> BrowserTabActionRefusal? in
+            guard let window = windows.threadGuarded[target.windowId], let scanner = window.browserTabScanner else { return .changed }
+            defer { AXUIElementSetMessagingTimeout(window.ax, 1.0) }
+            try job.checkCancellation()
+            return scanner.extensionSelectionRefusal(target, cancelled: { job.isCancelled })
+        }
+    }
+
     func selectBrowserTab(_ target: BrowserTabTarget) async throws -> BrowserTabActionResult {
         guard !serverArgs.isReadOnly, target.pid == pid else { return .notDispatched(.changed) }
         return try await thread?.runInLoop { [windows] job -> BrowserTabActionResult in
