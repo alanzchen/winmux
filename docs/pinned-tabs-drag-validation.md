@@ -24,7 +24,9 @@ In Tabs mode the pinned tiles now take part in drag and drop both ways.
   middle third, goes to an ordinary tab, and the pin keeps its place, grey, until a click
   brings that same window back. A split is pinned only from its tab's menu; a pinned split
   and the pin of one of its windows share that window. (October 5's pin-into-pin tiling,
-  which made a pinned split, is gone.) An empty pin takes no pin in.
+  which made a pinned split, is gone.) An empty pin takes no pin in. Since October 8 the
+  same rule holds for `move-node-to-workspace`, `-to-monitor` and `-to-project`, the agent
+  API, and every window drag on screen; an empty pin takes one window, never a group.
 - The pins' order is saved as `pinOrder` beside each pin in `sidebar-organization.json`,
   so it survives relaunch. Rearranging pins doesn't change the tabs' own order, so an
   unpinned tab returns to its place in the list. A tab pinned from its menu goes

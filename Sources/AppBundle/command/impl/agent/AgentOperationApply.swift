@@ -15,10 +15,21 @@ extension AgentOperation {
                 applyMoveTabGroupToWorkspace(tabGroupId, workspace: workspace, shouldFocus: shouldFocus, context: context)
             case .swapPanes(let a, let b):
                 guard let nodeA = a.resolveNode(context: context), let nodeB = b.resolveNode(context: context) else { return }
+                // Never across tabs with a pin, whose window would change.
+                guard workspaceSidebarPinPolicyAllowsSwap(nodeA.nodeWorkspace, nodeB.nodeWorkspace) else {
+                    throw WorkspaceSidebarPinPolicyRefusal("swapPanes: a pin keeps its own window; swap within one tab instead")
+                }
                 swapNodes(nodeA, nodeB)
             case .placePane(let pane, let relation, let target):
                 guard let source = pane.resolveNode(context: context), let target = target.resolveNode(context: context) else { return }
-                placeAgentPane(source, relation: relation, target: target)
+                // Into another tab, as the pins' policy says: beside a pin's one window, both go to an ordinary tab.
+                guard let targetWorkspace = target.nodeWorkspace, targetWorkspace !== source.nodeWorkspace else {
+                    placeAgentPane(source, relation: relation, target: target)
+                    return
+                }
+                guard try moveWorkspaceSidebarNodeKeepingPins(source, onto: targetWorkspace, { _ in
+                    placeAgentPane(source, relation: relation, target: target)
+                }) else { throw WorkspaceSidebarPinPolicyRefusal("placePane: \(targetWorkspace.name) is a pinned split, or a pin whose window is in another tab") }
             case .createTabGroup(let tabGroupId, let workspace, let tabs, let activeWindowId):
                 applyCreateTabGroup(tabGroupId, workspace: workspace, tabs: tabs, activeWindowId: activeWindowId, context: &context)
             case .addWindowToTabGroup(let windowId, let tabGroupId, let activeWindowId):
@@ -63,8 +74,11 @@ extension AgentOperation {
     ) {
         guard let group = resolveAgentTabGroup(tabGroupId, context: context) else { return }
         let targetWorkspace = getAgentTargetWorkspace(named: workspace, projectSource: group.nodeWorkspace, monitorSource: group)
-        let binding = workspaceAppendBindingData(targetWorkspace: targetWorkspace, index: INDEX_BIND_LAST)
-        group.bind(to: binding.parent, adaptiveWeight: binding.adaptiveWeight, index: binding.index)
+        // As the pins' policy says: a pin with one window keeps it, a pinned split takes no group.
+        guard (try? moveWorkspaceSidebarNodeKeepingPins(group, onto: targetWorkspace, { destination in
+            let binding = workspaceAppendBindingData(targetWorkspace: destination, index: INDEX_BIND_LAST)
+            group.bind(to: binding.parent, adaptiveWeight: binding.adaptiveWeight, index: binding.index)
+        })) == true else { return }
         if shouldFocus ?? false { _ = group.mostRecentWindowRecursive?.focusWindow() }
     }
 
@@ -153,11 +167,14 @@ extension AgentOperation {
         guard let node = pane.resolveNode(context: context), let sourceWindow = node.mostRecentWindowRecursive ?? node.anyLeafWindowRecursive else { return }
         let workspaceName = workspace ?? "__agent_parked"
         let targetWorkspace = getAgentTargetWorkspace(named: workspaceName, projectSource: node.nodeWorkspace, monitorSource: node)
-        if node is Window, sourceWindow.isFloating {
-            node.bind(to: targetWorkspace, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
-        } else {
-            let binding = workspaceAppendBindingData(targetWorkspace: targetWorkspace, index: INDEX_BIND_LAST)
-            node.bind(to: binding.parent, adaptiveWeight: binding.adaptiveWeight, index: binding.index)
+        // As the pins' policy says: a pin whose one window is parked lends it, and a pin takes no pane.
+        _ = try? moveWorkspaceSidebarNodeKeepingPins(node, onto: targetWorkspace) { destination in
+            if node is Window, sourceWindow.isFloating {
+                node.bind(to: destination, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
+            } else {
+                let binding = workspaceAppendBindingData(targetWorkspace: destination, index: INDEX_BIND_LAST)
+                node.bind(to: binding.parent, adaptiveWeight: binding.adaptiveWeight, index: binding.index)
+            }
         }
     }
 

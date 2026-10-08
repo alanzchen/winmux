@@ -1,6 +1,7 @@
 @MainActor
 func agentMoveWindowToWorkspace(_ window: Window, _ targetWorkspace: Workspace, focusFollowsWindow: Bool) -> Bool {
-    moveWindowToWorkspace(window, targetWorkspace, CmdIo(stdin: .emptyStdin), focusFollowsWindow: focusFollowsWindow, failIfNoop: false)
+    moveWindowToWorkspaceKeepingPins(window, targetWorkspace, CmdIo(stdin: .emptyStdin), focusFollowsWindow: focusFollowsWindow,
+        failIfNoop: false)
 }
 
 @MainActor

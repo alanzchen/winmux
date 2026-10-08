@@ -48,6 +48,9 @@ struct WorkspaceSidebarDropIntent {
     var targetWorkspace: Workspace? = nil
     /// Pins were shared when the drop was shown: a drop on them moves no tab.
     var pinGridIsShared = false
+    /// A pin the drop was on, as it was at the release: empty, or with its one window, which one. The
+    /// drop is made only while it still is, never decided again from what it holds later.
+    var targetPinRole: WorkspaceSidebarPinRoleSnapshot? = nil
 
     @MainActor static var physical: WorkspaceSidebarDropIntent { .init(surface: nil, destination: nil) }
 
@@ -58,15 +61,17 @@ struct WorkspaceSidebarDropIntent {
     static func captured(for target: WorkspaceSidebarDropTarget,
                          source: WorkspaceSidebarDropSource? = nil) -> WorkspaceSidebarDropIntent? {
         let tab = target.kind.aimedWorkspaceName.flatMap { Workspace.existing(byName: $0) }
+        let pinRole = if case .workspace = target.kind { tab.flatMap(workspaceSidebarPinRoleSnapshot) } else { WorkspaceSidebarPinRoleSnapshot?.none }
         guard let surface = target.surface, surface.isTemporary else {
-            return WorkspaceSidebarDropIntent(surface: target.surface, destination: nil, source: source, targetWorkspace: tab)
+            return WorkspaceSidebarDropIntent(surface: target.surface, destination: nil, source: source, targetWorkspace: tab,
+                targetPinRole: pinRole)
         }
         guard let destination = WorkspaceSidebarTemporaryDropSurfaces.shared.destination(for: surface),
               target.kind.monitorScopeId.map({ $0 == destination.monitorScopeId }) ?? true,
               target.tabReorderDestination.map({ $0.monitorScopeId == destination.monitorScopeId }) ?? true
         else { return nil }
         return WorkspaceSidebarDropIntent(surface: surface, destination: destination,
-            listsSharedPins: config.workspaceSidebar.sharesPinnedTabs, source: source, targetWorkspace: tab)
+            listsSharedPins: config.workspaceSidebar.sharesPinnedTabs, source: source, targetWorkspace: tab, targetPinRole: pinRole)
     }
 
     /// Whether the tab the drop was aimed at is still the one it was, not gone or another tab
@@ -74,6 +79,13 @@ struct WorkspaceSidebarDropIntent {
     @MainActor
     var targetIsUnchanged: Bool {
         targetWorkspace.map { Workspace.existing(byName: $0.name) === $0 } ?? true
+    }
+
+    /// Whether a pin the drop was on still has the part it had at the release, with the same window.
+    @MainActor
+    var targetPinIsUnchanged: Bool {
+        guard let targetPinRole else { return true }
+        return targetWorkspace.flatMap(workspaceSidebarPinRoleSnapshot) == targetPinRole
     }
 
     /// What was dragged, if it's still what was released: the same window, and the same windows

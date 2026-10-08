@@ -28,6 +28,8 @@ func swapDestination(
     )
     guard !isBlockedByDragTargetContainment(sourceNode: sourceNode, targetNode: targetNode),
           !isInvalidGroupSelfTarget(sourceNode: sourceNode, targetNode: targetNode, subject: subject),
+          // Never swapped across tabs with a pin, whose window would change.
+          workspaceSidebarPinPolicyAllowsSwap(sourceNode.nodeWorkspace, targetWindow.nodeWorkspace),
           let previewRect = targetNode.swapDropZoneRect
     else { return nil }
     let interactionRect = if subject == .group {

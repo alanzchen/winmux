@@ -114,6 +114,9 @@ final class MacWindow: Window {
         }
         if !skipClosedWindowsCache { cacheClosedWindowIfNeeded() }
         removeClosedWindowFromTree()
+        // Closed: no pin lends it, and no pinned split brings it back, any more.
+        let (windowId, pid) = (windowId, macApp.pid)
+        forgetWorkspaceSidebarPinWindows { $0.windowId == windowId && $0.pid == pid }
     }
 
     @MainActor override var title: String { get async throws { try await macApp.getAxTitle(windowId) ?? "" } }

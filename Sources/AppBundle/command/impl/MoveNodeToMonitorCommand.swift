@@ -20,7 +20,7 @@ struct MoveNodeToMonitorCommand: Command {
                     .map { dir in dir.isPositive && targetWs.rootTilingContainer.orientation == dir.orientation }
                     ? 0
                     : INDEX_BIND_LAST
-                return moveWindowToWorkspace(
+                return moveWindowToWorkspaceKeepingPins(
                     window,
                     targetWs,
                     io,

@@ -321,7 +321,8 @@ private func moveSidebarSource(
         try intent.checkDestination()
         // What was released, onto the tab it was released on: a tab another display's list showed
         // takes the drop only while it's still on that display.
-        guard validation(), intent.targetIsUnchanged, let source = intent.resolveSource(windowId: windowId, subject: subject),
+        guard validation(), intent.targetIsUnchanged, intent.targetPinIsUnchanged,
+              let source = intent.resolveSource(windowId: windowId, subject: subject),
               let targetWorkspace = Workspace.existing(byName: workspaceName), intent.accepts(targetWorkspace)
         else { return }
         let (sourceWindow, sourceNode) = (source.window, source.node)
@@ -551,7 +552,11 @@ private func moveSidebarSourceToNewWorkspace(
             : workspace.rootTilingContainer
         syncClosedWindowsCacheToCurrentWorld()
         suppressPostDragAxObserverEvents(for: sourceNode.allLeafWindowsRecursive.map(\.windowId))
-        sourceNode.bind(to: targetContainer, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
+        // A pin whose one window gets the new tab lends it there.
+        _ = try moveWorkspaceSidebarNodeOutKeepingPins(sourceNode) {
+            sourceNode.bind(to: targetContainer, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
+            return true
+        }
         await updateWorkspaceSidebarModel()
     }
     if task == nil, let settlingId { finishWorkspaceSidebarDockLift(id: settlingId) }
@@ -707,9 +712,9 @@ private func isActionableSidebarDropTarget(
         return !group.workspaceNames.contains(workspace.name)
             || workspaceSidebarDropDisplayChange(for: workspace, monitorScopeId: monitorScopeId) != nil
     }
-    // A pin lending its window, or a pinned split, takes no split and no window.
+    // A pin lending its window, or a pinned split, takes no split and no window, and an empty pin one window.
     if case .workspace(let name) = target, let workspace = Workspace.existing(byName: name),
-       !workspaceSidebarTakesSplit(workspace) { return false }
+       !workspaceSidebarPinPolicyAllows(sourceNode, into: workspace) { return false }
     return isActionableSidebarWorkspaceDropTarget(sourceWorkspaceName: sourceWorkspaceName, targetKind: target)
 }
 

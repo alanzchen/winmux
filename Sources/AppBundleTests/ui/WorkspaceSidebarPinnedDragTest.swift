@@ -834,6 +834,33 @@ final class WorkspaceSidebarPinnedDragTest: XCTestCase {
         XCTAssertFalse(b.isVisible, "b isn't brought on screen")
     }
 
+    /// Review V1 F6: a pin split shown with two windows is made with those two or not at all. Either
+    /// pin's window replaced after the release, before its session runs, nothing moves.
+    func testAPinSplitIsMadeOnlyWithTheWindowsItWasShownWith() async throws {
+        for changed in ["a", "b"] {
+            try await setUp()
+            let (a, b, c, d) = try tabs()
+            let surface = try pinGridSurface(["a", "b", "c"])
+            WorkspaceSidebarTemporaryDropSurfaces.shared.register(surface)
+            defer { WorkspaceSidebarTemporaryDropSurfaces.shared.unregister(surface) }
+            let middle = CGPoint(x: surface.tiles[1].midX - 6, y: surface.tiles[1].midY)
+            try await dragPin("a", to: middle)
+            XCTAssertEqual(TrayMenuModel.shared.workspaceSidebarDropPreview?.targetWorkspaceName, "b", changed)
+            finishSidebarPinnedTabDrag("a", pointer: middle)
+            // Released: before its session runs, one pin's window closes and another opens in it.
+            let pin = changed == "a" ? a : b
+            pin.allLeafWindowsRecursive[0].unbindFromParent()
+            _ = TestWindow.new(id: 9, parent: pin.rootTilingContainer)
+            try await Task.sleep(for: .milliseconds(400))
+            XCTAssertEqual(a.allLeafWindowsRecursive.map(\.windowId), changed == "a" ? [9] : [1], changed)
+            XCTAssertEqual(b.allLeafWindowsRecursive.map(\.windowId), changed == "b" ? [9] : [2], changed)
+            XCTAssertNil(workspaceSidebarLentWindow(of: a), changed)
+            XCTAssertNil(workspaceSidebarLentWindow(of: b), changed)
+            XCTAssertEqual(c.allLeafWindowsRecursive.map(\.windowId), [3], changed)
+            XCTAssertEqual(d.allLeafWindowsRecursive.map(\.windowId), [4], changed)
+        }
+    }
+
     func testRenderedPinsTakeDropsBesideEachTileAndMarkWhereTheTabGoes() throws {
         var fixture = WorkspaceSidebarSnapshot.empty
         fixture.configuration = WorkspaceSidebarConfiguration(collapsedWidth: 44, expandedWidth: 280,

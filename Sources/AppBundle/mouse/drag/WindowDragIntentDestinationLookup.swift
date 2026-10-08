@@ -44,6 +44,8 @@ func currentWindowDragIntentDestination(
         return detachDestination
     }
 
+    // Into another tab only as the pins' policy allows: a pinned split, or a pin lending its window, takes none.
+    guard targetWorkspace == sourceWorkspace || workspaceSidebarPinPolicyAllows(sourceNode, into: targetWorkspace) else { return nil }
     return workspaceZoneMoveDestination(
         targetWorkspace: targetWorkspace,
         sourceWorkspace: sourceWorkspace,

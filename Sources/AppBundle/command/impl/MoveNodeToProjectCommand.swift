@@ -16,7 +16,7 @@ struct MoveNodeToProjectCommand: Command {
         }
         let monitor = window.nodeMonitor ?? sourceWorkspace.workspaceMonitor
         let targetWorkspace = firstWorkspaceForProjectMove(projectId: project.id, monitor: monitor)
-        return moveWindowToWorkspace(
+        return moveWindowToWorkspaceKeepingPins(
             window,
             targetWorkspace,
             io,

@@ -28,11 +28,11 @@ func isActionableSidebarWorkspaceDropTarget(
     }
 }
 
-/// A pin lending its window, or a pinned split, takes no window from the screen.
+/// A pin lending its window, or a pinned split, takes no window from the screen, and an empty pin one window.
 @MainActor
-private func workspaceSidebarScreenDropTakesWindow(_ kind: WorkspaceSidebarDropTargetKind) -> Bool {
+private func workspaceSidebarScreenDropTakes(_ node: TreeNode, _ kind: WorkspaceSidebarDropTargetKind) -> Bool {
     guard case .workspace(let name) = kind, let workspace = Workspace.existing(byName: name) else { return true }
-    return workspaceSidebarTakesSplit(workspace)
+    return workspaceSidebarPinPolicyAllows(node, into: workspace)
 }
 
 @MainActor
@@ -45,7 +45,7 @@ func currentSidebarWorkspaceDropDestination(sourceWindow: Window, mouseLocation:
     guard !hit.isOnTemporarySurface else { return nil }
     if let target = hit.target,
        isActionableSidebarWorkspaceDropTarget(sourceWorkspaceName: sourceWorkspaceName, targetKind: target.kind),
-       workspaceSidebarScreenDropTakesWindow(target.kind)
+       workspaceSidebarScreenDropTakes(dragSubjectNode(for: sourceWindow, subject: subject), target.kind)
     {
         switch target.kind {
             // Windows dragged in from the screen join tabs; only sidebar drags pin or group.

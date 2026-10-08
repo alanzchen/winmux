@@ -681,6 +681,8 @@ final class MacApp: AbstractApp {
         _ = await Task { @MainActor [pid] in
             _ = MacApp.allAppsMap.removeValue(forKey: pid)
             savedWorkspaceRuntime.firstWindowSeenByPid.removeValue(forKey: pid)
+            // The process ended: no window of it is lent by a pin, or brought back by a pinned split.
+            forgetWorkspaceSidebarPinWindows { $0.pid == pid }
         }.result
         for (_, job) in setFrameJobs {
             job.cancel()

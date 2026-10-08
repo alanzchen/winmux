@@ -6,7 +6,7 @@ func canSplitWorkspaceSidebarTabWindow(_ window: Window, with target: Workspace)
           let source = window.nodeWorkspace, source !== target, !source.isArchived, !target.isArchived,
           // The same project as the sidebar shows them: a pin in All Projects is in every one.
           workspaceContextProjectId(of: source) == workspaceContextProjectId(of: target),
-          !target.rootTilingContainer.isEffectivelyEmpty, workspaceSidebarTakesSplit(target),
+          !target.rootTilingContainer.isEffectivelyEmpty, workspaceSidebarPinPolicyAllows(window, into: target),
           source.workspaceMonitor.rect == target.workspaceMonitor.rect,
           workspaceSidebarMenuCanMove(window, workspaceName: source.name, destination: target),
           target.rootTilingContainer.allLeafWindowsRecursive.allSatisfy({

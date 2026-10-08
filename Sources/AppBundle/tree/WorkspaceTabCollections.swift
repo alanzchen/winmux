@@ -62,9 +62,9 @@ struct WorkspaceSidebarItemAppearance: Codable, Hashable {
     /// Tabs mode, a pin with one window: that window, while it's in another tab's split. The pin
     /// shows grey, and a click brings the same window back. Means something only while pinned.
     var lentWindow: WorkspaceSidebarPinWindow? = nil
-    /// Tabs mode, a pinned split: its windows that went back to their own pins, which a click on
-    /// it brings back while they're there. Means something only while pinned.
-    var recallWindows: [WorkspaceSidebarRecallWindow]? = nil
+    /// Tabs mode, a pinned split, made from a split tab's menu: it as it was split, whatever windows
+    /// it has now. Means something only while pinned.
+    var composition: WorkspaceSidebarPinComposition? = nil
 
     var isPinnedInAllProjects: Bool { isFavorite && pinScope == .allProjects }
 
@@ -72,7 +72,7 @@ struct WorkspaceSidebarItemAppearance: Codable, Hashable {
     /// its place and its scope, and the windows it lent or would bring back.
     mutating func setFavorite(_ favorite: Bool) {
         if favorite != isFavorite { pinOrder = nil; pinScope = nil }
-        if !favorite { lentWindow = nil; recallWindows = nil }
+        if !favorite { lentWindow = nil; composition = nil }
         isFavorite = favorite
     }
 
@@ -84,18 +84,33 @@ struct WorkspaceSidebarItemAppearance: Codable, Hashable {
     }
 }
 
-/// A window, as it was when a pin lent it or a pinned split let it go: its process tells it from a
-/// later window given the same number.
+/// One lifetime of a window: its number, its process, that process's app and launch, and the boot it
+/// ran in. The same number and process seen in another boot, or in another launch, are another window.
 struct WorkspaceSidebarPinWindow: Codable, Hashable {
     var windowId: UInt32
     var pid: Int32
+    var bundleId: String? = nil
+    var processLaunch: Date? = nil
+    var boot: Date? = nil
 }
 
-/// A pinned split's window that a click on its own pin took back there, and where it was in the split.
-struct WorkspaceSidebarRecallWindow: Codable, Hashable {
+/// A pinned split: its layout as it was split, and its windows away now, back alone in their own pins,
+/// which a click on it brings back to their places.
+struct WorkspaceSidebarPinComposition: Codable, Hashable {
+    var layout: WorkspaceSidebarCompositionNode
+    var away: [WorkspaceSidebarCompositionMember] = []
+}
+
+/// A pinned split's window that a click on its own pin took back there.
+struct WorkspaceSidebarCompositionMember: Codable, Hashable {
     var window: WorkspaceSidebarPinWindow
     var pinName: String
-    var index: Int
+}
+
+/// A pinned split's layout: a window, or windows side by side or stacked, each with its length.
+indirect enum WorkspaceSidebarCompositionNode: Codable, Hashable {
+    case window(WorkspaceSidebarPinWindow, weight: CGFloat)
+    case split(Orientation, weight: CGFloat, children: [WorkspaceSidebarCompositionNode])
 }
 
 struct WorkspaceSidebarOrganization: Codable, Equatable {
@@ -304,6 +319,8 @@ func loadWorkspaceSidebarOrganization() {
     if let reason = workspaceSidebarOrganizationStore.readOnlyReason {
         MessageModel.shared.message = Message(description: "Sidebar Organization", body: reason)
     }
+    // Windows of a process that's gone, or of another boot, aren't lent or brought back.
+    forgetWorkspaceSidebarPinWindowsNoLongerOpen()
 }
 
 enum WorkspaceSidebarTabSection: Equatable, Identifiable {

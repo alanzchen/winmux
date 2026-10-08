@@ -255,14 +255,20 @@ func applyPendingWindowDragIntentIfPossible() -> Bool {
             else { return false }
             syncClosedWindowsCacheToCurrentWorld()
             suppressPostDragAxObserverEvents(for: [sourceWindow.windowId, targetWindow.windowId])
-            return applyWindowStackSplitDragIntent(
-                sourceWindow: sourceWindow,
-                sourceSubject: pendingWindowDragIntent.sourceSubject,
-                targetWindow: targetWindow,
-                position: position,
-            )
+            let split = {
+                applyWindowStackSplitDragIntent(sourceWindow: sourceWindow, sourceSubject: pendingWindowDragIntent.sourceSubject,
+                    targetWindow: targetWindow, position: position)
+            }
+            // Within its own tab, as before. Into another, as the pins' policy says: beside a pin's one
+            // window, both go to an ordinary tab, on that display, and the split is made there.
+            guard let targetWorkspace = targetWindow.nodeWorkspace, targetWorkspace !== sourceNode.nodeWorkspace else { return split() }
+            return applyWindowDragKeepingPins(sourceNode, onto: targetWorkspace) { _ in
+                guard split() else { throw WorkspaceSidebarMoveDidNotHappen() }
+            }
         case .swap(let targetWindowId):
-            guard let targetWindow = Window.get(byId: targetWindowId)
+            guard let targetWindow = Window.get(byId: targetWindowId),
+                  // Never swapped across tabs with a pin, whose window would change.
+                  workspaceSidebarPinPolicyAllowsSwap(sourceNode.nodeWorkspace, targetWindow.nodeWorkspace)
             else { return false }
             syncClosedWindowsCacheToCurrentWorld()
             suppressPostDragAxObserverEvents(for: [sourceWindow.windowId, targetWindow.windowId])
@@ -275,38 +281,53 @@ func applyPendingWindowDragIntentIfPossible() -> Bool {
             guard let targetWorkspace = Workspace.existing(byName: workspaceName) else { return false }
             syncClosedWindowsCacheToCurrentWorld()
             suppressPostDragAxObserverEvents(for: [sourceWindow.windowId])
-            if pendingWindowDragIntent.previewStyle == .sidebarWorkspaceMove {
-                // A pin with one window keeps it as its own: the window goes to an ordinary tab with it.
-                do {
-                    return try moveWorkspaceSidebarNodeKeepingPins(sourceNode, onto: targetWorkspace) { destination in
-                        applySidebarWorkspaceMove(sourceNode: sourceNode, sourceWindow: sourceWindow, targetWorkspace: destination)
-                        // The split it went to instead comes forward with it.
-                        if destination !== targetWorkspace { _ = sourceWindow.focusWindow() }
-                    }
-                } catch {
-                    showWorkspaceSidebarError(error.localizedDescription)
-                    return false
+            // A pin with one window keeps it as its own: the window goes to an ordinary tab with it.
+            let isSidebarMove = pendingWindowDragIntent.previewStyle == .sidebarWorkspaceMove
+            return applyWindowDragKeepingPins(sourceNode, onto: targetWorkspace) { destination in
+                if isSidebarMove {
+                    applySidebarWorkspaceMove(sourceNode: sourceNode, sourceWindow: sourceWindow, targetWorkspace: destination)
+                } else {
+                    applyWorkspaceMove(sourceNode: sourceNode, sourceWindow: sourceWindow, mouseLocation: mouseLocation,
+                        targetWorkspace: destination)
                 }
-            } else {
-                applyWorkspaceMove(sourceNode: sourceNode, sourceWindow: sourceWindow, mouseLocation: mouseLocation, targetWorkspace: targetWorkspace)
+                // The split it went to instead comes forward with it.
+                if destination !== targetWorkspace { _ = sourceWindow.focusWindow() }
             }
-            return true
         case .moveToWorkspaceZone(let workspaceName, let zone):
             guard let targetWorkspace = Workspace.existing(byName: workspaceName) else { return false }
             syncClosedWindowsCacheToCurrentWorld()
             suppressPostDragAxObserverEvents(for: [sourceWindow.windowId])
-            applyWorkspaceZoneMove(sourceNode: sourceNode, sourceWindow: sourceWindow, targetWorkspace: targetWorkspace, zone: zone)
-            return true
+            return applyWindowDragKeepingPins(sourceNode, onto: targetWorkspace) { destination in
+                applyWorkspaceZoneMove(sourceNode: sourceNode, sourceWindow: sourceWindow, targetWorkspace: destination, zone: zone)
+            }
         case .createWorkspace(let projectId, let monitorScopeId):
             syncClosedWindowsCacheToCurrentWorld()
             suppressPostDragAxObserverEvents(for: [sourceWindow.windowId])
-            return createWorkspaceFromSidebarDrag(
-                sourceNode: sourceNode,
-                sourceWindow: sourceWindow,
-                projectId: projectId,
-                monitorScopeId: monitorScopeId,
-            )
+            // A pin whose one window gets the new tab lends it there.
+            do {
+                return try moveWorkspaceSidebarNodeOutKeepingPins(sourceNode) {
+                    createWorkspaceFromSidebarDrag(sourceNode: sourceNode, sourceWindow: sourceWindow, projectId: projectId,
+                        monitorScopeId: monitorScopeId)
+                }
+            } catch {
+                showWorkspaceSidebarError(error.localizedDescription)
+                return false
+            }
         case .sidebarHover:
             return false
+    }
+}
+
+/// A window drag on screen into another tab, made by `apply`, which is given the tab it goes to, as the
+/// pins' policy says. Gives false where the policy refuses, or a change can't be saved.
+@MainActor
+private func applyWindowDragKeepingPins(_ sourceNode: TreeNode, onto target: Workspace, _ apply: (Workspace) throws -> Void) -> Bool {
+    do {
+        return try moveWorkspaceSidebarNodeKeepingPins(sourceNode, onto: target, newTabMonitor: target.workspaceMonitor, apply)
+    } catch is WorkspaceSidebarMoveDidNotHappen {
+        return false
+    } catch {
+        showWorkspaceSidebarError(error.localizedDescription)
+        return false
     }
 }

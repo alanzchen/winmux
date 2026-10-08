@@ -88,16 +88,22 @@ tabs-always-expanded = true
   when the window came out of a split. Nearer a tile's sides, the tab is pinned beside it
   however long it rests there. A pinned tile held over another pin's middle splits with
   it the same way, in a new ordinary tab, and a window dragged in from the screen onto a
-  pin splits with it too. The pin keeps its place and turns grey while its window is in
+  pin, or onto its window, splits with it too, as does `move-node-to-workspace` (or
+  `-to-monitor`, `-to-project`) naming the pin. Moving a pin's window out, by any of these,
+  lends it the same way. The pin keeps its place and turns grey while its window is in
   the split; it still clicks, and a click brings that same window back to it, alone,
-  leaving the rest of the split where it is. An ordinary tab it leaves empty closes. An
-  empty pin still takes in a window, or, dragged over a tab with one window, that tab
-  (labelled **Tile into Pin**). A split is pinned only from its tab's menu, with **Pin
-  Tab**; dragging it onto the pins, or chosen tabs with one among them, pins nothing.
-  A pinned split and the pin of one of its windows share that window: a click on the pin
-  brings the window back alone, and a click on the pinned split brings back those of its
-  windows that are back in their pins. A grey pin and a pinned split take no other window
-  in, and a pinned split splits with nothing. A tab pinned from its menu goes after the
+  leaving the rest of the split where it is. A minimized window is restored first; a
+  hidden app's or full-screen window is shown where it is, with a notice. An ordinary tab
+  it leaves empty closes. An empty pin still takes in one window, or, dragged over a tab
+  with one window, that tab (labelled **Tile into Pin**), never more than one. A split is
+  pinned only from its tab's menu, with **Pin Tab**; dragging it onto the pins, or chosen
+  tabs with one among them, pins nothing. A pinned split stays one whatever windows it
+  has now, and remembers where each was. It shares a window with that window's own pin:
+  a click on the pin brings the window back alone, and a click on the pinned split brings
+  back those of its windows that are back in their pins, each to its place. While any of
+  its windows is open elsewhere, an empty pinned split never opens its apps again; a
+  notice says where they are. A grey pin and a pinned split take no other window in, and a
+  pinned split splits with nothing. A tab pinned from its menu goes after the
   pins already arranged. Pins, their order, group membership,
   colors and emoji are saved in `sidebar-organization.json` beside the saved-workspace
   file. Customizing, pinning or grouping a workspace saves its identity and layout for

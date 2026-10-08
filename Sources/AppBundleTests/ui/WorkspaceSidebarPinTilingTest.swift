@@ -47,7 +47,9 @@ final class WorkspaceSidebarPinTilingTest: XCTestCase {
             let (pin, tab) = try pinAndTab()
             let pinOrder = workspaceSidebarOrganizationStore.state.workspaces["p"]?.pinOrder
             let drop = try await pausedDrop(pin, onto: tab, right: right)
-            XCTAssertEqual(drop, .join("n", placement: right ? .right : .left, monitorScopeId: scope))
+            XCTAssertEqual(drop, .join("n", placement: right ? .right : .left,
+                operation: .lend(.init(try XCTUnwrap(pin.anyLeafWindowRecursive))), monitorScopeId: scope),
+                "What it does is shown with the pin's own window")
             try applyWorkspaceSidebarPinnedTabDrop(pin, drop)
             // Pin p's window 1 goes on the half pointed at: right of n's window 2, or left of it.
             XCTAssertEqual(tab.allLeafWindowsRecursive.map(\.windowId), right ? [2, 1] : [1, 2])
@@ -80,7 +82,7 @@ final class WorkspaceSidebarPinTilingTest: XCTestCase {
         XCTAssertEqual(filling.receivingPinnedTabName, "empty")
         XCTAssertEqual(workspaceSidebarTabDropLabelText(for: filling), "Tile into Pin")
         XCTAssertNil(filling.sourceOnly.receivingPinnedTabName, "Panels that don't show the drop don't light the pin")
-        XCTAssertEqual(workspaceSidebarPinnedTabDropUndoTitle(fill, fillsEmptyPin: true), "Tile into Pinned Tab")
+        XCTAssertEqual(workspaceSidebarPinnedTabDropUndoTitle(fill), "Tile into Pinned Tab")
     }
 
     /// A pin's window splitting with a split tab joins that split, which keeps its layout: side by
@@ -351,7 +353,13 @@ final class WorkspaceSidebarPinTilingTest: XCTestCase {
         }?.value
         XCTAssertEqual(tab.allLeafWindowsRecursive.count, 3)
         let title = try XCTUnwrap(WorkspaceSidebarTabUndo.shared.title)
+        let weights = tab.rootTilingContainer.children.map { $0.getWeight(.h) }
+        XCTAssertEqual(weights.reduce(0, +), 784, accuracy: 0.001, "\(weights)")
         for _ in 0 ..< 3 { try await runRefreshSessionBlocking(.globalObserver("test")) }
+        let laidOut = tab.rootTilingContainer.children.map { $0.getWeight(.h) }
+        XCTAssertNotEqual(laidOut, weights, "The layouts after it moved the weights, if only by float noise")
+        XCTAssertEqual(laidOut.count, weights.count)
+        for (a, b) in zip(laidOut, weights) { XCTAssertEqual(a, b, accuracy: 1e-6) }
         XCTAssertEqual(WorkspaceSidebarTabUndo.shared.title, title, "Undo is still there")
 
         await runWorkspaceSidebarSession { try WorkspaceSidebarTabUndo.shared.undo() }?.value
@@ -359,6 +367,83 @@ final class WorkspaceSidebarPinTilingTest: XCTestCase {
         XCTAssertEqual(Workspace.existing(byName: "n")?.allLeafWindowsRecursive.map(\.windowId), [2, 4], "And the tab its own")
         XCTAssertEqual(orderedWorkspaces(in: workspaceProjectDefaultId).map(\.name).filter { ["p", "n"].contains($0) }, listBefore)
         XCTAssertEqual(pins(), ["p"])
+    }
+
+    /// V1, the window onto the pin, made by the pins' rule now: the window is the whole of its tab, which
+    /// takes the split, beside the pin's window, and the pin lends it. The split is two equal halves,
+    /// which lay out exactly; the layouts after it move its weights by no more than float noise, and
+    /// the drop's Undo stays through them, and puts the pin's window back in the pin. Three windows,
+    /// whose thirds the layouts do move by float noise, are the pin-onto-tab case above.
+    func testUndoOfAWindowDroppedOnAPinOutlastsTheLayoutsAfterIt() async throws {
+        setMonitorsForTests([oneDisplay(width: 1088)])
+        Workspace.reconcileWorkspaceState()
+        let (pin, tab) = try pinAndTab()
+        // The tab laid out on the display first, as in the VM.
+        XCTAssertTrue(tab.workspaceMonitor.setActiveWorkspace(tab))
+        try await tab.layoutWorkspace()
+        let listBefore = orderedWorkspaces(in: workspaceProjectDefaultId).map(\.name).filter { ["p", "n"].contains($0) }
+        await queueWorkspaceSidebarDrop(2, subject: .window, target: .workspace(pin.name), placement: .right,
+            intent: .physical)?.value
+        XCTAssertEqual(tab.allLeafWindowsRecursive.map(\.windowId), [1, 2], "The split is in n, 2 on the right of p's window")
+        XCTAssertEqual(pin.allLeafWindowsRecursive, [])
+        XCTAssertEqual(workspaceSidebarLentWindow(of: pin)?.windowId, 1)
+        let title = try XCTUnwrap(WorkspaceSidebarTabUndo.shared.title)
+        let weights = tab.rootTilingContainer.children.map { $0.getWeight(.h) }
+        for _ in 0 ..< 3 { try await runRefreshSessionBlocking(.globalObserver("test")) }
+        XCTAssertEqual(weights.reduce(0, +), 784, accuracy: 0.001, "\(weights)")
+        let laidOut = tab.rootTilingContainer.children.map { $0.getWeight(.h) }
+        XCTAssertEqual(laidOut.count, weights.count)
+        for (a, b) in zip(laidOut, weights) { XCTAssertEqual(a, b, accuracy: 1e-6, "\(weights) -> \(laidOut)") }
+        XCTAssertEqual(WorkspaceSidebarTabUndo.shared.title, title, "Undo is still there")
+
+        await runWorkspaceSidebarSession { try WorkspaceSidebarTabUndo.shared.undo() }?.value
+        XCTAssertEqual(pin.allLeafWindowsRecursive.map(\.windowId), [1], "The pin has its window back")
+        XCTAssertNil(workspaceSidebarLentWindow(of: pin))
+        XCTAssertEqual(Workspace.existing(byName: "n")?.allLeafWindowsRecursive.map(\.windowId), [2])
+        XCTAssertEqual(orderedWorkspaces(in: workspaceProjectDefaultId).map(\.name).filter { ["p", "n"].contains($0) }, listBefore)
+        XCTAssertEqual(pins(), ["p"])
+    }
+
+    // MARK: Review V1 F6: the release's operation, made with the windows it was shown with
+
+    /// A pin's window shown going to a tab is the one that goes: if the pin's window changed before the
+    /// session runs, nothing is made, and the pin isn't made to take the tab in instead.
+    func testAPinsSplitShownWithItsWindowIsntMadeWithAnother() async throws {
+        let (pin, tab) = try pinAndTab()
+        let shown = try await releasedDrop("p", over: tab)
+        XCTAssertEqual(shown, .join("n", placement: .right, operation: .lend(.init(try XCTUnwrap(Window.get(byId: 1)))),
+            monitorScopeId: scope))
+        // Released: before its session runs, the pin's window closes and another is opened in it.
+        try XCTUnwrap(Window.get(byId: 1)).unbindFromParent()
+        _ = TestWindow.new(id: 9, parent: pin.rootTilingContainer)
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertEqual(tab.allLeafWindowsRecursive.map(\.windowId), [2], "Nothing joined the tab")
+        XCTAssertEqual(pin.allLeafWindowsRecursive.map(\.windowId), [9])
+        XCTAssertNil(workspaceSidebarLentWindow(of: pin))
+    }
+
+    /// An empty pin shown taking a tab in takes that tab's window, or nothing: not one opened in the pin
+    /// since, which would make it lend instead, nor another window of the tab.
+    func testAnEmptyPinShownTakingATabInIsntMadeOnceEitherChanged() async throws {
+        for changed in ["pin", "tab"] {
+            try await setUp()
+            let (_, tab) = try pinAndTab()
+            let empty = Workspace.get(byName: "empty")
+            try setWorkspaceSidebarTabFavorite(empty, true)
+            let shown = try await releasedDrop("empty", over: tab)
+            XCTAssertEqual(shown, .join("n", placement: .right, operation: .fill(.init(try XCTUnwrap(Window.get(byId: 2)))),
+                monitorScopeId: scope), changed)
+            if changed == "pin" {
+                _ = TestWindow.new(id: 9, parent: empty.rootTilingContainer)
+            } else {
+                try XCTUnwrap(Window.get(byId: 2)).unbindFromParent()
+                _ = TestWindow.new(id: 8, parent: tab.rootTilingContainer)
+            }
+            try await Task.sleep(for: .milliseconds(300))
+            XCTAssertEqual(empty.allLeafWindowsRecursive.map(\.windowId), changed == "pin" ? [9] : [], changed)
+            XCTAssertEqual(tab.allLeafWindowsRecursive.map(\.windowId), changed == "pin" ? [2] : [8], changed)
+            XCTAssertNil(workspaceSidebarLentWindow(of: empty), changed)
+        }
     }
 
     /// V1: a change made after a tiling drop, not by its layouts, still clears its Undo, so it never
@@ -469,6 +554,25 @@ final class WorkspaceSidebarPinTilingTest: XCTestCase {
     }
 
     private func pins() -> [String] { workspacePinnedTabs(in: workspaceProjectDefaultId).map(\.name) }
+
+    /// Drags pin `name` over `tab`'s row, right half, rests there, and releases: the drop shown then.
+    /// Its session hasn't run yet when this returns.
+    private func releasedDrop(_ name: String, over tab: Workspace) async throws -> WorkspaceSidebarPinnedTabDrop? {
+        let surface = RowSurface(target: row(for: tab, scope: scope))
+        WorkspaceSidebarTemporaryDropSurfaces.shared.register(surface)
+        defer { WorkspaceSidebarTemporaryDropSurfaces.shared.unregister(surface) }
+        let pointer = CGPoint(x: 150, y: 110)
+        WorkspaceSidebarDragSessions.shared.noteLeftMouseDown()
+        updateSidebarPinnedTabDrag(name, pointer: pointer)
+        try await Task.sleep(for: .milliseconds(350))
+        updateSidebarPinnedTabDrag(name, pointer: pointer)
+        let shown = try XCTUnwrap(Workspace.existing(byName: name)).flatMap { pin in
+            workspaceSidebarPinnedTabDrop(pin, target: row(for: tab, scope: scope), point: pointer)
+        }
+        finishSidebarPinnedTabDrag(name, pointer: pointer)
+        return shown
+    }
+
 
     private func oneDisplay(width: CGFloat) -> Monitor {
         WorkspaceSidebarDragTestMonitor(monitorAppKitNsScreenScreensId: 1, name: "Main",

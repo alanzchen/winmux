@@ -44,7 +44,9 @@ struct MoveNodeToWorkspaceCommand: Command {
                 }
                 targetWorkspace = ws
         }
-        return moveWindowToWorkspace(window, targetWorkspace, io, focusFollowsWindow: args.focusFollowsWindow, failIfNoop: args.failIfNoop)
+        // Into or out of a pin with one window, as the pins' policy says: it keeps its window as its own.
+        return moveWindowToWorkspaceKeepingPins(window, targetWorkspace, io, focusFollowsWindow: args.focusFollowsWindow,
+            failIfNoop: args.failIfNoop)
     }
 }
 

@@ -32,11 +32,14 @@ func setWorkspaceSidebarTabPinScope(_ workspace: Workspace, _ scope: WorkspaceSi
     let order = gap.flatMap {
         workspacePinnedTabOrder(moving: workspace, beside: $0, inAllProjects: scope == .allProjects, projectId: projectId)
     } ?? []
+    // A split pinned from its menu, the only way one is, keeps its windows in their places.
+    let composition = appearance.isFavorite ? nil : workspaceSidebarNewComposition(for: workspace)
     try withWorkspaceSidebarDropTransaction {
         // Pinning saves the tab, which a failure further on takes back too.
         if !appearance.isFavorite { try saveWorkspaceSidebarIdentities([workspace]) }
         try store.update { state in
             state.workspaces[workspace.name, default: .init()].setPinScope(scope)
+            if let composition { state.workspaces[workspace.name]?.composition = composition }
             // A pinned tab leaves its group, as pinning always has.
             for index in state.collections.indices { state.collections[index].workspaceNames.removeAll { $0 == workspace.name } }
             for (index, name) in order.enumerated() { state.workspaces[name, default: .init()].pinOrder = index }

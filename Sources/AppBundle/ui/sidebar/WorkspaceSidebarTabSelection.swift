@@ -198,8 +198,14 @@ func setWorkspaceSidebarTabFavorite(_ workspace: Workspace, _ favorite: Bool) th
 func setWorkspaceSidebarTabsFavorite(_ workspaces: [Workspace], _ favorite: Bool) throws {
     if favorite { try saveWorkspaceSidebarIdentities(workspaces) }
     let names = Set(workspaces.map(\.name))
+    // A split pinned from its menu, the only way one is, keeps its windows in their places.
+    let compositions = favorite ? workspaceSidebarNewCompositions(for: workspaces) : [:]
     try workspaceSidebarOrganizationStore.update { state in
-        for name in names { state.workspaces[name, default: .init()].setFavorite(favorite) }
+        for name in names {
+            let wasPinned = state.workspaces[name]?.isFavorite == true
+            state.workspaces[name, default: .init()].setFavorite(favorite)
+            if !wasPinned, let composition = compositions[name] { state.workspaces[name]?.composition = composition }
+        }
         if favorite {
             for index in state.collections.indices { state.collections[index].workspaceNames.removeAll(where: names.contains) }
         }
@@ -213,9 +219,11 @@ func pinWorkspaceSidebarTab(_ workspace: Workspace, beside gap: WorkspaceSidebar
     let wasPinned = workspaceSidebarOrganizationStore.state.workspaces[workspace.name]?.isFavorite == true
     if !wasPinned { try saveWorkspaceSidebarIdentities([workspace]) }
     let order = gap.flatMap { workspacePinnedTabOrder(moving: workspace, beside: $0) } ?? []
+    let composition = wasPinned ? nil : workspaceSidebarNewComposition(for: workspace)
     try workspaceSidebarOrganizationStore.update { state in
         if !wasPinned {
             state.workspaces[workspace.name, default: .init()].setFavorite(true)
+            state.workspaces[workspace.name]?.composition = composition
             for index in state.collections.indices { state.collections[index].workspaceNames.removeAll { $0 == workspace.name } }
         }
         for (index, name) in order.enumerated() { state.workspaces[name, default: .init()].pinOrder = index }
