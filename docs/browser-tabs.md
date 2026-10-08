@@ -23,8 +23,9 @@ in Settings to restore ordinary window rows. This uses the Accessibility permiss
 WinMux already needs; it does not request Automation or require an extension. The
 optional [Safari extension](#safari-extension) adds website icons, host names and sound.
 The optional [Chrome extension](#chrome-extension) adds host names and event-driven metadata.
-Both report changes as events. Safari selection can use a confirmed extension connection
-with separate native-window and row ownership proof; Chrome selection and sound stay on Accessibility.
+Both report changes as events. Selection in either browser can use a confirmed extension
+connection with separate native-window and row ownership proof: the extension's toolbar button
+in that very window must name it. Otherwise selection, and Chrome's sound, stay on Accessibility.
 
 ## Sound
 
@@ -73,13 +74,16 @@ origin, after two consistent observations. It requests `/favicon.ico`, then
 `/apple-touch-icon.png`, directly from that origin. It never requests the page URL
 or uses a third-party icon service. Downloads use no cookies or saved credentials,
 stay on the same origin, and have time, byte, concurrency, and image-size limits.
-Tab metadata and icons remain in memory and are cleared when the feature is disabled.
+Tab metadata and these icons remain in memory and are cleared when the feature is disabled;
+they are never written to disk.
 
 These requests include Incognito windows and do not use browser proxy settings,
 VPN extensions, or secure DNS. Obvious local addresses are excluded; a domain that
 resolves to a local device could still trigger macOS's Local Network prompt. Safari
 website icons are excluded because a direct request could bypass iCloud Private Relay.
-Background navigation can leave the previous site's icon until the tab is visited.
+Without the [Chrome extension](#chrome-extension), background navigation can leave the previous
+site's icon until the tab is visited. With it, a Chrome tab the extension says moved to another
+site, or off the web, drops its icon at once, until a read confirms the new site's.
 Selecting an ineligible address replaces a known website icon with the app icon
 after the address is confirmed.
 
@@ -218,7 +222,8 @@ that each connecting process is signed as WinMux Tabs by WinMux's own team befor
 anything. On macOS 13 and 14, another program running as you could
 take the socket's place while WinMux isn't running and receive the extension's reports.
 
-When WinMux updates, Safari reloads the extension, which starts with no icons. In testing
+When WinMux updates, Safari reloads the extension, which starts with no icons (WinMux keeps
+icons across this, below). In testing
 (Safari 27.0, a Developer ID–signed build), Safari also reloaded it each time WinMux started,
 with a new session and new window and tab ids. The reloaded extension's first report can come
 before WinMux listens, so a report WinMux doesn't take is tried again five seconds later, then
@@ -229,6 +234,36 @@ made for its site. A page that was already open may keep Safari's icon until it 
 the extension asks such pages to report again, but in testing Safari 27.0 didn't deliver their
 reports.
 
+### Icons kept through gaps and across launches
+
+WinMux keeps a tab's website icon while the extension briefly says nothing about it:
+
+- A report that describes the same tab, by Safari's id for it in the same session and stream,
+  on the same site (host), without an icon, keeps the icon it last had.
+- While no report describes the tab (a report gap, or the extension disconnected), it keeps the
+  icon while the tab's title is unchanged, for up to 150 seconds.
+- A tab on another site, on no website, described in a new session or stream (whose ids may be
+  reused), or another tab altogether, never takes it: a navigated tab never shows the previous
+  site's icon.
+
+It also keeps icons on disk, so after WinMux or the extension restarts, a tab the extension
+describes without an icon (a page that was already open) shows its site's icon. These are the
+32-pixel images WinMux made from what the extension sent, each filed with the SHA-256 of its
+bytes and checked when read, in `~/Library/Caches/<WinMux's bundle id>/BrowserTabIcons/`, readable
+only by you. An index maps a keyed hash of the Safari profile and the site's host name to each
+image, with a random key kept beside it, so no host name, address, title or page content is
+written; someone with access to your files could still test whether a given site's icon is kept.
+Each Safari profile's icons stay its own, and nothing comes from Private Browsing, which the
+extension never reports. At most 512 sites and 8 MB of images are kept, least recently used
+first, and a site unused for 30 days is dropped. Turning off **Show browser tabs** deletes them;
+hiding the panel, another mode, or pausing WinMux doesn't.
+
+This is a continuity improvement. It is **not** a fix for the historical MacBook Air favicon
+issue, where a Safari 27 window with a collapsed tab group fell back to the whole window's row:
+that cause is unchanged and untested here. Chrome icons aren't kept on disk: Chrome connections
+have no profile identity that lasts across launches, and Accessibility reads can't tell an
+Incognito window apart.
+
 Safari 27.0 treated a Developer ID–signed build that wasn't notarized as unsigned, and listed it
 only with unsigned extensions allowed; WinMux's releases are notarized. Development
 builds from `swift build` or `make run` don't include the extension; only the Xcode-built app
@@ -237,54 +272,86 @@ team. See [Local development](development.md#build-an-app-and-matching-cli) to t
 
 ## Chrome extension
 
-The Preview includes **WinMux Tabs for Chrome**, an optional Manifest V3 extension for
-Google Chrome 120 or later on macOS. Chrome Beta/Dev/Canary, Chromium, Brave and Edge keep
-the existing Accessibility integration; this native-host installer targets Google Chrome only.
-The version floor is an API requirement, not a claim of live testing across those versions.
+The Preview includes **WinMux Tabs for Chrome** (extension version 1.1.0), an optional Manifest V3
+extension for Google Chrome 120 or later on macOS. Chrome Beta/Dev/Canary, Chromium, Brave and
+Edge keep the existing Accessibility integration; the native-host registration targets Google
+Chrome only. The version floor is an API requirement, not a claim of live testing across those
+versions.
 
-Setup is explicit; installing or starting WinMux never registers a Chrome native host:
+### Set up
+
+Setup is explicit; installing or starting WinMux never registers a Chrome native host or copies
+the extension:
 
 1. Keep the Preview app at its intended location, normally `/Applications/WinMux.app`.
-2. Extract `WinMuxTabs-Chrome.zip` from the portable release archive to a permanent folder.
-   The same zip and unpacked folder are inside `WinMux.app/Contents/Resources/` for a DMG
-   installation. Copy the folder out of the app before loading it, so app updates do not
-   replace files beneath a loaded extension.
-3. Run the embedded CLI once to register the host for your macOS account:
+2. In WinMux, open **Settings › Workspace Panel › Tabs › Content** and choose **Set Up Chrome
+   Extension…**. It registers WinMux's native-messaging host for your macOS account (running the
+   embedded `winmux chrome-extension install`, which writes only
+   `~/Library/Application Support/Google/Chrome/NativeMessagingHosts/com.zimengxiong.winmux.tabs.json`),
+   copies the extension's files to `~/Library/Application Support/WinMux/WinMuxTabs-Chrome/`,
+   shows that folder in Finder, and copies `chrome://extensions` for you.
+3. In Chrome, open `chrome://extensions`, turn on Developer mode, choose **Load unpacked**, and
+   select that folder. Its stable ID is `hnanakkjaimkfkpgmcoaglbgiiaohgbj`.
+4. Pin **WinMux Tabs** from Chrome's Extensions menu (the puzzle piece). WinMux switches tabs
+   through the extension only in windows where its button shows (below); elsewhere it uses
+   Accessibility, as before.
+5. Repeat steps 3 and 4 in each Chrome profile that should report, and keep **Show browser tabs**
+   on in WinMux. Chrome starts a copy of the embedded CLI for each extension connection; it is a
+   native-messaging helper, with no daemon or login item. A lost connection backs off, then
+   reconnects with a full snapshot.
 
-   ```sh
-   /Applications/WinMux.app/Contents/Helpers/winmux chrome-extension install
-   ```
+Without the app, download `WinMuxTabs-Chrome-VERSION.zip` from the release (its SHA-256 is in
+`SHA256SUMS`), extract it to a permanent folder, and load that. The same zip is in the portable
+`WinMux-VERSION-macOS.zip` and inside `WinMux.app/Contents/Resources/`, with the unpacked folder.
+The host still needs registering, from Settings or with
+`/Applications/WinMux.app/Contents/Helpers/winmux chrome-extension install` (run it again after
+moving the app).
 
-   If the app lives elsewhere, use that path. Run the command again after moving the app.
-   It writes only `~/Library/Application Support/Google/Chrome/NativeMessagingHosts/com.zimengxiong.winmux.tabs.json`.
-4. Open `chrome://extensions`, enable Developer mode, choose **Load unpacked**, and select
-   the extracted folder containing `manifest.json`. Its stable ID is
-   `hnanakkjaimkfkpgmcoaglbgiiaohgbj`. Enable it in each Chrome profile you want to report.
-5. Keep **Show browser tabs** enabled in WinMux. Chrome starts a copy of the embedded CLI
-   for each extension connection; it is a native-messaging helper, with no daemon/login item.
-   A lost connection backs off, then reconnects with a full snapshot.
+To update after a new Preview, choose **Set Up Chrome Extension…** again, then **Reload** on
+WinMux Tabs in `chrome://extensions`. To remove, remove the extension in each profile, delete
+`~/Library/Application Support/WinMux/WinMuxTabs-Chrome/` and the host-manifest file above.
 
-To update, replace the extracted extension files with those from the new Preview and use
-**Reload** in Chrome's extension page. To remove, remove the extension and delete the above
-host-manifest file. The manifest key keeps the ID stable without a Web Store listing; it is
-public identity material, not an authenticity secret. Chrome restricts the host to that
-origin, and WinMux and its helper verify each other's code signatures over their local socket.
+This is an unpacked, Developer-mode distribution. It is **not** published in the Chrome Web
+Store: that would need a registered Chrome Web Store developer account (with its one-time
+registration fee), a store listing with privacy disclosures, and Google's review of each version.
+None of that has been done. The manifest key keeps the ID stable without a store listing; it is
+public identity material, not an authenticity secret. Chrome restricts the host to that origin,
+and WinMux and its helper verify each other's code signatures over their local socket.
 
-Chrome reports normal windows' ids, bounds, tab ids, titles, host names, active/pinned state,
-and audible/muted state. Incognito windows are excluded by the manifest and again when
-serializing reports. The helper assigns each connection a separate profile scope; ids from
-another profile or a reconnected stream cannot reuse an old stream binding. Display metadata
-uses the existing read-time, twin and unread-window association checks. These associations
-do not prove native-window ownership: Chrome AX windows are pooled across profiles and lack
-Safari’s toolbar marker. **All Chrome selections therefore use the existing exact-element AX
-route before any extension command is sent.** Extension audio never overrides Chrome AX
-audio or establishes authoritative silence; Chrome keeps its ordinary AX sound and read cadence.
+### What it reports, and selection
 
-Chrome's existing **Website icons for Chrome-family tabs** setting remains optional and off
-by default. This extension does not export favicon URLs or images and does not change that
-origin-only download path. Favicon events trigger metadata refresh, but this is not a favicon
-fix. Without the extension or host registration, all existing AX listing, selection, close,
-sound and optional-icon behavior remains available.
+Chrome reports normal windows' ids, bounds, tab ids, titles, host names, active/pinned state, and
+audible/muted state. Incognito windows are excluded by the manifest and again when serializing
+reports. The extension asks for no site access and injects nothing into pages. The helper assigns
+each connection a separate profile scope; ids from another profile or a reconnected stream cannot
+reuse an old stream binding. Display metadata uses the existing read-time, twin and unread-window
+association checks. Those associations never authorize a command.
+
+Chrome pools every profile's windows into one app, so a window's tabs or place say nothing certain
+about which extension window it is. The extension therefore titles its toolbar button, for each
+normal window's active tab, as the Safari extension does: **WinMux Tabs ·** then the first 8
+characters of its random session, the window's id and the tab's, such as
+`WinMux Tabs · 3f2a9c1e-1401-1402`. Chromium makes an extension's per-tab action title the
+accessible name of that window's toolbar button (`toolbar_action_view.cc`,
+`extension_action_view_model.cc`), which WinMux reads from the window's own accessibility tree.
+Chrome gives extension buttons no identifier, so WinMux takes the one toolbar button whose name is
+such a title; two name nothing. The button must name a window of the latest report from that
+session, with the named tab active there and the same tabs, and a later report measured after the
+read, with no tab moved, opened or closed, must still agree, exactly as for Safari's button. Then,
+as for Safari, a later no-reorder report and AX read must corroborate the clicked row before a
+command can be sent to that profile's connection. A window without the pinned button, one whose
+button names another session, or any missing, stale or ambiguous proof selects through AX before
+anything is sent. The title is visible in the button's tooltip and readable by any app with
+Accessibility access; it holds no page titles or addresses.
+
+Extension audio never overrides Chrome AX audio or establishes authoritative silence; Chrome keeps
+its ordinary AX sound and read cadence. Close stays on Accessibility.
+
+Chrome's existing **Website icons for Chrome-family tabs** setting remains optional and off by
+default, and this extension does not export favicon URLs or images. Its host names let WinMux drop
+a tab's origin icon when it navigates to another site (see [Website icons](#website-icons)). Without
+the extension or host registration, all existing AX listing, selection, close, sound and
+optional-icon behavior remains available.
 
 ## Event reports and selection
 
@@ -314,9 +381,10 @@ Safari command eligibility is separate from metadata association: a current trus
 marker must prove native-window ownership, and a later no-reorder report and AX read must
 corroborate the clicked row. Missing, stale or ambiguous proof takes the exact-element AX
 route before dispatch. The target window’s own report must be less than 90 seconds old;
-a fresh delta for another window cannot renew it. Chrome always selects through AX.
+a fresh delta for another window cannot renew it. Chrome uses the same proof, with its
+extension's toolbar button found by the marker title it carries (below).
 
-A Safari selection command identifies the browser, native profile scope, extension session, stream
+A selection command identifies the browser, native profile scope, extension session, stream
 epoch, extension window and tab, sequence and unique request. Before dispatch WinMux reuses
 its exact native-control/lifetime/topic checks, and rechecks that the binding is still current.
 The extension checks that the tab is still in that normal, nonprivate window. A confirmed
@@ -420,3 +488,25 @@ Still needed on disposable browser profiles: a notarized Safari build's command 
 while active and after suspension; Chrome's signed-host launch and reconnect; two profiles with
 identical windows; tab activation during detach/reorder; and disconnect after a dispatched select.
 No personal browser data, extension installation, or UI was used for this implementation.
+
+### Chrome extension selection and icon continuity validation
+
+The Chrome ownership marker rests on Chromium's source (the toolbar button's accessible name is the
+action's per-tab title, with a site-access line only for extensions with or wanting host access) and
+on an earlier native capture of Chrome 154's toolbar, whose buttons expose that name as both title
+and description. The model's actual selection route is exercised with synthetic native windows and
+extension answers: twin windows in two profiles each select only through their own profile's
+connection; the review's two-profile Loading/Inbox sequence still sends nothing when B is unpinned
+or shows only its own session; a marker two windows show, or one a moved tab carries, names nothing;
+a reorder or a button losing its title withdraws authority at once. JavaScriptCore runs the shipped
+Chrome worker to check its titles (active tabs of normal windows only, retitled after navigation and
+moves). Disk-cache tests cover keyed names with no host or profile in any file, user-only
+permissions, verification on read, profile and browser separation, least-recently-used, byte and
+age bounds, a relaunch round trip through the bridge, Private Browsing and Chrome exclusion, and
+wiping; continuity tests cover omissions, navigation, gaps, titles, epochs and other tabs. Release
+script tests check the standalone Chrome asset and the reproducible package.
+
+Not yet checked in a real browser: Chrome exposing a pinned WinMux Tabs button's title in its
+accessibility tree, and a command through it; an unpinned or overflowed button; Chrome's own
+behavior when a tab navigates; and Settings' setup flow in a signed, notarized Preview. Until then,
+Chrome selection falls back to Accessibility wherever the button isn't found.

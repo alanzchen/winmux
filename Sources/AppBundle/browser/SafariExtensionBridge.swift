@@ -316,12 +316,15 @@ final class SafariExtensionBridge {
         guard enabled, !states.isEmpty else { return }
         let referenced = referencedIcons
         var next = icons.images
+        var added: Set<String> = []
         for (host, key, png) in found where siteIcons[partition]?[host] == nil {
             if next[key] == nil {
-                if next.count >= Self.maximumImages, let unused = next.keys.first(where: { !referenced.contains($0) }) { next[unused] = nil }
+                if next.count >= Self.maximumImages,
+                   let unused = next.keys.first(where: { !referenced.contains($0) && !added.contains($0) }) { next[unused] = nil }
                 guard next.count < Self.maximumImages, let image = NSImage(data: png) else { continue }
                 next[key] = image
                 thumbnails[key] = png
+                added.insert(key)
             }
             siteIcons[partition, default: [:]][host] = key
         }
