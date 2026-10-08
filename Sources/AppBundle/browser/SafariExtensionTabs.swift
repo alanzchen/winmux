@@ -10,13 +10,10 @@ struct SafariExtensionTab: Equatable, Sendable {
     var title: String
     var host: String? = nil
     /// The page's origin, `scheme://host[:port]` (`browserTabOriginKey`), and the extension's
-    /// opaque revision of the tab's page, which changes whenever its address does. Older
-    /// extensions send neither.
+    /// opaque revision of the tab's page, which changes whenever its address does and never
+    /// repeats. Older extensions send neither.
     var origin: String? = nil
     var revision: String? = nil
-    /// Whether the extension has seen the tab at no other address in its browsing session: a hint
-    /// that its origin's kept icon may stand in (`BrowserTabSiteIconContinuity`).
-    var isFirstPage = false
     var isActive: Bool
     var isAudible: Bool = false
     var isMuted: Bool = false
@@ -193,7 +190,7 @@ enum SafariExtensionMessage: Equatable, Sendable {
                     ? value : nil
             }
             tabs.append(.init(id: id, title: safariExtensionComparableTitle(title), host: host, origin: origin, revision: revision,
-                isFirstPage: revision != nil && tab["first"] as? Bool == true, isActive: active,
+                isActive: active,
                 isAudible: tab["audible"] as? Bool ?? false, isMuted: tab["muted"] as? Bool ?? false,
                 isPinned: tab["pinned"] as? Bool ?? false, icon: icon))
         }

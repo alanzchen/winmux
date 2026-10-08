@@ -57,42 +57,33 @@ function changedWindow(id) {
 const stamped = new Map();
 // Each tab's latest title operation: an older one's later steps don't overwrite a newer title.
 const titleWrites = new Map();
+// Makes this load's page revisions: none repeats one an earlier load made (`WinMuxTabs.revisionMaker`).
+const mintRevision = WinMuxTabs.revisionMaker(crypto.randomUUID().replaceAll("-", "").slice(0, 16));
 
 // Safari unloads this page when idle, so what it needs again lives in session storage, which
 // Safari keeps only in memory and clears when it quits: this browsing session's identifier, each
-// tab's address and page revision (`WinMuxTabs.pageRevision`), the icons it made, which page
-// made which tab's icon, and pages' icon reports that arrived while WinMux was away.
+// tab's page (its address, revision and the icon that page made, saved together under one key),
+// the icons it made, and pages' icon reports that arrived while WinMux was away.
 const sessionStorage = browser.storage.session;
 const loaded = (async () => {
-    const stored = await sessionStorage?.get(["session", "pageInstance", "pages", "icons", "tabIcons", "pending",
-        "unavailableUntil", "order"]).catch(() => ({})) ?? {};
+    const stored = await sessionStorage?.get(["session", "tabPages", "icons", "pending", "unavailableUntil", "order"])
+        .catch(() => ({})) ?? {};
     if (Number.isFinite(stored.unavailableUntil)) unavailableUntil = Math.max(unavailableUntil, stored.unavailableUntil);
     let session = stored.session;
-    let instance = stored.pageInstance;
-    let pages = stored.pages;
-    if (typeof session !== "string" || typeof instance !== "string") {
-        // Revisions from before are another set's: tabs' pages start over, as do their icons.
-        instance = crypto.randomUUID().slice(0, 8);
-        pages = {};
-        stored.tabIcons = {};
-        await sessionStorage?.set({ pageInstance: instance, pages, tabIcons: {} }).catch(() => {});
-    }
     if (typeof session !== "string") {
         session = crypto.randomUUID();
+        stored.tabPages = {};
         await sessionStorage?.set({ session }).catch(() => {});
         // Safari just started, or turned the extension on or updated it: open pages' icons
         // aren't known here, and their content scripts may be an earlier version's.
         injectIntoOpenTabs();
     }
+    // What earlier versions kept, which nothing reads now.
+    sessionStorage?.remove?.(["pages", "pageInstance", "tabIcons", "originIcons"])?.catch(() => {});
     return {
         session,
-        instance,
-        pages: new Map(Object.entries(pages && typeof pages === "object" ? pages : {})
-            .filter(([id, page]) => Number.isInteger(Number(id)) && typeof page?.address === "string"
-                && Number.isInteger(page?.count) && page.count >= 1)
-            .map(([id, page]) => [Number(id), { address: page.address, count: page.count }])),
+        tabs: restoredPages(stored.tabPages),
         icons: stored.icons ?? {},
-        tabIcons: stored.tabIcons ?? {},
         pending: stored.pending ?? {},
         // Tab moves, attachments, openings and closings heard of this session.
         order: Number.isInteger(stored.order) ? stored.order : 0,
@@ -133,28 +124,45 @@ function scheduleSend(delay = 250, force = false) {
     if (sendTimer === null) sendTimer = setTimeout(send, delay);
 }
 
-/** The tab's page revision, noting an address first seen; kept across page unloads. */
+/** Each tab's page as last saved: its address, its revision and the icon that page made. */
+function restoredPages(saved) {
+    return new Map(Object.entries(saved && typeof saved === "object" ? saved : {})
+        .filter(([id, page]) => Number.isInteger(Number(id)) && typeof page?.address === "string"
+            && typeof page?.revision === "string" && /^[0-9a-z-]{1,32}$/.test(page.revision))
+        .map(([id, page]) => [Number(id), { address: page.address, revision: page.revision,
+            ...(typeof page.icon === "string" ? { icon: page.icon } : {}) }]));
+}
+
+/** The tab's page revision, noting an address first seen. */
 function revisionOf(data, tab) {
-    const known = data.pages.get(tab.id);
-    const revision = WinMuxTabs.pageRevision(data.pages, data.instance, tab);
-    if (data.pages.get(tab.id) !== known) savePages(data);
+    const known = data.tabs.get(tab.id);
+    const revision = WinMuxTabs.pageRevision(data.tabs, mintRevision, tab);
+    if (data.tabs.get(tab.id) !== known) saveTabs(data);
     return revision;
 }
 
+/** Saves each tab's page, revision and icon together, under one key, so they only ever come back
+ * together, with `values`. Pages that can't be saved are removed: a reload then starts every tab
+ * over, rather than bringing back pages from before. */
+function storeTabs(data, values = {}) {
+    return sessionStorage?.set({ ...values, tabPages: Object.fromEntries(data.tabs) })
+        .catch(() => sessionStorage?.remove?.("tabPages")?.catch(() => {}));
+}
+
 /** Saves the tabs' pages once for all the changes made meanwhile. */
-function savePages(data) {
-    if (data.savingPages) return;
-    data.savingPages = true;
+function saveTabs(data) {
+    if (data.savingTabs) return;
+    data.savingTabs = true;
     Promise.resolve().then(() => {
-        data.savingPages = false;
-        sessionStorage?.set({ pages: Object.fromEntries(data.pages) }).catch(() => {});
+        data.savingTabs = false;
+        storeTabs(data);
     });
 }
 
-/** The icon the tab's current page made: never one another page made, even at the same origin. */
+/** The icon the tab's current page made: never one another page made, even at the same address. */
 function iconFor(data, tab) {
-    const shown = data.tabIcons[tab.id];
-    const key = shown && shown.revision === revisionOf(data, tab) ? shown.key : undefined;
+    revisionOf(data, tab);
+    const key = data.tabs.get(tab.id)?.icon;
     // Only icons still kept here: WinMux would ask for an evicted one that could never come.
     return key && data.icons[key] ? key : undefined;
 }
@@ -188,8 +196,7 @@ function setButtonTitle(tabId, title, reset) {
 }
 
 function save(data) {
-    return sessionStorage?.set({ icons: data.icons, tabIcons: data.tabIcons, pending: data.pending })
-        .catch(() => {});
+    return storeTabs(data, { icons: data.icons, pending: data.pending });
 }
 
 async function send() {
@@ -224,7 +231,7 @@ async function send() {
         const message = WinMuxTabs.stateMessage({
             version, session: data.session, measured, order, time: Date.now(), allSites,
             windows: WinMuxTabs.stateWindows(windows, (tab) => iconFor(data, tab), version,
-                (tab) => revisionOf(data, tab), (tab) => WinMuxTabs.isFirstPage(data.pages, tab.id)),
+                (tab) => revisionOf(data, tab)),
         });
         const removed = full ? [] : dirty.filter((id) => !message.windows.some((w) => w.id === id));
         // Older apps reject this type rather than interpreting a delta as a full report.
@@ -459,7 +466,7 @@ async function makeIcon(data, tabId, report) {
         if (!isCurrent() || !tab || tab.incognito || tab.url !== report.pageAddress
             || revisionOf(data, tab) !== report.revision) return;
         data.icons = WinMuxTabs.trimmed({ ...data.icons, [icon.key]: { png: icon.png, used: Date.now() } }, cachedIcons);
-        data.tabIcons[tabId] = { key: icon.key, revision: report.revision };
+        data.tabs.get(tabId).icon = icon.key;
         await save(data);
         changedWindow(tab.windowId);
         scheduleSend();
@@ -569,10 +576,8 @@ browser.tabs.onUpdated.addListener((tabId, changes) => {
                 delete data.pending[tabId];
                 changed = true;
             }
-            if (WinMuxTabs.noteAddress(data.pages, tabId, changes.url)) {
-                savePages(data);
-                changed ||= tabId in data.tabIcons;
-                delete data.tabIcons[tabId];
+            if (WinMuxTabs.noteAddress(data.tabs, mintRevision, tabId, changes.url)) {
+                changed = true;
                 // A page whose script set the address stays: it names its icons again.
                 browser.tabs.sendMessage?.(tabId, { type: "winmux-icon-request" })?.catch(() => {});
             }
@@ -599,9 +604,7 @@ browser.tabs.onRemoved.addListener(async (tabId) => {
     const data = await loaded;
     countOrderChange(data);
     data.reports.delete(tabId);
-    if (data.pages.delete(tabId)) savePages(data);
-    if (data.tabIcons[tabId] || data.pending[tabId]) {
-        delete data.tabIcons[tabId];
+    if (data.tabs.delete(tabId) || data.pending[tabId]) {
         delete data.pending[tabId];
         await save(data);
     }
@@ -614,10 +617,8 @@ browser.tabs.onReplaced?.addListener(async (added, removed) => {
     const data = await loaded;
     countOrderChange(data);
     data.reports.delete(removed);
-    if (data.pages.delete(removed)) savePages(data);
     // The tab that takes its place has a page of its own, which names its icons itself.
-    if (data.tabIcons[removed] || data.pending[removed]) {
-        delete data.tabIcons[removed];
+    if (data.tabs.delete(removed) || data.pending[removed]) {
         delete data.pending[removed];
         await save(data);
     }

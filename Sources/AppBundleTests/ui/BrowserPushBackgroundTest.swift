@@ -15,8 +15,12 @@ final class BrowserPushBackgroundTest: XCTestCase {
     }
     function event() { const listeners=[]; return { addListener: f => listeners.push(f), fire: (...args) => listeners.forEach(f => f(...args)) }; }
     const copy = x => JSON.parse(JSON.stringify(x));
-    var crypto = { randomUUID: () => 'aaaaaaaa-aaaa-4aaa-8aaa-' + String(++uuid).padStart(12,'0'), subtle: {} };
+    // Each page load's ids differ after the first 8 characters, as random ones would.
+    const load = () => Math.floor(Math.random() * 0x10000).toString(16).padStart(4, '0');
+    const loadMark = load() + '-4' + load().slice(1);
+    var crypto = { randomUUID: () => 'aaaaaaaa-' + loadMark + '-8aaa-' + String(++uuid).padStart(12,'0'), subtle: {} };
     var storage = {}, sent = [], listings = 0, updates = 0, connections = 0, emitActivation = true, throwAfterUpdate = false;
+    var failTabPages = 0;
     var reply = {v:2, ok:true, events:1, want:[]}, oldApp = false;
     function answer(message) { return oldApp ? (message.type === 'events' ? {v:2,ok:false,reason:'invalid'} : {v:2,ok:true,want:[]}) : copy(reply); }
     var windows = [1,2,3].map(id => ({id, type:'normal', incognito:id===3, left:id*100, top:25, width:900, height:700,
@@ -27,7 +31,9 @@ final class BrowserPushBackgroundTest: XCTestCase {
     }, disconnect: () => fakePort.onDisconnect.fire()};
     var browser = {
         storage:{session:{get:async keys => Object.fromEntries(keys.filter(k=>k in storage).map(k=>[k,copy(storage[k])])),
-            set:async values => Object.assign(storage,copy(values))}},
+            set:async values => { if ('tabPages' in values && failTabPages > 0) { failTabPages--; throw Error('quota'); }
+                Object.assign(storage,copy(values)); },
+            remove:async keys => { [].concat(keys).forEach(k => delete storage[k]); }}},
         tabs:Object.assign({query:async()=>[], get:async id=>copy(windows.flatMap(w=>w.tabs).find(t=>t.id===id)),
             update:async(id,change)=>{ updates++; const tab=windows.flatMap(w=>w.tabs).find(t=>t.id===id); Object.assign(tab,change);
                 if(emitActivation) browser.tabs.onActivated.fire({windowId:tab.windowId,tabId:id});
@@ -199,8 +205,7 @@ final class BrowserPushBackgroundTest: XCTestCase {
             let first = tab()
             XCTAssertEqual(first.origin, "https://example.test", name)
             XCTAssertNotNil(first.revision)
-            // Safari says which page is a tab's first, for WinMux's kept icons; Chrome keeps none.
-            XCTAssertEqual(c.evaluateScript("String(tab10().first)")?.toString(), name == "safari" ? "true" : "undefined")
+
             XCTAssertEqual(c.evaluateScript("JSON.stringify(Object.keys(tab10()).filter(k => /url|path/i.test(k)))")?.toString(), "[]",
                            "No address leaves the browser")
             c.evaluateScript("update({title: 'Renamed'})")
@@ -214,7 +219,7 @@ final class BrowserPushBackgroundTest: XCTestCase {
             let moved = tab()
             XCTAssertEqual(moved.origin, "https://example.test:8443", name)
             XCTAssertNotEqual(moved.revision, first.revision)
-            XCTAssertEqual(c.evaluateScript("String(tab10().first)")?.toString(), "undefined", name)
+
             c.evaluateScript("update({url: 'https://example.test/'})")
             try advance(c)
             XCTAssertNotEqual(tab().revision, first.revision, "\(name): coming back to an address is still a new page")
@@ -222,7 +227,7 @@ final class BrowserPushBackgroundTest: XCTestCase {
         }
     }
 
-    func testSafariKeepsTabsPageRevisionsAcrossItsPageUnloadingUntilItsSessionEnds() throws {
+    func testSafariKeepsATabsPageAcrossItsPageUnloadingButNeverMakesARevisionTwice() throws {
         let c = try page("safari")
         c.evaluateScript("""
             function tab10() { return sent.filter(m => m.type === 'state' || m.type === 'events').at(-1).windows.find(w => w.id === 1).tabs[0]; }
@@ -231,21 +236,46 @@ final class BrowserPushBackgroundTest: XCTestCase {
             """)
         try advance(c)
         let moved = try XCTUnwrap(c.evaluateScript("JSON.stringify(tab10())")?.toString())
-        XCTAssertFalse(moved.contains(#""first""#))
+        XCTAssertFalse(moved.contains(#""first""#), "No page is called a tab's first")
         // Safari unloads the page; a new one starts with the same session storage.
         let stored = try XCTUnwrap(c.evaluateScript("JSON.stringify(storage)")?.toString())
-        let reloaded = try Self.page("safari", before: """
+        let unchanged = try Self.page("safari", before: """
             storage = \(stored);
             Object.assign(windows[0].tabs[0], {url: 'https://example.test/next'});
             function tab10() { return sent.filter(m => m.type === 'state' || m.type === 'events').at(-1).windows.find(w => w.id === 1).tabs[0]; }
             """)
-        XCTAssertEqual(reloaded.evaluateScript("JSON.stringify(tab10())")?.toString(), moved,
-                       "The same revision, and still not a first page: a page change isn't forgotten by unloading")
-        XCTAssertNotEqual(reloaded.evaluateScript("tab10().rev")?.toString(),
-                          c.evaluateScript("sent.find(m => m.type === 'state').windows[0].tabs[0].rev")?.toString())
-        // A new browsing session (empty storage) starts over: its pages are first pages again.
-        let fresh = try Self.page("safari", before: "Object.assign(windows[0].tabs[0], {url: 'https://example.test/next'});")
-        XCTAssertEqual(fresh.evaluateScript("String(sent.find(m => m.type === 'state').windows[0].tabs[0].first)")?.toString(), "true")
+        XCTAssertEqual(unchanged.evaluateScript("JSON.stringify(tab10())")?.toString(), moved,
+                       "The same page, at the same address, keeps its revision")
+        // A tab whose address changed meanwhile, even back to one it had, gets a revision no load made before.
+        let changed = try Self.page("safari", before: """
+            storage = \(stored);
+            function tab10() { return sent.filter(m => m.type === 'state' || m.type === 'events').at(-1).windows.find(w => w.id === 1).tabs[0]; }
+            """)
+        let first = try XCTUnwrap(c.evaluateScript("sent.find(m => m.type === 'state').windows[0].tabs[0].rev")?.toString())
+        let revisions = [first, try XCTUnwrap(c.evaluateScript("tab10().rev")?.toString()),
+                         try XCTUnwrap(changed.evaluateScript("tab10().rev")?.toString())]
+        XCTAssertEqual(Set(revisions).count, 3, "\(revisions)")
+    }
+
+    func testAnAddressHeardBeforeAnyReportIsANewPageToo() throws {
+        let c = try page("safari")
+        c.evaluateScript("""
+            var revisions = [];
+            function note() { loaded.then(d => revisions.push(d.tabs.get(40)?.revision)); }
+            windows[0].tabs.push({id: 40, windowId: 1, index: 1, title: 'New', url: 'about:blank', active: false, incognito: false});
+            browser.tabs.onCreated.fire(windows[0].tabs[1]);
+            for (const url of ['https://a.test/', 'https://b.test/']) {
+                windows[0].tabs[1].url = url;
+                browser.tabs.onUpdated.fire(40, {url}, windows[0].tabs[1]);
+                note();
+            }
+            """)
+        try advance(c)
+        XCTAssertEqual(c.evaluateScript("revisions.length")?.toInt32(), 2)
+        XCTAssertNotEqual(c.evaluateScript("revisions[0]")?.toString(), c.evaluateScript("revisions[1]")?.toString(),
+                          "The tab's first address, heard before any report, had its own revision")
+        XCTAssertEqual(c.evaluateScript("sent.filter(m => m.type === 'state' || m.type === 'events').at(-1).windows[0].tabs[1].rev")?.toString(),
+                       c.evaluateScript("revisions[1]")?.toString())
     }
 
     func testSafarisPageNamesItsIconsWithItsAddressAgainWhenItsAddressChangesOrWhenAsked() throws {

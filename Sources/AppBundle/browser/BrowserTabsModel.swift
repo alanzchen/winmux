@@ -215,8 +215,7 @@ final class BrowserTabsModel: ObservableObject {
             shown.tabs = shown.tabs.map { tab in
                 browserTabIconShown(tab, chrome: chrome, now: now, continuity: &iconContinuity, origins: iconAssociations,
                     reported: { [chromeExtension, safariExtension] key in
-                        (chrome ? chromeExtension : safariExtension).reportedTab(key) },
-                    keptIcon: { [safariExtension] key, origin in safariExtension.siteIcon(source: key.source, origin: origin) })
+                        (chrome ? chromeExtension : safariExtension).reportedTab(key) })
             }
             return shown
         }
@@ -575,18 +574,16 @@ func browserTabsShown(_ snapshot: BrowserWindowTabs, read: TimeInterval?, now: T
 }
 
 /// A tab's website icon as the sidebar shows it, after `browserTabsShown`, by the rule of
-/// `BrowserTabSiteIconContinuity`: only for the exact page instance that produced it. `reported`
-/// gives the live report's tab for an extension tab key; `keptIcon`, an origin's kept icon for a
-/// report source.
+/// `BrowserTabSiteIconContinuity`: only for the page instance that gave it. `reported` gives the
+/// live report's tab for an extension tab key.
 func browserTabIconShown(_ tab: BrowserTab, chrome: Bool, now: TimeInterval, continuity: inout BrowserTabSiteIconContinuity,
-                         origins: BrowserTabIconAssociations, reported: (SafariExtensionTabKey) -> SafariExtensionTab?,
-                         keptIcon: (SafariExtensionTabKey, String) -> String?) -> BrowserTab {
+                         origins: BrowserTabIconAssociations, reported: (SafariExtensionTabKey) -> SafariExtensionTab?) -> BrowserTab {
     var tab = tab
     let live = tab.extensionTab.flatMap(reported)
     if chrome {
         tab.iconOrigin = continuity.origin(for: tab, reported: live, origins: origins, now: now)
     } else {
-        tab.siteIcon = continuity.icon(for: tab, reported: live, now: now, fallback: keptIcon)
+        tab.siteIcon = continuity.icon(for: tab, reported: live, now: now)
     }
     return tab
 }

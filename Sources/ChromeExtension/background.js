@@ -24,9 +24,10 @@ const waiting = new Map();
 // changes. Chrome shows the active tab's title as the button's accessible name: that names the
 // native window for WinMux. Loading a page or a new worker forgets it.
 const stamped = new Map();
-// Each tab's address and page revision (`WinMuxTabs.pageRevision`), in this worker's memory only.
+// Each tab's address and page revision (`WinMuxTabs.pageRevision`), in this worker's memory only;
+// a new worker makes revisions none before it made.
 const pages = new Map();
-const pageInstance = crypto.randomUUID().slice(0, 8);
+const mintRevision = WinMuxTabs.revisionMaker(crypto.randomUUID().replaceAll("-", "").slice(0, 16));
 
 function schedule(id, full = false) {
     if (Number.isInteger(id) && id >= 0) dirty.add(id);
@@ -107,7 +108,7 @@ async function publish() {
         if (port !== current) { needsSnapshot = true; return; }
         // No paths or favicon URLs leave Chrome. Existing opt-in native origin icons remain intact.
         const described = WinMuxTabs.stateWindows(windows, () => undefined, 2,
-            (tab) => WinMuxTabs.pageRevision(pages, pageInstance, tab));
+            (tab) => WinMuxTabs.pageRevision(pages, mintRevision, tab));
         stampWindows(windows);
         const message = { v: 2, type: full ? "state" : "events", session, time: Date.now(), measured,
             allSites: true, windows: described,
@@ -194,7 +195,7 @@ async function command(value) {
 
 chrome.tabs.onUpdated.addListener((id, change, tab) => {
     // Another address is another page: a new revision, so WinMux keeps no icon across it.
-    if ("url" in change) WinMuxTabs.noteAddress(pages, id, change.url);
+    if ("url" in change) WinMuxTabs.noteAddress(pages, mintRevision, id, change.url);
     // Chrome can reset a tab's toolbar title as it navigates: title it again at the next report.
     if ("url" in change || "status" in change) stamped.delete(id);
     if (["title", "url", "favIconUrl", "audible", "mutedInfo", "status", "pinned"].some((key) => key in change)) {
