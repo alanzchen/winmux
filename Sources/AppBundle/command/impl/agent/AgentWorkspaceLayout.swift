@@ -53,8 +53,12 @@ struct AgentWorkspaceLayout: Codable {
 
     @MainActor
     func apply() async throws {
+        // The pinned splits it takes windows from, or lays out, keep track of their windows, saved first.
+        if config.usesBrowserTabs {
+            try saveWorkspaceSidebarPinCompositions(of: ([Workspace.existing(byName: name)] + placedWindows.map(\.nodeWorkspace))
+                .compactMap { $0 })
+        }
         // Checked again as it's made: an earlier change in the same request may have changed the pins.
-        syncWorkspaceSidebarPinCompositions()
         if let refusal = pinRefusal() { throw refusal }
         let existedBefore = Workspace.existing(byName: name) != nil
         let workspace = Workspace.get(byName: name)

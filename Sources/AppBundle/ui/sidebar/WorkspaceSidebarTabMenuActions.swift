@@ -47,6 +47,8 @@ func splitWorkspaceSidebarTabWindow(_ windowId: UInt32, fromWorkspace sourceId: 
 func detachWorkspaceTabWindow(_ window: Window, keepsGroup: Bool = true,
                               destination: (projectId: WorkspaceProjectId, monitor: Monitor)? = nil) throws {
     guard config.usesBrowserTabs, let source = window.nodeWorkspace, source.allLeafWindowsRecursive.count > 1 else { return }
+    // A pinned split it's taken out of keeps track of its windows, saved first.
+    try saveWorkspaceSidebarPinCompositions(of: [source])
     let tab = createWorkspace(after: source, projectId: destination?.projectId ?? workspaceContextProjectId(of: source),
         monitor: destination?.monitor ?? source.workspaceMonitor)
     do {

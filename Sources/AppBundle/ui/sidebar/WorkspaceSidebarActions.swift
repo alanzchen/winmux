@@ -359,6 +359,8 @@ private func moveSidebarSourceToTabGap(
         // The list's display, or none: a display that went away takes nothing.
         guard let monitor = workspaceSidebarDropTargetMonitor(scopeId: monitorScopeId, fallbackWindow: sourceWindow,
             fallbackPoint: mouseLocation) else { throw WorkspaceMutationError.displayUnavailable }
+        // A pinned split it's taken out of keeps track of its windows, saved first.
+        if config.usesBrowserTabs { try saveWorkspaceSidebarPinCompositions(of: [sourceNode.nodeWorkspace].compactMap { $0 }) }
         syncClosedWindowsCacheToCurrentWorld()
         suppressPostDragAxObserverEvents(for: sourceNode.allLeafWindowsRecursive.map(\.windowId))
         // Unpinning, regrouping and moving go together: a drop that stops partway undoes the rest.

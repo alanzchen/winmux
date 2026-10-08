@@ -40,6 +40,7 @@ final class WorkspaceSidebarPinPolicyTest: XCTestCase {
         if let bootTime { workspaceSidebarBootTime = bootTime }
         if let runningProcess { workspaceSidebarRunningProcess = runningProcess }
         appForTests = nil
+        setMonitorsForTests(nil)
         config = defaultConfig
         try await super.tearDown()
     }
@@ -881,6 +882,146 @@ final class WorkspaceSidebarPinPolicyTest: XCTestCase {
         XCTAssertTrue(four.nodeWorkspace === d)
     }
 
+    // MARK: Review V3 1: a window taken in while one is away leaves that one its place
+
+    /// A|B pinned, A taken back by its own pin, C opened beside B: C is taken in beside B, and A, clicked
+    /// back, takes its own place again, first. Laid out on a real display with the default gaps, every
+    /// window has room.
+    func testAWindowTakenInWhileOneIsAwayLeavesItsPlaceAndRoom() async throws {
+        setMonitorsForTests([display(width: 1200)])
+        Workspace.reconcileWorkspaceState()
+        let (a, _, d, _) = try tabs()
+        let one = try window(1)
+        try splitPinnedTabWindowWithTab(a, "d", placement: .left)
+        XCTAssertEqual(ids(d), [1, 4])
+        try await layOut(d)
+        try setWorkspaceSidebarTabFavorite(d, true)
+        XCTAssertEqual(try recallWorkspaceSidebarPinWindows(a), .returned(one))
+        try await layOut(d)
+        _ = TestWindow.new(id: 9, parent: d.rootTilingContainer, adaptiveWeight: WEIGHT_AUTO)
+        try await layOut(d)
+        refreshModel()
+        XCTAssertEqual(appearance("d")?.composition?.layout.windows.map(\.windowId), [1, 4, 9], "A keeps its place, first")
+
+        XCTAssertEqual(try recallWorkspaceSidebarPinWindows(d), .recalled([one], elsewhere: []))
+        XCTAssertEqual(ids(d), [1, 4, 9])
+        try await layOut(d)
+        try assertRoom(d, atLeast: 250)
+    }
+
+    /// The same nested: A | (B over D), A away, C opened under D. C goes into the column, under D, and A,
+    /// back, is beside the column again, which has room for all three.
+    func testAWindowTakenInWhileOneIsAwayKeepsANestedSplitNested() async throws {
+        setMonitorsForTests([display(width: 1200)])
+        Workspace.reconcileWorkspaceState()
+        let s = Workspace.get(byName: "s")
+        _ = TestWindow.new(id: 1, parent: s.rootTilingContainer)
+        let column = TilingContainer(parent: s.rootTilingContainer, adaptiveWeight: 1, .v, .tiles, index: INDEX_BIND_LAST)
+        _ = TestWindow.new(id: 2, parent: column)
+        _ = TestWindow.new(id: 4, parent: column)
+        let a = Workspace.get(byName: "a")
+        try setWorkspaceSidebarTabsFavorite([a], true)
+        try workspaceSidebarOrganizationStore.update { $0.workspaces["a"]?.lentWindow = .init(try! XCTUnwrap(Window.get(byId: 1))) }
+        try await layOut(s)
+        try setWorkspaceSidebarTabFavorite(s, true)
+        let one = try window(1)
+        XCTAssertEqual(try recallWorkspaceSidebarPinWindows(a), .returned(one))
+        refreshModel()
+        try await layOut(s)
+        let parent = try XCTUnwrap(try window(4).parent as? TilingContainer)
+        _ = TestWindow.new(id: 9, parent: parent, adaptiveWeight: WEIGHT_AUTO)
+        try await layOut(s)
+        refreshModel()
+        guard case .split(.h, _, let top)? = appearance("s")?.composition?.layout, top.count == 2,
+              case .split(.v, _, let stacked) = top[1] else {
+            return XCTFail("\(String(describing: appearance("s")?.composition?.layout))")
+        }
+        XCTAssertEqual(top[0].windows.map(\.windowId), [1], "A keeps its place")
+        XCTAssertEqual(stacked.map { $0.windows.map(\.windowId) }, [[2], [4], [9]], "C under D, in the column")
+
+        _ = try recallWorkspaceSidebarPinWindows(s)
+        let root = s.rootTilingContainer
+        XCTAssertEqual(root.orientation, .h)
+        XCTAssertEqual((root.children.first as? AppBundle.Window)?.windowId, 1)
+        let rebuilt = try XCTUnwrap(root.children.last as? TilingContainer)
+        XCTAssertEqual(rebuilt.orientation, .v)
+        XCTAssertEqual(rebuilt.children.map { ($0 as? AppBundle.Window)?.windowId }, [2, 4, 9])
+        try await layOut(s)
+        try assertRoom(s, atLeast: 150)
+    }
+
+    // MARK: Review V3 2: a record a change needs is saved first, or the change isn't made
+
+    /// A pinned split reopened, its new windows not taken in yet, and the organization file can't be
+    /// written: an agent moving one of them out, by a move or a layout, is refused, says why, and moves
+    /// nothing, so the pinned split never loses track of them. A move that needs no record still works.
+    func testAnAgentMoveThatNeedsAPinnedSplitSavedFirstIsRefusedWhenItCantBe() async throws {
+        let (_, _, d, e) = try tabs()
+        let s = tab("s", 7, 8)
+        try setWorkspaceSidebarTabFavorite(s, true)
+        for id: UInt32 in [7, 8] {
+            try window(id).unbindFromParent()
+            forgetWorkspaceSidebarPinWindows { $0.windowId == id }
+        }
+        for id: UInt32 in [17, 18] { _ = TestWindow.new(id: id, parent: s.rootTilingContainer) }
+        let saved = workspaceSidebarOrganizationStore.state
+        workspaceSidebarOrganizationStore = .init(state: saved, url: unwritableOrganizationFile)
+
+        let move = try await agentApply(#"{"operations": [{"type": "moveWindowToWorkspace", "windowId": 17, "workspace": "d"}]}"#)
+        XCTAssertEqual(move.exitCode, 1)
+        XCTAssertTrue(move.stderr.joined().contains("moveWindowToWorkspace window 17: Couldn't save the pinned split 's'"),
+            "\(move.stderr)")
+        for asOperation in [true, false] {
+            let layout = try await applyAgentLayout("n", [18], asOperation: asOperation)
+            XCTAssertEqual(layout.exitCode, 1, "\(asOperation)")
+            XCTAssertTrue(layout.stderr.joined().contains("Couldn't save the pinned split 's'"), "\(layout.stderr)")
+        }
+        _ = try window(17).focusWindow()
+        try await assertMove(to: "d", refused: true)
+        XCTAssertEqual(ids(s), [17, 18], "Nothing moved")
+        XCTAssertEqual(ids(d), [4])
+        XCTAssertEqual(workspaceSidebarOrganizationStore.state, saved)
+
+        // A move no pinned split depends on isn't held up.
+        let ordinary = try await agentApply(#"{"operations": [{"type": "moveWindowToWorkspace", "windowId": 5, "workspace": "d"}]}"#)
+        XCTAssertEqual(ordinary.exitCode, 0, "\(ordinary.stderr)")
+        XCTAssertEqual(ids(d), [4, 5])
+        XCTAssertEqual(ids(e), [6])
+
+        // Once it can be saved, the moves are made, and the pinned split still knows its windows.
+        workspaceSidebarOrganizationStore = .init(state: workspaceSidebarOrganizationStore.state)
+        for id: UInt32 in [17, 18] {
+            let result = try await agentApply(#"{"operations": [{"type": "moveWindowToWorkspace", "windowId": \#(id), "workspace": "d"}]}"#)
+            XCTAssertEqual(result.exitCode, 0, "\(result.stderr)")
+        }
+        XCTAssertEqual(ids(s), [])
+        XCTAssertEqual(appearance("s")?.composition?.layout.windows.map(\.windowId), [17, 18])
+        XCTAssertTrue(workspaceSidebarPinRecallsWindows(s), "Its windows are open elsewhere: its saved apps don't open")
+    }
+
+    /// A split pinned before pinned splits were recorded, and the file can't be written: moving one of its
+    /// windows out, which needs it recorded first, is refused, and it stays a pinned split.
+    func testALegacyPinnedSplitThatCantBeRecordedKeepsItsWindows() async throws {
+        let (_, _, d, _) = try tabs()
+        let s = tab("s", 7, 8)
+        try workspaceSidebarOrganizationStore.update { state in
+            state.pinnedSplitsRecorded = nil
+            state.workspaces["s"] = .init(isFavorite: true)
+        }
+        workspaceSidebarOrganizationStore = .init(state: workspaceSidebarOrganizationStore.state, url: unwritableOrganizationFile)
+        let move = try await agentApply(#"{"operations": [{"type": "moveWindowToWorkspace", "windowId": 7, "workspace": "d"}]}"#)
+        XCTAssertEqual(move.exitCode, 1)
+        XCTAssertTrue(move.stderr.joined().contains("Couldn't save the pinned split 's'"), "\(move.stderr)")
+        XCTAssertEqual(ids(s), [7, 8])
+        XCTAssertEqual(ids(d), [4])
+
+        workspaceSidebarOrganizationStore = .init(state: workspaceSidebarOrganizationStore.state)
+        let retried = try await agentApply(#"{"operations": [{"type": "moveWindowToWorkspace", "windowId": 7, "workspace": "d"}]}"#)
+        XCTAssertEqual(retried.exitCode, 0, "\(retried.stderr)")
+        XCTAssertEqual(ids(s), [8])
+        XCTAssertEqual(workspaceSidebarPinSplitRole(s), .composition, "Recorded before it lost the window")
+    }
+
     // MARK: Helpers
 
     /// Pins a and b, with windows 1 and 2; ordinary tabs d, with window 4, and e, a split of 5 and 6.
@@ -938,6 +1079,30 @@ final class WorkspaceSidebarPinPolicyTest: XCTestCase {
 
     private func appearance(_ name: String) -> WorkspaceSidebarItemAppearance? {
         workspaceSidebarOrganizationStore.state.workspaces[name]
+    }
+
+    /// An organization file that can't be written, its folder being a device: as a write failing.
+    private var unwritableOrganizationFile: URL { URL(fileURLWithPath: "/dev/null/winmux-pin-split-test/sidebar-organization.json") }
+
+    private func display(width: CGFloat) -> Monitor {
+        WorkspaceSidebarDragTestMonitor(monitorAppKitNsScreenScreensId: 1, name: "Main",
+            rect: Rect(topLeftX: 0, topLeftY: 0, width: width, height: 800),
+            visibleRect: Rect(topLeftX: 0, topLeftY: 0, width: width, height: 800), isMain: true)
+    }
+
+    /// `tab` on its display, laid out there.
+    private func layOut(_ tab: Workspace) async throws {
+        XCTAssertTrue(tab.workspaceMonitor.setActiveWorkspace(tab))
+        try await tab.layoutWorkspace()
+    }
+
+    /// Every window of `tab` laid out with room: wider and taller than `length` points.
+    private func assertRoom(_ tab: Workspace, atLeast length: CGFloat, file: StaticString = #filePath, line: UInt = #line) throws {
+        for window in tab.allLeafWindowsRecursive {
+            let rect = try XCTUnwrap(window.lastAppliedLayoutPhysicalRect, "\(window.windowId)", file: file, line: line)
+            XCTAssertGreaterThan(rect.width, length, "\(window.windowId): \(rect)", file: file, line: line)
+            XCTAssertGreaterThan(rect.height, length, "\(window.windowId): \(rect)", file: file, line: line)
+        }
     }
 
     private func agentApply(_ edit: String) async throws -> CmdResult {
