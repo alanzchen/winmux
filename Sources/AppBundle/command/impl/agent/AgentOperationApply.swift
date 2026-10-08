@@ -10,16 +10,22 @@ extension AgentOperation {
             case .focusWorkspace(let workspace):
                 _ = Workspace.existing(byName: workspace)?.focusWorkspace()
             case .moveWindowToWorkspace(let windowId, let workspace, let shouldFocus):
-                try applyMoveWindowToWorkspace(windowId, workspace: workspace, shouldFocus: shouldFocus)
+                try await applyMoveWindowToWorkspace(windowId, workspace: workspace, shouldFocus: shouldFocus)
             case .moveTabGroupToWorkspace(let tabGroupId, let workspace, let shouldFocus):
                 try applyMoveTabGroupToWorkspace(tabGroupId, workspace: workspace, shouldFocus: shouldFocus, context: context)
             case .swapPanes(let a, let b):
                 guard let nodeA = a.resolveNode(context: context), let nodeB = b.resolveNode(context: context) else { return }
-                // Never across tabs with a pin, whose window would change.
+                // Never across tabs with a pin with one window, whose window would change; a pinned split's
+                // may be swapped, its record saved first, and taking in the window it gets.
                 guard workspaceSidebarPinPolicyAllowsSwap(nodeA.nodeWorkspace, nodeB.nodeWorkspace) else {
-                    throw WorkspaceSidebarPinPolicyRefusal("swapPanes: a pin keeps its own window; swap within one tab instead")
+                    throw WorkspaceSidebarPinPolicyRefusal("swapPanes: a pin with one window keeps it; swap within one tab instead")
+                }
+                let tabs = [nodeA.nodeWorkspace, nodeB.nodeWorkspace].compactMap { $0 }
+                if config.usesBrowserTabs {
+                    try withAgentPinRefusal("swapPanes") { try saveWorkspaceSidebarPinCompositions(of: tabs) }
                 }
                 swapNodes(nodeA, nodeB)
+                if config.usesBrowserTabs { try? saveWorkspaceSidebarPinCompositions(of: tabs) }
             case .placePane(let pane, let relation, let target):
                 guard let source = pane.resolveNode(context: context), let target = target.resolveNode(context: context) else { return }
                 // Into another tab, as the pins' policy says: beside a pin's one window, both go to an ordinary tab.
@@ -62,9 +68,13 @@ extension AgentOperation {
     }
 
     @MainActor
-    private func applyMoveWindowToWorkspace(_ windowId: UInt32, workspace: String, shouldFocus: Bool?) throws {
+    private func applyMoveWindowToWorkspace(_ windowId: UInt32, workspace: String, shouldFocus: Bool?) async throws {
         guard let window = Window.get(byId: windowId) else { return }
         let targetWorkspace = getAgentTargetWorkspace(named: workspace, projectSource: window.nodeWorkspace, monitorSource: window)
+        // A pin whose one window is hidden with its app shows it first; one in full screen isn't split.
+        if window.nodeWorkspace !== targetWorkspace, let notShown = await showWorkspaceSidebarPinsForSplit([targetWorkspace]) {
+            throw WorkspaceSidebarPinPolicyRefusal("moveWindowToWorkspace window \(windowId): \(notShown.message)")
+        }
         try withAgentPinRefusal("moveWindowToWorkspace window \(windowId)") {
             _ = try agentMoveWindowToWorkspace(window, targetWorkspace, focusFollowsWindow: shouldFocus ?? false)
         }

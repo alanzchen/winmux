@@ -154,6 +154,12 @@ func handleWorkspaceSidebarAction(
             }
         case .splitTabWindow(let windowId, let sourceId, let targetId):
             runWorkspaceSidebarSession(undoTitle: "Split Tabs") {
+                // A pin's window hidden with its app is shown first; one in full screen isn't split.
+                if let target = winMuxWorkspaceState.workspaceById[targetId],
+                   let notShown = await showWorkspaceSidebarPinsForSplit([target]) {
+                    noteWorkspaceSidebarPinNotShown(notShown)
+                    return
+                }
                 try splitWorkspaceSidebarTabWindow(windowId, fromWorkspace: sourceId, withWorkspace: targetId)
             }
         case .undoTabAction:

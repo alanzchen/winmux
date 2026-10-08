@@ -13,6 +13,7 @@ final class WorkspaceSidebarPinPolicyTest: XCTestCase {
     private var restoreMinimized: (@MainActor (AppBundle.Window) async -> Bool)?
     private var recallNotice: (@MainActor (String, String) -> Void)?
     private var bootTime: (() -> Date?)?
+    private var unhide: (@MainActor (AppBundle.Window) async -> Bool)?
     private var runningProcess: ((Int32) -> (bundleId: String?, launch: Date?)?)?
 
     override func setUp() async throws {
@@ -22,6 +23,7 @@ final class WorkspaceSidebarPinPolicyTest: XCTestCase {
         workspaceSidebarOrganizationStore = .init()
         TrayMenuModel.shared.isEnabled = true
         restoreMinimized = restoreMinimized ?? workspaceSidebarRestoreMinimizedWindow
+        unhide = unhide ?? workspaceSidebarUnhideWindow
         recallNotice = recallNotice ?? workspaceSidebarPinRecallNotice
         bootTime = bootTime ?? workspaceSidebarBootTime
         runningProcess = runningProcess ?? workspaceSidebarRunningProcess
@@ -36,6 +38,7 @@ final class WorkspaceSidebarPinPolicyTest: XCTestCase {
         clearWorkspaceSidebarDropPreview()
         workspaceSidebarOrganizationStore = .init()
         if let restoreMinimized { workspaceSidebarRestoreMinimizedWindow = restoreMinimized }
+        if let unhide { workspaceSidebarUnhideWindow = unhide }
         if let recallNotice { workspaceSidebarPinRecallNotice = recallNotice }
         if let bootTime { workspaceSidebarBootTime = bootTime }
         if let runningProcess { workspaceSidebarRunningProcess = runningProcess }
@@ -93,30 +96,31 @@ final class WorkspaceSidebarPinPolicyTest: XCTestCase {
         XCTAssertTrue(four.nodeWorkspace === d)
     }
 
-    func testAMoveCommandIntoAPinThatTakesNoWindowIsRefusedAndSaysWhy() async throws {
-        let (a, _, d, e) = try tabs()
+    /// Alan, October 8: a pinned split takes a window moved into it, as its own, and stays one. A pin
+    /// lending its window still takes none, saying why, and an empty pin takes one.
+    func testAMoveCommandIntoAPinGoesByThePinsRule() async throws {
+        let (a, _, _, e) = try tabs()
         try setWorkspaceSidebarTabFavorite(e, true)
         _ = try window(4).focusWindow()
-        let intoSplit = try await move(to: "e")
-        XCTAssertNotEqual(intoSplit.exitCode, 0)
-        XCTAssertTrue(intoSplit.stderr.joined().contains("pinned split"), "\(intoSplit.stderr)")
-        XCTAssertEqual(ids(e), [5, 6], "The pinned split takes no window")
-        XCTAssertEqual(ids(d), [4])
+        try await assertMove(to: "e")
+        XCTAssertEqual(ids(e), [5, 6, 4], "The pinned split takes it")
+        XCTAssertTrue(workspaceSidebarIsPinned(e))
+        XCTAssertEqual(appearance("e")?.composition?.layout.windows.map(\.windowId), [5, 6, 4], "As one of its own")
 
-        // A pin lending its window takes none either.
+        let n = tab("n", 9)
         _ = try window(1).focusWindow()
-        try await assertMove(to: "d")
-        _ = try window(5).focusWindow()
-        try await assertMove(to: "a", refused: true)
+        try await assertMove(to: "n")
+        XCTAssertEqual(ids(n), [9, 1])
+        _ = try window(9).focusWindow()
+        let refused = try await move(to: "a")
+        XCTAssertNotEqual(refused.exitCode, 0)
+        XCTAssertTrue(refused.stderr.joined().contains("Workspace 'a' is a pin whose window is in another tab"), "\(refused.stderr)")
         XCTAssertEqual(ids(a), [])
-        XCTAssertEqual(ids(e), [5, 6])
 
-        // An empty pin takes one window, which is its own.
         let z = Workspace.get(byName: "z")
         try setWorkspaceSidebarTabFavorite(z, true)
-        _ = try window(4).focusWindow()
         try await assertMove(to: "z")
-        XCTAssertEqual(ids(z), [4])
+        XCTAssertEqual(ids(z), [9], "An empty pin takes one window, its own")
         XCTAssertNil(workspaceSidebarLentWindow(of: z))
     }
 
@@ -142,20 +146,28 @@ final class WorkspaceSidebarPinPolicyTest: XCTestCase {
         XCTAssertEqual(ids(a), [])
         XCTAssertEqual(workspaceSidebarLentWindow(of: a)?.windowId, 1)
 
-        // A pinned split and a lending pin take none, by any drop on screen.
+        // Alan, October 8: a pinned split takes windows dropped on it from the screen, and stays one.
         try setWorkspaceSidebarTabFavorite(e, true)
-        let z = Workspace.get(byName: "z")
-        _ = TestWindow.new(id: 9, parent: z.rootTilingContainer)
-        for kind: WindowDragIntentKind in [.moveToWorkspace(workspaceName: "e"), .moveToWorkspaceZone(workspaceName: "e", zone: .right),
-                                           .stackSplit(targetWindowId: 5, position: .left), .moveToWorkspace(workspaceName: "a")]
+        let z = tab("z", 9, 10, 11, 12)
+        for (id, kind) in [(9, .moveToWorkspace(workspaceName: "e")), (10, .moveToWorkspaceZone(workspaceName: "e", zone: .right)),
+                           (11, .stackSplit(targetWindowId: 5, position: .left))] as [(UInt32, WindowDragIntentKind)]
         {
-            XCTAssertFalse(dropOnScreen(9, kind), "\(kind)")
-            XCTAssertEqual(ids(z), [9], "\(kind)")
+            XCTAssertTrue(dropOnScreen(id, kind), "\(kind)")
+            XCTAssertTrue(try window(id).nodeWorkspace === e, "\(kind)")
         }
-        XCTAssertEqual(ids(e), [5, 6])
-        // Windows aren't swapped across tabs with a pin, whose window would change.
-        XCTAssertFalse(dropOnScreen(9, .swap(targetWindowId: 5)))
-        XCTAssertEqual(ids(e), [5, 6])
+        XCTAssertTrue(workspaceSidebarIsPinned(e))
+        XCTAssertEqual(Set(appearance("e")?.composition?.layout.windows.map(\.windowId) ?? []), [5, 6, 9, 10, 11])
+        // Its window swaps with another tab's: it takes that one in, and the one it gave stays its own.
+        XCTAssertTrue(dropOnScreen(12, .swap(targetWindowId: 6)))
+        XCTAssertTrue(try window(12).nodeWorkspace === e)
+        XCTAssertTrue(try window(6).nodeWorkspace === z)
+        XCTAssertEqual(Set(appearance("e")?.composition?.layout.windows.map(\.windowId) ?? []), [5, 6, 9, 10, 11, 12])
+
+        // A pin lending its window still takes none; a pin with one window swaps none.
+        XCTAssertFalse(dropOnScreen(6, .moveToWorkspace(workspaceName: "a")))
+        XCTAssertEqual(ids(a), [])
+        XCTAssertFalse(dropOnScreen(6, .swap(targetWindowId: 2)))
+        XCTAssertTrue(try window(6).nodeWorkspace === z)
     }
 
     func testAPinsWindowDraggedOutOnScreenIsLent() throws {
@@ -181,7 +193,8 @@ final class WorkspaceSidebarPinPolicyTest: XCTestCase {
         XCTAssertTrue(workspaceSidebarLentWindow(of: b) === two, "The pin lends it there")
     }
 
-    /// The previews offer what the moves make: no split onto a pinned split's window, no swap with a pin's.
+    /// The previews offer what the moves make: a split onto a pin's window or a pinned split's, no swap
+    /// with a one-window pin's.
     func testScreenPreviewsOfferOnlyWhatThePinsRuleAllows() throws {
         let (a, _, _, e) = try tabs()
         let rect = Rect(topLeftX: 100, topLeftY: 100, width: 400, height: 300)
@@ -190,8 +203,8 @@ final class WorkspaceSidebarPinPolicyTest: XCTestCase {
         XCTAssertNotNil(stackSplitDestination(sourceWindow: four, targetWindow: try window(1), subject: .window, position: .left,
             detachOrigin: .window), "A one-window pin's window takes a split")
         try setWorkspaceSidebarTabFavorite(e, true)
-        XCTAssertNil(stackSplitDestination(sourceWindow: four, targetWindow: try window(5), subject: .window, position: .left,
-            detachOrigin: .window), "A pinned split's doesn't")
+        XCTAssertNotNil(stackSplitDestination(sourceWindow: four, targetWindow: try window(5), subject: .window, position: .left,
+            detachOrigin: .window), "A pinned split's too (Alan, October 8)")
         XCTAssertNil(swapDestination(sourceWindow: four, targetWindow: try window(1), subject: .window, detachOrigin: .window))
         XCTAssertTrue(workspaceSidebarIsPinned(a))
     }
@@ -270,7 +283,11 @@ final class WorkspaceSidebarPinPolicyTest: XCTestCase {
 
     // MARK: 3. A pinned split stays one whatever it holds
 
-    func testAPinnedSplitWithOneWindowLeftIsStillAPinnedSplit() async throws {
+    /// Alan, October 8: a pinned split may be changed, and stays a pinned split, whatever it holds: a
+    /// window dropped on its half, a pin held over it, a command, all put windows in it as its own. A pin
+    /// with one window still never becomes one: a split with it goes to an ordinary tab. And a pinned
+    /// split dragged over a tab is still no split with it.
+    func testAPinnedSplitTakesWindowsAndStaysOne() async throws {
         let (a, b, d, e) = try tabs()
         let one = try window(1)
         try splitPinnedTabWindowWithTab(a, "d", placement: .right)
@@ -278,64 +295,85 @@ final class WorkspaceSidebarPinPolicyTest: XCTestCase {
         XCTAssertEqual(try recallWorkspaceSidebarPinWindows(a), .returned(one))
         XCTAssertEqual(ids(d), [4])
         XCTAssertEqual(workspaceSidebarPinSplitRole(d), .composition, "Not a pin of its one window")
-        XCTAssertFalse(workspaceSidebarTakesSplit(d))
+        XCTAssertTrue(workspaceSidebarTakesSplit(d))
 
-        // Every deliberate move into it, or splitting it, is refused.
+        previewWorkspaceSidebarDrop(6, subject: .window, target: .workspace("d"), placement: .left)
+        XCTAssertNotNil(TrayMenuModel.shared.workspaceSidebarDropPreview, "Offered")
         await queueWorkspaceSidebarDrop(6, subject: .window, target: .workspace("d"), placement: .left, intent: .physical)?.value
-        try applyWorkspaceSidebarPinnedTabDrop(b, .split("d", placement: .left, projectId: b.projectId,
-            source: .init(try window(2)), target: .init(try window(4))))
-        try applyWorkspaceSidebarPinnedTabDrop(d, .split("b", placement: .left, projectId: b.projectId,
-            source: .init(try window(4)), target: .init(try window(2))))
-        try applyWorkspaceSidebarPinnedTabDrop(d, .join("e", placement: .left, operation: .lend(.init(try window(4)))))
+        XCTAssertEqual(ids(d), [6, 4], "On the half it was dropped on")
+        XCTAssertEqual(ids(e), [5])
+        try applyWorkspaceSidebarPinnedTabDrop(b, .split("d", placement: .right, projectId: b.projectId,
+            source: .init(try window(2)), target: .composition))
+        XCTAssertEqual(ids(d), [6, 4, 2])
+        XCTAssertEqual(ids(b), [])
+        XCTAssertEqual(workspaceSidebarLentWindow(of: b)?.windowId, 2, "The pin lends its window into it, grey")
         _ = try window(5).focusWindow()
-        try await assertMove(to: "d", refused: true)
-        XCTAssertFalse(dropOnScreen(5, .moveToWorkspace(workspaceName: "d")))
-        XCTAssertFalse(dropOnScreen(5, .stackSplit(targetWindowId: 4, position: .left)))
-        XCTAssertEqual(ids(d), [4])
-        XCTAssertEqual(ids(b), [2])
-        XCTAssertEqual(ids(e), [5, 6])
-
-        // Its window brought back fills its place again.
+        try await assertMove(to: "d")
+        XCTAssertEqual(ids(d), [6, 4, 2, 5])
+        XCTAssertTrue(workspaceSidebarIsPinned(d))
+        XCTAssertEqual(workspaceSidebarPinSplitRole(d), .composition)
+        XCTAssertEqual(appearance("d")?.composition?.layout.windows.map(\.windowId), [6, 4, 2, 5, 1],
+            "All its own, each beside its neighbour; 1, away, still after 4")
         XCTAssertEqual(try recallWorkspaceSidebarPinWindows(d), .recalled([one], elsewhere: []))
-        XCTAssertEqual(ids(d), [4, 1])
+        XCTAssertEqual(ids(d), [6, 4, 2, 5, 1])
+        XCTAssertEqual(pins(), ["a", "b", "d"])
+
+        let c = tab("c", 3)
+        try setWorkspaceSidebarTabFavorite(c, true)
+        let n = tab("n", 9)
+        await queueWorkspaceSidebarDrop(9, subject: .window, target: .workspace("c"), placement: .left, intent: .physical)?.value
+        XCTAssertEqual(ids(c), [], "A pin with one window: the split goes to an ordinary tab")
+        XCTAssertEqual(ids(n), [9, 3])
+        XCTAssertFalse(workspaceSidebarIsPinned(n))
+        XCTAssertNil(appearance("c")?.composition)
+        XCTAssertEqual(workspaceSidebarLentWindow(of: c)?.windowId, 3)
+
+        try applyWorkspaceSidebarPinnedTabDrop(d, .join("n", placement: .left, operation: .lend(.init(try window(4)))))
+        XCTAssertEqual(ids(n), [9, 3], "A pinned split dragged over a tab only rearranges")
     }
 
-    /// With none of its windows in it, but some open elsewhere, a pinned split never opens its saved
-    /// apps: a click brings back those it can, says where the rest are, and opens nothing.
-    func testAnEmptyPinnedSplitWhoseWindowsAreOpenElsewhereOpensNothing() async throws {
-        let (a, _, d, e) = try tabs()
-        try splitPinnedTabWindowWithTab(a, "d", placement: .right)
-        try setWorkspaceSidebarTabFavorite(d, true)
-        // 1 back in its pin, then moved on to e by a command, which the pin lends it to; 4 moved out too.
-        _ = try recallWorkspaceSidebarPinWindows(a)
-        _ = try window(1).focusWindow()
-        try await assertMove(to: "e")
-        _ = try window(4).focusWindow()
-        try await assertMove(to: "e")
-        XCTAssertEqual(ids(d), [])
-        XCTAssertEqual(Set(ids(e)), [1, 4, 5, 6])
-        XCTAssertEqual(workspaceSidebarPinSplitRole(d), .composition, "Empty, still a pinned split")
-        XCTAssertTrue(workspaceSidebarPinRecallsWindows(d), "Its windows are open: a click mustn't open its saved apps")
+    /// Alan, October 8: a window dragged out of a pinned split stays its own. A click on the pinned split
+    /// brings that same window back to its place, from an ordinary tab or a new one, which isn't left
+    /// empty. One moved into another pin is that pin's: it stays there, said so, and nothing is opened.
+    func testAWindowDraggedOutOfAPinnedSplitComesBackToItsPlaceOnAClick() async throws {
+        let s = try pinnedSplit { root in
+            for id: UInt32 in [1, 2, 3, 4] { _ = TestWindow.new(id: id, parent: root) }
+        }
+        let d = Workspace.get(byName: "d")
+        let three = try window(3), four = try window(4)
+        await queueWorkspaceSidebarDrop(4, subject: .window, target: .workspace("d"), placement: .right, intent: .physical)?.value
+        XCTAssertEqual(ids(d), [7, 4])
+        let scope = workspaceSidebarMonitorScopeId(for: s.workspaceMonitor)
+        await queueWorkspaceSidebarDrop(3, subject: .window, target: .newWorkspace(projectId: s.projectId, monitorScopeId: scope),
+            placement: nil, intent: .physical)?.value
+        let newTab = try XCTUnwrap(three.nodeWorkspace)
+        XCTAssertFalse(newTab === s)
+        XCTAssertFalse(workspaceSidebarIsPinned(newTab))
+        XCTAssertEqual(ids(s), [1, 2])
+        XCTAssertEqual(appearance("s")?.composition?.layout.windows.map(\.windowId), [1, 2, 3, 4], "Still its own")
+        XCTAssertTrue(workspaceSidebarPinRecallsWindows(s))
 
-        let windowCount = Workspace.all.flatMap(\.allLeafWindowsRecursive).count
-        recallPinWindowsFromSidebar("d", focusing: nil, targetMonitorScopeId: nil)
+        let windowCount = allWindowCount()
+        recallPinWindowsFromSidebar("s", focusing: nil, targetMonitorScopeId: nil)
+        try await waitUntil { ids(s).count == 4 }
+        XCTAssertEqual(ids(s), [1, 2, 3, 4], "Each back in its place")
+        XCTAssertTrue(three.nodeWorkspace === s && four.nodeWorkspace === s, "The same windows")
+        XCTAssertEqual(ids(d), [7])
+        XCTAssertFalse(workspaceTabIsShown(newTab), "The new tab it left isn't left empty")
+        XCTAssertEqual(allWindowCount(), windowCount, "Nothing opened")
+        XCTAssertEqual(notices, [])
+
+        let z = Workspace.get(byName: "z")
+        try setWorkspaceSidebarTabFavorite(z, true)
+        _ = four.focusWindow()
+        try await assertMove(to: "z")
+        XCTAssertEqual(ids(z), [4])
+        recallPinWindowsFromSidebar("s", focusing: nil, targetMonitorScopeId: nil)
         try await waitUntil { !self.notices.isEmpty }
-        XCTAssertEqual(ids(d), [], "Nothing taken from another tab")
-        XCTAssertEqual(Set(ids(e)), [1, 4, 5, 6])
-        XCTAssertEqual(notices.count, 1)
+        XCTAssertEqual(ids(z), [4], "Another pin's window now: not taken")
+        XCTAssertEqual(ids(s), [1, 2, 3])
         XCTAssertTrue(notices[0].contains("open elsewhere"), notices[0])
-        XCTAssertEqual(Workspace.all.flatMap(\.allLeafWindowsRecursive).count, windowCount, "Nothing opened")
-
-        // Once its window is back in its own pin, a click brings that one back.
-        _ = try recallWorkspaceSidebarPinWindows(a)
-        XCTAssertEqual(ids(a), [1])
-        XCTAssertEqual(try recallWorkspaceSidebarPinWindows(d), .recalled([try window(1)], elsewhere: [try window(4)]))
-        XCTAssertEqual(ids(d), [1])
-
-        // With every window of it closed, it may open its saved apps again: none is open to clash with.
-        for id: UInt32 in [1, 4] { try window(id).unbindFromParent() }
-        XCTAssertFalse(workspaceSidebarPinRecallsWindows(d))
-        XCTAssertEqual(workspaceSidebarPinSplitRole(d), .composition)
+        XCTAssertEqual(allWindowCount(), windowCount, "Nothing opened")
     }
 
     // MARK: 4. A minimized lent window comes back restored
@@ -397,23 +435,142 @@ final class WorkspaceSidebarPinPolicyTest: XCTestCase {
         }
     }
 
-    /// A hidden app's or full-screen window is shown where it is, never moved or opened again, and a
-    /// notice says so. Pending Alan's decision.
-    func testAHiddenOrFullScreenLentWindowIsShownWhereItIs() async throws {
-        for fullScreen in [false, true] {
+    /// Alan, October 8: a grey pin's window hidden with its app is shown again, then brought back, the
+    /// same window. If it stays hidden, or closes meanwhile, nothing is brought back, a notice says so,
+    /// and nothing is opened.
+    func testAGreyPinsHiddenWindowIsShownThenBroughtBack() async throws {
+        for change in ["none", "closed", "stays hidden"] {
             try await setUp()
             let (a, _, d, _) = try tabs()
             let one = try window(1)
             try splitPinnedTabWindowWithTab(a, "d", placement: .right)
-            one.bind(to: fullScreen ? d.macOsNativeFullscreenWindowsContainer : d.macOsNativeHiddenAppsWindowsContainer,
-                adaptiveWeight: WEIGHT_DOESNT_MATTER, index: INDEX_BIND_LAST)
-            XCTAssertEqual(try recallWorkspaceSidebarPinWindows(a), .elsewhere(one))
+            hide(one)
+            XCTAssertEqual(try recallWorkspaceSidebarPinWindows(a), .hidden(one))
+            var unhidden: [UInt32] = []
+            workspaceSidebarUnhideWindow = { window in
+                unhidden.append(window.windowId)
+                switch change {
+                    case "closed": window.unbindFromParent()
+                    case "stays hidden": return false
+                    default: break
+                }
+                return true
+            }
+            let windowCount = allWindowCount()
             recallPinWindowsFromSidebar("a", focusing: nil, targetMonitorScopeId: nil)
-            try await waitUntil { !self.notices.isEmpty }
-            XCTAssertTrue(notices[0].contains(fullScreen ? "in full screen" : "hidden"), notices[0])
-            XCTAssertTrue(one.nodeWorkspace === d, "It stays where it is")
-            XCTAssertEqual(ids(a), [])
+            if change == "none" {
+                try await waitUntil { ids(a) == [1] }
+                XCTAssertTrue(a.anyLeafWindowRecursive === one, "The same window")
+                XCTAssertEqual(one.layoutReason, .standard)
+                XCTAssertEqual(ids(d), [4])
+                XCTAssertNil(workspaceSidebarLentWindow(of: a))
+                XCTAssertEqual(notices, [])
+                XCTAssertEqual(allWindowCount(), windowCount)
+            } else {
+                try await waitUntil { !self.notices.isEmpty }
+                XCTAssertTrue(notices[0].contains("stayed hidden"), "\(change): \(notices)")
+                XCTAssertEqual(ids(a), [], change)
+                XCTAssertEqual(allWindowCount(), windowCount - (change == "closed" ? 1 : 0), "\(change): nothing opened")
+            }
+            XCTAssertEqual(unhidden, [1], change)
         }
+    }
+
+    /// Alan, October 8: a pin whose own window is hidden with its app has it shown again first, then the
+    /// split is made as with any pin with one window: dropped on in the sidebar, or by a command.
+    func testAPinWhoseWindowIsHiddenIsShownThenSplit() async throws {
+        let (a, b, d, e) = try tabs()
+        let one = try window(1), two = try window(2)
+        hide(one)
+        XCTAssertEqual(workspaceSidebarPinSplitRole(a), .hidden(one))
+        var unhidden: [UInt32] = []
+        workspaceSidebarUnhideWindow = { window in
+            unhidden.append(window.windowId)
+            return true
+        }
+        previewWorkspaceSidebarDrop(4, subject: .window, target: .workspace("a"), placement: .left)
+        XCTAssertNotNil(TrayMenuModel.shared.workspaceSidebarDropPreview, "Offered")
+        await queueWorkspaceSidebarDrop(4, subject: .window, target: .workspace("a"), placement: .left, intent: .physical)?.value
+        XCTAssertEqual(unhidden, [1])
+        XCTAssertEqual(ids(d), [4, 1], "Split in 4's ordinary tab, with the same window")
+        XCTAssertEqual(ids(a), [])
+        XCTAssertTrue(workspaceSidebarLentWindow(of: a) === one)
+
+        hide(two)
+        _ = try window(6).focusWindow()
+        try await assertMove(to: "b")
+        XCTAssertEqual(unhidden, [1, 2])
+        XCTAssertEqual(ids(e), [5])
+        XCTAssertNotNil(Workspace.all.first { ids($0) == [2, 6] }, "Split in a new ordinary tab")
+        XCTAssertTrue(workspaceSidebarLentWindow(of: b) === two)
+        XCTAssertEqual(notices, [])
+    }
+
+    /// A pinned split's window dragged out, then hidden with its app there, is shown again by a click on
+    /// the pinned split, then brought back to its place; a window dragged in from the screen onto a pin
+    /// whose window is hidden has that window shown first, then splits with it.
+    func testHiddenWindowsAreShownFirstForAPinnedSplitsClickAndAScreenDrop() async throws {
+        let s = try pinnedSplit { root in
+            for id: UInt32 in [1, 2, 3, 4] { _ = TestWindow.new(id: id, parent: root) }
+        }
+        let d = Workspace.get(byName: "d")
+        let four = try window(4)
+        await queueWorkspaceSidebarDrop(4, subject: .window, target: .workspace("d"), placement: .right, intent: .physical)?.value
+        hide(four)
+        var unhidden: [UInt32] = []
+        workspaceSidebarUnhideWindow = { window in
+            unhidden.append(window.windowId)
+            return true
+        }
+        XCTAssertTrue(workspaceSidebarPinRecallsWindows(s))
+        recallPinWindowsFromSidebar("s", focusing: nil, targetMonitorScopeId: nil)
+        try await waitUntil { ids(s).count == 4 }
+        XCTAssertEqual(unhidden, [4])
+        XCTAssertEqual(ids(s), [1, 2, 3, 4])
+        XCTAssertTrue(four.nodeWorkspace === s)
+        XCTAssertEqual(ids(d), [7])
+
+        let z = tab("z", 9)
+        try setWorkspaceSidebarTabFavorite(z, true)
+        let nine = try window(9)
+        hide(nine)
+        let n = tab("n", 10)
+        XCTAssertTrue(dropOnScreen(10, .moveToWorkspace(workspaceName: "z"), style: .sidebarWorkspaceMove))
+        try await waitUntil { ids(n).count == 2 }
+        XCTAssertEqual(unhidden, [4, 9])
+        XCTAssertEqual(Set(ids(n)), [9, 10], "Split with the same window, in 10's ordinary tab")
+        XCTAssertTrue(workspaceSidebarLentWindow(of: z) === nine)
+    }
+
+    /// Alan, October 8: a window in full screen is only found: never split, never taken out of full
+    /// screen; a notice says to leave full screen first. By a grey pin's click, a drop on a pin whose
+    /// window it is, or a command.
+    func testAFullScreenWindowIsOnlyFoundWithANoticeAndNeverSplit() async throws {
+        let (a, b, d, _) = try tabs()
+        let one = try window(1), two = try window(2)
+        try splitPinnedTabWindowWithTab(a, "d", placement: .right)
+        fullScreen(one)
+        XCTAssertEqual(try recallWorkspaceSidebarPinWindows(a), .elsewhere(one))
+        recallPinWindowsFromSidebar("a", focusing: nil, targetMonitorScopeId: nil)
+        try await waitUntil { !self.notices.isEmpty }
+        XCTAssertTrue(notices[0].contains("Exit full screen"), notices[0])
+        XCTAssertTrue(one.parent is MacosFullscreenWindowsContainer && one.nodeWorkspace === d, "Left in full screen, where it is")
+        XCTAssertTrue(focus.workspace === d, "Found where it is")
+        XCTAssertEqual(ids(a), [])
+
+        fullScreen(two)
+        XCTAssertEqual(workspaceSidebarPinSplitRole(b), .fullscreen(two))
+        previewWorkspaceSidebarDrop(4, subject: .window, target: .workspace("b"), placement: .left)
+        XCTAssertNil(TrayMenuModel.shared.workspaceSidebarDropPreview, "Not offered")
+        notices = []
+        await queueWorkspaceSidebarDrop(4, subject: .window, target: .workspace("b"), placement: .left, intent: .physical)?.value
+        XCTAssertTrue(notices.first?.contains("Exit full screen") == true, "\(notices)")
+        _ = try window(4).focusWindow()
+        let command = try await move(to: "b")
+        XCTAssertNotEqual(command.exitCode, 0)
+        XCTAssertTrue(command.stderr.joined().contains("full screen"), "\(command.stderr)")
+        XCTAssertTrue(two.parent is MacosFullscreenWindowsContainer && two.nodeWorkspace === b, "Never split, still in full screen")
+        XCTAssertTrue(try window(4).nodeWorkspace === d)
     }
 
     // MARK: 5. A link to a window holds only while it's the same window
@@ -563,16 +720,17 @@ final class WorkspaceSidebarPinPolicyTest: XCTestCase {
         let b = Workspace.get(byName: "b")
         _ = try recallWorkspaceSidebarPinWindows(Workspace.get(byName: "a"))
         _ = try recallWorkspaceSidebarPinWindows(b)
-        // b's window moves on to d: b lends it there, and it isn't b's to give back.
-        _ = try window(2).focusWindow()
-        try await assertMove(to: "d")
-        XCTAssertEqual(try recallWorkspaceSidebarPinWindows(s), .recalled([try window(1)], elsewhere: [try window(2)]))
+        // b's window minimized: it isn't taken from there.
+        let two = try XCTUnwrap(try window(2) as? TestWindow)
+        minimize(two)
+        XCTAssertEqual(try recallWorkspaceSidebarPinWindows(s), .recalled([try window(1)], elsewhere: [two]))
         XCTAssertEqual(ids(s), [1, 3, 4])
-        XCTAssertEqual(ids(Workspace.get(byName: "d")), [7, 2])
 
-        _ = try recallWorkspaceSidebarPinWindows(b)
-        XCTAssertEqual(ids(b), [2])
-        XCTAssertEqual(try recallWorkspaceSidebarPinWindows(s), .recalled([try window(2)], elsewhere: []))
+        // Restored, back in its pin, it fills the slot it left.
+        two.nativeIsMacosMinimized = false
+        two.layoutReason = .standard
+        two.bind(to: b.rootTilingContainer, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
+        XCTAssertEqual(try recallWorkspaceSidebarPinWindows(s), .recalled([two], elsewhere: []))
         XCTAssertEqual(ids(s), [1, 2, 3, 4], "Into the slot it left")
     }
 
@@ -697,27 +855,31 @@ final class WorkspaceSidebarPinPolicyTest: XCTestCase {
     // MARK: Review V2 E: an agent's move the pins refuse says so, and where
 
     func testAnAgentMoveThePinsRefuseIsReportedWithItsTargetAndReason() async throws {
-        let (a, _, d, e) = try tabs()
+        let (a, _, _, e) = try tabs()
         try setWorkspaceSidebarTabFavorite(e, true)
+        // Into a pinned split it goes, and the pinned split stays one (Alan, October 8).
         let intoSplit = try await agentApply(#"{"operations": [{"type": "moveWindowToWorkspace", "windowId": 4, "workspace": "e"}]}"#)
-        XCTAssertEqual(intoSplit.exitCode, 1)
-        XCTAssertTrue(intoSplit.stderr.joined().contains("moveWindowToWorkspace window 4"), "\(intoSplit.stderr)")
-        XCTAssertTrue(intoSplit.stderr.joined().contains("Workspace 'e' is a pinned split"), "\(intoSplit.stderr)")
-        XCTAssertEqual(ids(d), [4])
-        XCTAssertEqual(ids(e), [5, 6])
+        XCTAssertEqual(intoSplit.exitCode, 0, "\(intoSplit.stderr)")
+        XCTAssertEqual(ids(e), [5, 6, 4])
+        XCTAssertTrue(workspaceSidebarIsPinned(e))
 
-        // Out of a pin, it lends its window; then the lending pin takes none, parked or moved.
-        let out = try await agentApply(#"{"operations": [{"type": "moveWindowToWorkspace", "windowId": 1, "workspace": "d"}]}"#)
+        // Out of a pin, it lends its window; then the lending pin takes none, moved or parked.
+        let out = try await agentApply(#"{"operations": [{"type": "moveWindowToWorkspace", "windowId": 1, "workspace": "n"}]}"#)
         XCTAssertEqual(out.exitCode, 0, "\(out.stderr)")
         XCTAssertEqual(workspaceSidebarLentWindow(of: a)?.windowId, 1)
-        let park = try await agentApply(#"{"operations": [{"type": "parkWindow", "pane": {"windowId": 4}, "workspace": "a"}]}"#)
+        let refused = try await agentApply(#"{"operations": [{"type": "moveWindowToWorkspace", "windowId": 5, "workspace": "a"}]}"#)
+        XCTAssertEqual(refused.exitCode, 1)
+        XCTAssertTrue(refused.stderr.joined().contains("moveWindowToWorkspace window 5: Workspace 'a' is a pin whose window is in another tab"),
+            "\(refused.stderr)")
+        let park = try await agentApply(#"{"operations": [{"type": "parkWindow", "pane": {"windowId": 6}, "workspace": "a"}]}"#)
         XCTAssertEqual(park.exitCode, 1)
         XCTAssertTrue(park.stderr.joined().contains("parkWindow: Workspace 'a' is a pin whose window is in another tab"),
             "\(park.stderr)")
-        XCTAssertEqual(Set(ids(d)), [1, 4])
+        XCTAssertEqual(ids(a), [])
+        XCTAssertEqual(ids(e), [5, 6, 4])
 
         // A move to where the window already is stays a quiet success, as before.
-        let noOp = try await agentApply(#"{"operations": [{"type": "moveWindowToWorkspace", "windowId": 4, "workspace": "d"}]}"#)
+        let noOp = try await agentApply(#"{"operations": [{"type": "moveWindowToWorkspace", "windowId": 1, "workspace": "n"}]}"#)
         XCTAssertEqual(noOp.exitCode, 0, "\(noOp.stderr)")
         XCTAssertEqual(noOp.stderr, [])
     }
@@ -752,29 +914,36 @@ final class WorkspaceSidebarPinPolicyTest: XCTestCase {
         XCTAssertEqual(appearance("t")?.composition?.layout.windows.map(\.windowId), [9], "Taken in as it came back")
         for split in [s, t] {
             XCTAssertEqual(workspaceSidebarPinSplitRole(split), .composition, "\(split.name): still a pinned split, with one window")
-            // Every gesture into it, or splitting it, is refused, as for any pinned split.
-            await queueWorkspaceSidebarDrop(4, subject: .window, target: .workspace(split.name), placement: .left,
-                intent: .physical)?.value
-            let only = try XCTUnwrap(split.anyLeafWindowRecursive)
-            try applyWorkspaceSidebarPinnedTabDrop(b, .split(split.name, placement: .left, projectId: b.projectId,
-                source: .init(try window(2)), target: .init(only)))
-            try applyWorkspaceSidebarPinnedTabDrop(split, .join("d", placement: .left, operation: .lend(.init(only))))
-            XCTAssertEqual(ids(split).count, 1, split.name)
-            XCTAssertEqual(ids(d), [4], split.name)
-            XCTAssertEqual(ids(b), [2], split.name)
         }
+        // As a pinned split, it takes windows dropped on it, and stays one (Alan, October 8).
+        await queueWorkspaceSidebarDrop(4, subject: .window, target: .workspace("s"), placement: .left, intent: .physical)?.value
+        XCTAssertEqual(ids(s), [4, 7])
+        XCTAssertEqual(ids(d), [])
+        try applyWorkspaceSidebarPinnedTabDrop(b, .split("t", placement: .right, projectId: b.projectId,
+            source: .init(try window(2)), target: .composition))
+        XCTAssertEqual(ids(t), [9, 2])
+        XCTAssertEqual(workspaceSidebarLentWindow(of: b)?.windowId, 2)
+        for split in [s, t] {
+            XCTAssertEqual(workspaceSidebarPinSplitRole(split), .composition, split.name)
+            XCTAssertTrue(workspaceSidebarIsPinned(split), split.name)
+        }
+        // Dragged over a tab, it's still no split with it.
+        let e = Workspace.get(byName: "e")
+        try applyWorkspaceSidebarPinnedTabDrop(s, .join("e", placement: .left, operation: .lend(.init(try window(4)))))
+        XCTAssertEqual(ids(e), [5, 6])
 
         // Recorded once: a one-window pin given a second window by its app later isn't made one.
-        _ = TestWindow.new(id: 10, parent: b.rootTilingContainer)
+        let a = Workspace.get(byName: "a")
+        _ = TestWindow.new(id: 10, parent: a.rootTilingContainer)
         refreshModel()
-        XCTAssertNil(appearance("b")?.composition)
-        XCTAssertEqual(workspaceSidebarPinSplitRole(b), .refuses, "Two windows it wasn't pinned with: no splits, no pinned split")
+        XCTAssertNil(appearance("a")?.composition)
+        XCTAssertEqual(workspaceSidebarPinSplitRole(a), .refuses, "Two windows it wasn't pinned with: no splits, no pinned split")
         try window(10).unbindFromParent()
-        XCTAssertEqual(workspaceSidebarPinSplitRole(b), .single(try window(2)))
+        XCTAssertEqual(workspaceSidebarPinSplitRole(a), .single(try window(1)))
     }
 
     /// A pinned split reopened takes in the windows reopened in it. Moved away from it, they keep it
-    /// from opening its saved apps again: a click brings back what it can and opens nothing.
+    /// from opening its saved apps again: a click brings them back and opens nothing.
     func testAReopenedPinnedSplitKeepsItsNewWindowsAndOpensNothingWhileTheyreOpen() async throws {
         let (_, _, d, _) = try tabs()
         let s = tab("s", 7, 8)
@@ -804,10 +973,11 @@ final class WorkspaceSidebarPinPolicyTest: XCTestCase {
 
         let windowCount = allWindowCount()
         recallPinWindowsFromSidebar("s", focusing: nil, targetMonitorScopeId: nil)
-        try await waitUntil { !self.notices.isEmpty }
+        try await waitUntil { ids(s).count == 2 }
+        XCTAssertEqual(ids(s), [17, 18], "The same windows, back in their places (Alan, October 8)")
+        XCTAssertEqual(ids(d), [4])
         XCTAssertEqual(allWindowCount(), windowCount, "No new window")
-        XCTAssertEqual(ids(d), [4, 17, 18], "None taken from another tab")
-        XCTAssertTrue(notices[0].contains("open elsewhere"), notices[0])
+        XCTAssertEqual(notices, [])
     }
 
     // MARK: Review V2 C: a closed window leaves no link behind
@@ -865,21 +1035,23 @@ final class WorkspaceSidebarPinPolicyTest: XCTestCase {
     // MARK: Review V2 P3: a display's tab in the sidebar's display selector takes a window by the same rule
 
     func testTheDisplaySelectorOffersAWindowOnlyWhereThePinsRuleTakesIt() throws {
-        let (a, _, d, e) = try tabs()
+        let (a, b, d, e) = try tabs()
         try setWorkspaceSidebarTabFavorite(e, true)
+        try splitPinnedTabWindowWithTab(b, "d", placement: .right)
         let monitor = e.workspaceMonitor
         let target = WorkspaceSidebarDropTarget(kind: .monitor(workspaceSidebarMonitorScopeId(for: monitor)),
             rect: Rect(topLeftX: 0, topLeftY: 0, width: 80, height: 24))
-        let four = try window(4)
+        let six = try window(6)
         func offered(showing workspace: Workspace) -> Bool {
             XCTAssertTrue(monitor.setActiveWorkspace(workspace))
-            return sidebarWorkspaceDropDestination(sourceWindow: four, target: target, mouseLocation: .zero, subject: .window) != nil
+            return sidebarWorkspaceDropDestination(sourceWindow: six, target: target, mouseLocation: .zero, subject: .window) != nil
         }
-        XCTAssertFalse(offered(showing: e), "A pinned split on the display takes no window: nothing offered")
+        XCTAssertFalse(offered(showing: b), "A pin lending its window takes none: nothing offered")
         XCTAssertTrue(offered(showing: a), "A one-window pin splits in an ordinary tab: offered")
-        let other = tab("o", 9)
-        XCTAssertTrue(offered(showing: other))
-        XCTAssertTrue(four.nodeWorkspace === d)
+        XCTAssertTrue(offered(showing: d))
+        let o = tab("o", 9)
+        XCTAssertTrue(offered(showing: o))
+        XCTAssertTrue(six.nodeWorkspace === e)
     }
 
     // MARK: Review V3 1: a window taken in while one is away leaves that one its place
@@ -1141,6 +1313,20 @@ final class WorkspaceSidebarPinPolicyTest: XCTestCase {
             destination: WindowDragIntentDestination(kind: kind, previewRect: everywhere, interactionRect: everywhere,
                 title: "", subtitle: "", previewStyle: style, previewGeometry: .rounded, isGroup: subject == .group))
         return applyPendingWindowDragIntentIfPossible()
+    }
+
+    /// Hidden with its app as macOS does it: in its tab's hidden windows.
+    private func hide(_ window: AppBundle.Window) {
+        guard let tab = window.nodeWorkspace else { return XCTFail("Not in a tab") }
+        window.layoutReason = .macos(prevParentKind: .tilingContainer, prevWorkspaceName: tab.name)
+        window.bind(to: tab.macOsNativeHiddenAppsWindowsContainer, adaptiveWeight: WEIGHT_DOESNT_MATTER, index: INDEX_BIND_LAST)
+    }
+
+    /// In macOS full screen: in its tab's full-screen windows.
+    private func fullScreen(_ window: AppBundle.Window) {
+        guard let tab = window.nodeWorkspace else { return XCTFail("Not in a tab") }
+        window.layoutReason = .macos(prevParentKind: .tilingContainer, prevWorkspaceName: tab.name)
+        window.bind(to: tab.macOsNativeFullscreenWindowsContainer, adaptiveWeight: WEIGHT_DOESNT_MATTER, index: INDEX_BIND_LAST)
     }
 
     /// Minimized as macOS does it: out of its tab, into the minimized windows.

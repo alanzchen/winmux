@@ -267,16 +267,26 @@ func applyPendingWindowDragIntentIfPossible() -> Bool {
             }
         case .swap(let targetWindowId):
             guard let targetWindow = Window.get(byId: targetWindowId),
-                  // Never swapped across tabs with a pin, whose window would change.
+                  // Never swapped across tabs with a pin with one window, whose window would change.
                   workspaceSidebarPinPolicyAllowsSwap(sourceNode.nodeWorkspace, targetWindow.nodeWorkspace)
             else { return false }
+            // A pinned split's windows swapped across tabs: its record saved first, and taking in the one it gets.
+            let tabs = [sourceNode.nodeWorkspace, targetWindow.nodeWorkspace].compactMap { $0 }
+            if config.usesBrowserTabs, tabs.first !== tabs.last {
+                do { try saveWorkspaceSidebarPinCompositions(of: tabs) } catch {
+                    showWorkspaceSidebarError(error.localizedDescription)
+                    return false
+                }
+            }
             syncClosedWindowsCacheToCurrentWorld()
             suppressPostDragAxObserverEvents(for: [sourceWindow.windowId, targetWindow.windowId])
-            return applyWindowSwapDragIntent(
+            let swapped = applyWindowSwapDragIntent(
                 sourceWindow: sourceWindow,
                 sourceSubject: pendingWindowDragIntent.sourceSubject,
                 targetWindow: targetWindow,
             )
+            if config.usesBrowserTabs, tabs.first !== tabs.last { try? saveWorkspaceSidebarPinCompositions(of: tabs) }
+            return swapped
         case .moveToWorkspace(let workspaceName):
             guard let targetWorkspace = Workspace.existing(byName: workspaceName) else { return false }
             syncClosedWindowsCacheToCurrentWorld()
@@ -319,9 +329,27 @@ func applyPendingWindowDragIntentIfPossible() -> Bool {
 }
 
 /// A window drag on screen into another tab, made by `apply`, which is given the tab it goes to, as the
-/// pins' policy says. Gives false where the policy refuses, or a change can't be saved.
+/// pins' policy says. Gives false where the policy refuses, or a change can't be saved. Onto a pin whose
+/// one window is hidden with its app, it's made in a session of its own, once that window is shown again
+/// (Alan, October 8).
 @MainActor
-private func applyWindowDragKeepingPins(_ sourceNode: TreeNode, onto target: Workspace, _ apply: (Workspace) throws -> Void) -> Bool {
+private func applyWindowDragKeepingPins(_ sourceNode: TreeNode, onto target: Workspace,
+                                        _ apply: @escaping @MainActor (Workspace) throws -> Void) -> Bool {
+    if config.usesBrowserTabs, workspaceSidebarIsPinned(target), case .hidden = workspaceSidebarPinSplitRole(target) {
+        runWorkspaceSidebarSession(undoTitle: "Split Tabs") {
+            if let notShown = await showWorkspaceSidebarPinsForSplit([target]) {
+                noteWorkspaceSidebarPinNotShown(notShown)
+                return
+            }
+            _ = applyWindowDragKeepingPinsNow(sourceNode, onto: target, apply)
+        }
+        return true
+    }
+    return applyWindowDragKeepingPinsNow(sourceNode, onto: target, apply)
+}
+
+@MainActor
+private func applyWindowDragKeepingPinsNow(_ sourceNode: TreeNode, onto target: Workspace, _ apply: (Workspace) throws -> Void) -> Bool {
     do {
         return try moveWorkspaceSidebarNodeKeepingPins(sourceNode, onto: target, newTabMonitor: target.workspaceMonitor, apply)
     } catch is WorkspaceSidebarMoveDidNotHappen {

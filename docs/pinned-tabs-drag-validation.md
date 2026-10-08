@@ -27,7 +27,10 @@ In Tabs mode the pinned tiles now take part in drag and drop both ways.
   which made a pinned split, is gone.) An empty pin takes no pin in. Since October 8 the
   same rule holds for `move-node-to-workspace`, `-to-monitor` and `-to-project`, the agent
   API (moves and whole-tab layouts), and every window drag on screen; an empty pin takes one
-  window, never a group.
+  window, never a group. Alan's decisions of October 8: a pinned split may take more windows
+  and stays pinned; a window dragged out of it stays its own and comes back to its place
+  when it's clicked; a hidden app's window is shown again before it's brought back or
+  split, and one in full screen is only found, with a notice to exit full screen first.
 - The pins' order is saved as `pinOrder` beside each pin in `sidebar-organization.json`,
   so it survives relaunch. Rearranging pins doesn't change the tabs' own order, so an
   unpinned tab returns to its place in the list. A tab pinned from its menu goes

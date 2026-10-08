@@ -21,12 +21,14 @@ enum WorkspaceSidebarPinnedTabDrop: Equatable {
     /// `operation` is what was shown, with the windows it was shown with: a release made later does it
     /// with those, or nothing.
     case join(String, placement: WorkspaceSidebarTabDropPlacement, operation: WorkspaceSidebarPinJoin, monitorScopeId: String? = nil)
-    /// Paused over another pin's middle, both with one window: they split, on `placement`'s half of
-    /// that pin, in a new ordinary tab, and both pins lend their windows, grey, keeping their places.
-    /// `projectId` is the project of the list, which both must still be in when it's made, and `source`
-    /// and `target` the windows they had then, which they must still have.
+    /// Paused over another pin's middle, the dragged one with one window: they split, on `placement`'s
+    /// half of that pin. With a pin with one window, in a new ordinary tab, and both pins lend their
+    /// windows, grey, keeping their places; with a pinned split, in it, which stays one (Alan, October
+    /// 8), and the dragged pin lends its window. `projectId` is the project of the list, which both must
+    /// still be in when it's made, and `source` and `target` the window and part they had then, which
+    /// they must still have.
     case split(String, placement: WorkspaceSidebarTabDropPlacement, projectId: WorkspaceProjectId,
-               source: WorkspaceSidebarPinWindow, target: WorkspaceSidebarPinWindow, monitorScopeId: String? = nil)
+               source: WorkspaceSidebarPinWindow, target: WorkspaceSidebarPinRoleSnapshot, monitorScopeId: String? = nil)
 
     var monitorScopeId: String? {
         switch self {
@@ -125,9 +127,10 @@ private func workspaceSidebarPinnedTabRearrange(_ tab: Workspace, projectId: Wor
 }
 
 /// A pinned tab paused over the middle of `other`, another pin: their windows split on the half the
-/// pointer is on, in an ordinary tab. Nil before the pause, nearer `other`'s sides, and where they
-/// can't: either isn't a pin with one laid-out window, the dragged pin isn't in the list's project, or
-/// `other` can't come to the list's display.
+/// pointer is on, in an ordinary tab, or in `other`, a pinned split. Nil before the pause, nearer
+/// `other`'s sides, and where they can't: the dragged pin hasn't one window, laid out or hidden, `other`
+/// is neither such a pin nor a pinned split, the dragged pin isn't in the list's project, or `other`
+/// can't come to the list's display.
 @MainActor
 private func workspaceSidebarPinnedTabSplit(_ tab: Workspace, into other: Workspace, target: WorkspaceSidebarDropTarget,
                                             destination: WorkspaceSidebarTabReorderDestination,
@@ -136,7 +139,8 @@ private func workspaceSidebarPinnedTabSplit(_ tab: Workspace, into other: Worksp
     guard target.acceptsSides, other !== tab, destination.pauseArmsSplit(at: point, rect: target.rect),
           workspaceSidebarOrganizationStore.state.workspaces[other.name]?.isFavorite == true,
           workspaceIsListed(tab, inProject: destination.projectId), workspaceIsListed(other, inProject: destination.projectId),
-          let window = workspaceSidebarPinSplitRole(tab).window, let otherWindow = workspaceSidebarPinSplitRole(other).window,
+          let window = workspaceSidebarPinSplitRole(tab).oneWindow,
+          workspaceSidebarPinSplitRole(other).oneWindow != nil || workspaceSidebarPinSplitRole(other) == .composition,
           workspaceSidebarDropCanReachDisplay(other, monitorScopeId: destination.monitorScopeId)
     else {
         hover.reset()
@@ -144,8 +148,8 @@ private func workspaceSidebarPinnedTabSplit(_ tab: Workspace, into other: Worksp
     }
     let side: WorkspaceSidebarTabDropPlacement = point.x < target.rect.center.x ? .left : .right
     guard hover.isReady(target: other.name, side: side, point: point) else { return nil }
-    return .split(other.name, placement: side, projectId: destination.projectId, source: .init(window), target: .init(otherWindow),
-        monitorScopeId: destination.monitorScopeId)
+    return .split(other.name, placement: side, projectId: destination.projectId, source: .init(window),
+        target: workspaceSidebarPinRoleSnapshot(other), monitorScopeId: destination.monitorScopeId)
 }
 
 /// A pinned tab paused over `other`'s tab in a list, on the half the pointer is on: a pin with one
@@ -158,9 +162,9 @@ private func workspaceSidebarPinnedTabJoin(_ tab: Workspace, onto other: Workspa
                                            monitorScopeId: String, point: CGPoint) -> WorkspaceSidebarPinnedTabDrop? {
     let hover = WorkspaceSidebarTabSplitHoverController.shared
     let operation: WorkspaceSidebarPinJoin? = switch workspaceSidebarPinSplitRole(tab) {
-        case .single(let window): .lend(.init(window))
+        case .single(let window), .hidden(let window): .lend(.init(window))
         case .empty: other.allLeafWindowsRecursive.count == 1 ? other.allLeafWindowsRecursive.first.map { .fill(.init($0)) } : nil
-        case .composition, .refuses: nil
+        case .composition, .fullscreen, .refuses: nil
     }
     // A tab of the project the list shows: a pin in All Projects takes one from any.
     guard let operation, target.acceptsSides, other !== tab, workspaceIsListed(tab, inProject: other.projectId),
@@ -375,6 +379,16 @@ func finishSidebarPinnedTabDrag(_ name: String, pointer: CGPoint) {
         // joins must still be one the list shows: on another display's list, still on that display.
         guard intent.targetIsUnchanged else { return }
         if case .join(let name, _, _, _) = drop, let joined = Workspace.existing(byName: name), !intent.accepts(joined) { return }
+        // A pin's window hidden with its app is shown first; one in full screen isn't split.
+        let splitting: [Workspace] = switch drop {
+            case .join(_, _, .lend, _): [tab]
+            case .split(let name, _, _, _, _, _): [tab] + [Workspace.existing(byName: name)].compactMap { $0 }
+            default: []
+        }
+        if let notShown = await showWorkspaceSidebarPinsForSplit(splitting) {
+            noteWorkspaceSidebarPinNotShown(notShown)
+            return
+        }
         try applyWorkspaceSidebarPinnedTabDrop(tab, drop, pinGridIsShared: intent.pinGridIsShared)
         await updateWorkspaceSidebarModel()
     }
@@ -544,22 +558,24 @@ func splitPinnedTabWindowWithTab(_ pin: Workspace, _ name: String, placement: Wo
     }
 }
 
-/// The pinned tab `tab`'s one window splits with the pinned tab `name`'s, on `placement`'s half of
-/// it, as a tab from the list would: both go to a new ordinary tab, on the display of the list it was
-/// dropped on, `monitorScopeId`'s, and both pins keep their places and lend their windows, grey. Never
-/// a pinned split. Both must still be pins with one window, listed in `projectId`, the list's
-/// project, whose pins a pin in All Projects is among. If any of it can't be done, nothing changes.
+/// The pinned tab `tab`'s one window splits with the pinned tab `name`, on `placement`'s half of it, as a
+/// tab from the list would. With a pin with one window, both go to a new ordinary tab, on the display of
+/// the list it was dropped on, `monitorScopeId`'s, and both pins keep their places and lend their
+/// windows, grey: never a pinned split. A pinned split takes the window in, and stays one. Both must
+/// still be as they were, listed in `projectId`, the list's project, whose pins a pin in All Projects is
+/// among. If any of it can't be done, nothing changes.
 @MainActor
 func splitPinnedTabWindows(_ tab: Workspace, with name: String, placement: WorkspaceSidebarTabDropPlacement,
                            listedIn projectId: WorkspaceProjectId, source: WorkspaceSidebarPinWindow? = nil,
-                           target: WorkspaceSidebarPinWindow? = nil, on monitorScopeId: String? = nil) throws {
+                           target: WorkspaceSidebarPinRoleSnapshot? = nil, on monitorScopeId: String? = nil) throws {
     // The session runs after other events: either may have been unpinned, gained, lost or lent its
     // window, or left the project of the list it was dropped on.
     guard let pin = Workspace.existing(byName: name), pin !== tab, workspaceSidebarIsPinned(pin),
           workspaceIsListed(tab, inProject: projectId), workspaceIsListed(pin, inProject: projectId),
-          let window = workspaceSidebarPinSplitRole(tab).window, let pinWindow = workspaceSidebarPinSplitRole(pin).window,
-          // The windows shown splitting, still the ones they have.
-          source.map({ $0.live === window }) ?? true, target.map({ $0.live === pinWindow }) ?? true
+          let window = workspaceSidebarPinSplitRole(tab).window,
+          workspaceSidebarPinSplitRole(pin).window != nil || workspaceSidebarPinSplitRole(pin) == .composition,
+          // The window and the pin shown splitting, still as they were.
+          source.map({ $0.live === window }) ?? true, target.map({ workspaceSidebarPinRoleSnapshot(pin) == $0 }) ?? true
     else { return }
     let monitor: Monitor?
     switch workspaceSidebarDropDisplay(for: pin, monitorScopeId: monitorScopeId) {

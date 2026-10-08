@@ -69,7 +69,7 @@ final class WorkspaceSidebarPinSingleSplitTest: XCTestCase {
         let c = tab("c", 3)
         try setWorkspaceSidebarTabFavorite(c, true)
         try applyWorkspaceSidebarPinnedTabDrop(c, .split("b", placement: .left, projectId: c.projectId,
-            source: .init(try XCTUnwrap(c.anyLeafWindowRecursive)), target: .init(try XCTUnwrap(b.anyLeafWindowRecursive))))
+            source: .init(try XCTUnwrap(c.anyLeafWindowRecursive)), target: .single(.init(try XCTUnwrap(b.anyLeafWindowRecursive)))))
         let split = try XCTUnwrap(Workspace.all.first { ids($0) == [3, 2] }, "c's window on the half of b pointed at")
         XCTAssertFalse(workspaceSidebarIsPinned(split), "Two pins split in an ordinary tab, never a pinned split")
         XCTAssertEqual(ids(b), [])
@@ -166,15 +166,20 @@ final class WorkspaceSidebarPinSingleSplitTest: XCTestCase {
         try setWorkspaceSidebarTabFavorite(e, true)
         XCTAssertEqual(pins(), ["a", "b", "d", "e"])
         XCTAssertEqual(ids(e), [5, 6])
-        // A window dropped on it, or a pin paused over it, makes no other.
-        XCTAssertFalse(workspaceSidebarTakesSplit(e))
+        // Alan, October 8: a window dropped on it, or a pin paused over it, goes into it, and it stays the
+        // one pinned split, not another.
+        XCTAssertTrue(workspaceSidebarTakesSplit(e))
         await queueWorkspaceSidebarDrop(1, subject: .window, target: .workspace("e"), placement: .left, intent: .physical)?.value
-        XCTAssertEqual(ids(e), [5, 6])
-        XCTAssertEqual(ids(a), [1])
-        try applyWorkspaceSidebarPinnedTabDrop(b, .split("e", placement: .left, projectId: projectId,
-            source: .init(try XCTUnwrap(b.anyLeafWindowRecursive)), target: .init(try XCTUnwrap(e.anyLeafWindowRecursive))))
-        XCTAssertEqual(ids(e), [5, 6])
-        XCTAssertEqual(ids(b), [2])
+        XCTAssertEqual(ids(e), [1, 5, 6])
+        XCTAssertEqual(ids(a), [])
+        XCTAssertEqual(workspaceSidebarLentWindow(of: a)?.windowId, 1)
+        try applyWorkspaceSidebarPinnedTabDrop(b, .split("e", placement: .right, projectId: projectId,
+            source: .init(try XCTUnwrap(b.anyLeafWindowRecursive)), target: .composition))
+        XCTAssertEqual(ids(e), [1, 5, 6, 2])
+        XCTAssertEqual(ids(b), [])
+        XCTAssertEqual(pins(), ["a", "b", "d", "e"], "No pin became another pinned split")
+        XCTAssertNil(workspaceSidebarOrganizationStore.state.workspaces["a"]?.composition)
+        XCTAssertNil(workspaceSidebarOrganizationStore.state.workspaces["b"]?.composition)
     }
 
     // MARK: 5: a pinned split and the pin of one of its windows share that window
@@ -219,7 +224,7 @@ final class WorkspaceSidebarPinSingleSplitTest: XCTestCase {
         XCTAssertFalse(workspaceSidebarTakesSplit(a), "It takes no other window in")
         XCTAssertEqual(workspaceSidebarPinSplitRole(a), .refuses)
         try applyWorkspaceSidebarPinnedTabDrop(b, .split("a", placement: .left, projectId: b.projectId,
-            source: .init(try XCTUnwrap(b.anyLeafWindowRecursive)), target: .init(try XCTUnwrap(Window.get(byId: 1)))))
+            source: .init(try XCTUnwrap(b.anyLeafWindowRecursive)), target: .single(.init(try XCTUnwrap(Window.get(byId: 1))))))
         XCTAssertEqual(ids(b), [2])
         XCTAssertEqual(ids(d), [4, 1])
     }

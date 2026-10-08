@@ -4,7 +4,7 @@ struct MoveNodeToProjectCommand: Command {
     let args: MoveNodeToProjectCmdArgs
     /*conforms*/ let shouldResetClosedWindowsCache = true
 
-    func run(_ env: CmdEnv, _ io: CmdIo) -> Bool {
+    func run(_ env: CmdEnv, _ io: CmdIo) async -> Bool {
         guard let target = args.resolveTargetOrReportError(env, io) else { return false }
         guard let window = target.windowOrNil else { return io.err(noWindowIsFocused) }
         guard let sourceWorkspace = window.nodeWorkspace else {
@@ -16,6 +16,10 @@ struct MoveNodeToProjectCommand: Command {
         }
         let monitor = window.nodeMonitor ?? sourceWorkspace.workspaceMonitor
         let targetWorkspace = firstWorkspaceForProjectMove(projectId: project.id, monitor: monitor)
+        // A pin whose one window is hidden with its app shows it first; one in full screen isn't split.
+        if window.nodeWorkspace !== targetWorkspace, let notShown = await showWorkspaceSidebarPinsForSplit([targetWorkspace]) {
+            return io.err(notShown.message)
+        }
         return moveWindowToWorkspaceKeepingPins(
             window,
             targetWorkspace,

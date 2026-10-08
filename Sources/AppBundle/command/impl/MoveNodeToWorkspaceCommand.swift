@@ -4,7 +4,7 @@ struct MoveNodeToWorkspaceCommand: Command {
     let args: MoveNodeToWorkspaceCmdArgs
     /*conforms*/ let shouldResetClosedWindowsCache: Bool = true
 
-    func run(_ env: CmdEnv, _ io: CmdIo) -> Bool {
+    func run(_ env: CmdEnv, _ io: CmdIo) async -> Bool {
         guard let target = args.resolveTargetOrReportError(env, io) else { return false }
         guard let window = target.windowOrNil else { return io.err(noWindowIsFocused) }
         let subjectWs = window.nodeWorkspace
@@ -43,6 +43,10 @@ struct MoveNodeToWorkspaceCommand: Command {
                     return io.err("Workspace '\(name.raw)' doesn't exist")
                 }
                 targetWorkspace = ws
+        }
+        // A pin whose one window is hidden with its app shows it first; one in full screen isn't split.
+        if window.nodeWorkspace !== targetWorkspace, let notShown = await showWorkspaceSidebarPinsForSplit([targetWorkspace]) {
+            return io.err(notShown.message)
         }
         // Into or out of a pin with one window, as the pins' policy says: it keeps its window as its own.
         return moveWindowToWorkspaceKeepingPins(window, targetWorkspace, io, focusFollowsWindow: args.focusFollowsWindow,

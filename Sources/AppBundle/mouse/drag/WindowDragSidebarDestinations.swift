@@ -28,11 +28,11 @@ func isActionableSidebarWorkspaceDropTarget(
     }
 }
 
-/// A pin lending its window, or a pinned split, takes no window from the screen, and an empty pin one window.
+/// A pin lending its window, or with its window in full screen, takes no window from the screen, and an empty pin one window.
 @MainActor
 private func workspaceSidebarScreenDropTakes(_ node: TreeNode, _ kind: WorkspaceSidebarDropTargetKind) -> Bool {
     guard case .workspace(let name) = kind, let workspace = Workspace.existing(byName: name) else { return true }
-    return workspaceSidebarPinPolicyAllows(node, into: workspace)
+    return workspaceSidebarPinPolicyAllows(node, into: workspace, showingHidden: true)
 }
 
 @MainActor
@@ -62,7 +62,8 @@ func sidebarWorkspaceDropDestination(sourceWindow: Window, target: WorkspaceSide
                 guard let monitor = workspaceSidebarMonitor(forScopeId: scopeId) else { return nil }
                 let workspace = monitor.activeWorkspace
                 // The tab the display shows, by the pins' rule, as the drop will be made.
-                guard workspace.name != sourceWorkspaceName, workspaceSidebarPinPolicyAllows(sourceNode, into: workspace)
+                guard workspace.name != sourceWorkspaceName,
+                      workspaceSidebarPinPolicyAllows(sourceNode, into: workspace, showingHidden: true)
                 else { return nil }
                 return WindowDragIntentDestination(
                     kind: .moveToWorkspace(workspaceName: workspace.name),

@@ -21,7 +21,7 @@ func stackSplitDestination(
     )
     guard !isBlockedByDragTargetContainment(sourceNode: sourceNode, targetNode: targetNode),
           !isInvalidGroupSelfTarget(sourceNode: sourceNode, targetNode: targetNode, subject: subject),
-          // Into another tab only as the pins' policy allows: a pinned split, or a pin lending its window, takes none.
+          // Into another tab only as the pins' policy allows: a pin lending its window, or in full screen, takes none.
           targetWindow.nodeWorkspace.map({ $0 === sourceNode.nodeWorkspace || workspaceSidebarPinPolicyAllows(sourceNode, into: $0) }) ?? true,
           canOfferWindowStackSplit(sourceNode: sourceNode, targetNode: targetNode, position: position),
           let preview = resolvedWindowStackSplitPreview(targetNode: targetNode, position: position),

@@ -319,6 +319,11 @@ private func moveSidebarSource(
     let task = runWorkspaceSidebarSession(undoTitle: tabPlacement == nil ? "Move Tab" : "Split Tabs") {
         defer { if let settlingId { finishWorkspaceSidebarDockLift(id: settlingId) } }
         try intent.checkDestination()
+        // A pin's window hidden with its app is shown first; one in full screen isn't split.
+        if let target = Workspace.existing(byName: workspaceName), let notShown = await showWorkspaceSidebarPinsForSplit([target]) {
+            noteWorkspaceSidebarPinNotShown(notShown)
+            return
+        }
         // What was released, onto the tab it was released on: a tab another display's list showed
         // takes the drop only while it's still on that display.
         guard validation(), intent.targetIsUnchanged, intent.targetPinIsUnchanged,
@@ -716,7 +721,7 @@ private func isActionableSidebarDropTarget(
     }
     // A pin lending its window, or a pinned split, takes no split and no window, and an empty pin one window.
     if case .workspace(let name) = target, let workspace = Workspace.existing(byName: name),
-       !workspaceSidebarPinPolicyAllows(sourceNode, into: workspace) { return false }
+       !workspaceSidebarPinPolicyAllows(sourceNode, into: workspace, showingHidden: true) { return false }
     return isActionableSidebarWorkspaceDropTarget(sourceWorkspaceName: sourceWorkspaceName, targetKind: target)
 }
 

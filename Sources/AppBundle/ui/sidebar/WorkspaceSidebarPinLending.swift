@@ -5,8 +5,10 @@ import Common
 // window in with it, from the sidebar, the screen, a command or the agent API, puts the two in an
 // ordinary tab instead, and the pin lends its window there, showing grey until a click on it brings
 // that same window back. A pinned split is made only from a split tab's menu, with Pin. It keeps the
-// windows it was made with in their places, as far as they're still there: one its own pin took back
-// comes back to its place when the split is clicked.
+// windows it was made with in their places, as far as they're still there. Alan, October 8: it takes
+// more windows and stays a pinned split; a window of it dragged out stays its own, and comes back to
+// its place when it's clicked; a window hidden with its app is shown first, and one in full screen is
+// only found, never split or taken out of full screen.
 
 // MARK: Window identity
 
@@ -121,13 +123,28 @@ enum WorkspaceSidebarPinSplitRole: Equatable {
     case empty
     /// One window, laid out: a split with it goes to an ordinary tab with that window, which the pin lends.
     case single(Window)
-    /// A pinned split, whatever windows it has now: it takes no window in, and isn't split.
+    /// One window, hidden with its app: shown again first, it's a pin with one window (Alan, October 8).
+    case hidden(Window)
+    /// One window, in macOS full screen: found where it is, never split, and never taken out of full
+    /// screen; the user leaves full screen first (Alan, October 8).
+    case fullscreen(Window)
+    /// A pinned split, whatever windows it has now: windows dropped on it go into it, and it stays a
+    /// pinned split (Alan, October 8).
     case composition
-    /// Its window lent to another tab, or one window that isn't laid out: no window in, and no split.
+    /// Its window lent to another tab, or windows it wasn't pinned with: no window in, and no split.
     case refuses
 
-    /// The one window of a pin that has one.
+    /// The one window of a pin that has one, laid out.
     var window: Window? { if case .single(let window) = self { window } else { nil } }
+
+    /// The one window of a pin that has one, laid out or hidden with its app: what a split shown with the
+    /// pin is made with, the window shown again first.
+    var oneWindow: Window? {
+        switch self {
+            case .single(let window), .hidden(let window): window
+            default: nil
+        }
+    }
 }
 
 @MainActor
@@ -139,8 +156,13 @@ func workspaceSidebarPinSplitRole(_ pin: Workspace) -> WorkspaceSidebarPinSplitR
     let tiled = windows.filter { $0.parent is TilingContainer }
     // A pinned split from before they were recorded, until it is: then only the record says.
     if state.pinnedSplitsRecorded != true, tiled.count > 1 { return .composition }
-    guard windows.count == 1, let window = tiled.first else { return .refuses }
-    return .single(window)
+    guard windows.count == 1, let window = windows.first else { return .refuses }
+    return switch window.parent {
+        case is TilingContainer: .single(window)
+        case is MacosHiddenAppsWindowsContainer: .hidden(window)
+        case is MacosFullscreenWindowsContainer: .fullscreen(window)
+        default: .refuses
+    }
 }
 
 /// A tab's part in a move as it was at a release: what a drop on it did then, with which window.
@@ -148,7 +170,9 @@ enum WorkspaceSidebarPinRoleSnapshot: Hashable {
     /// Not a pin: a drop goes into it, as into any tab.
     case ordinary
     case empty
+    /// A pin with one window, laid out or hidden with its app, which one.
     case single(WorkspaceSidebarPinWindow)
+    case composition
     case refuses
 }
 
@@ -157,39 +181,46 @@ func workspaceSidebarPinRoleSnapshot(_ workspace: Workspace) -> WorkspaceSidebar
     guard config.usesBrowserTabs, workspaceSidebarIsPinned(workspace) else { return .ordinary }
     return switch workspaceSidebarPinSplitRole(workspace) {
         case .empty: .empty
-        case .single(let window): .single(.init(window))
-        case .composition, .refuses: .refuses
+        // Shown again before the drop is made, it's still the same pin with the same window.
+        case .single(let window), .hidden(let window): .single(.init(window))
+        case .composition: .composition
+        case .fullscreen, .refuses: .refuses
     }
 }
 
-/// Whether a split may be armed over `workspace`: any tab, an empty pin, or a pin with one window.
+/// Whether a split may be armed over `workspace`: any tab, an empty pin, a pin with one window, laid out
+/// or hidden, or a pinned split.
 @MainActor
 func workspaceSidebarTakesSplit(_ workspace: Workspace) -> Bool {
     guard config.usesBrowserTabs, workspaceSidebarIsPinned(workspace) else { return true }
     return switch workspaceSidebarPinSplitRole(workspace) {
-        case .empty, .single: true
-        case .composition, .refuses: false
+        case .empty, .single, .hidden, .composition: true
+        case .fullscreen, .refuses: false
     }
 }
 
 /// Whether the user may move `node` into `target`, from the sidebar, the screen, a command or the agent
-/// API: into any tab but a pin that takes no window, and into an empty pin only one window. Previews
-/// offer exactly this; the move checks it again.
+/// API: into any tab but a pin that takes no window, and into an empty pin only one window. A pinned
+/// split takes any. A pin whose one window is hidden takes one only `showingHidden`: where the move
+/// shows that window again first (`showWorkspaceSidebarPinsForSplit`). Previews offer exactly this; the
+/// move checks it again.
 @MainActor
-func workspaceSidebarPinPolicyAllows(_ node: TreeNode, into target: Workspace) -> Bool {
+func workspaceSidebarPinPolicyAllows(_ node: TreeNode, into target: Workspace, showingHidden: Bool = false) -> Bool {
     guard config.usesBrowserTabs, workspaceSidebarIsPinned(target), node.nodeWorkspace !== target else { return true }
     return switch workspaceSidebarPinSplitRole(target) {
-        case .single: true
+        case .single, .composition: true
+        case .hidden: showingHidden
         case .empty: node.allLeafWindowsRecursive.count == 1
-        case .composition, .refuses: false
+        case .fullscreen, .refuses: false
     }
 }
 
-/// Windows swapped between two tabs: never with a pin, whose window it stands for would change.
+/// Windows swapped between two tabs: never with a pin with one window, whose window it stands for would
+/// change; a pinned split's windows may be swapped, as it may be changed.
 @MainActor
 func workspaceSidebarPinPolicyAllowsSwap(_ a: Workspace?, _ b: Workspace?) -> Bool {
     guard config.usesBrowserTabs, let a, let b, a !== b else { return true }
-    return !workspaceSidebarIsPinned(a) && !workspaceSidebarIsPinned(b)
+    return [a, b].allSatisfy { !workspaceSidebarIsPinned($0) || workspaceSidebarPinSplitRole($0) == .composition }
 }
 
 /// Thrown by a move that didn't happen after all, so everything before it in its transaction goes back.
@@ -218,11 +249,12 @@ func workspaceSidebarPinLoan(taking node: TreeNode, to target: Workspace? = nil)
     return .init(pin: pin, window: window)
 }
 
-/// After the move: the pin lends its window, if it went to an ordinary tab. A window moved into an
-/// empty pin is that pin's now.
+/// After the move: the pin lends its window, if it went to an ordinary tab or a pinned split. A window
+/// moved into an empty pin is that pin's now.
 @MainActor
 func completeWorkspaceSidebarPinLoan(_ loan: WorkspaceSidebarPinLoan?) throws {
-    guard let loan, let now = loan.window.nodeWorkspace, now !== loan.pin, !workspaceSidebarIsPinned(now) else { return }
+    guard let loan, let now = loan.window.nodeWorkspace, now !== loan.pin,
+          !workspaceSidebarIsPinned(now) || workspaceSidebarPinSplitRole(now) == .composition else { return }
     try lendWorkspaceSidebarPinWindow(loan.window, from: loan.pin)
 }
 
@@ -271,6 +303,8 @@ func moveWorkspaceSidebarNodeKeepingPins(_ node: TreeNode, onto target: Workspac
     return try withWorkspaceSidebarDropTransaction {
         let destination = try workspaceSidebarSplitDestination(for: node, onto: target, newTabMonitor: newTabMonitor)
         try move(destination)
+        // A pinned split it went into knows it as its own, with the move.
+        try saveWorkspaceSidebarPinCompositions(of: [destination])
         try completeWorkspaceSidebarPinLoan(loan)
         return true
     }
@@ -335,24 +369,31 @@ func workspaceSidebarPinPolicyRefusal(_ node: TreeNode, into target: Workspace) 
 @MainActor
 private func workspaceSidebarPinRefusal(_ pin: Workspace, taking count: Int) -> WorkspaceSidebarPinPolicyRefusal {
     switch workspaceSidebarPinSplitRole(pin) {
-        case .composition: .init("Workspace '\(pin.name)' is a pinned split: it takes no other window")
+        case .composition: .init("Workspace '\(pin.name)' is a pinned split, which can't take this")
         case .empty: .init("Workspace '\(pin.name)' is an empty pin: it takes one window, not \(count)")
         case .single: .init("Workspace '\(pin.name)' is a pin with one window: a split with it goes to an ordinary tab, "
             + "which a layout for the pin can't make; move the window to it instead")
+        case .hidden: .init("Workspace '\(pin.name)' is a pin whose window is hidden with its app: show it, then try again")
+        case .fullscreen: .init("Workspace '\(pin.name)' is a pin whose window is in full screen: exit full screen, then split")
         case .refuses: .init("Workspace '\(pin.name)' is a pin whose window is in another tab, or isn't laid out: it takes no window")
     }
 }
 
-/// An agent's layout of a whole tab, `target`, with `windows` in it, under the pins' policy: a pin takes
-/// no window it hasn't got, but an empty pin one. A layout for a pin can't make the ordinary split the
-/// pins' rule makes instead, so it's refused, before anything changes. Nil where it may be made.
+/// An agent's layout of a whole tab, `target`, with `windows` in it, under the pins' policy: a pin with
+/// one window takes no window it hasn't got, an empty pin one, and a pinned split any. A layout for a pin
+/// with one window can't make the ordinary split the pins' rule makes instead, so it's refused, before
+/// anything changes. Nil where it may be made.
 @MainActor
 func workspaceSidebarPinLayoutRefusal(_ windows: [Window], for target: Workspace) -> WorkspaceSidebarPinPolicyRefusal? {
     guard config.usesBrowserTabs, workspaceSidebarIsPinned(target) else { return nil }
     let own = Set(target.allLeafWindowsRecursive.map(\.windowId))
     guard windows.contains(where: { !own.contains($0.windowId) }) else { return nil }
-    if workspaceSidebarPinSplitRole(target) == .empty, windows.count == 1 { return nil }
-    return workspaceSidebarPinRefusal(target, taking: windows.count)
+    switch workspaceSidebarPinSplitRole(target) {
+        // A pinned split may be laid out with other windows, and stays one.
+        case .composition: return nil
+        case .empty where windows.count == 1: return nil
+        default: return workspaceSidebarPinRefusal(target, taking: windows.count)
+    }
 }
 
 /// Records several pins' loans at once, before the move they're for, which is made all at once.
@@ -619,42 +660,46 @@ private func workspaceSidebarComposition(of split: Workspace) -> WorkspaceSideba
     workspaceSidebarOrganizationStore.state.workspaces[split.name]?.composition ?? workspaceSidebarNewComposition(for: split)
 }
 
-/// A pinned split's windows that aren't in it, still open: those its own pins took back and hold alone
-/// now, which a click brings back; and the rest, open in other tabs, which it doesn't take, and for
-/// which it never opens another.
+/// A pinned split's windows that aren't in it, still open, and where they are. A window of it dragged out
+/// stays its own (Alan, October 8). A click brings back those alone in their own pin, laid out, or in
+/// an ordinary tab, each with its own pin if it has one; it first shows those hidden with their app
+/// there; and it leaves the rest, minimized, in full screen or in another pin, where they are, and
+/// never opens another for them.
 @MainActor
 private func workspaceSidebarAwayWindows(of composition: WorkspaceSidebarPinComposition, from split: Workspace)
-    -> (recallable: [(window: Window, pin: Workspace)], elsewhere: [Window])
+    -> (recallable: [(window: Window, pin: Workspace?)], hidden: [Window], elsewhere: [Window])
 {
-    var recallable: [(Window, Workspace)] = []
+    var recallable: [(Window, Workspace?)] = []
+    var hidden: [Window] = []
     var elsewhere: [Window] = []
     var seen: Set<UInt32> = []
-    for member in composition.away {
-        guard let window = member.window.live, window.nodeWorkspace !== split, seen.insert(window.windowId).inserted else { continue }
-        if let pin = Workspace.existing(byName: member.pinName), workspaceSidebarIsPinned(pin), window.nodeWorkspace === pin,
-           pin.allLeafWindowsRecursive.count == 1, window.parent is TilingContainer {
-            recallable.append((window, pin))
+    let homes = Dictionary(composition.away.map { ($0.window, $0.pinName) }, uniquingKeysWith: { first, _ in first })
+    for link in composition.away.map(\.window) + composition.layout.windows {
+        guard let window = link.live, window.nodeWorkspace !== split, seen.insert(window.windowId).inserted else { continue }
+        let home = homes[link].flatMap { Workspace.existing(byName: $0) }.flatMap { workspaceSidebarIsPinned($0) ? $0 : nil }
+        let tab = window.nodeWorkspace
+        let inHome = tab != nil && tab === home && home?.allLeafWindowsRecursive.count == 1
+        let inOrdinaryTab = tab.map { !workspaceSidebarIsPinned($0) } ?? false
+        if inHome && window.parent is TilingContainer || inOrdinaryTab && (window.parent is TilingContainer || window.isFloating) {
+            recallable.append((window, home))
+        } else if inHome || inOrdinaryTab, window.parent is MacosHiddenAppsWindowsContainer {
+            hidden.append(window)
         } else {
             elsewhere.append(window)
         }
     }
-    // Windows moved out of it some other way: not brought back, but open.
-    for member in composition.layout.windows {
-        guard let window = member.live, window.nodeWorkspace !== split, seen.insert(window.windowId).inserted else { continue }
-        elsewhere.append(window)
-    }
-    return (recallable, elsewhere)
+    return (recallable, hidden, elsewhere)
 }
 
 /// Whether a click on `pin` brings a window back, or must not open one: the window it lent is open; or,
-/// a pinned split, a window of it is back in its own pin, or, with none in it, one is open elsewhere,
-/// where its saved apps mustn't open others.
+/// a pinned split, a window of it it can bring back is out of it, or, with none in it, one is open
+/// elsewhere, where its saved apps mustn't open others.
 @MainActor
 func workspaceSidebarPinRecallsWindows(_ pin: Workspace) -> Bool {
     if workspaceSidebarLentWindow(of: pin) != nil { return true }
     guard let composition = workspaceSidebarOrganizationStore.state.workspaces[pin.name]?.composition else { return false }
     let away = workspaceSidebarAwayWindows(of: composition, from: pin)
-    return !away.recallable.isEmpty || (!away.elsewhere.isEmpty && pin.allLeafWindowsRecursive.isEmpty)
+    return !away.recallable.isEmpty || !away.hidden.isEmpty || (!away.elsewhere.isEmpty && pin.allLeafWindowsRecursive.isEmpty)
 }
 
 /// Rebuilds `split`'s laid-out windows as `layout` places them, as far as `windows` are there: each
@@ -698,7 +743,9 @@ enum WorkspaceSidebarPinRecall: Equatable {
     case returned(Window)
     /// The lent window is minimized: it's restored first, then comes back.
     case minimized(Window)
-    /// The lent window is hidden with its app, or in full screen: it's shown where it is.
+    /// The lent window is hidden with its app: it's shown first, then comes back (Alan, October 8).
+    case hidden(Window)
+    /// The lent window is in full screen: it's found where it is, and stays there (Alan, October 8).
     case elsewhere(Window)
     /// The pinned split has these windows back; `elsewhere` are its windows open in other tabs.
     case recalled([Window], elsewhere: [Window])
@@ -716,6 +763,7 @@ func recallWorkspaceSidebarPinWindows(_ pin: Workspace) throws -> WorkspaceSideb
     if workspaceSidebarPinSplitRole(pin) == .composition { return try recallWorkspaceSidebarComposition(pin) }
     guard pin.allLeafWindowsRecursive.isEmpty, let window = workspaceSidebarLentWindow(of: pin) else { return .nothing }
     if window.parent is MacosMinimizedWindowsContainer { return .minimized(window) }
+    if window.parent is MacosHiddenAppsWindowsContainer { return .hidden(window) }
     let isFloating = window.parent is Workspace
     guard window.parent is TilingContainer || isFloating else { return .elsewhere(window) }
     let from = window.nodeWorkspace
@@ -746,9 +794,12 @@ func recallWorkspaceSidebarPinWindows(_ pin: Workspace) throws -> WorkspaceSideb
 private func recallWorkspaceSidebarComposition(_ split: Workspace) throws -> WorkspaceSidebarPinRecall {
     guard var composition = workspaceSidebarComposition(of: split) else { return .nothing }
     let away = workspaceSidebarAwayWindows(of: composition, from: split)
-    guard !away.recallable.isEmpty else { return away.elsewhere.isEmpty ? .nothing : .recalled([], elsewhere: away.elsewhere) }
+    let elsewhere = away.hidden + away.elsewhere
+    guard !away.recallable.isEmpty else { return elsewhere.isEmpty ? .nothing : .recalled([], elsewhere: elsewhere) }
     let present = split.rootTilingContainer.allLeafWindowsRecursive
     let back = away.recallable.map(\.window)
+    // The ordinary tabs they come from, which mustn't stay behind empty.
+    let froms = back.compactMap(\.nodeWorkspace).filter { !workspaceSidebarIsPinned($0) }
     syncClosedWindowsCacheToCurrentWorld()
     suppressPostDragAxObserverEvents(for: (present + back).map(\.windowId))
     let backIds = Set(back.map(\.windowId))
@@ -757,12 +808,15 @@ private func recallWorkspaceSidebarComposition(_ split: Workspace) throws -> Wor
     _ = try withWorkspaceSidebarDropTransaction {
         rebuildWorkspaceSidebarComposition(split, layout: recorded.layout, windows: present + back)
         try workspaceSidebarOrganizationStore.update { state in
-            for (window, pin) in away.recallable { state.workspaces[pin.name]?.lentWindow = .init(window) }
+            for case let (window, pin?) in away.recallable { state.workspaces[pin.name]?.lentWindow = .init(window) }
             state.workspaces[split.name]?.composition = recorded
         }
         return true
     }
-    return .recalled(back, elsewhere: away.elsewhere)
+    for from in froms where Workspace.existing(byName: from.name) === from && !workspaceHasLifecycleWindows(from) {
+        closeEmptyTab(from)
+    }
+    return .recalled(back, elsewhere: elsewhere)
 }
 
 /// Restores a minimized window from macOS, and says when it's back. Tests replace it.
@@ -810,6 +864,87 @@ func recallMinimizedWorkspaceSidebarPinWindow(_ pin: Workspace, _ window: Window
     return .returned
 }
 
+// MARK: Hidden and full-screen windows (Alan, October 8)
+
+/// Shows a window's app again, hidden, and says when it's shown. Tests replace it.
+@MainActor var workspaceSidebarUnhideWindow: @MainActor (Window) async -> Bool = { window in
+    guard let app = window.app as? MacApp else { return false }
+    app.nsApp.unhide()
+    for _ in 0 ..< 20 {
+        if !app.nsApp.isHidden { return true }
+        try? await Task.sleep(for: .milliseconds(50))
+    }
+    return false
+}
+
+/// `window`, hidden with its app, shown again where it is: back among its tab's windows, laid out or
+/// floating as it was. Gives whether it's back there, still the same window in the same tab.
+@MainActor
+func showHiddenWorkspaceSidebarWindow(_ window: Window) async -> Bool {
+    guard let tab = window.nodeWorkspace, window.parent is MacosHiddenAppsWindowsContainer else { return false }
+    let link = WorkspaceSidebarPinWindow(window)
+    guard await workspaceSidebarUnhideWindow(window) else { return false }
+    // Across the wait, it may have closed or moved; WinMux may have put it back itself.
+    guard link.live === window, window.nodeWorkspace === tab else { return false }
+    if window.parent is MacosHiddenAppsWindowsContainer {
+        let wasFloating = if case .macos(.workspace, _) = window.layoutReason { true } else { false }
+        window.layoutReason = .standard
+        if wasFloating {
+            window.bindAsFloatingWindow(to: tab)
+        } else {
+            window.bind(to: tab.rootTilingContainer, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
+        }
+    }
+    return window.parent is TilingContainer || window.isFloating
+}
+
+/// A pin's window a split with it can't use now, and why.
+struct WorkspaceSidebarPinNotShown {
+    let window: Window
+    let isFullscreen: Bool
+    let message: String
+}
+
+/// Before a user's split with `pins`: a pin whose one window is hidden with its app has it shown again,
+/// the same window, back in the pin, so it's a pin with one window. One in full screen is left as it
+/// is, never split, never taken out of full screen; nor is one that stays hidden. Gives the first such
+/// pin's window, or nil when the split may go ahead.
+@MainActor
+func showWorkspaceSidebarPinsForSplit(_ pins: [Workspace]) async -> WorkspaceSidebarPinNotShown? {
+    guard config.usesBrowserTabs else { return nil }
+    for pin in pins where workspaceSidebarIsPinned(pin) {
+        switch workspaceSidebarPinSplitRole(pin) {
+            case .fullscreen(let window):
+                return .init(window: window, isFullscreen: true, message: "\(workspaceSidebarAppName(window)) is in full screen, "
+                    + "so it wasn't split. Exit full screen, then try again.")
+            case .hidden(let window):
+                guard await showHiddenWorkspaceSidebarWindow(window), workspaceSidebarPinSplitRole(pin) == .single(window) else {
+                    return .init(window: window, isFullscreen: false,
+                        message: "\(workspaceSidebarAppName(window)) stayed hidden, or changed meanwhile, so it wasn't split.")
+                }
+            default: continue
+        }
+    }
+    return nil
+}
+
+/// Says why a split wasn't made, finding a full-screen window where it is.
+@MainActor
+func noteWorkspaceSidebarPinNotShown(_ notShown: WorkspaceSidebarPinNotShown) {
+    if notShown.isFullscreen, !notShown.window.focusWindow() { _ = notShown.window.nodeWorkspace?.focusWorkspace() }
+    workspaceSidebarPinRecallNotice(notShown.isFullscreen ? "Exit full screen first" : "Couldn't show the window", notShown.message)
+}
+
+/// A pinned split's windows hidden with their app where a click on it would take them from, shown
+/// again first.
+@MainActor
+private func showHiddenWorkspaceSidebarCompositionWindows(_ split: Workspace) async {
+    guard let composition = workspaceSidebarOrganizationStore.state.workspaces[split.name]?.composition else { return }
+    for window in workspaceSidebarAwayWindows(of: composition, from: split).hidden {
+        _ = await showHiddenWorkspaceSidebarWindow(window)
+    }
+}
+
 /// A click on a pin that recalls windows: they come back as `recallWorkspaceSidebarPinWindows` says,
 /// then the pin shows as any clicked pin does, on the display it was clicked on. A window it can't
 /// bring back is shown where it is, and a notice says so; nothing is ever opened instead.
@@ -832,7 +967,14 @@ func recallPinWindowsFromSidebar(_ name: String, focusing windowId: UInt32?, tar
         }
     }) {
         guard let pin = Workspace.existing(byName: name) else { return }
-        switch try recallWorkspaceSidebarPinWindows(pin) {
+        if workspaceSidebarPinSplitRole(pin) == .composition { await showHiddenWorkspaceSidebarCompositionWindows(pin) }
+        var recall = try recallWorkspaceSidebarPinWindows(pin)
+        // Hidden with its app: shown again, then, still the same window the pin lent, brought back.
+        if case .hidden(let window) = recall, await showHiddenWorkspaceSidebarWindow(window),
+           workspaceSidebarLentWindow(of: pin) === window {
+            recall = try recallWorkspaceSidebarPinWindows(pin)
+        }
+        switch recall {
             case .returned(let window): shown = (name, window.windowId)
             case .minimized(let window):
                 switch try await recallMinimizedWorkspaceSidebarPinWindow(pin, window) {
@@ -844,12 +986,15 @@ func recallPinWindowsFromSidebar(_ name: String, focusing windowId: UInt32?, tar
                         workspaceSidebarPinRecallNotice("Couldn't bring the window back",
                             "\(workspaceSidebarAppName(window)) or its pin changed while it was restored, so it stayed where it is.")
                 }
+            case .hidden(let window):
+                workspaceSidebarPinRecallNotice("Couldn't bring the window back",
+                    "\(workspaceSidebarAppName(window)) stayed hidden, or it or its pin changed meanwhile, so it stayed where it is.")
             case .elsewhere(let window):
-                // Hidden with its app, or in full screen: shown where it is, never opened again.
-                let state = window.parent is MacosFullscreenWindowsContainer ? "in full screen" : "hidden"
+                // In full screen: found where it is, never taken out of full screen, nor opened again.
                 if !window.focusWindow() { _ = window.nodeWorkspace?.focusWorkspace() }
-                workspaceSidebarPinRecallNotice("Shown where it is",
-                    "\(workspaceSidebarAppName(window)) is \(state) in another tab, so it stayed there.")
+                workspaceSidebarPinRecallNotice("Exit full screen first",
+                    "\(workspaceSidebarAppName(window)) is in full screen in another tab, so it stayed there. "
+                        + "Exit full screen, then click the pin again.")
             case .recalled(let windows, let elsewhere):
                 shown = (name, windowId ?? windows.first?.windowId)
                 if !elsewhere.isEmpty {
