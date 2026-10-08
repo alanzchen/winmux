@@ -1194,6 +1194,98 @@ final class WorkspaceSidebarPinPolicyTest: XCTestCase {
         XCTAssertEqual(workspaceSidebarPinSplitRole(s), .composition, "Recorded before it lost the window")
     }
 
+    // MARK: Review V4 (Hermes)
+
+    /// 1: an agent's layout putting a one-window pin's window into a pinned split keeps the pin's link to
+    /// it, by either request form: a click on the pin brings the same window back, and the pinned split
+    /// stays one and keeps its other windows, which a click on it brings back. Nothing is opened.
+    /// (Its other windows are out of it at the layout: an agent layout drops a tab's windows it doesn't
+    /// name, a behaviour that predates the pins.)
+    func testAnAgentLayoutIntoAPinnedSplitKeepsThePinsLinkToItsWindow() async throws {
+        for asOperation in [true, false] {
+            try await setUp()
+            let (a, _, _, e) = try tabs()
+            let one = try window(1)
+            try setWorkspaceSidebarTabFavorite(e, true)
+            let q = tab("q", 9)
+            for id: UInt32 in [5, 6] {
+                await queueWorkspaceSidebarDrop(id, subject: .window, target: .workspace("q"), placement: .right,
+                    intent: .physical)?.value
+            }
+            XCTAssertEqual(ids(e), [], "\(asOperation)")
+            let result = try await applyAgentLayout("e", [1], asOperation: asOperation)
+            XCTAssertEqual(result.exitCode, 0, "\(asOperation): \(result.stderr)")
+            XCTAssertEqual(ids(e), [1], "\(asOperation)")
+            XCTAssertTrue(workspaceSidebarLentWindow(of: a) === one, "\(asOperation): the pin lends it, grey")
+            await updateWorkspaceSidebarModel()
+            let tile = try XCTUnwrap(TrayMenuModel.shared.workspaceSidebarWorkspaces.first { $0.name == "a" })
+            XCTAssertEqual(tile.lentWindow?.windowId, 1, "\(asOperation): its tile's click recalls, not opening its apps")
+
+            let windowCount = allWindowCount()
+            recallPinWindowsFromSidebar("a", focusing: nil, targetMonitorScopeId: nil)
+            try await waitUntil { ids(a) == [1] }
+            XCTAssertTrue(a.anyLeafWindowRecursive === one, "\(asOperation): the same window")
+            XCTAssertTrue(workspaceSidebarIsPinned(e))
+            XCTAssertEqual(workspaceSidebarPinSplitRole(e), .composition, "\(asOperation): still a pinned split")
+            XCTAssertEqual(Set(appearance("e")?.composition?.layout.windows.map(\.windowId) ?? []), [1, 5, 6], "\(asOperation)")
+            _ = try recallWorkspaceSidebarPinWindows(e)
+            XCTAssertEqual(Set(ids(e)), [1, 5, 6], "\(asOperation): its windows back, 1 lent again by its pin")
+            XCTAssertEqual(ids(q), [9], "\(asOperation)")
+            XCTAssertEqual(allWindowCount(), windowCount, "\(asOperation): nothing opened")
+            XCTAssertEqual(notices, [], "\(asOperation)")
+        }
+    }
+
+    /// 1: the loan that layout needs can't be saved: refused, saying why, before anything moves.
+    func testAnAgentLayoutIntoAPinnedSplitIsRefusedWhenThePinsLoanCantBeSaved() async throws {
+        let (a, _, _, e) = try tabs()
+        try setWorkspaceSidebarTabFavorite(e, true)
+        refreshModel()
+        let saved = workspaceSidebarOrganizationStore.state
+        workspaceSidebarOrganizationStore = .init(state: saved, url: unwritableOrganizationFile)
+        for asOperation in [true, false] {
+            let result = try await applyAgentLayout("e", [1], asOperation: asOperation)
+            XCTAssertEqual(result.exitCode, 1, "\(asOperation)")
+            XCTAssertTrue(result.stderr.joined().contains("setWorkspaceLayout 'e': couldn't save the pins lending their windows"),
+                "\(result.stderr)")
+            XCTAssertEqual(ids(a), [1], "\(asOperation): nothing moved")
+            XCTAssertEqual(ids(e), [5, 6], "\(asOperation)")
+            XCTAssertEqual(workspaceSidebarOrganizationStore.state, saved, "\(asOperation)")
+        }
+    }
+
+    /// 2: a pinned split A|B, A dragged out to an ordinary tab, B closed, A put in full screen. A click on
+    /// the empty pinned split finds A where it is, in full screen, and says to exit full screen first; it
+    /// doesn't show the empty pinned split instead, take A out of full screen, or open anything.
+    func testAnEmptyPinnedSplitsClickFindsItsFullScreenWindow() async throws {
+        let s = tab("s", 1, 2)
+        try setWorkspaceSidebarTabFavorite(s, true)
+        let q = tab("q", 9)
+        let other = tab("o", 5)
+        let one = try window(1)
+        await queueWorkspaceSidebarDrop(1, subject: .window, target: .workspace("q"), placement: .right, intent: .physical)?.value
+        XCTAssertEqual(ids(q), [9, 1])
+        try window(2).unbindFromParent()
+        forgetWorkspaceSidebarPinWindows { $0.windowId == 2 }
+        fullScreen(one)
+        XCTAssertEqual(ids(s), [])
+        XCTAssertTrue(workspaceSidebarPinRecallsWindows(s), "Its tile's click goes to the pinned split's windows")
+        _ = try window(5).focusWindow()
+        XCTAssertTrue(focus.workspace === other)
+
+        let windowCount = allWindowCount()
+        recallPinWindowsFromSidebar("s", focusing: nil, targetMonitorScopeId: nil)
+        try await waitUntil { !self.notices.isEmpty }
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertEqual(notices.count, 1, "\(notices)")
+        XCTAssertTrue(notices[0].hasPrefix("Exit full screen first"), notices[0])
+        XCTAssertTrue(focus.workspace === q, "Found where it is, not the empty pinned split")
+        XCTAssertTrue(one.parent is MacosFullscreenWindowsContainer && one.nodeWorkspace === q, "Still in full screen, the same window")
+        XCTAssertEqual(ids(s), [])
+        XCTAssertTrue(workspaceSidebarIsPinned(s))
+        XCTAssertEqual(allWindowCount(), windowCount, "Nothing opened")
+    }
+
     // MARK: Helpers
 
     /// Pins a and b, with windows 1 and 2; ordinary tabs d, with window 4, and e, a split of 5 and 6.
@@ -1325,6 +1417,7 @@ final class WorkspaceSidebarPinPolicyTest: XCTestCase {
     /// In macOS full screen: in its tab's full-screen windows.
     private func fullScreen(_ window: AppBundle.Window) {
         guard let tab = window.nodeWorkspace else { return XCTFail("Not in a tab") }
+        (window as? TestWindow)?.nativeIsMacosFullscreen = true
         window.layoutReason = .macos(prevParentKind: .tilingContainer, prevWorkspaceName: tab.name)
         window.bind(to: tab.macOsNativeFullscreenWindowsContainer, adaptiveWeight: WEIGHT_DOESNT_MATTER, index: INDEX_BIND_LAST)
     }

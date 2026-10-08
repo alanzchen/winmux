@@ -996,6 +996,16 @@ func recallPinWindowsFromSidebar(_ name: String, focusing windowId: UInt32?, tar
                     "\(workspaceSidebarAppName(window)) is in full screen in another tab, so it stayed there. "
                         + "Exit full screen, then click the pin again.")
             case .recalled(let windows, let elsewhere):
+                // Nothing to bring back to an empty pinned split, and a window of it in full screen: that
+                // window is found where it is, not the empty split shown instead.
+                if windows.isEmpty, pin.allLeafWindowsRecursive.isEmpty,
+                   let window = elsewhere.first(where: { $0.parent is MacosFullscreenWindowsContainer }) {
+                    if !window.focusWindow() { _ = window.nodeWorkspace?.focusWorkspace() }
+                    workspaceSidebarPinRecallNotice("Exit full screen first",
+                        "\(workspaceSidebarAppName(window)) is in full screen in another tab, so it stayed there. "
+                            + "Exit full screen, then click the pinned split again.")
+                    break
+                }
                 shown = (name, windowId ?? windows.first?.windowId)
                 if !elsewhere.isEmpty {
                     let names = elsewhere.map(workspaceSidebarAppName).joined(separator: ", ")

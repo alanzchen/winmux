@@ -67,11 +67,14 @@ struct AgentWorkspaceLayout: Codable {
         }
         workspace.seedMonitorIfNeeded(focusPane?.resolveNode()?.nodeMonitor ?? focus.workspace.workspaceMonitor)
         let oldWindows = workspace.allLeafWindowsRecursive
-        // A pin whose one window goes into this ordinary tab lends it there, as a move does. Saved first,
-        // so nothing changes if it can't be.
-        let loans = workspaceSidebarIsPinned(workspace)
-            ? [] : placedWindows.compactMap { workspaceSidebarPinLoan(taking: $0, to: workspace) }
-        try lendWorkspaceSidebarPinWindows(loans)
+        // A pin whose one window goes into this ordinary tab, or this pinned split, lends it there, as a
+        // move does; one an empty pin takes is that pin's own. Saved first, so nothing changes if it can't be.
+        let lends = !workspaceSidebarIsPinned(workspace) || workspaceSidebarPinSplitRole(workspace) == .composition
+        let loans = lends ? placedWindows.compactMap { workspaceSidebarPinLoan(taking: $0, to: workspace) } : []
+        do { try lendWorkspaceSidebarPinWindows(loans) } catch {
+            throw WorkspaceSidebarPinPolicyRefusal("setWorkspaceLayout '\(name)': couldn't save the pins lending their windows, "
+                + "so nothing was changed: \(error.localizedDescription)")
+        }
         var referenced: Set<UInt32> = []
         layout.collectWindowIds(result: &referenced)
         for ref in floating ?? [] {
