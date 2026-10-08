@@ -252,7 +252,8 @@ describes without an icon (a page that was already open) shows its site's icon. 
 bytes and checked when read, in `~/Library/Caches/<WinMux's bundle id>/BrowserTabIcons/`, readable
 only by you. An index maps a keyed hash of the Safari profile and the site's host name to each
 image, with a random key kept beside it, so no host name, address, title or page content is
-written; someone with access to your files could still test whether a given site's icon is kept.
+written. The images themselves still show which sites they're for, and someone with access to
+your files could test whether a given site's icon is kept.
 Each Safari profile's icons stay its own, and nothing comes from Private Browsing, which the
 extension never reports. At most 512 sites and 8 MB of images are kept, least recently used
 first, and a site unused for 30 days is dropped. Turning off **Show browser tabs** deletes them;
