@@ -67,7 +67,8 @@ final class SafariExtensionIcons: ObservableObject {
 /// is dropped when browser tabs are turned off or Safari quits.
 @MainActor
 final class SafariExtensionBridge {
-    static let shared = SafariExtensionBridge(configuration: isUnitTest ? { nil } : { .load() })
+    static let shared = SafariExtensionBridge(configuration: isUnitTest ? { nil } : { .load() },
+        iconCache: isUnitTest ? nil : .standard)
     let browser: String
     let icons: SafariExtensionIcons
     private(set) var lastContact: TimeInterval? = nil
@@ -87,6 +88,23 @@ final class SafariExtensionBridge {
     }
     private var commands: [String: Command] = [:]
     private var failedIcons: [String: TimeInterval] = [:]
+    /// Website icons kept across launches (`BrowserTabIconDiskCache`), read and written off the
+    /// main thread. None for Chrome, whose connections have no lasting profile.
+    private let iconCache: BrowserTabIconDiskCache?
+    private let iconQueue = DispatchQueue(label: "WinMux website icons", qos: .utility)
+    /// The PNG behind each image in `icons`, to write down.
+    private var thumbnails: [String: Data] = [:]
+    /// Each lasting profile's sites' icons, by lowercased host, from reports and the disk.
+    private var siteIcons: [String: [String: String]] = [:]
+    /// Hosts already looked up on the disk, and icons already written for a host, this launch.
+    private var askedDisk: Set<String> = []
+    private var written: Set<String> = []
+    /// The profile each report source came from.
+    private var profiles: [String: String] = [:]
+    /// Icons the sidebar holds for tabs (`BrowserTabSiteIconContinuity`): never dropped for room.
+    var heldIcons: () -> Set<String> = { [] }
+    /// Once icons read from the disk can show.
+    var iconsLoaded: () -> Void = {}
     private var enabled = false
     private var server: SafariExtensionServer?
     private var lastResync: TimeInterval = -.infinity
@@ -113,11 +131,13 @@ final class SafariExtensionBridge {
 
     /// `clock` is the wall clock the extension stamps its reports with, in seconds.
     init(browser: String = "safari", configuration: @escaping () -> SafariExtensionConfiguration?, icons: SafariExtensionIcons = .shared,
+         iconCache: BrowserTabIconDiskCache? = nil,
          now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
          clock: @escaping () -> TimeInterval = { Date().timeIntervalSince1970 }) {
         self.browser = browser
         self.loadConfiguration = configuration
         self.icons = icons
+        self.iconCache = browser == "safari" ? iconCache : nil
         self.now = now
         self.clock = clock
     }
@@ -220,13 +240,94 @@ final class SafariExtensionBridge {
         pushSenders = [:]
         states = [:]
         failedIcons = [:]
+        thumbnails = [:]
+        siteIcons = [:]
+        askedDisk = []
+        written = []
+        profiles = [:]
         if !icons.images.isEmpty { icons.images = [:] }
         lastContact = nil
         generation += 1
     }
 
+    /// Icons tabs show: those reports name, those the sidebar holds, and the kept icons of sites
+    /// whose tabs the extension describes without one.
     private var referencedIcons: Set<String> {
-        Set(states.values.flatMap { $0.state.windows.flatMap { $0.tabs.compactMap(\.icon) } })
+        var referenced = Set(states.values.flatMap { $0.state.windows.flatMap { $0.tabs.compactMap(\.icon) } }).union(heldIcons())
+        for report in states.values {
+            guard let partition = BrowserTabIconDiskCache.partition(browser: browser, profile: report.state.profile),
+                  let sites = siteIcons[partition] else { continue }
+            for tab in report.state.windows.flatMap(\.tabs) where tab.icon == nil {
+                if let host = tab.host?.lowercased(), let icon = sites[host] { referenced.insert(icon) }
+            }
+        }
+        return referenced
+    }
+
+    /// The kept icon of the site of a tab the extension describes, from report `source`, without one.
+    func siteIcon(source: String, host: String?) -> String? {
+        guard let host, let profile = profiles[source],
+              let partition = BrowserTabIconDiskCache.partition(browser: browser, profile: profile),
+              let icon = siteIcons[partition]?[host.lowercased()], icons.images[icon] != nil else { return nil }
+        return icon
+    }
+
+    /// Waits for icon reads and writes under way: for tests.
+    func waitForKeptIcons() { iconQueue.sync {} }
+
+    /// Forgets every icon kept on the disk, as when browser tabs are turned off.
+    func removeKeptIcons() {
+        guard let iconCache else { return }
+        siteIcons = [:]
+        askedDisk = []
+        written = []
+        iconQueue.async { iconCache.remove() }
+    }
+
+    /// Notes which icon each reported site has, writes down those whose images are here, and
+    /// looks up on the disk sites the report names without an icon.
+    private func learnSiteIcons(_ state: SafariExtensionState) {
+        guard let iconCache, let partition = BrowserTabIconDiskCache.partition(browser: browser, profile: state.profile) else { return }
+        for window in state.windows { profiles[window.key.source] = state.profile }
+        var missing: [String] = []
+        for tab in state.windows.flatMap(\.tabs) {
+            guard let host = tab.host?.lowercased() else { continue }
+            if let icon = tab.icon {
+                siteIcons[partition, default: [:]][host] = icon
+                keep(partition: partition, host: host, icon: icon)
+            } else if siteIcons[partition]?[host] == nil, askedDisk.insert(partition + "\n" + host).inserted {
+                missing.append(host)
+            }
+        }
+        guard !missing.isEmpty else { return }
+        iconQueue.async { [weak self] in
+            let found = missing.compactMap { host in iconCache.icon(partition: partition, host: host).map { (host, $0.key, $0.png) } }
+            guard !found.isEmpty else { return }
+            Task { @MainActor [weak self] in self?.receiveKeptIcons(found, partition: partition) }
+        }
+    }
+
+    private func keep(partition: String, host: String, icon: String) {
+        guard let iconCache, let png = thumbnails[icon], written.insert("\(partition)\n\(host)\n\(icon)").inserted else { return }
+        iconQueue.async { iconCache.store(partition: partition, host: host, icon: icon, png: png) }
+    }
+
+    private func receiveKeptIcons(_ found: [(host: String, key: String, png: Data)], partition: String) {
+        guard enabled, !states.isEmpty else { return }
+        let referenced = referencedIcons
+        var next = icons.images
+        for (host, key, png) in found where siteIcons[partition]?[host] == nil {
+            if next[key] == nil {
+                if next.count >= Self.maximumImages, let unused = next.keys.first(where: { !referenced.contains($0) }) { next[unused] = nil }
+                guard next.count < Self.maximumImages, let image = NSImage(data: png) else { continue }
+                next[key] = image
+                thumbnails[key] = png
+            }
+            siteIcons[partition, default: [:]][host] = key
+        }
+        if next != icons.images { icons.images = next }
+        thumbnails = thumbnails.filter { next[$0.key] != nil }
+        iconsLoaded()
     }
 
     /// Answers one message. A state asks for the icons WinMux doesn't have yet, as many as fit.
@@ -320,6 +421,7 @@ final class SafariExtensionBridge {
                 states[state.profile] = (state, time, measured ?? -.infinity, sighting)
                 generation += 1
                 lastContact = time
+                learnSiteIcons(state)
                 let referenced = referencedIcons
                 let room = Self.maximumImages - icons.images.keys.filter(referenced.contains).count
                 let wanted = Set(state.windows.flatMap { $0.tabs.compactMap(\.icon) }).filter { key in
@@ -351,10 +453,22 @@ final class SafariExtensionBridge {
                         next[unused] = nil
                     }
                     guard next.count < Self.maximumImages else { break }
-                    if let image = NSImage(data: data) { next[key] = image } else { failedIcons[key] = time }
+                    if let image = NSImage(data: data) {
+                        next[key] = image
+                        thumbnails[key] = data
+                    } else { failedIcons[key] = time }
                 }
                 if failedIcons.count > 256 { failedIcons.removeAll() }
                 if next != icons.images { icons.images = next }
+                thumbnails = thumbnails.filter { next[$0.key] != nil }
+                // Now that their images are here, write down the sites this profile showed them for.
+                if let state = states[profile]?.state, let partition = BrowserTabIconDiskCache.partition(browser: browser, profile: profile) {
+                    for tab in state.windows.flatMap(\.tabs) {
+                        if let icon = tab.icon, received[icon] != nil, let host = tab.host?.lowercased() {
+                            keep(partition: partition, host: host, icon: icon)
+                        }
+                    }
+                }
                 return answer(["ok": true])
         }
     }

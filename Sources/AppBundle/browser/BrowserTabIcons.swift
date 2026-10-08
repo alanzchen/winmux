@@ -44,6 +44,12 @@ struct BrowserTabIconAssociations {
         }
     }
 
+    /// The extension says the tab is on another site now: its icon goes until a read confirms the new one.
+    mutating func invalidate(_ target: BrowserTabTarget) {
+        origins[target] = nil
+        if pending[target.windowId]?.candidate.target == target { pending[target.windowId] = nil }
+    }
+
     mutating func retain(_ targets: Set<BrowserTabTarget>) {
         origins = origins.filter { targets.contains($0.key) }
         pending = pending.filter { targets.contains($0.value.candidate.target) }

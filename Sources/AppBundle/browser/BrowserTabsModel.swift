@@ -14,6 +14,7 @@ final class BrowserTabsModel: ObservableObject {
     private var watched: [String: Set<UInt32>] = [:]
     private var iconsEnabled = false
     private var iconAssociations = BrowserTabIconAssociations()
+    private var iconContinuity = BrowserTabSiteIconContinuity()
     private let selectRequests: BrowserTabSelectRequests
     private let closeRequests = BrowserTabCloseRequests()
     private let safariExtension: SafariExtensionBridge
@@ -41,6 +42,8 @@ final class BrowserTabsModel: ObservableObject {
             return self.chromeAssociations.awaitsReport || self.chromeAssociations.awaitsAnotherReport(self.chromeExtension.windows)
         }
         safariExtension.sightSafariWindows = { [weak self] measured in self?.sightSafariWindows(measured: measured) ?? [:] }
+        safariExtension.heldIcons = { [weak self] in self?.iconContinuity.icons ?? [] }
+        safariExtension.iconsLoaded = { [weak self] in self?.publish() }
         safariExtension.reportArrived = { [weak self] in
             guard let self, self.task != nil else { return false }
             self.publish()
@@ -74,6 +77,9 @@ final class BrowserTabsModel: ObservableObject {
             }, disconnected: { [weak self] profile in await self?.disconnectChrome(profile) })
         }
         if !enabled { chromeServer?.stop(); chromeServer = nil }
+        // Website icons kept across launches go when browser tabs are turned off, not when the
+        // panel is just hidden or WinMux paused.
+        if !enabled, !config.workspaceSidebar.browserTabs { safariExtension.removeKeptIcons() }
         if !enabled {
             selectRequests.reset()
             closeRequests.reset()
@@ -201,11 +207,18 @@ final class BrowserTabsModel: ObservableObject {
         selectRequests.expire()
         closeRequests.expire()
         let next = cache.snapshots.mapValues { value in
-            browserTabsShown(closeRequests.apply(selectRequests.apply(value)), read: cache.observed[value.windowId], now: now,
-                safari: MacApp.allAppsMap[value.pid]?.rawAppBundleId == chromeBundleId ? chromeAssociations : safariAssociations,
+            let chrome = MacApp.allAppsMap[value.pid]?.rawAppBundleId == chromeBundleId
+            var shown = browserTabsShown(closeRequests.apply(selectRequests.apply(value)), read: cache.observed[value.windowId], now: now,
+                safari: chrome ? chromeAssociations : safariAssociations,
                 iconOrigins: iconsEnabled ? iconAssociations.origins : [:],
-                useExtensionSound: MacApp.allAppsMap[value.pid]?.rawAppBundleId != chromeBundleId)
+                useExtensionSound: !chrome)
+            shown.tabs = shown.tabs.map { tab in
+                browserTabIconShown(tab, chrome: chrome, now: now, continuity: &iconContinuity, origins: &iconAssociations,
+                    keptIcon: { [safariExtension] source, host in safariExtension.siteIcon(source: source, host: host) })
+            }
+            return shown
         }
+        iconContinuity.retain(Set(cache.snapshots.values.flatMap { $0.tabs.map(\.target) }))
         if snapshots != next { snapshots = next }
     }
 
@@ -557,6 +570,27 @@ func browserTabsShown(_ snapshot: BrowserWindowTabs, read: TimeInterval?, now: T
     snapshot.knowsSound = useExtensionSound && safari.agreeing.contains(snapshot.windowId)
     snapshot.marker = nil
     return snapshot
+}
+
+/// A tab's website icon as the sidebar shows it, after `browserTabsShown`.
+///
+/// - Safari: the icon the extension gives the tab; through a brief gap, the one it last gave the
+///   same tab for the same site (`BrowserTabSiteIconContinuity`); otherwise its site's icon kept
+///   from before (`keptIcon`, by report source and host), only for a tab bound by id.
+/// - Chrome: a tab the extension says is on another site, or on no website, drops the icon of the
+///   site it was on until a read confirms the new one: it never shows the previous site's icon.
+func browserTabIconShown(_ tab: BrowserTab, chrome: Bool, now: TimeInterval, continuity: inout BrowserTabSiteIconContinuity,
+                         origins: inout BrowserTabIconAssociations, keptIcon: (String, String?) -> String?) -> BrowserTab {
+    var tab = tab
+    if chrome {
+        if tab.extensionTab != nil, let origin = tab.iconOrigin, origin.host?.lowercased() != tab.host?.lowercased() {
+            origins.invalidate(tab.target)
+            tab.iconOrigin = nil
+        }
+    } else {
+        tab.siteIcon = continuity.icon(for: tab, now: now) ?? tab.extensionTab.flatMap { keptIcon($0.source, tab.host) }
+    }
+    return tab
 }
 
 /// Where the window server has windows WinMux hasn't measured lately, such as ones that just
