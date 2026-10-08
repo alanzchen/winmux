@@ -37,8 +37,7 @@ def feed(version):
 def write_assets(directory, version):
     directory.mkdir(parents=True, exist_ok=True)
     assets = []
-    for name in [f"WinMux-{version}.zip", f"WinMux-{version}-macOS.zip", f"WinMux-{version}.dmg",
-                 f"WinMuxTabs-Chrome-{version}.zip", "appcast.xml", "SHA256SUMS"]:
+    for name in ship.preview.release.asset_names(f"v{version}"):
         path = directory / name
         path.write_bytes(name.encode())
         assets.append({"name": name, "state": "uploaded", "size": path.stat().st_size,
@@ -357,14 +356,21 @@ class VerifyTest(unittest.TestCase):
 
     def test_newer_feed_and_release_built_elsewhere_are_fine(self):
         assets = [{"name": name, "state": "uploaded"} for name in
-                  ["WinMux-0.6.9.zip", "WinMux-0.6.9-macOS.zip", "WinMux-0.6.9.dmg", "WinMuxTabs-Chrome-0.6.9.zip",
-                   "appcast.xml", "SHA256SUMS"]]
+                  ["WinMux-0.6.9.zip", "WinMux-0.6.9-macOS.zip", "WinMux-0.6.9.dmg", "appcast.xml", "SHA256SUMS"]]
         github = FakeGitHub({"draft": False, "prerelease": True, "assets": assets}, offered="0.6.10")
         checks = {check["name"]: check for check in ship.verify_release("v0.6.9", COMMIT, "/nonexistent", run=github)}
         self.assertTrue(checks["assets"]["ok"])
         self.assertIn("another checkout", checks["assets"]["detail"])
         self.assertTrue(checks["feed"]["ok"])
         self.assertNotIn("gatekeeper", checks)
+
+    def test_a_release_built_elsewhere_from_the_chrome_asset_on_needs_it(self):
+        names = ["WinMux-0.6.393.zip", "WinMux-0.6.393-macOS.zip", "WinMux-0.6.393.dmg", "appcast.xml", "SHA256SUMS"]
+        for uploaded, ok in ((names, False), (names + ["WinMuxTabs-Chrome-0.6.393.zip"], True)):
+            github = FakeGitHub({"draft": False, "prerelease": True, "assets": [{"name": name, "state": "uploaded"} for name in uploaded]},
+                                offered="0.6.393")
+            checks = {check["name"]: check for check in ship.verify_release("v0.6.393", COMMIT, "/nonexistent", run=github)}
+            self.assertEqual(checks["assets"]["ok"], ok, uploaded)
 
     def test_missing_release_fails_without_asset_check(self):
         checks = ship.verify_release("v0.6.9", COMMIT, "/nonexistent", run=FakeGitHub(None))
@@ -373,8 +379,7 @@ class VerifyTest(unittest.TestCase):
 
     def test_transient_errors_are_retried_and_broken_checks_never_raise(self):
         assets = [{"name": name, "state": "uploaded"} for name in
-                  ["WinMux-0.6.9.zip", "WinMux-0.6.9-macOS.zip", "WinMux-0.6.9.dmg", "WinMuxTabs-Chrome-0.6.9.zip",
-                   "appcast.xml", "SHA256SUMS"]]
+                  ["WinMux-0.6.9.zip", "WinMux-0.6.9-macOS.zip", "WinMux-0.6.9.dmg", "appcast.xml", "SHA256SUMS"]]
         pauses = []
         github = FakeGitHub({"draft": False, "prerelease": True, "assets": assets}, failures=2,
                             feed_content=base64.b64encode(b"<rss><channel>").decode())

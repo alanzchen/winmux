@@ -70,11 +70,21 @@ def read_releases(repository):
     return [release for page in pages for release in page]
 
 
-def release_assets(tag, directory):
-    version_tuple(tag)
+# The first version whose release includes the standalone Chrome extension. Earlier releases are
+# verified and repaired with exactly the assets they were published with; none is ever added.
+FIRST_CHROME_EXTENSION_ASSET = (0, 6, 393)
+
+
+def asset_names(tag):
     version = tag[1:]
-    names = [f"WinMux-{version}.zip", f"WinMux-{version}-macOS.zip",
-             f"WinMux-{version}.dmg", f"WinMuxTabs-Chrome-{version}.zip", "appcast.xml", "SHA256SUMS"]
+    names = [f"WinMux-{version}.zip", f"WinMux-{version}-macOS.zip", f"WinMux-{version}.dmg"]
+    if version_tuple(tag) >= FIRST_CHROME_EXTENSION_ASSET:
+        names.append(f"WinMuxTabs-Chrome-{version}.zip")
+    return names + ["appcast.xml", "SHA256SUMS"]
+
+
+def release_assets(tag, directory):
+    names = asset_names(tag)
     paths = [Path(directory) / name for name in names]
     for path in paths:
         if not path.is_file() or path.stat().st_size == 0:

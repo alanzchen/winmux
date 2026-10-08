@@ -57,6 +57,19 @@ class ReleaseTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "changed"):
                 release.check_tag("v1.2.3", "alanzchen/winmux")
 
+    def test_releases_before_the_chrome_asset_keep_their_published_asset_list(self):
+        for tag in ("v0.6.392", "v0.5.9"):
+            self.assertNotIn(f"WinMuxTabs-Chrome-{tag[1:]}.zip", release.asset_names(tag))
+            self.assertEqual(len(release.asset_names(tag)), 5)
+        self.assertIn("WinMuxTabs-Chrome-0.6.393.zip", release.asset_names("v0.6.393"))
+        self.assertIn("WinMuxTabs-Chrome-0.7.0.zip", release.asset_names("v0.7.0"))
+        with tempfile.TemporaryDirectory() as directory:
+            names = ["WinMux-0.6.392.zip", "WinMux-0.6.392-macOS.zip", "WinMux-0.6.392.dmg", "appcast.xml", "SHA256SUMS"]
+            for name in names:
+                (Path(directory) / name).write_bytes(b"x")
+            self.assertEqual([path.name for path in release.release_assets("v0.6.392", directory)], names,
+                             "Re-checking an older release never requires an asset it didn't have")
+
     def test_release_assets_include_the_standalone_chrome_extension(self):
         with tempfile.TemporaryDirectory() as directory:
             names = ["WinMux-1.2.3.zip", "WinMux-1.2.3-macOS.zip", "WinMux-1.2.3.dmg", "WinMuxTabs-Chrome-1.2.3.zip",

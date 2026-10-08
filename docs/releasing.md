@@ -305,7 +305,8 @@ release, move a tag, or make an older stable version the latest update.
 Each release contains `WinMux-VERSION.zip` (Sparkle app archive),
 `WinMux-VERSION-macOS.zip` (app, CLI launcher, and docs), `WinMux-VERSION.dmg`,
 `WinMuxTabs-Chrome-VERSION.zip` (the optional Chrome extension, as the app embeds it, to load
-unpacked), `appcast.xml`, and `SHA256SUMS`, which lists every archive and the DMG. Publishing requires an explicit local command;
+unpacked; from 0.6.393, and never added to earlier releases), `appcast.xml`, and `SHA256SUMS`,
+which lists every archive and the DMG. Publishing requires an explicit local command;
 pushes alone never publish a preview or stable release.
 
 ## Local signing and first installation
