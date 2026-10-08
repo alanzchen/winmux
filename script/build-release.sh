@@ -85,12 +85,14 @@ app_zip="$release_dir/WinMux-$VERSION.zip"
 dist="$release_dir/WinMux-$VERSION-macOS"
 dist_zip="$dist.zip"
 dmg="$release_dir/WinMux-$VERSION.dmg"
+# The Chrome extension on its own, for loading unpacked without the app archive.
+chrome_zip="$release_dir/WinMuxTabs-Chrome-$VERSION.zip"
 feed_url="${UPDATE_FEED_URL:-https://raw.githubusercontent.com/$RELEASE_REPOSITORY/updates/prerelease.xml}"
 download_prefix="https://github.com/$RELEASE_REPOSITORY/releases/download/$RELEASE_TAG/"
 cli="$CLI_STAGE_PATH"
 test -x "$cli"
 rm -rf "$archive" "$export_dir" "$dist"
-rm -f "$app_zip" "$dist_zip" "$dmg" "$release_dir/appcast.xml" "$release_dir/SHA256SUMS"
+rm -f "$app_zip" "$dist_zip" "$dmg" "$chrome_zip" "$release_dir/appcast.xml" "$release_dir/SHA256SUMS"
 
 hardened_runtime=YES
 if [[ "$CODESIGN_IDENTITY" == - ]]; then hardened_runtime=NO; fi
@@ -231,6 +233,7 @@ ditto "$app" "$dist/WinMux.app"
 /usr/bin/install -m 755 script/winmux-launcher.sh "$dist/bin/winmux"
 cp docs/cli.md docs/releasing.md docs/browser-tabs.md "$dist/docs/"
 cp "$app/Contents/Resources/WinMuxTabs-Chrome.zip" "$dist/WinMuxTabs-Chrome.zip"
+cp "$app/Contents/Resources/WinMuxTabs-Chrome.zip" "$chrome_zip"
 cat > "$dist/README.txt" <<'EOF'
 Requires an Apple Silicon Mac (arm64).
 Copy WinMux.app to /Applications. Install bin/winmux on your PATH to run the CLI
@@ -238,6 +241,8 @@ inside the installed app. Sparkle updates replace the app and embedded CLI toget
 For a custom app location set WINMUX_APP_PATH to its absolute .app path.
 Existing upstream/ad-hoc builds require this first fork installation manually.
 See docs/cli.md and docs/releasing.md for setup and signing details.
+WinMuxTabs-Chrome.zip is the optional Chrome extension: in WinMux, Settings > Workspace Panel >
+Tabs > Content > Set Up Chrome Extension. See docs/browser-tabs.md.
 EOF
 ditto -c -k --sequesterRsrc --keepParent "$dist" "$dist_zip"
 dmg_stage="$(mktemp -d "$release_dir/dmg-stage.XXXXXX")"
@@ -269,7 +274,7 @@ if [[ "$GENERATE_APPCAST" == 1 ]]; then
 fi
 (
     cd "$release_dir"
-    assets=("$(basename "$app_zip")" "$(basename "$dist_zip")" "$(basename "$dmg")")
+    assets=("$(basename "$app_zip")" "$(basename "$dist_zip")" "$(basename "$dmg")" "$(basename "$chrome_zip")")
     if [[ "$GENERATE_APPCAST" == 1 ]]; then assets+=(appcast.xml); fi
     shasum -a 256 "${assets[@]}" > SHA256SUMS
 )

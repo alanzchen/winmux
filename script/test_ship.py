@@ -37,7 +37,8 @@ def feed(version):
 def write_assets(directory, version):
     directory.mkdir(parents=True, exist_ok=True)
     assets = []
-    for name in [f"WinMux-{version}.zip", f"WinMux-{version}-macOS.zip", f"WinMux-{version}.dmg", "appcast.xml", "SHA256SUMS"]:
+    for name in [f"WinMux-{version}.zip", f"WinMux-{version}-macOS.zip", f"WinMux-{version}.dmg",
+                 f"WinMuxTabs-Chrome-{version}.zip", "appcast.xml", "SHA256SUMS"]:
         path = directory / name
         path.write_bytes(name.encode())
         assets.append({"name": name, "state": "uploaded", "size": path.stat().st_size,
@@ -356,7 +357,8 @@ class VerifyTest(unittest.TestCase):
 
     def test_newer_feed_and_release_built_elsewhere_are_fine(self):
         assets = [{"name": name, "state": "uploaded"} for name in
-                  ["WinMux-0.6.9.zip", "WinMux-0.6.9-macOS.zip", "WinMux-0.6.9.dmg", "appcast.xml", "SHA256SUMS"]]
+                  ["WinMux-0.6.9.zip", "WinMux-0.6.9-macOS.zip", "WinMux-0.6.9.dmg", "WinMuxTabs-Chrome-0.6.9.zip",
+                   "appcast.xml", "SHA256SUMS"]]
         github = FakeGitHub({"draft": False, "prerelease": True, "assets": assets}, offered="0.6.10")
         checks = {check["name"]: check for check in ship.verify_release("v0.6.9", COMMIT, "/nonexistent", run=github)}
         self.assertTrue(checks["assets"]["ok"])
@@ -371,7 +373,8 @@ class VerifyTest(unittest.TestCase):
 
     def test_transient_errors_are_retried_and_broken_checks_never_raise(self):
         assets = [{"name": name, "state": "uploaded"} for name in
-                  ["WinMux-0.6.9.zip", "WinMux-0.6.9-macOS.zip", "WinMux-0.6.9.dmg", "appcast.xml", "SHA256SUMS"]]
+                  ["WinMux-0.6.9.zip", "WinMux-0.6.9-macOS.zip", "WinMux-0.6.9.dmg", "WinMuxTabs-Chrome-0.6.9.zip",
+                   "appcast.xml", "SHA256SUMS"]]
         pauses = []
         github = FakeGitHub({"draft": False, "prerelease": True, "assets": assets}, failures=2,
                             feed_content=base64.b64encode(b"<rss><channel>").decode())

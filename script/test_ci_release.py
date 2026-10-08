@@ -57,6 +57,17 @@ class ReleaseTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "changed"):
                 release.check_tag("v1.2.3", "alanzchen/winmux")
 
+    def test_release_assets_include_the_standalone_chrome_extension(self):
+        with tempfile.TemporaryDirectory() as directory:
+            names = ["WinMux-1.2.3.zip", "WinMux-1.2.3-macOS.zip", "WinMux-1.2.3.dmg", "WinMuxTabs-Chrome-1.2.3.zip",
+                     "appcast.xml", "SHA256SUMS"]
+            for name in names:
+                (Path(directory) / name).write_bytes(b"x")
+            self.assertEqual([path.name for path in release.release_assets("v1.2.3", directory)], names)
+            (Path(directory) / "WinMuxTabs-Chrome-1.2.3.zip").unlink()
+            with self.assertRaisesRegex(ValueError, "WinMuxTabs-Chrome-1.2.3.zip"):
+                release.release_assets("v1.2.3", directory)
+
     def test_missing_distribution_asset_fails_before_publishing(self):
         with tempfile.TemporaryDirectory() as directory:
             with self.assertRaisesRegex(ValueError, "Missing"):

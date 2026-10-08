@@ -74,7 +74,7 @@ def release_assets(tag, directory):
     version_tuple(tag)
     version = tag[1:]
     names = [f"WinMux-{version}.zip", f"WinMux-{version}-macOS.zip",
-             f"WinMux-{version}.dmg", "appcast.xml", "SHA256SUMS"]
+             f"WinMux-{version}.dmg", f"WinMuxTabs-Chrome-{version}.zip", "appcast.xml", "SHA256SUMS"]
     paths = [Path(directory) / name for name in names]
     for path in paths:
         if not path.is_file() or path.stat().st_size == 0:

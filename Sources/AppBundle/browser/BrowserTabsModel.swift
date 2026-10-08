@@ -48,6 +48,9 @@ final class BrowserTabsModel: ObservableObject {
         }
     }
 
+    /// Whether WinMux Tabs for Chrome has a connection reporting now.
+    var chromeExtensionConnected: Bool { !chromeExtension.pushSenders.isEmpty }
+
     /// The windows some sidebar shows, and so the ones read.
     var watchedWindowIds: Set<UInt32> { schedule.watched }
 

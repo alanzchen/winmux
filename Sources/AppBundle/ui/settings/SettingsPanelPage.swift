@@ -44,9 +44,14 @@ struct SettingsPanelPage: View {
     }
 
     private func footer(_ section: SettingsPanelSection) -> AnyView? {
-        guard section.id == SettingsPanelLayout.tabsContentSection, sidebar.browserTabs, SafariExtensionBridge.shared.isAvailable
-        else { return nil }
-        return AnyView(SafariExtensionSettingsStatus())
+        guard section.id == SettingsPanelLayout.tabsContentSection, sidebar.browserTabs else { return nil }
+        let safari = SafariExtensionBridge.shared.isAvailable
+        let chrome = ChromeExtensionSetup.bundled(in: Bundle.main.bundleURL) != nil
+        guard safari || chrome else { return nil }
+        return AnyView(VStack(alignment: .leading, spacing: 12) {
+            if safari { SafariExtensionSettingsStatus() }
+            if chrome { ChromeExtensionSettingsSetup() }
+        })
     }
 
     private func row(_ id: String, mode: WorkspaceSidebarMode? = nil) -> some View {
@@ -153,6 +158,35 @@ struct SafariExtensionSettingsStatus: View {
 
     private func refresh() async {
         connection = await SafariExtensionBridge.shared.connection()
+    }
+}
+
+/// WinMux Tabs for Chrome: whether it's reporting, and its setup, which runs only when chosen.
+struct ChromeExtensionSettingsSetup: View {
+    @State private var connected = false
+    @State private var working = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(connected
+                ? "WinMux Tabs for Chrome is reporting. In each Chrome window where its toolbar button is pinned, WinMux switches tabs through it."
+                : "WinMux Tabs for Chrome adds Chrome tabs' host names and lets WinMux switch Chrome tabs through Chrome. Chrome loads it as an unpacked extension.")
+                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            Button("Set Up Chrome Extension…") { setUp() }.controlSize(.small).disabled(working)
+        }
+        .onAppear(perform: refresh)
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in refresh() }
+    }
+
+    private func refresh() { connected = BrowserTabsModel.shared.chromeExtensionConnected }
+
+    private func setUp() {
+        working = true
+        Task { @MainActor in
+            defer { working = false }
+            do { ChromeExtensionSetup.presentNextSteps(folder: try await ChromeExtensionSetup.run()) }
+            catch { ChromeExtensionSetup.presentFailure(error) }
+        }
     }
 }
 

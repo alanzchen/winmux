@@ -444,7 +444,7 @@ def verify_release(tag, commit, directory, run=command, assess=assess_dmg, sleep
             return True, f"{len(paths)} assets match the local build"
         # Published earlier from another checkout; same names as ci-release.release_assets.
         expected = sorted([f"WinMux-{version}.zip", f"WinMux-{version}-macOS.zip", f"WinMux-{version}.dmg",
-                           "appcast.xml", "SHA256SUMS"])
+                           f"WinMuxTabs-Chrome-{version}.zip", "appcast.xml", "SHA256SUMS"])
         return uploaded == expected, (f"{len(uploaded)} assets uploaded (built in another checkout)"
                                       if uploaded == expected else f"uploaded: {', '.join(uploaded) or 'none'}")
 
