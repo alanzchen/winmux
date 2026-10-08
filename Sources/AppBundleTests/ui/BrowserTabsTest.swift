@@ -1151,6 +1151,77 @@ final class BrowserTabsTest: XCTestCase {
             markerIdentifier: identifier, wait: { _ in }).scan()).marker)
     }
 
+    func testChromeFindsItsExtensionButtonByTheMarkerTitleChromeGivesItAsItsName() throws {
+        // As Chrome 154's macOS tree shows toolbar buttons: title and description both the name.
+        func button(_ role: String, _ name: String) -> BrowserTestNode {
+            let node = BrowserTestNode(role)
+            node.title = name
+            node.axDescription = name
+            return node
+        }
+        let tree = fixture(.chromium)
+        let toolbar = BrowserTestNode("AXToolbar")
+        let extensions = BrowserTestNode("AXGroup")
+        let back = button("AXButton", "Back")
+        // A page's text or a non-button can't stand in for the button.
+        let text = BrowserTestNode("AXStaticText")
+        text.title = "WinMux Tabs \u{00B7} aaaaaaaa-1-2"
+        let marker = button("AXPopUpButton", "WinMux Tabs \u{00B7} aaaaaaaa-10-100")
+        for node in [back, text] { toolbar.append(node) }
+        extensions.append(marker)
+        toolbar.append(extensions)
+        tree.root.append(toolbar)
+        var time = 0.0
+        let scanner = BrowserTabScanner(root: tree.root, adapter: .chromium, windowId: 123, pid: 45, now: { time }, wait: { _ in })
+        XCTAssertNil(try XCTUnwrap(scanner.scan()).marker, "Only while WinMux Tabs for Chrome is connected")
+        scanner.titledMarker = true
+        let readsBefore = marker.structureReads
+        let first = try XCTUnwrap(scanner.scan())
+        XCTAssertEqual(first.marker, .init(session: "aaaaaaaa", window: 10, tab: 100))
+        XCTAssertEqual(first.tabs.map(\.title), ["Alpha", "Beta"], "The tab strip reads as before")
+        XCTAssertEqual(marker.structureReads, readsBefore + 1, "Turning it on walks the window again, reading the button with it")
+        let backReads = back.structureReads
+        // A later read asks only the button again: its title follows the window's active tab.
+        marker.title = "WinMux Tabs \u{00B7} aaaaaaaa-10-101"
+        marker.axDescription = marker.title
+        time = 1
+        XCTAssertEqual(try XCTUnwrap(scanner.scan()).marker?.tab, 101)
+        XCTAssertEqual(marker.structureReads, readsBefore + 2)
+        XCTAssertEqual(back.structureReads, backReads, "and nothing else outside the tab strip")
+        // Chrome adds a line about site access only to an extension that has or wants it.
+        marker.axDescription = "WinMux Tabs \u{00B7} aaaaaaaa-10-102\nHas access to this site"
+        XCTAssertEqual(try XCTUnwrap(scanner.scan()).marker?.tab, 102)
+        marker.title = "WinMux Tabs"
+        marker.axDescription = "WinMux Tabs"
+        XCTAssertNil(try XCTUnwrap(scanner.scan()).marker, "Between titles, as a page loads, the button names nothing")
+        marker.title = "WinMux Tabs \u{00B7} aaaaaaaa-10-100"
+        marker.axDescription = marker.title
+        XCTAssertEqual(try XCTUnwrap(scanner.scan()).marker?.tab, 100, "and names its window again once titled")
+
+        // Two buttons titled as markers, as another extension copying the format would make,
+        // name nothing: one isn't WinMux's.
+        let copy = button("AXButton", "WinMux Tabs \u{00B7} bbbbbbbb-20-200")
+        extensions.append(copy)
+        time = 62
+        XCTAssertNil(try XCTUnwrap(scanner.scan()).marker)
+        extensions.nodes.removeLast()
+        time = 123
+        XCTAssertEqual(try XCTUnwrap(scanner.scan()).marker?.tab, 100)
+        // Unpinned, its button isn't in the toolbar: a walk then finds nothing to read.
+        extensions.nodes.removeAll()
+        time = 184
+        XCTAssertNil(try XCTUnwrap(scanner.scan()).marker)
+        XCTAssertNil(try XCTUnwrap(scanner.scan()).marker)
+        // Safari's scanner never takes a title for its button, which it finds by identifier.
+        let safari = fixture(.safari)
+        let titledOnly = button("AXButton", "WinMux Tabs \u{00B7} aaaaaaaa-10-100")
+        safari.root.append(titledOnly)
+        let safariScanner = BrowserTabScanner(root: safari.root, adapter: .safari, windowId: 1, pid: 2,
+            markerIdentifier: "WebExtension-com.zimengxiong.winmux.safari-extension (N9YEGD9WDP)", wait: { _ in })
+        safariScanner.titledMarker = true
+        XCTAssertNil(try XCTUnwrap(safariScanner.scan()).marker)
+    }
+
     func testASafariWindowWithoutATabBarCarriesWhatItsExtensionButtonNames() throws {
         let identifier = "WebExtension-com.zimengxiong.winmux.safari-extension (N9YEGD9WDP)"
         let root = BrowserTestNode("AXWindow")

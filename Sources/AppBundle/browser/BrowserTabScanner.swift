@@ -227,6 +227,17 @@ final class BrowserTabScanner<Node: BrowserTabAXNode> {
             lastDiscovery = -.infinity
         }
     }
+    /// Whether to look for WinMux Tabs for Chrome's toolbar button: Chrome gives extension buttons
+    /// no identifier, so it's the one button whose accessible name is a marker title, which holds
+    /// the extension's random session. Only while that extension is connected.
+    var titledMarker = false {
+        didSet {
+            guard titledMarker != oldValue else { return }
+            markerNode = nil
+            walkedMarker = nil
+            lastDiscovery = -.infinity
+        }
+    }
     /// That button, as the last complete walk found it, and what it said then.
     private var markerNode: Node?
     private var walkedMarker: SafariExtensionMarker?
@@ -343,14 +354,26 @@ final class BrowserTabScanner<Node: BrowserTabAXNode> {
     /// round trip, after. A button the walk didn't find, that's gone, or that a read ran out of
     /// time for, says nothing; the next walk looks again.
     private func marker(walked: Bool, until deadline: TimeInterval, cancelled: () -> Bool) -> SafariExtensionMarker? {
-        guard adapter == .safari, let markerIdentifier, let markerNode else { return nil }
+        guard let markerNode, adapter == .safari ? markerIdentifier != nil : titledMarker else { return nil }
         if walked { return walkedMarker }
         guard now() < deadline, !isCancelled(), !cancelled() else { return nil }
-        guard let structure = markerNode.structure(), structure.identifier == markerIdentifier else {
+        guard let structure = markerNode.structure() else {
             self.markerNode = nil
             return nil
         }
-        return SafariExtensionMarker(structure.description)
+        if adapter == .safari {
+            guard structure.identifier == markerIdentifier else {
+                self.markerNode = nil
+                return nil
+            }
+            return SafariExtensionMarker(structure.description)
+        }
+        // Chrome's button shows just its name between titles, as a page loads: it says nothing then.
+        guard chromeMarkerRoles.contains(structure.role) else {
+            self.markerNode = nil
+            return nil
+        }
+        return chromeMarker(structure)
     }
 
     /// Reuses the exact-control and topic checks before an extension command. No AX action runs.
@@ -692,6 +715,7 @@ final class BrowserTabScanner<Node: BrowserTabAXNode> {
         foundNoTabStrip = false
         var audio: BrowserTabAudio?
         var marker: (node: Node, value: SafariExtensionMarker?)?
+        var titled: [(node: Node, value: SafariExtensionMarker)] = []
         // Each node with the one whose children listed it.
         var queue: [(node: Node, depth: Int, lister: Node?)] = [(root, 0, nil)]
         var visited: [Node] = []
@@ -722,6 +746,10 @@ final class BrowserTabScanner<Node: BrowserTabAXNode> {
                 marker = (node, SafariExtensionMarker(structure.description))
                 continue
             }
+            if adapter == .chromium, titledMarker, chromeMarkerRoles.contains(structure.role) {
+                if let value = chromeMarker(structure) { titled.append((node, value)) }
+                continue
+            }
             // Leaf controls cannot contain a tab strip. Never inspect web content
             // or tab descendants (including Safari's custom close action strings).
             guard ["AXWindow", "AXGroup", "AXOpaqueProviderGroup", "AXSplitGroup", "AXToolbar", "AXScrollArea", "AXTabGroup"]
@@ -731,6 +759,10 @@ final class BrowserTabScanner<Node: BrowserTabAXNode> {
         }
         foundNoTabStrip = candidates.isEmpty
         loneTabAudio = foundNoTabStrip ? audio : nil
+        // Two buttons both titled as markers name nothing: one of them isn't this extension's.
+        if adapter == .chromium {
+            marker = titled.count == 1 ? (titled[0].node, titled[0].value) : nil
+        }
         markerNode = marker?.node
         walkedMarker = marker?.value
         guard candidates.count == 1, candidates[0].window() == root, now() < deadline else { return nil }

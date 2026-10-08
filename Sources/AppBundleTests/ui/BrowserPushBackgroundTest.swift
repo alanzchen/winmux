@@ -177,6 +177,33 @@ final class BrowserPushBackgroundTest: XCTestCase {
         XCTAssertEqual(number(c, "sent.at(-1).windows.length"), 2)
     }
 
+    func testChromeTitlesEachNormalWindowsActiveTabButtonWithItsMarkerAndAgainAfterANavigation() throws {
+        let c = try page("chrome")
+        c.evaluateScript("""
+            var titles = []; browser.action.setTitle = async (o) => { titles.push(copy(o)); };
+            windows.forEach(w => { w.tabs[0].active = true; });
+            [1,2,3].forEach(id => browser.tabs.onActivated.fire({windowId:id, tabId:id*10}));
+            """)
+        try advance(c)
+        XCTAssertEqual(c.evaluateScript("JSON.stringify(titles.map(t => [t.tabId, t.title]).sort())")?.toString(),
+            #"[[10,"WinMux Tabs · aaaaaaaa-1-10"],[20,"WinMux Tabs · aaaaaaaa-2-20"]]"#,
+            "Each normal window's active tab, by this worker's session; never the Incognito window")
+        c.evaluateScript("titles = []; windows[0].tabs[0].title = 'Renamed'; browser.tabs.onUpdated.fire(10,{title:'Renamed'},windows[0].tabs[0]);")
+        try advance(c)
+        XCTAssertEqual(number(c, "titles.length"), 0, "A title it already has isn't set again")
+        c.evaluateScript("browser.tabs.onUpdated.fire(10,{url:'https://example.test/next'},windows[0].tabs[0]);")
+        try advance(c)
+        XCTAssertEqual(c.evaluateScript("JSON.stringify(titles)")?.toString(), #"[{"tabId":10,"title":"WinMux Tabs · aaaaaaaa-1-10"}]"#,
+            "Chrome may reset it as the tab navigates, so it's set again")
+        // Moved to another window, the tab's button names its new window.
+        c.evaluateScript("""
+            titles = []; const moved = windows[0].tabs.shift(); moved.windowId = 2; windows[1].tabs.forEach(t => { t.active = false; });
+            windows[1].tabs.push(moved); browser.tabs.onAttached.fire(10, {newWindowId:2});
+            """)
+        try advance(c)
+        XCTAssertEqual(c.evaluateScript("JSON.stringify(titles)")?.toString(), #"[{"tabId":10,"title":"WinMux Tabs · aaaaaaaa-2-10"}]"#)
+    }
+
     func testChromeOffReplyBacksOffAndReconnectStartsWithSnapshot() throws {
         let c = try page("chrome")
         c.evaluateScript("reply={v:2,ok:false,reason:'off'}; listings=0; windows[0].tabs[0].title='Off'; browser.tabs.onUpdated.fire(10,{title:'Off'},windows[0].tabs[0]);")

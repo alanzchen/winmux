@@ -192,7 +192,7 @@ final class MacApp: AbstractApp {
     /// `extensionButton` identifies the WinMux Tabs extension's toolbar button in Safari's windows.
     func readBrowserTabs(_ windowId: UInt32, readIcons: Bool = false, rediscover: Bool = false,
                          loneRediscovery: TimeInterval = browserLoneTabRediscovery,
-                         extensionButton: String? = nil) async throws -> BrowserTabRead {
+                         extensionButton: String? = nil, titledMarker: Bool = false) async throws -> BrowserTabRead {
         guard let adapter = BrowserTabAdapter(bundleId: rawAppBundleId) else { return .init() }
         return try await thread?.runInLoop { [windows, pid, bundlePath] job in
             guard let window = windows.threadGuarded[windowId] else { return BrowserTabRead() }
@@ -206,6 +206,7 @@ final class MacApp: AbstractApp {
                 }
             }
             window.browserTabScanner?.markerIdentifier = extensionButton
+            window.browserTabScanner?.titledMarker = titledMarker
             try job.checkCancellation()
             let budgetEnd = ProcessInfo.processInfo.systemUptime + 0.15
             if !rediscover, let lone = window.browserTabScanner?.loneTab(until: budgetEnd, rediscoverAfter: loneRediscovery,

@@ -218,6 +218,22 @@ struct SafariExtensionMarker: Hashable, Sendable {
     }
 }
 
+/// Roles a Chrome toolbar button has in its accessibility tree.
+let chromeMarkerRoles: Set<String> = ["AXButton", "AXPopUpButton", "AXMenuButton"]
+
+/// What a Chrome toolbar button's accessible name says, if it's a marker title. Chrome names an
+/// extension's button by its title for the window's active tab, and adds a line about site access
+/// only for an extension that has or wants it; Chrome's macOS tree gives the name as both the
+/// button's title and description.
+func chromeMarker(_ structure: BrowserTabAXStructure) -> SafariExtensionMarker? {
+    for name in [structure.description, structure.title] {
+        guard let line = name?.split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: false).first,
+              let marker = SafariExtensionMarker(String(line)) else { continue }
+        return marker
+    }
+    return nil
+}
+
 /// Titles as both sides compare them: whitespace collapsed, and cut where the extension cuts.
 func safariExtensionComparableTitle(_ title: String) -> String {
     String(title.split(whereSeparator: \.isWhitespace).joined(separator: " ").prefix(512))

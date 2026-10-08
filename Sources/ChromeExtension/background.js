@@ -20,6 +20,10 @@ const commands = new Set();
 const selecting = new Map();
 let latestSelectionRequest = null;
 const waiting = new Map();
+// The title each tab's toolbar button was given (`WinMuxTabs.markerTitle`), so it's set only when it
+// changes. Chrome shows the active tab's title as the button's accessible name: that names the
+// native window for WinMux. Loading a page or a new worker forgets it.
+const stamped = new Map();
 
 function schedule(id, full = false) {
     if (Number.isInteger(id) && id >= 0) dirty.add(id);
@@ -100,6 +104,7 @@ async function publish() {
         if (port !== current) { needsSnapshot = true; return; }
         // No paths or favicon URLs leave Chrome. Existing opt-in native origin icons remain intact.
         const described = WinMuxTabs.stateWindows(windows, () => undefined, 2);
+        stampWindows(windows);
         const message = { v: 2, type: full ? "state" : "events", session, time: Date.now(), measured,
             allSites: true, windows: described,
             push: { v: 1, browser: "chrome", epoch, seq: ++sequence, kind: full ? "snapshot" : "delta",
@@ -125,6 +130,21 @@ async function publish() {
     } finally {
         sending = false;
         if (port && (dirty.size || needsSnapshot)) schedule();
+    }
+}
+
+/** Titles each normal window's active tab's toolbar button with this worker's session and the
+ * window's and tab's ids. Incognito windows never get one. */
+function stampWindows(windows) {
+    for (const window of Array.isArray(windows) ? windows : []) {
+        if (window.incognito === true || window.type !== "normal") continue;
+        const tab = window.tabs?.find((tab) => tab.active === true);
+        if (!Number.isInteger(tab?.id) || !Number.isInteger(window.id) || tab.incognito === true) continue;
+        const title = WinMuxTabs.markerTitle(session, window.id, tab.id);
+        if (stamped.get(tab.id) === title) continue;
+        stamped.set(tab.id, title);
+        Promise.resolve(chrome.action?.setTitle({ tabId: tab.id, title }))
+            .catch(() => { if (stamped.get(tab.id) === title) stamped.delete(tab.id); });
     }
 }
 
@@ -169,6 +189,8 @@ async function command(value) {
 }
 
 chrome.tabs.onUpdated.addListener((id, change, tab) => {
+    // Chrome can reset a tab's toolbar title as it navigates: title it again at the next report.
+    if ("url" in change || "status" in change) stamped.delete(id);
     if (["title", "url", "favIconUrl", "audible", "mutedInfo", "status", "pinned"].some((key) => key in change)) {
         schedule(tab.windowId);
     }
@@ -180,11 +202,11 @@ chrome.tabs.onActivated.addListener((info) => {
     schedule(info.windowId);
 });
 chrome.tabs.onCreated.addListener((tab) => { order++; schedule(tab.windowId); });
-chrome.tabs.onRemoved.addListener((id, info) => { order++; schedule(info.windowId); });
+chrome.tabs.onRemoved.addListener((id, info) => { order++; stamped.delete(id); schedule(info.windowId); });
 chrome.tabs.onMoved.addListener((id, info) => { order++; schedule(info.windowId); });
 chrome.tabs.onAttached.addListener((id, info) => { order++; schedule(info.newWindowId); });
 chrome.tabs.onDetached.addListener((id, info) => { order++; schedule(info.oldWindowId); });
-chrome.tabs.onReplaced.addListener(() => { order++; schedule(undefined, true); });
+chrome.tabs.onReplaced.addListener((added, removed) => { order++; stamped.delete(removed); schedule(undefined, true); });
 chrome.windows.onCreated.addListener((window) => schedule(window.id));
 chrome.windows.onRemoved.addListener((id) => schedule(id));
 chrome.windows.onFocusChanged.addListener((id) => { if (id >= 0) schedule(id); });

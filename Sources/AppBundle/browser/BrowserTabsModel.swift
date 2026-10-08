@@ -170,7 +170,8 @@ final class BrowserTabsModel: ObservableObject {
                 rediscover: rediscover.remove(window.windowId) != nil,
                 loneRediscovery: AudioActivityModel.shared.isPlaying(bundleId: app.rawAppBundleId)
                     ? browserLoneTabRediscoveryWhilePlaying : browserLoneTabRediscovery,
-                extensionButton: safariExtension.configuration?.toolbarIdentifier)
+                extensionButton: safariExtension.configuration?.toolbarIdentifier,
+                titledMarker: app.rawAppBundleId == chromeBundleId && !chromeExtension.pushSenders.isEmpty)
             let result = read?.tabs ?? read?.loneTab
             reads += 1
             guard generation == token, !Task.isCancelled else { return }
@@ -435,15 +436,18 @@ final class BrowserTabsModel: ObservableObject {
             ax: { (try? await app.selectBrowserTab(target)) ?? .notDispatched(.cancelled) })
     }
 
-    /// Shared by the real sidebar route and synthetic integration tests. Chrome has no positive
-    /// per-profile native-window ownership proof in this integration, so it always uses AX.
+    /// Shared by the real sidebar route and synthetic integration tests. Both browsers need the
+    /// same separate action proof: the extension's toolbar button in this very native window
+    /// names the report's window (Safari finds its button by identifier; Chrome, which gives
+    /// extension buttons none, by its title holding the extension's random session), and a later
+    /// no-reorder report and AX read corroborate the clicked row. Without it, AX.
     static func routeSelection(_ target: BrowserTabTarget, browser: String, bridge: SafariExtensionBridge,
                                snapshot: () -> BrowserWindowTabs?, associations: () -> SafariExtensionAssociations,
                                validateNative: () async throws -> BrowserTabActionRefusal?,
                                ax: () async -> BrowserTabActionResult) async -> BrowserTabActionResult {
         guard !Task.isCancelled else { return .notDispatched(.cancelled) }
         func address() -> BrowserPushTarget? {
-            guard browser == "safari", let snapshot = snapshot(),
+            guard browser == "safari" || browser == "chrome", let snapshot = snapshot(),
                   let binding = associations().actionBinding(for: target, in: snapshot) else { return nil }
             return bridge.pushTarget(window: binding.window, tab: binding.tab)
         }
