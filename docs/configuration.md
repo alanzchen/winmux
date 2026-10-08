@@ -78,20 +78,27 @@ tabs-always-expanded = true
   it's pinned in that place; a line between the tiles marks the spot. A pinned tile drags
   as its whole tab, split or empty: beside another tile to rearrange the pins, between
   two tabs in the list to unpin it there, onto a group to unpin it into the group, or
-  onto **New Tab** to unpin it in place. Dragged over a tab in the list and held there
-  for a moment, it tiles that tab into the pin instead: the half under the pointer is
-  highlighted, labelled **Tile into Pin**, and the pin goes on that side. The tab
-  joins whole, its split kept, and the pin stays pinned in its place. A shared pin on
-  another display comes to the tab's display. Moving across a tab without the pause does
-  nothing. Drag a tab onto the middle of a pinned tile and pause for a
-  moment to tile its window beside the pin's; the half under the pointer is highlighted
-  and chooses the side, and an empty pin takes the window in. Nearer a tile's sides, the
-  tab is pinned beside it however long it rests there. A pinned tile tiles into another
-  pin the same way, whole, its split kept: that pin keeps its place and comes to the list's
-  display, and the dragged pin stays pinned in its own place, empty, as a pin does when its
-  windows move out. An empty pin takes no pin in. A window
-  dragged in from the screen joins the pin it's dropped on. A tab pinned from its menu
-  goes after the pins already arranged. Pins, their order, group membership,
+  onto **New Tab** to unpin it in place. A pin with one window is the entry to that
+  window alone, and no split turns it into a pinned split. Dragged over a tab in the list
+  and held there for a moment, its window splits with that tab: the half under the
+  pointer is highlighted and chooses the side, and the tab stays an ordinary tab. Moving
+  across a tab without the pause does nothing. Drag a tab onto the middle of a pinned
+  tile and pause for a moment to split its window with the pin's, the half under the
+  pointer choosing the side: the split goes to the dragged tab, or to a new ordinary tab
+  when the window came out of a split. Nearer a tile's sides, the tab is pinned beside it
+  however long it rests there. A pinned tile held over another pin's middle splits with
+  it the same way, in a new ordinary tab, and a window dragged in from the screen onto a
+  pin splits with it too. The pin keeps its place and turns grey while its window is in
+  the split; it still clicks, and a click brings that same window back to it, alone,
+  leaving the rest of the split where it is. An ordinary tab it leaves empty closes. An
+  empty pin still takes in a window, or, dragged over a tab with one window, that tab
+  (labelled **Tile into Pin**). A split is pinned only from its tab's menu, with **Pin
+  Tab**; dragging it onto the pins, or chosen tabs with one among them, pins nothing.
+  A pinned split and the pin of one of its windows share that window: a click on the pin
+  brings the window back alone, and a click on the pinned split brings back those of its
+  windows that are back in their pins. A grey pin and a pinned split take no other window
+  in, and a pinned split splits with nothing. A tab pinned from its menu goes after the
+  pins already arranged. Pins, their order, group membership,
   colors and emoji are saved in `sidebar-organization.json` beside the saved-workspace
   file. Customizing, pinning or grouping a workspace saves its identity and layout for
   restoration; unpinning or ungrouping leaves that saved workspace intact. **Forget
@@ -139,7 +146,9 @@ tabs-always-expanded = true
   tab follows it there. A new tab stays until something opens in it or you leave it. When
   a display has no other tab, it keeps showing the empty one, which the list leaves out.
 - Pinned and saved tabs stay when their last window closes, greyed and showing their
-  apps' icons. Clicking one selects it and opens those apps again: an app that quit
+  apps' icons. A grey pin whose window is in another tab's split is different: clicking it
+  brings that window back, and never opens another. Clicking any other selects it and
+  opens those apps again: an app that quit
   relaunches and its windows return to their saved places, this tab first; a running app
   is asked for a new window in the tab, as the [launcher](#open-a-new-window-from-new-workspace)
   asks. Shift- or Command-clicking only chooses the tab.

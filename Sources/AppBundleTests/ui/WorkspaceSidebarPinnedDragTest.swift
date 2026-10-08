@@ -385,14 +385,16 @@ final class WorkspaceSidebarPinnedDragTest: XCTestCase {
             "Moving, it would be pinned before the tile")
         try await Task.sleep(for: .milliseconds(300))
         let armed = try XCTUnwrap(workspaceSidebarDeliberateTabDropTarget(tile, sourceWindow: window, point: CGPoint(x: 45, y: 27)))
-        XCTAssertEqual(armed.kind, .workspace(a.name), "After a pause over its middle, it joins the pin")
+        XCTAssertEqual(armed.kind, .workspace(a.name), "After a pause over its middle, it splits with the pin's window")
         XCTAssertTrue(armed.acceptsSides)
         previewWorkspaceSidebarDrop(window.windowId, subject: .window, target: armed.kind, placement: .left)
         XCTAssertEqual(TrayMenuModel.shared.workspaceSidebarDropPreview?.targetWorkspaceName, a.name)
         XCTAssertEqual(TrayMenuModel.shared.workspaceSidebarDropPreview?.targetPlacement, .left)
 
-        applyTabDrop(sourceNode: window, sourceWindow: window, targetWorkspace: a, placement: .left)
-        XCTAssertEqual(a.allLeafWindowsRecursive.map(\.windowId), [4, 1], "Split on the side it was dropped")
+        await queueWorkspaceSidebarDrop(window.windowId, subject: .window, target: armed.kind, placement: .left,
+            intent: .physical)?.value
+        XCTAssertEqual(d.allLeafWindowsRecursive.map(\.windowId), [4, 1], "Split on the side it was dropped, in d's ordinary tab")
+        XCTAssertEqual(a.allLeafWindowsRecursive.map(\.windowId), [], "Not a pinned split")
         XCTAssertEqual(pins(), ["a", "b", "c"], "The pin keeps its place")
 
         let empty = Workspace.get(byName: "empty")
@@ -526,7 +528,9 @@ final class WorkspaceSidebarPinnedDragTest: XCTestCase {
             _ = await queueWorkspaceSidebarDrop(window.windowId, subject: .window, target: committed.kind, placement: placement,
                 intent: intent)?.value
             if splits {
-                XCTAssertEqual(b.allLeafWindowsRecursive.map(\.windowId), [4, 2], "Tiled into b, on the left")
+                XCTAssertEqual(d.allLeafWindowsRecursive.map(\.windowId), [4, 2], "Split with b's window, on the left, in d's tab")
+                XCTAssertFalse(workspaceSidebarIsPinned(d), "An ordinary tab")
+                XCTAssertEqual(workspaceSidebarLentWindow(of: b)?.windowId, 2, "b lends its window")
                 XCTAssertEqual(pins(), ["a", "b", "c"], "b stays pinned in its place")
             } else {
                 XCTAssertEqual(pins(), ["a", "d", "b", "c"], "Pinned before b")
@@ -639,8 +643,9 @@ final class WorkspaceSidebarPinnedDragTest: XCTestCase {
                     XCTAssertEqual(d.allLeafWindowsRecursive.map(\.windowId), [4])
                     XCTAssertEqual(b.allLeafWindowsRecursive.map(\.windowId), [2])
                 case "split b":
-                    try await waitUntil { b.allLeafWindowsRecursive.count == 2 }
-                    XCTAssertEqual(b.allLeafWindowsRecursive.map(\.windowId), [4, 2])
+                    try await waitUntil { d.allLeafWindowsRecursive.count == 2 }
+                    XCTAssertEqual(d.allLeafWindowsRecursive.map(\.windowId), [4, 2], "In d's ordinary tab")
+                    XCTAssertEqual(workspaceSidebarLentWindow(of: b)?.windowId, 2)
                     XCTAssertEqual(pins(), ["a", "b", "c", "z"])
                 default:
                     try await waitUntil { z.allLeafWindowsRecursive.count == 1 }
@@ -652,18 +657,17 @@ final class WorkspaceSidebarPinnedDragTest: XCTestCase {
 
     // MARK: A pin dropped on another pin
 
-    /// Alan, October 2026: a pin dragged onto another pin's middle and held there a moment tiles into
-    /// it, as a tab from the list does, on the half pointed at, without going through the list first.
-    /// That pin keeps its place and its windows; the dragged pin stays pinned in its place, empty, as a
-    /// pin does when its windows move out. Undo puts both back.
-    func testAPinPausedOverAnotherPinsMiddleTilesIntoItOnTheHalfPointedAt() async throws {
+    /// Alan, October 2026: a pin dragged onto another pin's middle and held there a moment splits with it,
+    /// as a tab from the list does, on the half pointed at. The split is a new ordinary tab, never a pinned
+    /// split: both pins keep their places, lending their windows, grey. Undo puts both back.
+    func testAPinPausedOverAnotherPinsMiddleSplitsWithItInAnOrdinaryTab() async throws {
         for left in [true, false] {
             try await setUp()
             let (a, b, c, d) = try tabs()
             let surface = try pinGridSurface(["a", "b", "c"])
             WorkspaceSidebarTemporaryDropSurfaces.shared.register(surface)
             defer { WorkspaceSidebarTemporaryDropSurfaces.shared.unregister(surface) }
-            let records = ["a", "b"].map { workspaceSidebarOrganizationStore.state.workspaces[$0] }
+            let orders = ["a", "b"].map { workspaceSidebarOrganizationStore.state.workspaces[$0]?.pinOrder }
             let tile = surface.tiles[1]
             let middle = CGPoint(x: tile.midX + (left ? -6 : 6), y: tile.midY)
             try await dragPin("a", to: middle)
@@ -673,11 +677,16 @@ final class WorkspaceSidebarPinnedDragTest: XCTestCase {
             XCTAssertNil(preview?.targetPinnedGap)
             XCTAssertEqual(b.allLeafWindowsRecursive.map(\.windowId), [2], "Nothing moves before the release")
             finishSidebarPinnedTabDrag("a", pointer: middle)
-            try await waitUntil { b.allLeafWindowsRecursive.count == 2 }
-            XCTAssertEqual(b.allLeafWindowsRecursive.map(\.windowId), left ? [1, 2] : [2, 1])
-            XCTAssertEqual(a.allLeafWindowsRecursive.map(\.windowId), [], "a's window went into b")
+            let order: [UInt32] = left ? [1, 2] : [2, 1]
+            try await waitUntil { Workspace.all.contains { $0.allLeafWindowsRecursive.map(\.windowId) == order } }
+            let split = try XCTUnwrap(Workspace.all.first { $0.allLeafWindowsRecursive.map(\.windowId) == order })
+            XCTAssertFalse(workspaceSidebarIsPinned(split), "An ordinary tab, not a pinned split")
+            XCTAssertEqual(a.allLeafWindowsRecursive.map(\.windowId), [])
+            XCTAssertEqual(b.allLeafWindowsRecursive.map(\.windowId), [])
+            XCTAssertEqual(workspaceSidebarLentWindow(of: a)?.windowId, 1, "Both lend their windows")
+            XCTAssertEqual(workspaceSidebarLentWindow(of: b)?.windowId, 2)
             XCTAssertEqual(pins(), ["a", "b", "c"], "Both stay pinned, in their places")
-            XCTAssertEqual(["a", "b"].map { workspaceSidebarOrganizationStore.state.workspaces[$0] }, records)
+            XCTAssertEqual(["a", "b"].map { workspaceSidebarOrganizationStore.state.workspaces[$0]?.pinOrder }, orders)
             XCTAssertEqual(c.allLeafWindowsRecursive.map(\.windowId), [3])
             XCTAssertEqual(d.allLeafWindowsRecursive.map(\.windowId), [4])
             guard left else { continue }
@@ -685,24 +694,26 @@ final class WorkspaceSidebarPinnedDragTest: XCTestCase {
             await runWorkspaceSidebarSession { try WorkspaceSidebarTabUndo.shared.undo() }?.value
             XCTAssertEqual(a.allLeafWindowsRecursive.map(\.windowId), [1], "Undo puts a's window back")
             XCTAssertEqual(b.allLeafWindowsRecursive.map(\.windowId), [2])
+            XCTAssertNil(workspaceSidebarLentWindow(of: a))
             XCTAssertEqual(pins(), ["a", "b", "c"])
         }
     }
 
-    /// A pin that's a split tiles in whole, its windows in their order, as a tab from the list does.
-    func testAPinThatsASplitTilesIntoAnotherPinWhole() async throws {
+    /// A pinned split, made from its menu, takes part in no split: over another pin's middle it only
+    /// rearranges, and its windows stay together.
+    func testAPinnedSplitOverAnotherPinsMiddleMakesNoSplit() async throws {
         let (a, b, c, d) = try tabs()
         _ = TestWindow.new(id: 5, parent: a.rootTilingContainer)
         let surface = try pinGridSurface(["a", "b", "c"])
         WorkspaceSidebarTemporaryDropSurfaces.shared.register(surface)
         defer { WorkspaceSidebarTemporaryDropSurfaces.shared.unregister(surface) }
-        let middle = CGPoint(x: surface.tiles[1].midX - 6, y: surface.tiles[1].midY)
+        let middle = CGPoint(x: surface.tiles[1].midX + 6, y: surface.tiles[1].midY)
         try await dragPin("a", to: middle)
+        XCTAssertNil(TrayMenuModel.shared.workspaceSidebarDropPreview?.targetWorkspaceName, "No split shows")
         finishSidebarPinnedTabDrag("a", pointer: middle)
-        try await waitUntil { b.allLeafWindowsRecursive.count == 3 }
-        XCTAssertEqual(b.allLeafWindowsRecursive.map(\.windowId), [1, 5, 2])
-        XCTAssertEqual(a.allLeafWindowsRecursive.map(\.windowId), [])
-        XCTAssertEqual(pins(), ["a", "b", "c"])
+        try await waitUntil { self.pins() == ["b", "a", "c"] }
+        XCTAssertEqual(a.allLeafWindowsRecursive.map(\.windowId), [1, 5], "It rearranged, its split kept")
+        XCTAssertEqual(b.allLeafWindowsRecursive.map(\.windowId), [2])
         let windows = [a, b, c, d].flatMap(\.allLeafWindowsRecursive).map(\.windowId)
         XCTAssertEqual(windows.sorted(), [1, 2, 3, 4, 5], "Every window once")
     }
@@ -768,34 +779,22 @@ final class WorkspaceSidebarPinnedDragTest: XCTestCase {
         }
     }
 
-    /// Astra S1: a hidden app's window, used last, stays in its pin, which takes only its laid-out and
-    /// floating windows into the other. It mustn't take focus back there: the pin it joined stays on
-    /// screen, its window from the move focused. A list tab joining a pin goes the same way.
-    func testAPinTiledIntoAnotherKeepsFocusThereThoughAHiddenAppsWindowStaysBehind() async throws {
-        let (a, b, _, d) = try tabs()
+    /// A pin that also holds a hidden app's window isn't a pin with one window: it takes part in no
+    /// split, so no window of it is left behind in a pin it no longer shows.
+    func testAPinHoldingAHiddenAppsWindowTooMakesNoSplit() async throws {
+        let (a, b, _, _) = try tabs()
         let hidden = TestWindow.new(id: 6, parent: a.macOsNativeHiddenAppsWindowsContainer)
-        XCTAssertTrue(a.mostRecentWindowRecursive === hidden, "The hidden app's window was used last")
-        XCTAssertFalse(focus.workspace === a || focus.workspace === b)
         let surface = try pinGridSurface(["a", "b", "c"])
         WorkspaceSidebarTemporaryDropSurfaces.shared.register(surface)
         defer { WorkspaceSidebarTemporaryDropSurfaces.shared.unregister(surface) }
         let middle = CGPoint(x: surface.tiles[1].midX - 6, y: surface.tiles[1].midY)
         try await dragPin("a", to: middle)
+        XCTAssertNil(TrayMenuModel.shared.workspaceSidebarDropPreview?.targetWorkspaceName, "No split shows")
         finishSidebarPinnedTabDrag("a", pointer: middle)
-        try await waitUntil { b.allLeafWindowsRecursive.count == 2 }
-        XCTAssertEqual(b.allLeafWindowsRecursive.map(\.windowId), [1, 2])
-        XCTAssertTrue(hidden.nodeWorkspace === a, "The hidden app's window stays in its pin")
-        XCTAssertTrue(focus.workspace === b, "The pin it joined stays on screen")
-        XCTAssertEqual(focus.windowOrNil?.windowId, 1)
-        XCTAssertTrue(b.isVisible)
-
-        let alsoHidden = TestWindow.new(id: 7, parent: d.macOsNativeHiddenAppsWindowsContainer)
-        XCTAssertTrue(d.mostRecentWindowRecursive === alsoHidden)
-        try joinWorkspaceTabIntoPinnedTab("d", pin: b, placement: .left)
-        XCTAssertEqual(b.allLeafWindowsRecursive.map(\.windowId), [1, 2, 4])
-        XCTAssertTrue(alsoHidden.nodeWorkspace === d)
-        XCTAssertTrue(focus.workspace === b, "A list tab joining a pin leaves it on screen too")
-        XCTAssertEqual(focus.windowOrNil?.windowId, 4)
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertEqual(a.allLeafWindowsRecursive.map(\.windowId), [1, 6])
+        XCTAssertTrue(hidden.nodeWorkspace === a)
+        XCTAssertEqual(b.allLeafWindowsRecursive.map(\.windowId), [2])
     }
 
     /// Astra S2: a split waiting to run is made only while both pins are still listed in the project

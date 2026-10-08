@@ -130,7 +130,9 @@ func workspaceSidebarDeliberateTabDropTarget(_ target: WorkspaceSidebarDropTarge
     }
     let side: WorkspaceSidebarTabDropPlacement = point.x < target.rect.center.x ? .left : .right
     // Near a pinned tile's sides, a tab always goes beside it: the pause starts over in its middle.
-    if target.tabReorderDestination?.pauseArmsSplit(at: point, rect: target.rect) == false {
+    // A pin lending its window, or a pinned split, takes no split at all: a tab only goes beside it.
+    if target.tabReorderDestination?.pauseArmsSplit(at: point, rect: target.rect) == false
+        || !workspaceSidebarTakesSplit(workspace) {
         hover.reset()
     } else if hover.isReady(target: name, side: side, point: point, livePoint: livePoint) {
         var armed = target

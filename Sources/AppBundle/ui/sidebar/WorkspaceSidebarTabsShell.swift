@@ -134,7 +134,8 @@ extension WorkspaceSidebarView {
                             WorkspaceSidebarPinnedTab(workspace: workspace, badgeModel: dockBadgeModel, compact: true,
                                 targetMonitorScopeId: snapshot.targetMonitorScopeId,
                                 onOpenSavedApps: { selectTabWorkspace(workspace, action: .openSavedTab(workspace.name)) },
-                                sharedPinLocation: snapshot.sharedPinLocation(of: workspace)) { windowId in
+                                sharedPinLocation: snapshot.sharedPinLocation(of: workspace),
+                                onRecall: pinRecall(workspace)) { windowId in
                                 selectTabWorkspace(workspace, windowId: windowId)
                             }
                             .frame(width: 34, height: 34)
@@ -241,7 +242,8 @@ extension WorkspaceSidebarView {
                                 ? snapshot.dropPreview?.targetPlacement : nil,
                             dropLabelSlot: snapshot.dropPreview?.targetLabelSlot,
                             onOpenSavedApps: { selectTabWorkspace(workspace, action: .openSavedTab(workspace.name)) },
-                            sharedPinLocation: snapshot.sharedPinLocation(of: workspace)) { windowId in
+                            sharedPinLocation: snapshot.sharedPinLocation(of: workspace),
+                            onRecall: pinRecall(workspace)) { windowId in
                             selectTabWorkspace(workspace, windowId: windowId)
                         }
                     }
@@ -298,6 +300,12 @@ extension WorkspaceSidebarView {
         } else {
             musicPlayerModel.openMusic()
         }
+    }
+
+    /// A pin that recalls windows brings them back when clicked, before it shows.
+    private func pinRecall(_ workspace: WorkspaceSidebarWorkspaceViewModel) -> ((UInt32?) -> Void)? {
+        guard workspace.lentWindow != nil || workspace.recallsWindows else { return nil }
+        return { windowId in selectTabWorkspace(workspace, action: .recallPinWindows(workspace.name, focusing: windowId)) }
     }
 
     private func selectTabWorkspace(_ workspace: WorkspaceSidebarWorkspaceViewModel, windowId: UInt32? = nil,

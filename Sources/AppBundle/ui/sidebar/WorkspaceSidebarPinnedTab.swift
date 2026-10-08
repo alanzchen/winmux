@@ -85,6 +85,9 @@ struct WorkspaceSidebarPinnedTab: View {
     /// its help. `sharedPinClickMovesHere` says a click brings it to this list's display.
     var sharedPinLocation: WorkspaceSidebarSharedPinLocation? = nil
     var sharedPinClickMovesHere = true
+    /// A pin that recalls windows, clicked: brings back the window it lent, or a pinned split's own
+    /// windows from their pins, instead of only selecting it. Given the window clicked, if any.
+    var onRecall: ((UInt32?) -> Void)? = nil
     let onSelect: (UInt32?) -> Void
     @State private var isHovered = false
     @Environment(\.workspaceSidebarReducesMotion) private var reducesMotion
@@ -102,7 +105,7 @@ struct WorkspaceSidebarPinnedTab: View {
         let displayedWindows = summarizesWorkspace ? Array(windows.prefix(1)) : windows
         return VStack(spacing: 0) {
             if showsIdentity, let identity {
-                Button { onSelect(nil) } label: {
+                Button { (onRecall ?? onSelect)(nil) } label: {
                     WorkspaceSidebarSplitIdentityLabel(identity: identity)
                         .font(.system(size: 11, weight: .medium)).padding(.horizontal, 7)
                         .frame(maxWidth: .infinity, minHeight: 20, maxHeight: 20, alignment: .leading)
@@ -114,12 +117,28 @@ struct WorkspaceSidebarPinnedTab: View {
                 .sidebarIdentityMenu(.tab(workspace.name, windowId: nil))
             }
             HStack(spacing: 0) {
-                if windows.isEmpty {
+                if windows.isEmpty, let lent = workspace.lentWindow {
+                    // Its window is in another tab's split: shown grey, and still a button that brings
+                    // that same window back here.
+                    Button { (onRecall ?? onSelect)(nil) } label: {
+                        icon(lent, windowCount: 1)
+                            .opacity(0.5)
+                            .saturation(0.2)
+                            .frame(maxWidth: .infinity, minHeight: compact ? 34 : 54)
+                            .contentShape(Rectangle())
+                    }.buttonStyle(.plain)
+                        .help(helpWithLocation("\(workspace.displayName)\n\(lent.appName) is in another tab's split. Click to bring it back here."))
+                        .accessibilityLabel(workspace.displayName)
+                        .accessibilityValue("In another tab's split")
+                        .accessibilityHint("Brings \(lent.appName) back here")
+                        .sidebarIdentityMenu(.workspace(workspace.name))
+                } else if windows.isEmpty {
                     // A saved pin whose app isn't open shows that app, greyed; clicking opens it again.
                     let savedApps = workspace.savedState?.apps ?? []
                     let appNames = workspaceSidebarSavedAppNames(savedApps)
                     Button {
-                        if !savedApps.isEmpty, let onOpenSavedApps { onOpenSavedApps() } else { onSelect(nil) }
+                        if let onRecall { onRecall(nil) }
+                        else if !savedApps.isEmpty, let onOpenSavedApps { onOpenSavedApps() } else { onSelect(nil) }
                     } label: {
                         Group {
                             if savedApps.isEmpty || (savedApps.count == 1 && workspace.appearance.emoji != nil) {
@@ -142,7 +161,7 @@ struct WorkspaceSidebarPinnedTab: View {
                         if window.id != windows.first?.id {
                             Rectangle().fill(.primary.opacity(0.14)).frame(width: 1, height: compact ? 14 : 24).accessibilityHidden(true)
                         }
-                        Button { onSelect(summarizesWorkspace ? nil : window.windowId) } label: {
+                        Button { (onRecall ?? onSelect)(summarizesWorkspace ? nil : window.windowId) } label: {
                             icon(window, windowCount: displayedWindows.count)
                                 .frame(maxWidth: .infinity, minHeight: compact || showsIdentity ? 34 : 54)
                                 .contentShape(Rectangle())

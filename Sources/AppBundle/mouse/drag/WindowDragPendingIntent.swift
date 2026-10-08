@@ -276,7 +276,17 @@ func applyPendingWindowDragIntentIfPossible() -> Bool {
             syncClosedWindowsCacheToCurrentWorld()
             suppressPostDragAxObserverEvents(for: [sourceWindow.windowId])
             if pendingWindowDragIntent.previewStyle == .sidebarWorkspaceMove {
-                applySidebarWorkspaceMove(sourceNode: sourceNode, sourceWindow: sourceWindow, targetWorkspace: targetWorkspace)
+                // A pin with one window keeps it as its own: the window goes to an ordinary tab with it.
+                do {
+                    return try moveWorkspaceSidebarNodeKeepingPins(sourceNode, onto: targetWorkspace) { destination in
+                        applySidebarWorkspaceMove(sourceNode: sourceNode, sourceWindow: sourceWindow, targetWorkspace: destination)
+                        // The split it went to instead comes forward with it.
+                        if destination !== targetWorkspace { _ = sourceWindow.focusWindow() }
+                    }
+                } catch {
+                    showWorkspaceSidebarError(error.localizedDescription)
+                    return false
+                }
             } else {
                 applyWorkspaceMove(sourceNode: sourceNode, sourceWindow: sourceWindow, mouseLocation: mouseLocation, targetWorkspace: targetWorkspace)
             }

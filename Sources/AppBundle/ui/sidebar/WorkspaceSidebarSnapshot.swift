@@ -163,6 +163,9 @@ enum WorkspaceSidebarAction: Equatable {
     case openSavedWorkspaceApps(String)
     /// Tabs mode: selects a saved tab whose windows are gone and opens its apps into it.
     case openSavedTab(String)
+    /// Tabs mode: a pin that recalls windows, clicked: the window it lent comes back, the same one,
+    /// or a pinned split's own windows come back from their pins. Then it shows, `focusing` that window.
+    case recallPinWindows(String, focusing: UInt32?)
     case moveWorkspace(String, toProject: WorkspaceProjectId)
     case moveWindow(UInt32, toWorkspace: String)
     case moveTabGroup(UInt32, toWorkspace: String)

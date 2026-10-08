@@ -46,6 +46,11 @@ private func makeWorkspaceSidebarWorkspaceViewModel(
 ) async -> WorkspaceSidebarWorkspaceViewModel {
     let workspaceMonitor = workspace.workspaceMonitor
     let isPinned = workspaceSidebarOrganizationStore.state.workspaces[workspace.name]?.isFavorite == true
+    var lentWindow: WorkspaceSidebarWindowViewModel?
+    if isPinned, let lent = workspaceSidebarLentWindow(of: workspace) {
+        lentWindow = await makeWorkspaceSidebarWindowViewModel(for: lent, workspaceName: lent.nodeWorkspace?.name ?? workspace.name,
+            currentFocus: currentFocus)
+    }
     return WorkspaceSidebarWorkspaceViewModel(
         name: workspace.name,
         projectId: workspace.projectId,
@@ -66,6 +71,8 @@ private func makeWorkspaceSidebarWorkspaceViewModel(
         // Kept whether or not pins are shared: turning sharing on shows the pins before their
         // tabs are listed again, and a click must still tell a held one.
         heldMonitorScopeId: availableMonitors.count > 1 && isPinned ? workspaceSidebarTabHeldMonitorScopeId(workspace) : nil,
+        lentWindow: lentWindow,
+        recallsWindows: isPinned && workspaceSidebarPinRecallsWindows(workspace),
     )
 }
 

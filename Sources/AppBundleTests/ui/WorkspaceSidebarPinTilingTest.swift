@@ -3,9 +3,10 @@ import AppKit
 import Common
 import XCTest
 
-/// Tabs mode: a pinned tile dragged onto a tab in the list, and paused there, tiles that tab into the
-/// pin. The pin stays pinned, in its place, and goes on the half it was dropped on. Moving across a
-/// tab without the pause does nothing: only the gaps between tabs, and New Tab, unpin it.
+/// Tabs mode: a pinned tile with one window dragged onto a tab in the list, and paused there, splits its
+/// window with that tab, on the half it was dropped on. The tab stays an ordinary tab, and the pin stays
+/// pinned in its place, lending its window, grey. An empty pin takes in a tab with one window instead.
+/// Moving across a tab without the pause does nothing: only the gaps between tabs, and New Tab, unpin it.
 @MainActor
 final class WorkspaceSidebarPinTilingTest: XCTestCase {
     override func setUp() async throws {
@@ -40,181 +41,98 @@ final class WorkspaceSidebarPinTilingTest: XCTestCase {
             .list(projectId: tab.projectId, monitorScopeId: scope, gap: .init(workspaceName: tab.name, isAfter: true)))
     }
 
-    func testAPinPausedOverATabTilesItOnTheHalfPointedAt() async throws {
+    func testAPinPausedOverATabSplitsItsWindowWithItOnTheHalfPointedAt() async throws {
         for right in [false, true] {
             try await setUp()
             let (pin, tab) = try pinAndTab()
-            let pinOrder = workspaceSidebarOrganizationStore.state.workspaces["p"]
+            let pinOrder = workspaceSidebarOrganizationStore.state.workspaces["p"]?.pinOrder
             let drop = try await pausedDrop(pin, onto: tab, right: right)
             XCTAssertEqual(drop, .join("n", placement: right ? .right : .left, monitorScopeId: scope))
             try applyWorkspaceSidebarPinnedTabDrop(pin, drop)
-            // Pin p (window 1) goes on the half pointed at: right of n's window 2, or left of it.
-            XCTAssertEqual(pin.allLeafWindowsRecursive.map(\.windowId), right ? [2, 1] : [1, 2])
-            XCTAssertTrue(tab.allLeafWindowsRecursive.isEmpty, "The tab came over whole")
+            // Pin p's window 1 goes on the half pointed at: right of n's window 2, or left of it.
+            XCTAssertEqual(tab.allLeafWindowsRecursive.map(\.windowId), right ? [2, 1] : [1, 2])
+            XCTAssertFalse(workspaceSidebarIsPinned(tab), "The split is an ordinary tab")
+            XCTAssertTrue(pin.allLeafWindowsRecursive.isEmpty, "The pin isn't a pinned split")
+            XCTAssertEqual(workspaceSidebarLentWindow(of: pin)?.windowId, 1, "It lends its window, grey")
             XCTAssertEqual(pins(), ["p"], "The pin stays pinned")
-            XCTAssertEqual(workspaceSidebarOrganizationStore.state.workspaces["p"], pinOrder, "Its appearance and place too")
-            XCTAssertTrue(focus.workspace === pin, "Focus is on the pin, on the tab's display")
+            XCTAssertEqual(workspaceSidebarOrganizationStore.state.workspaces["p"]?.pinOrder, pinOrder, "In its place")
+            XCTAssertTrue(focus.workspace === tab, "Focus is on the split, with the pin's window")
+            XCTAssertEqual(focus.windowOrNil?.windowId, 1)
             WorkspaceSidebarTabSplitHoverController.shared.reset()
         }
     }
 
-    func testThePreviewShowsTheTabsHalfAndThePinThatTakesItIn() async throws {
+    func testThePreviewShowsTheTabsHalfAsForAnyTab() async throws {
         let (pin, tab) = try pinAndTab()
         let drop = try await pausedDrop(pin, onto: tab, right: true)
         let preview = workspaceSidebarPinnedTabDropPreview(pin, drop: drop)
         XCTAssertEqual(preview.targetWorkspaceName, "n", "The tab's half lights up")
         XCTAssertEqual(preview.targetPlacement, .right)
-        XCTAssertEqual(preview.receivingPinnedTabName, "p", "And the pin that takes it in")
+        XCTAssertNil(preview.receivingPinnedTabName, "The pin takes nothing in")
         XCTAssertEqual(preview.targetMonitorScopeId, scope, "On that list's display")
-        XCTAssertEqual(workspaceSidebarTabDropLabelText(for: preview), "Tile into Pin")
-        XCTAssertNil(workspaceSidebarTabDropLabelText(for: workspaceSidebarPinnedTabDropPreview(pin, drop: nil)))
-        XCTAssertNil(preview.sourceOnly.receivingPinnedTabName, "Panels that don't show the drop don't light the pin")
-        XCTAssertEqual(workspaceSidebarPinnedTabDropUndoTitle(drop), "Tile into Pinned Tab")
+        XCTAssertNil(workspaceSidebarTabDropLabelText(for: preview), "The split's own label")
+        XCTAssertEqual(workspaceSidebarPinnedTabDropUndoTitle(drop), "Split Tabs")
+        // An empty pin takes the tab in, and lights up.
+        let empty = Workspace.get(byName: "empty")
+        try setWorkspaceSidebarTabFavorite(empty, true)
+        let fill = try await pausedDrop(empty, onto: tab, right: true)
+        let filling = workspaceSidebarPinnedTabDropPreview(empty, drop: fill)
+        XCTAssertEqual(filling.receivingPinnedTabName, "empty")
+        XCTAssertEqual(workspaceSidebarTabDropLabelText(for: filling), "Tile into Pin")
+        XCTAssertNil(filling.sourceOnly.receivingPinnedTabName, "Panels that don't show the drop don't light the pin")
+        XCTAssertEqual(workspaceSidebarPinnedTabDropUndoTitle(fill, fillsEmptyPin: true), "Tile into Pinned Tab")
     }
 
-    /// Review: with the default normalization, which turns a container nested in one split the same
-    /// way, a tab split side by side still shows side by side once it joins, and one stacked stays
-    /// stacked.
-    func testASplitTabJoinsWholeAndKeepsItsLayout() async throws {
+    /// A pin's window splitting with a split tab joins that split, which keeps its layout: side by
+    /// side, its windows sit beside the pin's; stacked, it stays stacked, beside it.
+    func testAPinsWindowJoinsASplitTabWhichKeepsItsLayout() async throws {
         for stacked in [false, true] {
             try await setUp()
             config.enableNormalizationFlattenContainers = true
             config.enableNormalizationOppositeOrientationForNestedContainers = true
             let (pin, tab) = try pinAndTab()
             _ = TestWindow.new(id: 3, parent: tab.rootTilingContainer)
-            _ = TestWindow.new(id: 4, parent: pin.rootTilingContainer)
             if stacked { tab.rootTilingContainer.changeOrientation(.v) }
             let drop = try await pausedDrop(pin, onto: tab, right: true)
             await runWorkspaceSidebarSession(undoTitle: workspaceSidebarPinnedTabDropUndoTitle(drop)) {
                 try applyWorkspaceSidebarPinnedTabDrop(pin, drop)
             }?.value
-            let root = pin.rootTilingContainer
-            XCTAssertEqual(root.orientation, .h, "Side by side with the pin")
-            XCTAssertEqual(pin.allLeafWindowsRecursive.map(\.windowId), [2, 3, 1, 4], "The tab on the pin's left, in order")
+            let root = tab.rootTilingContainer
+            XCTAssertEqual(root.orientation, .h, "Side by side with the pin's window")
+            XCTAssertEqual(tab.allLeafWindowsRecursive.map(\.windowId), [2, 3, 1], "The pin's window on the right")
             if stacked {
-                let joined = try XCTUnwrap(root.children.first as? TilingContainer, "A stacked tab joins as one piece")
-                XCTAssertEqual(joined.orientation, .v, "Still stacked")
-                XCTAssertEqual(joined.allLeafWindowsRecursive.map(\.windowId), [2, 3])
+                let kept = try XCTUnwrap(root.children.first as? TilingContainer, "The stack stays one piece")
+                XCTAssertEqual(kept.orientation, .v, "Still stacked")
+                XCTAssertEqual(kept.allLeafWindowsRecursive.map(\.windowId), [2, 3])
             } else {
-                XCTAssertTrue(root.children.allSatisfy { $0 is Window }, "Side by side, its windows sit beside the pin's")
+                XCTAssertTrue(root.children.allSatisfy { $0 is Window }, "Side by side, the pin's window sits beside them")
             }
+            XCTAssertFalse(workspaceSidebarIsPinned(tab))
             XCTAssertEqual(pins(), ["p"])
         }
     }
 
-    /// Review rounds 2 and 3: a split joining side by side keeps its windows' sizes once laid out,
-    /// into an empty pin and beside one or two of the pin's windows. Weights are lengths, and layout
-    /// adds the same amount to each child, so the split ends with the 1/(n + 1) of the row one piece
-    /// would, and each of the pin's windows gives up what it would to one more window.
-    func testASplitKeepsItsWindowsSizesWhenItJoins() async throws {
-        for pinWindows in 0 ... 2 {
-            try await setUp()
-            config.enableNormalizationFlattenContainers = true
-            config.enableNormalizationOppositeOrientationForNestedContainers = true
-            let tab = Workspace.get(byName: "n")
-            let width = tab.workspaceMonitor.visibleRectPaddedByOuterGaps.width
-            let wide = TestWindow.new(id: 2, parent: tab.rootTilingContainer)
-            let narrow = TestWindow.new(id: 3, parent: tab.rootTilingContainer)
-            wide.setWeight(.h, width * 0.75)
-            narrow.setWeight(.h, width * 0.25)
-            let pin = Workspace.get(byName: pinWindows == 0 ? "empty" : "p")
-            let own = (0 ..< pinWindows).map { TestWindow.new(id: UInt32(10 + $0), parent: pin.rootTilingContainer) }
-            try await pin.layoutWorkspace()
-            try setWorkspaceSidebarTabFavorite(pin, true)
-            XCTAssertTrue(tab.workspaceMonitor.setActiveWorkspace(tab))
-            try await tab.layoutWorkspace()
-            XCTAssertEqual(wide.getWeight(.h), width * 0.75, accuracy: 0.5, "Laid out as set")
-            let drop = try await pausedDrop(pin, onto: tab, right: true)
-            try applyWorkspaceSidebarPinnedTabDrop(pin, drop)
-            try await pin.layoutWorkspace()
-            let share = width / CGFloat(pinWindows + 1)
-            XCTAssertEqual(pin.rootTilingContainer.allLeafWindowsRecursive.map(\.windowId), [2, 3] + own.map(\.windowId))
-            XCTAssertEqual(wide.getWeight(.h), share * 0.75, accuracy: 0.5, "\(pinWindows) pin windows: its windows keep their sizes")
-            XCTAssertEqual(narrow.getWeight(.h), share * 0.25, accuracy: 0.5, "\(pinWindows) pin windows")
-            for window in own {
-                XCTAssertEqual(window.getWeight(.h), share, accuracy: 0.5, "The pin's windows give up what one more window takes")
-            }
-            for window in pin.rootTilingContainer.allLeafWindowsRecursive {
-                XCTAssertGreaterThan(try XCTUnwrap(window.lastAppliedLayoutPhysicalRect).width, 0)
-            }
-        }
+    /// A pinned split is made only from a split tab's menu: an empty pin takes in no split tab, and a
+    /// pinned split, or a pin lending its window, splits with no tab.
+    func testNoPinnedSplitComesFromAPinOverATab() async throws {
+        let (pin, tab) = try pinAndTab()
+        _ = TestWindow.new(id: 3, parent: tab.rootTilingContainer)
+        let empty = Workspace.get(byName: "empty")
+        try setWorkspaceSidebarTabFavorite(empty, true)
+        let fill = try await pausedDropOrNil(empty, onto: tab, right: true)
+        XCTAssertNil(fill, "An empty pin takes in no split tab")
+        let other = Workspace.get(byName: "o")
+        _ = TestWindow.new(id: 5, parent: other.rootTilingContainer)
+        _ = TestWindow.new(id: 4, parent: pin.rootTilingContainer)
+        let fromSplit = try await pausedDropOrNil(pin, onto: other, right: true)
+        XCTAssertNil(fromSplit, "A pinned split splits with no tab")
+        XCTAssertEqual(pin.allLeafWindowsRecursive.map(\.windowId), [1, 4])
+        XCTAssertEqual(other.allLeafWindowsRecursive.map(\.windowId), [5])
     }
 
-    /// Review round 4: a stacked pin is wrapped in a side-by-side row whose one child starts at 1.
-    /// Laid out, the stack still keeps half the display, and the split the other half at 3:1.
-    func testAStackedPinMakesRoomForASplitAsForOneWindow() async throws {
-        config.enableNormalizationFlattenContainers = true
-        config.enableNormalizationOppositeOrientationForNestedContainers = true
-        let (wide, narrow) = threeToOneTab()
-        let pin = Workspace.get(byName: "p")
-        let own = [TestWindow.new(id: 1, parent: pin.rootTilingContainer), TestWindow.new(id: 4, parent: pin.rootTilingContainer)]
-        pin.rootTilingContainer.changeOrientation(.v)
-        try await pin.layoutWorkspace()
-        try setWorkspaceSidebarTabFavorite(pin, true)
-        let tab = Workspace.get(byName: "n")
-        XCTAssertTrue(tab.workspaceMonitor.setActiveWorkspace(tab))
-        try await tab.layoutWorkspace()
-        let width = tilingWidth(of: tab.workspaceMonitor)
-        let drop = try await pausedDrop(pin, onto: tab, right: true)
-        try applyWorkspaceSidebarPinnedTabDrop(pin, drop)
-        try await pin.layoutWorkspace()
-        let root = pin.rootTilingContainer
-        XCTAssertEqual(root.orientation, .h)
-        let stack = try XCTUnwrap(root.children.last as? TilingContainer, "The pin's stack, beside the tab")
-        XCTAssertEqual(stack.allLeafWindowsRecursive.map(\.windowId), own.map(\.windowId))
-        XCTAssertEqual(stack.getWeight(.h), width / 2, accuracy: 0.5, "The stack keeps half, as beside one more window")
-        XCTAssertEqual(wide.getWeight(.h), width * 3 / 8, accuracy: 0.5, "The split takes the other half at 3:1")
-        XCTAssertEqual(narrow.getWeight(.h), width / 8, accuracy: 0.5)
-    }
-
-    /// Review round 4: a tab last laid out on a wider display, then not again, still fills an empty
-    /// pin at 3:1, not with its old lengths pushed off the display.
-    func testASplitLaidOutWiderFillsAnEmptyPin() async throws {
-        let tab = Workspace.get(byName: "n")
-        let width = tilingWidth(of: tab.workspaceMonitor)
-        let (wide, narrow) = threeToOneTab(width: width * 2)
-        let pin = Workspace.get(byName: "empty")
-        try setWorkspaceSidebarTabFavorite(pin, true)
-        XCTAssertTrue(tab.workspaceMonitor.setActiveWorkspace(tab))
-        let drop = try await pausedDrop(pin, onto: tab, right: true)
-        try applyWorkspaceSidebarPinnedTabDrop(pin, drop)
-        try await pin.layoutWorkspace()
-        XCTAssertEqual(pin.allLeafWindowsRecursive.map(\.windowId), [2, 3])
-        XCTAssertEqual(wide.getWeight(.h), width * 0.75, accuracy: 0.5)
-        XCTAssertEqual(narrow.getWeight(.h), width * 0.25, accuracy: 0.5)
-    }
-
-    /// Review round 4: a shared pin laid out on a wider display, brought to the tab's, fits it: half
-    /// for the pin's window and half for the split at 3:1, none of it pushed off.
-    func testAPinFromAWiderDisplayMakesRoomForASplitOnTheTabsDisplay() async throws {
-        let (left, right) = twoDisplays(leftWidth: 1200, rightWidth: 2400)
-        config.workspaceSidebar.sharePinnedTabs = true
-        let (wide, narrow) = threeToOneTab(width: tilingWidth(of: left))
-        let tab = Workspace.get(byName: "n")
-        let pin = Workspace.get(byName: "p")
-        let own = TestWindow.new(id: 1, parent: pin.rootTilingContainer)
-        try setWorkspaceSidebarTabFavorite(pin, true)
-        pin.preferredMonitorPoint = right.rect.topLeftCorner
-        tab.preferredMonitorPoint = left.rect.topLeftCorner
-        XCTAssertTrue(right.setActiveWorkspace(pin))
-        XCTAssertTrue(left.setActiveWorkspace(tab))
-        try await pin.layoutWorkspace()
-        try await tab.layoutWorkspace()
-        XCTAssertEqual(own.getWeight(.h), tilingWidth(of: right), accuracy: 0.5, "Laid out on the wider display")
-        let drop = try await pausedDrop(pin, onto: tab, right: true, scope: workspaceSidebarMonitorScopeId(for: left))
-        try applyWorkspaceSidebarPinnedTabDrop(pin, drop, pinGridIsShared: true)
-        XCTAssertTrue(left.activeWorkspace === pin)
-        try await pin.layoutWorkspace()
-        let width = tilingWidth(of: left)
-        XCTAssertEqual(pin.allLeafWindowsRecursive.map(\.windowId), [2, 3, 1])
-        XCTAssertEqual(own.getWeight(.h), width / 2, accuracy: 0.5)
-        XCTAssertEqual(wide.getWeight(.h), width * 3 / 8, accuracy: 0.5)
-        XCTAssertEqual(narrow.getWeight(.h), width / 8, accuracy: 0.5)
-    }
-
-    /// Review: a tab whose window used last floats still joins its tiled window as a split; the
-    /// floating one floats over the pin.
-    func testAFloatingWindowUsedLastDoesntMakeTheTiledOneFloat() async throws {
+    /// Review: a tab whose window used last floats still takes the pin's window as a split beside its
+    /// tiled one; the floating one stays floating where it is.
+    func testATabsFloatingWindowStaysFloatingWhenThePinsWindowJoins() async throws {
         let (pin, tab) = try pinAndTab()
         let floating = TestWindow.new(id: 9, parent: tab)
         XCTAssertTrue(floating.isFloating)
@@ -222,10 +140,10 @@ final class WorkspaceSidebarPinTilingTest: XCTestCase {
         XCTAssertTrue(tab.mostRecentWindowRecursive === floating)
         let drop = try await pausedDrop(pin, onto: tab, right: true)
         try applyWorkspaceSidebarPinnedTabDrop(pin, drop)
-        XCTAssertEqual(pin.rootTilingContainer.allLeafWindowsRecursive.map(\.windowId), [2, 1], "The tiled window splits with the pin")
+        XCTAssertEqual(tab.rootTilingContainer.allLeafWindowsRecursive.map(\.windowId), [2, 1], "Split with the tiled window")
         XCTAssertTrue(floating.isFloating)
-        XCTAssertTrue(floating.parent === pin, "The floating one floats over the pin")
-        XCTAssertTrue(focus.windowOrNil === floating, "The window used last keeps focus")
+        XCTAssertTrue(floating.parent === tab, "The floating one stays in its tab")
+        XCTAssertEqual(focus.windowOrNil?.windowId, 1, "The pin's window comes forward, as a dropped window does")
     }
 
     /// Review: leaving the tab, for another target or for nowhere, starts the pause over.
@@ -256,8 +174,8 @@ final class WorkspaceSidebarPinTilingTest: XCTestCase {
         cancelActiveSidebarPinnedTabDrag()
     }
 
-    /// Review: a rested pointer sends no events; the pause's own wake shows the join.
-    func testThePauseShowsTheJoinWithoutAnotherPointerEvent() async throws {
+    /// Review: a rested pointer sends no events; the pause's own wake shows the split.
+    func testThePauseShowsTheSplitWithoutAnotherPointerEvent() async throws {
         let (_, tab) = try pinAndTab()
         let surface = RowSurface(target: row(for: tab, scope: scope))
         WorkspaceSidebarTemporaryDropSurfaces.shared.register(surface)
@@ -265,7 +183,10 @@ final class WorkspaceSidebarPinTilingTest: XCTestCase {
         WorkspaceSidebarDragSessions.shared.noteLeftMouseDown()
         updateSidebarPinnedTabDrag("p", pointer: CGPoint(x: 150, y: 110))
         XCTAssertNil(TrayMenuModel.shared.workspaceSidebarDropPreview)
-        try await waitUntil { TrayMenuModel.shared.workspaceSidebarDropPreview?.receivingPinnedTabName == "p" }
+        try await waitUntil {
+            TrayMenuModel.shared.workspaceSidebarDropPreview?.targetWorkspaceName == "n"
+                && TrayMenuModel.shared.workspaceSidebarDropPreview?.targetPlacement == .right
+        }
         cancelActiveSidebarPinnedTabDrag()
     }
 
@@ -302,15 +223,16 @@ final class WorkspaceSidebarPinTilingTest: XCTestCase {
         await runWorkspaceSidebarSession(undoTitle: workspaceSidebarPinnedTabDropUndoTitle(drop)) {
             try applyWorkspaceSidebarPinnedTabDrop(pin, drop)
         }?.value
-        XCTAssertEqual(pin.allLeafWindowsRecursive.map(\.windowId), [2, 1])
+        XCTAssertEqual(tab.allLeafWindowsRecursive.map(\.windowId), [2, 1])
         await runWorkspaceSidebarSession { try WorkspaceSidebarTabUndo.shared.undo() }?.value
         XCTAssertEqual(pin.allLeafWindowsRecursive.map(\.windowId), [1], "The pin has its own window back")
+        XCTAssertNil(workspaceSidebarLentWindow(of: pin), "Not grey any more")
         XCTAssertEqual(Workspace.existing(byName: "n")?.allLeafWindowsRecursive.map(\.windowId), [2], "And the tab its own")
         XCTAssertEqual(pins(), ["p"])
     }
 
     /// The release makes the drop the preview showed, through the real drag: none before the pause.
-    func testTheReleaseMakesTheJoinShownAndNothingBeforeThePause() async throws {
+    func testTheReleaseMakesTheSplitShownAndNothingBeforeThePause() async throws {
         let (pin, tab) = try pinAndTab()
         let surface = RowSurface(target: row(for: tab, scope: scope))
         WorkspaceSidebarTemporaryDropSurfaces.shared.register(surface)
@@ -329,19 +251,21 @@ final class WorkspaceSidebarPinTilingTest: XCTestCase {
         updateSidebarPinnedTabDrag("p", pointer: pointer)
         try await Task.sleep(for: .milliseconds(350))
         updateSidebarPinnedTabDrag("p", pointer: pointer)
-        XCTAssertEqual(TrayMenuModel.shared.workspaceSidebarDropPreview?.receivingPinnedTabName, "p")
+        XCTAssertEqual(TrayMenuModel.shared.workspaceSidebarDropPreview?.targetWorkspaceName, "n")
+        XCTAssertNil(TrayMenuModel.shared.workspaceSidebarDropPreview?.receivingPinnedTabName)
         // V3: the label has a place clear of the dragged tile.
         XCTAssertEqual(TrayMenuModel.shared.workspaceSidebarDropPreview?.targetLabelSlot?.isHidden, false)
         finishSidebarPinnedTabDrag("p", pointer: pointer)
-        try await waitUntil { pin.allLeafWindowsRecursive.count == 2 }
-        XCTAssertEqual(pin.allLeafWindowsRecursive.map(\.windowId), [2, 1])
+        try await waitUntil { tab.allLeafWindowsRecursive.count == 2 }
+        XCTAssertEqual(tab.allLeafWindowsRecursive.map(\.windowId), [2, 1])
+        XCTAssertEqual(workspaceSidebarLentWindow(of: pin)?.windowId, 1)
     }
 
     // MARK: Displays
 
-    /// D8: a shared pin that lives on another display comes to the tab's display, as a click
-    /// brings it, and tiles there. The tab never leaves its display.
-    func testASharedPinFromAnotherDisplayComesToTheTabsDisplay() async throws {
+    /// D8, now the pin stays: a shared pin's window that lives on another display comes to the tab's
+    /// display, into the tab. The tab never leaves its display, and the pin keeps its own.
+    func testASharedPinsWindowFromAnotherDisplayGoesToTheTabOnItsDisplay() async throws {
         let (left, right) = twoDisplays()
         config.workspaceSidebar.sharePinnedTabs = true
         let (pin, tab) = try pinAndTab()
@@ -355,11 +279,11 @@ final class WorkspaceSidebarPinTilingTest: XCTestCase {
         let leftList = workspaceSidebarMonitorScopeId(for: left)
         let drop = try await pausedDrop(pin, onto: tab, right: true, scope: leftList)
         try applyWorkspaceSidebarPinnedTabDrop(pin, drop, pinGridIsShared: true)
-        XCTAssertTrue(left.activeWorkspace === pin, "The pin came to the tab's display")
-        XCTAssertFalse(right.activeWorkspace === pin, "Its old display shows another tab")
-        XCTAssertEqual(pin.preferredMonitorPoint, left.rect.topLeftCorner, "Its new display is recorded")
-        XCTAssertEqual(pin.allLeafWindowsRecursive.map(\.windowId), [2, 1])
-        XCTAssertEqual(pin.workspaceMonitor.rect, left.rect, "The tab's window stayed on its display")
+        XCTAssertTrue(left.activeWorkspace === tab, "The split shows on the tab's display")
+        XCTAssertEqual(tab.allLeafWindowsRecursive.map(\.windowId), [2, 1])
+        XCTAssertEqual(tab.workspaceMonitor.rect, left.rect, "The tab stayed on its display")
+        XCTAssertEqual(pin.preferredMonitorPoint, right.rect.topLeftCorner, "The pin didn't move")
+        XCTAssertEqual(workspaceSidebarLentWindow(of: pin)?.windowId, 1)
     }
 
     func testAPinHeldToAnotherDisplayIsOfferedNoJoin() async throws {
@@ -372,17 +296,16 @@ final class WorkspaceSidebarPinTilingTest: XCTestCase {
         config.workspaceToMonitorForceAssignment[pin.name] = [.secondary]
         let held = try await pausedDropOrNil(pin, onto: tab, right: true, scope: workspaceSidebarMonitorScopeId(for: left))
         XCTAssertNil(held)
-        XCTAssertThrowsError(try joinWorkspaceTabIntoPinnedTab("n", pin: pin, placement: .right))
         XCTAssertEqual(tab.allLeafWindowsRecursive.map(\.windowId), [2], "Nothing moved")
         XCTAssertTrue(right.activeWorkspace === pin)
     }
 
-    func testATabHeldToItsOwnDisplayStillJoinsAPinThere() async throws {
+    func testATabHeldToItsOwnDisplayStillTakesAPinsWindow() async throws {
         let (pin, tab) = try pinAndTab()
         config.workspaceToMonitorForceAssignment[tab.name] = [.main]
         let drop = try await pausedDrop(pin, onto: tab, right: false)
         try applyWorkspaceSidebarPinnedTabDrop(pin, drop)
-        XCTAssertEqual(pin.allLeafWindowsRecursive.map(\.windowId), [1, 2])
+        XCTAssertEqual(tab.allLeafWindowsRecursive.map(\.windowId), [1, 2])
     }
 
     /// Review: a drop released on a display's own sidebar must still find the tab on that display
@@ -409,51 +332,33 @@ final class WorkspaceSidebarPinTilingTest: XCTestCase {
         XCTAssertEqual(tab.allLeafWindowsRecursive.map(\.windowId), [2], "Not joined on another display")
     }
 
-    /// V1 (VM smoke): the layouts after a tiling drop spread float noise over its split, three
-    /// thirds of 784 summing to 784.0000000000001. That's no change: the drop's Undo stays through
-    /// the refreshes that follow, for a join into a pin and a window dropped on a pin alike, and
-    /// still puts both tabs, the display and the order back.
+    /// V1 (VM smoke): the layouts after a tiling drop move its split's weights, if only by float noise.
+    /// That's no change: the drop's Undo stays through the refreshes that follow, and still puts the
+    /// tabs, the display and the order back.
     func testUndoOfATilingDropOutlastsTheLayoutsAfterIt() async throws {
-        for joinsTheTab in [true, false] {
-            try await setUp()
-            // Wide enough to leave the pin 784 points beside the sidebar, as in the VM.
-            setMonitorsForTests([oneDisplay(width: 1088)])
-            Workspace.reconcileWorkspaceState()
-            let (pin, tab) = try pinAndTab()
-            _ = TestWindow.new(id: 4, parent: pin.rootTilingContainer)
-            // The pin laid out on the display first, at 392 and 392, as it was in the VM.
-            let monitor = tab.workspaceMonitor
-            XCTAssertTrue(monitor.setActiveWorkspace(pin))
-            try await pin.layoutWorkspace()
-            XCTAssertTrue(monitor.setActiveWorkspace(tab))
-            let listBefore = orderedWorkspaces(in: workspaceProjectDefaultId).map(\.name).filter { ["p", "n"].contains($0) }
-            if joinsTheTab {
-                let drop = try await pausedDrop(pin, onto: tab, right: true)
-                await runWorkspaceSidebarSession(undoTitle: workspaceSidebarPinnedTabDropUndoTitle(drop)) {
-                    try applyWorkspaceSidebarPinnedTabDrop(pin, drop)
-                }?.value
-            } else {
-                await queueWorkspaceSidebarDrop(2, subject: .window, target: .workspace(pin.name), placement: .right,
-                    intent: .physical)?.value
-            }
-            XCTAssertEqual(pin.allLeafWindowsRecursive.count, 3, "\(joinsTheTab)")
-            let title = try XCTUnwrap(WorkspaceSidebarTabUndo.shared.title)
-            let weights = pin.rootTilingContainer.children.map { $0.getWeight(.h) }
-            XCTAssertEqual(weights.reduce(0, +), 784, accuracy: 0.001, "\(weights)")
-            for _ in 0 ..< 3 { try await runRefreshSessionBlocking(.globalObserver("test")) }
-            let laidOut = pin.rootTilingContainer.children.map { $0.getWeight(.h) }
-            XCTAssertNotEqual(laidOut, weights, "The layouts after it moved the weights, if only by float noise")
-            XCTAssertEqual(laidOut.count, weights.count)
-            for (a, b) in zip(laidOut, weights) { XCTAssertEqual(a, b, accuracy: 1e-6) }
-            XCTAssertEqual(WorkspaceSidebarTabUndo.shared.title, title, "\(joinsTheTab): Undo is still there")
+        // Wide enough to leave the tab 784 points beside the sidebar, as in the VM.
+        setMonitorsForTests([oneDisplay(width: 1088)])
+        Workspace.reconcileWorkspaceState()
+        let (pin, tab) = try pinAndTab()
+        _ = TestWindow.new(id: 4, parent: tab.rootTilingContainer)
+        // The tab laid out on the display first, at 392 and 392.
+        XCTAssertTrue(tab.workspaceMonitor.setActiveWorkspace(tab))
+        try await tab.layoutWorkspace()
+        let listBefore = orderedWorkspaces(in: workspaceProjectDefaultId).map(\.name).filter { ["p", "n"].contains($0) }
+        let drop = try await pausedDrop(pin, onto: tab, right: true)
+        await runWorkspaceSidebarSession(undoTitle: workspaceSidebarPinnedTabDropUndoTitle(drop)) {
+            try applyWorkspaceSidebarPinnedTabDrop(pin, drop)
+        }?.value
+        XCTAssertEqual(tab.allLeafWindowsRecursive.count, 3)
+        let title = try XCTUnwrap(WorkspaceSidebarTabUndo.shared.title)
+        for _ in 0 ..< 3 { try await runRefreshSessionBlocking(.globalObserver("test")) }
+        XCTAssertEqual(WorkspaceSidebarTabUndo.shared.title, title, "Undo is still there")
 
-            await runWorkspaceSidebarSession { try WorkspaceSidebarTabUndo.shared.undo() }?.value
-            XCTAssertEqual(pin.allLeafWindowsRecursive.map(\.windowId), [1, 4], "The pin has its windows back")
-            XCTAssertEqual(Workspace.existing(byName: "n")?.allLeafWindowsRecursive.map(\.windowId), [2], "And the tab its own")
-            XCTAssertEqual(Workspace.existing(byName: "n")?.workspaceMonitor.rect, pin.workspaceMonitor.rect)
-            XCTAssertEqual(orderedWorkspaces(in: workspaceProjectDefaultId).map(\.name).filter { ["p", "n"].contains($0) }, listBefore)
-            XCTAssertEqual(pins(), ["p"])
-        }
+        await runWorkspaceSidebarSession { try WorkspaceSidebarTabUndo.shared.undo() }?.value
+        XCTAssertEqual(pin.allLeafWindowsRecursive.map(\.windowId), [1], "The pin has its window back")
+        XCTAssertEqual(Workspace.existing(byName: "n")?.allLeafWindowsRecursive.map(\.windowId), [2, 4], "And the tab its own")
+        XCTAssertEqual(orderedWorkspaces(in: workspaceProjectDefaultId).map(\.name).filter { ["p", "n"].contains($0) }, listBefore)
+        XCTAssertEqual(pins(), ["p"])
     }
 
     /// V1: a change made after a tiling drop, not by its layouts, still clears its Undo, so it never
@@ -468,7 +373,7 @@ final class WorkspaceSidebarPinTilingTest: XCTestCase {
             }?.value
             XCTAssertNotNil(WorkspaceSidebarTabUndo.shared.title)
             if change == "resize" {
-                let window = try XCTUnwrap(pin.allLeafWindowsRecursive.first)
+                let window = try XCTUnwrap(tab.allLeafWindowsRecursive.first)
                 window.setWeight(.h, window.getWeight(.h) + 40)
             } else {
                 _ = TestWindow.new(id: 9, parent: pin.rootTilingContainer)
@@ -476,8 +381,8 @@ final class WorkspaceSidebarPinTilingTest: XCTestCase {
             await updateWorkspaceSidebarModel()
             XCTAssertNil(WorkspaceSidebarTabUndo.shared.title, change)
             await runWorkspaceSidebarSession { try WorkspaceSidebarTabUndo.shared.undo() }?.value
-            XCTAssertEqual(pin.allLeafWindowsRecursive.map(\.windowId).sorted(), (change == "resize" ? [1, 2] : [1, 2, 9]),
-                "\(change): nothing put back")
+            XCTAssertEqual(tab.allLeafWindowsRecursive.map(\.windowId), [2, 1], "\(change): nothing put back")
+            XCTAssertEqual(pin.allLeafWindowsRecursive.map(\.windowId), change == "resize" ? [] : [9])
         }
     }
 
@@ -498,7 +403,8 @@ final class WorkspaceSidebarPinTilingTest: XCTestCase {
         }
     }
 
-    /// Review: Undo of a join across displays puts the pin back on its display, and the tab on its.
+    /// Review: Undo of a split across displays puts the pin's window back in the pin, on its display,
+    /// and the tab's on its.
     func testUndoAcrossDisplaysPutsBothTabsAndDisplaysBack() async throws {
         let (left, right) = twoDisplays()
         config.workspaceSidebar.sharePinnedTabs = true
@@ -511,7 +417,7 @@ final class WorkspaceSidebarPinTilingTest: XCTestCase {
         await runWorkspaceSidebarSession(undoTitle: workspaceSidebarPinnedTabDropUndoTitle(drop)) {
             try applyWorkspaceSidebarPinnedTabDrop(pin, drop, pinGridIsShared: true)
         }?.value
-        XCTAssertTrue(left.activeWorkspace === pin)
+        XCTAssertEqual(tab.allLeafWindowsRecursive.map(\.windowId), [1, 2])
         await runWorkspaceSidebarSession { try WorkspaceSidebarTabUndo.shared.undo() }?.value
         XCTAssertTrue(right.activeWorkspace === pin, "The pin is back on its display")
         XCTAssertEqual(pin.preferredMonitorPoint, right.rect.topLeftCorner)
@@ -519,23 +425,6 @@ final class WorkspaceSidebarPinTilingTest: XCTestCase {
         let restored = try XCTUnwrap(Workspace.existing(byName: "n"))
         XCTAssertEqual(restored.allLeafWindowsRecursive.map(\.windowId), [2])
         XCTAssertEqual(restored.workspaceMonitor.rect, left.rect, "And the tab on its")
-    }
-
-    /// Review: after joining, an ordinary tab goes, as any tab whose last window moves into another
-    /// does; a saved one stays, greyed.
-    func testAfterJoiningAnOrdinaryTabGoesAndASavedOneStays() async throws {
-        for saved in [false, true] {
-            try await setUp()
-            let (pin, tab) = try pinAndTab()
-            if saved { try saveWorkspaceSidebarIdentity(tab) }
-            let drop = try await pausedDrop(pin, onto: tab, right: true)
-            await runWorkspaceSidebarSession(undoTitle: workspaceSidebarPinnedTabDropUndoTitle(drop)) {
-                try applyWorkspaceSidebarPinnedTabDrop(pin, drop)
-            }?.value
-            XCTAssertTrue(tab.allLeafWindowsRecursive.isEmpty)
-            let kept = Workspace.existing(byName: "n").map { !$0.isArchived } ?? false
-            XCTAssertEqual(kept, saved, saved ? "A saved tab stays" : "An ordinary tab goes")
-        }
     }
 
     // MARK: Fixtures
@@ -580,21 +469,6 @@ final class WorkspaceSidebarPinTilingTest: XCTestCase {
     }
 
     private func pins() -> [String] { workspacePinnedTabs(in: workspaceProjectDefaultId).map(\.name) }
-
-    /// Tab n, split side by side at 3:1 across `width`, the tiling width of its display by default.
-    private func threeToOneTab(width: CGFloat? = nil) -> (wide: Window, narrow: Window) {
-        let tab = Workspace.get(byName: "n")
-        let width = width ?? tilingWidth(of: tab.workspaceMonitor)
-        let wide = TestWindow.new(id: 2, parent: tab.rootTilingContainer)
-        let narrow = TestWindow.new(id: 3, parent: tab.rootTilingContainer)
-        wide.setWeight(.h, width * 0.75)
-        narrow.setWeight(.h, width * 0.25)
-        return (wide, narrow)
-    }
-
-    private func tilingWidth(of monitor: Monitor) -> CGFloat {
-        workspaceStandardTilingRect(monitor.visibleRectPaddedByOuterGaps).width
-    }
 
     private func oneDisplay(width: CGFloat) -> Monitor {
         WorkspaceSidebarDragTestMonitor(monitorAppKitNsScreenScreensId: 1, name: "Main",

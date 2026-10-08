@@ -103,9 +103,10 @@ final class WorkspaceSidebarDropIntentTest: XCTestCase {
         XCTAssertEqual(window.nodeWorkspace?.workspaceMonitor.rect, right.rect)
     }
 
-    /// With shared pins, B's list shows a pin that lives on C. A window joined to it goes to C,
-    /// where the pin's tab is; without shared pins the list never showed it and takes nothing.
-    func testAListJoinsASharedPinOnAThirdDisplayWhereverItIs() async throws {
+    /// With shared pins, B's list shows a pin that lives on C. A window dropped on it splits with the
+    /// pin's window in its own ordinary tab, and the pin keeps its place, lending it; without shared
+    /// pins the list never showed it and takes nothing.
+    func testAListSplitsWithASharedPinOnAThirdDisplayWhereverItIs() async throws {
         for shares in [true, false] {
             setUpWorkspacesForTests()
             workspaceSidebarOrganizationStore = .init()
@@ -126,8 +127,9 @@ final class WorkspaceSidebarDropIntentTest: XCTestCase {
                 placement: nil, intent: intent))
             await task.value
             if shares {
-                XCTAssertEqual(window.nodeWorkspace?.name, "p", "It joined the pin")
-                XCTAssertEqual(window.nodeWorkspace?.workspaceMonitor.rect, third.rect, "On the pin's display")
+                XCTAssertEqual(window.nodeWorkspace?.name, "a", "It split in its own tab")
+                XCTAssertEqual(Window.get(byId: 9)?.nodeWorkspace?.name, "a", "with the pin's window, as an ordinary split")
+                XCTAssertEqual(workspaceSidebarLentWindow(of: pin)?.windowId, 9, "The pin lends it")
             } else {
                 XCTAssertEqual(window.nodeWorkspace?.name, "a", "B's own list never showed it")
             }

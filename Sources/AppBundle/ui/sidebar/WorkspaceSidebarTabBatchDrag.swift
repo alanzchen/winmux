@@ -113,11 +113,13 @@ func isActionableWorkspaceSidebarBatchDropTarget(_ batch: WorkspaceSidebarDragBa
 
 /// Whether every tab may go among `section`'s pins in a list of `projectId`: any tab to the pins in
 /// All Projects, which are no project's, and to a project's pins only tabs that list shows, as for
-/// one tab. Pins in All Projects are in every list, from wherever they were dragged.
+/// one tab. Pins in All Projects are in every list, from wherever they were dragged. A split isn't
+/// pinned by dragging it there, only from its menu.
 @MainActor
 private func workspaceSidebarBatchCanGo(_ tabs: [Workspace], toPinsOf projectId: WorkspaceProjectId,
                                         section: WorkspaceSidebarPinSection) -> Bool {
-    section == .allProjects || tabs.allSatisfy { workspaceIsListed($0, inProject: projectId) }
+    tabs.allSatisfy { workspaceSidebarIsPinned($0) || $0.allLeafWindowsRecursive.count <= 1 }
+        && (section == .allProjects || tabs.allSatisfy { workspaceIsListed($0, inProject: projectId) })
 }
 
 /// Every tab can go to the gap, beside a tab that isn't one of them, and at least one would move.

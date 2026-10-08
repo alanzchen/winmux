@@ -327,11 +327,15 @@ private func moveSidebarSource(
         let (sourceWindow, sourceNode) = (source.window, source.node)
         syncClosedWindowsCacheToCurrentWorld()
         suppressPostDragAxObserverEvents(for: sourceNode.allLeafWindowsRecursive.map(\.windowId))
-        if let tabPlacement {
-            applyTabDrop(sourceNode: sourceNode, sourceWindow: sourceWindow, targetWorkspace: targetWorkspace,
-                placement: tabPlacement)
-        } else {
-            applySidebarWorkspaceMove(sourceNode: sourceNode, sourceWindow: sourceWindow, targetWorkspace: targetWorkspace)
+        // A pin with one window keeps it as its own: a split with it goes to an ordinary tab.
+        try moveWorkspaceSidebarNodeKeepingPins(sourceNode, onto: targetWorkspace) { destination in
+            if let tabPlacement {
+                applyTabDrop(sourceNode: sourceNode, sourceWindow: sourceWindow, targetWorkspace: destination,
+                    placement: tabPlacement)
+            } else {
+                applySidebarWorkspaceMove(sourceNode: sourceNode, sourceWindow: sourceWindow, targetWorkspace: destination)
+                if destination !== targetWorkspace { _ = sourceWindow.focusWindow() }
+            }
         }
         await updateWorkspaceSidebarModel()
     }
@@ -686,7 +690,10 @@ private func isActionableSidebarDropTarget(
         }
         guard workspaceSidebarPinDropCanReachDisplay(workspace, monitorScopeId: monitorScopeId,
             pinGridIsShared: pinGridIsShared) else { return false }
-        if workspaceSidebarOrganizationStore.state.workspaces[workspace.name]?.isFavorite != true { return true }
+        // A split is pinned only from its menu, never by dragging it onto the pins.
+        if workspaceSidebarOrganizationStore.state.workspaces[workspace.name]?.isFavorite != true {
+            return sourceNode.allLeafWindowsRecursive.count <= 1
+        }
         return WorkspaceSidebarPinSection(of: workspace) != section
             || gap.flatMap { workspacePinnedTabOrder(moving: workspace, beside: $0) } != nil
             || workspaceSidebarPinDropDisplayChange(for: workspace, monitorScopeId: monitorScopeId,
@@ -700,6 +707,9 @@ private func isActionableSidebarDropTarget(
         return !group.workspaceNames.contains(workspace.name)
             || workspaceSidebarDropDisplayChange(for: workspace, monitorScopeId: monitorScopeId) != nil
     }
+    // A pin lending its window, or a pinned split, takes no split and no window.
+    if case .workspace(let name) = target, let workspace = Workspace.existing(byName: name),
+       !workspaceSidebarTakesSplit(workspace) { return false }
     return isActionableSidebarWorkspaceDropTarget(sourceWorkspaceName: sourceWorkspaceName, targetKind: target)
 }
 

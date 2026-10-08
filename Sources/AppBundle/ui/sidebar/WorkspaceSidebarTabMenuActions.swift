@@ -6,7 +6,7 @@ func canSplitWorkspaceSidebarTabWindow(_ window: Window, with target: Workspace)
           let source = window.nodeWorkspace, source !== target, !source.isArchived, !target.isArchived,
           // The same project as the sidebar shows them: a pin in All Projects is in every one.
           workspaceContextProjectId(of: source) == workspaceContextProjectId(of: target),
-          !target.rootTilingContainer.isEffectivelyEmpty,
+          !target.rootTilingContainer.isEffectivelyEmpty, workspaceSidebarTakesSplit(target),
           source.workspaceMonitor.rect == target.workspaceMonitor.rect,
           workspaceSidebarMenuCanMove(window, workspaceName: source.name, destination: target),
           target.rootTilingContainer.allLeafWindowsRecursive.allSatisfy({
@@ -32,9 +32,12 @@ func splitWorkspaceSidebarTabWindow(_ windowId: UInt32, fromWorkspace sourceId: 
     }
     syncClosedWindowsCacheToCurrentWorld()
     suppressPostDragAxObserverEvents(for: [windowId])
-    // Match a drop on the right half. Only the clicked member moves; the destination
-    // keeps its group, pin, name and other split members.
-    applyTabDrop(sourceNode: window, sourceWindow: window, targetWorkspace: target, placement: .right)
+    // Match a drop on the right half. Only the clicked member moves; an ordinary destination keeps
+    // its group, name and other split members, and a pin with one window keeps it as its own: the
+    // split goes to an ordinary tab instead.
+    try moveWorkspaceSidebarNodeKeepingPins(window, onto: target) { destination in
+        applyTabDrop(sourceNode: window, sourceWindow: window, targetWorkspace: destination, placement: .right)
+    }
 }
 
 @MainActor

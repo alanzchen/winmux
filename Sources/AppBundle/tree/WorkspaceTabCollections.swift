@@ -59,13 +59,20 @@ struct WorkspaceSidebarItemAppearance: Codable, Hashable {
     /// Optional, so files without it load, and files without pins in All Projects don't change.
     /// It means something only while pinned.
     var pinScope: WorkspaceSidebarPinScope? = nil
+    /// Tabs mode, a pin with one window: that window, while it's in another tab's split. The pin
+    /// shows grey, and a click brings the same window back. Means something only while pinned.
+    var lentWindow: WorkspaceSidebarPinWindow? = nil
+    /// Tabs mode, a pinned split: its windows that went back to their own pins, which a click on
+    /// it brings back while they're there. Means something only while pinned.
+    var recallWindows: [WorkspaceSidebarRecallWindow]? = nil
 
     var isPinnedInAllProjects: Bool { isFavorite && pinScope == .allProjects }
 
     /// A new pin goes after the arranged pins, among its project's, and an unpinned tab forgets
-    /// its place and its scope.
+    /// its place and its scope, and the windows it lent or would bring back.
     mutating func setFavorite(_ favorite: Bool) {
         if favorite != isFavorite { pinOrder = nil; pinScope = nil }
+        if !favorite { lentWindow = nil; recallWindows = nil }
         isFavorite = favorite
     }
 
@@ -75,6 +82,20 @@ struct WorkspaceSidebarItemAppearance: Codable, Hashable {
         isFavorite = true
         pinScope = scope
     }
+}
+
+/// A window, as it was when a pin lent it or a pinned split let it go: its process tells it from a
+/// later window given the same number.
+struct WorkspaceSidebarPinWindow: Codable, Hashable {
+    var windowId: UInt32
+    var pid: Int32
+}
+
+/// A pinned split's window that a click on its own pin took back there, and where it was in the split.
+struct WorkspaceSidebarRecallWindow: Codable, Hashable {
+    var window: WorkspaceSidebarPinWindow
+    var pinName: String
+    var index: Int
 }
 
 struct WorkspaceSidebarOrganization: Codable, Equatable {

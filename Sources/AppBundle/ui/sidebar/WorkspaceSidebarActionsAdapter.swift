@@ -232,6 +232,8 @@ func handleWorkspaceSidebarAction(
             } else {
                 openSavedTabFromSidebar(name, targetMonitorScopeId: targetMonitorScopeId)
             }
+        case .recallPinWindows(let name, let windowId):
+            recallPinWindowsFromSidebar(name, focusing: windowId, targetMonitorScopeId: targetMonitorScopeId)
         case .moveProject(let projectId, let targetId, let after):
             moveWorkspaceSidebarProject(projectId, relativeTo: targetId, after: after)
         case .moveWorkspace(let workspaceName, let projectId):

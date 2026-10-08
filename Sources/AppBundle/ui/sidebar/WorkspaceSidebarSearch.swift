@@ -51,6 +51,8 @@ private func workspaceSidebarFilteredWorkspace(
             savedState: workspace.savedState,
             appearance: workspace.appearance,
             preservesFolderPresentation: workspaceSidebarTabPresentation(workspace) == .folder,
+            lentWindow: workspace.lentWindow,
+            recallsWindows: workspace.recallsWindows,
         )
     }
     if workspaceSidebarWorkspaceMatchesSearch(workspace, projectName: projectName, terms: terms) {

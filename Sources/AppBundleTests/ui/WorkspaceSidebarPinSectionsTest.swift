@@ -292,7 +292,7 @@ final class WorkspaceSidebarPinSectionsTest: XCTestCase {
         XCTAssertNil(workspaceSidebarPinnedTabDrop(t.b1, target: row, point: CGPoint(x: 150, y: 110)))
     }
 
-    func testATabTiledIntoAPinInAllProjectsTakesItsScope() async throws {
+    func testAPinInAllProjectsSplitsItsWindowWithATabOfTheProjectShown() async throws {
         let t = try tabs()
         let rowRect = Rect(topLeftX: 0, topLeftY: 100, width: 200, height: 36)
         let row = WorkspaceSidebarDropTarget(kind: .workspace("b2"), rect: rowRect, acceptsSides: true,
@@ -300,18 +300,20 @@ final class WorkspaceSidebarPinSectionsTest: XCTestCase {
         _ = workspaceSidebarPinnedTabDrop(t.g, target: row, point: CGPoint(x: 150, y: 110))
         try await Task.sleep(for: .milliseconds(320))
         let join = try XCTUnwrap(workspaceSidebarPinnedTabDrop(t.g, target: row, point: CGPoint(x: 150, y: 110)),
-            "A pin in All Projects takes in a tab of the project shown, though that isn't its home")
+            "A pin in All Projects splits with a tab of the project shown, though that isn't its home")
         try applyWorkspaceSidebarPinnedTabDrop(t.g, join)
-        let b2Window = try XCTUnwrap(Window.get(byId: 4))
-        XCTAssertTrue(b2Window.nodeWorkspace === t.g, "The tab's windows join the pin")
-        XCTAssertTrue(workspaceIsPinnedInAllProjects(t.g), "which stays in All Projects: they're in every project now")
+        let gWindow = try XCTUnwrap(Window.get(byId: 1))
+        XCTAssertTrue(gWindow.nodeWorkspace === t.b2, "The pin's window goes to the tab, an ordinary one of B")
+        XCTAssertEqual(t.b2.projectId, t.b)
+        XCTAssertTrue(workspaceIsPinnedInAllProjects(t.g), "The pin stays in All Projects, lending its window")
+        XCTAssertTrue(workspaceSidebarLentWindow(of: t.g) === gWindow)
         XCTAssertEqual(t.g.projectId, t.a)
 
-        // A window dragged onto its tile and paused tiles into it the same way.
+        // Lending its window, it takes no window dragged onto its tile.
         let b1Window = try XCTUnwrap(t.b1.allLeafWindowsRecursive.first)
         await queueWorkspaceSidebarDrop(b1Window.windowId, subject: .window, target: .workspace("g"), placement: .left,
             intent: .physical)?.value
-        XCTAssertTrue(b1Window.nodeWorkspace === t.g)
+        XCTAssertTrue(b1Window.nodeWorkspace === t.b1)
         XCTAssertTrue(workspaceIsPinnedInAllProjects(t.g))
     }
 
@@ -492,18 +494,15 @@ final class WorkspaceSidebarPinSectionsTest: XCTestCase {
     // MARK: Undo and switching
 
     /// An edit that put the pin on screen, then a switch with it kept there: Undo takes the edit back
-    /// and leaves the display in the project it was switched to, on the pin.
-    func testUndoAfterASwitchKeepsTheProjectSwitchedTo() async throws {
+    /// and leaves the display in the project it was switched to, on the pin. The edit, as one window
+    /// moved to the pin on screen: a window of B's tab, into the pin.
+    func testUndoAfterASwitchKeepsTheProjectSwitchedTo() throws {
         let t = try tabs()
-        let rowRect = Rect(topLeftX: 0, topLeftY: 100, width: 200, height: 36)
-        let row = WorkspaceSidebarDropTarget(kind: .workspace("b1"), rect: rowRect, acceptsSides: true,
-            tabReorderDestination: .init(projectId: t.b, monitorScopeId: scope, collectionId: nil))
-        _ = workspaceSidebarPinnedTabDrop(t.g, target: row, point: CGPoint(x: 150, y: 110))
-        try await Task.sleep(for: .milliseconds(320))
-        let join = try XCTUnwrap(workspaceSidebarPinnedTabDrop(t.g, target: row, point: CGPoint(x: 150, y: 110)))
-        await runWorkspaceSidebarSession(undoTitle: workspaceSidebarPinnedTabDropUndoTitle(join)) {
-            try applyWorkspaceSidebarPinnedTabDrop(t.g, join)
-        }?.value
+        let before = WorkspaceSidebarTabUndoSnapshot()
+        let moved = try XCTUnwrap(t.b1.allLeafWindowsRecursive.first)
+        moved.bind(to: t.g.rootTilingContainer, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
+        XCTAssertTrue(moved.focusWindow())
+        WorkspaceSidebarTabUndo.shared.record("Move Tab", before: before)
         XCTAssertTrue(mainMonitor.activeWorkspace === t.g)
         XCTAssertEqual(activeWorkspaceProjectId(for: mainMonitor), t.b)
         // The pin's own window, which Undo leaves in it, has focus.

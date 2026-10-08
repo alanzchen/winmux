@@ -28,6 +28,13 @@ func isActionableSidebarWorkspaceDropTarget(
     }
 }
 
+/// A pin lending its window, or a pinned split, takes no window from the screen.
+@MainActor
+private func workspaceSidebarScreenDropTakesWindow(_ kind: WorkspaceSidebarDropTargetKind) -> Bool {
+    guard case .workspace(let name) = kind, let workspace = Workspace.existing(byName: name) else { return true }
+    return workspaceSidebarTakesSplit(workspace)
+}
+
 @MainActor
 func currentSidebarWorkspaceDropDestination(sourceWindow: Window, mouseLocation: CGPoint, subject: WindowDragSubject) -> WindowDragIntentDestination? {
     let sourceLabel = sidebarDragSourceTitle(for: sourceWindow, subject: subject)
@@ -37,7 +44,8 @@ func currentSidebarWorkspaceDropDestination(sourceWindow: Window, mouseLocation:
     // Temporary drop UI takes only the sidebar's own drops, never a window drag's intent.
     guard !hit.isOnTemporarySurface else { return nil }
     if let target = hit.target,
-       isActionableSidebarWorkspaceDropTarget(sourceWorkspaceName: sourceWorkspaceName, targetKind: target.kind)
+       isActionableSidebarWorkspaceDropTarget(sourceWorkspaceName: sourceWorkspaceName, targetKind: target.kind),
+       workspaceSidebarScreenDropTakesWindow(target.kind)
     {
         switch target.kind {
             // Windows dragged in from the screen join tabs; only sidebar drags pin or group.

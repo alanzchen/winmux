@@ -19,9 +19,12 @@ In Tabs mode the pinned tiles now take part in drag and drop both ways.
   dragged in from the screen joins the pin (added September 28, after 0.6.372). For
   windows from the screen, the tile under the pointer now wins over a neighbor that only
   the drop slop reaches, in the list as well as among the pins.
-  Dragging a pinned tile over another rearranges; since October 5, a pause over another
-  pin's middle third tiles the dragged pin into it, whole, as a tab from the list would,
-  and the dragged pin stays pinned, empty. An empty pin takes no pin in.
+  Dragging a pinned tile over another rearranges. Since October 7, a pin with one window
+  is that window's entry: a split with it, from the list, the screen or another pin's
+  middle third, goes to an ordinary tab, and the pin keeps its place, grey, until a click
+  brings that same window back. A split is pinned only from its tab's menu; a pinned split
+  and the pin of one of its windows share that window. (October 5's pin-into-pin tiling,
+  which made a pinned split, is gone.) An empty pin takes no pin in.
 - The pins' order is saved as `pinOrder` beside each pin in `sidebar-organization.json`,
   so it survives relaunch. Rearranging pins doesn't change the tabs' own order, so an
   unpinned tab returns to its place in the list. A tab pinned from its menu goes

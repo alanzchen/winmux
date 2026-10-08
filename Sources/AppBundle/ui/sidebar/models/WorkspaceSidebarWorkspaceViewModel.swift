@@ -24,6 +24,12 @@ struct WorkspaceSidebarWorkspaceViewModel: Hashable, Identifiable {
     /// With more than one display, the one a pinned tab is held to, the only one it may be shown
     /// on: by `workspace-to-monitor-force-assignment`, else a saved Keep on display.
     var heldMonitorScopeId: String? = nil
+    /// Tabs mode, a pin with one window: that window, while it's in another tab's split. The pin
+    /// shows it grey, and a click brings it back.
+    var lentWindow: WorkspaceSidebarWindowViewModel? = nil
+    /// Tabs mode: a click on this pin brings a window back, the one it lent, or, for a pinned split,
+    /// one of its own back in its pin, instead of only showing it.
+    var recallsWindows = false
 
     var id: String { name }
 }
