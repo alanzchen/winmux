@@ -9,6 +9,11 @@ struct SafariExtensionTab: Equatable, Sendable {
     var id: Int? = nil
     var title: String
     var host: String? = nil
+    /// The page's origin, `scheme://host[:port]` (`browserTabOriginKey`), and the extension's
+    /// opaque revision of the tab's page, which changes whenever its address does. Older
+    /// extensions send neither.
+    var origin: String? = nil
+    var revision: String? = nil
     var isActive: Bool
     var isAudible: Bool = false
     var isMuted: Bool = false
@@ -178,7 +183,12 @@ enum SafariExtensionMessage: Equatable, Sendable {
             guard version < 2 || id != nil else { return nil }
             let host = (tab["host"] as? String).flatMap { $0.isEmpty || $0.count > 253 ? nil : $0 }
             let icon = (tab["icon"] as? String).flatMap { isIconKey($0) ? $0 : nil }
-            tabs.append(.init(id: id, title: safariExtensionComparableTitle(title), host: host, isActive: active,
+            let origin = (tab["origin"] as? String).flatMap(browserTabOriginKey)
+            let revision = (tab["rev"] as? String).flatMap { value in
+                (1...32).contains(value.utf8.count) && value.utf8.allSatisfy { (0x30...0x39).contains($0) || (0x61...0x7a).contains($0) || $0 == 0x2d }
+                    ? value : nil
+            }
+            tabs.append(.init(id: id, title: safariExtensionComparableTitle(title), host: host, origin: origin, revision: revision, isActive: active,
                 isAudible: tab["audible"] as? Bool ?? false, isMuted: tab["muted"] as? Bool ?? false,
                 isPinned: tab["pinned"] as? Bool ?? false, icon: icon))
         }
@@ -803,6 +813,8 @@ struct SafariExtensionAssociations {
         let described = tabs[tab.target]
         tab.siteIcon = described?.icon
         tab.host = described?.host
+        tab.siteOrigin = described?.origin
+        tab.pageRevision = described?.revision
         tab.extensionTab = bound[tab.target]
         if includeSound, agreeing.contains(tab.target.windowId) {
             tab.audio = described.flatMap { $0.isMuted ? .muted : $0.isAudible ? .playing : nil }

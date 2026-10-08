@@ -16,6 +16,20 @@ func browserTabIconOrigin(_ address: String) -> URL? {
     return origin.url
 }
 
+/// An origin as WinMux compares and keys them: `scheme://host`, lowercased, with a port only
+/// when it isn't the scheme's default. Only http and https; nil for anything with a path,
+/// query, fragment or credentials.
+func browserTabOriginKey(_ value: String) -> String? {
+    guard value.utf8.count <= 300, let components = URLComponents(string: value),
+          let scheme = components.scheme?.lowercased(), ["http", "https"].contains(scheme),
+          let host = components.host?.lowercased(), !host.isEmpty, components.user == nil, components.password == nil,
+          components.path.isEmpty || components.path == "/", components.query == nil, components.fragment == nil
+    else { return nil }
+    let port = components.port.flatMap { ($0 == 80 && scheme == "http") || ($0 == 443 && scheme == "https") ? nil : $0 }
+    let bracketed = host.contains(":") && !host.hasPrefix("[") ? "[\(host)]" : host
+    return "\(scheme)://\(bracketed)" + (port.map { ":\($0)" } ?? "")
+}
+
 struct BrowserTabIconCandidate: Equatable, Sendable {
     let target: BrowserTabTarget
     /// Nil means an address was read successfully but isn't eligible for an icon.

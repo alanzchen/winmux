@@ -177,6 +177,42 @@ final class BrowserPushBackgroundTest: XCTestCase {
         XCTAssertEqual(number(c, "sent.at(-1).windows.length"), 2)
     }
 
+    func testBothReportEachTabsOriginAndAPageRevisionThatChangesOnlyWithItsAddress() throws {
+        for name in ["safari", "chrome"] {
+            let c = try page(name)
+            c.evaluateScript("""
+                function tab10() {
+                    const report = sent.filter(m => (m.type === 'state' || m.type === 'events') && m.windows.some(w => w.id === 1)).at(-1);
+                    return report.windows.find(w => w.id === 1).tabs[0];
+                }
+                function update(change) { Object.assign(windows[0].tabs[0], change); browser.tabs.onUpdated.fire(10, change, windows[0].tabs[0]); }
+                """)
+            func tab() -> (origin: String?, revision: String?) {
+                (c.evaluateScript("tab10().origin")?.toString(), c.evaluateScript("tab10().rev")?.toString())
+            }
+            let first = tab()
+            XCTAssertEqual(first.origin, "https://example.test", name)
+            XCTAssertNotNil(first.revision)
+            XCTAssertEqual(c.evaluateScript("JSON.stringify(Object.keys(tab10()).filter(k => /url|path/i.test(k)))")?.toString(), "[]",
+                           "No address leaves the browser")
+            c.evaluateScript("update({title: 'Renamed'})")
+            try advance(c)
+            XCTAssertEqual(tab().revision, first.revision, "\(name): a title change isn't another page")
+            c.evaluateScript("update({url: 'https://example.test/'})")
+            try advance(c)
+            XCTAssertEqual(tab().revision, first.revision, "\(name): an address repeated unchanged, as Safari does, isn't either")
+            c.evaluateScript("update({url: 'https://example.test:8443/next'})")
+            try advance(c)
+            let moved = tab()
+            XCTAssertEqual(moved.origin, "https://example.test:8443", name)
+            XCTAssertNotEqual(moved.revision, first.revision)
+            c.evaluateScript("update({url: 'https://example.test/'})")
+            try advance(c)
+            XCTAssertNotEqual(tab().revision, first.revision, "\(name): coming back to an address is still a new page")
+            XCTAssertNotEqual(tab().revision, moved.revision)
+        }
+    }
+
     func testChromeTitlesEachNormalWindowsActiveTabButtonWithItsMarkerAndAgainAfterANavigation() throws {
         let c = try page("chrome")
         c.evaluateScript("""

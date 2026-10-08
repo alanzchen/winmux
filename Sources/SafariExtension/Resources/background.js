@@ -55,6 +55,9 @@ function changedWindow(id) {
 // The title each tab's toolbar button was given, so it's set only when it changes. Safari may drop
 // it as the tab loads a page, so loading forgets it, and so does Safari unloading this page.
 const stamped = new Map();
+// Each tab's address and page revision (`WinMuxTabs.pageRevision`), in this run of the page only.
+const pages = new Map();
+const pageInstance = crypto.randomUUID().slice(0, 8);
 // Each tab's latest title operation: an older one's later steps don't overwrite a newer title.
 const titleWrites = new Map();
 
@@ -192,7 +195,8 @@ async function send() {
         const version = peerVersion;
         const message = WinMuxTabs.stateMessage({
             version, session: data.session, measured, order, time: Date.now(), allSites,
-            windows: WinMuxTabs.stateWindows(windows, (tab) => iconFor(data, tab), version),
+            windows: WinMuxTabs.stateWindows(windows, (tab) => iconFor(data, tab), version,
+                (tab) => WinMuxTabs.pageRevision(pages, pageInstance, tab)),
         });
         const removed = full ? [] : dirty.filter((id) => !message.windows.some((w) => w.id === id));
         // Older apps reject this type rather than interpreting a delta as a full report.
@@ -533,6 +537,8 @@ browser.tabs.onUpdated.addListener((tabId, changes) => {
             }
         });
     }
+    // Another address is another page: a new revision, so WinMux keeps no icon across it.
+    if ("url" in changes) WinMuxTabs.noteAddress(pages, tabId, changes.url);
     // A page loading may reset the tab's toolbar title.
     if ("url" in changes || "status" in changes) stamped.delete(tabId);
     if (["title", "url", "favIconUrl", "status", "audible", "mutedInfo", "pinned"].some((key) => key in changes)) scheduleSend();
@@ -549,6 +555,7 @@ for (const event of [browser.tabs.onCreated, browser.tabs.onMoved, browser.tabs.
 }
 browser.tabs.onRemoved.addListener(async (tabId) => {
     stamped.delete(tabId);
+    pages.delete(tabId);
     titleWrites.delete(tabId);
     const data = await loaded;
     countOrderChange(data);
@@ -563,6 +570,7 @@ browser.tabs.onRemoved.addListener(async (tabId) => {
 browser.tabs.onReplaced?.addListener(async (added, removed) => {
     pushNeedsSnapshot = true;
     stamped.delete(removed);
+    pages.delete(removed);
     titleWrites.delete(removed);
     const data = await loaded;
     countOrderChange(data);

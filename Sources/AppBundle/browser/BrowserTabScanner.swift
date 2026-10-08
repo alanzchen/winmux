@@ -229,7 +229,9 @@ final class BrowserTabScanner<Node: BrowserTabAXNode> {
     }
     /// Whether to look for WinMux Tabs for Chrome's toolbar button: Chrome gives extension buttons
     /// no identifier, so it's the one button whose accessible name is a marker title, which holds
-    /// the extension's random session. Only while that extension is connected.
+    /// the extension's random session. Each walk (at least once a minute) requires it to be the
+    /// only one; reads between walks ask only that button again. Only while that extension is
+    /// connected.
     var titledMarker = false {
         didSet {
             guard titledMarker != oldValue else { return }

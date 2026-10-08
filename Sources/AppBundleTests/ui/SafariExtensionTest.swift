@@ -138,7 +138,8 @@ final class SafariExtensionTest: XCTestCase {
         XCTAssertEqual(decoded.windows[0].bounds, CGRect(x: 10, y: 40, width: 800, height: 600))
         XCTAssertEqual(decoded.windows[0].tabs, [
             .init(id: 1, title: "Start Page", isActive: false, isPinned: true),
-            .init(id: 2, title: "Docs home", host: "docs.example.com", isActive: true, isAudible: true, icon: String(repeating: "a", count: 64)),
+            .init(id: 2, title: "Docs home", host: "docs.example.com", origin: "https://docs.example.com", isActive: true, isAudible: true,
+                icon: String(repeating: "a", count: 64)),
         ])
         XCTAssertEqual(decoded.windows[0].tabKey(decoded.windows[0].tabs[1]), .init(source: "\(profile.uuidString):session-1", id: 2))
     }

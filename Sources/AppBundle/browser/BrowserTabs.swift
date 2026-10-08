@@ -40,6 +40,10 @@ struct BrowserTab: Hashable, Identifiable, Sendable {
     /// From the WinMux Tabs Safari extension: the tab's website icon, by key, and its host name.
     var siteIcon: String? = nil
     var host: String? = nil
+    /// The extension's word on which page the tab shows: its origin and page revision
+    /// (`SafariExtensionTab.origin`, `.revision`). Nil while nothing describes it.
+    var siteOrigin: String? = nil
+    var pageRevision: String? = nil
     /// Which extension tab was bound to this exact native control. Selection can use it only
     /// with current window/stream evidence and a confirmed command transport; close stays AX.
     var extensionTab: SafariExtensionTabKey? = nil

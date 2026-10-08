@@ -213,8 +213,10 @@ final class BrowserTabsModel: ObservableObject {
                 iconOrigins: iconsEnabled ? iconAssociations.origins : [:],
                 useExtensionSound: !chrome)
             shown.tabs = shown.tabs.map { tab in
-                browserTabIconShown(tab, chrome: chrome, now: now, continuity: &iconContinuity, origins: &iconAssociations,
-                    keptIcon: { [safariExtension] source, host in safariExtension.siteIcon(source: source, host: host) })
+                browserTabIconShown(tab, chrome: chrome, continuity: &iconContinuity, origins: &iconAssociations,
+                    reported: { [chromeExtension, safariExtension] key in
+                        (chrome ? chromeExtension : safariExtension).reportedTab(key) },
+                    keptIcon: { [safariExtension] key, origin in safariExtension.siteIcon(source: key.source, origin: origin) })
             }
             return shown
         }
@@ -574,21 +576,29 @@ func browserTabsShown(_ snapshot: BrowserWindowTabs, read: TimeInterval?, now: T
 
 /// A tab's website icon as the sidebar shows it, after `browserTabsShown`.
 ///
-/// - Safari: the icon the extension gives the tab; through a brief gap, the one it last gave the
-///   same tab for the same site (`BrowserTabSiteIconContinuity`); otherwise its site's icon kept
-///   from before (`keptIcon`, by report source and host), only for a tab bound by id.
-/// - Chrome: a tab the extension says is on another site, or on no website, drops the icon of the
-///   site it was on until a read confirms the new one: it never shows the previous site's icon.
-func browserTabIconShown(_ tab: BrowserTab, chrome: Bool, now: TimeInterval, continuity: inout BrowserTabSiteIconContinuity,
-                         origins: inout BrowserTabIconAssociations, keptIcon: (String, String?) -> String?) -> BrowserTab {
+/// - Safari: the icon the extension gives the tab; while it describes the same page (scoped tab,
+///   origin and page revision) without one, the one it last gave; for a page with none yet, its
+///   origin's icon kept from before (`keptIcon`), unless that's the icon the tab's previous page
+///   had (`BrowserTabSiteIconContinuity`). Without that page evidence, only what the extension says.
+/// - Chrome: a tab the extension says is on another origin (scheme, host and port), or on no
+///   website, drops its origin icon until a read confirms the new one. An extension from before
+///   page revisions sends only the host, so only another host counts there.
+func browserTabIconShown(_ tab: BrowserTab, chrome: Bool, continuity: inout BrowserTabSiteIconContinuity,
+                         origins: inout BrowserTabIconAssociations, reported: (SafariExtensionTabKey) -> SafariExtensionTab?,
+                         keptIcon: (SafariExtensionTabKey, String) -> String?) -> BrowserTab {
     var tab = tab
+    let live = tab.extensionTab.flatMap(reported)
     if chrome {
-        if tab.extensionTab != nil, let origin = tab.iconOrigin, origin.host?.lowercased() != tab.host?.lowercased() {
+        // The live report's word on the tab: an extension that sends page revisions also sends
+        // the full origin (none: not a web page); an older one, only the host.
+        if let live, let origin = tab.iconOrigin,
+           live.revision != nil ? browserTabOriginKey(origin.absoluteString) != live.origin
+               : origin.host?.lowercased() != live.host?.lowercased() {
             origins.invalidate(tab.target)
             tab.iconOrigin = nil
         }
     } else {
-        tab.siteIcon = continuity.icon(for: tab, now: now) ?? tab.extensionTab.flatMap { keptIcon($0.source, tab.host) }
+        tab.siteIcon = continuity.icon(for: tab, reported: live, fallback: keptIcon)
     }
     return tab
 }

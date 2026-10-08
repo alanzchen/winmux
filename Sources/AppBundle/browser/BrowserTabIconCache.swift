@@ -1,62 +1,106 @@
 import CryptoKit
 import Foundation
 
-/// Keeps a tab's website icon through brief gaps in what the extension says about it, and only
-/// for the same page. Keyed by the native tab, which is never reused: a tab id an extension
-/// reuses after a restart, or a new transport epoch, starts over (`SafariExtensionTabKey.source`
-/// names the profile, session and epoch).
+/// Keeps a tab's website icon while the extension's latest report describes the same page
+/// without one, and never across a page change. The page is the extension's whole word for it,
+/// from the live report of the extension tab the native tab is bound to: the scoped tab key
+/// (browser profile, extension session, transport epoch and tab id), the page's origin and the
+/// extension's page revision, which changes with every address the tab commits. A title or host
+/// is never taken as evidence the page is the same.
 ///
-/// - A description of the tab without an icon, from the same scope and for the same host, keeps
-///   the icon it last had: the extension can omit one while it rasterizes the page's again.
-/// - A description for another host, without a host, or from another scope drops it: a page
-///   navigated away never shows the previous site's icon.
-/// - While nothing describes the tab (a report gap, a disconnect), it keeps the icon as long as
-///   the tab's title is unchanged, for at most `gapLifetime`: a navigation changes the title.
+/// - The same page reported without an icon keeps the icon it last had, even after a report gap
+///   in between: its revision says no address was committed meanwhile.
+/// - While no live report has the bound tab (a gap or a disconnect), the app icon, whatever the
+///   extension. A tab not bound by id, or one an older extension (without revisions) reports,
+///   shows only what the extension describes, as before.
+/// - Another page (another revision, origin or tab key) drops what was held. The kept icon of its
+///   origin (`fallback`) then shows only if it isn't what the tab showed before, so a fallback
+///   never brings a revoked icon back.
+/// Keyed by the native tab, which is never reused.
 struct BrowserTabSiteIconContinuity {
-    private struct Held: Equatable {
-        let scope: String
-        let host: String
-        let icon: String
-        let title: String
-        let confirmed: TimeInterval
+    private struct Page: Equatable {
+        let tab: SafariExtensionTabKey
+        let origin: String
+        let revision: String
     }
-    private var held: [BrowserTabTarget: Held] = [:]
-    /// As long as a report keeps describing a window.
-    static let gapLifetime: TimeInterval = 150
+    private struct State {
+        var page: Page
+        /// What the extension last gave this page.
+        var icon: String?
+        /// What this page showed last, and what the page before showed, which the fallback mustn't bring back.
+        var shown: String?
+        var revoked: String?
+    }
+    private var states: [BrowserTabTarget: State] = [:]
 
-    /// The icon to show for `tab`, whose `siteIcon`, `host` and `extensionTab` say what the
-    /// extension describes now (all nil while it describes nothing).
-    mutating func icon(for tab: BrowserTab, now: TimeInterval) -> String? {
-        let target = tab.target
-        guard let scope = tab.extensionTab?.source else {
-            // Nothing describes it now, or only a position pairing that proves no tab identity.
-            guard tab.host == nil, tab.siteIcon == nil, let kept = held[target], kept.title == tab.title,
-                  now - kept.confirmed < Self.gapLifetime else {
-                held[target] = nil
-                return tab.siteIcon
-            }
-            return kept.icon
-        }
-        guard let host = tab.host else {
-            held[target] = nil
-            return tab.siteIcon
-        }
-        if let icon = tab.siteIcon {
-            held[target] = Held(scope: scope, host: host, icon: icon, title: tab.title, confirmed: now)
-            return icon
-        }
-        guard let kept = held[target], kept.scope == scope, kept.host == host else {
-            held[target] = nil
-            return nil
-        }
-        held[target] = Held(scope: scope, host: host, icon: kept.icon, title: tab.title, confirmed: kept.confirmed)
-        return kept.icon
+    /// The icon to show for `tab`, as the association describes it (`siteIcon`, `extensionTab`,
+    /// `pageRevision`). `reported` is the live report's tab for its bound key, if any; `fallback`
+    /// gives the kept icon of an origin, for the tab's report source.
+    mutating func icon(for tab: BrowserTab, reported: SafariExtensionTab?,
+                       fallback: (SafariExtensionTabKey, String) -> String?) -> String? {
+        guard let key = tab.extensionTab else { return tab.siteIcon }
+        guard let reported else { return nil }
+        guard let origin = reported.origin, let revision = reported.revision else { return tab.siteIcon }
+        let page = Page(tab: key, origin: origin, revision: revision)
+        var state = states[tab.target].map { $0.page == page ? $0 : State(page: page, revoked: $0.shown ?? $0.revoked) }
+            ?? State(page: page)
+        if let icon = reported.icon { state.icon = icon }
+        state.shown = state.icon ?? fallback(key, origin).flatMap { $0 == state.revoked ? nil : $0 }
+        states[tab.target] = state
+        return state.shown
     }
 
-    mutating func retain(_ targets: Set<BrowserTabTarget>) { held = held.filter { targets.contains($0.key) } }
+    mutating func retain(_ targets: Set<BrowserTabTarget>) { states = states.filter { targets.contains($0.key) } }
 
     /// Icons held for tabs, which the icon store must keep.
-    var icons: Set<String> { Set(held.values.map(\.icon)) }
+    var icons: Set<String> { Set(states.values.flatMap { [$0.icon, $0.shown].compactMap { $0 } }) }
+    var count: Int { states.count }
+}
+
+/// At most `capacity` values, each dropped `lifetime` after its last use, least recently used
+/// first: for indexes that must not grow with browsing history.
+struct BrowserTabRecency<Key: Hashable, Value> {
+    private var entries: [Key: (value: Value, used: TimeInterval)] = [:]
+    let capacity: Int
+    let lifetime: TimeInterval
+
+    init(capacity: Int, lifetime: TimeInterval) {
+        self.capacity = capacity
+        self.lifetime = lifetime
+    }
+
+    var count: Int { entries.count }
+    var values: [Value] { entries.values.map(\.value) }
+
+    /// The value, which counts as a use.
+    mutating func value(_ key: Key, now: TimeInterval) -> Value? {
+        guard let entry = entries[key] else { return nil }
+        guard now - entry.used < lifetime else {
+            entries[key] = nil
+            return nil
+        }
+        entries[key]?.used = now
+        return entry.value
+    }
+
+    func peek(_ key: Key, now: TimeInterval) -> Value? {
+        entries[key].flatMap { now - $0.used < lifetime ? $0.value : nil }
+    }
+
+    mutating func set(_ key: Key, _ value: Value, now: TimeInterval) {
+        entries[key] = (value, now)
+        guard entries.count > capacity else { return }
+        // Trims in batches, so filling up costs one sort per eighth of the capacity.
+        let kept = entries.filter { now - $0.value.used < lifetime }
+            .sorted { $0.value.used > $1.value.used }.prefix(max(1, capacity - capacity / 8))
+        entries = Dictionary(uniqueKeysWithValues: kept.map { ($0.key, $0.value) })
+    }
+
+    mutating func removeAll(where shouldRemove: (Key, Value) -> Bool) {
+        entries = entries.filter { !shouldRemove($0.key, $0.value.value) }
+    }
+
+    mutating func removeAll() { entries = [:] }
 }
 
 /// Website icons kept across WinMux launches, so a tab whose page the extension can't describe
@@ -64,10 +108,12 @@ struct BrowserTabSiteIconContinuity {
 ///
 /// Each icon is the 32-pixel PNG WinMux made from what the extension sent, filed under the icon's
 /// key with the SHA-256 of its bytes, checked again when read. An index maps a keyed hash of the
-/// browser profile and the site's host name to it: no host name, address, title or page content
-/// is written, and nothing from Private Browsing, which the extension never reports. At most
-/// `maximumEntries` sites and `maximumBytes` of images, each dropped after `lifetime` unused,
-/// least recently used first. Readable only by the user, under the app's Caches folder.
+/// browser profile and the site's origin (scheme, host and port) to it: no host name, address,
+/// title or page content is written, and nothing from Private Browsing, which the extension never
+/// reports. At most `maximumEntries` sites and `maximumBytes` of images, least recently used
+/// first; a site unused for `lifetime` is never read again, and its image is deleted at the next
+/// `prune` (WinMux prunes when it first reads the folder, on each write, and hourly while
+/// reports arrive). Readable only by the user, under the app's Caches folder.
 final class BrowserTabIconDiskCache: @unchecked Sendable {
     static let maximumEntries = 512
     static let maximumBytes = 8 * 1024 * 1024
@@ -120,16 +166,17 @@ final class BrowserTabIconDiskCache: @unchecked Sendable {
         return "\(browser):\(profile)"
     }
 
-    /// The icon key and 32-pixel PNG kept for a site's host in a profile, if still valid.
-    func icon(partition: String, host: String) -> (key: String, png: Data)? {
+    /// The icon key and 32-pixel PNG kept for a site's origin in a profile, if still valid.
+    func icon(partition: String, origin: String) -> (key: String, png: Data)? {
         lock.lock()
         defer { lock.unlock() }
-        guard var index = loadIndex(), let name = name(partition: partition, host: host), var entry = index.entries[name] else { return nil }
+        guard var index = loadIndex(), let name = name(partition: partition, origin: origin), var entry = index.entries[name] else { return nil }
         let now = clock()
         guard now - entry.used < lifetime,
               let png = try? Data(contentsOf: iconFile(entry.icon)), png.count == entry.bytes,
               Self.digest(png) == entry.digest, BrowserTabIconDownload.thumbnail(png) != nil else {
             index.entries[name] = nil
+            evict(&index)
             self.index = index
             write(index)
             return nil
@@ -141,13 +188,13 @@ final class BrowserTabIconDiskCache: @unchecked Sendable {
         return (entry.icon, png)
     }
 
-    /// Keeps `png`, the icon the extension's key `icon` names, for a site's host in a profile.
-    func store(partition: String, host: String, icon: String, png: Data) {
+    /// Keeps `png`, the icon the extension's key `icon` names, for a site's origin in a profile.
+    func store(partition: String, origin: String, icon: String, png: Data) {
         guard SafariExtensionMessage.isIconKey(icon), png.count <= Self.maximumIconBytes,
               BrowserTabIconDownload.thumbnail(png) != nil else { return }
         lock.lock()
         defer { lock.unlock() }
-        guard var index = loadIndex(), let name = name(partition: partition, host: host) else { return }
+        guard var index = loadIndex(), let name = name(partition: partition, origin: origin) else { return }
         let digest = Self.digest(png)
         let now = clock()
         if let kept = index.entries[name], kept.icon == icon, kept.digest == digest {
@@ -166,6 +213,17 @@ final class BrowserTabIconDiskCache: @unchecked Sendable {
         evict(&index)
         self.index = index
         write(index)
+    }
+
+    /// Deletes sites unused for their lifetime, beyond the bounds, and images no site names.
+    func prune() {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let loaded = loadIndex() else { return }
+        var index = loaded
+        evict(&index)
+        self.index = index
+        if index.entries.count != loaded.entries.count { write(index) }
     }
 
     /// Everything, as when browser tabs are turned off.
@@ -212,9 +270,9 @@ final class BrowserTabIconDiskCache: @unchecked Sendable {
         return loaded
     }
 
-    private func name(partition: String, host: String) -> String? {
-        guard let secret, !host.isEmpty else { return nil }
-        let code = HMAC<SHA256>.authenticationCode(for: Data("\(partition)\n\(host.lowercased())".utf8), using: secret)
+    private func name(partition: String, origin: String) -> String? {
+        guard let secret, let origin = browserTabOriginKey(origin) else { return nil }
+        let code = HMAC<SHA256>.authenticationCode(for: Data("\(partition)\n\(origin)".utf8), using: secret)
         return code.map { String(format: "%02x", $0) }.joined()
     }
 
