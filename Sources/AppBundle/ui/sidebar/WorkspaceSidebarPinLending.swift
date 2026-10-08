@@ -70,7 +70,8 @@ extension WorkspaceSidebarItemAppearance {
         if let lent = lentWindow, gone(lent) { lentWindow = nil }
         guard var composition else { return }
         composition.away.removeAll { gone($0.window) }
-        composition.layout = composition.layout.removing(where: gone) ?? composition.layout
+        // Its last window gone, it's still a pinned split, with none.
+        composition.layout = composition.layout.removing(where: gone) ?? .empty
         self.composition = composition
     }
 
@@ -131,26 +132,29 @@ enum WorkspaceSidebarPinSplitRole: Equatable {
 
 @MainActor
 func workspaceSidebarPinSplitRole(_ pin: Workspace) -> WorkspaceSidebarPinSplitRole {
-    if workspaceSidebarOrganizationStore.state.workspaces[pin.name]?.composition != nil { return .composition }
+    let state = workspaceSidebarOrganizationStore.state
+    if state.workspaces[pin.name]?.composition != nil { return .composition }
     let windows = pin.allLeafWindowsRecursive
     if windows.isEmpty { return workspaceSidebarLentWindow(of: pin) == nil ? .empty : .refuses }
     let tiled = windows.filter { $0.parent is TilingContainer }
-    // A pinned split from before it was kept as one.
-    if tiled.count > 1 { return .composition }
+    // A pinned split from before they were recorded, until it is: then only the record says.
+    if state.pinnedSplitsRecorded != true, tiled.count > 1 { return .composition }
     guard windows.count == 1, let window = tiled.first else { return .refuses }
     return .single(window)
 }
 
-/// A pin's part in a move as it was at a release: what a drop on it did then, with which window.
+/// A tab's part in a move as it was at a release: what a drop on it did then, with which window.
 enum WorkspaceSidebarPinRoleSnapshot: Hashable {
+    /// Not a pin: a drop goes into it, as into any tab.
+    case ordinary
     case empty
     case single(WorkspaceSidebarPinWindow)
     case refuses
 }
 
 @MainActor
-func workspaceSidebarPinRoleSnapshot(_ workspace: Workspace) -> WorkspaceSidebarPinRoleSnapshot? {
-    guard config.usesBrowserTabs, workspaceSidebarIsPinned(workspace) else { return nil }
+func workspaceSidebarPinRoleSnapshot(_ workspace: Workspace) -> WorkspaceSidebarPinRoleSnapshot {
+    guard config.usesBrowserTabs, workspaceSidebarIsPinned(workspace) else { return .ordinary }
     return switch workspaceSidebarPinSplitRole(workspace) {
         case .empty: .empty
         case .single(let window): .single(.init(window))
@@ -260,6 +264,7 @@ func moveWorkspaceSidebarNodeKeepingPins(_ node: TreeNode, onto target: Workspac
         try move(target)
         return true
     }
+    syncWorkspaceSidebarPinCompositions()
     guard workspaceSidebarPinPolicyAllows(node, into: target) else { return false }
     let loan = workspaceSidebarPinLoan(taking: node, to: target)
     return try withWorkspaceSidebarDropTransaction {
@@ -274,6 +279,7 @@ func moveWorkspaceSidebarNodeKeepingPins(_ node: TreeNode, onto target: Workspac
 /// lends it there. If any of it can't be done, nothing changes.
 @MainActor
 func moveWorkspaceSidebarNodeOutKeepingPins(_ node: TreeNode, _ move: () -> Bool) throws -> Bool {
+    if config.usesBrowserTabs { syncWorkspaceSidebarPinCompositions() }
     guard config.usesBrowserTabs, let loan = workspaceSidebarPinLoan(taking: node) else { return move() }
     return try withWorkspaceSidebarDropTransaction {
         guard move() else { return false }
@@ -288,27 +294,73 @@ func moveWorkspaceSidebarNodeOutKeepingPins(_ node: TreeNode, _ move: () -> Bool
 @MainActor
 func moveWindowToWorkspaceKeepingPins(_ window: Window, _ target: Workspace, _ io: CmdIo, focusFollowsWindow: Bool,
                                       failIfNoop: Bool, index: Int = INDEX_BIND_LAST) -> Bool {
+    do {
+        return try moveWindowToWorkspaceUnderPinPolicy(window, target, io, focusFollowsWindow: focusFollowsWindow,
+            failIfNoop: failIfNoop, index: index)
+    } catch {
+        return io.err(error.localizedDescription)
+    }
+}
+
+/// `moveWindowToWorkspaceKeepingPins`, throwing the policy's refusal, or an error saving the pins, for
+/// a caller that reports them itself.
+@MainActor
+func moveWindowToWorkspaceUnderPinPolicy(_ window: Window, _ target: Workspace, _ io: CmdIo, focusFollowsWindow: Bool,
+                                         failIfNoop: Bool, index: Int = INDEX_BIND_LAST) throws -> Bool {
     guard config.usesBrowserTabs, window.nodeWorkspace != target else {
         return moveWindowToWorkspace(window, target, io, focusFollowsWindow: focusFollowsWindow, failIfNoop: failIfNoop, index: index)
     }
     var moved = false
-    do {
-        let allowed = try moveWorkspaceSidebarNodeKeepingPins(window, onto: target) { destination in
-            // The pin's window came to the window's own tab, which it was the whole of: it stays.
-            if destination === window.nodeWorkspace, destination !== target {
-                moved = window.focusWindow()
-                return
-            }
-            moved = moveWindowToWorkspace(window, destination, io, focusFollowsWindow: focusFollowsWindow || destination !== target,
-                failIfNoop: failIfNoop, index: destination === target ? index : INDEX_BIND_LAST)
+    let allowed = try moveWorkspaceSidebarNodeKeepingPins(window, onto: target) { destination in
+        // The pin's window came to the window's own tab, which it was the whole of: it stays.
+        if destination === window.nodeWorkspace, destination !== target {
+            moved = window.focusWindow()
+            return
         }
-        guard allowed else {
-            return io.err("Workspace '\(target.name)' is a pinned split, or a pin whose window is in another tab: it takes no window")
-        }
-    } catch {
-        return io.err(error.localizedDescription)
+        moved = moveWindowToWorkspace(window, destination, io, focusFollowsWindow: focusFollowsWindow || destination !== target,
+            failIfNoop: failIfNoop, index: destination === target ? index : INDEX_BIND_LAST)
     }
+    guard allowed else { throw workspaceSidebarPinRefusal(target, taking: 1) }
     return moved
+}
+
+/// Why the pins' policy refuses `node` into `target`, said plainly; nil where it allows it.
+@MainActor
+func workspaceSidebarPinPolicyRefusal(_ node: TreeNode, into target: Workspace) -> WorkspaceSidebarPinPolicyRefusal? {
+    workspaceSidebarPinPolicyAllows(node, into: target)
+        ? nil : workspaceSidebarPinRefusal(target, taking: node.allLeafWindowsRecursive.count)
+}
+
+@MainActor
+private func workspaceSidebarPinRefusal(_ pin: Workspace, taking count: Int) -> WorkspaceSidebarPinPolicyRefusal {
+    switch workspaceSidebarPinSplitRole(pin) {
+        case .composition: .init("Workspace '\(pin.name)' is a pinned split: it takes no other window")
+        case .empty: .init("Workspace '\(pin.name)' is an empty pin: it takes one window, not \(count)")
+        case .single: .init("Workspace '\(pin.name)' is a pin with one window: a split with it goes to an ordinary tab, "
+            + "which a layout for the pin can't make; move the window to it instead")
+        case .refuses: .init("Workspace '\(pin.name)' is a pin whose window is in another tab, or isn't laid out: it takes no window")
+    }
+}
+
+/// An agent's layout of a whole tab, `target`, with `windows` in it, under the pins' policy: a pin takes
+/// no window it hasn't got, but an empty pin one. A layout for a pin can't make the ordinary split the
+/// pins' rule makes instead, so it's refused, before anything changes. Nil where it may be made.
+@MainActor
+func workspaceSidebarPinLayoutRefusal(_ windows: [Window], for target: Workspace) -> WorkspaceSidebarPinPolicyRefusal? {
+    guard config.usesBrowserTabs, workspaceSidebarIsPinned(target) else { return nil }
+    let own = Set(target.allLeafWindowsRecursive.map(\.windowId))
+    guard windows.contains(where: { !own.contains($0.windowId) }) else { return nil }
+    if workspaceSidebarPinSplitRole(target) == .empty, windows.count == 1 { return nil }
+    return workspaceSidebarPinRefusal(target, taking: windows.count)
+}
+
+/// Records several pins' loans at once, before the move they're for, which is made all at once.
+@MainActor
+func lendWorkspaceSidebarPinWindows(_ loans: [WorkspaceSidebarPinLoan]) throws {
+    guard !loans.isEmpty else { return }
+    try workspaceSidebarOrganizationStore.update { state in
+        for loan in loans { state.workspaces[loan.pin.name, default: .init()].lentWindow = .init(loan.window) }
+    }
 }
 
 // MARK: Pinned splits
@@ -317,8 +369,83 @@ func moveWindowToWorkspaceKeepingPins(_ window: Window, _ target: Workspace, _ i
 /// in their places.
 @MainActor
 func workspaceSidebarNewComposition(for workspace: Workspace) -> WorkspaceSidebarPinComposition? {
-    guard config.usesBrowserTabs, workspace.rootTilingContainer.allLeafWindowsRecursive.count > 1 else { return nil }
+    guard config.usesBrowserTabs else { return nil }
+    return workspaceSidebarCompositionOfTree(workspace)
+}
+
+@MainActor
+private func workspaceSidebarCompositionOfTree(_ workspace: Workspace) -> WorkspaceSidebarPinComposition? {
+    guard workspace.rootTilingContainer.allLeafWindowsRecursive.count > 1 else { return nil }
     return .init(layout: workspaceSidebarCompositionLayout(of: workspace.rootTilingContainer, weight: 1))
+}
+
+/// Pinned splits from before they were recorded: a pin with two laid-out windows or more, now or as
+/// its tab was last saved, is recorded as a pinned split, once. One whose windows aren't back yet is
+/// recorded with none, and takes them in as they come back. After that, a pin with more windows that
+/// wasn't pinned as a split, an app's own new window in it, isn't one.
+@MainActor
+func recordLegacyWorkspaceSidebarPinnedSplits() {
+    let store = workspaceSidebarOrganizationStore
+    guard store.readOnlyReason == nil, store.state.pinnedSplitsRecorded != true else { return }
+    var recorded: [String: WorkspaceSidebarPinComposition] = [:]
+    for (name, appearance) in store.state.workspaces where appearance.isFavorite && appearance.composition == nil {
+        if let workspace = Workspace.existing(byName: name), let now = workspaceSidebarCompositionOfTree(workspace) {
+            recorded[name] = now
+        } else if (savedWorkspaceStore.record(named: name)?.layout.root.allSlots.count ?? 0) > 1 {
+            recorded[name] = .init(layout: .empty)
+        }
+    }
+    try? store.update { state in
+        for (name, composition) in recorded { state.workspaces[name]?.composition = composition }
+        state.pinnedSplitsRecorded = true
+    }
+}
+
+/// Keeps each pinned split's record whole: its type, recorded once, and the windows it holds now. A
+/// window that came into it, as its tab was reopened or restored, or opened by its app there, is
+/// one of its own, in its place; those of its windows open elsewhere stay its own too. Run before
+/// anything changes which windows it has, and after every change to the windows.
+@MainActor
+func syncWorkspaceSidebarPinCompositions() {
+    recordLegacyWorkspaceSidebarPinnedSplits()
+    let store = workspaceSidebarOrganizationStore
+    guard store.readOnlyReason == nil else { return }
+    var enrolled: [String: WorkspaceSidebarPinComposition] = [:]
+    for (name, appearance) in store.state.workspaces where appearance.isFavorite {
+        guard let composition = appearance.composition, let split = Workspace.existing(byName: name) else { continue }
+        let known = composition.layout.windows + composition.away.map(\.window)
+        let tiled = split.rootTilingContainer.allLeafWindowsRecursive
+        guard tiled.contains(where: { window in !known.contains { $0.live === window } }) else { continue }
+        enrolled[name] = workspaceSidebarComposition(composition, retakenFrom: split)
+    }
+    guard !enrolled.isEmpty else { return }
+    try? store.update { state in
+        for (name, composition) in enrolled { state.workspaces[name]?.composition = composition }
+    }
+}
+
+/// `composition`'s layout taken again from `split` as it is now, each window in its place, and its
+/// windows open elsewhere after them, so they stay its own.
+@MainActor
+private func workspaceSidebarComposition(_ composition: WorkspaceSidebarPinComposition,
+                                         retakenFrom split: Workspace) -> WorkspaceSidebarPinComposition {
+    let root = split.rootTilingContainer
+    let present = root.allLeafWindowsRecursive
+    let elsewhere = composition.layout.removing { link in link.live.map { window in present.contains { $0 === window } } ?? true }
+    var orientation = Orientation.h
+    var children: [WorkspaceSidebarCompositionNode] = []
+    if !present.isEmpty {
+        switch workspaceSidebarCompositionLayout(of: root, weight: 1) {
+            case .split(let rootOrientation, _, let rootChildren):
+                orientation = rootOrientation
+                children = rootChildren
+            case let node: children = [node]
+        }
+    }
+    if let elsewhere { children.append(elsewhere) }
+    var result = composition
+    result.layout = children.count == 1 ? children[0].withWeight(1) : .split(orientation, weight: 1, children: children)
+    return result
 }
 
 @MainActor
@@ -338,6 +465,9 @@ private func workspaceSidebarCompositionLayout(of node: TreeNode, weight: CGFloa
 }
 
 extension WorkspaceSidebarCompositionNode {
+    /// A pinned split's layout with no window in it.
+    static var empty: Self { .split(.h, weight: 1, children: []) }
+
     var windows: [WorkspaceSidebarPinWindow] {
         switch self {
             case .window(let window, _): [window]
@@ -359,7 +489,7 @@ extension WorkspaceSidebarCompositionNode {
         }
     }
 
-    private func withWeight(_ weight: CGFloat) -> Self {
+    func withWeight(_ weight: CGFloat) -> Self {
         switch self {
             case .window(let window, _): .window(window, weight: weight)
             case .split(let orientation, _, let children): .split(orientation, weight: weight, children: children)
@@ -467,6 +597,7 @@ enum WorkspaceSidebarPinRecall: Equatable {
 @MainActor
 func recallWorkspaceSidebarPinWindows(_ pin: Workspace) throws -> WorkspaceSidebarPinRecall {
     guard config.usesBrowserTabs, workspaceSidebarIsPinned(pin) else { return .nothing }
+    syncWorkspaceSidebarPinCompositions()
     if workspaceSidebarPinSplitRole(pin) == .composition { return try recallWorkspaceSidebarComposition(pin) }
     guard pin.allLeafWindowsRecursive.isEmpty, let window = workspaceSidebarLentWindow(of: pin) else { return .nothing }
     if window.parent is MacosMinimizedWindowsContainer { return .minimized(window) }
@@ -477,8 +608,8 @@ func recallWorkspaceSidebarPinWindows(_ pin: Workspace) throws -> WorkspaceSideb
     let fromComposition = from.flatMap { split -> WorkspaceSidebarPinComposition? in
         guard workspaceSidebarIsPinned(split), workspaceSidebarPinSplitRole(split) == .composition,
               var composition = workspaceSidebarComposition(of: split) else { return nil }
-        if composition.away.allSatisfy({ $0.window.live == nil }), let now = workspaceSidebarNewComposition(for: split) {
-            composition.layout = now.layout
+        if composition.away.allSatisfy({ $0.window.live == nil }) {
+            composition = workspaceSidebarComposition(composition, retakenFrom: split)
         }
         composition.away = composition.away.filter { $0.window.live != nil && $0.window.windowId != window.windowId }
             + [.init(window: .init(window), pinName: pin.name)]

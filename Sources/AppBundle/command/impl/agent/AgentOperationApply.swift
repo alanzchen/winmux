@@ -10,9 +10,9 @@ extension AgentOperation {
             case .focusWorkspace(let workspace):
                 _ = Workspace.existing(byName: workspace)?.focusWorkspace()
             case .moveWindowToWorkspace(let windowId, let workspace, let shouldFocus):
-                applyMoveWindowToWorkspace(windowId, workspace: workspace, shouldFocus: shouldFocus)
+                try applyMoveWindowToWorkspace(windowId, workspace: workspace, shouldFocus: shouldFocus)
             case .moveTabGroupToWorkspace(let tabGroupId, let workspace, let shouldFocus):
-                applyMoveTabGroupToWorkspace(tabGroupId, workspace: workspace, shouldFocus: shouldFocus, context: context)
+                try applyMoveTabGroupToWorkspace(tabGroupId, workspace: workspace, shouldFocus: shouldFocus, context: context)
             case .swapPanes(let a, let b):
                 guard let nodeA = a.resolveNode(context: context), let nodeB = b.resolveNode(context: context) else { return }
                 // Never across tabs with a pin, whose window would change.
@@ -29,9 +29,12 @@ extension AgentOperation {
                 }
                 guard try moveWorkspaceSidebarNodeKeepingPins(source, onto: targetWorkspace, { _ in
                     placeAgentPane(source, relation: relation, target: target)
-                }) else { throw WorkspaceSidebarPinPolicyRefusal("placePane: \(targetWorkspace.name) is a pinned split, or a pin whose window is in another tab") }
+                }) else {
+                    throw WorkspaceSidebarPinPolicyRefusal("placePane: "
+                        + (workspaceSidebarPinPolicyRefusal(source, into: targetWorkspace)?.message ?? "refused"))
+                }
             case .createTabGroup(let tabGroupId, let workspace, let tabs, let activeWindowId):
-                applyCreateTabGroup(tabGroupId, workspace: workspace, tabs: tabs, activeWindowId: activeWindowId, context: &context)
+                try applyCreateTabGroup(tabGroupId, workspace: workspace, tabs: tabs, activeWindowId: activeWindowId, context: &context)
             case .addWindowToTabGroup(let windowId, let tabGroupId, let activeWindowId):
                 applyAddWindowToTabGroup(windowId, tabGroupId: tabGroupId, activeWindowId: activeWindowId, context: context)
             case .moveWindowOutOfTabGroup(let windowId):
@@ -49,7 +52,7 @@ extension AgentOperation {
             case .closeWindow(let windowId, let quitAppIfLastWindow):
                 try await applyCloseWindow(windowId, quitAppIfLastWindow: quitAppIfLastWindow)
             case .parkWindow(let pane, let workspace):
-                applyParkWindow(pane, workspace: workspace, context: context)
+                try applyParkWindow(pane, workspace: workspace, context: context)
             case .setPaneSize(let pane, let axis, let size):
                 guard let node = pane.resolveNode(context: context) else { return }
                 setAgentPaneSize(node, axis: axis, size: size)
@@ -59,10 +62,12 @@ extension AgentOperation {
     }
 
     @MainActor
-    private func applyMoveWindowToWorkspace(_ windowId: UInt32, workspace: String, shouldFocus: Bool?) {
+    private func applyMoveWindowToWorkspace(_ windowId: UInt32, workspace: String, shouldFocus: Bool?) throws {
         guard let window = Window.get(byId: windowId) else { return }
         let targetWorkspace = getAgentTargetWorkspace(named: workspace, projectSource: window.nodeWorkspace, monitorSource: window)
-        _ = agentMoveWindowToWorkspace(window, targetWorkspace, focusFollowsWindow: shouldFocus ?? false)
+        try withAgentPinRefusal("moveWindowToWorkspace window \(windowId)") {
+            _ = try agentMoveWindowToWorkspace(window, targetWorkspace, focusFollowsWindow: shouldFocus ?? false)
+        }
     }
 
     @MainActor
@@ -71,14 +76,16 @@ extension AgentOperation {
         workspace: String,
         shouldFocus: Bool?,
         context: AgentApplyContext,
-    ) {
+    ) throws {
         guard let group = resolveAgentTabGroup(tabGroupId, context: context) else { return }
         let targetWorkspace = getAgentTargetWorkspace(named: workspace, projectSource: group.nodeWorkspace, monitorSource: group)
         // As the pins' policy says: a pin with one window keeps it, a pinned split takes no group.
-        guard (try? moveWorkspaceSidebarNodeKeepingPins(group, onto: targetWorkspace, { destination in
-            let binding = workspaceAppendBindingData(targetWorkspace: destination, index: INDEX_BIND_LAST)
-            group.bind(to: binding.parent, adaptiveWeight: binding.adaptiveWeight, index: binding.index)
-        })) == true else { return }
+        try withAgentPinRefusal("moveTabGroupToWorkspace '\(tabGroupId)'") {
+            guard try moveWorkspaceSidebarNodeKeepingPins(group, onto: targetWorkspace, { destination in
+                let binding = workspaceAppendBindingData(targetWorkspace: destination, index: INDEX_BIND_LAST)
+                group.bind(to: binding.parent, adaptiveWeight: binding.adaptiveWeight, index: binding.index)
+            }) else { throw workspaceSidebarPinPolicyRefusal(group, into: targetWorkspace) ?? WorkspaceSidebarPinPolicyRefusal("refused") }
+        }
         if shouldFocus ?? false { _ = group.mostRecentWindowRecursive?.focusWindow() }
     }
 
@@ -89,13 +96,15 @@ extension AgentOperation {
         tabs: [UInt32],
         activeWindowId: UInt32?,
         context: inout AgentApplyContext,
-    ) {
+    ) throws {
         let windows = tabs.compactMap { Window.get(byId: $0) }
         guard let first = windows.first else { return }
         let workspaceName = workspace ?? first.nodeWorkspace?.name ?? focus.workspace.name
         let targetWorkspace = getAgentTargetWorkspace(named: workspaceName, projectSource: first.nodeWorkspace, monitorSource: first)
         for window in windows where window.nodeWorkspace != targetWorkspace {
-            _ = agentMoveWindowToWorkspace(window, targetWorkspace, focusFollowsWindow: false)
+            try withAgentPinRefusal("createTabGroup window \(window.windowId)") {
+                _ = try agentMoveWindowToWorkspace(window, targetWorkspace, focusFollowsWindow: false)
+            }
         }
         for window in windows.dropFirst() {
             createOrAppendWindowTabStack(sourceWindow: window, onto: first)
@@ -163,18 +172,28 @@ extension AgentOperation {
     }
 
     @MainActor
-    private func applyParkWindow(_ pane: AgentPaneRef, workspace: String?, context: AgentApplyContext) {
+    private func applyParkWindow(_ pane: AgentPaneRef, workspace: String?, context: AgentApplyContext) throws {
         guard let node = pane.resolveNode(context: context), let sourceWindow = node.mostRecentWindowRecursive ?? node.anyLeafWindowRecursive else { return }
         let workspaceName = workspace ?? "__agent_parked"
         let targetWorkspace = getAgentTargetWorkspace(named: workspaceName, projectSource: node.nodeWorkspace, monitorSource: node)
         // As the pins' policy says: a pin whose one window is parked lends it, and a pin takes no pane.
-        _ = try? moveWorkspaceSidebarNodeKeepingPins(node, onto: targetWorkspace) { destination in
-            if node is Window, sourceWindow.isFloating {
-                node.bind(to: destination, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
-            } else {
-                let binding = workspaceAppendBindingData(targetWorkspace: destination, index: INDEX_BIND_LAST)
-                node.bind(to: binding.parent, adaptiveWeight: binding.adaptiveWeight, index: binding.index)
-            }
+        try withAgentPinRefusal("parkWindow") {
+            guard try moveWorkspaceSidebarNodeKeepingPins(node, onto: targetWorkspace, { destination in
+                if node is Window, sourceWindow.isFloating {
+                    node.bind(to: destination, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
+                } else {
+                    let binding = workspaceAppendBindingData(targetWorkspace: destination, index: INDEX_BIND_LAST)
+                    node.bind(to: binding.parent, adaptiveWeight: binding.adaptiveWeight, index: binding.index)
+                }
+            }) else { throw workspaceSidebarPinPolicyRefusal(node, into: targetWorkspace) ?? WorkspaceSidebarPinPolicyRefusal("refused") }
+        }
+    }
+
+    /// Runs `move`, saying which operation a refusal or a failure to save the pins came from.
+    @MainActor
+    private func withAgentPinRefusal(_ operation: String, _ move: () throws -> Void) throws {
+        do { try move() } catch {
+            throw WorkspaceSidebarPinPolicyRefusal("\(operation): \(error.localizedDescription)")
         }
     }
 

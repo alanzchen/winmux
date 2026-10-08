@@ -117,6 +117,9 @@ struct WorkspaceSidebarOrganization: Codable, Equatable {
     var version = 1
     var collections: [WorkspaceTabCollection] = []
     var workspaces: [String: WorkspaceSidebarItemAppearance] = [:]
+    /// Tabs mode: pinned splits from before they were recorded (`composition`) have been recorded,
+    /// once. After that, only a split tab's menu Pin makes one.
+    var pinnedSplitsRecorded: Bool? = nil
 }
 
 /// Atomic, explicit user edits. A failed or newer file stays untouched, and a failed
@@ -321,6 +324,8 @@ func loadWorkspaceSidebarOrganization() {
     }
     // Windows of a process that's gone, or of another boot, aren't lent or brought back.
     forgetWorkspaceSidebarPinWindowsNoLongerOpen()
+    // Pinned splits saved before they were recorded are recorded now, while their saved layout shows them.
+    recordLegacyWorkspaceSidebarPinnedSplits()
 }
 
 enum WorkspaceSidebarTabSection: Equatable, Identifiable {

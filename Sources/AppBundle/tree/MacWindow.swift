@@ -109,9 +109,10 @@ final class MacWindow: Window {
     //                        If you are unsure, it's better to pass `false`
     @MainActor
     func garbageCollect(skipClosedWindowsCache: Bool) {
-        if MacWindow.allWindowsMap.removeValue(forKey: windowId) == nil {
-            return
-        }
+        guard MacWindow.allWindowsMap[windowId] != nil else { return }
+        // A pinned split it was in knows it as its own before it goes, while it's still found.
+        syncWorkspaceSidebarPinCompositions()
+        MacWindow.allWindowsMap.removeValue(forKey: windowId)
         if !skipClosedWindowsCache { cacheClosedWindowIfNeeded() }
         removeClosedWindowFromTree()
         // Closed: no pin lends it, and no pinned split brings it back, any more.

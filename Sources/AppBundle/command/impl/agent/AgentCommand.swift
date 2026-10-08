@@ -47,7 +47,12 @@ struct AgentCommand: Command {
                 if !errors.isEmpty {
                     return io.err(errors.joinErrors())
                 }
-                try await request.apply()
+                // A move the pins' policy refuses, or that can't be saved, says so, and where.
+                do {
+                    try await request.apply()
+                } catch {
+                    return io.err("Agent apply stopped: \(error.localizedDescription)")
+                }
                 return true
             case .skill:
                 return io.out(agentSkillText)
@@ -191,6 +196,7 @@ private let agentSkillText = """
     - `size` is a proportional share of the parent split. Use `0.8` for 80%. `80` and `sizePercent: 80` are also accepted. If a sibling omits `size`, it receives an equal share of the remaining space.
     - For `setPaneSize`, add `"axis": "vertical"` when resizing a top/bottom split and `"axis": "horizontal"` when resizing a left/right split. Without `axis`, WinMux uses the nearest split containing the pane.
     - For "Chrome 80%, IDE column 20%, terminal below IDE", use a horizontal root split with Chrome tab group `size: 0.8` and a vertical split `size: 0.2` containing the IDE tab group and terminal.
+    - In Tabs mode, a pinned tab's layout may only arrange the windows it already has; an empty pin takes one window. To put a pin's window beside others, lay out an ordinary tab with it, or move another window to the pin: the two go to an ordinary tab and the pin lends its window. Apply refuses anything else, changing nothing, and says which workspace and why.
 
     For a full layout redesign, the `edit` object in the queried file should look like this. Keep the rest of the queried file unchanged:
     ```json

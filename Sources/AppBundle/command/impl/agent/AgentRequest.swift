@@ -106,6 +106,9 @@ struct AgentLayoutEdit: Codable {
 
     @MainActor
     func apply() async throws {
+        // Every tab's layout the pins' rule refuses is refused before any is made.
+        syncWorkspaceSidebarPinCompositions()
+        if let refusal = workspaces.lazy.compactMap({ $0.pinRefusal() }).first { throw refusal }
         for workspace in workspaces {
             try await workspace.apply()
         }

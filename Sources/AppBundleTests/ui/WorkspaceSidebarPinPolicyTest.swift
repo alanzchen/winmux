@@ -482,6 +482,7 @@ final class WorkspaceSidebarPinPolicyTest: XCTestCase {
         forgetWorkspaceSidebarPinWindows { $0.pid == 0 }
         XCTAssertNil(appearance("b")?.lentWindow, "Every window of a process that ended")
         XCTAssertNotNil(appearance("d")?.composition, "The pinned split stays one, with no window of its own")
+        XCTAssertEqual(appearance("d")?.composition?.layout, .empty, "Review V2 C: its last window goes from its layout too")
     }
 
     /// WinMux started again: a link stays only while its process may still have the window, the same
@@ -624,6 +625,262 @@ final class WorkspaceSidebarPinPolicyTest: XCTestCase {
         }
     }
 
+    // MARK: Review V2 A: an agent's whole-tab layout goes by the pins' rule
+
+    func testAnAgentLayoutPutsNoOtherWindowInAOneWindowPin() async throws {
+        for asOperation in [true, false] {
+            try await setUp()
+            let (a, _, d, _) = try tabs()
+            let result = try await applyAgentLayout("a", [1, 4], asOperation: asOperation)
+            XCTAssertEqual(result.exitCode, 1, "\(asOperation)")
+            XCTAssertTrue(result.stderr.joined().contains("setWorkspaceLayout 'a'"), "\(result.stderr)")
+            XCTAssertTrue(result.stderr.joined().contains("pin with one window"), "\(result.stderr)")
+            XCTAssertEqual(ids(a), [1], "Refused before anything changed")
+            XCTAssertEqual(ids(d), [4])
+            XCTAssertNil(appearance("a")?.composition, "No pinned split made")
+        }
+    }
+
+    func testAnAgentLayoutPutsOneWindowInAnEmptyPinAndNoMore() async throws {
+        for asOperation in [true, false] {
+            try await setUp()
+            let (_, _, d, e) = try tabs()
+            let z = Workspace.get(byName: "z")
+            try setWorkspaceSidebarTabFavorite(z, true)
+            let two = try await applyAgentLayout("z", [4, 5], asOperation: asOperation)
+            XCTAssertEqual(two.exitCode, 1, "\(asOperation)")
+            XCTAssertTrue(two.stderr.joined().contains("empty pin: it takes one window, not 2"), "\(two.stderr)")
+            XCTAssertEqual(ids(z), [])
+            XCTAssertEqual(ids(d), [4])
+            XCTAssertEqual(ids(e), [5, 6])
+            let one = try await applyAgentLayout("z", [4], asOperation: asOperation)
+            XCTAssertEqual(one.exitCode, 0, "\(one.stderr)")
+            XCTAssertEqual(ids(z), [4])
+        }
+    }
+
+    /// (Layouts here take windows from other tabs: unit tests find no window in a tab's replaced tree.)
+    func testAnAgentLayoutTakingAPinsWindowLendsIt() async throws {
+        for asOperation in [true, false] {
+            try await setUp()
+            let (a, _, d, e) = try tabs()
+            let one = try window(1)
+            let result = try await applyAgentLayout("n", [4, 1], asOperation: asOperation)
+            XCTAssertEqual(result.exitCode, 0, "\(result.stderr)")
+            XCTAssertEqual(ids(Workspace.get(byName: "n")), [4, 1])
+            XCTAssertEqual(ids(a), [])
+            XCTAssertTrue(workspaceSidebarLentWindow(of: a) === one, "\(asOperation): the pin lends it, grey")
+            XCTAssertFalse(workspaceSidebarIsPinned(Workspace.get(byName: "n")))
+            // Ordinary layouts are made as they always were.
+            let ordinary = try await applyAgentLayout("m", [6, 5], asOperation: asOperation)
+            XCTAssertEqual(ordinary.exitCode, 0, "\(ordinary.stderr)")
+            XCTAssertEqual(ids(Workspace.get(byName: "m")), [6, 5])
+            XCTAssertEqual(ids(e), [])
+            XCTAssertEqual(ids(d), [])
+        }
+    }
+
+    /// A request with a layout the pins' rule refuses changes nothing, not even its other edits.
+    func testAnAgentRequestWithARefusedLayoutChangesNothing() async throws {
+        let (a, _, d, e) = try tabs()
+        let result = try await agentApply("""
+            {"operations": [{"type": "moveWindowToWorkspace", "windowId": 6, "workspace": "d"}],
+             "layout": {"workspaces": [\(agentLayoutJson("d", [4, 5])), \(agentLayoutJson("a", [1, 4]))]}}
+            """)
+        XCTAssertEqual(result.exitCode, 1)
+        XCTAssertEqual(ids(a), [1])
+        XCTAssertEqual(ids(d), [4])
+        XCTAssertEqual(ids(e), [5, 6])
+    }
+
+    // MARK: Review V2 E: an agent's move the pins refuse says so, and where
+
+    func testAnAgentMoveThePinsRefuseIsReportedWithItsTargetAndReason() async throws {
+        let (a, _, d, e) = try tabs()
+        try setWorkspaceSidebarTabFavorite(e, true)
+        let intoSplit = try await agentApply(#"{"operations": [{"type": "moveWindowToWorkspace", "windowId": 4, "workspace": "e"}]}"#)
+        XCTAssertEqual(intoSplit.exitCode, 1)
+        XCTAssertTrue(intoSplit.stderr.joined().contains("moveWindowToWorkspace window 4"), "\(intoSplit.stderr)")
+        XCTAssertTrue(intoSplit.stderr.joined().contains("Workspace 'e' is a pinned split"), "\(intoSplit.stderr)")
+        XCTAssertEqual(ids(d), [4])
+        XCTAssertEqual(ids(e), [5, 6])
+
+        // Out of a pin, it lends its window; then the lending pin takes none, parked or moved.
+        let out = try await agentApply(#"{"operations": [{"type": "moveWindowToWorkspace", "windowId": 1, "workspace": "d"}]}"#)
+        XCTAssertEqual(out.exitCode, 0, "\(out.stderr)")
+        XCTAssertEqual(workspaceSidebarLentWindow(of: a)?.windowId, 1)
+        let park = try await agentApply(#"{"operations": [{"type": "parkWindow", "pane": {"windowId": 4}, "workspace": "a"}]}"#)
+        XCTAssertEqual(park.exitCode, 1)
+        XCTAssertTrue(park.stderr.joined().contains("parkWindow: Workspace 'a' is a pin whose window is in another tab"),
+            "\(park.stderr)")
+        XCTAssertEqual(Set(ids(d)), [1, 4])
+
+        // A move to where the window already is stays a quiet success, as before.
+        let noOp = try await agentApply(#"{"operations": [{"type": "moveWindowToWorkspace", "windowId": 4, "workspace": "d"}]}"#)
+        XCTAssertEqual(noOp.exitCode, 0, "\(noOp.stderr)")
+        XCTAssertEqual(noOp.stderr, [])
+    }
+
+    // MARK: Review V2 B: a pinned split keeps its type and its windows
+
+    /// A split pinned before pinned splits were recorded is recorded once, while it shows its windows,
+    /// and stays a pinned split as it loses them. One recorded with its tab's saved layout, its windows
+    /// not back yet, takes them in as they come back.
+    func testALegacyPinnedSplitIsRecordedOnceAndStaysOneAfterLosingAWindow() async throws {
+        let (_, b, d, _) = try tabs()
+        let s = tab("s", 7, 8)
+        let t = Workspace.get(byName: "t")
+        var saved = SavedWorkspaceRecord(workspaceName: "t")
+        saved.layout.root.children = [.slot(.init(bundleId: "com.example.notes")), .slot(.init(bundleId: "com.example.mail"))]
+        XCTAssertTrue(savedWorkspaceStore.insert(saved))
+        try workspaceSidebarOrganizationStore.update { state in
+            state.pinnedSplitsRecorded = nil
+            for name in ["s", "t"] { state.workspaces[name] = .init(isFavorite: true) }
+        }
+        XCTAssertEqual(workspaceSidebarPinSplitRole(s), .composition, "Before it's recorded, by its windows")
+        refreshModel()
+        XCTAssertEqual(workspaceSidebarOrganizationStore.state.pinnedSplitsRecorded, true)
+        XCTAssertEqual(appearance("s")?.composition?.layout.windows.map(\.windowId), [7, 8])
+        XCTAssertEqual(appearance("t")?.composition?.layout, .empty, "Its windows aren't back yet")
+
+        // s loses a window, closed; t gets one of its two back.
+        try window(8).unbindFromParent()
+        forgetWorkspaceSidebarPinWindows { $0.windowId == 8 }
+        _ = TestWindow.new(id: 9, parent: t.rootTilingContainer)
+        refreshModel()
+        XCTAssertEqual(appearance("t")?.composition?.layout.windows.map(\.windowId), [9], "Taken in as it came back")
+        for split in [s, t] {
+            XCTAssertEqual(workspaceSidebarPinSplitRole(split), .composition, "\(split.name): still a pinned split, with one window")
+            // Every gesture into it, or splitting it, is refused, as for any pinned split.
+            await queueWorkspaceSidebarDrop(4, subject: .window, target: .workspace(split.name), placement: .left,
+                intent: .physical)?.value
+            let only = try XCTUnwrap(split.anyLeafWindowRecursive)
+            try applyWorkspaceSidebarPinnedTabDrop(b, .split(split.name, placement: .left, projectId: b.projectId,
+                source: .init(try window(2)), target: .init(only)))
+            try applyWorkspaceSidebarPinnedTabDrop(split, .join("d", placement: .left, operation: .lend(.init(only))))
+            XCTAssertEqual(ids(split).count, 1, split.name)
+            XCTAssertEqual(ids(d), [4], split.name)
+            XCTAssertEqual(ids(b), [2], split.name)
+        }
+
+        // Recorded once: a one-window pin given a second window by its app later isn't made one.
+        _ = TestWindow.new(id: 10, parent: b.rootTilingContainer)
+        refreshModel()
+        XCTAssertNil(appearance("b")?.composition)
+        XCTAssertEqual(workspaceSidebarPinSplitRole(b), .refuses, "Two windows it wasn't pinned with: no splits, no pinned split")
+        try window(10).unbindFromParent()
+        XCTAssertEqual(workspaceSidebarPinSplitRole(b), .single(try window(2)))
+    }
+
+    /// A pinned split reopened takes in the windows reopened in it. Moved away from it, they keep it
+    /// from opening its saved apps again: a click brings back what it can and opens nothing.
+    func testAReopenedPinnedSplitKeepsItsNewWindowsAndOpensNothingWhileTheyreOpen() async throws {
+        let (_, _, d, _) = try tabs()
+        let s = tab("s", 7, 8)
+        try setWorkspaceSidebarTabFavorite(s, true)
+        XCTAssertEqual(appearance("s")?.composition?.layout.windows.map(\.windowId), [7, 8])
+        // Both closed, as WinMux forgets a closed window.
+        for id: UInt32 in [7, 8] {
+            try window(id).unbindFromParent()
+            forgetWorkspaceSidebarPinWindows { $0.windowId == id }
+        }
+        XCTAssertEqual(appearance("s")?.composition?.layout, .empty)
+        // Reopened: new windows come back into it, as saved routing restores them.
+        for id: UInt32 in [17, 18] { _ = TestWindow.new(id: id, parent: s.rootTilingContainer) }
+        refreshModel()
+        XCTAssertEqual(appearance("s")?.composition?.layout.windows.map(\.windowId), [17, 18], "Its own now")
+
+        for id: UInt32 in [17, 18] {
+            _ = try window(id).focusWindow()
+            try await assertMove(to: "d")
+        }
+        XCTAssertEqual(ids(s), [])
+        XCTAssertEqual(ids(d), [4, 17, 18])
+        XCTAssertTrue(workspaceSidebarPinRecallsWindows(s), "Its windows are open")
+        await updateWorkspaceSidebarModel()
+        let tile = try XCTUnwrap(TrayMenuModel.shared.workspaceSidebarWorkspaces.first { $0.name == "s" })
+        XCTAssertTrue(tile.recallsWindows, "Its tile's click recalls, instead of opening its saved apps")
+
+        let windowCount = allWindowCount()
+        recallPinWindowsFromSidebar("s", focusing: nil, targetMonitorScopeId: nil)
+        try await waitUntil { !self.notices.isEmpty }
+        XCTAssertEqual(allWindowCount(), windowCount, "No new window")
+        XCTAssertEqual(ids(d), [4, 17, 18], "None taken from another tab")
+        XCTAssertTrue(notices[0].contains("open elsewhere"), notices[0])
+    }
+
+    // MARK: Review V2 C: a closed window leaves no link behind
+
+    /// A pinned split's last window closed, or all of them dropped as WinMux starts, it keeps no link to
+    /// them: a later window given the same number by the same process isn't taken for one of its own.
+    func testAPinnedSplitForgetsItsLastWindowAndDoesntTakeANewOneForIt() async throws {
+        let launch = Date(timeIntervalSince1970: 2_000_000)
+        let notes = TestApp(pid: 501, bundleId: "com.example.notes", launchDate: launch)
+        let s = Workspace.get(byName: "s"), d = tab("d", 4)
+        for id: UInt32 in [30, 31] { _ = TestWindow.new(id: id, parent: s.rootTilingContainer, app: notes) }
+        try setWorkspaceSidebarTabFavorite(s, true)
+        for id: UInt32 in [30, 31] {
+            try window(id).unbindFromParent()
+            forgetWorkspaceSidebarPinWindows { $0.windowId == id && $0.pid == 501 }
+        }
+        XCTAssertEqual(appearance("s")?.composition?.layout, .empty, "Its last window goes, not back into it")
+        XCTAssertEqual(workspaceSidebarPinSplitRole(s), .composition)
+
+        // The same process gives a later window the number 30, in another tab.
+        let later = TestWindow.new(id: 30, parent: d.rootTilingContainer, app: notes)
+        XCTAssertFalse(workspaceSidebarPinRecallsWindows(s), "Not one of its own")
+        XCTAssertEqual(try recallWorkspaceSidebarPinWindows(s), .nothing)
+        XCTAssertTrue(later.nodeWorkspace === d)
+
+        // All of a pinned split's windows dropped as WinMux starts, the same.
+        try workspaceSidebarOrganizationStore.update { state in
+            state.workspaces["s"]?.composition = .init(layout: .split(.h, weight: 1, children: [
+                .window(.init(windowId: 40, pid: 502, bundleId: "com.example.mail", processLaunch: launch, boot: nil), weight: 1),
+                .window(.init(windowId: 41, pid: 502, bundleId: "com.example.mail", processLaunch: launch, boot: nil), weight: 1),
+            ]))
+        }
+        forgetWorkspaceSidebarPinWindowsNoLongerOpen()
+        XCTAssertEqual(appearance("s")?.composition?.layout, .empty)
+    }
+
+    // MARK: Review V2 D: a drop released on an ordinary tab is made only into an ordinary tab
+
+    func testADropReleasedOnAnOrdinaryTabIsntMadeOnceThatTabIsPinned() async throws {
+        let (_, _, d, _) = try tabs()
+        let o = tab("o", 3)
+        let target = WorkspaceSidebarDropTarget(kind: .workspace("o"), rect: Rect(topLeftX: 0, topLeftY: 0, width: 200, height: 36),
+            acceptsSides: true)
+        let intent = try XCTUnwrap(WorkspaceSidebarDropIntent.captured(for: target))
+        XCTAssertEqual(intent.targetPinRole, .ordinary)
+        let session = queueWorkspaceSidebarDrop(4, subject: .window, target: .workspace("o"), placement: .left, intent: intent)
+        // Released: before its session runs, o is pinned, with its one window.
+        try setWorkspaceSidebarTabFavorite(o, true)
+        await session?.value
+        XCTAssertEqual(ids(o), [3], "Nothing moved")
+        XCTAssertEqual(ids(d), [4])
+        XCTAssertNil(workspaceSidebarLentWindow(of: o))
+    }
+
+    // MARK: Review V2 P3: a display's tab in the sidebar's display selector takes a window by the same rule
+
+    func testTheDisplaySelectorOffersAWindowOnlyWhereThePinsRuleTakesIt() throws {
+        let (a, _, d, e) = try tabs()
+        try setWorkspaceSidebarTabFavorite(e, true)
+        let monitor = e.workspaceMonitor
+        let target = WorkspaceSidebarDropTarget(kind: .monitor(workspaceSidebarMonitorScopeId(for: monitor)),
+            rect: Rect(topLeftX: 0, topLeftY: 0, width: 80, height: 24))
+        let four = try window(4)
+        func offered(showing workspace: Workspace) -> Bool {
+            XCTAssertTrue(monitor.setActiveWorkspace(workspace))
+            return sidebarWorkspaceDropDestination(sourceWindow: four, target: target, mouseLocation: .zero, subject: .window) != nil
+        }
+        XCTAssertFalse(offered(showing: e), "A pinned split on the display takes no window: nothing offered")
+        XCTAssertTrue(offered(showing: a), "A one-window pin splits in an ordinary tab: offered")
+        let other = tab("o", 9)
+        XCTAssertTrue(offered(showing: other))
+        XCTAssertTrue(four.nodeWorkspace === d)
+    }
+
     // MARK: Helpers
 
     /// Pins a and b, with windows 1 and 2; ordinary tabs d, with window 4, and e, a split of 5 and 6.
@@ -681,6 +938,24 @@ final class WorkspaceSidebarPinPolicyTest: XCTestCase {
 
     private func appearance(_ name: String) -> WorkspaceSidebarItemAppearance? {
         workspaceSidebarOrganizationStore.state.workspaces[name]
+    }
+
+    private func agentApply(_ edit: String) async throws -> CmdResult {
+        try await parseCommand("agent apply --stdin").cmdOrDie.run(.defaultEnv,
+            CmdStdin(try freshAgentJson(#"{"schemaVersion": 1, "edit": \#(edit)}"#)))
+    }
+
+    private func agentLayoutJson(_ name: String, _ windowIds: [UInt32]) -> String {
+        let children = windowIds.map { #"{"kind": "window", "windowId": \#($0)}"# }.joined(separator: ", ")
+        return #"{"name": "\#(name)", "layout": {"kind": "split", "direction": "horizontal", "children": [\#(children)]}}"#
+    }
+
+    /// `name` laid out with `windowIds` side by side, by `setWorkspaceLayout` or by the edit's layout.
+    private func applyAgentLayout(_ name: String, _ windowIds: [UInt32], asOperation: Bool) async throws -> CmdResult {
+        let layout = agentLayoutJson(name, windowIds)
+        return try await agentApply(asOperation
+            ? #"{"operations": [{"type": "setWorkspaceLayout", "layout": \#(layout)}]}"#
+            : #"{"layout": {"workspaces": [\#(layout)]}}"#)
     }
 
     private func move(to name: String) async throws -> CmdResult {

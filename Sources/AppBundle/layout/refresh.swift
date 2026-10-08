@@ -450,6 +450,8 @@ struct RunSessionGuard: Sendable {
 @MainActor
 func refreshModel() {
     migrateWindowStacksToSidebarTabs()
+    // Pinned splits keep the windows that came into them, as their tabs were reopened.
+    syncWorkspaceSidebarPinCompositions()
     Workspace.reconcileWorkspaceState()
     checkOnFocusChangedCallbacks()
     normalizeContainers()

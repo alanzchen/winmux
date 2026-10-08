@@ -98,7 +98,8 @@ tabs-always-expanded = true
   with one window, that tab (labelled **Tile into Pin**), never more than one. A split is
   pinned only from its tab's menu, with **Pin Tab**; dragging it onto the pins, or chosen
   tabs with one among them, pins nothing. A pinned split stays one whatever windows it
-  has now, and remembers where each was. It shares a window with that window's own pin:
+  has now, and remembers where each was; windows reopened in it, or opened there by their
+  app, are its own. It shares a window with that window's own pin:
   a click on the pin brings the window back alone, and a click on the pinned split brings
   back those of its windows that are back in their pins, each to its place. While any of
   its windows is open elsewhere, an empty pinned split never opens its apps again; a

@@ -32,10 +32,30 @@ struct AgentWorkspaceLayout: Codable {
         for ref in floating ?? [] where ref.resolveNode() == nil {
             errors.append("setWorkspaceLayout '\(name)': floating pane does not exist")
         }
+        if let refusal = pinRefusal() { errors.append(refusal.message) }
+    }
+
+    /// The windows this layout puts in its tab, laid out or floating, wherever they are now.
+    @MainActor
+    private var placedWindows: [Window] {
+        var windowIds: [UInt32] = []
+        layout.collectWindowIds(result: &windowIds)
+        return windowIds.compactMap { Window.get(byId: $0) } + (floating ?? []).flatMap { $0.resolveNode()?.allLeafWindowsRecursive ?? [] }
+    }
+
+    /// Why the pins' rule refuses this layout, before anything changes; nil where it may be made. A
+    /// pin takes in no window it hasn't got, but an empty pin one.
+    @MainActor
+    func pinRefusal() -> WorkspaceSidebarPinPolicyRefusal? {
+        guard let target = Workspace.existing(byName: name) else { return nil }
+        return workspaceSidebarPinLayoutRefusal(placedWindows, for: target).map { .init("setWorkspaceLayout '\(name)': \($0.message)") }
     }
 
     @MainActor
     func apply() async throws {
+        // Checked again as it's made: an earlier change in the same request may have changed the pins.
+        syncWorkspaceSidebarPinCompositions()
+        if let refusal = pinRefusal() { throw refusal }
         let existedBefore = Workspace.existing(byName: name) != nil
         let workspace = Workspace.get(byName: name)
         if !existedBefore {
@@ -43,6 +63,11 @@ struct AgentWorkspaceLayout: Codable {
         }
         workspace.seedMonitorIfNeeded(focusPane?.resolveNode()?.nodeMonitor ?? focus.workspace.workspaceMonitor)
         let oldWindows = workspace.allLeafWindowsRecursive
+        // A pin whose one window goes into this ordinary tab lends it there, as a move does. Saved first,
+        // so nothing changes if it can't be.
+        let loans = workspaceSidebarIsPinned(workspace)
+            ? [] : placedWindows.compactMap { workspaceSidebarPinLoan(taking: $0, to: workspace) }
+        try lendWorkspaceSidebarPinWindows(loans)
         var referenced: Set<UInt32> = []
         layout.collectWindowIds(result: &referenced)
         for ref in floating ?? [] {

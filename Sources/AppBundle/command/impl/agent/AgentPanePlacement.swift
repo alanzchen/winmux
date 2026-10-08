@@ -1,6 +1,7 @@
+/// Throws where the pins' policy refuses the move, saying why, or the pins can't be saved.
 @MainActor
-func agentMoveWindowToWorkspace(_ window: Window, _ targetWorkspace: Workspace, focusFollowsWindow: Bool) -> Bool {
-    moveWindowToWorkspaceKeepingPins(window, targetWorkspace, CmdIo(stdin: .emptyStdin), focusFollowsWindow: focusFollowsWindow,
+func agentMoveWindowToWorkspace(_ window: Window, _ targetWorkspace: Workspace, focusFollowsWindow: Bool) throws -> Bool {
+    try moveWindowToWorkspaceUnderPinPolicy(window, targetWorkspace, CmdIo(stdin: .emptyStdin), focusFollowsWindow: focusFollowsWindow,
         failIfNoop: false)
 }
 

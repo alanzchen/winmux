@@ -37,15 +37,23 @@ private func workspaceSidebarScreenDropTakes(_ node: TreeNode, _ kind: Workspace
 
 @MainActor
 func currentSidebarWorkspaceDropDestination(sourceWindow: Window, mouseLocation: CGPoint, subject: WindowDragSubject) -> WindowDragIntentDestination? {
-    let sourceLabel = sidebarDragSourceTitle(for: sourceWindow, subject: subject)
-    let isGroup = subject == .group
-    let sourceWorkspaceName = dragSubjectNode(for: sourceWindow, subject: subject).nodeWorkspace?.name
     let hit = workspaceSidebarSurfaceHit(at: mouseLocation, hitSlop: sidebarWorkspaceDropTargetHitSlop, includesTabGaps: false)
     // Temporary drop UI takes only the sidebar's own drops, never a window drag's intent.
-    guard !hit.isOnTemporarySurface else { return nil }
-    if let target = hit.target,
-       isActionableSidebarWorkspaceDropTarget(sourceWorkspaceName: sourceWorkspaceName, targetKind: target.kind),
-       workspaceSidebarScreenDropTakes(dragSubjectNode(for: sourceWindow, subject: subject), target.kind)
+    guard !hit.isOnTemporarySurface, let target = hit.target else { return nil }
+    return sidebarWorkspaceDropDestination(sourceWindow: sourceWindow, target: target, mouseLocation: mouseLocation, subject: subject)
+}
+
+/// What a window dragged in from the screen does dropped on `target`, the sidebar's target under the
+/// pointer, or nil where it does nothing.
+@MainActor
+func sidebarWorkspaceDropDestination(sourceWindow: Window, target: WorkspaceSidebarDropTarget, mouseLocation: CGPoint,
+                                     subject: WindowDragSubject) -> WindowDragIntentDestination? {
+    let sourceLabel = sidebarDragSourceTitle(for: sourceWindow, subject: subject)
+    let isGroup = subject == .group
+    let sourceNode = dragSubjectNode(for: sourceWindow, subject: subject)
+    let sourceWorkspaceName = sourceNode.nodeWorkspace?.name
+    if isActionableSidebarWorkspaceDropTarget(sourceWorkspaceName: sourceWorkspaceName, targetKind: target.kind),
+       workspaceSidebarScreenDropTakes(sourceNode, target.kind)
     {
         switch target.kind {
             // Windows dragged in from the screen join tabs; only sidebar drags pin or group.
@@ -53,7 +61,9 @@ func currentSidebarWorkspaceDropDestination(sourceWindow: Window, mouseLocation:
             case .monitor(let scopeId):
                 guard let monitor = workspaceSidebarMonitor(forScopeId: scopeId) else { return nil }
                 let workspace = monitor.activeWorkspace
-                guard workspace.name != sourceWorkspaceName else { return nil }
+                // The tab the display shows, by the pins' rule, as the drop will be made.
+                guard workspace.name != sourceWorkspaceName, workspaceSidebarPinPolicyAllows(sourceNode, into: workspace)
+                else { return nil }
                 return WindowDragIntentDestination(
                     kind: .moveToWorkspace(workspaceName: workspace.name),
                     previewRect: workspaceSidebarCursorPreviewRect(at: mouseLocation),
