@@ -20,7 +20,8 @@ final class BrowserPushBackgroundTest: XCTestCase {
     const loadMark = load() + '-4' + load().slice(1);
     var crypto = { randomUUID: () => 'aaaaaaaa-' + loadMark + '-8aaa-' + String(++uuid).padStart(12,'0'), subtle: {} };
     var storage = {}, sent = [], listings = 0, updates = 0, connections = 0, emitActivation = true, throwAfterUpdate = false;
-    var failTabPages = 0;
+    // While set, session storage refuses every write and removal, as an unavailable storage service would.
+    var failWrites = false;
     var reply = {v:2, ok:true, events:1, want:[]}, oldApp = false;
     function answer(message) { return oldApp ? (message.type === 'events' ? {v:2,ok:false,reason:'invalid'} : {v:2,ok:true,want:[]}) : copy(reply); }
     var windows = [1,2,3].map(id => ({id, type:'normal', incognito:id===3, left:id*100, top:25, width:900, height:700,
@@ -31,9 +32,8 @@ final class BrowserPushBackgroundTest: XCTestCase {
     }, disconnect: () => fakePort.onDisconnect.fire()};
     var browser = {
         storage:{session:{get:async keys => Object.fromEntries(keys.filter(k=>k in storage).map(k=>[k,copy(storage[k])])),
-            set:async values => { if ('tabPages' in values && failTabPages > 0) { failTabPages--; throw Error('quota'); }
-                Object.assign(storage,copy(values)); },
-            remove:async keys => { [].concat(keys).forEach(k => delete storage[k]); }}},
+            set:async values => { if (failWrites) throw Error('unavailable'); Object.assign(storage,copy(values)); },
+            remove:async keys => { if (failWrites) throw Error('unavailable'); [].concat(keys).forEach(k => delete storage[k]); }}},
         tabs:Object.assign({query:async()=>[], get:async id=>copy(windows.flatMap(w=>w.tabs).find(t=>t.id===id)),
             update:async(id,change)=>{ updates++; const tab=windows.flatMap(w=>w.tabs).find(t=>t.id===id); Object.assign(tab,change);
                 if(emitActivation) browser.tabs.onActivated.fire({windowId:tab.windowId,tabId:id});
@@ -227,34 +227,26 @@ final class BrowserPushBackgroundTest: XCTestCase {
         }
     }
 
-    func testSafariKeepsATabsPageAcrossItsPageUnloadingButNeverMakesARevisionTwice() throws {
+    func testSafariStartsEveryPageOverWhenItsPageReloadsAndNeverMakesARevisionTwice() throws {
         let c = try page("safari")
-        c.evaluateScript("""
-            function tab10() { return sent.filter(m => m.type === 'state' || m.type === 'events').at(-1).windows.find(w => w.id === 1).tabs[0]; }
-            Object.assign(windows[0].tabs[0], {url: 'https://example.test/next'});
-            browser.tabs.onUpdated.fire(10, {url: 'https://example.test/next'}, windows[0].tabs[0]);
-            """)
-        try advance(c)
-        let moved = try XCTUnwrap(c.evaluateScript("JSON.stringify(tab10())")?.toString())
-        XCTAssertFalse(moved.contains(#""first""#), "No page is called a tab's first")
-        // Safari unloads the page; a new one starts with the same session storage.
-        let stored = try XCTUnwrap(c.evaluateScript("JSON.stringify(storage)")?.toString())
-        let unchanged = try Self.page("safari", before: """
-            storage = \(stored);
-            Object.assign(windows[0].tabs[0], {url: 'https://example.test/next'});
-            function tab10() { return sent.filter(m => m.type === 'state' || m.type === 'events').at(-1).windows.find(w => w.id === 1).tabs[0]; }
-            """)
-        XCTAssertEqual(unchanged.evaluateScript("JSON.stringify(tab10())")?.toString(), moved,
-                       "The same page, at the same address, keeps its revision")
-        // A tab whose address changed meanwhile, even back to one it had, gets a revision no load made before.
-        let changed = try Self.page("safari", before: """
-            storage = \(stored);
-            function tab10() { return sent.filter(m => m.type === 'state' || m.type === 'events').at(-1).windows.find(w => w.id === 1).tabs[0]; }
-            """)
         let first = try XCTUnwrap(c.evaluateScript("sent.find(m => m.type === 'state').windows[0].tabs[0].rev")?.toString())
-        let revisions = [first, try XCTUnwrap(c.evaluateScript("tab10().rev")?.toString()),
-                         try XCTUnwrap(changed.evaluateScript("tab10().rev")?.toString())]
-        XCTAssertEqual(Set(revisions).count, 3, "\(revisions)")
+        XCTAssertFalse(c.evaluateScript("JSON.stringify(sent)")?.toString()?.contains(#""first""#) ?? true, "No page is called a tab's first")
+        // Safari unloads the page; a new one starts with the same session storage, the tab unchanged.
+        let stored = try XCTUnwrap(c.evaluateScript("JSON.stringify(storage)")?.toString())
+        let reloaded = try Self.page("safari", before: """
+            storage = \(stored);
+            var asked = [];
+            browser.tabs.query = async () => windows.flatMap(w => w.tabs).map(copy);
+            browser.tabs.sendMessage = async (id, message) => { asked.push([id, message.type]); };
+            """)
+        let again = try XCTUnwrap(reloaded.evaluateScript("sent.find(m => m.type === 'state').windows[0].tabs[0].rev")?.toString())
+        XCTAssertNotEqual(again, first, "Nothing about the page is restored: it's a new page, with a revision no load made before")
+        XCTAssertEqual(reloaded.evaluateScript("JSON.stringify(asked)")?.toString(),
+                       #"[[10,"winmux-icon-request"],[20,"winmux-icon-request"]]"#,
+                       "Each open page of a normal window is asked to name its icons again")
+        XCTAssertEqual(reloaded.evaluateScript("""
+            JSON.stringify(Object.keys(storage).filter(k => !['session', 'order', 'unavailableUntil', 'icons', 'iconAddresses'].includes(k)))
+            """)?.toString(), "[]", "No page, revision, pending report or icon binding is kept")
     }
 
     func testAnAddressHeardBeforeAnyReportIsANewPageToo() throws {

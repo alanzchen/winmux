@@ -221,7 +221,7 @@ rather than the page, so they may not follow every setting Safari applies to bro
 icons stay in Safari's session storage, which it clears when it quits. A tab that hasn't
 loaded since the extension started, such as one restored when Safari reopened, shows Safari's
 icon until its page loads and names its icon; no other page's icon stands in
-([below](#icons-kept-through-gaps-and-across-launches)).
+([below](#which-page-shows-which-icon-and-icon-images-kept-across-launches)).
 
 The extension reaches WinMux through its native part, which Safari runs in a sandbox. That
 part connects to a socket in the app group container WinMux and the extension share. Since
@@ -241,35 +241,42 @@ page that was already open may keep Safari's icon until it reloads:
 the extension asks such pages to report again, but in testing Safari 27.0 didn't deliver their
 reports.
 
-### Icons kept through gaps and across launches
+### Which page shows which icon, and icon images kept across launches
 
 The extension reports, for each tab, its origin (scheme, host and port; never the path or query)
 and a page revision: an opaque token that changes every time the tab commits another address,
 even one it had before. Each revision is a random value made when the extension's page loads,
-plus a count, so no revision is ever made twice, whatever was or wasn't saved. WinMux shows a
-website icon only for the page instance that gave it: the same tab in the same Safari profile,
-extension session and stream, at the same origin and revision. Never by a title, host or origin
-alone, and nothing stands in for a page that hasn't given an icon of its own:
+plus a count, so no revision is ever made twice. WinMux shows a Safari tab's website icon only
+while the live report for the tab's current page instance (the same tab in the same Safari
+profile, extension session and stream, at the same origin and revision) names that icon. Never by
+a title, host or origin alone, and nothing stands in for a page that hasn't named an icon of its
+own:
 
 - The extension gives a tab only the icon its current page made, bound to that page's revision.
   When the tab commits another address, it drops that icon and asks the page to name its icons
   again (a page that changed its address by script stays); such a page also names them again by
   itself a second after its history or fragment changes. An icon finished for a page the tab has
   since left, even if it came back to the same address, is discarded.
-- It keeps each tab's address, revision and icon together, in one entry of Safari's session
-  storage, so a tab still at the same address keeps them when Safari unloads and reloads the
-  extension's page. If Safari can't save that entry, the extension removes it, so a reload starts
-  every tab over with new revisions rather than bringing back a page from before.
-- While no live report says which page a tab shows (a report gap, a lost pairing, or the
-  extension disconnected), the tab keeps the icon of the last page instance WinMux saw, for up to
-  two and a half minutes after a report last described it, unless WinMux had already seen it
-  change pages: another revision, tab or stream. Missing reports never undo a change WinMux saw.
+- Nothing about a page (its address, revision or icon) is kept when Safari unloads and reloads the
+  extension's page: every tab's page is new, with a new revision and no icon, until it names its
+  icons again. The reloaded page asks each open page to do so, and an image it already made from
+  the same icon address in this browsing session isn't fetched again.
+- **Keeping an icon through report gaps and disconnects isn't part of this release**; it's a
+  tracked follow-up. While no live report has the tab (a report gap, or the extension
+  disconnected), while the tab isn't paired with the extension (as right after the extension's
+  page reloads, until WinMux pairs it again), or once the extension starts a new stream, the tab
+  shows Safari's icon.
 - An extension from before page revisions shows no website icons.
 
+So Safari's icon shows more often than before: after report gaps, after WinMux or the extension
+restarts, and each time Safari reloads the extension's page, until each page names its icon again;
+and on pages that never do (one already open whose page doesn't answer, or one Safari restored
+without loading).
+
 WinMux also keeps icon images on disk, by the key the extension gives each icon (the SHA-256 of
-its image), so after WinMux restarts, a page that names an icon WinMux has had before shows it at
-once, without the extension sending it again. The images decide nothing about which page shows
-which icon.
+its image), so a page that names an icon WinMux has had before, even before WinMux restarted,
+shows it at once, without the extension sending it again. The images decide nothing about which
+page shows which icon.
 These are the 32-pixel images WinMux made from what the extension sent, each filed with the
 SHA-256 of its bytes and checked when read, in `~/Library/Caches/<WinMux's bundle id>/BrowserTabIcons/`,
 readable only by you. An index maps a keyed hash of the Safari profile and the icon's key to each
@@ -533,24 +540,27 @@ Chrome worker to check its titles (active tabs of normal windows only, retitled 
 moves). Disk-cache tests cover keyed names with no host or profile in any file, user-only
 permissions, verification on read, profile and browser separation, least-recently-used, byte and
 age bounds, a relaunch round trip through the bridge, Private Browsing and Chrome exclusion, and
-wiping. Through the real report, association and sidebar path, tests cover a report gap keeping
-an unchanged page's icon for a while but never one from before a page change it saw, another
-port, scheme or address on the same host, a tab going from a.test to b.test and back with no
-icon for the new a.test page until it names one, a new stream or tab key carrying no icon, a page
-naming a kept image showing it after a relaunch without the extension sending it again, no page
-showing an image it didn't name, older extensions showing none, and the bridge's indexes staying
-bounded across thousands of sites, epochs and icon changes. Chrome tests check that an origin icon
+wiping. Through the real report, association and sidebar path, tests cover the app icon the
+moment a page's report is no longer live (even before anything prunes it), on a report gap, right
+after a new stream's report and while the tab pairs again, another port, scheme or address on the
+same host, a tab going from a.test to b.test and back with no icon for the new a.test page until
+it names one, a page naming a kept image showing it after a relaunch without the extension sending
+it again, no page showing an image it didn't name, older extensions showing none, and the bridge's
+indexes staying bounded across thousands of sites, epochs and icon changes. Chrome tests check that an origin icon
 needs a read that started after the latest page change (a same-origin revision change revokes it,
 and the revocation survives the report or pairing going) and that an older extension's same host
 on another port shows the app icon in the background. JavaScriptCore runs the shipped Safari
 extension page with stale icons seeded in its session storage, and its actual reports go through
-that native path: after a same-origin address change the tab shows the app icon, a late icon for a
-page the tab left is discarded, and the new page's own icon shows; and when Safari can't save a
-page change and the extension's page reloads, neither the old revision nor its icon comes back.
+that native path: a reloaded page restores no page, revision, icon or kept report from storage;
+after a same-origin address change the tab shows the app icon, a late icon for a page the tab left
+is discarded, and the new page's own icon shows; and after a reload, even one following refused
+writes, the tab shows the app icon until its page names its icon again, whose image isn't fetched
+again.
 JavaScriptCore also runs the Safari content script, which names its icons again with its new
 address after a history or fragment change, and when the extension asks, and checks both
 extensions' revisions: they change with each committed address (from a tab's first, even before
-any report), a reload keeps a tab's unchanged page, and no load repeats a revision. Release
+any report), a reload starts every page over and asks open pages for their icons, and no load
+repeats a revision. Release
 script tests check the standalone Chrome asset and the reproducible package.
 
 Not yet checked in a real browser: Chrome exposing a pinned WinMux Tabs button's title in its

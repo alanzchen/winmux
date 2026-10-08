@@ -1,31 +1,21 @@
 import CryptoKit
 import Foundation
 
-/// Which website icon a tab may show. An icon shows only for the page instance that gave it: what
-/// the live report of the extension tab the native tab is bound to says, its scoped tab key
-/// (browser profile, extension session, transport epoch and tab id), the page's origin and the
-/// extension's revision of the page, which changes with every address the tab commits and never
-/// repeats. Titles, hosts and origins alone are never evidence, and nothing stands in for a page
-/// that hasn't given an icon of its own.
+/// Which origin icon a Chrome tab may show. Chrome's icons come from Accessibility reading the
+/// selected tab's address (`BrowserTabIconAssociations`); the extension's live report says which
+/// page instance each tab shows: its scoped tab key (browser profile, extension session, transport
+/// epoch and tab id), origin and page revision, which changes with every address the tab commits
+/// and never repeats.
 ///
-/// Per native tab it remembers the latest page instance seen, when WinMux first saw it (the latest
-/// page change it knows of) and when a live report last described it. Missing information (a
-/// report gap, a lost pairing, an extension without revisions) never clears that: a page change
-/// once seen stays seen.
-///
-/// Safari (`icon`): the icon the current page instance gave itself. While no live report says
-/// which page the tab shows, the last page instance's icon, for up to `gapLifetime` after a
-/// report last described it; never once another instance, tab key or stream was seen.
-///
-/// Chrome (`origin`): the origin icon Accessibility confirmed for the tab
-/// (`BrowserTabIconAssociations`), only from a read that started after the latest page change
-/// WinMux knows of. With a live report, also only at the page's origin. Without one (an older
-/// extension, a gap, a lost pairing), also only for the selected tab, while its window's latest
-/// read still finds it there. A tab the extension never described keeps it as without the
-/// extension.
+/// Per native tab it remembers the latest page instance a live report described, and when WinMux
+/// first saw it: the latest page change it knows of. Missing information (a report gap, a lost
+/// pairing, an extension without revisions) never clears that. An icon counts only from a read
+/// that started after that change. With a live report, also only at the page's origin; without
+/// one, also only for the selected tab, while its window's latest read still finds it there. A tab
+/// the extension never described keeps its icon as without the extension.
 ///
 /// Keyed by the native tab, which is never reused: one entry per listed tab.
-struct BrowserTabSiteIconContinuity {
+struct BrowserTabChromeIconGate {
     private struct Page: Equatable {
         let tab: SafariExtensionTabKey
         /// Nil for a page that isn't a website.
@@ -33,61 +23,38 @@ struct BrowserTabSiteIconContinuity {
         let revision: String
     }
     private struct State {
-        /// The latest page instance seen; nil while the tab is described only without revisions.
+        /// The latest page instance a live report described; nil while the tab is described only
+        /// without revisions.
         let page: Page?
         /// When WinMux first saw that page instance, or first saw the tab described.
         let since: TimeInterval
-        /// When a live report last described that page instance.
-        var seen: TimeInterval
-        /// The icon that page instance gave itself.
-        var icon: String?
     }
     private var states: [BrowserTabTarget: State] = [:]
-    /// How long a page instance's icon outlasts the reports describing it: as long as the bridge
-    /// keeps a report (`SafariExtensionBridge.stateLifetime`).
-    static let gapLifetime: TimeInterval = 150
 
-    /// Notes what the live report says about the tab; whether it says which page instance it shows.
-    private mutating func observe(_ tab: BrowserTab, live: SafariExtensionTab?, now: TimeInterval) -> Bool {
-        guard let key = tab.extensionTab else { return false }
-        guard let live, let revision = live.revision else {
-            // Described without page evidence, or by another tab key than the last page's: a change.
-            if states[tab.target].map({ $0.page.map { $0.tab != key } ?? false }) ?? true {
-                states[tab.target] = State(page: nil, since: now, seen: -.infinity)
-            }
-            return false
-        }
-        let page = Page(tab: key, origin: live.origin, revision: revision)
-        if states[tab.target]?.page != page { states[tab.target] = State(page: page, since: now, seen: now) }
-        states[tab.target]?.seen = now
-        if let icon = live.icon { states[tab.target]?.icon = icon }
-        return true
-    }
-
-    /// A Safari tab's icon. `reported` is the live report's tab for its bound key.
-    mutating func icon(for tab: BrowserTab, reported: SafariExtensionTab?, now: TimeInterval) -> String? {
-        let live = observe(tab, live: reported, now: now)
-        guard let state = states[tab.target], let icon = state.icon else { return nil }
-        return live || now - state.seen < Self.gapLifetime ? icon : nil
-    }
-
-    /// A Chrome tab's origin icon, as `origins` confirmed it, if it may show.
+    /// The tab's origin icon, as `origins` confirmed it, if it may show. `reported` is the live
+    /// report's tab for its bound key.
     mutating func origin(for tab: BrowserTab, reported: SafariExtensionTab?, origins: BrowserTabIconAssociations,
                          now: TimeInterval) -> URL? {
-        let live = observe(tab, live: reported, now: now)
+        var live: Page?
+        if let key = tab.extensionTab {
+            if let reported, let revision = reported.revision {
+                let page = Page(tab: key, origin: reported.origin, revision: revision)
+                if states[tab.target]?.page != page { states[tab.target] = State(page: page, since: now) }
+                live = page
+            } else if states[tab.target].map({ $0.page.map { $0.tab != key } ?? false }) ?? true {
+                // Described without page evidence, or by another tab key than the last page's: a change.
+                states[tab.target] = State(page: nil, since: now)
+            }
+        }
         guard let origin = tab.iconOrigin else { return nil }
         guard let state = states[tab.target] else { return origin }
         guard let confirmed = origins.confirmed[tab.target], confirmed >= state.since else { return nil }
-        guard live else { return tab.isSelected && origins.isCurrent(tab.target) ? origin : nil }
-        guard let expected = state.page?.origin, browserTabOriginKey(origin.absoluteString) == expected else { return nil }
+        guard let live else { return tab.isSelected && origins.isCurrent(tab.target) ? origin : nil }
+        guard let expected = live.origin, browserTabOriginKey(origin.absoluteString) == expected else { return nil }
         return origin
     }
 
     mutating func retain(_ targets: Set<BrowserTabTarget>) { states = states.filter { targets.contains($0.key) } }
-
-    /// Icons pages gave, which the icon store must keep.
-    var icons: Set<String> { Set(states.values.compactMap(\.icon)) }
-    var count: Int { states.count }
 }
 
 /// At most `capacity` values, each dropped `lifetime` after its last use, least recently used

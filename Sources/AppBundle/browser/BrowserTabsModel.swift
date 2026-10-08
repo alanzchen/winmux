@@ -14,7 +14,7 @@ final class BrowserTabsModel: ObservableObject {
     private var watched: [String: Set<UInt32>] = [:]
     private var iconsEnabled = false
     private var iconAssociations = BrowserTabIconAssociations()
-    private var iconContinuity = BrowserTabSiteIconContinuity()
+    private var chromeIconGate = BrowserTabChromeIconGate()
     private let selectRequests: BrowserTabSelectRequests
     private let closeRequests = BrowserTabCloseRequests()
     private let safariExtension: SafariExtensionBridge
@@ -42,7 +42,6 @@ final class BrowserTabsModel: ObservableObject {
             return self.chromeAssociations.awaitsReport || self.chromeAssociations.awaitsAnotherReport(self.chromeExtension.windows)
         }
         safariExtension.sightSafariWindows = { [weak self] measured in self?.sightSafariWindows(measured: measured) ?? [:] }
-        safariExtension.heldIcons = { [weak self] in self?.iconContinuity.icons ?? [] }
         safariExtension.iconsLoaded = { [weak self] in self?.publish() }
         safariExtension.reportArrived = { [weak self] in
             guard let self, self.task != nil else { return false }
@@ -213,13 +212,13 @@ final class BrowserTabsModel: ObservableObject {
                 iconOrigins: iconsEnabled ? iconAssociations.origins : [:],
                 useExtensionSound: !chrome)
             shown.tabs = shown.tabs.map { tab in
-                browserTabIconShown(tab, chrome: chrome, now: now, continuity: &iconContinuity, origins: iconAssociations,
+                browserTabIconShown(tab, chrome: chrome, now: now, gate: &chromeIconGate, origins: iconAssociations,
                     reported: { [chromeExtension, safariExtension] key in
                         (chrome ? chromeExtension : safariExtension).reportedTab(key) })
             }
             return shown
         }
-        iconContinuity.retain(Set(cache.snapshots.values.flatMap { $0.tabs.map(\.target) }))
+        chromeIconGate.retain(Set(cache.snapshots.values.flatMap { $0.tabs.map(\.target) }))
         if snapshots != next { snapshots = next }
     }
 
@@ -573,17 +572,22 @@ func browserTabsShown(_ snapshot: BrowserWindowTabs, read: TimeInterval?, now: T
     return snapshot
 }
 
-/// A tab's website icon as the sidebar shows it, after `browserTabsShown`, by the rule of
-/// `BrowserTabSiteIconContinuity`: only for the page instance that gave it. `reported` gives the
-/// live report's tab for an extension tab key.
-func browserTabIconShown(_ tab: BrowserTab, chrome: Bool, now: TimeInterval, continuity: inout BrowserTabSiteIconContinuity,
+/// A tab's website icon as the sidebar shows it, after `browserTabsShown`. `reported` gives the live
+/// report's tab for an extension tab key.
+///
+/// - Safari: only the icon the live report names for the page instance it describes for the tab's
+///   bound key (scoped tab key, origin and page revision). None while no live report has the tab
+///   (a report gap or a disconnect), while the tab isn't paired (as after the extension's page
+///   reloads, a new stream), or from an extension without page revisions.
+/// - Chrome: the origin icon Accessibility confirmed, by `BrowserTabChromeIconGate`.
+func browserTabIconShown(_ tab: BrowserTab, chrome: Bool, now: TimeInterval, gate: inout BrowserTabChromeIconGate,
                          origins: BrowserTabIconAssociations, reported: (SafariExtensionTabKey) -> SafariExtensionTab?) -> BrowserTab {
     var tab = tab
     let live = tab.extensionTab.flatMap(reported)
     if chrome {
-        tab.iconOrigin = continuity.origin(for: tab, reported: live, origins: origins, now: now)
+        tab.iconOrigin = gate.origin(for: tab, reported: live, origins: origins, now: now)
     } else {
-        tab.siteIcon = continuity.icon(for: tab, reported: live, now: now)
+        tab.siteIcon = live?.revision != nil ? live?.icon : nil
     }
     return tab
 }

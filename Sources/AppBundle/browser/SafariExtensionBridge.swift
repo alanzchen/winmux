@@ -100,9 +100,7 @@ final class SafariExtensionBridge {
     private var written = BrowserTabRecency<String, Bool>(capacity: 1024, lifetime: 60 * 60)
     private var lastPrune: TimeInterval = -.infinity
     /// Every live report's tabs by key, rebuilt when the reports change.
-    private var tabIndex: (generation: Int, tabs: [SafariExtensionTabKey: SafariExtensionTab])?
-    /// Icons the sidebar holds for tabs (`BrowserTabSiteIconContinuity`): never dropped for room.
-    var heldIcons: () -> Set<String> = { [] }
+    private var tabIndex: (generation: Int, tabs: [SafariExtensionTabKey: (tab: SafariExtensionTab, received: TimeInterval)])?
     /// Once icons read from the disk can show.
     var iconsLoaded: () -> Void = {}
     private var enabled = false
@@ -251,19 +249,21 @@ final class SafariExtensionBridge {
         generation += 1
     }
 
-    /// Icons tabs show: those reports name, and those the sidebar holds.
+    /// Icons tabs show: those the live reports name.
     private var referencedIcons: Set<String> {
-        Set(states.values.flatMap { $0.state.windows.flatMap { $0.tabs.compactMap(\.icon) } }).union(heldIcons())
+        Set(states.values.flatMap { $0.state.windows.flatMap { $0.tabs.compactMap(\.icon) } })
     }
 
-    /// The live report's tab for `key`, if a live report still has it.
+    /// The live report's tab for `key`, if a live report still has it: none once its window's
+    /// report is older than a report lasts, whether or not anything has pruned it yet.
     func reportedTab(_ key: SafariExtensionTabKey) -> SafariExtensionTab? {
         if tabIndex?.generation != generation {
-            var tabs: [SafariExtensionTabKey: SafariExtensionTab] = [:]
-            for window in windows { for tab in window.tabs { if let key = window.tabKey(tab) { tabs[key] = tab } } }
+            var tabs: [SafariExtensionTabKey: (tab: SafariExtensionTab, received: TimeInterval)] = [:]
+            for window in windows { for tab in window.tabs { if let key = window.tabKey(tab) { tabs[key] = (tab, window.received) } } }
             tabIndex = (generation, tabs)
         }
-        return tabIndex?.tabs[key]
+        guard let found = tabIndex?.tabs[key], now() - found.received < Self.stateLifetime else { return nil }
+        return found.tab
     }
 
     /// How many entries each index holds: for tests.

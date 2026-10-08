@@ -61,30 +61,35 @@ const titleWrites = new Map();
 const mintRevision = WinMuxTabs.revisionMaker(crypto.randomUUID().replaceAll("-", "").slice(0, 16));
 
 // Safari unloads this page when idle, so what it needs again lives in session storage, which
-// Safari keeps only in memory and clears when it quits: this browsing session's identifier, each
-// tab's page (its address, revision and the icon that page made, saved together under one key),
-// the icons it made, and pages' icon reports that arrived while WinMux was away.
+// Safari keeps only in memory and clears when it quits: this browsing session's identifier, and
+// the icon images it made, by their key and by the address each was made from. Nothing about
+// which page showed which icon: after a reload, every tab's page is new, with a new revision and
+// no icon until it names its icons again.
 const sessionStorage = browser.storage.session;
 const loaded = (async () => {
-    const stored = await sessionStorage?.get(["session", "tabPages", "icons", "pending", "unavailableUntil", "order"])
+    const stored = await sessionStorage?.get(["session", "icons", "iconAddresses", "unavailableUntil", "order"])
         .catch(() => ({})) ?? {};
     if (Number.isFinite(stored.unavailableUntil)) unavailableUntil = Math.max(unavailableUntil, stored.unavailableUntil);
     let session = stored.session;
     if (typeof session !== "string") {
         session = crypto.randomUUID();
-        stored.tabPages = {};
         await sessionStorage?.set({ session }).catch(() => {});
         // Safari just started, or turned the extension on or updated it: open pages' icons
         // aren't known here, and their content scripts may be an earlier version's.
         injectIntoOpenTabs();
+    } else {
+        askOpenPagesForIcons();
     }
     // What earlier versions kept, which nothing reads now.
-    sessionStorage?.remove?.(["pages", "pageInstance", "tabIcons", "originIcons"])?.catch(() => {});
+    sessionStorage?.remove?.(["pages", "pageInstance", "tabIcons", "originIcons", "tabPages", "pending"])?.catch(() => {});
     return {
         session,
-        tabs: restoredPages(stored.tabPages),
+        // Each tab's page as this load saw it: its address, revision and the icon that page made.
+        tabs: new Map(),
         icons: stored.icons ?? {},
-        pending: stored.pending ?? {},
+        iconAddresses: stored.iconAddresses ?? {},
+        // Pages' icon reports that arrived while WinMux was away.
+        pending: {},
         // Tab moves, attachments, openings and closings heard of this session.
         order: Number.isInteger(stored.order) ? stored.order : 0,
         addresses: new Map(),
@@ -124,39 +129,9 @@ function scheduleSend(delay = 250, force = false) {
     if (sendTimer === null) sendTimer = setTimeout(send, delay);
 }
 
-/** Each tab's page as last saved: its address, its revision and the icon that page made. */
-function restoredPages(saved) {
-    return new Map(Object.entries(saved && typeof saved === "object" ? saved : {})
-        .filter(([id, page]) => Number.isInteger(Number(id)) && typeof page?.address === "string"
-            && typeof page?.revision === "string" && /^[0-9a-z-]{1,32}$/.test(page.revision))
-        .map(([id, page]) => [Number(id), { address: page.address, revision: page.revision,
-            ...(typeof page.icon === "string" ? { icon: page.icon } : {}) }]));
-}
-
 /** The tab's page revision, noting an address first seen. */
 function revisionOf(data, tab) {
-    const known = data.tabs.get(tab.id);
-    const revision = WinMuxTabs.pageRevision(data.tabs, mintRevision, tab);
-    if (data.tabs.get(tab.id) !== known) saveTabs(data);
-    return revision;
-}
-
-/** Saves each tab's page, revision and icon together, under one key, so they only ever come back
- * together, with `values`. Pages that can't be saved are removed: a reload then starts every tab
- * over, rather than bringing back pages from before. */
-function storeTabs(data, values = {}) {
-    return sessionStorage?.set({ ...values, tabPages: Object.fromEntries(data.tabs) })
-        .catch(() => sessionStorage?.remove?.("tabPages")?.catch(() => {}));
-}
-
-/** Saves the tabs' pages once for all the changes made meanwhile. */
-function saveTabs(data) {
-    if (data.savingTabs) return;
-    data.savingTabs = true;
-    Promise.resolve().then(() => {
-        data.savingTabs = false;
-        storeTabs(data);
-    });
+    return WinMuxTabs.pageRevision(data.tabs, mintRevision, tab);
 }
 
 /** The icon the tab's current page made: never one another page made, even at the same address. */
@@ -196,7 +171,7 @@ function setButtonTitle(tabId, title, reset) {
 }
 
 function save(data) {
-    return storeTabs(data, { icons: data.icons, pending: data.pending });
+    return sessionStorage?.set({ icons: data.icons, iconAddresses: data.iconAddresses }).catch(() => {});
 }
 
 async function send() {
@@ -411,12 +386,16 @@ async function iconMade(address) {
     return { key, png: WinMuxTabs.base64(png) };
 }
 
-/** Makes each icon address's icon once; many tabs of one site share it. A failed address waits ten minutes. */
+/** Makes each icon address's icon once; many tabs of one site share it. A failed address waits ten
+ * minutes. One this browsing session already made, even before Safari reloaded this page, isn't
+ * fetched again. */
 function iconAt(data, address) {
     const known = data.addresses.get(address);
     if (known && (known.failedAt === undefined || Date.now() - known.failedAt < failedAddressDelay)) return known.icon;
     if (data.addresses.size >= 500) data.addresses.clear();
-    const entry = { icon: iconMade(address) };
+    const made = data.iconAddresses[address];
+    const entry = { icon: made && data.icons[made.key]
+        ? Promise.resolve({ key: made.key, png: data.icons[made.key].png }) : iconMade(address) };
     data.addresses.set(address, entry);
     entry.icon.then((value) => { if (!value) entry.failedAt = Date.now(); });
     return entry.icon;
@@ -440,13 +419,9 @@ async function showIcon(tabId, report) {
         await makeIcon(data, tabId, report);
     } finally {
         data.inFlight.delete(key);
-        // A kept report is done once this, its current job, has made it or found it overtaken;
-        // until then it survives the page unloading.
+        // A kept report is done once this, its current job, has made it or found it overtaken.
         const current = data.reports.get(tabId) === report || !isSameReport(data.reports.get(tabId), report);
-        if (current && isSameReport(data.pending[tabId], report) && !isUnavailable()) {
-            delete data.pending[tabId];
-            await save(data);
-        }
+        if (current && isSameReport(data.pending[tabId], report) && !isUnavailable()) delete data.pending[tabId];
     }
 }
 
@@ -466,6 +441,9 @@ async function makeIcon(data, tabId, report) {
         if (!isCurrent() || !tab || tab.incognito || tab.url !== report.pageAddress
             || revisionOf(data, tab) !== report.revision) return;
         data.icons = WinMuxTabs.trimmed({ ...data.icons, [icon.key]: { png: icon.png, used: Date.now() } }, cachedIcons);
+        if (/^https?:/i.test(address) && address.length <= 2048) {
+            data.iconAddresses = WinMuxTabs.trimmed({ ...data.iconAddresses, [address]: { key: icon.key, used: Date.now() } }, cachedIcons);
+        }
         data.tabs.get(tabId).icon = icon.key;
         await save(data);
         changedWindow(tab.windowId);
@@ -474,18 +452,17 @@ async function makeIcon(data, tabId, report) {
     }
 }
 
-/** Keeps each report until its icon is made, so Safari unloading this page meanwhile loses nothing. */
-async function receiveReport(data, tabId, report) {
+/** Keeps each report until its icon is made, while this page lasts: a reload asks pages again. */
+function receiveReport(data, tabId, report) {
     data.reports.set(tabId, report);
     if (!isSameReport(data.pending[tabId], report)) {
         data.pending = WinMuxTabs.trimmed({ ...data.pending, [tabId]: { ...report, used: Date.now() } }, pendingReports);
-        await save(data);
     }
     showIcon(tabId, report);
 }
 
 /** Once WinMux answers again, makes the icons of reports still kept: those that arrived while it
- * was away, or whose work Safari cut short by unloading this page. */
+ * was away. */
 async function showPending(data) {
     for (const [tabId, kept] of Object.entries(data.pending)) {
         const id = Number(tabId);
@@ -497,7 +474,6 @@ async function showPending(data) {
         if (!isSameReport(data.pending[tabId], kept) || data.inFlight.has(flightKey(id, kept))) continue;
         if (!tab || tab.incognito || tab.url !== kept.pageAddress || revisionOf(data, tab) !== kept.revision) {
             delete data.pending[tabId];
-            save(data);
             continue;
         }
         const current = data.reports.get(id);
@@ -506,6 +482,16 @@ async function showPending(data) {
                 candidates: kept.candidates };
         data.reports.set(id, report);
         showIcon(id, report);
+    }
+}
+
+/** Asks each open page to name its icons again: after Safari reloads this page, no page's icon is
+ * known here until it does. */
+async function askOpenPagesForIcons() {
+    const tabs = await browser.tabs.query({}).catch(() => []);
+    for (const tab of tabs) {
+        if (tab.incognito || !WinMuxTabs.host(tab.url ?? "")) continue;
+        browser.tabs.sendMessage?.(tab.id, { type: "winmux-icon-request" })?.catch(() => {});
     }
 }
 
@@ -571,17 +557,11 @@ browser.tabs.onUpdated.addListener((tabId, changes) => {
     if ("url" in changes) {
         loaded.then((data) => {
             if (data.reports.get(tabId)?.pageAddress !== changes.url) data.reports.delete(tabId);
-            let changed = false;
-            if (data.pending[tabId] && data.pending[tabId].pageAddress !== changes.url) {
-                delete data.pending[tabId];
-                changed = true;
-            }
+            if (data.pending[tabId] && data.pending[tabId].pageAddress !== changes.url) delete data.pending[tabId];
             if (WinMuxTabs.noteAddress(data.tabs, mintRevision, tabId, changes.url)) {
-                changed = true;
                 // A page whose script set the address stays: it names its icons again.
                 browser.tabs.sendMessage?.(tabId, { type: "winmux-icon-request" })?.catch(() => {});
             }
-            if (changed) save(data);
         });
     }
     // A page loading may reset the tab's toolbar title.
@@ -604,10 +584,8 @@ browser.tabs.onRemoved.addListener(async (tabId) => {
     const data = await loaded;
     countOrderChange(data);
     data.reports.delete(tabId);
-    if (data.tabs.delete(tabId) || data.pending[tabId]) {
-        delete data.pending[tabId];
-        await save(data);
-    }
+    data.tabs.delete(tabId);
+    delete data.pending[tabId];
     scheduleSend();
 });
 browser.tabs.onReplaced?.addListener(async (added, removed) => {
@@ -618,10 +596,8 @@ browser.tabs.onReplaced?.addListener(async (added, removed) => {
     countOrderChange(data);
     data.reports.delete(removed);
     // The tab that takes its place has a page of its own, which names its icons itself.
-    if (data.tabs.delete(removed) || data.pending[removed]) {
-        delete data.pending[removed];
-        await save(data);
-    }
+    data.tabs.delete(removed);
+    delete data.pending[removed];
     scheduleSend();
 });
 for (const event of [browser.tabs.onCreated, browser.tabs.onActivated, browser.tabs.onMoved, browser.tabs.onAttached,
