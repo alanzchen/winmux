@@ -40,10 +40,20 @@ struct BrowserTabIconCandidate: Equatable, Sendable {
 struct BrowserTabIconAssociations {
     private var pending: [UInt32: (candidate: BrowserTabIconCandidate, since: TimeInterval)] = [:]
     private(set) var origins: [BrowserTabTarget: URL] = [:]
+    /// When the read that last confirmed each tab's origin started.
+    private(set) var confirmed: [BrowserTabTarget: TimeInterval] = [:]
 
-    mutating func update(_ snapshot: BrowserWindowTabs, now: TimeInterval) {
+    /// Whether the latest read of the tab's window found it selected at the origin confirmed for it.
+    func isCurrent(_ target: BrowserTabTarget) -> Bool {
+        guard let origin = origins[target], let latest = pending[target.windowId]?.candidate else { return false }
+        return latest.target == target && latest.origin == origin
+    }
+
+    /// `started` is when the read began, if not `now`.
+    mutating func update(_ snapshot: BrowserWindowTabs, now: TimeInterval, started: TimeInterval? = nil) {
         let alive = Set(snapshot.tabs.map(\.target))
         origins = origins.filter { $0.key.windowId != snapshot.windowId || alive.contains($0.key) }
+        confirmed = confirmed.filter { $0.key.windowId != snapshot.windowId || alive.contains($0.key) }
         guard let candidate = snapshot.iconCandidate, alive.contains(candidate.target),
               snapshot.tabs.filter(\.isSelected).map(\.target) == [candidate.target] else {
             pending[snapshot.windowId] = nil
@@ -51,6 +61,7 @@ struct BrowserTabIconAssociations {
         }
         if let pending = pending[snapshot.windowId], pending.candidate == candidate, now - pending.since >= 0.75 {
             origins[candidate.target] = candidate.origin
+            confirmed[candidate.target] = started ?? now
         } else if pending[snapshot.windowId]?.candidate != candidate {
             // Keep the last confirmed icon through reselection, transient reads,
             // and title changes. Only a confirmed new origin replaces it.
@@ -58,14 +69,9 @@ struct BrowserTabIconAssociations {
         }
     }
 
-    /// The extension says the tab is on another site now: its icon goes until a read confirms the new one.
-    mutating func invalidate(_ target: BrowserTabTarget) {
-        origins[target] = nil
-        if pending[target.windowId]?.candidate.target == target { pending[target.windowId] = nil }
-    }
-
     mutating func retain(_ targets: Set<BrowserTabTarget>) {
         origins = origins.filter { targets.contains($0.key) }
+        confirmed = confirmed.filter { targets.contains($0.key) }
         pending = pending.filter { targets.contains($0.value.candidate.target) }
     }
 }

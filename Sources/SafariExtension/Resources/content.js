@@ -15,6 +15,7 @@
 
     function report() {
         timer = null;
+        const address = location.href;
         const links = Array.from(document.querySelectorAll("link[rel][href]"), (link) => ({
             rel: link.rel, href: link.href, sizes: link.getAttribute("sizes"), type: link.type,
         }));
@@ -23,7 +24,8 @@
         if (candidates.length === 0 || key === last) return;
         last = key;
         reports += 1;
-        browser.runtime.sendMessage({ type: "winmux-icon-candidates", page, report: reports, candidates }).catch(() => { last = null; });
+        browser.runtime.sendMessage({ type: "winmux-icon-candidates", page, report: reports, address, candidates })
+            .catch(() => { last = null; });
     }
 
     function schedule() {
@@ -40,4 +42,14 @@
     }
     // A page restored from the back-forward cache is a different page without a new load.
     window.addEventListener("pageshow", (event) => { if (event.persisted) { last = null; report(); } });
+    // The tab went to another address: its icon is the new page's only once this page names it
+    // again, as a page that changes its address by script stays. The extension asks; this page
+    // also does it by itself a moment after its own address changes, once Safari knows it.
+    browser.runtime.onMessage.addListener((message) => {
+        if (message?.type === "winmux-icon-request") { last = null; report(); }
+    });
+    const again = () => { last = null; schedule(); };
+    window.addEventListener("hashchange", again);
+    window.addEventListener("popstate", again);
+    window.navigation?.addEventListener?.("navigatesuccess", again);
 })();

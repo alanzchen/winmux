@@ -177,11 +177,11 @@ var WinMuxTabs = (() => {
     }
 
     /**
-     * A tab's page revision: an opaque token that changes whenever the tab's address does, so
-     * WinMux keeps a website icon only for the same page. `pages` maps tab ids to the address last
-     * seen and its revision; it lives only in this page's memory, and `instance` (random for each
-     * run of this page) keeps a reloaded page from repeating an earlier run's revisions. Addresses
-     * never leave the extension.
+     * A tab's page revision: an opaque token that changes whenever the tab's address does, so a
+     * website icon shows only for the page that made it. `pages` maps tab ids to the address last
+     * seen and how many the tab has had; `instance` is random for each set of `pages` (Safari's
+     * lasts its browsing session, Chrome's one run of its worker), so a new set doesn't repeat
+     * an earlier one's revisions. Addresses never leave the extension.
      */
     function pageRevision(pages, instance, tab) {
         const address = typeof tab?.url === "string" ? tab.url : "";
@@ -192,20 +192,29 @@ var WinMuxTabs = (() => {
         return `${instance}-${count}`;
     }
 
-    /** Notes a tab's new address as Safari or Chrome announces it, before any report reads it. */
+    /** Notes a tab's new address as Safari or Chrome announces it, before any report reads it.
+     * Returns whether it's a new revision. */
     function noteAddress(pages, tabId, address) {
         const known = pages.get(tabId);
-        if (known && typeof address === "string" && known.address !== address) pages.set(tabId, { address, count: known.count + 1 });
+        if (!known || typeof address !== "string" || known.address === address) return false;
+        pages.set(tabId, { address, count: known.count + 1 });
+        return true;
+    }
+
+    /** Whether `pages` saw the tab at no other address: its page is the first it had. */
+    function isFirstPage(pages, tabId) {
+        return pages.get(tabId)?.count === 1;
     }
 
     /**
      * What WinMux receives for each normal window: its place on screen and its tabs in tab-bar
      * order, each with only its id (from version 2), title, host and origin (scheme, host and
-     * port; never the path or query), sound and pin state, icon key, and page revision. Private
-     * Browsing windows are left out. `iconFor(tab)` returns the key of that tab's icon, if any;
-     * `revisionFor(tab)`, its page revision (`pageRevision`).
+     * port; never the path or query), sound and pin state, icon key, page revision and whether it's
+     * the tab's first page. Private Browsing windows are left out. `revisionFor(tab)` returns the
+     * tab's page revision (`pageRevision`); `firstFor(tab)`, whether that's its first page
+     * (`isFirstPage`); then `iconFor(tab)`, the key of the icon that page made, if any.
      */
-    function stateWindows(windows, iconFor, version = protocolVersion, revisionFor = undefined) {
+    function stateWindows(windows, iconFor, version = protocolVersion, revisionFor = undefined, firstFor = undefined) {
         return (Array.isArray(windows) ? windows : [])
             .filter((window) => window && (window.type === undefined || window.type === "normal")
                 && window.incognito !== true && Array.isArray(window.tabs))
@@ -231,6 +240,7 @@ var WinMuxTabs = (() => {
                         if (site) entry.origin = site;
                         const revision = revisionFor?.(tab);
                         if (typeof revision === "string") entry.rev = revision;
+                        if (typeof revision === "string" && firstFor?.(tab) === true) entry.first = true;
                     }
                     const icon = iconFor(tab);
                     if (typeof icon === "string") entry.icon = icon;
@@ -309,6 +319,6 @@ var WinMuxTabs = (() => {
 
     return {
         protocolVersion, host, origin, iconAddressAllowed, iconCandidates, imageDimensions, iconBytesAllowed,
-        stateWindows, stateMessage, markerTitle, pageRevision, noteAddress, reportKey, negotiatedVersion, trimmed, hex, base64,
+        stateWindows, stateMessage, markerTitle, pageRevision, noteAddress, isFirstPage, reportKey, negotiatedVersion, trimmed, hex, base64,
     };
 })();

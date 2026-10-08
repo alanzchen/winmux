@@ -187,7 +187,7 @@ final class BrowserTabsModel: ObservableObject {
             schedule.didRead(window.windowId, now: ProcessInfo.processInfo.systemUptime, succeeded: result != nil, started: readStarted)
             if var result, Window.get(byId: window.windowId)?.app === app {
                 if !iconsEnabled { result.iconCandidate = nil }
-                iconAssociations.update(result, now: ProcessInfo.processInfo.systemUptime)
+                iconAssociations.update(result, now: ProcessInfo.processInfo.systemUptime, started: readStarted)
                 cache.receive(result, now: ProcessInfo.processInfo.systemUptime, started: readStarted)
                 selectRequests.observe(result, readStarted: readStarted)
                 publish()
@@ -213,7 +213,7 @@ final class BrowserTabsModel: ObservableObject {
                 iconOrigins: iconsEnabled ? iconAssociations.origins : [:],
                 useExtensionSound: !chrome)
             shown.tabs = shown.tabs.map { tab in
-                browserTabIconShown(tab, chrome: chrome, continuity: &iconContinuity, origins: &iconAssociations,
+                browserTabIconShown(tab, chrome: chrome, now: now, continuity: &iconContinuity, origins: iconAssociations,
                     reported: { [chromeExtension, safariExtension] key in
                         (chrome ? chromeExtension : safariExtension).reportedTab(key) },
                     keptIcon: { [safariExtension] key, origin in safariExtension.siteIcon(source: key.source, origin: origin) })
@@ -574,31 +574,19 @@ func browserTabsShown(_ snapshot: BrowserWindowTabs, read: TimeInterval?, now: T
     return snapshot
 }
 
-/// A tab's website icon as the sidebar shows it, after `browserTabsShown`.
-///
-/// - Safari: the icon the extension gives the tab; while it describes the same page (scoped tab,
-///   origin and page revision) without one, the one it last gave; for a page with none yet, its
-///   origin's icon kept from before (`keptIcon`), unless that's the icon the tab's previous page
-///   had (`BrowserTabSiteIconContinuity`). Without that page evidence, only what the extension says.
-/// - Chrome: a tab the extension says is on another origin (scheme, host and port), or on no
-///   website, drops its origin icon until a read confirms the new one. An extension from before
-///   page revisions sends only the host, so only another host counts there.
-func browserTabIconShown(_ tab: BrowserTab, chrome: Bool, continuity: inout BrowserTabSiteIconContinuity,
-                         origins: inout BrowserTabIconAssociations, reported: (SafariExtensionTabKey) -> SafariExtensionTab?,
+/// A tab's website icon as the sidebar shows it, after `browserTabsShown`, by the rule of
+/// `BrowserTabSiteIconContinuity`: only for the exact page instance that produced it. `reported`
+/// gives the live report's tab for an extension tab key; `keptIcon`, an origin's kept icon for a
+/// report source.
+func browserTabIconShown(_ tab: BrowserTab, chrome: Bool, now: TimeInterval, continuity: inout BrowserTabSiteIconContinuity,
+                         origins: BrowserTabIconAssociations, reported: (SafariExtensionTabKey) -> SafariExtensionTab?,
                          keptIcon: (SafariExtensionTabKey, String) -> String?) -> BrowserTab {
     var tab = tab
     let live = tab.extensionTab.flatMap(reported)
     if chrome {
-        // The live report's word on the tab: an extension that sends page revisions also sends
-        // the full origin (none: not a web page); an older one, only the host.
-        if let live, let origin = tab.iconOrigin,
-           live.revision != nil ? browserTabOriginKey(origin.absoluteString) != live.origin
-               : origin.host?.lowercased() != live.host?.lowercased() {
-            origins.invalidate(tab.target)
-            tab.iconOrigin = nil
-        }
+        tab.iconOrigin = continuity.origin(for: tab, reported: live, origins: origins, now: now)
     } else {
-        tab.siteIcon = continuity.icon(for: tab, reported: live, fallback: keptIcon)
+        tab.siteIcon = continuity.icon(for: tab, reported: live, now: now, fallback: keptIcon)
     }
     return tab
 }

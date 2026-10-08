@@ -3,7 +3,7 @@ import XCTest
 
 /// Exercises the shipped scripts with synthetic browser APIs; never opens a browser.
 final class BrowserPushBackgroundTest: XCTestCase {
-    private let stand = #"""
+    static let stand = #"""
     var now = 1790000000000, timers = [], serial = 0, uuid = 0;
     Date.now = () => now;
     function setTimeout(callback, delay) { const id = ++serial; timers.push({id, callback, at: now + (delay || 0)}); return id; }
@@ -49,10 +49,16 @@ final class BrowserPushBackgroundTest: XCTestCase {
     }
     """#
 
-    private func page(_ browser: String) throws -> JSContext {
+    private func page(_ browser: String) throws -> JSContext { try Self.page(browser) }
+
+    private func advance(_ context: JSContext, _ seconds: Double = 0.5) throws { try Self.advance(context, seconds) }
+
+    /// The browser's extension page, loaded after `before` runs in the stand (to seed its storage).
+    static func page(_ browser: String, before: String = "") throws -> JSContext {
         let context = try XCTUnwrap(JSContext())
         context.exceptionHandler = { _, error in XCTFail(error?.toString() ?? "JavaScript error") }
         context.evaluateScript(stand)
+        context.evaluateScript(before)
         let resources = projectRoot.appendingPathComponent("Sources/SafariExtension/Resources")
         context.evaluateScript(try String(contentsOf: resources.appendingPathComponent("shared.js"), encoding: .utf8))
         let script = browser == "safari" ? resources.appendingPathComponent("background.js")
@@ -62,7 +68,7 @@ final class BrowserPushBackgroundTest: XCTestCase {
         return context
     }
 
-    private func advance(_ context: JSContext, _ seconds: Double = 0.5) throws {
+    static func advance(_ context: JSContext, _ seconds: Double = 0.5) throws {
         context.evaluateScript("var limit = now + \(Int(seconds * 1000));")
         var count = 0
         while context.evaluateScript("tick(limit)")?.toBool() == true {
@@ -193,6 +199,8 @@ final class BrowserPushBackgroundTest: XCTestCase {
             let first = tab()
             XCTAssertEqual(first.origin, "https://example.test", name)
             XCTAssertNotNil(first.revision)
+            // Safari says which page is a tab's first, for WinMux's kept icons; Chrome keeps none.
+            XCTAssertEqual(c.evaluateScript("String(tab10().first)")?.toString(), name == "safari" ? "true" : "undefined")
             XCTAssertEqual(c.evaluateScript("JSON.stringify(Object.keys(tab10()).filter(k => /url|path/i.test(k)))")?.toString(), "[]",
                            "No address leaves the browser")
             c.evaluateScript("update({title: 'Renamed'})")
@@ -206,11 +214,71 @@ final class BrowserPushBackgroundTest: XCTestCase {
             let moved = tab()
             XCTAssertEqual(moved.origin, "https://example.test:8443", name)
             XCTAssertNotEqual(moved.revision, first.revision)
+            XCTAssertEqual(c.evaluateScript("String(tab10().first)")?.toString(), "undefined", name)
             c.evaluateScript("update({url: 'https://example.test/'})")
             try advance(c)
             XCTAssertNotEqual(tab().revision, first.revision, "\(name): coming back to an address is still a new page")
             XCTAssertNotEqual(tab().revision, moved.revision)
         }
+    }
+
+    func testSafariKeepsTabsPageRevisionsAcrossItsPageUnloadingUntilItsSessionEnds() throws {
+        let c = try page("safari")
+        c.evaluateScript("""
+            function tab10() { return sent.filter(m => m.type === 'state' || m.type === 'events').at(-1).windows.find(w => w.id === 1).tabs[0]; }
+            Object.assign(windows[0].tabs[0], {url: 'https://example.test/next'});
+            browser.tabs.onUpdated.fire(10, {url: 'https://example.test/next'}, windows[0].tabs[0]);
+            """)
+        try advance(c)
+        let moved = try XCTUnwrap(c.evaluateScript("JSON.stringify(tab10())")?.toString())
+        XCTAssertFalse(moved.contains(#""first""#))
+        // Safari unloads the page; a new one starts with the same session storage.
+        let stored = try XCTUnwrap(c.evaluateScript("JSON.stringify(storage)")?.toString())
+        let reloaded = try Self.page("safari", before: """
+            storage = \(stored);
+            Object.assign(windows[0].tabs[0], {url: 'https://example.test/next'});
+            function tab10() { return sent.filter(m => m.type === 'state' || m.type === 'events').at(-1).windows.find(w => w.id === 1).tabs[0]; }
+            """)
+        XCTAssertEqual(reloaded.evaluateScript("JSON.stringify(tab10())")?.toString(), moved,
+                       "The same revision, and still not a first page: a page change isn't forgotten by unloading")
+        XCTAssertNotEqual(reloaded.evaluateScript("tab10().rev")?.toString(),
+                          c.evaluateScript("sent.find(m => m.type === 'state').windows[0].tabs[0].rev")?.toString())
+        // A new browsing session (empty storage) starts over: its pages are first pages again.
+        let fresh = try Self.page("safari", before: "Object.assign(windows[0].tabs[0], {url: 'https://example.test/next'});")
+        XCTAssertEqual(fresh.evaluateScript("String(sent.find(m => m.type === 'state').windows[0].tabs[0].first)")?.toString(), "true")
+    }
+
+    func testSafarisPageNamesItsIconsWithItsAddressAgainWhenItsAddressChangesOrWhenAsked() throws {
+        let c = try XCTUnwrap(JSContext())
+        c.exceptionHandler = { _, error in XCTFail(error?.toString() ?? "JavaScript error") }
+        c.evaluateScript(Self.stand)
+        c.evaluateScript("""
+            var messages = [], heard = {}, pageListeners = {};
+            var location = { href: 'https://example.test/a' };
+            var window = { addEventListener: (type, f) => (heard[type] ??= []).push(f) };
+            window.top = window;
+            var document = { head: {}, querySelectorAll: () => [{ rel: 'icon', href: 'https://example.test/icon.png', type: '',
+                getAttribute: () => null }] };
+            class MutationObserver { observe() {} }
+            browser.runtime.sendMessage = async (message) => { messages.push(copy(message)); };
+            """)
+        let resources = projectRoot.appendingPathComponent("Sources/SafariExtension/Resources")
+        c.evaluateScript(try String(contentsOf: resources.appendingPathComponent("shared.js"), encoding: .utf8))
+        c.evaluateScript(try String(contentsOf: resources.appendingPathComponent("content.js"), encoding: .utf8))
+        try Self.advance(c, 2)
+        XCTAssertEqual(c.evaluateScript("JSON.stringify(messages.map(m => [m.report, m.address]))")?.toString(),
+                       #"[[1,"https://example.test/a"]]"#)
+        // A script changes the address: the page names the same icons again, with its new address.
+        c.evaluateScript("location.href = 'https://example.test/b'; heard.popstate.forEach(f => f());")
+        try Self.advance(c, 2)
+        c.evaluateScript("location.href = 'https://example.test/b#c'; heard.hashchange.forEach(f => f());")
+        try Self.advance(c, 2)
+        // The extension asks after an address change it heard of.
+        c.evaluateScript("browser.runtime.onMessage.fire({ type: 'winmux-icon-request' });")
+        try Self.advance(c, 0.1)
+        XCTAssertEqual(c.evaluateScript("JSON.stringify(messages.map(m => [m.report, m.address]))")?.toString(),
+            #"[[1,"https://example.test/a"],[2,"https://example.test/b"],[3,"https://example.test/b#c"],[4,"https://example.test/b#c"]]"#)
+        XCTAssertEqual(c.evaluateScript("JSON.stringify(messages[3].candidates)")?.toString(), #"["https://example.test/icon.png","https://example.test/favicon.ico"]"#)
     }
 
     func testChromeTitlesEachNormalWindowsActiveTabButtonWithItsMarkerAndAgainAfterANavigation() throws {

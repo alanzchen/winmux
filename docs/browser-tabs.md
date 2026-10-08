@@ -82,10 +82,15 @@ VPN extensions, or secure DNS. Obvious local addresses are excluded; a domain th
 resolves to a local device could still trigger macOS's Local Network prompt. Safari
 website icons are excluded because a direct request could bypass iCloud Private Relay.
 Without the [Chrome extension](#chrome-extension), background navigation can leave the previous
-site's icon until the tab is visited. With it, a Chrome tab whose live report puts it on another
-origin (scheme, host or port), or off the web, drops its icon at once, until a read confirms the
-new site's; an extension from before page revisions reports only the host, so only another host
-counts there.
+site's icon until the tab is visited. With it, a Chrome tab shows its origin icon only for the page
+a read confirmed it for: the extension's live report gives each tab's origin and page revision,
+which changes with every address the tab commits, even on the same origin. A tab whose report
+names another revision, another origin (scheme, host or port) or no website shows the app icon
+until a read that started after WinMux saw that page confirms its icon. Reads confirm only a
+window's selected tab, so a tab that navigates in the background shows the app icon until it's
+selected. While no live report has the tab (as when the extension no longer pairs a tab it
+described), or with an extension from before page revisions, only the selected tab shows its icon,
+while its window's latest read still finds it at that origin.
 Selecting an ineligible address replaces a known website icon with the app icon
 after the address is confirmed.
 
@@ -166,7 +171,8 @@ extension description only when it agrees with the tab strip it read:
   starts or stops playing sound, and at least every 30 seconds.
 
 What leaves Safari: for each tab in a normal window, its id (a number Safari gives it until
-Safari quits), title, host name and origin (never the path or query), page revision (below),
+Safari quits), title, host name and origin (never the path or query), page revision and whether
+it's the tab's first page (below),
 whether it's active, pinned, playing sound or muted, and its icon as a 32-pixel PNG; each window's id and place on screen; and
 how many times tabs were moved, opened or closed since Safari started, with when the extension
 began measuring.
@@ -214,8 +220,9 @@ running it fetches nothing; pages' icon links wait, and their icons are made onc
 answers again. Safari performs these requests itself, not WinMux, but they come from the extension
 rather than the page, so they may not follow every setting Safari applies to browsing. The
 icons stay in Safari's session storage, which it clears when it quits. A tab that hasn't
-loaded since the extension started, such as one restored when Safari reopened, shows its
-site's icon once any tab from the same site has loaded, and Safari's icon until then.
+loaded since the extension started, such as one restored when Safari reopened, shows the icon
+WinMux kept for its site, while that's still the tab's first page
+([below](#icons-kept-through-gaps-and-across-launches)), and Safari's icon until then.
 
 The extension reaches WinMux through its native part, which Safari runs in a sandbox. That
 part connects to a socket in the app group container WinMux and the extension share. Since
@@ -232,7 +239,7 @@ before WinMux listens, so a report WinMux doesn't take is tried again five secon
 less often, up to once a minute: the extension reports, and titles its buttons, soon after
 WinMux starts. Icons of pages open since before still wait until those pages reload. Pages opened
 after that report theirs as usual, and a tab whose page hasn't reported shows the icon last
-made for its site. A page that was already open may keep Safari's icon until it reloads:
+kept for its site while that's still the tab's first page. A page that was already open may keep Safari's icon until it reloads:
 the extension asks such pages to report again, but in testing Safari 27.0 didn't deliver their
 reports.
 
@@ -240,23 +247,36 @@ reports.
 
 The extension reports, for each tab, its origin (scheme, host and port; never the path or query)
 and a page revision: an opaque token that changes every time the tab commits another address,
-even one it had before, and that a restarted extension never repeats. WinMux keeps a website icon
-only for the same page by that evidence, never by a title or host name:
+even one it had before. It keeps each tab's revision, and the address it stands for, in session
+storage, so revisions last as long as Safari's browsing session, through Safari unloading the
+extension's page; a new session starts them over under another random prefix. WinMux shows a
+website icon only for the exact page instance that produced it: the same tab in the same Safari
+profile, extension session and stream, at the same origin and revision. Never by a title or host
+name:
 
-- The same page, meaning the same tab in the same Safari profile, extension session and stream,
-  with the same origin and revision, reported without an icon (as the extension does while it
-  makes the page's again), keeps the icon it last had. This holds across a gap in the reports:
-  the revision says no address was committed meanwhile.
+- The extension gives a tab only the icon its current page made, bound to that page's revision.
+  When the tab commits another address, it drops that icon and asks the page to name its icons
+  again (a page that changed its address by script stays); such a page also names them again by
+  itself a second after its history or fragment changes. An icon finished for a page the tab has
+  since left, even if it came back to the same address, is discarded. The extension never
+  gives a page its origin's icon or another page's.
+- The same page instance reported without an icon keeps the icon it gave, even across a gap in
+  the reports: its revision says no address was committed meanwhile.
 - While no live report has the tab (a report gap, or the extension disconnected), it shows
   Safari's icon, even while the window keeps its pairing for a few seconds.
-- Another page (another revision, origin, session or stream, whose ids may be reused) drops it.
-- An extension from before page revisions gets nothing kept: its tabs show only the icon it
-  gives now.
+- Another page instance (another revision, origin, tab, session or stream) shows only an icon it
+  gives itself.
+- An extension from before page revisions shows no website icons.
 
-It also keeps icons on disk, so after WinMux or the extension restarts, a tab the extension
-reports without an icon (a page that was already open) shows its origin's icon. A tab that has
-just dropped an icon, or shown one this way, never gets that same icon back from the disk or
-from another tab of the origin; it shows Safari's icon until the extension gives its new page one.
+WinMux also keeps icons on disk. After WinMux, Safari or the extension's page restarts, a page the
+extension can't give an icon yet (one already open, such as a tab Safari restored without loading
+it) shows the icon last kept for its origin, but only as the tab's first page: the extension says
+it has seen the tab at no other address in its browsing session, and WinMux hasn't seen the tab
+change pages within one report stream. Once either has, the tab shows Safari's icon until its
+page names an icon of its own. WinMux notes that per tab it lists, so it doesn't grow with
+browsing history; a tab it has only just started listing (as after WinMux starts) relies on the
+extension's word. The kept icon is the one the origin's pages last gave, so on a site whose pages
+have different icons, a first page can show another page's until it names its own.
 These are the 32-pixel images WinMux made from what the extension sent, each filed with the
 SHA-256 of its bytes and checked when read, in `~/Library/Caches/<WinMux's bundle id>/BrowserTabIcons/`,
 readable only by you. An index maps a keyed hash of the Safari profile and the site's origin to
@@ -364,8 +384,9 @@ Extension audio never overrides Chrome AX audio or establishes authoritative sil
 its ordinary AX sound and read cadence. Close stays on Accessibility.
 
 Chrome's existing **Website icons for Chrome-family tabs** setting remains optional and off by
-default, and this extension does not export favicon URLs or images. Its origins let WinMux drop
-a tab's origin icon when it navigates to another origin (see [Website icons](#website-icons)). Without
+default, and this extension does not export favicon URLs or images. Its origins and page
+revisions let WinMux drop a tab's origin icon as soon as it commits another address (see
+[Website icons](#website-icons)). Without
 the extension or host registration, all existing AX listing, selection, close, sound and
 optional-icon behavior remains available.
 
@@ -521,10 +542,19 @@ permissions, verification on read, profile and browser separation, least-recentl
 age bounds, a relaunch round trip through the bridge, Private Browsing and Chrome exclusion, and
 wiping. Through the real report, association and sidebar path, tests cover a same-title
 navigation to another site across a report gap, another port, scheme or address on the same host,
-the same native tab under another extension tab key, a kept icon never coming back to the page
-that dropped it, older extensions without revisions, and the bridge's indexes staying bounded
-across thousands of sites, epochs and icon changes; JavaScriptCore checks both extensions'
-revisions change with each committed address and only then. Release
+a tab going from a.test to b.test and back with no fallback to a.test's earlier icon (even when a
+new stream calls the page a first page), a new stream carrying no icon but keeping a first page's
+fallback, older extensions showing none, and the bridge's indexes staying bounded across thousands
+of sites, epochs and icon changes. Chrome tests check that an origin icon needs a read after the
+page instance (a same-origin revision change revokes it) and that an older extension's same host on
+another port shows the app icon in the background. JavaScriptCore runs the shipped Safari extension
+page with stale icons seeded in its session storage, and its actual reports go through that native
+path: after a same-origin address change the tab shows the app icon, a late icon for a page the
+tab left is discarded, and the new page's own icon shows. JavaScriptCore also runs the Safari
+content script, which names its icons again with its new address after a history or fragment
+change, and when the extension asks. JavaScriptCore also checks both
+extensions' revisions change with each committed address and only then, and that Safari's survive
+its page unloading. Release
 script tests check the standalone Chrome asset and the reproducible package.
 
 Not yet checked in a real browser: Chrome exposing a pinned WinMux Tabs button's title in its

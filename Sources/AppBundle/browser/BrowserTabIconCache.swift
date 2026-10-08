@@ -1,59 +1,98 @@
 import CryptoKit
 import Foundation
 
-/// Keeps a tab's website icon while the extension's latest report describes the same page
-/// without one, and never across a page change. The page is the extension's whole word for it,
-/// from the live report of the extension tab the native tab is bound to: the scoped tab key
-/// (browser profile, extension session, transport epoch and tab id), the page's origin and the
-/// extension's page revision, which changes with every address the tab commits. A title or host
-/// is never taken as evidence the page is the same.
+/// Which website icon a tab may show, by one rule: an icon shows only for the exact page
+/// instance that produced it. A page instance is what the live report of the extension tab the
+/// native tab is bound to says: the scoped tab key (browser profile, extension session, transport
+/// epoch and tab id), the page's origin and the extension's revision of the page, which changes
+/// with every address the tab commits. Titles and hosts are never evidence.
 ///
-/// - The same page reported without an icon keeps the icon it last had, even after a report gap
-///   in between: its revision says no address was committed meanwhile.
-/// - While no live report has the bound tab (a gap or a disconnect), the app icon, whatever the
-///   extension. A tab not bound by id, or one an older extension (without revisions) reports,
-///   shows only what the extension describes, as before.
-/// - Another page (another revision, origin or tab key) drops what was held. The kept icon of its
-///   origin (`fallback`) then shows only if it isn't what the tab showed before, so a fallback
-///   never brings a revoked icon back.
-/// Keyed by the native tab, which is never reused.
+/// Safari (`icon`): the icon the live report gives the page instance (the extension gives one only
+/// for the revision whose page made it), and while that same instance is reported without one, the
+/// icon it gave before. Nothing without a live report for the bound tab, or from an extension
+/// without revisions. Its origin's kept icon (`fallback`) only for the extension's first page in
+/// the tab (`SafariExtensionTab.isFirstPage`), and only until WinMux sees the tab change pages
+/// within one report stream: from then on, the tab shows only icons its own pages give.
+///
+/// Chrome (`origin`): the origin icon Accessibility confirmed for the tab
+/// (`BrowserTabIconAssociations`), only while the live report says the page is at that origin and
+/// a read that started after WinMux first saw the page instance confirmed it. Without a live
+/// report with a revision (an older extension, a gap, or a tab the extension described before but
+/// no longer pairs), only the selected tab's, while its window's latest read still confirms it. A
+/// tab the extension never described keeps the icon as without the extension.
+///
+/// Keyed by the native tab, which is never reused: one entry per listed tab.
 struct BrowserTabSiteIconContinuity {
     private struct Page: Equatable {
         let tab: SafariExtensionTabKey
-        let origin: String
+        /// Nil for a page that isn't a website.
+        let origin: String?
         let revision: String
     }
     private struct State {
-        var page: Page
-        /// What the extension last gave this page.
+        let page: Page
+        /// When WinMux first saw this page instance.
+        let since: TimeInterval
+        /// Whether WinMux saw the tab change pages within one report stream, for this page or before.
+        let changed: Bool
+        /// The icon this page instance's reports gave.
         var icon: String?
-        /// What this page showed last, and what the page before showed, which the fallback mustn't bring back.
-        var shown: String?
-        var revoked: String?
     }
     private var states: [BrowserTabTarget: State] = [:]
+    /// Tabs the extension has described.
+    private var described: Set<BrowserTabTarget> = []
 
-    /// The icon to show for `tab`, as the association describes it (`siteIcon`, `extensionTab`,
-    /// `pageRevision`). `reported` is the live report's tab for its bound key, if any; `fallback`
-    /// gives the kept icon of an origin, for the tab's report source.
-    mutating func icon(for tab: BrowserTab, reported: SafariExtensionTab?,
-                       fallback: (SafariExtensionTabKey, String) -> String?) -> String? {
-        guard let key = tab.extensionTab else { return tab.siteIcon }
-        guard let reported else { return nil }
-        guard let origin = reported.origin, let revision = reported.revision else { return tab.siteIcon }
-        let page = Page(tab: key, origin: origin, revision: revision)
-        var state = states[tab.target].map { $0.page == page ? $0 : State(page: page, revoked: $0.shown ?? $0.revoked) }
-            ?? State(page: page)
-        if let icon = reported.icon { state.icon = icon }
-        state.shown = state.icon ?? fallback(key, origin).flatMap { $0 == state.revoked ? nil : $0 }
-        states[tab.target] = state
-        return state.shown
+    /// The page instance the live report says the tab shows, noted if it's new.
+    private mutating func page(_ target: BrowserTabTarget, key: SafariExtensionTabKey, live: SafariExtensionTab?,
+                               now: TimeInterval) -> State? {
+        guard let live, let revision = live.revision else { return nil }
+        let page = Page(tab: key, origin: live.origin, revision: revision)
+        let known = states[target]
+        if let known, known.page == page { return known }
+        // Another page in the same stream is a page change. A new stream (the extension's page
+        // reloading, or a new session) isn't one in itself, but a change seen before still counts.
+        let state = State(page: page, since: now, changed: known.map { $0.changed || $0.page.tab.source == key.source } ?? false)
+        states[target] = state
+        return state
     }
 
-    mutating func retain(_ targets: Set<BrowserTabTarget>) { states = states.filter { targets.contains($0.key) } }
+    /// A Safari tab's icon. `reported` is the live report's tab for its bound key; `fallback`
+    /// gives the kept icon of an origin, for the tab's report source.
+    mutating func icon(for tab: BrowserTab, reported: SafariExtensionTab?, now: TimeInterval,
+                       fallback: (SafariExtensionTabKey, String) -> String?) -> String? {
+        guard let key = tab.extensionTab, let reported, var state = page(tab.target, key: key, live: reported, now: now) else {
+            return nil
+        }
+        if let icon = reported.icon {
+            state.icon = icon
+            states[tab.target] = state
+        }
+        if let icon = state.icon { return icon }
+        guard !state.changed, reported.isFirstPage, let origin = state.page.origin else { return nil }
+        return fallback(key, origin)
+    }
 
-    /// Icons held for tabs, which the icon store must keep.
-    var icons: Set<String> { Set(states.values.flatMap { [$0.icon, $0.shown].compactMap { $0 } }) }
+    /// A Chrome tab's origin icon, as `origins` confirmed it, if it may show.
+    mutating func origin(for tab: BrowserTab, reported: SafariExtensionTab?, origins: BrowserTabIconAssociations,
+                         now: TimeInterval) -> URL? {
+        let state = tab.extensionTab.flatMap { page(tab.target, key: $0, live: reported, now: now) }
+        if tab.extensionTab != nil { described.insert(tab.target) }
+        guard let origin = tab.iconOrigin else { return nil }
+        let fresh = tab.isSelected && origins.isCurrent(tab.target) ? origin : nil
+        guard tab.extensionTab != nil else { return described.contains(tab.target) ? fresh : origin }
+        guard let state else { return fresh }
+        guard let expected = state.page.origin, browserTabOriginKey(origin.absoluteString) == expected,
+              let confirmed = origins.confirmed[tab.target], confirmed >= state.since else { return nil }
+        return origin
+    }
+
+    mutating func retain(_ targets: Set<BrowserTabTarget>) {
+        states = states.filter { targets.contains($0.key) }
+        described.formIntersection(targets)
+    }
+
+    /// Icons pages gave, which the icon store must keep.
+    var icons: Set<String> { Set(states.values.compactMap(\.icon)) }
     var count: Int { states.count }
 }
 

@@ -14,11 +14,15 @@ struct SafariExtensionTab: Equatable, Sendable {
     /// extensions send neither.
     var origin: String? = nil
     var revision: String? = nil
+    /// Whether the extension has seen the tab at no other address in its browsing session: a hint
+    /// that its origin's kept icon may stand in (`BrowserTabSiteIconContinuity`).
+    var isFirstPage = false
     var isActive: Bool
     var isAudible: Bool = false
     var isMuted: Bool = false
     var isPinned: Bool = false
-    /// The SHA-256 of the tab's 32-pixel PNG icon, in hex.
+    /// The SHA-256 of the tab's 32-pixel PNG icon, in hex. The extension sends the icon the page at
+    /// this revision made, never another page's.
     var icon: String? = nil
 }
 
@@ -188,7 +192,8 @@ enum SafariExtensionMessage: Equatable, Sendable {
                 (1...32).contains(value.utf8.count) && value.utf8.allSatisfy { (0x30...0x39).contains($0) || (0x61...0x7a).contains($0) || $0 == 0x2d }
                     ? value : nil
             }
-            tabs.append(.init(id: id, title: safariExtensionComparableTitle(title), host: host, origin: origin, revision: revision, isActive: active,
+            tabs.append(.init(id: id, title: safariExtensionComparableTitle(title), host: host, origin: origin, revision: revision,
+                isFirstPage: revision != nil && tab["first"] as? Bool == true, isActive: active,
                 isAudible: tab["audible"] as? Bool ?? false, isMuted: tab["muted"] as? Bool ?? false,
                 isPinned: tab["pinned"] as? Bool ?? false, icon: icon))
         }

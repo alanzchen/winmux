@@ -229,20 +229,26 @@ final class BrowserTabIconCacheTest: XCTestCase {
         }
 
         /// One report of one window, its tabs' ids from ten times its id (unique, as Safari's are),
-        /// each tab `(title, origin, revision, icon)`.
+        /// each tab `(title, origin, revision, icon)`. As the extension's revisions do, one ending
+        /// in "-1" is the tab's first page.
         func report(_ tabs: [(String, String?, String?, String?)], window: Int = 10, at time: Double) throws {
-            now = time
             sequence += 1
             let described: [[String: Any]] = tabs.enumerated().map { index, tab in
                 var entry: [String: Any] = ["id": window * 10 + index, "title": tab.0, "active": index == 0]
                 if let origin = tab.1 { entry["origin"] = origin; entry["host"] = URL(string: origin)?.host ?? "" }
-                if let revision = tab.2 { entry["rev"] = revision }
+                if let revision = tab.2 { entry["rev"] = revision; if revision.hasSuffix("-1") { entry["first"] = true } }
                 if let icon = tab.3 { entry["icon"] = icon }
                 return entry
             }
-            let message: [String: Any] = ["v": 2, "type": "state", "session": session, "time": time * 1000, "measured": time * 1000,
+            try receive(["v": 2, "type": "state", "session": session, "time": time * 1000, "measured": time * 1000,
                 "allSites": true, "order": 0, "windows": [["id": window, "tabs": described]],
-                "push": ["v": 1, "browser": "safari", "epoch": epoch, "seq": sequence, "kind": "snapshot", "removed": [] as [Int]]]
+                "push": ["v": 1, "browser": "safari", "epoch": epoch, "seq": sequence, "kind": "snapshot", "removed": [] as [Int]]],
+                at: time)
+        }
+
+        /// A message as the extension sent it.
+        func receive(_ message: [String: Any], at time: Double) throws {
+            now = time
             _ = bridge.receive(SafariExtensionMessage.decode(try JSONSerialization.data(withJSONObject: ["profile": profile, "message": message])))
             update()
         }
@@ -272,7 +278,7 @@ final class BrowserTabIconCacheTest: XCTestCase {
         var shown: [String?] {
             let published = browserTabsShown(native, read: observed, now: now, safari: associations, iconOrigins: [:])
             return published.tabs.map { tab in
-                browserTabIconShown(tab, chrome: false, continuity: &continuity, origins: &origins,
+                browserTabIconShown(tab, chrome: false, now: now, continuity: &continuity, origins: origins,
                     reported: { [bridge] key in bridge!.reportedTab(key) },
                     keptIcon: { [bridge] key, origin in bridge!.siteIcon(source: key.source, origin: origin) }).siteIcon
             }
@@ -327,23 +333,57 @@ final class BrowserTabIconCacheTest: XCTestCase {
         XCTAssertEqual(p.shown, [key(red)], "Once the extension gives the new page an icon, it shows")
     }
 
-    func testTheSameNativeTabUnderAnotherExtensionTabKeyStartsOver() throws {
+    func testAPageChangeKeepsTheFallbackAwayEvenFromAPageAtAnOriginWhoseIconTheTabShowedBefore() throws {
+        let alpha = try png(.red), beta = try png(.blue)
+        let p = Pipeline(cache: BrowserTabIconDiskCache(directory: directory), profile: profileA)
+        try p.settle([("Inbox", "https://a.test", "x-1", key(alpha))], at: 0)
+        try p.send(icons: [key(alpha): alpha])
+        XCTAssertEqual(p.shown, [key(alpha)], "A1 shows α")
+        try p.report([("Inbox", "https://b.test", "x-2", key(beta))], at: 2)
+        try p.send(icons: [key(beta): beta])
+        p.read(at: 2.1)
+        XCTAssertEqual(p.shown, [key(beta)], "B shows β")
+        try p.report([("Inbox", "https://a.test", "x-3", nil)], at: 4)
+        p.read(at: 4.1)
+        XCTAssertEqual(p.bridge.siteIcon(source: "\(p.profile):\(p.session):\(p.epoch)", origin: "https://a.test"), key(alpha),
+                       "a.test's kept icon is there to fall back on")
+        XCTAssertEqual(p.shown, [nil], "A2 named no icon of its own: the app icon, not α")
+        // Nor once a new report stream (the extension's page reloaded without its storage) calls
+        // the page its first: WinMux saw the tab change pages.
+        p.restartStream()
+        try p.settle([("Inbox", "https://a.test", "x-1", nil)], at: 6)
+        XCTAssertEqual(p.shown, [nil])
+        try p.report([("Inbox", "https://a.test", "x-1", key(alpha))], at: 8)
+        p.read(at: 8.1)
+        XCTAssertEqual(p.shown, [key(alpha)], "The page naming the same icon as its own shows it")
+    }
+
+    func testANewReportStreamCarriesNoIconButKeepsTheFirstPagesFallback() throws {
         let red = try png(.red), blue = try png(.blue)
         let p = Pipeline(cache: nil, profile: profileA)
-        try p.settle([("Inbox", "https://a.test", "x-1", key(red))], at: 0)
+        try p.settle([("Inbox", "https://a.test", "x-2", key(red))], at: 0)
         try p.send(icons: [key(red): red])
         XCTAssertEqual(p.shown, [key(red)])
-        // The extension's page restarts: a new epoch, where tab id 100 and revision x-1 can repeat.
+        // The extension's page restarts: a new epoch, where tab ids and revisions can repeat.
         p.restartStream()
-        try p.settle([("Inbox", "https://a.test", "x-1", nil)], at: 5)
-        XCTAssertEqual(p.shown, [nil], "Another scoped tab key isn't the page that had the icon")
-        try p.report([("Inbox", "https://a.test", "x-1", key(blue))], at: 7)
+        try p.settle([("Inbox", "https://a.test", "x-2", nil)], at: 5)
+        XCTAssertEqual(p.shown, [nil], "Another scoped tab key isn't the page that gave the icon, and x-2 isn't a first page")
+        try p.report([("Inbox", "https://a.test", "x-2", key(blue))], at: 7)
         try p.send(icons: [key(blue): blue])
         p.read(at: 7.1)
         XCTAssertEqual(p.shown, [key(blue)])
+
+        // The extension's first page in a tab, with no change seen, through a restart: its
+        // origin's kept icon stands in.
+        let q = Pipeline(cache: BrowserTabIconDiskCache(directory: directory), profile: profileB)
+        try q.settle([("Inbox", "https://a.test", "x-1", key(red))], at: 0)
+        try q.send(icons: [key(red): red])
+        q.restartStream()
+        try q.settle([("Inbox", "https://a.test", "x-1", nil)], at: 5)
+        XCTAssertEqual(q.shown, [key(red)])
     }
 
-    func testAKeptIconShowsOnlyForAPageThatHadNoneAndOldExtensionsGetNoContinuity() throws {
+    func testAKeptIconShowsOnlyForAFirstPageThatHadNoneAndOldExtensionsShowNoIcon() throws {
         let red = try png(.red)
         let first = Pipeline(cache: BrowserTabIconDiskCache(directory: directory), profile: profileA)
         try first.settle([("Inbox", "https://a.test", "x-1", key(red))], at: 0)
@@ -359,7 +399,7 @@ final class BrowserTabIconCacheTest: XCTestCase {
         // The tab commits another address on the same origin: what it showed is revoked.
         try p.report([("Inbox", "https://a.test", "z-2", nil)], at: 3)
         p.read(at: 3.1)
-        XCTAssertEqual(p.shown, [nil], "The fallback never brings back the icon the previous page showed")
+        XCTAssertEqual(p.shown, [nil], "After a page change, no fallback until the page names its own icon")
         // Another profile's tab on the same origin gets nothing kept by profile A.
         let other = Pipeline(cache: BrowserTabIconDiskCache(directory: directory), profile: profileB)
         try other.settle([("Inbox", "https://a.test", "z-1", nil)], at: 0)
@@ -367,50 +407,86 @@ final class BrowserTabIconCacheTest: XCTestCase {
         RunLoop.main.run(until: Date().addingTimeInterval(0.05))
         XCTAssertEqual(other.shown, [nil])
 
-        // An extension from before page revisions: only what it says now, no fallback.
+        // An extension from before page revisions can't say which page an icon is for (it gave
+        // a page its origin's icon): none shows, nor any kept one.
         let old = Pipeline(cache: BrowserTabIconDiskCache(directory: directory), profile: profileA)
-        try old.settle([("Inbox", nil, nil, key(red))], at: 0)
+        try old.settle([("Inbox", "https://a.test", nil, key(red))], at: 0)
         try old.send(icons: [key(red): red])
-        XCTAssertEqual(old.shown, [key(red)])
-        try old.report([("Inbox", nil, nil, nil)], at: 3)
+        old.bridge.waitForKeptIcons()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertEqual(old.shown, [nil])
+        try old.report([("Inbox", nil, nil, key(red))], at: 3)
         old.read(at: 3.1)
-        XCTAssertEqual(old.shown, [nil], "An omitted icon isn't kept without page evidence")
-        try old.report([("Inbox", nil, nil, key(red))], at: 4)
-        old.read(at: 4.1)
-        XCTAssertEqual(old.shown, [key(red)])
-        try old.report([("Other", nil, nil, nil)], window: 20, at: 5)
-        old.read(at: 5.1)
-        XCTAssertEqual(old.shown, [nil], "Nor across a report gap, while its window still keeps its pairing")
+        XCTAssertEqual(old.shown, [nil])
     }
 
-    func testChromeComparesTheFullOriginFromTheLiveReport() {
+    /// Chrome's icons come from Accessibility reading the selected tab's address; the extension's
+    /// live report says which page instance each tab is on.
+    func testChromeShowsAnOriginIconOnlyForThePageInstanceAFreshReadConfirmedItFor() {
         let target = BrowserTabTarget(windowId: 1, pid: 2, windowSession: UUID(), tabId: UUID())
+        let other = BrowserTabTarget(windowId: 1, pid: 2, windowSession: target.windowSession, tabId: UUID())
         let key = SafariExtensionTabKey(source: "p:s:e", id: 7)
+        let service = URL(string: "https://service.test"), port = URL(string: "https://service.test:8443")
         var origins = BrowserTabIconAssociations()
-        let read = BrowserWindowTabs(windowId: 1, pid: 2, windowSession: target.windowSession,
-            tabs: [.init(target: target, title: "Service", isSelected: true)],
-            iconCandidate: .init(target: target, origin: URL(string: "https://service.test")))
         var continuity = BrowserTabSiteIconContinuity()
-        func shown(_ live: SafariExtensionTab?) -> URL? {
-            origins.update(read, now: 0)
-            origins.update(read, now: 1)
-            var tab = BrowserTab(target: target, title: "Service", isSelected: true)
-            tab.extensionTab = key
+        var selected = true
+        /// Two reads starting at `time`, 0.8 s apart, finding the selected tab at `origin`.
+        func read(_ origin: URL?, at time: Double) {
+            let snapshot = BrowserWindowTabs(windowId: 1, pid: 2, windowSession: target.windowSession,
+                tabs: [.init(target: target, title: "Service", isSelected: selected), .init(target: other, title: "Other", isSelected: !selected)],
+                iconCandidate: .init(target: selected ? target : other, origin: selected ? origin : nil))
+            origins.update(snapshot, now: time + 0.1, started: time)
+            origins.update(snapshot, now: time + 0.9, started: time + 0.8)
+        }
+        func shown(_ live: SafariExtensionTab?, at time: Double, bound: Bool = true) -> URL? {
+            var tab = BrowserTab(target: target, title: "Service", isSelected: selected)
+            tab.extensionTab = bound ? key : nil
             tab.iconOrigin = origins.origins[target]
-            return browserTabIconShown(tab, chrome: true, continuity: &continuity, origins: &origins,
+            return browserTabIconShown(tab, chrome: true, now: time, continuity: &continuity, origins: origins,
                 reported: { $0 == key ? live : nil }, keptIcon: { _, _ in nil }).iconOrigin
         }
-        func live(_ origin: String?, revision: String? = "x-1", host: String? = "service.test") -> SafariExtensionTab {
-            .init(id: 7, title: "Service", host: host, origin: origin, revision: revision, isActive: true)
+        func page(_ origin: String?, _ revision: String?) -> SafariExtensionTab {
+            .init(id: 7, title: "Service", host: "service.test", origin: origin, revision: revision, isActive: selected)
         }
-        XCTAssertEqual(shown(live("https://service.test")), URL(string: "https://service.test"))
-        XCTAssertNil(shown(live("https://service.test:8443")), "Same host, another port")
-        XCTAssertNil(shown(live("http://service.test")), "Same host, another scheme")
-        XCTAssertNil(shown(live(nil, host: nil)), "Not a web page")
-        XCTAssertEqual(shown(nil), URL(string: "https://service.test"), "No live report: the AX origin stands")
-        XCTAssertEqual(shown(live(nil, revision: nil)), URL(string: "https://service.test"),
-                       "An older extension sends only the host, which still matches")
-        XCTAssertNil(shown(live(nil, revision: nil, host: "news.test")))
+
+        XCTAssertNil(shown(page("https://service.test", "x-1"), at: 0))
+        read(service, at: 1)
+        XCTAssertEqual(shown(page("https://service.test", "x-1"), at: 2), service, "Confirmed after the page was seen")
+        XCTAssertNil(shown(page("https://service.test", "x-2"), at: 3), "Same origin, another revision (path or query): revoked")
+        read(service, at: 4)
+        XCTAssertEqual(shown(page("https://service.test", "x-2"), at: 5), service, "Until a read after it confirms it again")
+        XCTAssertNil(shown(page("https://service.test:8443", "x-3"), at: 6), "Same host, another port")
+        XCTAssertNil(shown(page("http://service.test", "x-4"), at: 7), "Same host, another scheme")
+        XCTAssertNil(shown(page(nil, "x-5"), at: 8), "Not a web page")
+        // In the background, a page change has nothing to confirm it.
+        read(service, at: 9)
+        selected = false
+        read(nil, at: 11)
+        XCTAssertNil(shown(page("https://service.test", "x-6"), at: 12))
+        XCTAssertEqual(origins.origins[target], service, "What a read confirmed before is still there; it just isn't shown")
+
+        // No live report, or an extension from before page revisions: no continuity. Only the
+        // selected tab, while its window's latest read still finds it at that origin.
+        selected = true
+        read(service, at: 20)
+        XCTAssertEqual(shown(nil, at: 21), service)
+        XCTAssertEqual(shown(page(nil, nil), at: 21), service)
+        selected = false
+        read(nil, at: 22)
+        // In the background, the tab goes to https://service.test:8443/next. An older extension
+        // reports the same host.
+        XCTAssertNil(shown(page(nil, nil), at: 24), "Same host, another port: the host proves nothing")
+        XCTAssertNil(shown(nil, at: 24))
+        XCTAssertNil(shown(nil, at: 24, bound: false), "Nor once the extension no longer pairs the tab")
+        selected = true
+        read(port, at: 25)
+        XCTAssertEqual(shown(page(nil, nil), at: 26), port, "Selected again, a fresh read shows the page's own origin")
+
+        // A tab the extension never described keeps its icon as without the extension.
+        continuity = BrowserTabSiteIconContinuity()
+        selected = false
+        read(nil, at: 30)
+        XCTAssertEqual(shown(nil, at: 31, bound: false), port)
     }
 
     func testOriginsAndRevisionsAreCheckedAsTheyArrive() throws {
@@ -431,6 +507,89 @@ final class BrowserTabIconCacheTest: XCTestCase {
         let tabs = state.windows[0].tabs
         XCTAssertEqual(tabs.map(\.origin), [nil, "https://b.test", "https://c.test", "https://d.test"], "A path is never taken as an origin")
         XCTAssertEqual(tabs.map(\.revision), ["x-1", nil, nil, "ab12cd34-7"])
+    }
+
+    // MARK: - The Safari extension page itself
+
+    /// The shipped Safari extension page, in JavaScriptCore with synthetic browser APIs: its session
+    /// storage seeded with the icon the tab's page made and an origin icon an earlier version kept,
+    /// and its actual reports taken in by the native pipeline.
+    func testTheSafariExtensionsReportsAfterAnAddressChangeShowTheAppIconUntilTheNewPageNamesItsIcon() throws {
+        let red = try png(.red), blue = try png(.blue), green = try png(.green)
+        let c = try BrowserPushBackgroundTest.page("safari", before: """
+            now = 10000;
+            storage = { session: 'seeded', pageInstance: 'abcdef12', order: 0,
+                pages: { 10: { address: 'https://example.test/tenant-a', count: 1 } },
+                icons: { '\(key(red))': { png: '\(red.base64EncodedString())', used: now } },
+                tabIcons: { 10: { key: '\(key(red))', revision: 'abcdef12-1' } },
+                originIcons: { 'https://example.test': { key: '\(key(red))', used: now } } };
+            // One window, which WinMux pairs by its tabs: no frames to compare bounds with here.
+            windows = windows.slice(0, 1);
+            for (const field of ['left', 'top', 'width', 'height']) delete windows[0][field];
+            Object.assign(windows[0].tabs[0], { url: 'https://example.test/tenant-a', active: true });
+            function latest() { return sent.filter(m => m.type === 'state' || m.type === 'events').at(-1); }
+            function go(url) { Object.assign(windows[0].tabs[0], { url }); browser.tabs.onUpdated.fire(10, { url }, windows[0].tabs[0]); }
+            function names(page, candidate) {
+                browser.runtime.onMessage.fire({ type: 'winmux-icon-candidates', page, report: 1, address: windows[0].tabs[0].url,
+                    candidates: [candidate] }, { tab: copy(windows[0].tabs[0]), url: windows[0].tabs[0].url, frameId: 0 });
+            }
+            """)
+        let p = Pipeline(cache: BrowserTabIconDiskCache(directory: directory), profile: profileA, titles: ["Synthetic 1"])
+        p.session = "seeded"
+        func tab10() -> String? { c.evaluateScript("JSON.stringify(latest().windows[0].tabs[0])")?.toString() }
+        /// WinMux takes in the page's latest report, by the page's clock, and reads the window twice.
+        func take() throws {
+            let json = try XCTUnwrap(c.evaluateScript("JSON.stringify(latest())")?.toString())
+            let time = (c.evaluateScript("now")?.toDouble() ?? 0) / 1000
+            try p.receive(try XCTUnwrap(JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any]), at: time)
+            p.read(at: time + 0.1)
+            p.read(at: time + 1)
+        }
+        /// Runs `js` in the page once WinMux's reads are behind it.
+        func step(_ js: String) throws {
+            try BrowserPushBackgroundTest.advance(c, 2)
+            c.evaluateScript(js)
+            try BrowserPushBackgroundTest.advance(c)
+        }
+
+        try take()
+        try p.send(icons: [key(red): red])
+        XCTAssertEqual(tab10(), #"{"title":"Synthetic 1","active":true,"audible":false,"muted":false,"pinned":false,"id":10,"#
+            + #""host":"example.test","origin":"https://example.test","rev":"abcdef12-1","first":true,"icon":"\#(key(red))"}"#)
+        XCTAssertEqual(p.shown, [key(red)], "The page that made the icon shows it")
+
+        // The tab commits another address on the same origin: only the path and query change.
+        try step("go('https://example.test/tenant-b?q=1')")
+        XCTAssertEqual(tab10(), #"{"title":"Synthetic 1","active":true,"audible":false,"muted":false,"pinned":false,"id":10,"#
+            + #""host":"example.test","origin":"https://example.test","rev":"abcdef12-2"}"#,
+            "A new revision, no icon (neither the page's before nor its origin's), and no longer a first page")
+        try take()
+        let epoch = try XCTUnwrap(c.evaluateScript("latest().push.epoch")?.toString())
+        XCTAssertEqual(p.bridge.siteIcon(source: "\(p.profile):seeded:\(epoch)", origin: "https://example.test"), key(red),
+                       "The origin's kept icon is there, and isn't used")
+        XCTAssertEqual(p.shown, [nil], "The app icon")
+
+        // An icon finished after the tab moved on, even back to the same address, isn't the page's.
+        try step("""
+            var release; iconMade = () => new Promise(done => { release = () => done({ key: '\(key(green))', png: '\(green.base64EncodedString())' }); });
+            names('slow', 'https://example.test/slow.png');
+            """)
+        try step("go('https://example.test/tenant-c'); go('https://example.test/tenant-b?q=1');")
+        try step("release()")
+        XCTAssertEqual(c.evaluateScript("JSON.stringify(storage.tabIcons)")?.toString(), "{}")
+        XCTAssertFalse(tab10()?.contains(key(green)) ?? true)
+        try take()
+        XCTAssertEqual(p.shown, [nil])
+
+        // The page names its icon: made for this revision, it shows.
+        try step("""
+            iconMade = async () => ({ key: '\(key(blue))', png: '\(blue.base64EncodedString())' });
+            names('b', 'https://example.test/b.png');
+            """)
+        XCTAssertTrue(tab10()?.contains(#""rev":"abcdef12-4","icon":"\#(key(blue))""#) ?? false, tab10() ?? "")
+        try take()
+        try p.send(icons: [key(blue): blue])
+        XCTAssertEqual(p.shown, [key(blue)])
     }
 
     // MARK: - Bounded memory
