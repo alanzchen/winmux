@@ -11,22 +11,18 @@ struct WorkspaceSidebarExpandedStatusCard: View {
     @Environment(\.locale) private var locale
     @Environment(\.calendar) private var calendar
 
-    private var dateLines: WorkspaceSidebarExpandedClockDateLines {
-        WorkspaceSidebarExpandedClockDateLines(date: date, locale: locale, calendar: calendar)
-    }
-
-    private var accessibilitySummary: String {
-        workspaceSidebarExpandedClockAccessibilitySummary(
+    var body: some View {
+        // Formatted once per tick, for the lines and for the accessibility label alike.
+        let dateLines = WorkspaceSidebarExpandedClockDateLines(date: date, locale: locale, calendar: calendar)
+        let accessibilitySummary = workspaceSidebarExpandedClockAccessibilitySummary(
             date: date,
             showsSeconds: showsSeconds,
             showsDate: showsDate,
             showsWeekday: showsWeekday,
             locale: locale,
-            calendar: calendar
+            calendar: calendar,
+            dateLines: dateLines
         )
-    }
-
-    var body: some View {
         let style = Date.FormatStyle(locale: locale, calendar: calendar, timeZone: calendar.timeZone)
         let time = date.formatted(style.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits))
         let seconds = showsSeconds ? date.formatted(style.second(.twoDigits)) : nil

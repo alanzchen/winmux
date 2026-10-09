@@ -35,16 +35,64 @@ struct WorkspaceSidebarExpandedClockDateLines: Equatable {
         locale: Locale = .autoupdatingCurrent,
         calendar: Calendar = .autoupdatingCurrent
     ) {
-        weekday = Self.format(date, template: "EEEE", locale: locale, calendar: calendar)
-        monthAndDay = Self.format(date, template: "MMMMd", locale: locale, calendar: calendar)
+        let formatters = WorkspaceSidebarClockFormatters.shared
+        weekday = formatters.string(from: date, template: "EEEE", locale: locale, calendar: calendar)
+        monthAndDay = formatters.string(from: date, template: "MMMMd", locale: locale, calendar: calendar)
+    }
+}
+
+/// The clock redraws every second, and building a DateFormatter and resolving its template cost
+/// more than the formatting. Formatters are reused for each format, locale, calendar and time
+/// zone, configured exactly as before; a change to the user's region settings or time zone drops
+/// them all. Formatting with a formatter no one changes is safe from any thread.
+final class WorkspaceSidebarClockFormatters: @unchecked Sendable {
+    static let shared = WorkspaceSidebarClockFormatters()
+
+    private struct Key: Hashable {
+        let format: String
+        let locale: Locale
+        let calendar: Calendar
+        let timeZone: TimeZone
     }
 
-    private static func format(_ date: Date, template: String, locale: Locale, calendar: Calendar) -> String {
-        let formatter = DateFormatter()
-        formatter.locale = locale
-        formatter.calendar = calendar
-        formatter.timeZone = calendar.timeZone
-        formatter.setLocalizedDateFormatFromTemplate(template)
+    private let lock = NSLock()
+    private var formatters: [Key: DateFormatter] = [:]
+    private var observers: [NSObjectProtocol] = []
+
+    init(center: NotificationCenter = .default) {
+        observers = [NSLocale.currentLocaleDidChangeNotification, .NSSystemTimeZoneDidChange].map { name in
+            center.addObserver(forName: name, object: nil, queue: nil) { [weak self] _ in self?.removeAll() }
+        }
+    }
+
+    var count: Int { lock.withLock { formatters.count } }
+
+    func removeAll() {
+        lock.withLock { formatters.removeAll() }
+    }
+
+    /// A `template` such as "EEEE", or with none, the time in `timeStyle`.
+    func string(from date: Date, template: String? = nil, timeStyle: DateFormatter.Style = .none,
+                locale: Locale, calendar: Calendar) -> String {
+        let key = Key(format: template ?? "time:\(timeStyle.rawValue)", locale: locale, calendar: calendar,
+            timeZone: calendar.timeZone)
+        let formatter = lock.withLock { () -> DateFormatter in
+            if let formatter = formatters[key] { return formatter }
+            // Only a few are ever in use; this just bounds a run of locales.
+            if formatters.count >= 64 { formatters.removeAll() }
+            let formatter = DateFormatter()
+            formatter.locale = locale
+            formatter.calendar = calendar
+            formatter.timeZone = calendar.timeZone
+            if let template {
+                formatter.setLocalizedDateFormatFromTemplate(template)
+            } else {
+                formatter.dateStyle = .none
+                formatter.timeStyle = timeStyle
+            }
+            formatters[key] = formatter
+            return formatter
+        }
         return formatter.string(from: date)
     }
 }
@@ -66,21 +114,17 @@ func workspaceSidebarExpandedClockAccessibilitySummary(
     showsDate: Bool,
     showsWeekday: Bool,
     locale: Locale = .autoupdatingCurrent,
-    calendar: Calendar = .autoupdatingCurrent
+    calendar: Calendar = .autoupdatingCurrent,
+    dateLines: WorkspaceSidebarExpandedClockDateLines? = nil
 ) -> String {
-    let timeFormatter = DateFormatter()
-    timeFormatter.locale = locale
-    timeFormatter.calendar = calendar
-    timeFormatter.timeZone = calendar.timeZone
-    timeFormatter.dateStyle = .none
-    timeFormatter.timeStyle = showsSeconds ? .medium : .short
-
-    let dateLines = WorkspaceSidebarExpandedClockDateLines(
+    let time = WorkspaceSidebarClockFormatters.shared.string(from: date, timeStyle: showsSeconds ? .medium : .short,
+        locale: locale, calendar: calendar)
+    let dateLines = dateLines ?? WorkspaceSidebarExpandedClockDateLines(
         date: date,
         locale: locale,
         calendar: calendar
     )
-    var parts = [timeFormatter.string(from: date)]
+    var parts = [time]
     if showsWeekday {
         parts.append(dateLines.weekday)
     }
