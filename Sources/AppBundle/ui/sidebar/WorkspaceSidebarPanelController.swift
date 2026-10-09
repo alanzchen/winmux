@@ -137,7 +137,11 @@ final class WorkspaceSidebarPanel: NSPanelHud, WorkspaceSidebarInputOwner {
         panelsByMonitorScopeId[monitorScopeId]
     }
 
+    /// Passes of `refreshAll`, counted for tests and benchmarks.
+    private(set) static var refreshAllPasses = 0
+
     static func refreshAll() {
+        refreshAllPasses += 1
         SystemDockCoordinator.shared.configure(
             enabled: TrayMenuModel.shared.isEnabled && config.workspaceSidebar.enabled && config.workspaceSidebar.showAppIcons,
             position: config.workspaceSidebar.effectiveDockPosition)

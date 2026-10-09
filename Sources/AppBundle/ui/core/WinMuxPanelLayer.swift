@@ -25,7 +25,13 @@ enum WinMuxPanelLayer: CaseIterable {
 
 extension NSPanelHud {
     func applyWinMuxLayer(_ layer: WinMuxPanelLayer) {
-        level = layer.level
+        setLevelIfChanged(layer.level)
+    }
+
+    /// Panels reapply their layer on every refresh, which runs at every event of a window drag.
+    /// Only a different level goes to the window server; ordering is left to the callers.
+    func setLevelIfChanged(_ next: NSWindow.Level) {
+        if level != next { level = next }
     }
 
     /// A panel the user has opened stays above System Settings while in use.
@@ -36,7 +42,7 @@ extension NSPanelHud {
             let panelFrame = CGRect(x: frame.minX, y: mainMonitor.height - frame.maxY, width: frame.width, height: frame.height)
             yieldsTo = workspaceSidebarPanelYieldTarget(systemFrontWindows, panelFrame: panelFrame)
         }
-        level = workspaceSidebarPanelLevel(stayOnTop: stayOnTop, yieldingToLayer: yieldsTo?.layer)
+        setLevelIfChanged(workspaceSidebarPanelLevel(stayOnTop: stayOnTop, yieldingToLayer: yieldsTo?.layer))
         if let yieldsTo, level.rawValue == yieldsTo.layer, isVisible {
             order(.below, relativeTo: Int(yieldsTo.id))
         }

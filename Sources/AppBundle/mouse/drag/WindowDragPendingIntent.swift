@@ -81,9 +81,35 @@ func workspaceSidebarDragCarriesBatch() -> Bool {
     currentActiveWorkspaceSidebarDrag()?.batch != nil && !workspaceSidebarBatchScreenReleaseMovesDraggedWindow
 }
 
+/// Another app's own drag, such as selecting text, changes nothing the sidebar panels show, so
+/// it refreshes them as it starts, not at every event. A window WinMux moves or resizes still
+/// refreshes them at every event, and so does the first event after one.
+struct WorkspaceSidebarDragRefreshGate {
+    private var refreshedForOtherDrag = false
+
+    mutating func shouldRefresh(manipulatesWindow: Bool) -> Bool {
+        defer { refreshedForOtherDrag = !manipulatesWindow }
+        return manipulatesWindow || !refreshedForOtherDrag
+    }
+
+    mutating func pressEnded() {
+        refreshedForOtherDrag = false
+    }
+}
+
+@MainActor private var workspaceSidebarDragRefreshGate = WorkspaceSidebarDragRefreshGate()
+
+@MainActor
+func notePointerPressEndedForDragRefresh() {
+    workspaceSidebarDragRefreshGate.pressEnded()
+}
+
 @MainActor
 func refreshPendingWindowDragIntentFromGlobalMouseDrag() {
-    WorkspaceSidebarPanel.refreshAll()
+    let manipulatesWindow = isLeftMouseButtonDown && getCurrentMouseManipulationKind() != .none
+    if workspaceSidebarDragRefreshGate.shouldRefresh(manipulatesWindow: manipulatesWindow) {
+        WorkspaceSidebarPanel.refreshAll()
+    }
     guard isLeftMouseButtonDown, getCurrentMouseManipulationKind() == .move else {
         clearPendingWindowDragIntent()
         return
