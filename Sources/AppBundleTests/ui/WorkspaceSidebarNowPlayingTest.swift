@@ -191,90 +191,41 @@ final class WorkspaceSidebarNowPlayingTest: XCTestCase {
         XCTAssertFalse(model.isRunning, "Music closed while Tabs was off")
     }
 
-    /// Music's two notifications per pause or play each read at once, as before.
-    func testMusicsPairOfNotificationsPerPauseEachReadAtOnce() async throws {
+    /// Each notification asks Music at once, even while older reads are still out: a new
+    /// track's position and artwork wait only for its own reply.
+    func testANewTrackAsksMusicAtOnceWhileOlderReadsAreHeld() async throws {
         let requests = StatusRequests()
+        let artworkRequests = AttemptCounter()
         let model = AppleMusicNowPlayingModel(isMusicRunning: { true }, requestStatus: { asking in
             await requests.request(askingMusic: asking)
-        }, requestArtwork: { .success("") })
+        }, requestArtwork: {
+            _ = await artworkRequests.next()
+            return .success("")
+        })
         model.receive(track(.playing))
         model.receive(track(.paused))
         try await waitUntil { await requests.count == 2 }
-        await requests.answerNext(status("playing", position: "5"))
-        await requests.answerNext(status("paused", position: "42"))
+        model.receive(track(.playing, title: "Next"))
+        // Promptly: well within the second a read held back for older ones used to wait.
+        let deadline = ContinuousClock.now + .milliseconds(300)
+        while await requests.count < 3, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        var held = await requests.unanswered
+        XCTAssertEqual(held, [0, 1, 2], "The new track's read starts before either older read finishes")
+        await requests.answer(2, with: status("playing", title: "Next", position: "42"))
         try await waitUntil { model.nowPlaying?.position == 42 }
-        XCTAssertEqual(model.nowPlaying?.state, .paused)
-    }
-
-    /// A burst of notifications asks Music a few times, not once each: the reads under way, whose
-    /// replies are stale, then one fresh read after the last notification, whose reply shows.
-    func testABurstOfNotificationsAsksMusicOnceMoreAndShowsTheLatest() async throws {
-        let requests = StatusRequests()
-        let model = AppleMusicNowPlayingModel(isMusicRunning: { true }, requestStatus: { asking in
-            await requests.request(askingMusic: asking)
-        }, requestArtwork: { .success("") })
-        for index in 0 ..< 10 { model.receive(track(index.isMultiple(of: 2) ? .playing : .paused)) }
+        XCTAssertEqual(model.nowPlaying?.title, "Next")
+        try await waitUntil { await artworkRequests.count == 1 }
+        held = await requests.unanswered
+        XCTAssertEqual(held, [0, 1], "Its artwork is asked for while the older reads are still out")
+        await requests.answer(0, with: status("playing", position: "5"))
+        await requests.answer(1, with: status("paused", position: "6"))
         try await Task.sleep(for: .milliseconds(50))
-        var count = await requests.count
-        XCTAssertEqual(count, appleMusicConcurrentStatusReads, "Later notifications wait for a read under way")
-        await requests.answerNext(status("playing", position: "5"))
-        try await waitUntil { await requests.count == appleMusicConcurrentStatusReads + 1 }
-        XCTAssertEqual(model.nowPlaying?.state, .paused, "A reply from before the burst ended is dropped")
-        XCTAssertNil(model.nowPlaying?.position)
-        await requests.answerNext(status("playing", position: "6"))
-        await requests.answerNext(status("paused", position: "42"))
-        try await waitUntil { model.nowPlaying?.position == 42 }
-        XCTAssertEqual(model.nowPlaying?.state, .paused)
-        try await Task.sleep(for: .milliseconds(50))
-        count = await requests.count
-        XCTAssertEqual(count, appleMusicConcurrentStatusReads + 1)
+        XCTAssertEqual(model.nowPlaying?.title, "Next", "Older replies are dropped")
+        XCTAssertEqual(model.nowPlaying?.position ?? 0, 42, accuracy: 1)
         let asked = await requests.asked
-        XCTAssertFalse(asked.contains(true), "The sidebar alone never asks to automate Music")
-    }
-
-    /// Reads Music is slow to answer hold a newer one back no longer than the overlap.
-    func testASlowReadHoldsANewerOneBackOnlyBriefly() async throws {
-        let requests = StatusRequests()
-        let model = AppleMusicNowPlayingModel(isMusicRunning: { true }, requestStatus: { asking in
-            await requests.request(askingMusic: asking)
-        }, requestArtwork: { .success("") })
-        model.receive(track(.playing))
-        model.receive(track(.paused))
-        try await waitUntil { await requests.count == 2 }
-        let started = ContinuousClock.now
-        model.receive(track(.playing))
-        try await waitUntil(timeout: .seconds(3)) { await requests.count == 3 }
-        let waited = ContinuousClock.now - started
-        XCTAssertGreaterThan(waited, .milliseconds(Int(appleMusicStatusReadOverlap * 1000) - 300))
-        XCTAssertLessThan(waited, .milliseconds(Int(appleMusicStatusReadOverlap * 1000) + 700))
-        await requests.answerNext(status("playing", position: "5"))
-        await requests.answerNext(status("paused", position: "6"))
-        await requests.answerNext(status("playing", position: "42"))
-        try await waitUntil { model.nowPlaying?.position == 42 }
-        XCTAssertEqual(model.nowPlaying?.state, .playing)
-    }
-
-    /// Music quitting drops a read that was waiting for one under way.
-    func testQuittingMusicDropsAWaitingRead() async throws {
-        let music = MusicRunningFlag(true)
-        let requests = StatusRequests()
-        let model = AppleMusicNowPlayingModel(isMusicRunning: { music.isRunning }, requestStatus: { asking in
-            await requests.request(askingMusic: asking)
-        }, requestArtwork: { .success("") })
-        model.receive(track(.playing))
-        model.receive(track(.paused))
-        model.receive(track(.playing))
-        try await waitUntil { await requests.count == 2 }
-        music.isRunning = false
-        model.receive(track(.paused))
-        XCTAssertNil(model.nowPlaying)
-        await requests.answerNext(status("playing"))
-        await requests.answerNext(status("playing"))
-        try await Task.sleep(for: .milliseconds(Int(appleMusicStatusReadOverlap * 1000) + 300))
-        let count = await requests.count
-        XCTAssertEqual(count, 2)
-        XCTAssertNil(model.nowPlaying)
-        XCTAssertFalse(model.isRunning)
+        XCTAssertEqual(asked, [false, false, false], "The sidebar alone never asks to automate Music")
     }
 
     private func track(_ state: AppleMusicNowPlaying.State, title: String = "Song") -> AppleMusicNowPlaying {
@@ -563,9 +514,8 @@ final class WorkspaceSidebarNowPlayingTest: XCTestCase {
         XCTAssertNil(model.artwork)
     }
 
-    private func waitUntil(timeout: Duration = .seconds(2), _ condition: @escaping () async -> Bool) async throws {
-        let deadline = ContinuousClock.now + timeout
-        while ContinuousClock.now < deadline {
+    private func waitUntil(_ condition: @escaping () async -> Bool) async throws {
+        for _ in 0..<200 {
             if await condition() { return }
             try await Task.sleep(for: .milliseconds(10))
         }
@@ -590,21 +540,22 @@ private actor AttemptCounter {
     }
 }
 
-/// Each request to Music, in order, held until the test answers it.
+/// Each request to Music, by the order it was asked, held until the test answers it.
 private actor StatusRequests {
     private(set) var asked: [Bool] = []
-    private var pending: [CheckedContinuation<AppleMusicScriptOutput?, Never>] = []
+    private var pending: [Int: CheckedContinuation<AppleMusicScriptOutput?, Never>] = [:]
 
     var count: Int { asked.count }
+    var unanswered: [Int] { pending.keys.sorted() }
 
     func request(askingMusic: Bool) async -> AppleMusicScriptOutput? {
+        let index = asked.count
         asked.append(askingMusic)
-        return await withCheckedContinuation { pending.append($0) }
+        return await withCheckedContinuation { pending[index] = $0 }
     }
 
-    func answerNext(_ output: AppleMusicScriptOutput?) {
-        guard !pending.isEmpty else { return }
-        pending.removeFirst().resume(returning: output)
+    func answer(_ index: Int, with output: AppleMusicScriptOutput?) {
+        pending.removeValue(forKey: index)?.resume(returning: output)
     }
 }
 

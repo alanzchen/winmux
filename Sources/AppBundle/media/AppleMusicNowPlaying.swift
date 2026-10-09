@@ -158,12 +158,6 @@ enum AppleMusicScriptOutput: Equatable {
     case failed
 }
 
-/// Status reads to Music that may run at once before a newer refresh waits for one: Music's two
-/// notifications per pause or play still read at once.
-let appleMusicConcurrentStatusReads = 2
-/// How long a newer refresh waits for a read under way before it reads alongside it anyway.
-let appleMusicStatusReadOverlap: TimeInterval = 1
-
 /// Runs a script in `osascript`, off the main thread, so a slow Music or a first-time
 /// permission prompt never blocks WinMux.
 func runAppleMusicScript(_ source: String, timeout: TimeInterval = 10) async -> AppleMusicScriptOutput {
@@ -261,11 +255,6 @@ final class AppleMusicNowPlayingModel: ObservableObject {
     private var positionIsGuess = false
     /// What Music's latest notification said, as it said it.
     private var lastNotified: AppleMusicNowPlaying?
-    /// The status reads under way, by when each started.
-    private var statusReads: [Int: TimeInterval] = [:]
-    private var lastStatusRead = 0
-    /// Asked for while a read was under way: one fresh read follows it, asking Music if any did.
-    private var followingStatusReadAsksMusic: Bool?
     private let isMusicRunning: @MainActor () -> Bool
     /// Music's status, or nil when WinMux may not ask it without prompting.
     private let requestStatus: @Sendable (_ askingMusic: Bool) async -> AppleMusicScriptOutput?
@@ -391,43 +380,12 @@ final class AppleMusicNowPlayingModel: ObservableObject {
         guard isMusicRunning() else { return clear() }
         if !isRunning { isRunning = true }
         stateSequence += 1
-        // Only a reply to the latest read shows. Past the reads that may run at once, a refresh
-        // waits for one to finish and then reads once, so a burst of notifications runs a few
-        // scripts, not one each. A slow read holds it back no longer than the overlap.
-        let now = ProcessInfo.processInfo.systemUptime
-        if statusReads.count >= appleMusicConcurrentStatusReads, let latest = statusReads.values.max(),
-           now - latest < appleMusicStatusReadOverlap {
-            if followingStatusReadAsksMusic == nil {
-                DispatchQueue.main.asyncAfter(deadline: .now() + (latest + appleMusicStatusReadOverlap - now)) { [weak self] in
-                    MainActor.assumeIsolated { self?.startFollowingStatusRead() }
-                }
-            }
-            followingStatusReadAsksMusic = (followingStatusReadAsksMusic ?? false) || askingMusic
-            return
-        }
-        startStatusRead(askingMusic: askingMusic)
-    }
-
-    private func startStatusRead(askingMusic: Bool) {
-        followingStatusReadAsksMusic = nil
-        lastStatusRead += 1
-        let id = lastStatusRead
-        statusReads[id] = ProcessInfo.processInfo.systemUptime
         let sequence = stateSequence
         let requestStatus = requestStatus
         _ = Task { [weak self] in
             let result = await requestStatus(askingMusic)
-            guard let self else { return }
-            self.statusReads[id] = nil
-            self.receive(statusResult: result, sequence: sequence)
-            self.startFollowingStatusRead()
+            self?.receive(statusResult: result, sequence: sequence)
         }
-    }
-
-    /// A read finished, or the overlap passed: a refresh that waited reads now.
-    private func startFollowingStatusRead() {
-        guard let askingMusic = followingStatusReadAsksMusic else { return }
-        startStatusRead(askingMusic: askingMusic)
     }
 
     /// `result` is nil when Music may not be asked without prompting.
@@ -514,7 +472,6 @@ final class AppleMusicNowPlayingModel: ObservableObject {
     /// Every caller means Music isn't running: it quit, never started, or isn't followed.
     private func clear() {
         stateSequence += 1
-        followingStatusReadAsksMusic = nil
         musicAnswers = false
         positionIsGuess = false
         lastNotified = nil
