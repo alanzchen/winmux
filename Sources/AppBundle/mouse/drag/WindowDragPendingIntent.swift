@@ -83,7 +83,8 @@ func workspaceSidebarDragCarriesBatch() -> Bool {
 
 /// Another app's own drag, such as selecting text, changes nothing the sidebar panels show, so
 /// it refreshes them as it starts, not at every event. A window WinMux moves or resizes still
-/// refreshes them at every event, and so does the first event after one.
+/// refreshes them at every event, and so does the first event after one. A press, or its
+/// release, starts over, so a release that went unseen can't hold off the next drag's refresh.
 struct WorkspaceSidebarDragRefreshGate {
     private var refreshedForOtherDrag = false
 
@@ -92,23 +93,40 @@ struct WorkspaceSidebarDragRefreshGate {
         return manipulatesWindow || !refreshedForOtherDrag
     }
 
-    mutating func pressEnded() {
+    mutating func reset() {
         refreshedForOtherDrag = false
     }
 }
 
 @MainActor private var workspaceSidebarDragRefreshGate = WorkspaceSidebarDragRefreshGate()
 
+/// The left button went down or came up.
 @MainActor
-func notePointerPressEndedForDragRefresh() {
-    workspaceSidebarDragRefreshGate.pressEnded()
+func noteLeftMousePressBoundaryForDragRefresh() {
+    workspaceSidebarDragRefreshGate.reset()
 }
 
+/// What a drag event updates in a panel even when its refresh is skipped.
 @MainActor
-func refreshPendingWindowDragIntentFromGlobalMouseDrag() {
+protocol WorkspaceSidebarDragInputTarget: AnyObject {
+    func updateMousePassthrough(at point: CGPoint)
+}
+
+extension WorkspaceSidebarPanel: WorkspaceSidebarDragInputTarget {}
+
+/// `screenPoint` and `inputTargets` stand in for the pointer and the visible panels in tests.
+@MainActor
+func refreshPendingWindowDragIntentFromGlobalMouseDrag(screenPoint: CGPoint = NSEvent.mouseLocation,
+                                                      inputTargets: [any WorkspaceSidebarDragInputTarget]? = nil) {
     let manipulatesWindow = isLeftMouseButtonDown && getCurrentMouseManipulationKind() != .none
     if workspaceSidebarDragRefreshGate.shouldRefresh(manipulatesWindow: manipulatesWindow) {
         WorkspaceSidebarPanel.refreshAll()
+    } else {
+        // A skipped refresh still takes or passes clicks where the pointer is now, at every
+        // event: a drag that crosses a panel's edge can be released there before any hover check.
+        for target in inputTargets ?? WorkspaceSidebarPanel.visiblePanels {
+            target.updateMousePassthrough(at: screenPoint)
+        }
     }
     guard isLeftMouseButtonDown, getCurrentMouseManipulationKind() == .move else {
         clearPendingWindowDragIntent()

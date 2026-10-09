@@ -90,7 +90,10 @@ enum GlobalObserver {
         let screenPoint = NSEvent.mouseLocation
         let point = normalizeAppKitScreenPoint(screenPoint)
         runOnMainActor {
-            if isLeftMouseDownEvent { WorkspaceSidebarDragSessions.shared.noteLeftMouseDown() }
+            if isLeftMouseDownEvent {
+                WorkspaceSidebarDragSessions.shared.noteLeftMouseDown()
+                noteLeftMousePressBoundaryForDragRefresh()
+            }
             MousePointerTracker.shared.note(point: point, timestamp: timestamp)
             WorkspaceSidebarPanel.trapCursorForVisiblePanelsIfNeeded()
             // Edge hold may have warped the cursor back onto this display.
@@ -127,7 +130,7 @@ enum GlobalObserver {
             // Local drops are not observed by the global monitor. Dispatch after
             // SwiftUI handles the event; cleanup is idempotent if onEnded ran first.
             Task { @MainActor in
-                notePointerPressEndedForDragRefresh()
+                noteLeftMousePressBoundaryForDragRefresh()
                 finishWorkspaceSidebarDragAfterMouseUp()
             }
             return event
@@ -137,7 +140,7 @@ enum GlobalObserver {
             //  resetManipulatedWithMouseIfPossible might call its own refreshSession
             //  The end of the callback calls refreshSession
             _ = Task { @MainActor in
-                notePointerPressEndedForDragRefresh()
+                noteLeftMousePressBoundaryForDragRefresh()
                 finishWorkspaceSidebarDragAfterMouseUp()
                 guard let token: RunSessionGuard = .isServerEnabled else { return }
                 try await resetManipulatedWithMouseIfPossible()

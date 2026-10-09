@@ -1110,9 +1110,9 @@ extension WorkspaceSidebarPanel {
     }
 }
 extension WorkspaceSidebarPanel {
-    func updateMousePassthrough() {
+    func updateMousePassthrough(at point: CGPoint = NSEvent.mouseLocation) {
         // A resize drag keeps the pointer while the edge catches up with it.
-        let inside = sidebarResize != nil || isMouseInsideVisibleRegion()
+        let inside = sidebarResize != nil || isScreenPointInsideVisibleRegion(point)
         let shouldIgnoreMouseEvents = !inside
         if ignoresMouseEvents != shouldIgnoreMouseEvents {
             debugWorkspaceSidebarHoverLog("mousePassthrough panel=\(monitorScopeId) ignores \(ignoresMouseEvents)->\(shouldIgnoreMouseEvents) insideVisible=\(inside) visibleWidth=\(viewModel.workspaceSidebarVisibleWidth) frame=\(frame) mouse=\(NSEvent.mouseLocation)")
