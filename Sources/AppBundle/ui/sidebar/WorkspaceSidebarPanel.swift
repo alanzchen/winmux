@@ -703,13 +703,18 @@ struct WorkspaceSidebarPanelLayout {
     let collapsedWidth: CGFloat
 }
 
-func workspaceSidebarPanelLayout(screenFrame: CGRect, sidebarConfig: WorkspaceSidebarConfig, tabsBottomInset: CGFloat = 0) -> WorkspaceSidebarPanelLayout? {
+func workspaceSidebarPanelLayout(screenFrame: CGRect, sidebarConfig: WorkspaceSidebarConfig, tabsBottomInset: CGFloat = 0,
+                                 tabsTopInset: CGFloat = 0) -> WorkspaceSidebarPanelLayout? {
     let expandedWidth = CGFloat(sidebarConfig.width)
     let collapsedWidth = workspaceSidebarRestingWidth(sidebarConfig)
     guard expandedWidth > 0, collapsedWidth >= 0 else { return nil }
     let menuBarReserveHeight = min(CGFloat(sidebarConfig.menuBarReserveHeight), max(screenFrame.height - 1, 0))
+    // Tabs panels start where tiled windows do, below the display's own menu bar and the outer top
+    // gap, but never above the menu bar reserve.
+    let topInset = sidebarConfig.usesTabsList
+        ? min(max(menuBarReserveHeight, tabsTopInset), max(screenFrame.height - 1, 0)) : menuBarReserveHeight
     let bottomInset = sidebarConfig.usesTabsList
-        ? min(max(tabsBottomInset, 0), max(screenFrame.height - menuBarReserveHeight - 1, 0)) : 0
+        ? min(max(tabsBottomInset, 0), max(screenFrame.height - topInset - 1, 0)) : 0
     let position = sidebarConfig.effectiveDockPosition
     // Floating project columns can extend across the display beside a side Dock.
     let panelWidth = position == .bottom || sidebarConfig.floatsExpandedDockView
@@ -719,11 +724,24 @@ func workspaceSidebarPanelLayout(screenFrame: CGRect, sidebarConfig: WorkspaceSi
             x: position == .right ? screenFrame.maxX - panelWidth : screenFrame.minX,
             y: screenFrame.minY + bottomInset,
             width: panelWidth,
-            height: screenFrame.height - menuBarReserveHeight - bottomInset
+            height: screenFrame.height - topInset - bottomInset
         ),
         expandedWidth: expandedWidth,
         collapsedWidth: collapsedWidth
     )
+}
+
+/// The panel's frame on `monitor`, whose screen has `screenFrame` in AppKit coordinates.
+@MainActor
+func workspaceSidebarPanelLayout(on monitor: Monitor, screenFrame: CGRect,
+                                 sidebarConfig: WorkspaceSidebarConfig) -> WorkspaceSidebarPanelLayout? {
+    // Monitor geometry uses top-left coordinates; the native panel's origin is at the bottom.
+    // Share the final tiled boundaries: the menu bar and top gap above, Dock reservation and
+    // bottom gap below.
+    let tiled = monitor.standardTilingRect
+    return workspaceSidebarPanelLayout(screenFrame: screenFrame, sidebarConfig: sidebarConfig,
+        tabsBottomInset: sidebarConfig.usesTabsList ? monitor.rect.maxY - tiled.maxY : 0,
+        tabsTopInset: sidebarConfig.usesTabsList ? tiled.minY - monitor.rect.minY : 0)
 }
 
 extension WorkspaceSidebarPanel {
@@ -738,12 +756,8 @@ extension WorkspaceSidebarPanel {
               let screen = workspaceSidebarPanelScreen(for: monitor)
         else { return nil }
         guard !sidebarIsSuppressed(on: monitor) else { return nil }
-
-        // Monitor geometry uses top-left coordinates; the native panel's origin is at
-        // the bottom. Share the final tiled boundary, including Dock reservation and gaps.
-        let bottomInset = config.workspaceSidebar.usesTabsList ? monitor.rect.maxY - monitor.standardTilingRect.maxY : 0
-        return workspaceSidebarPanelLayout(screenFrame: screen.frame, sidebarConfig: config.workspaceSidebar.onDisplay(monitor),
-            tabsBottomInset: bottomInset)
+        return workspaceSidebarPanelLayout(on: monitor, screenFrame: screen.frame,
+            sidebarConfig: config.workspaceSidebar.onDisplay(monitor))
     }
 
     func sidebarIsSuppressed(on monitor: Monitor) -> Bool {

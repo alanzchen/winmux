@@ -299,6 +299,54 @@ final class WorkspaceSidebarTabsPolishTest: XCTestCase {
         XCTAssertEqual(try redPixels(host).count, 0, "Disabling badges updates an already mounted tab")
     }
 
+    /// A Tabs panel starts where tiled windows do: below its display's own menu bar and the outer
+    /// top gap, on any display origin, and keeps the tiled bottom. The menu bar reserve still keeps
+    /// it at least that far down, and the other modes keep their bounds.
+    func testTabsPanelTopMatchesTilingBelowTheMenuBarAndOuterTopGap() throws {
+        setUpWorkspacesForTests()
+        let reserve = CGFloat(config.workspaceSidebar.menuBarReserveHeight)
+        XCTAssertEqual(reserve, 28)
+        // The menu-bar display, AppKit's origin, is 1080 points tall.
+        func topLeftY(_ frame: NSRect) -> CGFloat { 1080 - frame.maxY }
+        func layout(_ monitor: Monitor, _ screen: CGRect) throws -> NSRect {
+            try XCTUnwrap(workspaceSidebarPanelLayout(on: monitor, screenFrame: screen, sidebarConfig: config.workspaceSidebar)).frame
+        }
+        for y: CGFloat in [-1080, 0, 250] {
+            for menuBar: CGFloat in [24, 37] { // 37: a display with a camera housing
+                for topGap in [12, 30] {
+                    config.workspaceSidebar.mode = .tabs
+                    config.gaps.outer.top = .constant(topGap)
+                    config.gaps.outer.bottom = .constant(12)
+                    let monitor = TestMonitor(monitorAppKitNsScreenScreensId: 1, name: "Display",
+                        rect: Rect(topLeftX: -1920, topLeftY: y, width: 1920, height: 1080),
+                        visibleRect: Rect(topLeftX: -1920, topLeftY: y + menuBar, width: 1920, height: 1080 - menuBar - 56),
+                        isMain: true)
+                    let screen = CGRect(x: -1920, y: 1080 - monitor.rect.maxY, width: 1920, height: 1080)
+                    let tiled = monitor.standardTilingRect
+                    let context = "origin \(y), menu bar \(menuBar), top gap \(topGap)"
+                    let tabs = try layout(monitor, screen)
+                    XCTAssertEqual(topLeftY(tabs), tiled.minY, "Top on the tiled boundary: \(context)")
+                    XCTAssertEqual(topLeftY(tabs) - monitor.rect.minY, menuBar + CGFloat(topGap), context)
+                    XCTAssertEqual(tabs.minY, 1080 - tiled.maxY, "Bottom on the tiled boundary: \(context)")
+                    for mode in [WorkspaceSidebarMode.sidebar, .dock] {
+                        config.workspaceSidebar.mode = mode
+                        let other = try layout(monitor, screen)
+                        XCTAssertEqual(other.maxY, screen.maxY - reserve, "\(mode) keeps the menu bar reserve: \(context)")
+                        XCTAssertEqual(other.minY, screen.minY, "\(mode) keeps its bottom: \(context)")
+                    }
+                }
+            }
+        }
+        // A tiled top above the reserve, as with no top gap, keeps the reserve.
+        config.workspaceSidebar.mode = .tabs
+        config.gaps.outer.top = .constant(0)
+        let monitor = TestMonitor(monitorAppKitNsScreenScreensId: 1, name: "Display",
+            rect: Rect(topLeftX: 0, topLeftY: 0, width: 1920, height: 1080),
+            visibleRect: Rect(topLeftX: 0, topLeftY: 24, width: 1920, height: 1000), isMain: true)
+        let screen = CGRect(x: 0, y: 0, width: 1920, height: 1080)
+        XCTAssertEqual(try layout(monitor, screen).maxY, screen.maxY - reserve, "Never above the menu bar reserve")
+    }
+
     func testPanelBottomMatchesTilingOnOffsetDisplaysWithDockAndOuterGaps() throws {
         setUpWorkspacesForTests()
         config.workspaceSidebar.mode = .tabs
@@ -379,6 +427,16 @@ final class WorkspaceSidebarTabsPolishTest: XCTestCase {
         let layout = try XCTUnwrap(WorkspaceSidebarPanel.shared.currentSidebarPanelLayout(on: monitor))
         XCTAssertEqual(layout.frame.minY, screen.frame.minY + monitor.rect.maxY - monitor.standardTilingRect.maxY)
         XCTAssertGreaterThanOrEqual(layout.frame.minY - screen.frame.minY, 25)
+        // The top, too: below the display's own menu bar and the top gap, never above the reserve.
+        let reserve = CGFloat(config.workspaceSidebar.menuBarReserveHeight)
+        XCTAssertEqual(layout.frame.maxY, screen.frame.maxY - max(reserve, monitor.standardTilingRect.minY - monitor.rect.minY))
+        let withMenuBar = TestMonitor(monitorAppKitNsScreenScreensId: monitor.monitorAppKitNsScreenScreensId, name: "Display",
+            rect: monitor.rect, visibleRect: Rect(topLeftX: monitor.rect.minX, topLeftY: monitor.rect.minY + 24,
+                width: monitor.rect.width, height: monitor.rect.height - 80), isMain: true)
+        let tiledTop = withMenuBar.standardTilingRect.minY - withMenuBar.rect.minY
+        XCTAssertGreaterThan(tiledTop, reserve, "Below the reserve: the tiled top decides")
+        let menuBarLayout = try XCTUnwrap(WorkspaceSidebarPanel.shared.currentSidebarPanelLayout(on: withMenuBar))
+        XCTAssertEqual(menuBarLayout.frame.maxY, screen.frame.maxY - tiledTop)
     }
 
     func testTabsWithPinnedSplitsBadgesAndProjectFooterRenderAtExpandedAndCompactWidths() async throws {
