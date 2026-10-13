@@ -5,9 +5,10 @@ import SwiftUI
 // shows, to another display, as one edit with one Undo. Only the tabs actually on that display go:
 // not the pins shared from other displays, nor tabs held to their display, nor tabs with a window
 // in native full screen or with no windows to move. Those stay, and the notice says so. The tab on
-// screen there goes on screen on the other display, and focus goes with it; the others stay
-// hidden and only change display, as a tab dropped on another display's list does. Nothing is
-// activated on the way, nothing is opened, and no window is taken out of full screen.
+// screen there goes on screen on the other display, in the list's project, and focus goes with it
+// while the pointer stays put; the others stay hidden and only change display, as a tab dropped on
+// another display's list does. Nothing is activated on the way, nothing is opened, and no window
+// is taken out of full screen.
 
 /// Why a tab stays on its display when the tabs there move to another.
 enum WorkspaceSidebarTabStays: Equatable, Sendable {
@@ -238,12 +239,12 @@ func moveWorkspaceTabsToDisplay(projectId: WorkspaceProjectId, from sourceScopeI
     if let foreground = plan.foreground {
         if !outcome.stoppedEarly, displaysAreConnected() {
             let before = WorkspaceSidebarTabUndoSnapshot()
-            let focusedDisplay = focus.workspace.workspaceMonitor.rect
-            if placeWorkspaceTabOnDisplay(foreground, target) {
+            // Shown in the list's project there, so the tabs that came with it are listed with it,
+            // even when it's a pin in All Projects, which keeps its own project.
+            if placeWorkspaceTabOnDisplay(foreground, target, contextProjectId: projectId) {
                 moved.append(foreground)
                 // Focus goes with it; the pointer stays where it is, by the button.
-                skipsNextFocusedMonitorChangedCommands = focusedDisplay != target.rect
-                _ = foreground.focusWorkspace()
+                if foreground.focusWorkspace() { noteFocusKeepsPointer() }
             } else {
                 before.restore(replacing: WorkspaceSidebarTabUndoSnapshot())
                 outcome.staying.append(.init(name: foreground.name, displayName: workspaceDisplayName(foreground.name),

@@ -199,14 +199,22 @@ extension Workspace {
 }
 
 @MainActor private var onFocusChangedRecursionGuard = false
-/// Set by an action that sends focus to another display along with what it moved there, the
-/// pointer staying where it is: the next focus check doesn't run `on-focused-monitor-changed` for
-/// that change (by default, `move-mouse monitor-lazy-center`). It still announces the change.
-@MainActor var skipsNextFocusedMonitorChangedCommands = false
+/// The focus a sidebar action gave on purpose, where the pointer stays: moving a display's tabs, or
+/// showing or bringing a pin from another display. The next focus check takes it: if that check
+/// finds focus moved to another display, and to this very focus, `on-focused-monitor-changed` runs
+/// with the pointer kept where it is. Any other change, or a later one, runs it as always.
+@MainActor private var pointerKeepingFocus: FrozenFocus? = nil
+
+/// Notes that focus is now where a sidebar action meant to put it, keeping the pointer where it is.
+/// Called only once the action has focused it: a refused, failed or stale one notes nothing.
+@MainActor func noteFocusKeepsPointer() {
+    pointerKeepingFocus = focus.frozen
+}
+
 // Should be called in refreshSession
 @MainActor func checkOnFocusChangedCallbacks() {
-    let skipsMonitorCommands = skipsNextFocusedMonitorChangedCommands
-    skipsNextFocusedMonitorChangedCommands = false
+    let keepsPointerFocus = pointerKeepingFocus
+    pointerKeepingFocus = nil
     if refreshSessionEvent?.isStartup == true {
         return
     }
@@ -242,7 +250,7 @@ extension Workspace {
         onWorkspaceChanged(_prevFocusedWorkspaceName, frozenFocus.workspaceName)
     }
     if hasFocusedMonitorChanged {
-        onFocusedMonitorChanged(focus, runsCommands: !skipsMonitorCommands)
+        onFocusedMonitorChanged(focus, keepsPointer: keepsPointerFocus == frozenFocus)
     }
     if hasFocusChanged {
         debugFocusLog(
@@ -251,22 +259,31 @@ extension Workspace {
     }
 }
 
-@MainActor private func onFocusedMonitorChanged(_ focus: LiveFocus, runsCommands: Bool) {
+@MainActor private func onFocusedMonitorChanged(_ focus: LiveFocus, keepsPointer: Bool) {
     broadcastEvent(.focusedMonitorChanged(
         workspace: focus.workspace.name,
         monitorId_oneBased: focus.workspace.workspaceMonitor.monitorId_oneBased ?? 0,
     ))
-    if runsCommands { runFocusedMonitorChangedCommands(focus) }
+    runFocusedMonitorChangedCommands(focus, keepsPointer)
 }
 
-/// Runs `on-focused-monitor-changed`. Tests replace it, so no command, such as a mouse move, runs.
-@MainActor var runFocusedMonitorChangedCommands: @MainActor (LiveFocus) -> Void = { focus in
+/// While `on-focused-monitor-changed` runs for a change that keeps the pointer where it is,
+/// `move-mouse` leaves it there. Every other command runs as always.
+enum FocusedMonitorChangePointer {
+    @TaskLocal static var isKept = false
+}
+
+/// Runs `on-focused-monitor-changed`, with `keepsPointer` for a sidebar action's own change.
+/// Tests replace it to see what runs without running it.
+@MainActor var runFocusedMonitorChangedCommands: @MainActor (LiveFocus, _ keepsPointer: Bool) -> Void = { focus, keepsPointer in
     if config.onFocusedMonitorChanged.isEmpty { return }
     guard let token: RunSessionGuard = .isServerEnabled else { return }
     // todo potential optimization: don't run runSession if we are already in runSession
     _ = Task {
         try await runLightSession(.onFocusedMonitorChanged, token) {
-            _ = try await config.onFocusedMonitorChanged.runCmdSeq(.defaultEnv.withFocus(focus), .emptyStdin)
+            _ = try await FocusedMonitorChangePointer.$isKept.withValue(keepsPointer) {
+                try await config.onFocusedMonitorChanged.runCmdSeq(.defaultEnv.withFocus(focus), .emptyStdin)
+            }
         }
     }
 }

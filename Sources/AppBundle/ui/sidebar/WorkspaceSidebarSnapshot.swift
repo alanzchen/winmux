@@ -134,6 +134,9 @@ enum WorkspaceSidebarAction: Equatable {
     /// Command-click on a shared pin on another display: brings it, or its window `windowId`, to the
     /// clicked display whatever `remote-pin-click` says. `recalls` first brings back windows it lent.
     case bringPinnedTabHere(String, windowId: UInt32?, recalls: Bool)
+    /// Command-click on a browser tab of the shared pin on another display: brings the pin here,
+    /// then chooses that very tab, as the ordinary click on a pin brought here does.
+    case bringBrowserTabHere(String, BrowserTabTarget)
     /// Tabs mode: moves `projectId`'s tabs on the display `from` to the display `to`.
     case moveTabsToDisplay(projectId: WorkspaceProjectId, from: String, to: String)
     /// Focuses a window on the display already showing it, instead of moving it to this one.

@@ -65,7 +65,8 @@ on-mode-changed = []
     share-pinned-tabs = false
     # A click on a shared pin whose tab is on another display: 'show-on-its-display' shows it
     # there, where it is; 'bring-to-this-display' brings it to the display clicked.
-    # Command-click always brings it to the display clicked.
+    # Command-click always brings it to the display clicked. One held to its display, or in full
+    # screen, stays there when asked to come, and a notice says why.
     remote-pin-click = 'show-on-its-display'
     # Dock is the default: it shows icons and opens a floating view of every project beside itself.
     # 'sidebar' is a compact rail that expands into window details; 'tabs' lists windows as vertical tabs.

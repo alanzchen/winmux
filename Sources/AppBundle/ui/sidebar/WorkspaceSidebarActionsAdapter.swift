@@ -90,30 +90,11 @@ func handleWorkspaceSidebarAction(
 ) {
     switch action {
         case .selectBrowserTab(let target):
-            let monitorScopeId = targetMonitorScopeId ?? viewModel.workspaceSidebarTargetMonitorScopeId
-            let choice = noteWorkspaceSidebarBrowserTabChoice()
-            let pin = workspaceSidebarBrowserTabCanBeChosen(target)
-                ? workspaceSidebarSharedPinClicked(windowId: target.windowId, targetMonitorScopeId: monitorScopeId) : nil
-            let plan = pin.map { workspaceSidebarSharedPinClickPlan($0, targetMonitorScopeId: monitorScopeId, click: .plain) }
-            if case .showThere(let scopeId) = plan {
-                // A browser tab of a shared pin on another display, shown there: chosen where it is,
-                // as that display's list chooses it.
-                BrowserTabsModel.shared.select(target, monitorScopeId: scopeId)
-            } else if let pin, case .bringHere = plan, let window = Window.get(byId: target.windowId) {
-                // One brought here: the pin comes here, then the tab is chosen. Both wait for the
-                // session, so both check again that nothing has been chosen since, that the tab may
-                // still be chosen, and that its window is the same one, in the pin.
-                let stillChosen: @MainActor () -> Bool = {
-                    workspaceSidebarBrowserTabChoiceIsLatest(choice) && workspaceSidebarBrowserTabCanBeChosen(target)
-                        && Window.get(byId: target.windowId) === window && window.nodeWorkspace === pin
-                }
-                showSharedPinnedTabFromSidebar(pin, windowId: target.windowId, targetMonitorScopeId: monitorScopeId,
-                    proceeds: stillChosen, afterShown: { _ in
-                        if stillChosen() { BrowserTabsModel.shared.select(target, monitorScopeId: monitorScopeId) }
-                    })
-            } else {
-                BrowserTabsModel.shared.select(target, monitorScopeId: monitorScopeId)
-            }
+            chooseBrowserTabFromSidebar(target, monitorScopeId: targetMonitorScopeId ?? viewModel.workspaceSidebarTargetMonitorScopeId,
+                click: .plain)
+        case .bringBrowserTabHere(let pin, let target):
+            chooseBrowserTabFromSidebar(target, monitorScopeId: targetMonitorScopeId ?? viewModel.workspaceSidebarTargetMonitorScopeId,
+                click: .command, pin: pin)
         case .closeBrowserTab(let target):
             BrowserTabsModel.shared.close(target, monitorScopeId: targetMonitorScopeId ?? viewModel.workspaceSidebarTargetMonitorScopeId)
         case .setWorkspaceColor, .setWorkspaceEmoji, .setWorkspaceFavorite, .setWorkspacePinScope, .createTabCollection,
@@ -134,7 +115,7 @@ func handleWorkspaceSidebarAction(
                 focusWorkspaceFromSidebar(name, targetMonitorScopeId: targetMonitorScopeId)
             }
         case .overrideWorkspaceInUse(let name):
-            overrideWorkspaceInUseFromSidebar(name, targetMonitorScopeId: targetMonitorScopeId)
+            overrideWorkspaceInUseFromSidebarRespectingPins(name, targetMonitorScopeId: targetMonitorScopeId)
         case .expandForWorkspaceOverride, .expandSidebar:
             let scopeId = targetMonitorScopeId ?? viewModel.workspaceSidebarTargetMonitorScopeId
             if let panel = WorkspaceSidebarPanel.panel(for: scopeId) {

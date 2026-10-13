@@ -102,10 +102,13 @@ extension WorkspaceSidebarSnapshot {
 struct WorkspaceSidebarSharedPinLocation: Equatable {
     let displayName: String
     let isOnScreen: Bool
-    /// False for one held to its display, which a click doesn't bring.
-    var comesToClick = true
+    /// Why a click asking it to come leaves it there: held to its display, or in full screen. Nil
+    /// for one that may come.
+    var stays: WorkspaceSidebarTabStays? = nil
     /// What a plain click does with it; ⌘-click brings one that may come.
     var click: WorkspaceSidebarRemotePinClick = .bringToThisDisplay
+
+    var comesToClick: Bool { stays == nil }
 
     /// "On" only for a pin on screen there; a hidden one is assigned there.
     var description: String {
@@ -116,11 +119,10 @@ struct WorkspaceSidebarSharedPinLocation: Equatable {
     /// doesn't activate it, as in a drop destination's list.
     func help(clickMovesHere: Bool = true) -> String {
         guard clickMovesHere else { return description }
-        switch (click, comesToClick) {
-            case (.showOnItsDisplay, true): return "\(description) · Click to show it there · ⌘-click to move it here"
-            case (.showOnItsDisplay, false): return "\(description) · Click to show it there"
-            case (.bringToThisDisplay, true): return "\(description) · Click to move to this display"
-            case (.bringToThisDisplay, false): return description
+        let stays = stays.map { " · \($0 == .fullScreen ? "In full screen" : "Kept on that display"), so it can’t move here" }
+        switch click {
+            case .showOnItsDisplay: return "\(description) · Click to show it there\(stays ?? " · ⌘-click to move it here")"
+            case .bringToThisDisplay: return "\(description)\(stays ?? " · Click to move to this display")"
         }
     }
 }
@@ -137,10 +139,9 @@ func workspaceSidebarSharedPinLocation(_ workspace: WorkspaceSidebarWorkspaceVie
           display.monitorScopeId != representedMonitorScopeId,
           workspace.isVisible || !workspaceSidebarPinnedTabWindows(workspace).isEmpty || workspace.displayMoveBlock == .fullScreen
     else { return nil }
+    let isHeldElsewhere = workspace.heldMonitorScopeId.map { $0 != representedMonitorScopeId } ?? false
     return .init(displayName: display.displayName, isOnScreen: workspace.isVisible,
-        comesToClick: workspace.heldMonitorScopeId.map { $0 == representedMonitorScopeId } ?? true
-            && workspace.displayMoveBlock != .fullScreen,
-        click: click)
+        stays: isHeldElsewhere ? .kept : workspace.displayMoveBlock == .fullScreen ? .fullScreen : nil, click: click)
 }
 
 extension WorkspaceSidebarSnapshot {

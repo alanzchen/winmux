@@ -143,7 +143,8 @@ tabs-always-expanded = true
   another display's pins brings it to that display. A pin whose tab is on another display, on
   screen there or kept there while hidden, shows a faint display outline in its
   corner, and its tooltip names that display. Clicking such a pin shows its tab on that
-  display, where it is, and focuses it there; nothing comes to the display you clicked.
+  display, where it is, and focuses it there; nothing comes to the display you clicked, and
+  the pointer stays where it is.
   Command-click brings it to the display you clicked instead, the same tab with the same
   windows, without asking; the display it leaves then shows another of the project's tabs.
   To have a plain click bring it too, set `remote-pin-click = 'bring-to-this-display'`
@@ -151,7 +152,8 @@ tabs-always-expanded = true
   `'show-on-its-display'`). A tab held to its display by
   `workspace-to-monitor-force-assignment`, or a saved tab [kept on its
   display](#multiple-displays), and a tab with a window in full screen, are never brought:
-  a click shows them on their display, and Command-click says why they stay. A pin that
+  by default a click shows them on their display; Command-click, or any click with
+  `bring-to-this-display`, leaves them there, focuses nothing else, and says why. A pin that
   isn't open anywhere yet comes to the display you clicked, as before. Hovering over pins,
   listing or rearranging them never moves one. Command-click on a pin of this display
   still adds it to the chosen tabs.
@@ -162,11 +164,16 @@ tabs-always-expanded = true
   each time. Its tooltip names the display and how many tabs go. Hidden tabs, those in
   collapsed groups and those whose app is hidden all go, as whole tabs, with their splits
   and groups, after the other display's own tabs and in their order; pins keep their
-  order. The tab on screen goes on screen on the other display, and focus goes with it,
-  while the pointer stays where it is. Tabs held to their display, tabs with a window in
+  order. The tab on screen goes on screen on the other display, in the project the list
+  shows (also when it's a pin in All Projects), and focus goes with it, while the pointer
+  stays where it is. Tabs held to their display, tabs with a window in
   full screen, and tabs with no windows to move (such as a pin that isn't open) stay, and
   the notice says which and why; so does a pin only shared from another display, which
   isn't this display's. **Undo Move Tabs** puts back what moved.
+- Showing or bringing a pin from another display, and **Move Tabs**, keep the pointer
+  where it is even though focus changes display: `on-focused-monitor-changed` still runs
+  for that change, but its `move-mouse` commands leave the pointer alone. Every other
+  focus change runs it as before.
 - **New Tab** opens an empty workspace after the current one with the
   [launcher](#open-a-new-window-from-new-workspace). A new window normally gets its own
   tab; [`open-new-windows-in-new-workspace`](#open-each-new-window-in-its-own-workspace)

@@ -392,7 +392,16 @@ final class BrowserTabsModel: ObservableObject {
         showBrowserTabActionNotice(.init(kind: .close, message: message, monitorScopeId: monitorScopeId))
     }
 
-    func select(_ target: BrowserTabTarget, monitorScopeId: String?) {
+    /// Whether `target` is still listed: its window's tabs, read in that same window session of the
+    /// same process, include it.
+    func lists(_ target: BrowserTabTarget) -> Bool {
+        guard let window = snapshots[target.windowId] else { return false }
+        return window.pid == target.pid && window.windowSession == target.windowSession && window.tabs.contains { $0.target == target }
+    }
+
+    /// `keepsPointer`: the window is then focused, wherever it is, with the pointer left where it is,
+    /// for a shared pin shown on its own display or brought here.
+    func select(_ target: BrowserTabTarget, monitorScopeId: String?, keepsPointer: Bool = false) {
         guard config.workspaceSidebar.usesTabsList, config.workspaceSidebar.browserTabs,
               TrayMenuModel.shared.isEnabled, !serverArgs.isReadOnly
         else { return }
@@ -416,7 +425,8 @@ final class BrowserTabsModel: ObservableObject {
             perform: { [weak self] in await self?.selectUsingExtensionOrAX(target, app: app) ?? .notDispatched(.cancelled) },
             finished: { [weak self] result, cancelled in
                 guard let self, self.generation == token else { return }
-                self.finishSelect(target, result, cancelled: cancelled, window: window, monitorScopeId: monitorScopeId)
+                self.finishSelect(target, result, cancelled: cancelled, window: window, monitorScopeId: monitorScopeId,
+                    keepsPointer: keepsPointer)
             })
         publish()
     }
@@ -482,7 +492,7 @@ final class BrowserTabsModel: ObservableObject {
     /// What the sidebar does once a select comes back (`BrowserTabActionFollowUp`); what the user is
     /// told is `selectRequests`'. A select a later click cancelled does nothing more.
     private func finishSelect(_ target: BrowserTabTarget, _ result: BrowserTabActionResult, cancelled: Bool, window: Window,
-                              monitorScopeId: String?) {
+                              monitorScopeId: String?, keepsPointer: Bool) {
         let followUp = BrowserTabActionFollowUp(result, kind: .select, browser: window.app.name ?? "The browser")
         publish()
         reread(target.windowId, unknown: followUp.rereads)
@@ -491,7 +501,7 @@ final class BrowserTabsModel: ObservableObject {
         if let workspace = window.toLiveFocusOrNil()?.workspace,
            !browserTabSelectionAllowed(workspace: workspace, monitorScopeId: monitorScopeId) { return }
         // A stale tab focuses only its original window. No index/title fallback.
-        focusWindowFromSidebar(target.windowId, targetMonitorScopeId: monitorScopeId)
+        focusWindowFromSidebar(target.windowId, targetMonitorScopeId: monitorScopeId, keepsPointer: keepsPointer)
     }
 
     /// Reads the window again soon after an action: at once, and again after any read under way,

@@ -12,12 +12,17 @@ import XCTest
 /// display where it is, and ⌘-click are in WorkspaceSidebarMultidisplayActionsTest.
 @MainActor
 final class WorkspaceSidebarSharedPinsTest: XCTestCase {
+    private let savedIsListed = workspaceSidebarBrowserTabIsListed
+
     override func setUp() async throws {
         setUpWorkspacesForTests()
         workspaceSidebarOrganizationStore = .init()
+        // The browser tabs these tests choose are listed: no browser reads them here.
+        workspaceSidebarBrowserTabIsListed = { _ in true }
     }
 
     override func tearDown() async throws {
+        workspaceSidebarBrowserTabIsListed = savedIsListed
         WorkspaceSidebarTabUndo.shared.clear()
         workspaceSidebarOrganizationStore = .init()
         setMonitorsForTests(nil)
@@ -422,18 +427,18 @@ final class WorkspaceSidebarSharedPinsTest: XCTestCase {
         let here = scope(monitors[0])
         await updateWorkspaceSidebarModel()
 
-        // Past the prompt, a click shows it where it is; ⌘-click says why it stays.
+        // Asked to come by a click, as this setting asks, it stays and says why; no In Use prompt.
         XCTAssertTrue(workspaceSidebarSharedPinClicked(shown.name, targetMonitorScopeId: here) === shown)
-        XCTAssertEqual(workspaceSidebarSharedPinClickPlan(shown, targetMonitorScopeId: here, click: .plain),
-            .showThere(monitorScopeId: scope(monitors[1])))
-        XCTAssertEqual(workspaceSidebarSharedPinClickPlan(shown, targetMonitorScopeId: here, click: .command),
-            .refused(message: "“shown1” is kept on “Right”, so it stays there."))
+        for click in [WorkspaceSidebarSharedPinClick.plain, .command] {
+            XCTAssertEqual(workspaceSidebarSharedPinClickPlan(shown, targetMonitorScopeId: here, click: click),
+                .refused(message: "“shown1” is kept on “Right”, so it stays there."))
+        }
         let vm = try XCTUnwrap(TrayMenuModel.shared.workspaceSidebarWorkspaces.first { $0.name == shown.name })
-        XCTAssertTrue(WorkspaceSidebarView(snapshot: snapshot(on: monitors[0], sharing: true))
-            .tabActivation(vm, isPinned: false, pageAllowsActivation: true).0.isInUseOnOtherDisplay, "It asks, as before")
+        XCTAssertFalse(WorkspaceSidebarView(snapshot: snapshot(on: monitors[0], sharing: true))
+            .tabActivation(vm, isPinned: false, pageAllowsActivation: true).0.isInUseOnOtherDisplay, "The click says why it stays")
         XCTAssertEqual(vm.heldMonitorScopeId, scope(monitors[1]))
         let location = try XCTUnwrap(snapshot(on: monitors[0], sharing: true).sharedPinLocation(of: vm))
-        XCTAssertEqual(location.help(), "On “Right”", "No promise of a move it won't make")
+        XCTAssertEqual(location.help(), "On “Right” · Kept on that display, so it can’t move here", "No promise of a move it won't make")
         XCTAssertThrowsError(try showSharedPinnedTab(shown, on: monitors[0], focusing: nil))
         XCTAssertTrue(monitors[1].activeWorkspace === shown, "Nothing moved")
         XCTAssertTrue(monitors[0].activeWorkspace === tabs["shown0"])
@@ -445,9 +450,9 @@ final class WorkspaceSidebarSharedPinsTest: XCTestCase {
         XCTAssertTrue(workspaceSidebarSharedPinComesToClick(unsaved, representedMonitorScopeId: scope(monitors[1]),
             sharesPinnedTabs: true), "Where it's held, it may come")
 
-        // Hidden and held elsewhere: not brought here; a click shows it on its own display.
+        // Hidden and held elsewhere: not brought here, and the click says why.
         XCTAssertEqual(workspaceSidebarSharedPinClickPlan(tabs["pin1"]!, targetMonitorScopeId: here, click: .plain),
-            .showThere(monitorScopeId: scope(monitors[1])))
+            .refused(message: "“pin1” is kept on “Right”, so it stays there."))
         XCTAssertFalse(focusWorkspaceFromSidebar(tabs["pin1"]!, targetMonitorScopeId: here))
         XCTAssertFalse(tabs["pin1"]!.isVisible)
         // A saved tab kept on its display is held the same way, by `workspaceTabCanMove`; its home

@@ -232,7 +232,7 @@ enum SettingsCatalog {
                 .used(in: [.tabs]).requiring(.disables("Turn on Show browser tabs to use website icons.") { $0.workspaceSidebar.browserTabs }),
             bool(.dockContent, "share-pinned-tabs", "Share pinned tabs across displays", "Show the same pinned tabs, in the same order, at the top of every display's Tabs sidebar. Each project keeps its own pins, and pinning, unpinning or reordering them on one display changes every display.", section: sidebar, path: \.workspaceSidebar.sharePinnedTabs)
                 .used(in: [.tabs]),
-            choice(.dockContent, "remote-pin-click", "Clicking a pin from another display", "A shared pin whose tab is on another display shows a faint display outline. Clicking it can show the tab on that display, where it is, or bring it to the display you clicked. ⌘-click always brings it to the display you clicked.", section: sidebar,
+            choice(.dockContent, "remote-pin-click", "Clicking a pin from another display", "A shared pin whose tab is on another display shows a faint display outline. Clicking it can show the tab on that display, where it is, or bring it to the display you clicked. ⌘-click always brings it to the display you clicked. A pin kept on its display, or in full screen, stays there and says why.", section: sidebar,
                 options: [.init("Shows it on its display", "show-on-its-display"), .init("Brings it to this display", "bring-to-this-display")],
                 read: { $0.workspaceSidebar.remotePinClick.rawValue },
                 project: SettingsProjection.raw(\.workspaceSidebar.remotePinClick))

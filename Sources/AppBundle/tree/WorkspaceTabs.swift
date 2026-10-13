@@ -364,10 +364,12 @@ func moveWorkspaceTabToDisplay(_ tab: Workspace, _ monitor: Monitor, focusing wi
 /// Shows `tab` on `monitor` because it was dropped on that display's list, and keeps it there.
 /// A hidden tab is listed on the display it belongs to: its saved home, else the display it was
 /// first placed on. Without recording the new display, a moved tab went back to the old
-/// display's list as soon as another tab took its place on screen.
+/// display's list as soon as another tab took its place on screen. `contextProjectId` is the
+/// project a pin in All Projects is shown in there; nil keeps that display in its project.
 @MainActor
-func placeWorkspaceTabOnDisplay(_ tab: Workspace, _ monitor: Monitor) -> Bool {
-    guard activateWorkspaceOnMonitorPreservingSourceViewport(tab, targetMonitor: monitor) else { return false }
+func placeWorkspaceTabOnDisplay(_ tab: Workspace, _ monitor: Monitor, contextProjectId: WorkspaceProjectId? = nil) -> Bool {
+    guard activateWorkspaceOnMonitorPreservingSourceViewport(tab, targetMonitor: monitor, contextProjectId: contextProjectId)
+    else { return false }
     tab.preferredMonitorPoint = monitor.rect.topLeftCorner
     noteSavedWorkspacePlacedByUser(tab, on: monitor)
     return true

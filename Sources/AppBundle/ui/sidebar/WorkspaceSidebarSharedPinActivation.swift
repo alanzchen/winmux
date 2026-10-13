@@ -4,8 +4,9 @@ import AppKit
 // plain click, where it is, unless `remote-pin-click` says to bring it. ⌘-click always brings it to
 // the display clicked. A brought tab moves as a tab dropped on that display's list does, and that
 // display is recorded as its own, so it stays listed there. A tab held to its display, by
-// `workspace-to-monitor-force-assignment` or a saved tab kept on its display, isn't brought: a plain
-// click does what clicking another display's tab always has, and ⌘-click says why it stays.
+// `workspace-to-monitor-force-assignment` or a saved tab kept on its display, or with a window in
+// full screen, isn't brought: asked to come, by ⌘-click or the setting, it stays, nothing else is
+// focused instead, and a notice says why. Showing or bringing one keeps the pointer where it is.
 // A pin that isn't anywhere yet, with no windows open, comes to the display clicked, as before.
 
 /// How a shared pin was clicked: plainly, or with ⌘, which always brings it to the display clicked.
@@ -20,8 +21,8 @@ enum WorkspaceSidebarSharedPinClickPlan: Equatable {
     case bringHere(monitorScopeId: String)
     /// Shown on its own display, `monitorScopeId`, as a click in that display's list shows it.
     case showThere(monitorScopeId: String)
-    /// ⌘-click on a pin that can't come, held to its display or in full screen: nothing moves, and
-    /// `message` says why.
+    /// Asked to come, by ⌘-click or `remote-pin-click`, a pin that can't, held to its display or in
+    /// full screen: nothing moves or is focused, and `message` says why.
     case refused(message: String)
     /// Activated as any tab, from the clicked display.
     case here
@@ -54,34 +55,35 @@ func workspaceSidebarSharedPinClickPlan(_ tab: Workspace, targetMonitorScopeId: 
     if let targetMonitorScopeId, workspaceSidebarSharedPinClickDestination(tab, targetMonitorScopeId: targetMonitorScopeId) != nil {
         return .bringHere(monitorScopeId: targetMonitorScopeId)
     }
-    // One that can't come: shown where it is, or, asked to come with ⌘, says why it stays.
+    // One asked to come that can't: it stays, and says why.
     if let remote {
-        return click == .command ? .refused(message: workspaceSidebarPinStaysMessage(tab, on: remote)) : .showThere(monitorScopeId: remote)
+        return .refused(message: workspaceSidebarPinStaysMessage(tab, on: remote, targetMonitorScopeId: targetMonitorScopeId))
     }
     return .here
 }
 
-/// Why a pin on the display `scopeId` that ⌘-click can't bring stays there: it's held to its
-/// display, or one of its windows is in full screen.
+/// Why a pin on the display `scopeId`, asked to come to `targetMonitorScopeId`'s, stays there: it's
+/// held to another display, or one of its windows is in full screen. Its badge gives the same reason.
 @MainActor
-func workspaceSidebarPinStaysMessage(_ tab: Workspace, on scopeId: String) -> String {
+func workspaceSidebarPinStaysMessage(_ tab: Workspace, on scopeId: String, targetMonitorScopeId: String?) -> String {
     let name = "“\(workspaceDisplayName(tab.name))”"
     let display = workspaceSidebarMonitor(forScopeId: scopeId)
         .map { "“\(workspaceSidebarMonitorDisplayName($0, among: sortedMonitors))”" } ?? "its display"
-    if workspaceTabHasNativeFullscreenWindow(tab) {
+    let isHeldElsewhere = workspaceSidebarTabHeldMonitorScopeId(tab).map { $0 != targetMonitorScopeId } ?? false
+    if !isHeldElsewhere, workspaceTabHasNativeFullscreenWindow(tab) {
         return "\(name) is in full screen on \(display), so it stays there. Exit full screen to move it."
     }
     return "\(name) is kept on \(display), so it stays there."
 }
 
-/// What ⌘-click sends for `action` on the shared pin `pin`: bring it here, focusing the window or
-/// browser tab's window clicked, or first bringing back the windows it lent. Nil for an action
-/// that isn't showing it.
+/// What ⌘-click sends for `action` on the shared pin `pin`: bring it here, focusing the window
+/// clicked, or choosing the browser tab clicked once it's here, or first bringing back the windows
+/// it lent. Nil for an action that isn't showing it.
 func workspaceSidebarBringPinnedTabHereAction(_ action: WorkspaceSidebarAction, pin: String) -> WorkspaceSidebarAction? {
     switch action {
         case .selectWorkspace(let name) where name == pin: .bringPinnedTabHere(pin, windowId: nil, recalls: false)
         case .selectWindow(let windowId): .bringPinnedTabHere(pin, windowId: windowId, recalls: false)
-        case .selectBrowserTab(let target): .bringPinnedTabHere(pin, windowId: target.windowId, recalls: false)
+        case .selectBrowserTab(let target): .bringBrowserTabHere(pin, target)
         case .recallPinWindows(let name, let windowId) where name == pin: .bringPinnedTabHere(pin, windowId: windowId, recalls: true)
         default: nil
     }
@@ -196,12 +198,15 @@ func performSharedPinClick(_ tab: Workspace, windowId: UInt32?, targetMonitorSco
             guard let monitor = workspaceSidebarMonitor(forScopeId: scopeId),
                   workspaceSidebarSharedPinClickDestination(tab, targetMonitorScopeId: scopeId) != nil else { return false }
             try showSharedPinnedTab(tab, on: monitor, focusing: window)
+            noteFocusKeepsPointer()
             return true
         case .showThere(let scopeId):
             // Where it is, as a click in that display's list shows it: nothing comes to this one.
             guard workspaceSidebarMonitor(forScopeId: scopeId) != nil else { return false }
-            return window.map { focusWindowFromSidebar($0, targetMonitorScopeId: scopeId) }
+            let shown = window.map { focusWindowFromSidebar($0, targetMonitorScopeId: scopeId) }
                 ?? focusWorkspaceFromSidebar(tab, targetMonitorScopeId: scopeId)
+            if shown { noteFocusKeepsPointer() }
+            return shown
         case .refused(let message):
             showWorkspaceSidebarNotice(.init(title: "Pinned Tab", body: message, monitorScopeId: targetMonitorScopeId))
             return false
@@ -222,6 +227,78 @@ func bringPinnedTabHereFromSidebar(_ name: String, windowId: UInt32?, recalls: B
         showSharedPinnedTabFromSidebar(pin, windowId: windowId, targetMonitorScopeId: targetMonitorScopeId, click: .command)
     }
 }
+
+/// The sidebar's In Use prompt answered for `name`: a shared pin on another display comes here as
+/// ⌘-click brings it, or stays and says why; any other tab is shown here as the prompt always has.
+@MainActor
+func overrideWorkspaceInUseFromSidebarRespectingPins(_ name: String, targetMonitorScopeId: String?) {
+    if let pin = Workspace.existing(byName: name),
+       workspaceSidebarSharedPinRemoteScopeId(pin, targetMonitorScopeId: targetMonitorScopeId) != nil {
+        showSharedPinnedTabFromSidebar(pin, targetMonitorScopeId: targetMonitorScopeId, click: .command)
+    } else {
+        overrideWorkspaceInUseFromSidebar(name, targetMonitorScopeId: targetMonitorScopeId)
+    }
+}
+
+/// A browser tab chosen in the sidebar of `monitorScopeId`, by a plain click, or by ⌘-click on the
+/// row of the shared pin `pin`, from another display. In a shared pin on another display it's
+/// chosen where it is, or, asked to come, the pin comes here first, the same window, and the tab is
+/// chosen once it's here; a pin that can't come stays and says why. Everything is checked again as
+/// the pin's session runs and again before the tab is chosen: that it's still the latest choice,
+/// the same window of the same process in that pin, and the tab still listed in that window's
+/// session. A ⌘-click that no longer finds that pin's window there does nothing at all.
+@MainActor
+func chooseBrowserTabFromSidebar(_ target: BrowserTabTarget, monitorScopeId: String?, click: WorkspaceSidebarSharedPinClick,
+                                 pin pinName: String? = nil) {
+    let choice = noteWorkspaceSidebarBrowserTabChoice()
+    let window = Window.get(byId: target.windowId)
+    let pin = workspaceSidebarBrowserTabCanBeChosen(target)
+        ? workspaceSidebarSharedPinClicked(windowId: target.windowId, targetMonitorScopeId: monitorScopeId) : nil
+    if click == .command {
+        guard let pin, let window, pin.name == pinName, window.nodeWorkspace === pin else { return }
+    }
+    let stillChosen: @MainActor () -> Bool = {
+        workspaceSidebarBrowserTabChoiceIsLatest(choice) && workspaceSidebarBrowserTabCanBeChosen(target)
+            && workspaceSidebarBrowserTabIsListed(target)
+            && window != nil && Window.get(byId: target.windowId) === window && window?.nodeWorkspace === pin
+    }
+    let plan = pin.map { workspaceSidebarSharedPinClickPlan($0, targetMonitorScopeId: monitorScopeId, click: click) }
+    switch plan {
+        case .showThere, .bringHere:
+            // A pin on another display whose tab, window or choice has changed since: nothing at all.
+            guard stillChosen() else { return }
+        case .refused, .here, nil: break
+    }
+    switch plan {
+        case .showThere(let scopeId):
+            // Chosen where it is, as that display's list chooses it, the pointer staying put.
+            selectWorkspaceSidebarBrowserTab(target, scopeId, true)
+        case .bringHere:
+            guard let pin else { return }
+            showSharedPinnedTabFromSidebar(pin, windowId: target.windowId, targetMonitorScopeId: monitorScopeId, click: click,
+                proceeds: stillChosen, afterShown: { _ in
+                    if stillChosen() { selectWorkspaceSidebarBrowserTab(target, monitorScopeId, true) }
+                })
+        case .refused(let message):
+            showWorkspaceSidebarNotice(.init(title: "Pinned Tab", body: message, monitorScopeId: monitorScopeId))
+        case .here:
+            selectWorkspaceSidebarBrowserTab(target, monitorScopeId, false)
+        case nil:
+            // Not a shared pin elsewhere, as an ordinary row is chosen; a ⌘-click returned above.
+            selectWorkspaceSidebarBrowserTab(target, monitorScopeId, false)
+    }
+}
+
+/// Chooses `target`, in the sidebar of the display given, keeping the pointer where it is if asked,
+/// with all the checks choosing a browser tab makes. Tests replace it.
+@MainActor
+var selectWorkspaceSidebarBrowserTab: @MainActor (BrowserTabTarget, String?, _ keepsPointer: Bool) -> Void = { target, scopeId, keepsPointer in
+    BrowserTabsModel.shared.select(target, monitorScopeId: scopeId, keepsPointer: keepsPointer)
+}
+
+/// Whether the sidebar still lists `target`, in the same session of the same window. Tests replace it.
+@MainActor
+var workspaceSidebarBrowserTabIsListed: @MainActor (BrowserTabTarget) -> Bool = { BrowserTabsModel.shared.lists($0) }
 
 /// A saved shared pin whose windows are gone opens its apps once it's here, if they're still
 /// gone. Replaceable for tests.

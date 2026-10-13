@@ -1022,18 +1022,26 @@ func deleteWorkspaceFromSidebar(_ workspace: WorkspaceSidebarWorkspaceViewModel)
 }
 
 @MainActor
-func focusWindowFromSidebar(_ windowId: UInt32, targetMonitorScopeId: String? = nil) {
+func focusWindowFromSidebar(_ windowId: UInt32, targetMonitorScopeId: String? = nil, keepsPointer: Bool = false) {
     WorkspaceSidebarPanel.suppressEdgeTrapForWorkspaceActivation()
     runWorkspaceSidebarSession {
-        guard let window = Window.get(byId: windowId), window.toLiveFocusOrNil() != nil else {
-            if let fallbackName = workspaceSidebarFallbackWorkspaceName(for: windowId),
-               let fallbackWorkspace = Workspace.existing(byName: fallbackName) {
-                _ = focusWorkspaceFromSidebar(fallbackWorkspace, targetMonitorScopeId: targetMonitorScopeId)
-            }
-            return
-        }
-        _ = focusWindowFromSidebar(window, targetMonitorScopeId: targetMonitorScopeId)
+        focusWindowFromSidebarNow(windowId, targetMonitorScopeId: targetMonitorScopeId, keepsPointer: keepsPointer)
     }
+}
+
+/// The session body of `focusWindowFromSidebar(_:targetMonitorScopeId:keepsPointer:)`. With
+/// `keepsPointer`, focusing that very window keeps the pointer where it is; a window gone since
+/// focuses its tab as before, and as any focus change does.
+@MainActor
+func focusWindowFromSidebarNow(_ windowId: UInt32, targetMonitorScopeId: String?, keepsPointer: Bool) {
+    guard let window = Window.get(byId: windowId), window.toLiveFocusOrNil() != nil else {
+        if let fallbackName = workspaceSidebarFallbackWorkspaceName(for: windowId),
+           let fallbackWorkspace = Workspace.existing(byName: fallbackName) {
+            _ = focusWorkspaceFromSidebar(fallbackWorkspace, targetMonitorScopeId: targetMonitorScopeId)
+        }
+        return
+    }
+    if focusWindowFromSidebar(window, targetMonitorScopeId: targetMonitorScopeId), keepsPointer { noteFocusKeepsPointer() }
 }
 
 /// Selecting a split member keeps the same display-placement rules as selecting

@@ -6,6 +6,8 @@ struct MoveMouseCommand: Command {
     /*conforms*/ let shouldResetClosedWindowsCache = false
 
     func run(_ env: CmdEnv, _ io: CmdIo) async throws -> Bool {
+        // For a focus change a sidebar action made where the pointer stays: nothing to do.
+        if FocusedMonitorChangePointer.isKept { return true }
         let mouse = mouseLocation
         guard let target = args.resolveTargetOrReportError(env, io) else { return false }
         switch args.mouseTarget.val {
@@ -36,19 +38,21 @@ struct MoveMouseCommand: Command {
     }
 }
 
+@MainActor
 private func moveMouse(_ io: CmdIo, _ point: CGPoint) -> Bool {
-    let event = CGEvent(
+    postMoveMouseEvent(point) ? true : io.err("Failed to move mouse")
+}
+
+/// Moves the pointer to `point`. Tests replace it, so no real mouse event is posted.
+@MainActor var postMoveMouseEvent: @MainActor (CGPoint) -> Bool = { point in
+    guard let event = CGEvent(
         mouseEventSource: nil,
         mouseType: CGEventType.mouseMoved,
         mouseCursorPosition: point,
         mouseButton: CGMouseButton.left,
-    )
-    if let event {
-        event.post(tap: CGEventTapLocation.cghidEventTap)
-        return true
-    } else {
-        return io.err("Failed to move mouse")
-    }
+    ) else { return false }
+    event.post(tap: CGEventTapLocation.cghidEventTap)
+    return true
 }
 
 @MainActor

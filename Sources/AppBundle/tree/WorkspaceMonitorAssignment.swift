@@ -19,8 +19,11 @@ extension Monitor {
     }
 }
 
+/// `contextProjectId`: the project a pin in All Projects is shown in on `targetMonitor`, as
+/// `setActiveWorkspace` takes it; nil keeps that display in its project.
 @MainActor
-func activateWorkspaceOnMonitorPreservingSourceViewport(_ workspace: Workspace, targetMonitor: Monitor) -> Bool {
+func activateWorkspaceOnMonitorPreservingSourceViewport(_ workspace: Workspace, targetMonitor: Monitor,
+                                                        contextProjectId: WorkspaceProjectId? = nil) -> Bool {
     let sourceMonitor = workspace.isVisible ? workspace.workspaceMonitor : nil
     // The display it leaves stays in its own project, which a pin in All Projects isn't from.
     let sourceProjectId = sourceMonitor.map { winMuxWorkspaceState.activeProjectId(for: $0) } ?? workspace.projectId
@@ -37,7 +40,7 @@ func activateWorkspaceOnMonitorPreservingSourceViewport(_ workspace: Workspace, 
             "Generated incompatible fallback workspace (\(fallbackWorkspace)) for the monitor (\(sourceMonitor))",
         )
     }
-    guard targetMonitor.setActiveWorkspace(workspace) else { return false }
+    guard targetMonitor.setActiveWorkspace(workspace, contextProjectId: contextProjectId) else { return false }
     return true
 }
 

@@ -12,8 +12,10 @@ import XCTest
 final class WorkspaceSidebarMultidisplayActionsTest: XCTestCase {
     private var wasEnabled = true
     private var notices: [WinMuxToastNotice] = []
-    private var savedNotice = showWorkspaceSidebarNotice
-    private var savedMonitorCommands = runFocusedMonitorChangedCommands
+    /// `on-focused-monitor-changed` as it would run, by the focused tab, and whether it keeps the pointer.
+    private var monitorHooks: [MonitorHook] = []
+    private var selections: [BrowserTabSelection] = []
+    private let saved = MultidisplaySeams()
 
     override func setUp() async throws {
         setUpWorkspacesForTests()
@@ -21,19 +23,22 @@ final class WorkspaceSidebarMultidisplayActionsTest: XCTestCase {
         // No session runs, so no sidebar refresh can frame a panel on a display.
         wasEnabled = TrayMenuModel.shared.isEnabled
         TrayMenuModel.shared.isEnabled = false
-        savedNotice = showWorkspaceSidebarNotice
-        savedMonitorCommands = runFocusedMonitorChangedCommands
         notices = []
+        monitorHooks = []
+        selections = []
         showWorkspaceSidebarNotice = { [unowned self] in notices.append($0) }
-        runFocusedMonitorChangedCommands = { _ in XCTFail("No focused-monitor command runs in these tests") }
-        skipsNextFocusedMonitorChangedCommands = false
+        runFocusedMonitorChangedCommands = { [unowned self] focus, keepsPointer in
+            monitorHooks.append(.init(focus.workspace.name, keepsPointer: keepsPointer))
+        }
+        postMoveMouseEvent = { _ in XCTFail("No real pointer move"); return false }
+        selectWorkspaceSidebarBrowserTab = { [unowned self] in selections.append(.init($0, $1, keepsPointer: $2)) }
+        workspaceSidebarBrowserTabIsListed = { _ in true }
         WorkspaceSidebarTabSelection.shared.clear()
     }
 
     override func tearDown() async throws {
-        showWorkspaceSidebarNotice = savedNotice
-        runFocusedMonitorChangedCommands = savedMonitorCommands
-        skipsNextFocusedMonitorChangedCommands = false
+        saved.restore()
+        try await activateMode(mainModeId)
         WorkspaceSidebarTabSelection.shared.clear()
         WorkspaceSidebarTabUndo.shared.clear()
         workspaceSidebarOrganizationStore = .init()
@@ -66,7 +71,8 @@ final class WorkspaceSidebarMultidisplayActionsTest: XCTestCase {
         XCTAssertEqual(workspacePinnedTabs(in: projectId).map(\.name), pinOrder, "Pins keep their order")
         XCTAssertTrue(right.activeWorkspace === tabs["shown0"], "The tab on screen is on screen there")
         XCTAssertTrue(focus.workspace === tabs["shown0"], "Focus goes with it")
-        XCTAssertTrue(skipsNextFocusedMonitorChangedCommands, "The pointer stays where it is")
+        checkOnFocusChangedCallbacks()
+        XCTAssertEqual(monitorHooks, [.init("shown0", keepsPointer: true)], "Its hooks run; the pointer stays where it is")
         for name in ["pin0", "a0", "b0", "shown1"] { XCTAssertFalse(tabs[name]!.isVisible, "\(name) isn't activated") }
         XCTAssertFalse(workspaceTabIsShown(left.activeWorkspace), "The display left shows no new listed tab")
         XCTAssertEqual(listed(on: left, projectId), [])
@@ -123,7 +129,77 @@ final class WorkspaceSidebarMultidisplayActionsTest: XCTestCase {
         XCTAssertTrue(left.activeWorkspace === tabs["shown0"])
         XCTAssertTrue(right.activeWorkspace === tabs["shown1"], "The other display keeps its tab")
         XCTAssertTrue(focus.workspace === tabs["shown0"], "Focus stays")
-        XCTAssertFalse(skipsNextFocusedMonitorChangedCommands)
+        checkOnFocusChangedCallbacks()
+        XCTAssertEqual(monitorHooks, [], "No display change")
+    }
+
+    /// F4: the source shows project P with G, a pin in All Projects from another project, in front;
+    /// the target shows project Q. G goes on screen there in P, so P's tabs that came with it are
+    /// listed with it; G keeps its own project and pin; one Undo puts both displays back.
+    func testAMovedPinInAllProjectsTakesTheListsProjectToTheOtherDisplay() throws {
+        let (monitors, _) = try displays(2)
+        let (left, right) = (monitors[0], monitors[1])
+        let home = createWorkspaceProject().id, p = createWorkspaceProject().id, q = createWorkspaceProject().id
+        var windowId: UInt32 = 100
+        func tab(_ name: String, in project: WorkspaceProjectId, on monitor: Monitor) -> Workspace {
+            let tab = Workspace.get(byName: name)
+            _ = TestWindow.new(id: windowId, parent: tab.rootTilingContainer)
+            windowId += 1
+            tab.assignProject(project)
+            tab.preferredMonitorPoint = monitor.rect.topLeftCorner
+            return tab
+        }
+        let g = tab("g", in: home, on: left)
+        try setWorkspaceSidebarTabPinScope(g, .allProjects, projectId: home)
+        let p1 = tab("p1", in: p, on: left), p2 = tab("p2", in: p, on: left)
+        let q1 = tab("q1", in: q, on: right)
+        XCTAssertTrue(left.setActiveWorkspace(g, contextProjectId: p))
+        XCTAssertTrue(right.setActiveWorkspace(q1))
+        XCTAssertTrue(g.focusWorkspace())
+        checkOnFocusChangedCallbacks()
+        monitorHooks = []
+        XCTAssertEqual(activeWorkspaceProjectId(for: left), p)
+        XCTAssertEqual(activeWorkspaceProjectId(for: right), q)
+        let pins = workspacePinnedTabsInAllProjects().map(\.name)
+        func viewports() -> [String] {
+            winMuxWorkspaceState.monitorViewportsById.values.map {
+                "\($0.id) active=\(String(describing: $0.activeWorkspaceId)) context=\(String(describing: $0.contextProjectId)) "
+                    + "remembers=\($0.lastActiveWorkspaceByProject.sorted { "\($0.key)" < "\($1.key)" }.map { "\($0.key)=\($0.value)" })"
+            }.sorted()
+        }
+        let viewportsBefore = viewports()
+        let before = WorkspaceSidebarTabUndoSnapshot()
+
+        let outcome = moveWorkspaceTabsToDisplay(projectId: p, from: scope(left), to: scope(right))
+        XCTAssertEqual(Set(outcome.moved), ["g", "p1", "p2"])
+        XCTAssertTrue(right.activeWorkspace === g)
+        XCTAssertEqual(activeWorkspaceProjectId(for: right), p, "The other display is in the list's project")
+        XCTAssertEqual(winMuxWorkspaceState.monitorViewportsById[MonitorViewportId(right)]?.lastActiveWorkspaceByProject[p], g.id)
+        XCTAssertEqual(listed(on: right, p), ["p1", "p2"], "P's tabs are listed with it there")
+        XCTAssertEqual(g.projectId, home, "G keeps its own project")
+        XCTAssertTrue(workspaceIsPinnedInAllProjects(g))
+        XCTAssertEqual(workspacePinnedTabsInAllProjects().map(\.name), pins)
+        XCTAssertEqual(activeWorkspaceProjectId(for: left), p, "The display left stays in P")
+        XCTAssertTrue(focus.workspace === g)
+        XCTAssertEqual(q1.workspaceMonitor.rect, right.rect)
+
+        WorkspaceSidebarTabUndo.shared.record("Move Tabs", before: before)
+        try WorkspaceSidebarTabUndo.shared.undo()
+        XCTAssertTrue(left.activeWorkspace === g)
+        XCTAssertTrue(right.activeWorkspace === q1)
+        XCTAssertEqual(activeWorkspaceProjectId(for: left), p)
+        XCTAssertEqual(activeWorkspaceProjectId(for: right), q)
+        XCTAssertEqual(viewports(), viewportsBefore, "Both contexts and what they remember")
+        for tab in [g, p1, p2] { XCTAssertEqual(tab.workspaceMonitor.rect, left.rect, tab.name) }
+        XCTAssertEqual(g.projectId, home)
+
+        // Its foreground skipped, the other display keeps its project.
+        _ = TestWindow.new(id: 200, parent: g.macOsNativeFullscreenWindowsContainer)
+        let skipped = moveWorkspaceTabsToDisplay(projectId: p, from: scope(left), to: scope(right))
+        XCTAssertEqual(skipped.staying.map(\.name), ["g"])
+        XCTAssertTrue(right.activeWorkspace === q1)
+        XCTAssertEqual(activeWorkspaceProjectId(for: right), q)
+        XCTAssertEqual(activeWorkspaceProjectId(for: left), p)
     }
 
     func testADisplayGoneBeforeTheMoveMovesNothing() throws {
@@ -228,20 +304,68 @@ final class WorkspaceSidebarMultidisplayActionsTest: XCTestCase {
         XCTAssertEqual(workspaceSidebarNoticeNameList(["A", "B", "C"]), "“A”, “B” and “C”")
     }
 
-    func testTheMovesFocusChangeSkipsOnlyItsOwnMonitorCommands() throws {
-        let (monitors, tabs) = try displays(2)
-        var ran: [String] = []
-        runFocusedMonitorChangedCommands = { ran.append($0.workspace.name) }
-        checkOnFocusChangedCallbacks()
-        skipsNextFocusedMonitorChangedCommands = true
+    /// F1: only the very change an action made keeps the pointer: not a change before it's seen,
+    /// not the next one, not one an action noted without moving focus to another display.
+    func testOnlyTheActionsOwnFocusChangeKeepsThePointer() throws {
+        let (_, tabs) = try displays(2)
         XCTAssertTrue(tabs["shown1"]!.focusWorkspace())
+        noteFocusKeepsPointer()
         checkOnFocusChangedCallbacks()
-        XCTAssertEqual(ran, [], "The move's own change")
-        XCTAssertFalse(skipsNextFocusedMonitorChangedCommands, "Once")
+        XCTAssertEqual(monitorHooks, [.init("shown1", keepsPointer: true)])
         XCTAssertTrue(tabs["shown0"]!.focusWorkspace())
         checkOnFocusChangedCallbacks()
-        XCTAssertEqual(ran, ["shown0"], "The next change runs them, as always")
-        XCTAssertEqual(monitors.count, 2)
+        XCTAssertEqual(monitorHooks.last, .init("shown0", keepsPointer: false), "The next change, as always")
+
+        // Noted, then focus goes elsewhere before it's seen: that other change is as always.
+        monitorHooks = []
+        XCTAssertTrue(tabs["shown1"]!.focusWorkspace())
+        noteFocusKeepsPointer()
+        XCTAssertTrue(tabs["pin0"]!.focusWorkspace())
+        checkOnFocusChangedCallbacks()
+        XCTAssertEqual(monitorHooks, [], "Back on the same display: no change")
+        XCTAssertTrue(tabs["shown1"]!.focusWorkspace())
+        checkOnFocusChangedCallbacks()
+        XCTAssertEqual(monitorHooks, [.init("shown1", keepsPointer: false)], "Not kept for a later change")
+
+        // Noted without a display change: nothing is kept for the next one.
+        monitorHooks = []
+        noteFocusKeepsPointer()
+        checkOnFocusChangedCallbacks()
+        XCTAssertTrue(tabs["shown0"]!.focusWorkspace())
+        checkOnFocusChangedCallbacks()
+        XCTAssertEqual(monitorHooks, [.init("shown0", keepsPointer: false)])
+    }
+
+    /// F1, through the production hook runner with real commands: for the action's change the
+    /// non-pointer hook still runs and only `move-mouse` leaves the pointer; the next change moves it.
+    /// The sidebar is off here, so the sessions refresh no panel; the pointer move is injected.
+    func testTheMonitorHooksStillRunAndOnlyTheirPointerMoveIsSkipped() async throws {
+        let (monitors, tabs) = try displays(2)
+        let parsed = parseConfig("""
+            on-focused-monitor-changed = ['move-mouse monitor-force-center', 'mode probe']
+            [mode.main.binding]
+            [mode.probe.binding]
+            """)
+        XCTAssertEqual(parsed.errors.descriptions, [])
+        config.onFocusedMonitorChanged = parsed.config.onFocusedMonitorChanged
+        config.modes["probe"] = parsed.config.modes["probe"]
+        config.workspaceSidebar.enabled = false
+        TrayMenuModel.shared.isEnabled = true
+        saved.restoreMonitorCommands()
+        var moves: [CGPoint] = []
+        postMoveMouseEvent = { moves.append($0); return true }
+
+        XCTAssertTrue(tabs["shown1"]!.focusWorkspace())
+        noteFocusKeepsPointer()
+        checkOnFocusChangedCallbacks()
+        try await waitUntil { activeMode == "probe" }
+        XCTAssertEqual(moves, [], "The pointer stays; the other hook ran")
+
+        try await activateMode(mainModeId)
+        XCTAssertTrue(tabs["shown0"]!.focusWorkspace())
+        checkOnFocusChangedCallbacks()
+        try await waitUntil { activeMode == "probe" }
+        XCTAssertEqual(moves, [monitors[0].rect.center], "The next change moves it, as always")
     }
 
     // MARK: Clicking a pin from another display
@@ -287,8 +411,9 @@ final class WorkspaceSidebarMultidisplayActionsTest: XCTestCase {
             XCTAssertEqual(pin.preferredMonitorPoint, left.rect.topLeftCorner, "Its new display is recorded")
             XCTAssertEqual(pin.allLeafWindowsRecursive.map(\.windowId), windows, "The same windows, none reopened")
             XCTAssertEqual(Workspace.all.filter { $0.name == pin.name }.count, 1)
-            XCTAssertFalse(skipsNextFocusedMonitorChangedCommands, "Focus stays on this display: nothing to skip")
             XCTAssertEqual(pin.workspaceMonitor.rect, focus.workspace.workspaceMonitor.rect)
+            checkOnFocusChangedCallbacks()
+            XCTAssertEqual(monitorHooks, [], "Focus stays on this display")
         }
     }
 
@@ -302,35 +427,121 @@ final class WorkspaceSidebarMultidisplayActionsTest: XCTestCase {
         XCTAssertTrue(monitors[0].activeWorkspace === pin)
     }
 
-    func testAPinThatCantComeIsShownThereOrSaysWhy() throws {
+    /// F2: a pin that can't come is shown on its display by the default plain click; asked to come,
+    /// by ⌘-click or by `bring-to-this-display`, it stays, says why, and nothing else is focused.
+    func testAPinThatCantComeIsShownThereOrRefusedWhenAskedToCome() throws {
+        for setting in WorkspaceSidebarRemotePinClick.allCases {
+            for click in [WorkspaceSidebarSharedPinClick.plain, .command] {
+                let (monitors, tabs) = try sharedPins(2)
+                config.workspaceSidebar.remotePinClick = setting
+                let (left, right) = (monitors[0], monitors[1])
+                let held = tabs["shown1"]!
+                try setWorkspaceSidebarTabFavorite(held, true)
+                config.workspaceToMonitorForceAssignment[held.name] = [.secondary]
+                _ = TestWindow.new(id: 90, parent: tabs["pin1"]!.macOsNativeFullscreenWindowsContainer)
+                let asked = click == .command || setting == .bringToThisDisplay
+                let name = "\(setting), \(click)"
+                for (pin, refusal) in [
+                    (held, "“shown1” is kept on “Right”, so it stays there."),
+                    (tabs["pin1"]!, "“pin1” is in full screen on “Right”, so it stays there. Exit full screen to move it."),
+                ] {
+                    XCTAssertNil(workspaceSidebarSharedPinClickDestination(pin, targetMonitorScopeId: scope(left)))
+                    let plan = workspaceSidebarSharedPinClickPlan(pin, targetMonitorScopeId: scope(left), click: click)
+                    XCTAssertEqual(plan, asked ? .refused(message: refusal) : .showThere(monitorScopeId: scope(right)), name)
+                    guard asked else { continue }
+                    notices = []
+                    XCTAssertFalse(try performSharedPinClick(pin, windowId: nil, targetMonitorScopeId: scope(left), click: click))
+                    XCTAssertEqual(notices, [.init(title: "Pinned Tab", body: refusal, monitorScopeId: scope(left))], name)
+                    XCTAssertTrue(right.activeWorkspace === held, "\(name): nothing moved")
+                    XCTAssertEqual(pin.workspaceMonitor.rect, right.rect)
+                    XCTAssertTrue(left.activeWorkspace === tabs["shown0"])
+                    XCTAssertTrue(focus.workspace === tabs["shown0"], "\(name): nor is it focused there instead")
+                }
+                checkOnFocusChangedCallbacks()
+                XCTAssertEqual(monitorHooks, [], name)
+            }
+        }
+    }
+
+    /// F2: the browser row of a pin that can't come, asked to come by the setting, chooses nothing,
+    /// anywhere, and says why; by default it's chosen where it is, the pointer kept.
+    func testABrowserTabOfAPinThatCantComeIsNotChosenWhenAskedToCome() throws {
         for setting in WorkspaceSidebarRemotePinClick.allCases {
             let (monitors, tabs) = try sharedPins(2)
             config.workspaceSidebar.remotePinClick = setting
-            let (left, right) = (monitors[0], monitors[1])
             let held = tabs["shown1"]!
             try setWorkspaceSidebarTabFavorite(held, true)
             config.workspaceToMonitorForceAssignment[held.name] = [.secondary]
-            XCTAssertEqual(workspaceSidebarSharedPinClickPlan(held, targetMonitorScopeId: scope(left), click: .plain),
-                .showThere(monitorScopeId: scope(right)), "\(setting)")
-            let refusal = "“shown1” is kept on “Right”, so it stays there."
-            XCTAssertEqual(workspaceSidebarSharedPinClickPlan(held, targetMonitorScopeId: scope(left), click: .command),
-                .refused(message: refusal))
+            let target = try browserTab(in: held)
+            selections = []
             notices = []
-            XCTAssertFalse(try performSharedPinClick(held, windowId: nil, targetMonitorScopeId: scope(left), click: .command))
-            XCTAssertEqual(notices, [.init(title: "Pinned Tab", body: refusal, monitorScopeId: scope(left))])
-            XCTAssertTrue(right.activeWorkspace === held, "Nothing moved")
-            XCTAssertTrue(left.activeWorkspace === tabs["shown0"])
-            XCTAssertTrue(focus.workspace === tabs["shown0"], "Nor is it focused there instead")
-
-            // In full screen: never taken out of it.
-            let pin = tabs["pin1"]!
-            _ = TestWindow.new(id: 90, parent: pin.macOsNativeFullscreenWindowsContainer)
-            XCTAssertNil(workspaceSidebarSharedPinClickDestination(pin, targetMonitorScopeId: scope(left)))
-            XCTAssertEqual(workspaceSidebarSharedPinClickPlan(pin, targetMonitorScopeId: scope(left), click: .plain),
-                .showThere(monitorScopeId: scope(right)))
-            XCTAssertEqual(workspaceSidebarSharedPinClickPlan(pin, targetMonitorScopeId: scope(left), click: .command),
-                .refused(message: "“pin1” is in full screen on “Right”, so it stays there. Exit full screen to move it."))
+            // Browser tabs are chosen only with WinMux on; neither route here starts a session.
+            TrayMenuModel.shared.isEnabled = true
+            defer { TrayMenuModel.shared.isEnabled = false }
+            handleWorkspaceSidebarAction(.selectBrowserTab(target), targetMonitorScopeId: scope(monitors[0]))
+            if setting == .showOnItsDisplay {
+                XCTAssertEqual(selections, [.init(target, scope(monitors[1]), keepsPointer: true)])
+                XCTAssertEqual(notices, [])
+            } else {
+                XCTAssertEqual(selections, [], "Not chosen anywhere")
+                XCTAssertEqual(notices.map(\.body), ["“shown1” is kept on “Right”, so it stays there."])
+            }
+            XCTAssertTrue(monitors[1].activeWorkspace === held)
+            XCTAssertTrue(monitors[0].activeWorkspace === tabs["shown0"])
         }
+    }
+
+    /// F1: showing a pin on its own display, and bringing one to a display other than the focused
+    /// one, keep the pointer for that change only; a refused or failed click keeps nothing.
+    func testShowingOrBringingAPinKeepsThePointerForItsOwnChangeOnly() throws {
+        let (monitors, tabs) = try sharedPins(3)
+        XCTAssertTrue(try performSharedPinClick(tabs["pin1"]!, windowId: nil, targetMonitorScopeId: scope(monitors[0]), click: .plain))
+        checkOnFocusChangedCallbacks()
+        XCTAssertEqual(monitorHooks, [.init("pin1", keepsPointer: true)], "Shown on Right, from Left")
+
+        // Focus on Far; a pin of Right brought to Left, whose sidebar was clicked.
+        XCTAssertTrue(tabs["shown2"]!.focusWorkspace())
+        checkOnFocusChangedCallbacks()
+        monitorHooks = []
+        XCTAssertTrue(try performSharedPinClick(tabs["pin2"]!, windowId: nil, targetMonitorScopeId: scope(monitors[0]), click: .command))
+        XCTAssertTrue(monitors[0].activeWorkspace === tabs["pin2"])
+        checkOnFocusChangedCallbacks()
+        XCTAssertEqual(monitorHooks, [.init("pin2", keepsPointer: true)], "Brought to Left, from Far")
+
+        // A click whose display has gone, and a refused one: nothing kept for the next change.
+        monitorHooks = []
+        XCTAssertFalse(try performSharedPinClick(tabs["pin1"]!, windowId: nil, targetMonitorScopeId: scope(monitors[0]),
+            click: .plain, remoteScopeId: .some("monitor:99999,0")))
+        config.workspaceToMonitorForceAssignment["pin1"] = [.sequenceNumber(2)]
+        XCTAssertFalse(try performSharedPinClick(tabs["pin1"]!, windowId: nil, targetMonitorScopeId: scope(monitors[0]), click: .command))
+        XCTAssertEqual(notices.map(\.body), ["“pin1” is kept on “Right”, so it stays there."])
+        XCTAssertTrue(tabs["shown2"]!.focusWorkspace())
+        checkOnFocusChangedCallbacks()
+        XCTAssertEqual(monitorHooks, [.init("shown2", keepsPointer: false)])
+    }
+
+    /// F1: a browser tab of a pin shown on its own display is chosen asking to keep the pointer, and
+    /// the deferred focus of its window, once chosen, keeps it; a window gone by then keeps nothing.
+    func testTheDeferredFocusOfAChosenBrowserTabKeepsThePointer() throws {
+        let (monitors, tabs) = try sharedPins(2)
+        let shown = tabs["shown1"]!
+        try setWorkspaceSidebarTabFavorite(shown, true)
+        let target = try browserTab(in: shown)
+        // Browser tabs are chosen only with WinMux on; this route starts no session.
+        TrayMenuModel.shared.isEnabled = true
+        handleWorkspaceSidebarAction(.selectBrowserTab(target), targetMonitorScopeId: scope(monitors[0]))
+        TrayMenuModel.shared.isEnabled = false
+        XCTAssertEqual(selections, [.init(target, scope(monitors[1]), keepsPointer: true)])
+        // What the browser model's select does once the tab is chosen.
+        focusWindowFromSidebarNow(target.windowId, targetMonitorScopeId: scope(monitors[1]), keepsPointer: true)
+        checkOnFocusChangedCallbacks()
+        XCTAssertEqual(monitorHooks, [.init("shown1", keepsPointer: true)])
+        // Stale by then: nothing kept.
+        monitorHooks = []
+        focusWindowFromSidebarNow(99_999, targetMonitorScopeId: scope(monitors[0]), keepsPointer: true)
+        XCTAssertTrue(tabs["shown0"]!.focusWorkspace())
+        checkOnFocusChangedCallbacks()
+        XCTAssertEqual(monitorHooks, [.init("shown0", keepsPointer: false)])
     }
 
     func testLocalAndUnopenedPinsAreAsBefore() throws {
@@ -401,7 +612,7 @@ final class WorkspaceSidebarMultidisplayActionsTest: XCTestCase {
         let cases: [(WorkspaceSidebarAction, WorkspaceSidebarAction)] = [
             (.selectWorkspace("pin1"), .bringPinnedTabHere("pin1", windowId: nil, recalls: false)),
             (.selectWindow(4), .bringPinnedTabHere("pin1", windowId: 4, recalls: false)),
-            (.selectBrowserTab(target), .bringPinnedTabHere("pin1", windowId: 4, recalls: false)),
+            (.selectBrowserTab(target), .bringBrowserTabHere("pin1", target)),
             (.recallPinWindows("pin1", focusing: 4), .bringPinnedTabHere("pin1", windowId: 4, recalls: true)),
         ]
         for (action, bring) in cases {
@@ -432,10 +643,12 @@ final class WorkspaceSidebarMultidisplayActionsTest: XCTestCase {
         let held = tabs["shown1"]!
         try setWorkspaceSidebarTabFavorite(held, true)
         config.workspaceToMonitorForceAssignment[held.name] = [.secondary]
-        for (setting, asks, heldHelp, pinHelp) in [
-            (WorkspaceSidebarRemotePinClick.showOnItsDisplay, false, "On “Right” · Click to show it there",
+        for (setting, heldHelp, pinHelp) in [
+            (WorkspaceSidebarRemotePinClick.showOnItsDisplay,
+             "On “Right” · Click to show it there · Kept on that display, so it can’t move here",
              "Assigned to “Right” · Click to show it there · ⌘-click to move it here"),
-            (.bringToThisDisplay, true, "On “Right”", "Assigned to “Right” · Click to move to this display"),
+            (.bringToThisDisplay, "On “Right” · Kept on that display, so it can’t move here",
+             "Assigned to “Right” · Click to move to this display"),
         ] {
             config.workspaceSidebar.remotePinClick = setting
             let list = await snapshot(listing: monitors[0])
@@ -443,7 +656,7 @@ final class WorkspaceSidebarMultidisplayActionsTest: XCTestCase {
             let heldTab = try XCTUnwrap(list.workspaces.first { $0.name == held.name })
             let (activation, _) = view.tabActivation(heldTab, isPinned: false, pageAllowsActivation: true)
             XCTAssertTrue(activation.isRemotePin)
-            XCTAssertEqual(activation.isInUseOnOtherDisplay, asks, "\(setting): the In Use prompt only where a click would bring it")
+            XCTAssertFalse(activation.isInUseOnOtherDisplay, "\(setting): no In Use prompt; the click shows, brings or says why")
             XCTAssertEqual(list.sharedPinLocation(of: heldTab)?.help(), heldHelp)
             let pin = try XCTUnwrap(list.workspaces.first { $0.name == "pin1" })
             XCTAssertEqual(list.sharedPinLocation(of: pin)?.help(), pinHelp)
@@ -495,41 +708,10 @@ final class WorkspaceSidebarMultidisplayActionsTest: XCTestCase {
 
     // MARK: Fixtures
 
-    /// Displays left to right, each showing `shown<i>`, with `pin<i>` pinned and hidden on it, and
-    /// `hidden[i]`'s tabs hidden on it, each with one window.
     private func displays(_ count: Int, hidden: [Int: [String]] = [:]) throws -> ([Monitor], [String: Workspace]) {
-        setUpWorkspacesForTests()
-        workspaceSidebarOrganizationStore = .init()
-        config.workspaceSidebar.enabled = true
-        config.workspaceSidebar.mode = .tabs
-        let names = ["Left", "Right", "Far"]
-        let monitors: [Monitor] = (0 ..< count).map { index in
-            let rect = Rect(topLeftX: CGFloat(index) * 1920, topLeftY: 0, width: 1920, height: 1080)
-            return WorkspaceSidebarDragTestMonitor(monitorAppKitNsScreenScreensId: index + 1, name: names[index],
-                rect: rect, visibleRect: rect, isMain: index == 0)
-        }
-        setMonitorsForTests(monitors)
-        Workspace.reconcileWorkspaceState()
-        var tabs: [String: Workspace] = [:]
-        var windowId: UInt32 = 1
-        func tab(_ name: String, on monitor: Monitor) {
-            let tab = Workspace.get(byName: name)
-            _ = TestWindow.new(id: windowId, parent: tab.rootTilingContainer)
-            windowId += 1
-            tab.preferredMonitorPoint = monitor.rect.topLeftCorner
-            tabs[name] = tab
-        }
-        for (index, monitor) in monitors.enumerated() {
-            tab("shown\(index)", on: monitor)
-            tab("pin\(index)", on: monitor)
-            XCTAssertTrue(monitor.setActiveWorkspace(tabs["shown\(index)"]!))
-        }
-        for (index, monitor) in monitors.enumerated() {
-            for name in hidden[index] ?? [] { tab(name, on: monitor) }
-        }
-        XCTAssertTrue(tabs["shown0"]!.focusWorkspace())
-        try setWorkspaceSidebarTabsFavorite(monitors.indices.map { tabs["pin\($0)"]! }, true)
-        return (monitors, tabs)
+        let result = try multidisplayFixture(count, hidden: hidden)
+        monitorHooks = []
+        return result
     }
 
     private func sharedPins(_ count: Int) throws -> ([Monitor], [String: Workspace]) {
@@ -538,35 +720,28 @@ final class WorkspaceSidebarMultidisplayActionsTest: XCTestCase {
         return result
     }
 
-    /// The ordinary tabs of `projectId` the list of `monitor` shows, in order.
     private func listed(on monitor: Monitor, _ projectId: WorkspaceProjectId) -> [String] {
-        orderedWorkspaces(in: projectId).filter {
-            workspaceSidebarOrganizationStore.state.workspaces[$0.name]?.isFavorite != true && workspaceTabIsShown($0)
-                && $0.workspaceMonitor.rect == monitor.rect
-        }.map(\.name)
+        multidisplayListed(on: monitor, projectId)
     }
 
-    /// What the sidebar on `panel` shows listing `monitor`'s tabs, built from the model as a
-    /// panel's would be, without any panel.
     private func snapshot(listing monitor: Monitor, on panel: Monitor? = nil) async -> WorkspaceSidebarSnapshot {
-        let state = await buildWorkspaceSidebarModelState()
-        var snapshot = WorkspaceSidebarSnapshot.empty
-        snapshot.workspaces = state.workspaces
-        snapshot.monitorScopes = state.monitorScopes
-        snapshot.projects = state.projects
-        snapshot.selectedMonitorScopeId = scope(monitor)
-        snapshot.targetMonitorScopeId = scope(panel ?? monitor)
-        snapshot.focusedMonitorScopeId = state.focusedMonitorScopeId
-        snapshot.activeProjectId = activeWorkspaceProjectId(for: monitor)
-        snapshot.visibleWidth = 280
-        snapshot.configuration.usesTabsList = true
-        snapshot.configuration.tabCollections = workspaceSidebarOrganizationStore.state.collections
-        snapshot.configuration.sharesPinnedTabs = config.workspaceSidebar.sharePinnedTabs
-        snapshot.configuration.remotePinClick = config.workspaceSidebar.remotePinClick
-        return snapshot
+        await multidisplaySnapshot(listing: monitor, on: panel)
     }
 
     private func scope(_ monitor: Monitor) -> String { workspaceSidebarMonitorScopeId(for: monitor) }
+
+    private func browserTab(in tab: Workspace) throws -> BrowserTabTarget {
+        let window = try XCTUnwrap(tab.anyLeafWindowRecursive)
+        return BrowserTabTarget(windowId: window.windowId, pid: window.app.pid, windowSession: UUID(), tabId: UUID())
+    }
+
+    private func waitUntil(_ condition: () -> Bool, timeout: Duration = .seconds(3)) async throws {
+        let deadline = ContinuousClock.now + timeout
+        while !condition() {
+            guard ContinuousClock.now < deadline else { return XCTFail("Timed out") }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+    }
 
     /// The bottom of the sidebar, drawn in a view with no window; a PNG too when WINMUX_RENDER_DIR is set.
     private func render(_ snapshot: WorkspaceSidebarSnapshot, name: String) throws -> Data {
@@ -593,4 +768,354 @@ final class WorkspaceSidebarMultidisplayActionsTest: XCTestCase {
         }
         return try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
     }
+}
+
+/// The same clicks through the sidebar's real routes: the tab's activation, the action handler and
+/// the WinMux session it runs. Sessions refresh the sidebar, so blank synthetic test panels may
+/// show briefly; no real browser, pointer move or notice is involved, and all are hidden after.
+@MainActor
+final class WorkspaceSidebarRemotePinRoutingTest: XCTestCase {
+    private var wasEnabled = true
+    private var notices: [WinMuxToastNotice] = []
+    private var monitorHooks: [MonitorHook] = []
+    private var selections: [BrowserTabSelection] = []
+    private var listedTabs: Set<BrowserTabTarget>? = nil
+    private let saved = MultidisplaySeams()
+
+    override func setUp() async throws {
+        setUpWorkspacesForTests()
+        workspaceSidebarOrganizationStore = .init()
+        wasEnabled = TrayMenuModel.shared.isEnabled
+        TrayMenuModel.shared.isEnabled = true
+        notices = []
+        monitorHooks = []
+        selections = []
+        listedTabs = nil
+        showWorkspaceSidebarNotice = { [unowned self] in notices.append($0) }
+        runFocusedMonitorChangedCommands = { [unowned self] focus, keepsPointer in
+            monitorHooks.append(.init(focus.workspace.name, keepsPointer: keepsPointer))
+        }
+        postMoveMouseEvent = { _ in XCTFail("No real pointer move"); return false }
+        selectWorkspaceSidebarBrowserTab = { [unowned self] in selections.append(.init($0, $1, keepsPointer: $2)) }
+        workspaceSidebarBrowserTabIsListed = { [unowned self] in listedTabs?.contains($0) ?? true }
+        WorkspaceSidebarTabSelection.shared.clear()
+    }
+
+    override func tearDown() async throws {
+        try await Task.sleep(for: .milliseconds(100))
+        saved.restore()
+        // Hide any test panel the sessions framed.
+        config.workspaceSidebar.enabled = false
+        WorkspaceSidebarPanel.refreshAll()
+        WorkspaceSidebarTabSelection.shared.clear()
+        WorkspaceSidebarTabUndo.shared.clear()
+        workspaceSidebarOrganizationStore = .init()
+        setMonitorsForTests(nil)
+        config = defaultConfig
+        TrayMenuModel.shared.isEnabled = wasEnabled
+        try await super.tearDown()
+    }
+
+    /// F2: from the tab's own activation, under both settings, with a plain click and ⌘: a held pin
+    /// hidden there, a held pin on screen there (which used to ask In Use), and one in full screen.
+    /// Asked to come, each stays, nothing is focused instead, and the notice says why; by default
+    /// a plain click shows it there, keeping the pointer.
+    func testEveryRouteRefusesAPinThatCantComeWhenAskedAndShowsItThereByDefault() async throws {
+        let cases: [(name: String, pin: String, why: String, setUp: @MainActor ([String: Workspace]) throws -> Void)] = [
+            ("hidden, held", "pin1", "“pin1” is kept on “Right”, so it stays there.", { _ in
+                config.workspaceToMonitorForceAssignment["pin1"] = [.secondary]
+            }),
+            ("on screen, held", "shown1", "“shown1” is kept on “Right”, so it stays there.", { tabs in
+                try setWorkspaceSidebarTabFavorite(tabs["shown1"]!, true)
+                config.workspaceToMonitorForceAssignment["shown1"] = [.secondary]
+            }),
+            ("full screen", "pin1", "“pin1” is in full screen on “Right”, so it stays there. Exit full screen to move it.", { tabs in
+                _ = TestWindow.new(id: 90, parent: tabs["pin1"]!.macOsNativeFullscreenWindowsContainer)
+            }),
+        ]
+        for (name, pinName, why, setUpCase) in cases {
+            for setting in WorkspaceSidebarRemotePinClick.allCases {
+                for modifiers in [NSEvent.ModifierFlags(), .command] {
+                    let label = "\(name), \(setting), \(modifiers.contains(.command) ? "⌘" : "plain")"
+                    let (monitors, tabs) = try multidisplayFixture(2)
+                    config.workspaceSidebar.sharePinnedTabs = true
+                    config.workspaceSidebar.remotePinClick = setting
+                    try setUpCase(tabs)
+                    let (left, right) = (monitors[0], monitors[1])
+                    let pin = tabs[pinName]!
+                    let rightBefore = right.activeWorkspace
+                    notices = []
+                    monitorHooks = []
+                    let activation = try await click(pinName, .selectWorkspace(pinName), modifiers, on: left)
+                    XCTAssertFalse(activation.isInUseOnOtherDisplay, "\(label): no In Use prompt")
+                    if modifiers.contains(.command) || setting == .bringToThisDisplay {
+                        try await waitUntil { !notices.isEmpty }
+                        try await Task.sleep(for: .milliseconds(150))
+                        XCTAssertEqual(notices, [.init(title: "Pinned Tab", body: why, monitorScopeId: scope(left))], label)
+                        XCTAssertEqual(pin.workspaceMonitor.rect, right.rect, label)
+                        XCTAssertTrue(right.activeWorkspace === rightBefore, label)
+                        XCTAssertTrue(left.activeWorkspace === tabs["shown0"], label)
+                        XCTAssertTrue(focus.workspace === tabs["shown0"], "\(label): nothing focused instead")
+                        XCTAssertEqual(monitorHooks, [], label)
+                    } else {
+                        try await waitUntil { focus.workspace === pin && !monitorHooks.isEmpty }
+                        XCTAssertTrue(right.activeWorkspace === pin, label)
+                        XCTAssertTrue(left.activeWorkspace === tabs["shown0"], label)
+                        XCTAssertEqual(monitorHooks, [.init(pinName, keepsPointer: true)], label)
+                        XCTAssertEqual(notices, [], label)
+                    }
+                }
+            }
+        }
+    }
+
+    /// F2: an In Use prompt answered for a shared pin from another display asks it to come, as ⌘-click
+    /// does; an ordinary tab's prompt still shows it here, as before.
+    func testTheInUseOverrideAsksAPinToComeAndStillShowsAnOrdinaryTabHere() async throws {
+        var (monitors, tabs) = try multidisplayFixture(2)
+        config.workspaceSidebar.sharePinnedTabs = true
+        config.workspaceSidebar.remotePinClick = .bringToThisDisplay
+        try setWorkspaceSidebarTabFavorite(tabs["shown1"]!, true)
+        config.workspaceToMonitorForceAssignment["shown1"] = [.secondary]
+        handleWorkspaceSidebarAction(.overrideWorkspaceInUse("shown1"), targetMonitorScopeId: scope(monitors[0]))
+        try await waitUntil { !notices.isEmpty }
+        try await Task.sleep(for: .milliseconds(150))
+        XCTAssertEqual(notices.map(\.body), ["“shown1” is kept on “Right”, so it stays there."])
+        XCTAssertTrue(monitors[1].activeWorkspace === tabs["shown1"], "Not swapped here")
+        XCTAssertTrue(monitors[0].activeWorkspace === tabs["shown0"])
+        XCTAssertTrue(focus.workspace === tabs["shown0"], "Nor focused there")
+
+        // A pin that may come: it comes, the same tab.
+        (monitors, tabs) = try multidisplayFixture(2)
+        config.workspaceSidebar.sharePinnedTabs = true
+        try setWorkspaceSidebarTabFavorite(tabs["shown1"]!, true)
+        handleWorkspaceSidebarAction(.overrideWorkspaceInUse("shown1"), targetMonitorScopeId: scope(monitors[0]))
+        try await waitUntil { monitors[0].activeWorkspace === tabs["shown1"] }
+        XCTAssertEqual(tabs["shown1"]!.preferredMonitorPoint, monitors[0].rect.topLeftCorner)
+
+        // An ordinary tab on screen on the other display: swapped here, as the prompt always has.
+        (monitors, tabs) = try multidisplayFixture(2)
+        handleWorkspaceSidebarAction(.overrideWorkspaceInUse("shown1"), targetMonitorScopeId: scope(monitors[0]))
+        try await waitUntil { monitors[0].activeWorkspace === tabs["shown1"] }
+        XCTAssertFalse(monitors[1].activeWorkspace === tabs["shown1"], "The other display shows another tab")
+        XCTAssertEqual(notices.count, 1, "No notice for these")
+    }
+
+    /// F3: ⌘-click on a browser tab of a pin from another display brings that pin here, the same
+    /// window, then chooses that very tab here; a plain click chooses it where it is.
+    func testCommandClickOnABrowserTabBringsItsPinThenChoosesThatVeryTab() async throws {
+        var (monitors, tabs) = try sharedShown1()
+        let window = try XCTUnwrap(tabs["shown1"]!.anyLeafWindowRecursive)
+        let target = BrowserTabTarget(windowId: window.windowId, pid: window.app.pid, windowSession: UUID(), tabId: UUID())
+        listedTabs = [target]
+        _ = try await click("shown1", .selectBrowserTab(target), .command, on: monitors[0])
+        try await waitUntil { !selections.isEmpty }
+        XCTAssertEqual(selections, [.init(target, scope(monitors[0]), keepsPointer: true)], "That tab, here")
+        XCTAssertTrue(monitors[0].activeWorkspace === tabs["shown1"])
+        XCTAssertTrue(focus.windowOrNil === window, "The same window")
+
+        (monitors, tabs) = try sharedShown1()
+        let other = try XCTUnwrap(tabs["shown1"]!.anyLeafWindowRecursive)
+        let there = BrowserTabTarget(windowId: other.windowId, pid: other.app.pid, windowSession: UUID(), tabId: UUID())
+        listedTabs = [there]
+        selections = []
+        _ = try await click("shown1", .selectBrowserTab(there), [], on: monitors[0])
+        XCTAssertEqual(selections, [.init(there, scope(monitors[1]), keepsPointer: true)], "Chosen where it is")
+        XCTAssertTrue(monitors[1].activeWorkspace === tabs["shown1"])
+    }
+
+    /// F3: a ⌘-click overtaken or stale by the time its session runs, or refused, moves nothing and
+    /// chooses nothing, anywhere.
+    func testAStaleOrRefusedCommandClickOnABrowserTabMovesAndChoosesNothing() async throws {
+        // Each change comes after the click, before its session runs, or before the click.
+        let cases: [(name: String, afterClick: Bool, change: @MainActor (Workspace, AppBundle.Window) -> Void)] = [
+            ("a newer choice", true, { _, _ in _ = noteWorkspaceSidebarBrowserTabChoice() }),
+            ("the tab no longer listed", true, { [unowned self] _, _ in listedTabs = [] }),
+            ("browser tabs off", true, { _, _ in config.workspaceSidebar.browserTabs = false }),
+            ("another window with its id", true, { pin, window in
+                window.unbindFromParent()
+                _ = TestWindow.new(id: window.windowId, parent: pin.rootTilingContainer)
+            }),
+            ("not listed when clicked", false, { [unowned self] _, _ in listedTabs = [] }),
+            ("held to its display", false, { _, _ in config.workspaceToMonitorForceAssignment["shown1"] = [.secondary] }),
+        ]
+        for (name, afterClick, change) in cases {
+            let (monitors, tabs) = try sharedShown1()
+            let pin = tabs["shown1"]!
+            let window = try XCTUnwrap(pin.anyLeafWindowRecursive)
+            let target = BrowserTabTarget(windowId: window.windowId, pid: window.app.pid, windowSession: UUID(), tabId: UUID())
+            listedTabs = [target]
+            selections = []
+            notices = []
+            if !afterClick { change(pin, window) }
+            let activation = try await click("shown1", .selectBrowserTab(target), .command, on: monitors[0],
+                deferred: afterClick ? { change(pin, window) } : nil)
+            XCTAssertTrue(activation.isRemotePin, name)
+            try await Task.sleep(for: .milliseconds(300))
+            XCTAssertEqual(selections, [], "\(name): nothing chosen")
+            XCTAssertTrue(monitors[1].activeWorkspace === pin, "\(name): nothing moved")
+            XCTAssertTrue(monitors[0].activeWorkspace === tabs["shown0"], name)
+            XCTAssertEqual(notices.map(\.body), name == "held to its display" ? ["“shown1” is kept on “Right”, so it stays there."] : [],
+                name)
+        }
+
+        // A ⌘-click naming another pin than the window's: nothing.
+        let (monitors, tabs) = try sharedShown1()
+        let window = try XCTUnwrap(tabs["shown1"]!.anyLeafWindowRecursive)
+        let target = BrowserTabTarget(windowId: window.windowId, pid: window.app.pid, windowSession: UUID(), tabId: UUID())
+        selections = []
+        handleWorkspaceSidebarAction(.bringBrowserTabHere("pin0", target), targetMonitorScopeId: scope(monitors[0]))
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertEqual(selections, [])
+        XCTAssertTrue(monitors[1].activeWorkspace === tabs["shown1"])
+    }
+
+    // MARK: Helpers
+
+    /// Two displays with shared pins and `shown1`, on screen on Right, pinned.
+    private func sharedShown1() throws -> ([Monitor], [String: Workspace]) {
+        let result = try multidisplayFixture(2)
+        config.workspaceSidebar.sharePinnedTabs = true
+        try setWorkspaceSidebarTabFavorite(result.1["shown1"]!, true)
+        return result
+    }
+
+    /// Clicks `name`'s row in the sidebar of `monitor`, as its activation sends `action` to the
+    /// handler; `deferred` runs right after, before the session the click started.
+    @discardableResult
+    private func click(_ name: String, _ action: WorkspaceSidebarAction, _ modifiers: NSEvent.ModifierFlags, on monitor: Monitor,
+                       deferred: (() throws -> Void)? = nil) async throws -> WorkspaceSidebarTabActivation {
+        let list = await multidisplaySnapshot(listing: monitor)
+        let tab = try XCTUnwrap(list.workspaces.first { $0.name == name }, name)
+        let (activation, _) = WorkspaceSidebarView(snapshot: list).tabActivation(tab, isPinned: false, pageAllowsActivation: true)
+        activation.select(action, modifiers: modifiers) { handleWorkspaceSidebarAction($0, targetMonitorScopeId: scope(monitor)) }
+        try deferred?()
+        return activation
+    }
+
+    private func scope(_ monitor: Monitor) -> String { workspaceSidebarMonitorScopeId(for: monitor) }
+
+    private func waitUntil(_ condition: () -> Bool, timeout: Duration = .seconds(3)) async throws {
+        let deadline = ContinuousClock.now + timeout
+        while !condition() {
+            guard ContinuousClock.now < deadline else { return XCTFail("Timed out") }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+    }
+}
+
+// MARK: Fixtures shared by both suites
+
+/// An `on-focused-monitor-changed` run, as the runner was asked for it.
+struct MonitorHook: Equatable {
+    let workspaceName: String
+    let keepsPointer: Bool
+
+    init(_ workspaceName: String, keepsPointer: Bool) {
+        self.workspaceName = workspaceName
+        self.keepsPointer = keepsPointer
+    }
+}
+
+/// A browser tab the sidebar asked to choose.
+struct BrowserTabSelection: Equatable {
+    let target: BrowserTabTarget
+    let monitorScopeId: String?
+    let keepsPointer: Bool
+
+    init(_ target: BrowserTabTarget, _ monitorScopeId: String?, keepsPointer: Bool) {
+        self.target = target
+        self.monitorScopeId = monitorScopeId
+        self.keepsPointer = keepsPointer
+    }
+}
+
+/// The seams these tests replace, as they were, to put back.
+@MainActor
+final class MultidisplaySeams {
+    let notice = showWorkspaceSidebarNotice
+    let monitorCommands = runFocusedMonitorChangedCommands
+    let mouseMove = postMoveMouseEvent
+    let selectBrowserTab = selectWorkspaceSidebarBrowserTab
+    let isListed = workspaceSidebarBrowserTabIsListed
+
+    func restoreMonitorCommands() { runFocusedMonitorChangedCommands = monitorCommands }
+
+    func restore() {
+        showWorkspaceSidebarNotice = notice
+        runFocusedMonitorChangedCommands = monitorCommands
+        postMoveMouseEvent = mouseMove
+        selectWorkspaceSidebarBrowserTab = selectBrowserTab
+        workspaceSidebarBrowserTabIsListed = isListed
+    }
+}
+
+/// Displays left to right, each showing `shown<i>`, with `pin<i>` pinned and hidden on it, and
+/// `hidden[i]`'s tabs hidden on it, each with one window.
+@MainActor
+fileprivate func multidisplayFixture(_ count: Int, hidden: [Int: [String]] = [:]) throws -> ([Monitor], [String: Workspace]) {
+    setUpWorkspacesForTests()
+    workspaceSidebarOrganizationStore = .init()
+    config.workspaceSidebar.enabled = true
+    config.workspaceSidebar.mode = .tabs
+    let names = ["Left", "Right", "Far"]
+    let monitors: [Monitor] = (0 ..< count).map { index in
+        let rect = Rect(topLeftX: CGFloat(index) * 1920, topLeftY: 0, width: 1920, height: 1080)
+        return WorkspaceSidebarDragTestMonitor(monitorAppKitNsScreenScreensId: index + 1, name: names[index],
+            rect: rect, visibleRect: rect, isMain: index == 0)
+    }
+    setMonitorsForTests(monitors)
+    Workspace.reconcileWorkspaceState()
+    var tabs: [String: Workspace] = [:]
+    var windowId: UInt32 = 1
+    func tab(_ name: String, on monitor: Monitor) {
+        let tab = Workspace.get(byName: name)
+        _ = TestWindow.new(id: windowId, parent: tab.rootTilingContainer)
+        windowId += 1
+        tab.preferredMonitorPoint = monitor.rect.topLeftCorner
+        tabs[name] = tab
+    }
+    for (index, monitor) in monitors.enumerated() {
+        tab("shown\(index)", on: monitor)
+        tab("pin\(index)", on: monitor)
+        XCTAssertTrue(monitor.setActiveWorkspace(tabs["shown\(index)"]!))
+    }
+    for (index, monitor) in monitors.enumerated() {
+        for name in hidden[index] ?? [] { tab(name, on: monitor) }
+    }
+    XCTAssertTrue(tabs["shown0"]!.focusWorkspace())
+    try setWorkspaceSidebarTabsFavorite(monitors.indices.map { tabs["pin\($0)"]! }, true)
+    // Focus changes from here on are seen against this one.
+    checkOnFocusChangedCallbacks()
+    return (monitors, tabs)
+}
+
+/// The ordinary tabs of `projectId` the list of `monitor` shows, in order.
+@MainActor
+fileprivate func multidisplayListed(on monitor: Monitor, _ projectId: WorkspaceProjectId) -> [String] {
+    orderedWorkspaces(in: projectId).filter {
+        workspaceSidebarOrganizationStore.state.workspaces[$0.name]?.isFavorite != true && workspaceTabIsShown($0)
+            && $0.workspaceMonitor.rect == monitor.rect
+    }.map(\.name)
+}
+
+/// What the sidebar on `panel` shows listing `monitor`'s tabs, built from the model as a
+/// panel's would be, without any panel.
+@MainActor
+fileprivate func multidisplaySnapshot(listing monitor: Monitor, on panel: Monitor? = nil) async -> WorkspaceSidebarSnapshot {
+    let state = await buildWorkspaceSidebarModelState()
+    var snapshot = WorkspaceSidebarSnapshot.empty
+    snapshot.workspaces = state.workspaces
+    snapshot.monitorScopes = state.monitorScopes
+    snapshot.projects = state.projects
+    snapshot.selectedMonitorScopeId = workspaceSidebarMonitorScopeId(for: monitor)
+    snapshot.targetMonitorScopeId = workspaceSidebarMonitorScopeId(for: panel ?? monitor)
+    snapshot.focusedMonitorScopeId = state.focusedMonitorScopeId
+    snapshot.activeProjectId = activeWorkspaceProjectId(for: monitor)
+    snapshot.visibleWidth = 280
+    snapshot.configuration.usesTabsList = true
+    snapshot.configuration.tabCollections = workspaceSidebarOrganizationStore.state.collections
+    snapshot.configuration.sharesPinnedTabs = config.workspaceSidebar.sharePinnedTabs
+    snapshot.configuration.remotePinClick = config.workspaceSidebar.remotePinClick
+    return snapshot
 }
