@@ -150,8 +150,10 @@ struct WorkspaceSidebarConfig: ConvenienceCopyable, Equatable, Sendable {
     /// instead of under Music's tab.
     var musicPlayerAtBottom: Bool = false
     /// Tabs mode: every display's sidebar shows its project's pinned tabs from every display,
-    /// instead of only the ones on its own display. A pin clicked on a display comes to it.
+    /// instead of only the ones on its own display.
     var sharePinnedTabs: Bool = false
+    /// What a plain click on a shared pin that's on another display does. ⌘-click always brings it.
+    var remotePinClick: WorkspaceSidebarRemotePinClick = .showOnItsDisplay
     var sharesPinnedTabs: Bool { usesTabsList && sharePinnedTabs }
     var pinsSidebarOpen: Bool { mode == .tabs ? tabsAlwaysExpanded : alwaysExpanded }
     var mode: WorkspaceSidebarMode = .dock
@@ -318,6 +320,15 @@ enum ChromeSolidColor: String, CaseIterable, Identifiable, Sendable {
         case .custom: (0.10, 0.11, 0.13)
         }
     }
+}
+
+/// A plain click on a shared pin whose tab is on another display: show it there, where it is, or
+/// bring it to the display clicked. ⌘-click always brings it.
+enum WorkspaceSidebarRemotePinClick: String, CaseIterable, Identifiable, Sendable {
+    case showOnItsDisplay = "show-on-its-display"
+    case bringToThisDisplay = "bring-to-this-display"
+
+    var id: String { rawValue }
 }
 
 enum WorkspaceProjectDeletionAction: String, CaseIterable, Identifiable, Sendable {

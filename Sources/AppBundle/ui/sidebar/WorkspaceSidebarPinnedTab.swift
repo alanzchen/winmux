@@ -88,6 +88,9 @@ struct WorkspaceSidebarPinnedTab: View {
     /// A pin that recalls windows, clicked: brings back the window it lent, or a pinned split's own
     /// windows from their pins, instead of only selecting it. Given the window clicked, if any.
     var onRecall: ((UInt32?) -> Void)? = nil
+    /// A shared pin on another display that may come to this one: an accessibility action brings
+    /// it, as ⌘-click does.
+    var onBringHere: (() -> Void)? = nil
     let onSelect: (UInt32?) -> Void
     @State private var isHovered = false
     @Environment(\.workspaceSidebarReducesMotion) private var reducesMotion
@@ -114,6 +117,7 @@ struct WorkspaceSidebarPinnedTab: View {
                 .buttonStyle(.plain).help(helpWithLocation(workspace.displayName))
                 .accessibilityLabel(workspace.displayName)
                 .accessibilityHint(locationHelp ?? "")
+                .workspaceSidebarBringHereAction(onBringHere)
                 .sidebarIdentityMenu(.tab(workspace.name, windowId: nil))
             }
             HStack(spacing: 0) {
@@ -131,6 +135,7 @@ struct WorkspaceSidebarPinnedTab: View {
                         .accessibilityLabel(workspace.displayName)
                         .accessibilityValue("In another tab's split")
                         .accessibilityHint("Brings \(lent.appName) back here")
+                        .workspaceSidebarBringHereAction(onBringHere)
                         .sidebarIdentityMenu(.workspace(workspace.name))
                 } else if windows.isEmpty {
                     // A saved pin whose app isn't open shows that app, greyed; clicking opens it again.
@@ -186,6 +191,7 @@ struct WorkspaceSidebarPinnedTab: View {
                             : (window.title.map { "\(window.appName) — \($0)" } ?? window.appName)))
                         .accessibilityLabel(summarizesWorkspace ? workspace.displayName : (window.title ?? window.appName))
                         .accessibilityHint(locationHelp ?? "")
+                        .workspaceSidebarBringHereAction(onBringHere)
                         .accessibilityAddTraits(isActiveHere && (summarizesWorkspace ? workspace.isFocused : window.isFocused) ? .isSelected : [])
                         .sidebarIdentityMenu(.tab(workspace.name, windowId: summarizesWorkspace ? nil : window.windowId))
                     }
@@ -262,6 +268,14 @@ struct WorkspaceSidebarPinnedTab: View {
         } else if let window {
             WorkspaceSidebarWindowIcon(window: window, size: compact ? min(20, 26 / CGFloat(max(windowCount, 1))) : 22)
         } else { Image(systemName: "macwindow").font(.system(size: compact ? 19 : 22)) }
+    }
+}
+
+extension View {
+    /// “Move to This Display”, for a shared pin from another display, as ⌘-click.
+    @ViewBuilder
+    func workspaceSidebarBringHereAction(_ action: (() -> Void)?) -> some View {
+        if let action { accessibilityAction(named: "Move to This Display", action) } else { self }
     }
 }
 

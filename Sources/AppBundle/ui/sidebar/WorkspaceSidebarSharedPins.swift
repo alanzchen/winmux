@@ -4,7 +4,8 @@ import Foundation
 // display (`workspacePinnedTabs(in:)`). Each display's list shows the tabs on that display, its
 // pins among them. With shared pins it shows its project's pins from every display too, so every
 // display has the same tiles in the same order. Nothing is kept per display: sharing changes only
-// what a list shows. Showing a pin moves nothing; clicking one brings it to the display clicked.
+// what a list shows. Showing a pin moves nothing. Clicking one on another display shows it there, or
+// brings it to the display clicked, as `remote-pin-click` says; ⌘-clicking it always brings it.
 //
 // Pins in All Projects are listed by the same display rule, but with the project a list shows, its
 // `contextProjectId`, rather than their own, and ahead of its pins. Scope picks the projects that
@@ -103,14 +104,24 @@ struct WorkspaceSidebarSharedPinLocation: Equatable {
     let isOnScreen: Bool
     /// False for one held to its display, which a click doesn't bring.
     var comesToClick = true
+    /// What a plain click does with it; ⌘-click brings one that may come.
+    var click: WorkspaceSidebarRemotePinClick = .bringToThisDisplay
 
     /// "On" only for a pin on screen there; a hidden one is assigned there.
     var description: String {
         "\(isOnScreen ? "On" : "Assigned to") “\(displayName)”"
     }
 
+    /// What its tile's tooltip and accessibility hint say. `clickMovesHere` is false where a click
+    /// doesn't activate it, as in a drop destination's list.
     func help(clickMovesHere: Bool = true) -> String {
-        clickMovesHere && comesToClick ? "\(description) · Click to move to this display" : description
+        guard clickMovesHere else { return description }
+        switch (click, comesToClick) {
+            case (.showOnItsDisplay, true): return "\(description) · Click to show it there · ⌘-click to move it here"
+            case (.showOnItsDisplay, false): return "\(description) · Click to show it there"
+            case (.bringToThisDisplay, true): return "\(description) · Click to move to this display"
+            case (.bringToThisDisplay, false): return description
+        }
     }
 }
 
@@ -119,20 +130,23 @@ struct WorkspaceSidebarSharedPinLocation: Equatable {
 /// on that display, or whose display isn't known or is gone, and for one with no windows open,
 /// which isn't anywhere yet.
 func workspaceSidebarSharedPinLocation(_ workspace: WorkspaceSidebarWorkspaceViewModel, representedMonitorScopeId: String,
-                                       sharesPinnedTabs: Bool) -> WorkspaceSidebarSharedPinLocation? {
+                                       sharesPinnedTabs: Bool,
+                                       click: WorkspaceSidebarRemotePinClick = .bringToThisDisplay) -> WorkspaceSidebarSharedPinLocation? {
     guard sharesPinnedTabs, workspace.appearance.isFavorite, let display = workspace.knownDisplay,
           workspaceSidebarMonitorScopePoint(representedMonitorScopeId) != nil,
           display.monitorScopeId != representedMonitorScopeId,
-          workspace.isVisible || !workspaceSidebarPinnedTabWindows(workspace).isEmpty
+          workspace.isVisible || !workspaceSidebarPinnedTabWindows(workspace).isEmpty || workspace.displayMoveBlock == .fullScreen
     else { return nil }
     return .init(displayName: display.displayName, isOnScreen: workspace.isVisible,
-        comesToClick: workspace.heldMonitorScopeId.map { $0 == representedMonitorScopeId } ?? true)
+        comesToClick: workspace.heldMonitorScopeId.map { $0 == representedMonitorScopeId } ?? true
+            && workspace.displayMoveBlock != .fullScreen,
+        click: click)
 }
 
 extension WorkspaceSidebarSnapshot {
     /// The badge a shared pin's tile shows in this list, which represents its target display.
     func sharedPinLocation(of workspace: WorkspaceSidebarWorkspaceViewModel) -> WorkspaceSidebarSharedPinLocation? {
         workspaceSidebarSharedPinLocation(workspace, representedMonitorScopeId: targetMonitorScopeId,
-            sharesPinnedTabs: configuration.sharesPinnedTabs)
+            sharesPinnedTabs: configuration.sharesPinnedTabs, click: configuration.remotePinClick)
     }
 }

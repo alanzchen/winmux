@@ -69,8 +69,10 @@ private func makeWorkspaceSidebarWorkspaceViewModel(
         knownDisplay: availableMonitors.count > 1 && config.workspaceSidebar.sharesPinnedTabs && isPinned
             ? workspaceSidebarTabKnownDisplay(workspace, among: availableMonitors) : nil,
         // Kept whether or not pins are shared: turning sharing on shows the pins before their
-        // tabs are listed again, and a click must still tell a held one.
-        heldMonitorScopeId: availableMonitors.count > 1 && isPinned ? workspaceSidebarTabHeldMonitorScopeId(workspace) : nil,
+        // tabs are listed again, and a click must still tell a held one. Moving a display's tabs
+        // tells every held tab.
+        heldMonitorScopeId: availableMonitors.count > 1 ? workspaceSidebarTabHeldMonitorScopeId(workspace) : nil,
+        displayMoveBlock: availableMonitors.count > 1 ? workspaceSidebarTabDisplayMoveBlock(workspace) : nil,
         lentWindow: lentWindow,
         recallsWindows: isPinned && workspaceSidebarPinRecallsWindows(workspace),
     )

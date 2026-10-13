@@ -12,6 +12,7 @@ private let workspaceSidebarParser: [String: any ParserProtocol<WorkspaceSidebar
     "browser-tab-icons": Parser(\.browserTabIcons, parseBool),
     "music-player-at-bottom": Parser(\.musicPlayerAtBottom, parseBool),
     "share-pinned-tabs": Parser(\.sharePinnedTabs, parseBool),
+    "remote-pin-click": Parser(\.remotePinClick, parseWorkspaceSidebarRemotePinClick),
     "mode": Parser(\.mode, parseWorkspaceSidebarMode),
     "show-app-icons": Parser(\.showAppIcons, parseBool),
     "show-workspace-tooltips": Parser(\.showWorkspaceTooltips, parseBool),
@@ -189,6 +190,19 @@ private func parseWorkspaceSidebarDisplayWidths(
 private func parseWorkspaceSidebarMenuBarReserveHeight(_ raw: TOMLValueConvertible, _ backtrace: TomlBacktrace) -> ParsedToml<Int> {
     parseInt(raw, backtrace)
         .filter(.semantic(backtrace, "Must be greater than or equal to 0")) { $0 >= 0 }
+}
+
+private func parseWorkspaceSidebarRemotePinClick(
+    _ raw: TOMLValueConvertible,
+    _ backtrace: TomlBacktrace,
+) -> ParsedToml<WorkspaceSidebarRemotePinClick> {
+    parseString(raw, backtrace).flatMap { rawValue in
+        WorkspaceSidebarRemotePinClick(rawValue: rawValue)
+            .orFailure(.semantic(
+                backtrace,
+                "Possible values: \(WorkspaceSidebarRemotePinClick.allCases.map(\.rawValue).joined(separator: ", "))",
+            ))
+    }
 }
 
 private func parseWorkspaceProjectDeletionAction(

@@ -67,6 +67,8 @@ struct WorkspaceSidebarConfiguration: Equatable {
     var musicPlayerAtBottom: Bool = false
     /// Tabs mode: a display's list shows its project's pins from every display.
     var sharesPinnedTabs: Bool = false
+    /// What a plain click on a shared pin that's on another display does.
+    var remotePinClick: WorkspaceSidebarRemotePinClick = .showOnItsDisplay
 
     var defaultsToOwnDisplay: Bool { displayFilter == .thisDisplay && panelsCoverEveryDisplay }
     var compactRailWidth: CGFloat {
@@ -129,6 +131,11 @@ enum WorkspaceSidebarAction: Equatable {
     case expandForWorkspaceOverride
     case expandSidebar
     case selectWindow(UInt32)
+    /// Command-click on a shared pin on another display: brings it, or its window `windowId`, to the
+    /// clicked display whatever `remote-pin-click` says. `recalls` first brings back windows it lent.
+    case bringPinnedTabHere(String, windowId: UInt32?, recalls: Bool)
+    /// Tabs mode: moves `projectId`'s tabs on the display `from` to the display `to`.
+    case moveTabsToDisplay(projectId: WorkspaceProjectId, from: String, to: String)
     /// Focuses a window on the display already showing it, instead of moving it to this one.
     case focusWindowInPlace(UInt32)
     case closeWindow(UInt32)

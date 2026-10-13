@@ -199,8 +199,14 @@ extension Workspace {
 }
 
 @MainActor private var onFocusChangedRecursionGuard = false
+/// Set by an action that sends focus to another display along with what it moved there, the
+/// pointer staying where it is: the next focus check doesn't run `on-focused-monitor-changed` for
+/// that change (by default, `move-mouse monitor-lazy-center`). It still announces the change.
+@MainActor var skipsNextFocusedMonitorChangedCommands = false
 // Should be called in refreshSession
 @MainActor func checkOnFocusChangedCallbacks() {
+    let skipsMonitorCommands = skipsNextFocusedMonitorChangedCommands
+    skipsNextFocusedMonitorChangedCommands = false
     if refreshSessionEvent?.isStartup == true {
         return
     }
@@ -236,7 +242,7 @@ extension Workspace {
         onWorkspaceChanged(_prevFocusedWorkspaceName, frozenFocus.workspaceName)
     }
     if hasFocusedMonitorChanged {
-        onFocusedMonitorChanged(focus)
+        onFocusedMonitorChanged(focus, runsCommands: !skipsMonitorCommands)
     }
     if hasFocusChanged {
         debugFocusLog(
@@ -245,11 +251,16 @@ extension Workspace {
     }
 }
 
-@MainActor private func onFocusedMonitorChanged(_ focus: LiveFocus) {
+@MainActor private func onFocusedMonitorChanged(_ focus: LiveFocus, runsCommands: Bool) {
     broadcastEvent(.focusedMonitorChanged(
         workspace: focus.workspace.name,
         monitorId_oneBased: focus.workspace.workspaceMonitor.monitorId_oneBased ?? 0,
     ))
+    if runsCommands { runFocusedMonitorChangedCommands(focus) }
+}
+
+/// Runs `on-focused-monitor-changed`. Tests replace it, so no command, such as a mouse move, runs.
+@MainActor var runFocusedMonitorChangedCommands: @MainActor (LiveFocus) -> Void = { focus in
     if config.onFocusedMonitorChanged.isEmpty { return }
     guard let token: RunSessionGuard = .isServerEnabled else { return }
     // todo potential optimization: don't run runSession if we are already in runSession

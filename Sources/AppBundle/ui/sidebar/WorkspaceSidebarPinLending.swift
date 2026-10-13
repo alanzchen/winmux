@@ -948,25 +948,34 @@ private func showHiddenWorkspaceSidebarCompositionWindows(_ split: Workspace) as
 /// A click on a pin that recalls windows: they come back as `recallWorkspaceSidebarPinWindows` says,
 /// then the pin shows as any clicked pin does, on the display it was clicked on. A window it can't
 /// bring back is shown where it is, and a notice says so; nothing is ever opened instead.
+///
+/// Whether it's on another display is decided before its windows come back, which may change
+/// where it seems to be: a pin with no badge then is shown as one without. `click` is .command
+/// for ⌘-click, which brings it to the display clicked.
 @MainActor
-func recallPinWindowsFromSidebar(_ name: String, focusing windowId: UInt32?, targetMonitorScopeId: String?) {
+func recallPinWindowsFromSidebar(_ name: String, focusing windowId: UInt32?, targetMonitorScopeId: String?,
+                                 click: WorkspaceSidebarSharedPinClick = .plain) {
     WorkspaceSidebarPanel.suppressEdgeTrapForWorkspaceActivation()
     var shown: (pin: String, window: UInt32?)?
+    var remoteScopeId: String?
     runWorkspaceSidebarSession(afterLayout: {
         guard let shown else { return }
         if let windowId = shown.window {
             if let pin = workspaceSidebarSharedPinClicked(windowId: windowId, targetMonitorScopeId: targetMonitorScopeId) {
-                showSharedPinnedTabFromSidebar(pin, windowId: windowId, targetMonitorScopeId: targetMonitorScopeId)
+                showSharedPinnedTabFromSidebar(pin, windowId: windowId, targetMonitorScopeId: targetMonitorScopeId,
+                    click: click, remoteScopeId: .some(remoteScopeId))
             } else {
                 focusWindowFromSidebar(windowId, targetMonitorScopeId: targetMonitorScopeId)
             }
         } else if let pin = workspaceSidebarSharedPinClicked(shown.pin, targetMonitorScopeId: targetMonitorScopeId) {
-            showSharedPinnedTabFromSidebar(pin, targetMonitorScopeId: targetMonitorScopeId)
+            showSharedPinnedTabFromSidebar(pin, targetMonitorScopeId: targetMonitorScopeId, click: click,
+                remoteScopeId: .some(remoteScopeId))
         } else {
             focusWorkspaceFromSidebar(shown.pin, targetMonitorScopeId: targetMonitorScopeId)
         }
     }) {
         guard let pin = Workspace.existing(byName: name) else { return }
+        remoteScopeId = workspaceSidebarSharedPinRemoteScopeId(pin, targetMonitorScopeId: targetMonitorScopeId)
         if workspaceSidebarPinSplitRole(pin) == .composition { await showHiddenWorkspaceSidebarCompositionWindows(pin) }
         var recall = try recallWorkspaceSidebarPinWindows(pin)
         // Hidden with its app: shown again, then, still the same window the pin lent, brought back.

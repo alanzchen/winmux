@@ -21,9 +21,12 @@ struct WorkspaceSidebarWorkspaceViewModel: Hashable, Identifiable {
     var isLeftEmpty = false
     /// A pinned tab's display, where that's known, while pins are shared across displays.
     var knownDisplay: WorkspaceSidebarTabDisplay? = nil
-    /// With more than one display, the one a pinned tab is held to, the only one it may be shown
-    /// on: by `workspace-to-monitor-force-assignment`, else a saved Keep on display.
+    /// With more than one display, the one a tab is held to, the only one it may be shown on: by
+    /// `workspace-to-monitor-force-assignment`, else a saved Keep on display.
     var heldMonitorScopeId: String? = nil
+    /// With more than one display, why moving it to another one leaves it where it is, whatever
+    /// that display: it has no windows to move, or one in native full screen. Nil when it may go.
+    var displayMoveBlock: WorkspaceSidebarTabStays? = nil
     /// Tabs mode, a pin with one window: that window, while it's in another tab's split. The pin
     /// shows it grey, and a click brings it back.
     var lentWindow: WorkspaceSidebarWindowViewModel? = nil

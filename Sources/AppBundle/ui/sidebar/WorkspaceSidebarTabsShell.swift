@@ -135,7 +135,7 @@ extension WorkspaceSidebarView {
                                 targetMonitorScopeId: snapshot.targetMonitorScopeId,
                                 onOpenSavedApps: { selectTabWorkspace(workspace, action: .openSavedTab(workspace.name)) },
                                 sharedPinLocation: snapshot.sharedPinLocation(of: workspace),
-                                onRecall: pinRecall(workspace)) { windowId in
+                                onRecall: pinRecall(workspace), onBringHere: pinBringHere(workspace)) { windowId in
                                 selectTabWorkspace(workspace, windowId: windowId)
                             }
                             .frame(width: 34, height: 34)
@@ -168,6 +168,11 @@ extension WorkspaceSidebarView {
                     }
                     .help("Tabs Settings").accessibilityLabel("Tabs Settings")
                     Spacer()
+                    if !isSearchActive, let move = snapshot.displayMove {
+                        WorkspaceSidebarDisplayMoveButton(move: move) { target in
+                            actions.send(.moveTabsToDisplay(projectId: move.projectId, from: move.source, to: target))
+                        }
+                    }
                     Text("\((visible[snapshot.activeProjectId] ?? []).count) tabs").font(.system(size: 11)).foregroundStyle(.secondary)
                         .contentTransition(.numericText())
                 }
@@ -243,7 +248,7 @@ extension WorkspaceSidebarView {
                             dropLabelSlot: snapshot.dropPreview?.targetLabelSlot,
                             onOpenSavedApps: { selectTabWorkspace(workspace, action: .openSavedTab(workspace.name)) },
                             sharedPinLocation: snapshot.sharedPinLocation(of: workspace),
-                            onRecall: pinRecall(workspace)) { windowId in
+                            onRecall: pinRecall(workspace), onBringHere: pinBringHere(workspace)) { windowId in
                             selectTabWorkspace(workspace, windowId: windowId)
                         }
                     }
@@ -306,6 +311,13 @@ extension WorkspaceSidebarView {
     private func pinRecall(_ workspace: WorkspaceSidebarWorkspaceViewModel) -> ((UInt32?) -> Void)? {
         guard workspace.lentWindow != nil || workspace.recallsWindows else { return nil }
         return { windowId in selectTabWorkspace(workspace, action: .recallPinWindows(workspace.name, focusing: windowId)) }
+    }
+
+    /// A shared pin on another display that may come here: brought, as ⌘-click brings it.
+    private func pinBringHere(_ workspace: WorkspaceSidebarWorkspaceViewModel) -> (() -> Void)? {
+        guard snapshot.sharedPinLocation(of: workspace)?.comesToClick == true else { return nil }
+        let recalls = workspace.lentWindow != nil || workspace.recallsWindows
+        return { actions.send(.bringPinnedTabHere(workspace.name, windowId: nil, recalls: recalls)) }
     }
 
     private func selectTabWorkspace(_ workspace: WorkspaceSidebarWorkspaceViewModel, windowId: UInt32? = nil,

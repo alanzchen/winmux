@@ -62,8 +62,11 @@ on-mode-changed = []
     # instead of under Music's tab.
     music-player-at-bottom = false
     # Show each project's pinned tabs on every display's Tabs sidebar, in one order.
-    # Clicking a pin brings its tab to the display you clicked it on.
     share-pinned-tabs = false
+    # A click on a shared pin whose tab is on another display: 'show-on-its-display' shows it
+    # there, where it is; 'bring-to-this-display' brings it to the display clicked.
+    # Command-click always brings it to the display clicked.
+    remote-pin-click = 'show-on-its-display'
     # Dock is the default: it shows icons and opens a floating view of every project beside itself.
     # 'sidebar' is a compact rail that expands into window details; 'tabs' lists windows as vertical tabs.
     mode = 'dock'

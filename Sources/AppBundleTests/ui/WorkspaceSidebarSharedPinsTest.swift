@@ -6,8 +6,10 @@ import SwiftUI
 import XCTest
 
 /// `share-pinned-tabs`: every display's Tabs sidebar shows its project's pins from every display, in
-/// one order, and a pin clicked on a display comes to it. Nothing is stored per display, so the
-/// setting only changes what the lists show; with it off, everything is as before.
+/// one order, and, with `remote-pin-click = 'bring-to-this-display'`, which these tests use, a pin
+/// clicked on a display comes to it. Nothing is stored per display, so the setting only changes what
+/// the lists show; with it off, everything is as before. The default, showing a pin from another
+/// display where it is, and ⌘-click are in WorkspaceSidebarMultidisplayActionsTest.
 @MainActor
 final class WorkspaceSidebarSharedPinsTest: XCTestCase {
     override func setUp() async throws {
@@ -420,7 +422,12 @@ final class WorkspaceSidebarSharedPinsTest: XCTestCase {
         let here = scope(monitors[0])
         await updateWorkspaceSidebarModel()
 
-        XCTAssertNil(workspaceSidebarSharedPinClicked(shown.name, targetMonitorScopeId: here))
+        // Past the prompt, a click shows it where it is; ⌘-click says why it stays.
+        XCTAssertTrue(workspaceSidebarSharedPinClicked(shown.name, targetMonitorScopeId: here) === shown)
+        XCTAssertEqual(workspaceSidebarSharedPinClickPlan(shown, targetMonitorScopeId: here, click: .plain),
+            .showThere(monitorScopeId: scope(monitors[1])))
+        XCTAssertEqual(workspaceSidebarSharedPinClickPlan(shown, targetMonitorScopeId: here, click: .command),
+            .refused(message: "“shown1” is kept on “Right”, so it stays there."))
         let vm = try XCTUnwrap(TrayMenuModel.shared.workspaceSidebarWorkspaces.first { $0.name == shown.name })
         XCTAssertTrue(WorkspaceSidebarView(snapshot: snapshot(on: monitors[0], sharing: true))
             .tabActivation(vm, isPinned: false, pageAllowsActivation: true).0.isInUseOnOtherDisplay, "It asks, as before")
@@ -438,8 +445,9 @@ final class WorkspaceSidebarSharedPinsTest: XCTestCase {
         XCTAssertTrue(workspaceSidebarSharedPinComesToClick(unsaved, representedMonitorScopeId: scope(monitors[1]),
             sharesPinnedTabs: true), "Where it's held, it may come")
 
-        // Hidden and held elsewhere: refused, as before (an open question).
-        XCTAssertNil(workspaceSidebarSharedPinClicked("pin1", targetMonitorScopeId: here))
+        // Hidden and held elsewhere: not brought here; a click shows it on its own display.
+        XCTAssertEqual(workspaceSidebarSharedPinClickPlan(tabs["pin1"]!, targetMonitorScopeId: here, click: .plain),
+            .showThere(monitorScopeId: scope(monitors[1])))
         XCTAssertFalse(focusWorkspaceFromSidebar(tabs["pin1"]!, targetMonitorScopeId: here))
         XCTAssertFalse(tabs["pin1"]!.isVisible)
         // A saved tab kept on its display is held the same way, by `workspaceTabCanMove`; its home
@@ -900,6 +908,7 @@ final class WorkspaceSidebarSharedPinsTest: XCTestCase {
         workspaceSidebarOrganizationStore = .init(url: organizationURL)
         config.workspaceSidebar.enabled = true
         config.workspaceSidebar.mode = .tabs
+        config.workspaceSidebar.remotePinClick = .bringToThisDisplay
         let names = ["Left", "Right", "Far"]
         let monitors: [Monitor] = (0 ..< count).map { index in
             let rect = Rect(topLeftX: CGFloat(index) * 1920, topLeftY: 0, width: 1920, height: 1080)
@@ -941,6 +950,7 @@ final class WorkspaceSidebarSharedPinsTest: XCTestCase {
         snapshot.configuration.usesTabsList = true
         snapshot.configuration.tabCollections = workspaceSidebarOrganizationStore.state.collections
         snapshot.configuration.sharesPinnedTabs = sharing
+        snapshot.configuration.remotePinClick = config.workspaceSidebar.remotePinClick
         return snapshot
     }
 

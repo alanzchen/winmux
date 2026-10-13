@@ -94,12 +94,23 @@ struct WorkspaceSidebarTabActivation {
     /// and its page's tabs as shown, with the one on screen. Nil while searching.
     var tabName: String? = nil
     var selectionContext: (() -> (order: [String], active: String?))? = nil
+    /// A shared pin on another display, which ⌘-click brings to this one instead of selecting it.
+    var isRemotePin = false
 
-    func select(_ action: WorkspaceSidebarAction, send: @MainActor (WorkspaceSidebarAction) -> Void) {
+    func select(_ action: WorkspaceSidebarAction, modifiers: NSEvent.ModifierFlags = NSEvent.modifierFlags,
+                send: @MainActor (WorkspaceSidebarAction) -> Void) {
         guard !isWorkspaceSidebarDragInProgress() else { return }
+        // ⌘-click, without Shift, on a pin from another display brings it here, whatever a plain click
+        // does. Where rows don't activate, it chooses the tab, as before.
+        if isRemotePin, allowsActivation, let tabName, modifiers.contains(.command), !modifiers.contains(.shift),
+           let bring = workspaceSidebarBringPinnedTabHereAction(action, pin: tabName) {
+            dismissOverride()
+            send(bring)
+            return
+        }
         if let tabName, let selectionContext, config.usesBrowserTabs {
             let context = selectionContext()
-            if WorkspaceSidebarTabSelection.shared.handleClick(on: tabName, modifiers: NSEvent.modifierFlags,
+            if WorkspaceSidebarTabSelection.shared.handleClick(on: tabName, modifiers: modifiers,
                 order: context.order, active: context.active) { return }
         }
         guard allowsActivation else { return }
@@ -751,9 +762,12 @@ extension WorkspaceSidebarView {
     ) -> (WorkspaceSidebarTabActivation, isShowingOverride: Bool) {
         // The pinned active workspace is already in use: its header does nothing, as in the Sidebar.
         let allowsActivation = pageAllowsActivation && !isPinned
-        // A shared pin comes to the display it's clicked on, without asking.
+        // A shared pin on another display is shown there, or comes to the display it's clicked on,
+        // without asking.
+        let isRemotePin = snapshot.sharedPinLocation(of: workspace) != nil
         let isInUseOnOtherDisplay = allowsActivation &&
             workspaceSidebarWorkspaceIsInUseOnOtherDisplay(workspace, selectedScopeId: snapshot.targetMonitorScopeId) &&
+            !(isRemotePin && snapshot.configuration.remotePinClick == .showOnItsDisplay) &&
             !workspaceSidebarSharedPinComesToClick(workspace, representedMonitorScopeId: snapshot.targetMonitorScopeId,
                 sharesPinnedTabs: snapshot.configuration.sharesPinnedTabs)
         let activation = WorkspaceSidebarTabActivation(
@@ -768,6 +782,7 @@ extension WorkspaceSidebarView {
             selectionContext: searchText.isEmpty && !isSearchEditing
                 ? { workspaceSidebarTabSelectionContext(projectId: workspaceSidebarListedProjectId(workspace,
                     contextProjectId: snapshot.activeProjectId)) } : nil,
+            isRemotePin: isRemotePin,
         )
         return (activation, isInUseOnOtherDisplay && activeInUseOverrideWorkspaceName == workspace.name)
     }

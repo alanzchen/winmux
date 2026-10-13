@@ -230,8 +230,13 @@ enum SettingsCatalog {
                 .used(in: [.tabs]),
             bool(.dockContent, "browser-tab-icons", "Website icons for Chrome-family tabs", "Read the selected tab's address in each listed Chrome, Chromium, Brave or Edge window and download its icon directly, without cookies. Includes Incognito and does not use browser proxy or VPN extensions or secure DNS. Icons appear as tabs are selected. Safari tabs get their icons from the WinMux Tabs Safari extension instead.", section: sidebar, path: \.workspaceSidebar.browserTabIcons)
                 .used(in: [.tabs]).requiring(.disables("Turn on Show browser tabs to use website icons.") { $0.workspaceSidebar.browserTabs }),
-            bool(.dockContent, "share-pinned-tabs", "Share pinned tabs across displays", "Show the same pinned tabs, in the same order, at the top of every display's Tabs sidebar. Each project keeps its own pins, and pinning, unpinning or reordering them on one display changes every display. Clicking a pin brings its tab to the display you clicked it on.", section: sidebar, path: \.workspaceSidebar.sharePinnedTabs)
+            bool(.dockContent, "share-pinned-tabs", "Share pinned tabs across displays", "Show the same pinned tabs, in the same order, at the top of every display's Tabs sidebar. Each project keeps its own pins, and pinning, unpinning or reordering them on one display changes every display.", section: sidebar, path: \.workspaceSidebar.sharePinnedTabs)
                 .used(in: [.tabs]),
+            choice(.dockContent, "remote-pin-click", "Clicking a pin from another display", "A shared pin whose tab is on another display shows a faint display outline. Clicking it can show the tab on that display, where it is, or bring it to the display you clicked. ⌘-click always brings it to the display you clicked.", section: sidebar,
+                options: [.init("Shows it on its display", "show-on-its-display"), .init("Brings it to this display", "bring-to-this-display")],
+                read: { $0.workspaceSidebar.remotePinClick.rawValue },
+                project: SettingsProjection.raw(\.workspaceSidebar.remotePinClick))
+                .used(in: [.tabs]).requiring(.disables("Turn on Share pinned tabs across displays to use this.") { $0.workspaceSidebar.sharePinnedTabs }),
             bool(.dockContent, "music-player-at-bottom", "Keep the Music player at the bottom", "Show Apple Music's player at the bottom of the expanded Tabs sidebar while Music is open, whichever tab or project is showing, instead of under Music's tab.", section: sidebar, path: \.workspaceSidebar.musicPlayerAtBottom)
                 .used(in: [.tabs]),
             SettingsField(group: .dockContent, section: "workspace-sidebar.intelligence", key: "mode",
