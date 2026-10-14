@@ -445,9 +445,14 @@ final class WorkspaceTabCloseViewports {
         func isLive(_ workspace: Workspace) -> Bool {
             Workspace.existing(byName: workspace.name) === workspace && !workspace.isArchived && !isClosing(workspace)
         }
-        let window: Window? = if let window = focusedWindow, Window.get(byId: window.windowId) === window,
-                                 !isClosing(window.nodeWorkspace) { window }
-            else if isLive(focusedWorkspace) { focusedWorkspace.toLiveFocus().windowOrNil } else { nil }
+        // One focus can go to, chosen before anything is put back: minimized or hidden since, the
+        // window in use gives way to its tab's own.
+        func canFocus(_ window: Window) -> Bool {
+            Window.get(byId: window.windowId) === window && !isClosing(window.nodeWorkspace) && window.toLiveFocusOrNil() != nil
+        }
+        let window: Window? = if let window = focusedWindow, canFocus(window) { window }
+            else if isLive(focusedWorkspace), let window = focusedWorkspace.toLiveFocus().windowOrNil, canFocus(window) { window }
+            else { nil }
         guard let window else { return }
         for (display, workspace, projectId) in displaced where isLive(workspace) {
             guard let monitor = monitors.first(where: { $0.rect.topLeftCorner == display }) else { continue }

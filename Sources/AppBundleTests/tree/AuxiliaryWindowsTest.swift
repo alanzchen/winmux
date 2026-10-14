@@ -660,6 +660,37 @@ final class AuxiliaryWindowsTest: XCTestCase {
         }
     }
 
+    func testAWindowInUseMinimizedMeanwhileGivesWayToItsTabsOwn() async throws {
+        // What the close leaves, before any refresh after it.
+        setScheduledRefreshOverrideForTests { _, _, _ in }
+        defer { setScheduledRefreshOverrideForTests(nil) }
+        try await withWinMuxEnabled {
+            let (here, current) = viewerTab()
+            let other = TestWindow.new(id: 11, parent: here.rootTilingContainer, app: mail, title: "Other")
+            XCTAssertTrue(current.focusWindow())
+            let (away, _, _, app) = try await parkedMailTabOutOfSight()
+            // The next tab after it, which closing its last window goes to.
+            let next = Workspace.get(byName: "next")
+            let nextWindow = TestWindow.new(id: 50, parent: next.rootTilingContainer, app: mail, title: "Next")
+            workspaceTabCloseConfirm = { _, _ in true }
+            var focusedByClosing: Window?
+            workspaceTabCloseIO = { window in
+                closeIO(window, app.trace, forget: {
+                    window.removeClosedWindowFromTree()
+                    if window.windowId == 20 { focusedByClosing = focus.windowOrNil }
+                }, atPress: { _ in
+                    // Minimized by the app, not the user, while the viewer closes.
+                    guard window.windowId == 20 else { return }
+                    current.bind(to: macosMinimizedWindowsContainer, adaptiveWeight: 1, index: INDEX_BIND_LAST)
+                })
+            }
+            await closeWorkspaceSidebarTabWindows(away.name)?.value
+            XCTAssertEqual(app.trace.presses, [21, 20])
+            XCTAssertTrue(focusedByClosing === nextWindow, "Closing went to the next tab first: \(String(describing: focusedByClosing))")
+            XCTAssertTrue(focus.windowOrNil === other && here.isVisible, "Back on the tab in use, on the window it can show")
+        }
+    }
+
     /// From an empty tab there's no window to focus in macOS, which a refresh would follow away again:
     /// it ends where closing left it, as after closing the tab on screen, and stays there.
     func testFromAnEmptyTabTheCloseEndsWhereClosingLeftIt() async throws {
