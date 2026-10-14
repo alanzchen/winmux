@@ -223,14 +223,17 @@ func captureAuxiliaryWindowOriginEvidence(newWindowId: UInt32, pid: Int32, obser
         lastUserInput: environment.lastUserInput(), stacking: stacking)
 }
 
-/// The window the new one was opened from, or nil when that isn't positively shown. All of this must
-/// hold, as read when WinMux first saw the new window:
+/// The window the context points to as the new one's origin, or nil. This is an inference from
+/// context, not proof of what opened it. All of this must hold, as read when WinMux first saw the new
+/// window:
 /// - its app was active, and became so before the user's last press;
 /// - WinMux's focus was on that same window since before that press, which was recent;
 /// - the new window was on screen, in front of every window of its app, with that window right below it;
 /// and, now, nothing has changed since: the same focus span, the same window, in the same tab.
-/// Anything else (a window made in the background or behind, one a link in another app opened, a
-/// switch between windows, focus moving during the accessibility read) leaves it a window of its own.
+/// This leaves a window of its own when it was made behind, isn't on screen yet, came after the app was
+/// activated by a link in another app, followed a switch between windows, or arrived while focus moved
+/// during the accessibility read. It can't tell a window the user opened from one the app or automation
+/// raised in front of that same window within the press interval: that one is inferred to come from it too.
 @MainActor
 func auxiliaryWindowOrigin(_ evidence: AuxiliaryWindowOriginEvidence) -> Window? {
     let focused = evidence.focusedWindow

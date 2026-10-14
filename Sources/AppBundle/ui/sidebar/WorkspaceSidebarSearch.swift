@@ -75,7 +75,13 @@ private func workspaceSidebarFilteredWorkspace(
             lentWindow: workspace.lentWindow,
             recallsWindows: workspace.recallsWindows,
         )
-        filtered.associatedWindows = matchingAssociated.filter { shownWindowIds.contains($0.parentWindowId) }
+        // Every parent that is one of the tab's own rows is shown above. A parent that isn't, such as a
+        // pin's window lent to another tab, stays where it is: the draft is still kept, with the pin's
+        // lent window as its context.
+        let ownWindowIds = Set(workspaceSidebarPinnedTabWindows(workspace).map(\.windowId))
+        filtered.associatedWindows = matchingAssociated.filter {
+            shownWindowIds.contains($0.parentWindowId) || !ownWindowIds.contains($0.parentWindowId)
+        }
         return filtered
     }
     if workspaceSidebarWorkspaceMatchesSearch(workspace, projectName: projectName, terms: terms) {

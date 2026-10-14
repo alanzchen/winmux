@@ -3,8 +3,8 @@ import AppKit
 import Common
 import XCTest
 
-/// Tabs mode: Mail's message and compose windows, and dialogs, float in the tab of the window they
-/// were opened from, listed under it, only when where they came from is positively shown.
+/// Tabs mode: Mail's message and compose windows, and dialogs, float in the tab of the window the
+/// context points to, listed under it. The context is an inference, not proof of what opened them.
 @MainActor
 final class AuxiliaryWindowsTest: XCTestCase {
     private let mail = TestApp(pid: 41, bundleId: "com.apple.mail", name: "Mail")
@@ -135,7 +135,7 @@ final class AuxiliaryWindowsTest: XCTestCase {
         return (placement, asked)
     }
 
-    func testOnlyAWindowShownToComeFromTheFocusedViewerIsPlacedUnderIt() async throws {
+    func testOnlyAWindowWhoseContextPointsToTheFocusedViewerIsPlacedUnderIt() async throws {
         let (tab, viewer) = viewerTab()
         let since = auxiliaryFocusSpan.since
         noteAppActivatedForAuxiliaryWindows(pid: mail.pid, at: since - 1)

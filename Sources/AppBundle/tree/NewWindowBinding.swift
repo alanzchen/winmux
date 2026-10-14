@@ -47,7 +47,7 @@ func classifyAndGetBindingDataForNewWindow(
             if let window, AuxiliaryWindowRegistry.shared.role(of: window) != nil {
                 return (floatingBinding(workspace), type, false, nil)
             }
-            // Mail's message and compose windows float in the tab they were opened from.
+            // Mail's message and compose windows float in the tab of the window the context points to.
             if window == nil, let placement = try await auxiliaryWindowPlacement(originEvidence, type: type,
                 role: { try await macApp.getAuxiliaryWindowRole(windowId) }) {
                 return (floatingBinding(placement.workspace), type, false, placement)

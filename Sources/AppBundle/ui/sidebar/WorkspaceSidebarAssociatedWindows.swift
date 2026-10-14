@@ -195,3 +195,46 @@ struct WorkspaceSidebarAssociatedWindowActions: ViewModifier {
         }
     }
 }
+
+/// The context above windows of a tab whose parent isn't one of its own rows: a pin's window, lent to
+/// another tab. It only names that window and where it is: it isn't the tab's, and it neither selects,
+/// moves nor closes anything.
+struct WorkspaceSidebarElsewhereParentRow: View {
+    let workspace: WorkspaceSidebarWorkspaceViewModel
+    @Environment(\.workspaceSidebarTabIndent) private var indent
+
+    private var title: String {
+        workspace.lentWindow.map { $0.title?.takeIf { !$0.isEmpty } ?? $0.appName } ?? workspace.displayName
+    }
+
+    var body: some View {
+        HStack(spacing: 9) {
+            if let lent = workspace.lentWindow {
+                WorkspaceSidebarTabIcon(bundleId: lent.appBundleId, bundlePath: lent.appBundlePath).saturation(0).opacity(0.5)
+            } else {
+                Image(systemName: "macwindow").font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(Color.primary.opacity(0.45))
+                    .frame(width: workspaceSidebarTabIconSize, height: workspaceSidebarTabIconSize)
+            }
+            Text(title)
+                .font(.system(size: 13))
+                .foregroundStyle(Color.primary.opacity(0.55))
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Spacer(minLength: 0)
+            Text("In another tab")
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(Color.primary.opacity(0.55))
+                .padding(.horizontal, 5)
+                .padding(.vertical, 1)
+                .background(Capsule().fill(Color.primary.opacity(0.08)))
+        }
+        .padding(.leading, indent.leadingPadding)
+        .padding(.trailing, workspaceSidebarTabCloseSlotWidth)
+        .frame(maxWidth: .infinity, minHeight: workspaceSidebarTabRowHeight, maxHeight: workspaceSidebarTabRowHeight,
+            alignment: .leading)
+        .help("\(title) is in another tab and stays there. The window below was opened from it.")
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(title), in another tab")
+    }
+}

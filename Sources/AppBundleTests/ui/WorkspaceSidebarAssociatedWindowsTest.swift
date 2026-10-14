@@ -150,7 +150,7 @@ final class WorkspaceSidebarAssociatedWindowsTest: XCTestCase {
     func testSplittingAPinnedViewerLendsItAndAClickBringsItBackWhileItsDraftStays() async throws {
         let (pin, viewer) = viewerTab()
         try setWorkspaceSidebarTabFavorite(pin, true)
-        let compose = try await open(11, from: viewer, title: "New Message")
+        let compose = try await open(11, from: viewer, title: "Re: Quarterly plan")
         let d = Workspace.get(byName: "d")
         _ = TestWindow.new(id: 40, parent: d.rootTilingContainer)
         // As a drag of d's window onto the pin's left half does.
@@ -166,6 +166,26 @@ final class WorkspaceSidebarAssociatedWindowsTest: XCTestCase {
         let menu = workspaceSidebarWorkspaceIdentityMenuModel(model, send: { _ in })
         XCTAssertEqual(menu.entries.filter(\.isDestructive).map(\.title), ["Close Tab and Its Windows…"],
             "Not an empty tab: it still holds the draft, which closing it would close, once agreed to")
+
+        // Searched by its own title while the viewer is lent: the draft is found, under the lent viewer as context.
+        let found = try XCTUnwrap(filtered(model, "quarterly"))
+        XCTAssertEqual(found.items.map(\.id), [], "The lent viewer isn't made one of the pin's own rows")
+        XCTAssertEqual(found.associatedWindows.map(\.id), [11], "The matching draft is kept")
+        XCTAssertEqual(found.lentWindow?.windowId, 10, "Its context: the pin's window, in another tab")
+        XCTAssertEqual(workspaceSidebarTabPresentation(found), .empty, "Drawn as that context, not as an empty tab")
+        XCTAssertEqual(workspaceSidebarSearchSelections(workspaces: [found], query: "quarterly"), [.window(11)],
+            "The arrow keys reach the draft alone")
+        XCTAssertEqual(WorkspaceTabClosePlan([pin]).tabs.first?.members.map(\.window.windowId), [11],
+            "Closing the pin still closes only what is in it")
+        // Enter on it, as search sends it: the draft itself is focused, and the lent viewer stays where it is.
+        XCTAssertTrue(TestWindow.new(id: 50, parent: Workspace.get(byName: "other").rootTilingContainer).focusWindow())
+        handleWorkspaceSidebarAction(.selectWindow(11))
+        for _ in 0 ..< 200 where focus.windowOrNil !== compose { try await Task.sleep(for: .milliseconds(5)) }
+        XCTAssertTrue(focus.windowOrNil === compose, "The actual draft")
+        XCTAssertTrue(focus.workspace === pin && compose.isFloating, "In its pin, still floating")
+        XCTAssertTrue(viewer.nodeWorkspace === d && workspaceSidebarLentWindow(of: pin) === viewer,
+            "The viewer isn't recalled, moved or copied")
+        XCTAssertEqual(d.rootTilingContainer.allLeafWindowsRecursive.map(\.windowId), [40, 10])
 
         XCTAssertEqual(try recallWorkspaceSidebarPinWindows(pin), .returned(viewer))
         XCTAssertTrue(viewer.nodeWorkspace === pin && viewer.parent is TilingContainer, "The same viewer, back in its pin")

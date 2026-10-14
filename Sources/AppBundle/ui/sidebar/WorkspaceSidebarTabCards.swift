@@ -284,6 +284,10 @@ struct WorkspaceSidebarTabCardView: View {
                 }
                 .accessibilityElement(children: .contain)
                 .accessibilityLabel("Split: \(windows.map { $0.title ?? $0.appName }.joined(separator: ", "))")
+            case .empty where hasAssociatedWindows:
+                // A pin whose window is lent to another tab, found by its draft: that window named as
+                // context, not an empty tab.
+                WorkspaceSidebarElsewhereParentRow(workspace: workspace)
             case .empty:
                 WorkspaceSidebarEmptyTabRowView(isActive: isActive, actions: actions, workspace: workspace,
                     onBeginRename: onBeginRename,

@@ -68,7 +68,9 @@ private func workspaceSidebarTabSearchSelections(
                 return workspaceSidebarTabGroupWindows(group).map { .window($0.windowId) }
         }
     }
-    return itemSelections.isEmpty ? [.workspace(workspace.name)] : itemSelections
+    // A tab found only by a draft, such as a pin that lent its window: the arrow keys reach the draft alone.
+    guard itemSelections.isEmpty else { return itemSelections }
+    return workspace.associatedWindows.isEmpty ? [.workspace(workspace.name)] : []
 }
 
 private func splitSelections(_ workspace: WorkspaceSidebarWorkspaceViewModel,
