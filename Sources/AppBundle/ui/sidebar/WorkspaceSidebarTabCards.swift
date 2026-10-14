@@ -7,6 +7,9 @@ import SwiftUI
 enum WorkspaceSidebarTabPresentation: Equatable {
     /// An empty workspace, such as a new tab waiting for an app.
     case empty
+    /// A tab none of whose windows is shown in it now, though they still belong to it: hidden with
+    /// their app, in native full screen, or minimized. Never an empty tab.
+    case offscreen([WorkspaceSidebarOffscreenMember])
     case single(WorkspaceSidebarWindowViewModel)
     case split(WorkspaceSidebarWindowViewModel, WorkspaceSidebarWindowViewModel)
     case multiple([WorkspaceSidebarWindowViewModel])
@@ -47,7 +50,7 @@ func workspaceSidebarTabPresentation(
     // A stack keeps the folder that shows it as a group.
     guard !workspace.preservesFolderPresentation, windows.count == workspace.items.count else { return .folder }
     switch windows.count {
-        case 0: return .empty
+        case 0: return workspace.offscreenMembers.isEmpty ? .empty : .offscreen(workspace.offscreenMembers)
         case 1: return .single(windows[0])
         case 2: return .split(windows[0], windows[1])
         default: return .multiple(windows)
@@ -189,7 +192,7 @@ struct WorkspaceSidebarTabCardView: View {
             case .split, .multiple: return isActive ? 0.1 : 0.04
             // The tab on screen stays marked even while its window isn't the focused one.
             case .single: return isActive ? 0.1 : (drawsNowPlaying ? 0.05 : 0)
-            case .empty, .folder: return 0
+            case .empty, .offscreen, .folder: return 0
         }
     }
 
@@ -270,6 +273,9 @@ struct WorkspaceSidebarTabCardView: View {
                     onBeginRename: onBeginRename,
                     onSelect: { activation.select(.selectWorkspace(workspace.name), send: actions.send) },
                     onOpenSavedApps: { activation.select(.openSavedTab(workspace.name), send: actions.send) })
+            case .offscreen(let members):
+                WorkspaceSidebarOffscreenTabRowView(isActive: isActive, actions: actions, workspace: workspace, members: members,
+                    onSelect: { activation.select(.showOffscreenTab(workspace.name), send: actions.send) })
             case .folder:
                 EmptyView()
         }
@@ -439,6 +445,107 @@ struct WorkspaceSidebarEmptyTabRowView: View {
     private func close() {
         guard !isWorkspaceSidebarDragInProgress() else { return }
         actions.send(.closeEmptyTab(workspace.name))
+    }
+}
+
+/// The tab of a workspace whose windows all belong to it but none is shown in it now: hidden with
+/// their app, in native full screen, or minimized. It shows them, greyed, with what keeps them away;
+/// a click brings them back, and closing it closes them, once the user agrees.
+struct WorkspaceSidebarOffscreenTabRowView: View {
+    let isActive: Bool
+    let actions: WorkspaceSidebarActions
+    let workspace: WorkspaceSidebarWorkspaceViewModel
+    let members: [WorkspaceSidebarOffscreenMember]
+    /// Through the tab's activation, as any tab's click: selection, a tab in use elsewhere, a pin.
+    let onSelect: () -> Void
+    @State private var isHovered = false
+    @Environment(\.workspaceSidebarTabIndent) private var indent
+    @Environment(\.workspaceSidebarReducesMotion) private var reducesMotion
+
+    private var title: String {
+        if !workspace.sidebarLabel.isEmpty { return workspace.displayName }
+        guard let first = members.first else { return "" }
+        return members.count == 1 ? first.label : "\(first.label) and \(members.count - 1) more"
+    }
+
+    /// One state for all of them, or "Away" for a mix.
+    private var stateLabel: String {
+        let states = Set(members.map(\.stateLabel))
+        return states.count == 1 ? states.first ?? "" : "Away"
+    }
+
+    var body: some View {
+        Button {
+            guard !isWorkspaceSidebarDragInProgress() else { return }
+            onSelect()
+        } label: {
+            HStack(spacing: 9) {
+                if let first = members.first {
+                    WorkspaceSidebarTabIcon(bundleId: first.appBundleId, bundlePath: first.appBundlePath)
+                        .saturation(0).opacity(0.5)
+                }
+                Text(title)
+                    .font(.system(size: 13, weight: isActive ? .medium : .regular))
+                    .foregroundStyle(Color.primary.opacity(isActive ? 0.8 : 0.55))
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+                Text(stateLabel)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(Color.primary.opacity(0.55))
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 1)
+                    .background(Capsule().fill(Color.primary.opacity(0.08)))
+                    .opacity(isHovered ? 0 : 1)
+            }
+            .padding(.leading, indent.leadingPadding)
+            .padding(.trailing, workspaceSidebarTabCloseSlotWidth)
+            .frame(maxWidth: .infinity, minHeight: workspaceSidebarTabRowHeight, maxHeight: workspaceSidebarTabRowHeight,
+                alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("\(title): \(members.map { "\($0.appName) \($0.stateLabel.lowercased())" }.joined(separator: ", ")). "
+            + "Click to bring it back.")
+        .accessibilityLabel("\(title), \(stateLabel.lowercased())")
+        .accessibilityAddTraits(isActive ? .isSelected : [])
+        .accessibilityAction(named: "Close Tab") { close() }
+        .overlay(alignment: .trailing) {
+            Button(action: close) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(Color.primary.opacity(0.6))
+                    .frame(width: 18, height: 18)
+                    .background {
+                        RoundedRectangle(cornerRadius: 5, style: .continuous)
+                            .fill(Color.primary.opacity(0.08))
+                    }
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Close Tab and Its Windows…")
+            .accessibilityHidden(true)
+            .frame(width: workspaceSidebarTabCloseSlotWidth)
+            .opacity(isHovered ? 1 : 0)
+            .allowsHitTesting(isHovered)
+        }
+        .background {
+            RoundedRectangle(cornerRadius: indent.rowCornerRadius, style: .continuous)
+                .fill(isActive ? Color(nsColor: .controlBackgroundColor) : Color.primary.opacity(isHovered ? 0.06 : 0))
+                .shadow(color: isActive ? Color.black.opacity(0.22) : .clear, radius: 3, y: 1)
+        }
+        .animation(WorkspaceSidebarTabMotion.selection(reducesMotion: reducesMotion), value: isActive)
+        .overlay {
+            // Any id pairs the press with its release; the tab's windows close only once agreed to.
+            WindowMiddleClickCatcher(windowId: 0) { close() }
+        }
+        .onHover { hovering in withAnimation(WorkspaceSidebarTabMotion.hover) { isHovered = hovering } }
+        .sidebarIdentityMenu(.workspace(workspace.name))
+    }
+
+    /// Closes the tab and all its windows, as Close Tabs does: it asks first, since they're not on screen.
+    private func close() {
+        guard !isWorkspaceSidebarDragInProgress() else { return }
+        actions.send(.closeTabs([workspace.name]))
     }
 }
 

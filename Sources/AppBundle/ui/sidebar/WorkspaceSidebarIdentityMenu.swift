@@ -271,6 +271,9 @@ func workspaceSidebarWorkspaceIdentityMenuModel(_ workspace: WorkspaceSidebarWor
         if windows.count > 1 {
             let whole = workspaceSidebarTabPresentation(workspace) == .folder ? "Tab" : "Split"
             trailing.append(.init(title: "Close All Windows in \(whole)…", isDestructive: true, perform: { send(.closeTabWindows(name)) }))
+        } else if windows.isEmpty, !workspace.offscreenMembers.isEmpty {
+            // Its windows aren't on screen, but it isn't empty: closing it closes them, once agreed to.
+            trailing.append(.init(title: "Close Tab and Its Windows…", isDestructive: true, perform: { send(.closeTabs([name])) }))
         } else if windows.isEmpty {
             trailing.append(.init(title: "Close Empty Tab", isDestructive: true, perform: { send(.closeEmptyTab(name)) }))
         }

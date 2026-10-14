@@ -33,8 +33,35 @@ struct WorkspaceSidebarWorkspaceViewModel: Hashable, Identifiable {
     /// Tabs mode: a click on this pin brings a window back, the one it lent, or, for a pinned split,
     /// one of its own back in its pin, instead of only showing it.
     var recallsWindows = false
+    /// Its windows that aren't shown in it now, hidden with their app, in native full screen, or
+    /// minimized from it, in the order `workspaceTabMembers` gives. They still belong to it: a tab
+    /// with only these isn't empty.
+    var offscreenMembers: [WorkspaceSidebarOffscreenMember] = []
 
     var id: String { name }
+}
+
+/// A window of a tab that isn't shown in it now, as the sidebar lists it.
+struct WorkspaceSidebarOffscreenMember: Hashable {
+    let windowId: UInt32
+    let appName: String
+    let appBundleId: String?
+    let appBundlePath: String?
+    let title: String?
+    let state: WorkspaceTabMemberState
+
+    /// What it's called in a row and a confirmation: its title, else its app.
+    var label: String { title?.takeIf { !$0.isEmpty } ?? appName }
+
+    /// The state, as a row's badge says it.
+    var stateLabel: String {
+        switch state {
+            case .hiddenWithApp: "Hidden"
+            case .minimized: "Minimized"
+            case .nativeFullscreen: "Full Screen"
+            case .laidOut, .floating: ""
+        }
+    }
 }
 
 /// The display a tab is on: on screen there, or held, saved or last placed there. Unlike the

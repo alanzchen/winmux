@@ -127,6 +127,8 @@ enum WorkspaceSidebarAction: Equatable {
     case createTabInCollection(String, monitorScopeId: String)
     case toggleTabsSidebar
     case selectWorkspace(String)
+    /// A tab none of whose windows is shown in it: shows it, and brings one of them back.
+    case showOffscreenTab(String)
     case overrideWorkspaceInUse(String)
     case expandForWorkspaceOverride
     case expandSidebar

@@ -67,30 +67,29 @@ func detachWorkspaceTabWindow(_ window: Window, keepsGroup: Bool = true,
     _ = window.focusWindow()
 }
 
+/// Close All Windows in a split or tab: all the windows that belong to it, those not on screen too,
+/// asking first when that's more than one, and always, saying which, when one isn't on screen.
 @MainActor
 func closeWorkspaceSidebarTabWindows(_ name: String) {
     guard config.usesBrowserTabs, !serverArgs.isReadOnly,
           let workspace = Workspace.existing(byName: name) else { return }
-    let windows = workspace.allLeafWindowsRecursive
-    guard !windows.isEmpty else { return }
-    if windows.count > 1 {
-        let alert = NSAlert()
-        alert.messageText = "Close all \(windows.count) windows in this split?"
-        alert.informativeText = "This closes the application windows. Each app may ask you to save changes."
-        alert.addButton(withTitle: "Cancel")
-        alert.addButton(withTitle: "Close Windows")
-        NSApp.activate(ignoringOtherApps: true)
-        alert.window.level = .popUpMenu
-        guard alert.runModal() == .alertSecondButtonReturn else { return }
+    let plan = WorkspaceTabClosePlan([workspace])
+    guard plan.windowCount > 0 else { return }
+    var offscreenAgreed = false
+    if let ask = plan.confirmation(multipleWindowsMessage: "Close all \(plan.windowCount) windows in this split?") {
+        guard workspaceTabCloseConfirm(ask.message, ask.informative) else { return }
+        offscreenAgreed = !plan.offscreen.isEmpty
     }
     runWorkspaceSidebarSession {
-        await closeWorkspaceSidebarSplitWindows(windows, in: workspace) { window in
+        let result = await closeWorkspaceTabMembers(plan.tabs.first?.members ?? [], in: workspace,
+            offscreenAgreed: offscreenAgreed) { window in
             if let macWindow = window as? MacWindow {
                 return await macWindow.requestCloseForProjectDeletion()
             }
             window.closeAxWindow()
             return true
         }
+        showWorkspaceTabCloseLeftOpen(result.leftOpen)
     }
 }
 

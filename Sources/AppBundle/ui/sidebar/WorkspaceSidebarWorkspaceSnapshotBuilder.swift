@@ -75,7 +75,19 @@ private func makeWorkspaceSidebarWorkspaceViewModel(
         displayMoveBlock: availableMonitors.count > 1 ? workspaceSidebarTabDisplayMoveBlock(workspace) : nil,
         lentWindow: lentWindow,
         recallsWindows: isPinned && workspaceSidebarPinRecallsWindows(workspace),
+        offscreenMembers: workspaceSidebarOffscreenMembers(workspace),
     )
+}
+
+/// The tab's windows it doesn't show now, for its row and its Close.
+@MainActor
+func workspaceSidebarOffscreenMembers(_ workspace: Workspace) -> [WorkspaceSidebarOffscreenMember] {
+    workspaceTabMembers(workspace).filter(\.state.isOffscreen).map { member in
+        WorkspaceSidebarOffscreenMember(windowId: member.window.windowId,
+            appName: member.window.app.name ?? member.window.app.rawAppBundleId ?? "Unknown App",
+            appBundleId: member.window.app.rawAppBundleId, appBundlePath: member.window.app.bundlePath, title: cachedWindowTitle(for: member.window),
+            state: member.state)
+    }
 }
 
 /// The connected display `workspace` is on screen on, is held to, is saved on, or was last placed

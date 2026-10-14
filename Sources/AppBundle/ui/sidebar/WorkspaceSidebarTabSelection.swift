@@ -93,7 +93,8 @@ func workspaceSidebarTabSelectionMenuEntries(_ names: [String], workspaces: [Wor
         destinations += [.separator, .init(title: "Remove from Group", perform: act(.assignTabsToCollection(names, nil)))]
     }
     let allPinned = tabs.allSatisfy(\.appearance.isFavorite)
-    let windowCount = tabs.reduce(0) { $0 + workspaceSidebarPinnedTabWindows($1).count }
+    let windowCount = tabs.reduce(0) { $0 + workspaceSidebarPinnedTabWindows($1).count + $1.offscreenMembers.count }
+    let asksFirst = windowCount > tabs.count || tabs.contains { !$0.offscreenMembers.isEmpty }
     var entries: [WorkspaceSidebarAppMenuEntry] = [
         .header("\(tabs.count) Tabs"),
         .init(title: allPinned ? "Unpin \(tabs.count) Tabs" : "Pin \(tabs.count) Tabs",
@@ -114,8 +115,8 @@ func workspaceSidebarTabSelectionMenuEntries(_ names: [String], workspaces: [Wor
         .separator,
         .init(title: "Deselect Tabs", perform: { clear() }),
         .separator,
-        // Asks first when that closes more windows than tabs.
-        .init(title: windowCount > tabs.count ? "Close \(tabs.count) Tabs…" : "Close \(tabs.count) Tabs",
+        // Asks first when that closes more windows than tabs, or any that isn't on screen.
+        .init(title: asksFirst ? "Close \(tabs.count) Tabs…" : "Close \(tabs.count) Tabs",
             isDestructive: true, perform: act(.closeTabs(names))),
     ]
 }
@@ -144,7 +145,10 @@ func workspaceSidebarTabSelectionMenu(containing name: String, scope: String? = 
     return entries.isEmpty ? nil : workspaceSidebarNativeAppMenu(entries)
 }
 
-/// Closes every window of several tabs, asking first when that's more than one per tab.
+/// Closes every window of several tabs: all that belong to them, laid out, floating, hidden with their
+/// app, in native full screen or minimized from them. It asks first whenever one of those isn't on
+/// screen, saying which, and otherwise, as before, when that's more than one window per tab. Only the
+/// windows the tabs had when it asked are closed, each while it's still its tab's.
 @MainActor
 @discardableResult
 func closeWorkspaceSidebarTabs(_ names: [String], requestClose: @escaping @MainActor (Window) async -> Bool = { window in
@@ -154,26 +158,26 @@ func closeWorkspaceSidebarTabs(_ names: [String], requestClose: @escaping @MainA
 }) -> Task<Void, Never>? {
     guard config.usesBrowserTabs, !serverArgs.isReadOnly else { return nil }
     let tabs = names.compactMap { Workspace.existing(byName: $0) }
-    let windowCount = tabs.reduce(0) { $0 + $1.allLeafWindowsRecursive.count }
-    if windowCount > tabs.count {
-        let alert = NSAlert()
-        alert.messageText = "Close \(tabs.count) tabs and their \(windowCount) windows?"
-        alert.informativeText = "This closes the application windows. Each app may ask you to save changes."
-        alert.addButton(withTitle: "Cancel")
-        alert.addButton(withTitle: "Close Windows")
-        NSApp.activate(ignoringOtherApps: true)
-        alert.window.level = .popUpMenu
-        guard alert.runModal() == .alertSecondButtonReturn else { return nil }
+    let plan = WorkspaceTabClosePlan(tabs)
+    var offscreenAgreed = false
+    if let ask = plan.confirmation(multipleWindowsMessage: "Close \(tabs.count) tabs and their \(plan.windowCount) windows?") {
+        guard workspaceTabCloseConfirm(ask.message, ask.informative) else { return nil }
+        offscreenAgreed = !plan.offscreen.isEmpty
     }
     return runWorkspaceSidebarSession {
+        var leftOpen = 0
+        defer { showWorkspaceTabCloseLeftOpen(leftOpen) }
         // In order: a save prompt or a refused close stops the rest, and its window comes forward.
-        for tab in tabs where winMuxWorkspaceState.workspaceById[tab.id] === tab {
-            if tab.allLeafWindowsRecursive.isEmpty {
-                try closeWorkspaceSidebarEmptyTab(tab)
+        for (tab, members) in plan.tabs where winMuxWorkspaceState.workspaceById[tab.id] === tab {
+            if members.isEmpty {
+                // Empty when asked, and still: a window that came to it since keeps it.
+                if workspaceTabMembers(tab).isEmpty { try closeWorkspaceSidebarEmptyTab(tab) }
                 continue
             }
-            let closed = await closeWorkspaceSidebarSplitWindows(tab.allLeafWindowsRecursive, in: tab, requestClose: requestClose)
-            if !closed { return }
+            let result = await closeWorkspaceTabMembers(members, in: tab, offscreenAgreed: offscreenAgreed,
+                requestClose: requestClose)
+            leftOpen += result.leftOpen
+            if !result.finished { return }
         }
         await updateWorkspaceSidebarModel()
     }

@@ -114,6 +114,13 @@ func handleWorkspaceSidebarAction(
             } else {
                 focusWorkspaceFromSidebar(name, targetMonitorScopeId: targetMonitorScopeId)
             }
+        case .showOffscreenTab(let name):
+            // A pin brings its windows back its own way, as its click always has.
+            if workspaceSidebarOrganizationStore.state.workspaces[name]?.isFavorite == true {
+                handleWorkspaceSidebarAction(.selectWorkspace(name), targetMonitorScopeId: targetMonitorScopeId)
+            } else {
+                showWorkspaceSidebarOffscreenTab(name, targetMonitorScopeId: targetMonitorScopeId)
+            }
         case .overrideWorkspaceInUse(let name):
             overrideWorkspaceInUseFromSidebarRespectingPins(name, targetMonitorScopeId: targetMonitorScopeId)
         case .expandForWorkspaceOverride, .expandSidebar:
