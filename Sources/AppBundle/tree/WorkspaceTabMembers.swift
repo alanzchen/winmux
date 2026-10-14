@@ -354,18 +354,16 @@ func workspaceTabClose(from requestClose: @escaping @MainActor (Window) async ->
 /// (`workspaceTabCloseAuthorization`). One that's gone, moved, changed state or been replaced since is
 /// left alone and counted. One that doesn't close, or whose close can't be told, stops it all: an on-
 /// screen window comes forward, as before, and for one out of sight the notice says what happened.
-/// A tab not on screen is shown while its windows close (`showWorkspaceTabMemberBeforeClose`); once
-/// they all have, the user is back where they were.
+/// A tab out of sight is shown, and its windows put in their places, before any is pressed
+/// (`placeWorkspaceTabMemberForClose`); `viewports` puts back what that replaced once all is done.
 /// Gives whether nothing stopped it, and how many were left open because they'd changed.
 @MainActor
-func closeWorkspaceTabMembers(_ members: [WorkspaceTabMember], in tab: Workspace,
+func closeWorkspaceTabMembers(_ members: [WorkspaceTabMember], in tab: Workspace, viewports: WorkspaceTabCloseViewports,
                               close: @MainActor (Window, WorkspaceTabCloseAuthorization) async -> WindowCloseOutcome)
     async -> (finished: Bool, leftOpen: Int)
 {
     // As any close of a tab's windows from the sidebar: what Undo would put back is gone.
     WorkspaceSidebarTabUndo.shared.clear()
-    let before = (window: focus.windowOrNil, workspace: focus.workspace)
-    var shownTab = false
     var leftOpen = 0
     for member in members {
         let window = member.window
@@ -374,7 +372,10 @@ func closeWorkspaceTabMembers(_ members: [WorkspaceTabMember], in tab: Workspace
             leftOpen += 1
             continue
         }
-        if showWorkspaceTabMemberBeforeClose(window, in: tab) { shownTab = true }
+        guard await placeWorkspaceTabMemberForClose(member, in: tab, viewports: viewports) else {
+            showWorkspaceTabCloseNotShown(window)
+            return (false, leftOpen)
+        }
         let outcome = await close(window, authorization)
         switch outcome {
             case .closed:
@@ -387,30 +388,94 @@ func closeWorkspaceTabMembers(_ members: [WorkspaceTabMember], in tab: Workspace
                 return (false, leftOpen)
         }
     }
-    if shownTab {
-        if let window = before.window, Window.get(byId: window.windowId) === window, window.nodeWorkspace !== tab {
-            _ = window.focusWindow()
-        } else if before.window == nil, before.workspace !== tab, Workspace.existing(byName: before.workspace.name) === before.workspace,
-                  !before.workspace.isArchived {
-            _ = before.workspace.focusWorkspace()
-        }
-    }
     return (true, leftOpen)
 }
 
-/// A window of a tab not on screen waits parked in a corner. An app that asks to save puts its window
-/// back where it was when it asked once it's answered, Mail as any other: one closed from the corner
-/// would stay there, out of sight, though its tab came forward for the question. So its tab is shown
-/// first, and the window put back in its place, before its close is pressed. Gives whether the tab
-/// had to be shown.
+/// What showing tabs out of sight to close their windows replaced: the tab each display showed, and
+/// the window or tab in use. One close of several tabs shares it, and puts it back once, at the end.
 @MainActor
-func showWorkspaceTabMemberBeforeClose(_ window: Window, in tab: Workspace) -> Bool {
-    guard let visibility = window as? any WorkspaceWindowVisibility, window.nodeWorkspace === tab, window.isHiddenInCorner,
-          !shouldKeepWindowHiddenForVisibleWorkspaceLayout(window) else { return false }
-    let wasShown = tab.isVisible
-    if !wasShown { _ = tab.focusWorkspace() }
-    visibility.unhideFromCorner()
-    return !wasShown
+final class WorkspaceTabCloseViewports {
+    private let closing: [Workspace]
+    private let focusedWindow: Window?
+    private let focusedWorkspace: Workspace
+    private var displaced: [(display: CGPoint, workspace: Workspace)] = []
+
+    init(closing: [Workspace]) {
+        self.closing = closing
+        focusedWindow = focus.windowOrNil
+        focusedWorkspace = focus.workspace
+    }
+
+    var hasShownTabs: Bool { !displaced.isEmpty }
+
+    /// Shows `tab` on its display, remembering what that display showed the first time it changes.
+    func show(_ tab: Workspace) -> Bool {
+        let monitor = tab.workspaceMonitor
+        if !displaced.contains(where: { $0.display == monitor.rect.topLeftCorner }) {
+            displaced.append((monitor.rect.topLeftCorner, monitor.activeWorkspace))
+        }
+        return tab.focusWorkspace()
+    }
+
+    /// Once every window has closed: each display shows the tab it showed, unless it was one of those
+    /// closed or the display has moved on meanwhile, and the user is back on the window or tab in use.
+    func restore() {
+        guard hasShownTabs else { return }
+        func isClosing(_ workspace: Workspace?) -> Bool { closing.contains { $0 === workspace } }
+        func isLive(_ workspace: Workspace) -> Bool {
+            Workspace.existing(byName: workspace.name) === workspace && !workspace.isArchived && !isClosing(workspace)
+        }
+        for (display, workspace) in displaced where isLive(workspace) {
+            guard let monitor = monitors.first(where: { $0.rect.topLeftCorner == display }),
+                  isClosing(monitor.activeWorkspace) else { continue }
+            _ = monitor.setActiveWorkspace(workspace)
+        }
+        if let window = focusedWindow, Window.get(byId: window.windowId) === window, !isClosing(window.nodeWorkspace),
+           window.focusWindow() { return }
+        if isLive(focusedWorkspace) { _ = focusedWorkspace.focusWorkspace() }
+    }
+}
+
+/// A window of a tab out of sight waits parked in a corner, and an app that asks to save puts its
+/// window back, once answered, where it was when it asked: pressed there, the question and then the
+/// window would stay out of sight. So its tab is shown and laid out, and the moves have reached the
+/// app, before it's pressed; its frame, read back, has to be on a display. False if it isn't.
+@MainActor
+func placeWorkspaceTabMemberForClose(_ member: WorkspaceTabMember, in tab: Workspace,
+                                     viewports: WorkspaceTabCloseViewports) async -> Bool
+{
+    let window = member.window
+    guard !member.state.isOffscreen, window is any WorkspaceWindowVisibility, window.nodeWorkspace === tab,
+          !shouldKeepWindowHiddenForVisibleWorkspaceLayout(window) else { return true }
+    // On screen all along, as any close before.
+    if tab.isVisible, !window.isHiddenInCorner, !viewports.hasShownTabs { return true }
+    if !tab.isVisible { guard viewports.show(tab) else { return false } }
+    // A newer layout may take over before reaching the window: once more lets it settle.
+    for _ in 0 ..< 2 {
+        try? await layoutWorkspaces()
+        // The press cancels a move still waiting, so the moves are made first.
+        try? await window.app.waitForPendingFrameWrites()
+        guard tab.isVisible, window.nodeWorkspace === tab else { return false }
+        if await isWorkspaceTabMemberOnDisplay(window) { return true }
+    }
+    return false
+}
+
+/// Not parked, and where its app says it is, when it can say, on a display.
+@MainActor
+private func isWorkspaceTabMemberOnDisplay(_ window: Window) async -> Bool {
+    guard !window.isHiddenInCorner else { return false }
+    guard let rect = try? await window.getAxRect() else { return true }
+    return monitors.contains { $0.rect.contains(rect.center) }
+}
+
+/// The close stopped before `window`: it couldn't be shown in its tab, and pressed out of sight,
+/// a question to save would stay out of sight.
+@MainActor
+private func showWorkspaceTabCloseNotShown(_ window: Window) {
+    let app = window.app.name ?? "The app"
+    workspaceSidebarPinRecallNotice("Some windows weren't closed",
+        "\(app)'s window couldn't be shown in its tab, so it wasn't closed. Nothing after it was closed.")
 }
 
 /// The close stopped at `window`. Still on screen in its tab, it comes forward, as before, with any

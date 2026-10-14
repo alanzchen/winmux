@@ -85,7 +85,10 @@ func closeWorkspaceSidebarTabWindows(_ name: String) -> Task<Void, Never>? {
         guard workspaceTabCloseConfirm(ask.message, ask.informative) else { return nil }
     }
     return runWorkspaceSidebarSession {
-        let result = await closeWorkspaceTabMembers(plan.tabs.first?.members ?? [], in: workspace, close: workspaceTabCloseMember)
+        let viewports = WorkspaceTabCloseViewports(closing: [workspace])
+        let result = await closeWorkspaceTabMembers(plan.tabs.first?.members ?? [], in: workspace, viewports: viewports,
+            close: workspaceTabCloseMember)
+        if result.finished { viewports.restore() }
         showWorkspaceTabCloseLeftOpen(result.leftOpen)
     }
 }

@@ -168,6 +168,8 @@ func closeWorkspaceSidebarTabs(_ names: [String], requestClose: (@MainActor (Win
     return runWorkspaceSidebarSession {
         var leftOpen = 0
         defer { showWorkspaceTabCloseLeftOpen(leftOpen) }
+        // Tabs out of sight are shown in turn as their windows close; what they replaced comes back at the end.
+        let viewports = WorkspaceTabCloseViewports(closing: plan.tabs.map(\.tab))
         // In order: a save prompt, a refused close or one that can't be told stops the rest.
         for (tab, members) in plan.tabs where winMuxWorkspaceState.workspaceById[tab.id] === tab {
             if members.isEmpty {
@@ -175,10 +177,11 @@ func closeWorkspaceSidebarTabs(_ names: [String], requestClose: (@MainActor (Win
                 if workspaceTabMembers(tab).isEmpty { try closeWorkspaceSidebarEmptyTab(tab) }
                 continue
             }
-            let result = await closeWorkspaceTabMembers(members, in: tab, close: close)
+            let result = await closeWorkspaceTabMembers(members, in: tab, viewports: viewports, close: close)
             leftOpen += result.leftOpen
             if !result.finished { return }
         }
+        viewports.restore()
         await updateWorkspaceSidebarModel()
     }
 }
