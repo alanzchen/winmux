@@ -22,7 +22,16 @@ func classifyAndGetBindingDataForNewWindow(
     abandonIf: (@MainActor (Window) -> Bool)? = nil,
 ) async throws -> (binding: BindingData, type: AxUiElementWindowType, claimed: Bool, auxiliary: AuxiliaryWindowPlacement?) {
     let windowLevel = getWindowLevel(for: windowId)
-    let type = try await macApp.getAxUiElementWindowType(windowId, windowLevel)
+    // A pinned document waiting for this app's window: the window's file, read in the same AX call,
+    // decides whether it's the one.
+    let readsDocument = window == nil && !isStartup && NewWindowIntentRegistry.shared.hasDocumentIntent(bundleId: macApp.rawAppBundleId)
+    let type: AxUiElementWindowType
+    var document: String?
+    if readsDocument {
+        (type, document) = try await macApp.getAxUiElementWindowTypeAndDocument(windowId, windowLevel)
+    } else {
+        type = try await macApp.getAxUiElementWindowType(windowId, windowLevel)
+    }
     // Checked after the wait and before the window is unbound below.
     if let window, abandonIf?(window) == true { throw WindowRelayoutAbandoned() }
     switch type {
@@ -39,7 +48,7 @@ func classifyAndGetBindingDataForNewWindow(
             // or the focused workspace can take it.
             if window == nil, !isStartup,
                let target = NewWindowIntentRegistry.shared.claim(windowId: windowId, pid: macApp.pid,
-                   bundleId: macApp.rawAppBundleId, firstSeenUptime: observedAt)
+                   bundleId: macApp.rawAppBundleId, firstSeenUptime: observedAt, document: document)
             {
                 return (newWindowIntentBinding(targetWorkspace: target), type, true, nil)
             }

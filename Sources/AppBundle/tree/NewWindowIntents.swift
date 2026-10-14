@@ -39,13 +39,16 @@ final class NewWindowIntent {
     let instancePidsAtRequest: Set<Int32>
     /// Where focus was when the request went to the app, which may show a permission prompt.
     var focusWhenSent: NewWindowFocusSnapshot?
+    /// A pinned document opened again: only a window showing this very file is the one asked for.
+    let document: PinDocumentIdentity?
     var completion: ((NewWindowRequestOutcome) -> Void)?
     /// Withdrawn after its window was claimed: the window then follows the usual rules.
     var isCancelled = false
 
     init(id: Int, bundleId: String, pid: Int32?, targetWorkspaceId: WorkspaceId, preexistingWindowIds: Set<UInt32>,
          createdUptime: TimeInterval, deadlineUptime: TimeInterval, focusGeneration: UInt64, reopens: Bool = false,
-         instancePidsAtRequest: Set<Int32> = [], completion: ((NewWindowRequestOutcome) -> Void)?) {
+         instancePidsAtRequest: Set<Int32> = [], document: PinDocumentIdentity? = nil,
+         completion: ((NewWindowRequestOutcome) -> Void)?) {
         self.id = id
         self.bundleId = bundleId
         self.pid = pid
@@ -56,6 +59,7 @@ final class NewWindowIntent {
         self.focusGeneration = focusGeneration
         self.reopens = reopens
         self.instancePidsAtRequest = instancePidsAtRequest
+        self.document = document
         self.completion = completion
     }
 }
@@ -166,6 +170,7 @@ final class NewWindowIntentRegistry {
         timeout: TimeInterval = newWindowIntentTimeout,
         reopens: Bool = false,
         instancePidsAtRequest: Set<Int32> = [],
+        document: PinDocumentIdentity? = nil,
         completion: ((NewWindowRequestOutcome) -> Void)? = nil,
     ) -> NewWindowIntent? {
         expireOverdueIntents()
@@ -174,15 +179,25 @@ final class NewWindowIntentRegistry {
         let intent = NewWindowIntent(id: nextId, bundleId: bundleId, pid: pid, targetWorkspaceId: targetWorkspace.id,
             preexistingWindowIds: preexistingWindowIds, createdUptime: created, deadlineUptime: created + timeout,
             focusGeneration: focusGeneration, reopens: reopens, instancePidsAtRequest: instancePidsAtRequest,
-            completion: completion)
+            document: document, completion: completion)
         nextId += 1
         intents.append(intent)
         return intent
     }
 
+    /// Whether a pinned document is waiting for a window of this app, which then has its document read.
+    /// Only asks: detection reads the document for it, and `claim` decides.
+    func hasDocumentIntent(bundleId: String?) -> Bool {
+        guard let bundleId else { return false }
+        return intents.contains { $0.bundleId == bundleId && $0.document != nil }
+    }
+
     /// Reserves a newly seen window for the intent waiting for it and returns its workspace.
-    /// The intent is consumed, so the app's other new windows are placed normally.
-    func claim(windowId: UInt32, pid: Int32, bundleId: String?, firstSeenUptime: TimeInterval) -> Workspace? {
+    /// The intent is consumed, so the app's other new windows are placed normally. `document` is
+    /// the window's AXDocument, read only while a pinned document waits: such an intent takes only
+    /// a window whose file is that very file, never one merely new, or with the same name or path.
+    func claim(windowId: UInt32, pid: Int32, bundleId: String?, firstSeenUptime: TimeInterval,
+               document: String? = nil) -> Workspace? {
         expireOverdueIntents()
         guard let bundleId, !intents.isEmpty else { return nil }
         let isRestorationCandidate = isRestorationCandidate(windowId)
@@ -198,7 +213,8 @@ final class NewWindowIntentRegistry {
                       } ?? true) &&
                       !intent.preexistingWindowIds.contains(windowId) &&
                       // A window first seen before the request, promoted from a popup now, isn't it.
-                      firstSeenUptime >= intent.createdUptime
+                      firstSeenUptime >= intent.createdUptime &&
+                      (intent.document.map { expected in PinDocumentIdentity(axDocument: document) == expected } ?? true)
               })
         else { return nil }
         let intent = intents.remove(at: index)

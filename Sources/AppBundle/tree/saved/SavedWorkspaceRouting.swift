@@ -222,9 +222,11 @@ func routeNewWindowToSavedWorkspaceIfNeeded(_ window: Window, isRegularWindow: B
     // The title fetch awaited, so the saved state may have changed.
     guard window.isBound, window.parent !== macosPopupWindowsContainer else { return false }
     // A slot of the same still-running process belongs to a window of that process that is
-    // either not registered yet or was closed; another window of it must not take the slot.
+    // either not registered yet or was closed; another window of it must not take the slot. A
+    // pinned document's place takes back only its own window, above, never another window of
+    // its app by title or order: its file is proven only by its own click.
     let candidates = waitingSavedSlots(bundleId: bundleId, routingWindow: window).filter {
-        $0.slot.lastPid != window.app.pid
+        $0.slot.lastPid != window.app.pid && !workspaceIsPinnedDocument(named: $0.workspaceName)
     }
     // Titles often appear a moment after the window. With several titled places to choose
     // from, wait for it rather than guess.

@@ -24,6 +24,7 @@ func updateWorkspaceSidebarModel() async {
     pruneCachedWindowTitles()
     let state = await buildWorkspaceSidebarModelState()
     applyWorkspaceSidebarModelState(state, previousTopPadding: previousTopPadding)
+    refreshLivePinDocumentsIfDue()
 }
 
 func workspaceSidebarNeedsDockBadgePolling(_ sidebar: WorkspaceSidebarConfig) -> Bool {

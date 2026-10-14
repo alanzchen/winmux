@@ -192,6 +192,12 @@ enum Ax {
         key: kAXIdentifierAttribute,
         getter: { $0 as? String },
     )
+    /// The URL, as a string, of the document a window shows: a file for a document app, a page for a
+    /// browser, or none.
+    static let documentAttr = ReadableAttrImpl<String>(
+        key: kAXDocumentAttribute,
+        getter: { $0 as? String },
+    )
     static let parentAttr = ReadableAttrImpl<any AxUiElementMock>(
         key: kAXParentAttribute,
         getter: castToAxUiElementMock,

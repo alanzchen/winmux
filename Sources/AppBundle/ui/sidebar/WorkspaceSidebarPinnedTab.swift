@@ -157,9 +157,10 @@ struct WorkspaceSidebarPinnedTab: View {
                         .frame(maxWidth: .infinity, minHeight: compact ? 34 : 54)
                         .contentShape(Rectangle())
                     }.buttonStyle(.plain)
-                        .help(savedApps.isEmpty ? workspace.displayName : "Open \(appNames)")
+                        .help(workspace.appearance.document.map { "Open “\($0.name)” in \(appNames)" }
+                            ?? (savedApps.isEmpty ? workspace.displayName : "Open \(appNames)"))
                         .accessibilityLabel(savedApps.isEmpty ? workspace.displayName : "\(workspace.displayName), \(appNames) not open")
-                        .accessibilityHint(savedApps.isEmpty ? "" : "Opens \(appNames)")
+                        .accessibilityHint(workspace.appearance.document.map { "Opens \($0.name)" } ?? (savedApps.isEmpty ? "" : "Opens \(appNames)"))
                         .sidebarIdentityMenu(.workspace(workspace.name))
                 } else {
                     ForEach(displayedWindows) { window in
@@ -204,6 +205,17 @@ struct WorkspaceSidebarPinnedTab: View {
         .overlay(RoundedRectangle(cornerRadius: 13).strokeBorder(.primary.opacity(compact ? 0 : 0.10), lineWidth: 0.5))
         .overlay {
             WorkspaceSidebarTabSelectionHighlight(isSelected: selection.contains(workspace.name), cornerRadius: compact ? 8 : 13)
+        }
+        // A pinned document: a small page in the corner nothing else takes.
+        .overlay(alignment: .topLeading) {
+            if workspace.appearance.isFavorite, let document = workspace.appearance.document {
+                Image(systemName: "doc.fill")
+                    .font(.system(size: compact ? 7 : 9, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .padding(compact ? 2 : 5)
+                    .help("Pinned document: \(document.name)")
+                    .accessibilityHidden(true)
+            }
         }
         // The corner no window's badge or sound takes, below the centered icons: in a compact
         // tile, a 20-point icon leaves 7 points around it.

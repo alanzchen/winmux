@@ -351,11 +351,11 @@ final class WorkspaceSidebarPinScopeTest: XCTestCase {
         let (a, b, g, p, _, b1) = try pins()
         config.workspaceSidebar.projectLabels[b.rawValue] = "Bee"
         await updateWorkspaceSidebarModel()
-        XCTAssertEqual(Array(menuTitles(b1.name).prefix(3)), ["Pin Tab", "Pin to All Projects", "Add to Group"],
+        XCTAssertEqual(Array(menuTitles(b1.name).prefix(4)), ["Pin Tab", "Pin Document", "Pin to All Projects", "Add to Group"],
             "Pin Tab still pins in the project")
-        XCTAssertEqual(Array(menuTitles(p.name).prefix(2)), ["Unpin Tab", "Pin to All Projects"])
+        XCTAssertEqual(Array(menuTitles(p.name).prefix(3)), ["Unpin Tab", "Pin Document", "Pin to All Projects"])
         let titles = menuTitles(g.name)
-        XCTAssertEqual(Array(titles.prefix(2)), ["Unpin Tab", "Pin to “Bee” Only"], "Back to the project this sidebar shows")
+        XCTAssertEqual(Array(titles.prefix(3)), ["Unpin Tab", "Pin Document", "Pin to “Bee” Only"], "Back to the project this sidebar shows")
         XCTAssertFalse(titles.contains("Add to Group"))
         XCTAssertFalse(titles.contains("Move to Project"))
 

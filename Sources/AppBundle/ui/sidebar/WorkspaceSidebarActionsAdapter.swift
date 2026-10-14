@@ -103,6 +103,12 @@ func handleWorkspaceSidebarAction(
              .createTabCollectionFromTabs, .assignTabsToCollection, .setTabsFavorite, .setTabsPinScope:
             handleWorkspaceSidebarOrganizationAction(action,
                 targetMonitorScopeId: targetMonitorScopeId ?? viewModel.workspaceSidebarTargetMonitorScopeId)
+        case .pinDocument(let name):
+            pinDocumentFromSidebar(name, updating: false)
+        case .updatePinDocument(let name):
+            pinDocumentFromSidebar(name, updating: true)
+        case .forgetPinDocument(let name):
+            forgetPinDocumentFromSidebar(name)
         case .bringPinnedTabHere(let name, let windowId, let recalls):
             bringPinnedTabHereFromSidebar(name, windowId: windowId, recalls: recalls, targetMonitorScopeId: targetMonitorScopeId)
         case .moveTabsToDisplay(let projectId, let source, let target):

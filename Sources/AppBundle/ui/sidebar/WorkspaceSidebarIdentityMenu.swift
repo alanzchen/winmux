@@ -232,6 +232,7 @@ func workspaceSidebarWorkspaceIdentityMenuModel(_ workspace: WorkspaceSidebarWor
         leading = [
             .init(title: workspace.appearance.isFavorite ? "Unpin Tab" : "Pin Tab",
                 perform: { send(.setWorkspaceFavorite(name, !workspace.appearance.isFavorite)) }),
+        ] + workspaceSidebarPinDocumentMenuEntries(workspace, send: send) + [
             isPinnedInAllProjects
                 ? .init(title: "Pin to “\(contextProjectName)” Only",
                     perform: { send(.setWorkspacePinScope(name, nil, projectId: contextProjectId)) })

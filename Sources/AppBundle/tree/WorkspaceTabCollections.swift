@@ -65,14 +65,17 @@ struct WorkspaceSidebarItemAppearance: Codable, Hashable {
     /// Tabs mode, a pinned split, made from a split tab's menu: it as it was split, whatever windows
     /// it has now. Means something only while pinned.
     var composition: WorkspaceSidebarPinComposition? = nil
+    /// Tabs mode, a pin made with Pin Document: the file its one window showed, which a click on the
+    /// pin with no window opens again, in the same app. Means something only while pinned.
+    var document: WorkspaceSidebarPinDocument? = nil
 
     var isPinnedInAllProjects: Bool { isFavorite && pinScope == .allProjects }
 
     /// A new pin goes after the arranged pins, among its project's, and an unpinned tab forgets
-    /// its place and its scope, and the windows it lent or would bring back.
+    /// its place and its scope, the windows it lent or would bring back, and its document.
     mutating func setFavorite(_ favorite: Bool) {
         if favorite != isFavorite { pinOrder = nil; pinScope = nil }
-        if !favorite { lentWindow = nil; composition = nil }
+        if !favorite { lentWindow = nil; composition = nil; document = nil }
         isFavorite = favorite
     }
 
@@ -92,6 +95,17 @@ struct WorkspaceSidebarPinWindow: Codable, Hashable {
     var bundleId: String? = nil
     var processLaunch: Date? = nil
     var boot: Date? = nil
+}
+
+/// A pinned document: the file, as a bookmark that follows it when it's renamed or moved on its disk,
+/// the app that showed it, and its name for messages. `fileId` and `volume`, the file's number and
+/// its volume's UUID when the file system has them, check that what the bookmark finds is that file.
+struct WorkspaceSidebarPinDocument: Codable, Hashable {
+    var bookmark: Data
+    var bundleId: String
+    var name: String
+    var fileId: UInt64? = nil
+    var volume: String? = nil
 }
 
 /// A pinned split: its layout as it was split, and its windows away now, back alone in their own pins,

@@ -581,6 +581,21 @@ final class MacApp: AbstractApp {
         }
     }
 
+    func getAxDocument(_ windowId: UInt32) async throws -> String? {
+        try await withWindow(windowId) { window, job in
+            window.get(Ax.documentAttr)
+        }
+    }
+
+    /// The window's type and, in the same AX call, the document it shows, for a pinned document
+    /// waiting for its window.
+    func getAxUiElementWindowTypeAndDocument(_ windowId: UInt32, _ windowLevel: MacOsWindowLevel?) async throws
+        -> (type: AxUiElementWindowType, document: String?) {
+        try await withWindow(windowId) { [nsApp, axApp, appId] window, job in
+            (window.getWindowType(axApp: axApp.threadGuarded, appId, nsApp.activationPolicy, windowLevel), window.get(Ax.documentAttr))
+        } ?? (.window, nil)
+    }
+
     func isMacosNativeFullscreen(_ windowId: UInt32) async throws -> Bool? {
         try await withWindow(windowId) { window, job in
             window.get(Ax.isFullscreenAttr)
