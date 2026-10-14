@@ -155,6 +155,22 @@ final class WorkspaceSidebarAssociatedWindowsTest: XCTestCase {
         _ = notes
     }
 
+    /// Two windows of a split with drafts of their own: the arrow keys go through the drafts in the
+    /// order they're listed, under their own window each, whatever order they were opened in.
+    func testInASplitTheArrowKeysGoThroughDraftsInTheOrderTheyreListed() async throws {
+        let (tab, first) = viewerTab()
+        let second = TestWindow.new(id: 20, parent: tab.rootTilingContainer, app: mail, title: "Archive — Example")
+        _ = try await open(21, from: second, title: "Draft to second")
+        _ = try await open(11, from: first, title: "Draft to first")
+        let model = try await viewModel(tab)
+        XCTAssertEqual(model.associatedWindows.map(\.id), [21, 11], "Opened from the second window first")
+        XCTAssertEqual(workspaceSidebarListedAssociatedWindows(model).map(\.id), [11, 21], "Listed under the first window, then the second")
+        let found = try XCTUnwrap(filtered(model, "draft"))
+        let selections = workspaceSidebarSearchSelections(workspaces: [found], query: "draft")
+        XCTAssertEqual(Array(selections.suffix(2)), [.window(11), .window(21)], "Down goes from one to the next as they're listed")
+        XCTAssertEqual(workspaceSidebarListedAssociatedWindows(found).map(\.id), [11, 21])
+    }
+
     func testAPinShowsOnlyACountOfItsDrafts() async throws {
         let (tab, viewer) = viewerTab()
         try setWorkspaceSidebarTabFavorite(tab, true)

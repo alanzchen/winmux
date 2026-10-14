@@ -165,7 +165,7 @@ struct WorkspaceSidebarTabCardView: View {
             .frame(minHeight: isShowingOverride ? overrideMinHeight : nil, alignment: .top)
             .background {
                 // A browser's card, and that of windows opened from the tab's window, draw their own.
-                if !drawsBrowserCard && !drawsAssociatedCard {
+                if !drawsBrowserCard && !drawsAssociatedCard && !(presentation == .empty && hasAssociatedWindows) {
                     RoundedRectangle(cornerRadius: indent.rowCornerRadius, style: .continuous)
                         .fill(isDropTarget ? Color.accentColor.opacity(0.14)
                             : workspace.appearance.colorHex.flatMap(workspaceSidebarColor)?.opacity(0.12) ?? Color.primary.opacity(backgroundOpacity))
@@ -304,7 +304,7 @@ struct WorkspaceSidebarTabCardView: View {
                     }
                 } else if drawsAssociatedCard {
                     let tint = workspace.appearance.colorHex.flatMap(workspaceSidebarColor)
-                    associatedCard(workspace.associatedWindows, tint: tint) { count in
+                    associatedCard(workspaceSidebarListedAssociatedWindows(workspace), tint: tint) { count in
                         // The window's own row heads the windows opened from it: its icon and title sit
                         // where their rows start, after the disclosure, and the count rests at its end.
                         row(window, isSplitHalf: false, indent: workspaceSidebarTabIndentStep, trailingCount: count,
@@ -328,7 +328,9 @@ struct WorkspaceSidebarTabCardView: View {
             case .empty where hasAssociatedWindows:
                 // A pin whose window is lent to another tab, found by its draft: that window named as
                 // context, not an empty tab, heading the windows opened from it.
-                associatedCard(workspace.associatedWindows) { _ in WorkspaceSidebarElsewhereParentRow(workspace: workspace) }
+                associatedCard(workspaceSidebarListedAssociatedWindows(workspace)) { _ in
+                    WorkspaceSidebarElsewhereParentRow(workspace: workspace)
+                }
             case .empty:
                 WorkspaceSidebarEmptyTabRowView(isActive: isActive, actions: actions, workspace: workspace,
                     onBeginRename: onBeginRename,

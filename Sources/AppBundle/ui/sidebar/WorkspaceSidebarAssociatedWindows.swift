@@ -123,6 +123,12 @@ func workspaceSidebarAssociatedWindowGroups(_ workspace: WorkspaceSidebarWorkspa
     return groups
 }
 
+/// A tab's windows opened from its own in the order they're listed, by the window each came from: the
+/// order of the rows and of the arrow keys in a search.
+func workspaceSidebarListedAssociatedWindows(_ workspace: WorkspaceSidebarWorkspaceViewModel) -> [WorkspaceSidebarAssociatedWindowViewModel] {
+    workspaceSidebarAssociatedWindowGroups(workspace).flatMap(\.windows)
+}
+
 /// The header of a card of windows opened from one window that isn't the tab's only row, as in a split:
 /// that window's icon and title, and how many were opened from it.
 struct WorkspaceSidebarAssociatedWindowsParentLabel: View {

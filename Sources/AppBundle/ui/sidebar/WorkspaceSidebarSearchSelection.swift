@@ -31,9 +31,9 @@ func workspaceSidebarSearchSelections(
     collections: [WorkspaceTabCollection] = [],
 ) -> [WorkspaceSidebarSearchSelection] {
     workspaces.flatMap { workspace in
-        // Windows listed under the tab's own come after them, as they're shown.
+        // Windows listed under the tab's own come after them, in the order they're shown.
         workspaceSidebarTabSearchSelections(workspace, browserTabs: browserTabs, query: query, projects: projects,
-            collections: collections) + workspace.associatedWindows.map { .window($0.window.windowId) }
+            collections: collections) + workspaceSidebarListedAssociatedWindows(workspace).map { .window($0.window.windowId) }
     }
 }
 
