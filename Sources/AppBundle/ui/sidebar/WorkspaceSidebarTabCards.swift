@@ -120,14 +120,42 @@ struct WorkspaceSidebarTabCardView: View {
     /// Windows opened from this tab's windows, listed one level under them.
     private var hasAssociatedWindows: Bool { !workspace.associatedWindows.isEmpty }
 
-    /// The tab's rows, then any windows listed under them.
+    /// A window's own row heads the card of the windows opened from it, as a browser window's row
+    /// heads its tabs: the tab is that one window, with nothing else under it.
+    private var drawsAssociatedCard: Bool {
+        guard hasAssociatedWindows, case .single = presentation else { return false }
+        return !drawsBrowserCard && !drawsNowPlaying
+    }
+
+    /// The tab's rows; windows opened from one of them are listed under it, in a card it heads, or,
+    /// where it isn't the only row, under a header naming it.
     private var cardContent: some View {
         VStack(spacing: 2) {
             content
-            if hasAssociatedWindows {
-                WorkspaceSidebarAssociatedWindowsView(workspace: workspace, isActive: isActive, isSearching: isSearching,
-                    selectedSearchTarget: selectedSearchTarget, dragSourceWindowId: isBatchSource ? nil : dragSourceWindowId,
-                    allowsDrag: allowsDragAndDrop, activation: activation, actions: actions, badgeModel: badgeModel)
+            if hasAssociatedWindows, !drawsAssociatedCard, presentation != .empty { associatedCardsUnderRows }
+        }
+    }
+
+    private func associatedCard<Header: View>(_ windows: [WorkspaceSidebarAssociatedWindowViewModel], tint: Color? = nil,
+                                              cornerRadius: CGFloat? = nil,
+                                              @ViewBuilder header: @escaping (_ count: Int) -> Header) -> some View {
+        WorkspaceSidebarAssociatedWindowsGroupView(workspace: workspace, windows: windows, isActive: isActive,
+            isSearching: isSearching, selectedSearchTarget: selectedSearchTarget,
+            dragSourceWindowId: isBatchSource ? nil : dragSourceWindowId, allowsDrag: allowsDragAndDrop,
+            activation: activation, actions: actions, badgeModel: badgeModel, tint: tint, cornerRadius: cornerRadius,
+            header: header)
+    }
+
+    /// Under a split's rows, or a browser's or Music's card: one card per window others were opened
+    /// from, headed by that window's name.
+    private var associatedCardsUnderRows: some View {
+        ForEach(workspaceSidebarAssociatedWindowGroups(workspace), id: \.id) { group in
+            // Flush with the tab's rows, so it takes their corners.
+            associatedCard(group.windows, cornerRadius: indent.rowCornerRadius) { count in
+                WorkspaceSidebarAssociatedWindowsParentLabel(parent: group.parent, count: count, onSelect: {
+                    guard let parent = group.parent else { return }
+                    activation.select(.selectWindow(parent.windowId), send: actions.send)
+                })
             }
         }
     }
@@ -136,7 +164,8 @@ struct WorkspaceSidebarTabCardView: View {
         cardContent
             .frame(minHeight: isShowingOverride ? overrideMinHeight : nil, alignment: .top)
             .background {
-                if !drawsBrowserCard {
+                // A browser's card, and that of windows opened from the tab's window, draw their own.
+                if !drawsBrowserCard && !drawsAssociatedCard {
                     RoundedRectangle(cornerRadius: indent.rowCornerRadius, style: .continuous)
                         .fill(isDropTarget ? Color.accentColor.opacity(0.14)
                             : workspace.appearance.colorHex.flatMap(workspaceSidebarColor)?.opacity(0.12) ?? Color.primary.opacity(backgroundOpacity))
@@ -145,11 +174,11 @@ struct WorkspaceSidebarTabCardView: View {
             }
             // Over the rows, so a focused half's pill doesn't hide it.
             .overlay(alignment: .top) {
-                RoundedRectangle(cornerRadius: hasBrowserGroups ? indent.header.rowCornerRadius : indent.rowCornerRadius,
-                    style: .continuous)
+                RoundedRectangle(cornerRadius: hasBrowserGroups || drawsAssociatedCard ? indent.header.rowCornerRadius
+                    : indent.rowCornerRadius, style: .continuous)
                     .strokeBorder(Color.accentColor.opacity(isDropTarget ? 0.65 : 0), lineWidth: 1)
                     .frame(height: headsCard ? workspaceSidebarTabRowHeight : nil)
-                    .padding(hasBrowserGroups && drawsBrowserCard ? workspaceSidebarTabGroupInset : 0)
+                    .padding(headsOwnGroupCard ? workspaceSidebarTabGroupInset : 0)
                     .allowsHitTesting(false)
                     .animation(WorkspaceSidebarTabMotion.feedback, value: isDropTarget)
             }
@@ -157,7 +186,7 @@ struct WorkspaceSidebarTabCardView: View {
                 WorkspaceSidebarTabDropSideHighlight(placement: isDropTarget ? dropPlacement : nil,
                     labelSlot: dropLabelSlot, labelText: dropLabelText)
                     .frame(height: headsCard ? workspaceSidebarTabRowHeight : nil)
-                    .padding(hasBrowserGroups && drawsBrowserCard ? workspaceSidebarTabGroupInset : 0)
+                    .padding(headsOwnGroupCard ? workspaceSidebarTabGroupInset : 0)
             }
             .overlay { WorkspaceSidebarTabInsertionLine(edge: insertionEdge, label: insertionLabel) }
             // Chosen with Shift or Command, for acting on several tabs at once.
@@ -186,7 +215,7 @@ struct WorkspaceSidebarTabCardView: View {
                             acceptsSides: presentation != .empty, collectionId: collectionId).map { target in
                                 guard case .workspace = target.kind, hasBrowserGroups || hasAssociatedWindows else { return target }
                                 // The header row of the window's tabs, inside their card's padding.
-                                let inset = drawsBrowserCard ? workspaceSidebarTabGroupInset : 0
+                                let inset = drawsBrowserCard || drawsAssociatedCard ? workspaceSidebarTabGroupInset : 0
                                 return WorkspaceSidebarDropTargetFrame(kind: target.kind,
                                     frame: CGRect(x: target.frame.minX, y: target.frame.minY, width: target.frame.width,
                                         height: min(workspaceSidebarTabRowHeight + inset, target.frame.height)),
@@ -211,6 +240,10 @@ struct WorkspaceSidebarTabCardView: View {
             case .empty, .offscreen, .folder: return 0
         }
     }
+
+    /// The row heading the card is inside a group card's padding: a browser's, or that of windows
+    /// opened from the tab's window.
+    private var headsOwnGroupCard: Bool { (hasBrowserGroups && drawsBrowserCard) || drawsAssociatedCard }
 
     private var hasBrowserGroups: Bool {
         workspaceSidebarPinnedTabWindows(workspace).contains { browserTabs[$0.windowId]?.isGroup == true }
@@ -269,6 +302,14 @@ struct WorkspaceSidebarTabCardView: View {
                         WorkspaceSidebarMusicNowPlayingView(
                             onSelect: { activation.select(.selectWindow(window.windowId), send: actions.send) })
                     }
+                } else if drawsAssociatedCard {
+                    let tint = workspace.appearance.colorHex.flatMap(workspaceSidebarColor)
+                    associatedCard(workspace.associatedWindows, tint: tint) { count in
+                        // The window's own row heads the windows opened from it: its icon and title sit
+                        // where their rows start, after the disclosure, and the count rests at its end.
+                        row(window, isSplitHalf: false, indent: workspaceSidebarTabIndentStep, trailingCount: count,
+                            groupTint: tint)
+                    }
                 } else { row(window, isSplitHalf: false) }
             case .split(let left, let right):
                 VStack(spacing: 2) {
@@ -286,8 +327,8 @@ struct WorkspaceSidebarTabCardView: View {
                 .accessibilityLabel("Split: \(windows.map { $0.title ?? $0.appName }.joined(separator: ", "))")
             case .empty where hasAssociatedWindows:
                 // A pin whose window is lent to another tab, found by its draft: that window named as
-                // context, not an empty tab.
-                WorkspaceSidebarElsewhereParentRow(workspace: workspace)
+                // context, not an empty tab, heading the windows opened from it.
+                associatedCard(workspace.associatedWindows) { _ in WorkspaceSidebarElsewhereParentRow(workspace: workspace) }
             case .empty:
                 WorkspaceSidebarEmptyTabRowView(isActive: isActive, actions: actions, workspace: workspace,
                     onBeginRename: onBeginRename,

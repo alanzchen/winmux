@@ -87,27 +87,72 @@ final class WorkspaceSidebarAssociatedWindowsTest: XCTestCase {
         XCTAssertEqual(sent, [.closeWindow(10)])
     }
 
-    func testFoldingHidesOnlyRowsAndSaysHowManyAreFolded() async throws {
+    /// The viewer's own row heads the card its windows are listed in, one level in. Folding a tab
+    /// not in use hides only their rows; one in use, or a search, always lists them.
+    func testTheViewersRowHeadsItsDraftsAndFoldingHidesOnlyTheirRows() async throws {
         let (tab, viewer) = viewerTab()
         let compose = try await open(11, from: viewer, title: "New Message")
         let message = try await open(12, role: .mailMessage, from: viewer, title: "Message")
         let model = try await viewModel(tab)
-        let expanded = height(of: model)
+        let row = workspaceSidebarTabRowHeight, inset = workspaceSidebarTabGroupInset
+        let expanded = height(of: model, isActive: false)
+        XCTAssertEqual(expanded, 2 * inset + 3 * row + 2 * 2, accuracy: 0.5, "The viewer's row, then one row each, in one card")
         WorkspaceSidebarAssociatedWindowsDisclosure.shared.toggle(tab.name)
-        let folded = height(of: model)
-        XCTAssertEqual(expanded, 2 * workspaceSidebarTabRowHeight + 2, accuracy: 0.5, "One row each")
-        XCTAssertEqual(folded, workspaceSidebarTabRowHeight, accuracy: 0.5, "One row for both")
+        XCTAssertEqual(height(of: model, isActive: false), 2 * inset + row, accuracy: 0.5, "Folded: the viewer's row alone")
         XCTAssertEqual(workspaceSidebarAssociatedWindowsCountText(model.associatedWindows.count), "2 windows")
         for window in [compose, message] {
             XCTAssertTrue(window.isBound && window.isFloating && window.nodeWorkspace === tab,
                 "Folding never closes, minimizes or moves a window")
         }
+        XCTAssertEqual(height(of: model, isActive: true), expanded, accuracy: 0.5,
+            "The tab in use always lists them, so the window in use is never folded away")
+        XCTAssertEqual(height(of: model, isActive: false, isSearching: true), expanded, accuracy: 0.5,
+            "A search shows the matching windows even in a folded tab")
+        XCTAssertFalse(workspaceSidebarAssociatedWindowsCanFold(isActive: true, isSearching: false))
+        XCTAssertFalse(workspaceSidebarAssociatedWindowsCanFold(isActive: false, isSearching: true))
+        XCTAssertTrue(workspaceSidebarAssociatedWindowsCanFold(isActive: false, isSearching: false))
+        WorkspaceSidebarAssociatedWindowsDisclosure.shared.toggle(tab.name)
+        XCTAssertEqual(height(of: model, isActive: false), expanded, accuracy: 0.5)
         let after = try await viewModel(tab)
         XCTAssertEqual(after.associatedWindows.map(\.id), [11, 12])
-        WorkspaceSidebarAssociatedWindowsDisclosure.shared.toggle(tab.name)
-        XCTAssertEqual(height(of: model), expanded, accuracy: 0.5)
-        XCTAssertEqual(height(of: model, isSearching: true, collapse: true), expanded, accuracy: 0.5,
-            "A search shows the matching windows even in a folded tab")
+    }
+
+    /// The disclosure is the viewer's row's, on its icon column; a draft's row, a leaf, only selects it.
+    func testTheDisclosureIsOnTheViewersRowAndADraftsRowOnlySelectsIt() async throws {
+        let (tab, viewer) = viewerTab()
+        _ = try await open(11, from: viewer, title: "New Message")
+        let model = try await viewModel(tab)
+        let row = workspaceSidebarTabRowHeight, inset = workspaceSidebarTabGroupInset
+        var sent: [WorkspaceSidebarAction] = []
+        let width: CGFloat = 280
+        let card = WorkspaceSidebarTabCardView(workspace: model, presentation: workspaceSidebarTabPresentation(model),
+            isActive: false, isDropTarget: false, dragSourceWindowId: nil, selectedSearchTarget: nil,
+            activation: .init(allowsActivation: true, isInUseOnOtherDisplay: false, requestOverride: {}),
+            isShowingOverride: false, overrideMinHeight: row, actions: .init(send: { sent.append($0) }),
+            badgeModel: WorkspaceSidebarDockBadgeModel(), onBeginRename: {}, onCommitOverride: {}, onCancelOverride: {})
+        let viewerRowY = inset + row / 2, draftRowY = inset + row + 2 + row / 2
+        try click(card, size: CGSize(width: width, height: 2 * inset + 2 * row + 2), points: [
+            // Where a disclosure would be on the draft's row: it selects the draft.
+            CGPoint(x: 14, y: draftRowY),
+            CGPoint(x: width / 2, y: viewerRowY),
+            // The viewer's row's own disclosure.
+            CGPoint(x: 14, y: viewerRowY),
+        ])
+        XCTAssertEqual(sent, [.selectWindow(11), .selectWindow(10)], "Rows select their own window; the disclosure selects nothing")
+        XCTAssertTrue(WorkspaceSidebarAssociatedWindowsDisclosure.shared.isCollapsed(tab.name), "The viewer's row folds them")
+    }
+
+    /// Under a split, windows opened from one of its windows are listed under a header naming that one.
+    func testInASplitWindowsOpenedFromOneAreGroupedUnderIt() async throws {
+        let (tab, viewer) = viewerTab()
+        let notes = TestWindow.new(id: 20, parent: tab.rootTilingContainer, title: "Notes")
+        _ = try await open(11, from: viewer, title: "New Message")
+        let model = try await viewModel(tab)
+        guard case .split = workspaceSidebarTabPresentation(model) else { return XCTFail("A split tab") }
+        let groups = workspaceSidebarAssociatedWindowGroups(model)
+        XCTAssertEqual(groups.map { $0.parent?.windowId }, [10], "Under the viewer it was opened from, not the split's other window")
+        XCTAssertEqual(groups.first?.windows.map(\.id), [11])
+        _ = notes
     }
 
     func testAPinShowsOnlyACountOfItsDrafts() async throws {
@@ -248,22 +293,43 @@ final class WorkspaceSidebarAssociatedWindowsTest: XCTestCase {
         workspaceSidebarFilteredWorkspacesByProject([model.projectId: [model]], projects: [], query: query)[model.projectId]?.first
     }
 
-    /// The height of a tab's listed auxiliary windows, laid out offscreen.
-    private func height(of model: WorkspaceSidebarWorkspaceViewModel, isSearching: Bool = false, collapse: Bool = false) -> CGFloat {
-        if collapse, !WorkspaceSidebarAssociatedWindowsDisclosure.shared.isCollapsed(model.name) {
-            WorkspaceSidebarAssociatedWindowsDisclosure.shared.toggle(model.name)
-        }
-        defer {
-            if collapse, WorkspaceSidebarAssociatedWindowsDisclosure.shared.isCollapsed(model.name) {
-                WorkspaceSidebarAssociatedWindowsDisclosure.shared.toggle(model.name)
-            }
-        }
-        let view = WorkspaceSidebarAssociatedWindowsView(workspace: model, isActive: true, isSearching: isSearching,
-            selectedSearchTarget: nil, dragSourceWindowId: nil, allowsDrag: false,
-            activation: WorkspaceSidebarTabActivation(allowsActivation: true, isInUseOnOtherDisplay: false, requestOverride: {}),
-            actions: WorkspaceSidebarActions(send: { _ in }), badgeModel: WorkspaceSidebarDockBadgeModel())
+    /// The height of a tab's card, laid out offscreen as the sidebar lays it out.
+    private func height(of model: WorkspaceSidebarWorkspaceViewModel, isActive: Bool, isSearching: Bool = false) -> CGFloat {
+        let view = WorkspaceSidebarTabCardView(workspace: model, presentation: workspaceSidebarTabPresentation(model),
+            isActive: isActive, isDropTarget: false, dragSourceWindowId: nil, selectedSearchTarget: nil,
+            activation: .init(allowsActivation: true, isInUseOnOtherDisplay: false, requestOverride: {}),
+            isShowingOverride: false, overrideMinHeight: workspaceSidebarTabRowHeight, actions: .init(send: { _ in }),
+            badgeModel: WorkspaceSidebarDockBadgeModel(), isSearching: isSearching,
+            onBeginRename: {}, onCommitOverride: {}, onCancelOverride: {})
         let host = NSHostingView(rootView: view.frame(width: 280).transaction { $0.animation = nil })
         host.layoutSubtreeIfNeeded()
         return host.fittingSize.height
+    }
+
+    /// Clicks `points` in a native window holding `view`, as the row tests do.
+    private func click(_ view: some View, size: CGSize, points: [CGPoint]) throws {
+        _ = NSApplication.shared
+        try XCTSkipIf(NSScreen.screens.isEmpty, "Requires a native macOS window server")
+        let host = NSHostingView(rootView: view.frame(width: size.width, height: size.height).transaction { $0.animation = nil })
+        let native = NSWindow(contentRect: CGRect(origin: CGPoint(x: 300, y: 200), size: size),
+            styleMask: [.borderless], backing: .buffered, defer: false)
+        native.isReleasedWhenClosed = false
+        native.contentView = host
+        native.orderFrontRegardless()
+        defer { native.orderOut(nil) }
+        host.layoutSubtreeIfNeeded()
+        native.displayIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        for point in points {
+            let location = host.convert(CGPoint(x: point.x, y: host.isFlipped ? point.y : size.height - point.y), to: nil)
+            for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+                NSApp.postEvent(try XCTUnwrap(NSEvent.mouseEvent(with: type, location: location, modifierFlags: [],
+                    timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: native.windowNumber, context: nil,
+                    eventNumber: 0, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0)), atStart: false)
+            }
+            let deadline = Date().addingTimeInterval(0.2)
+            while let event = NSApp.nextEvent(matching: [.leftMouseDown, .leftMouseUp], until: deadline,
+                inMode: .default, dequeue: true) { NSApp.sendEvent(event) }
+        }
     }
 }

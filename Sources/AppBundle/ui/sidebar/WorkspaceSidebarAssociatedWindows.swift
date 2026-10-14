@@ -31,10 +31,18 @@ func workspaceSidebarAuxiliaryWindowKind(_ role: AuxiliaryWindowRole, appName: S
     }
 }
 
-/// The auxiliary windows of a tab card: one level under its rows, each selecting and closing only
-/// itself. Folded, they're one row saying how many there are; a search shows the matching ones.
-struct WorkspaceSidebarAssociatedWindowsView: View {
+/// Whether a tab's windows opened from its own can be folded: as a browser window's tabs, not while
+/// the tab is in use or a search lists them, so the window in use is never folded away.
+func workspaceSidebarAssociatedWindowsCanFold(isActive: Bool, isSearching: Bool) -> Bool { !isActive && !isSearching }
+
+/// Windows of a tab opened from one of its own, in one card with the row they belong to, as a browser
+/// window's tabs are: that row heads the card, with the disclosure on its icon column and how many
+/// there are in its trailing slot, and they're listed one level in, under it. Each selects and closes
+/// only itself. Folding hides only their rows: no window is closed, minimized or moved.
+struct WorkspaceSidebarAssociatedWindowsGroupView<Header: View>: View {
     let workspace: WorkspaceSidebarWorkspaceViewModel
+    /// Those under this header: all of the tab's, or one window's in a split.
+    let windows: [WorkspaceSidebarAssociatedWindowViewModel]
     let isActive: Bool
     let isSearching: Bool
     let selectedSearchTarget: WorkspaceSidebarSearchSelection?
@@ -42,55 +50,43 @@ struct WorkspaceSidebarAssociatedWindowsView: View {
     let allowsDrag: Bool
     let activation: WorkspaceSidebarTabActivation
     let actions: WorkspaceSidebarActions
-    let badgeModel: WorkspaceSidebarDockBadgeModel
+    var badgeModel: WorkspaceSidebarDockBadgeModel = .shared
+    var tint: Color? = nil
+    /// A card flush inside another shape, such as a split's, takes that shape's corners.
+    var cornerRadius: CGFloat? = nil
+    /// The row heading the card, given how many windows it lists.
+    @ViewBuilder let header: (_ count: Int) -> Header
     @ObservedObject private var disclosure = WorkspaceSidebarAssociatedWindowsDisclosure.shared
-    @Environment(\.workspaceSidebarTabIndent) private var indent
-    @Environment(\.workspaceSidebarReducesMotion) private var reducesMotion
 
-    init(workspace: WorkspaceSidebarWorkspaceViewModel, isActive: Bool, isSearching: Bool,
-         selectedSearchTarget: WorkspaceSidebarSearchSelection?, dragSourceWindowId: UInt32?, allowsDrag: Bool,
-         activation: WorkspaceSidebarTabActivation, actions: WorkspaceSidebarActions,
-         badgeModel: WorkspaceSidebarDockBadgeModel = .shared) {
-        self.workspace = workspace
-        self.isActive = isActive
-        self.isSearching = isSearching
-        self.selectedSearchTarget = selectedSearchTarget
-        self.dragSourceWindowId = dragSourceWindowId
-        self.allowsDrag = allowsDrag
-        self.activation = activation
-        self.actions = actions
-        self.badgeModel = badgeModel
-    }
-
-    private var windows: [WorkspaceSidebarAssociatedWindowViewModel] { workspace.associatedWindows }
-    private var isCollapsed: Bool { !isSearching && disclosure.isCollapsed(workspace.name) }
+    private var canToggle: Bool { workspaceSidebarAssociatedWindowsCanFold(isActive: isActive, isSearching: isSearching) }
+    private var isCollapsed: Bool { canToggle && disclosure.isCollapsed(workspace.name) }
 
     var body: some View {
-        VStack(spacing: 2) {
-            if isCollapsed {
-                summaryRow.transition(.workspaceSidebarTabReveal)
-            } else {
-                ForEach(windows) { child in
-                    childRow(child).transition(.workspaceSidebarTabReveal)
+        let count = workspaceSidebarAssociatedWindowsCountText(windows.count)
+        WorkspaceSidebarTabGroupCard(tint: tint, isExpanded: !isCollapsed, isActive: isActive, cornerRadius: cornerRadius) {
+            header(windows.count)
+                .overlay(alignment: .leading) {
+                    WorkspaceSidebarTabDisclosureButton(isExpanded: !isCollapsed, tint: tint, canToggle: canToggle,
+                        label: isCollapsed ? "Show \(count) opened from this window" : "Fold \(count) opened from this window",
+                        toggle: { disclosure.toggle(workspace.name) })
                 }
+        } content: {
+            ForEach(windows) { child in
+                childRow(child).transition(.workspaceSidebarTabReveal)
             }
         }
-        .animation(WorkspaceSidebarTabMotion.disclosure(reducesMotion: reducesMotion), value: isCollapsed)
-    }
-
-    private func toggle() {
-        withAnimation(WorkspaceSidebarTabMotion.disclosure(reducesMotion: reducesMotion)) { disclosure.toggle(workspace.name) }
     }
 
     private func parentTitle(_ child: WorkspaceSidebarAssociatedWindowViewModel) -> String? {
         workspaceSidebarPinnedTabWindows(workspace).first { $0.windowId == child.parentWindowId }
-            .map { $0.title ?? $0.appName }
+            .map { $0.title ?? $0.appName } ?? workspace.lentWindow.map { $0.title ?? $0.appName }
     }
 
+    /// A window's own row, one level in: highlighted alone while it's the one in use.
     private func childRow(_ child: WorkspaceSidebarAssociatedWindowViewModel) -> some View {
         WorkspaceSidebarTabRowView(
             window: child.window,
-            indent: workspaceSidebarTabIndentStep,
+            indent: 0,
             allowsDrag: allowsDrag,
             activeOverride: isActive && child.window.isFocused,
             isSearchSelected: selectedSearchTarget == .window(child.window.windowId),
@@ -103,66 +99,55 @@ struct WorkspaceSidebarAssociatedWindowsView: View {
         // What it is and where it came from: "Mail compose window, opened from Inbox".
         .accessibilityHint([workspaceSidebarAuxiliaryWindowKind(child.role, appName: child.window.appName),
             parentTitle(child).map { "opened from \($0)" }].compactMap { $0 }.joined(separator: ", "))
-        .overlay(alignment: .leading) {
-            if child.id == windows.first?.id {
-                WorkspaceSidebarTabDisclosureButton(isExpanded: true, canToggle: !isSearching,
-                    label: "Fold \(workspaceSidebarAssociatedWindowsCountText(windows.count)) into one row", toggle: toggle)
-            }
-        }
         .id("window:\(child.window.windowId)")
     }
+}
 
-    private var summaryRow: some View {
-        let focusedChild = windows.first(where: \.window.isFocused)
-        let isShown = isActive && focusedChild != nil
-        let count = workspaceSidebarAssociatedWindowsCountText(windows.count)
-        return Button(action: toggle) {
-            HStack(spacing: 9) {
-                ZStack {
-                    ForEach(Array(windows.prefix(2).enumerated()), id: \.offset) { index, child in
-                        WorkspaceSidebarTabIcon(bundleId: child.window.appBundleId, bundlePath: child.window.appBundlePath,
-                            size: windows.count > 1 ? 11 : workspaceSidebarTabIconSize)
-                            .offset(x: windows.count > 1 ? (index == 0 ? -3 : 3) : 0, y: windows.count > 1 ? (index == 0 ? -3 : 3) : 0)
-                    }
+/// A tab's windows opened from its own, by the window each was opened from, in the order of the tab's
+/// windows; any whose window isn't one of them last, together, with no window to name.
+struct WorkspaceSidebarAssociatedWindowGroup {
+    let parent: WorkspaceSidebarWindowViewModel?
+    let windows: [WorkspaceSidebarAssociatedWindowViewModel]
+    var id: String { parent.map { "parent:\($0.windowId)" } ?? "parent:none" }
+}
+
+func workspaceSidebarAssociatedWindowGroups(_ workspace: WorkspaceSidebarWorkspaceViewModel) -> [WorkspaceSidebarAssociatedWindowGroup] {
+    let parents = workspaceSidebarPinnedTabWindows(workspace)
+    var groups = parents.compactMap { parent -> WorkspaceSidebarAssociatedWindowGroup? in
+        let windows = workspace.associatedWindows.filter { $0.parentWindowId == parent.windowId }
+        return windows.isEmpty ? nil : .init(parent: parent, windows: windows)
+    }
+    let ids = Set(parents.map(\.windowId))
+    let others = workspace.associatedWindows.filter { !ids.contains($0.parentWindowId) }
+    if !others.isEmpty { groups.append(.init(parent: nil, windows: others)) }
+    return groups
+}
+
+/// The header of a card of windows opened from one window that isn't the tab's only row, as in a split:
+/// that window's icon and title, and how many were opened from it.
+struct WorkspaceSidebarAssociatedWindowsParentLabel: View {
+    let parent: WorkspaceSidebarWindowViewModel?
+    let count: Int
+    var tint: Color? = nil
+    let onSelect: () -> Void
+
+    var body: some View {
+        Button(action: onSelect) {
+            WorkspaceSidebarTabGroupHeaderLabel(isExpanded: true, tint: tint, count: count, drawsChevron: false) {
+                if let parent {
+                    WorkspaceSidebarTabIcon(bundleId: parent.appBundleId, bundlePath: parent.appBundlePath)
+                } else {
+                    Image(systemName: "macwindow").font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(Color.primary.opacity(0.45))
                 }
-                .frame(width: workspaceSidebarTabIconSize, height: workspaceSidebarTabIconSize)
-                Text(count)
-                    .font(.system(size: 13, weight: isShown ? .medium : .regular))
-                    .foregroundStyle(Color.primary.opacity(isShown ? 0.95 : 0.6))
-                    .lineLimit(1)
-                Spacer(minLength: 0)
+            } title: {
+                WorkspaceSidebarTabGroupTitle(text: parent.map { $0.title ?? $0.appName } ?? "Opened from this tab", tint: tint)
             }
-            .padding(.leading, indent.leadingPadding + workspaceSidebarTabIndentStep)
-            .padding(.trailing, workspaceSidebarTabCloseSlotWidth)
-            .frame(maxWidth: .infinity, minHeight: workspaceSidebarTabRowHeight, maxHeight: workspaceSidebarTabRowHeight,
-                alignment: .leading)
-            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .overlay(alignment: .leading) {
-            WorkspaceSidebarTabDisclosureChevron(isExpanded: false)
-                .padding(.leading, indent.leadingPadding)
-                .allowsHitTesting(false)
-                .accessibilityHidden(true)
-        }
-        .background {
-            // The window in use is one of those folded here: this row stands for it.
-            RoundedRectangle(cornerRadius: indent.rowCornerRadius, style: .continuous)
-                .fill(isShown ? Color(nsColor: .controlBackgroundColor) : .clear)
-                .shadow(color: isShown ? Color.black.opacity(0.22) : .clear, radius: 3, y: 1)
-        }
-        .help("\(count) opened from this tab, folded. Click to list them.\n"
-            + windows.map { $0.window.title ?? $0.window.appName }.joined(separator: "\n"))
-        .accessibilityLabel("\(count) opened from this tab")
-        .accessibilityValue(isShown ? "Folded, one of them in use" : "Folded")
-        .accessibilityHint("Lists them")
-        .modifier(WorkspaceSidebarNativeContextMenu {
-            windows.map { child in
-                WorkspaceSidebarAppMenuEntry.named(child.window.title ?? child.window.appName, { "Show “\($0)”" },
-                    perform: { activation.select(.selectWindow(child.window.windowId), send: actions.send) })
-            }
-        })
-        .id("associated:\(workspace.name)")
+        .help(parent.map { "Opened from \($0.title ?? $0.appName)" } ?? "Opened from this tab")
+        .accessibilityLabel(parent.map { "\($0.title ?? $0.appName), \($0.appName), \(count) opened from it" }
+            ?? "\(count) opened from this tab")
     }
 }
 
@@ -229,7 +214,8 @@ struct WorkspaceSidebarElsewhereParentRow: View {
                 .padding(.vertical, 1)
                 .background(Capsule().fill(Color.primary.opacity(0.08)))
         }
-        .padding(.leading, indent.leadingPadding)
+        // It heads its card: the icon sits after the disclosure, as every group's header's does.
+        .padding(.leading, indent.leadingPadding + workspaceSidebarTabIndentStep)
         .padding(.trailing, workspaceSidebarTabCloseSlotWidth)
         .frame(maxWidth: .infinity, minHeight: workspaceSidebarTabRowHeight, maxHeight: workspaceSidebarTabRowHeight,
             alignment: .leading)
