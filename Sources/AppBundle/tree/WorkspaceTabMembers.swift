@@ -354,6 +354,8 @@ func workspaceTabClose(from requestClose: @escaping @MainActor (Window) async ->
 /// (`workspaceTabCloseAuthorization`). One that's gone, moved, changed state or been replaced since is
 /// left alone and counted. One that doesn't close, or whose close can't be told, stops it all: an on-
 /// screen window comes forward, as before, and for one out of sight the notice says what happened.
+/// A tab not on screen is shown while its windows close (`showWorkspaceTabMemberBeforeClose`); once
+/// they all have, the user is back where they were.
 /// Gives whether nothing stopped it, and how many were left open because they'd changed.
 @MainActor
 func closeWorkspaceTabMembers(_ members: [WorkspaceTabMember], in tab: Workspace,
@@ -362,6 +364,8 @@ func closeWorkspaceTabMembers(_ members: [WorkspaceTabMember], in tab: Workspace
 {
     // As any close of a tab's windows from the sidebar: what Undo would put back is gone.
     WorkspaceSidebarTabUndo.shared.clear()
+    let before = (window: focus.windowOrNil, workspace: focus.workspace)
+    var shownTab = false
     var leftOpen = 0
     for member in members {
         let window = member.window
@@ -370,6 +374,7 @@ func closeWorkspaceTabMembers(_ members: [WorkspaceTabMember], in tab: Workspace
             leftOpen += 1
             continue
         }
+        if showWorkspaceTabMemberBeforeClose(window, in: tab) { shownTab = true }
         let outcome = await close(window, authorization)
         switch outcome {
             case .closed:
@@ -382,7 +387,30 @@ func closeWorkspaceTabMembers(_ members: [WorkspaceTabMember], in tab: Workspace
                 return (false, leftOpen)
         }
     }
+    if shownTab {
+        if let window = before.window, Window.get(byId: window.windowId) === window, window.nodeWorkspace !== tab {
+            _ = window.focusWindow()
+        } else if before.window == nil, before.workspace !== tab, Workspace.existing(byName: before.workspace.name) === before.workspace,
+                  !before.workspace.isArchived {
+            _ = before.workspace.focusWorkspace()
+        }
+    }
     return (true, leftOpen)
+}
+
+/// A window of a tab not on screen waits parked in a corner. An app that asks to save puts its window
+/// back where it was when it asked once it's answered, Mail as any other: one closed from the corner
+/// would stay there, out of sight, though its tab came forward for the question. So its tab is shown
+/// first, and the window put back in its place, before its close is pressed. Gives whether the tab
+/// had to be shown.
+@MainActor
+func showWorkspaceTabMemberBeforeClose(_ window: Window, in tab: Workspace) -> Bool {
+    guard let visibility = window as? any WorkspaceWindowVisibility, window.nodeWorkspace === tab, window.isHiddenInCorner,
+          !shouldKeepWindowHiddenForVisibleWorkspaceLayout(window) else { return false }
+    let wasShown = tab.isVisible
+    if !wasShown { _ = tab.focusWorkspace() }
+    visibility.unhideFromCorner()
+    return !wasShown
 }
 
 /// The close stopped at `window`. Still on screen in its tab, it comes forward, as before, with any

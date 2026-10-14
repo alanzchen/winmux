@@ -478,9 +478,65 @@ final class AuxiliaryWindowsTest: XCTestCase {
         XCTAssertTrue(tab.allLeafWindowsRecursive.isEmpty)
     }
 
+    /// Found in the VM: Mail puts a window whose save question was answered back where it was when it
+    /// asked. Pressed in the corner a tab out of sight parks it in, the draft stayed there after Cancel.
+    func testADraftClosedFromATabOutOfSightAsksInItsPlaceAndStaysThere() async throws {
+        let (_, current) = viewerTab()
+        let (away, viewer, draft) = parkedDraftTab()
+        workspaceTabCloseConfirm = { _, _ in true }
+        var atPress: [(id: UInt32, tabShown: Bool, parked: Bool)] = []
+        workspaceTabCloseIO = { window in
+            WindowCloseIO(
+                press: { _ in
+                    atPress.append((window.windowId, away.isVisible, window.isHiddenInCorner))
+                    return .pressed
+                },
+                presence: { .present }, windowServerHasWindow: { true }, forget: {}, timeout: 0.05, pause: {})
+        }
+        await closeWorkspaceSidebarTabWindows(away.name)?.value
+        XCTAssertEqual(atPress.map(\.id), [21], "Mail asked to save the draft: the viewer isn't pressed")
+        XCTAssertEqual(atPress.first?.tabShown, true, "Its tab is on screen when Mail asks")
+        XCTAssertEqual(atPress.first?.parked, false, "The draft is in its place, not in the corner, when Mail asks")
+        XCTAssertTrue(focus.windowOrNil === draft, "The draft that asked comes forward")
+        XCTAssertFalse(draft.isHiddenInCorner)
+        XCTAssertTrue(viewer.isBound && draft.isBound && current.isBound)
+    }
+
+    func testATabOutOfSightIsShownWhileItsWindowsCloseThenTheUserIsBackWhereTheyWere() async throws {
+        let (here, current) = viewerTab()
+        let (away, _, _) = parkedDraftTab()
+        workspaceTabCloseConfirm = { _, _ in true }
+        var atPress: [(id: UInt32, tabShown: Bool, parked: Bool)] = []
+        workspaceTabCloseIO = { window in
+            WindowCloseIO(
+                press: { _ in
+                    atPress.append((window.windowId, away.isVisible, window.isHiddenInCorner))
+                    return .pressed
+                },
+                presence: { .absent }, windowServerHasWindow: { false }, forget: { _ = window.unbindFromParent() },
+                timeout: 0.05, pause: {})
+        }
+        await closeWorkspaceSidebarTabWindows(away.name)?.value
+        XCTAssertEqual(atPress.map(\.id), [21, 20], "The draft first, then the viewer")
+        XCTAssertEqual(atPress.map(\.tabShown), [true, true])
+        XCTAssertEqual(atPress.first?.parked, false)
+        XCTAssertTrue(away.allLeafWindowsRecursive.isEmpty)
+        XCTAssertTrue(focus.windowOrNil === current && here.isVisible, "Back to the window in use before")
+    }
+
     // MARK: - Helpers
 
     private func order() -> [String] { orderedWorkspaces(in: focus.workspace.projectId).map(\.name) }
+
+    /// A tab out of sight: Mail's viewer, and a draft opened from it that WinMux parked in a corner.
+    private func parkedDraftTab() -> (Workspace, TestWindow, ParkedTestWindow) {
+        let away = Workspace.get(byName: "away")
+        let viewer = TestWindow.new(id: 20, parent: away.rootTilingContainer, app: mail, title: "Inbox — Example")
+        let draft = ParkedTestWindow(id: 21, app: mail, parent: away)
+        AuxiliaryWindowRegistry.shared.record(21, pid: mail.pid, role: .mailCompose, parentWindowId: 20)
+        XCTAssertFalse(away.isVisible)
+        return (away, viewer, draft)
+    }
 
     /// Mail's viewer in the tab on screen, focused.
     private func viewerTab() -> (Workspace, TestWindow) {
@@ -489,6 +545,27 @@ final class AuxiliaryWindowsTest: XCTestCase {
         XCTAssertTrue(viewer.focusWindow())
         return (tab, viewer)
     }
+}
+
+/// A floating window WinMux parked in a corner, as it parks every window of a tab out of sight.
+private final class ParkedTestWindow: Window, WorkspaceWindowVisibility {
+    nonisolated(unsafe) private var isParked = true
+
+    @MainActor init(id: UInt32, app: TestApp, parent: Workspace) {
+        super.init(id: id, app, lastFloatingSize: CGSize(width: 720, height: 654), parent: parent, adaptiveWeight: WEIGHT_AUTO,
+                   index: INDEX_BIND_LAST)
+    }
+
+    @MainActor override var title: String { get async { "Re: Quarterly plan" } }
+    override var isHiddenInCorner: Bool { isParked }
+    @MainActor override func nativeFocus() {}
+    @MainActor override func getAxRect() async throws -> Rect? { nil }
+    @MainActor override func getAxSize() async throws -> CGSize? { nil }
+    override func setAxFrame(_: CGPoint?, _: CGSize?) {}
+    @MainActor override func closeAxWindow() { _ = unbindFromParent() }
+
+    func unhideFromCorner() { isParked = false }
+    func hideInCorner(_: OptimalHideCorner, reassert _: Bool, ifStillValid _: () -> Bool) async throws { isParked = true }
 }
 
 /// A captured AX element: role, subrole, identifier and children.

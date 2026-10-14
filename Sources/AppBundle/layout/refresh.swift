@@ -716,7 +716,7 @@ func layoutWorkspaces() async throws {
 }
 
 @MainActor
-private func shouldKeepWindowHiddenForVisibleWorkspaceLayout(_ window: Window) -> Bool {
+func shouldKeepWindowHiddenForVisibleWorkspaceLayout(_ window: Window) -> Bool {
     guard let tabGroup = window.nearestWindowTabGroup, tabGroup.usesWindowTabBehavior else { return false }
     return tabGroup.tabActiveWindow != window
 }
