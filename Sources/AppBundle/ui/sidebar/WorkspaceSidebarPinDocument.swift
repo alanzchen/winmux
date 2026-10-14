@@ -475,7 +475,8 @@ func windowShowingPinDocument(_ identity: PinDocumentIdentity, bundleId: String)
 
 /// The document is open in a window already. Anywhere but the pin, the notice says where, and it stays
 /// there. It's focused, in a session of its own, only if then the pin is as it was, the user hasn't
-/// moved on, and it's still that window.
+/// moved on, and it's still that window, keeping the pointer where it is, as a pin's click does, for
+/// that focus change only.
 @MainActor
 private func revealOpenPinDocument(_ window: Window, for tab: Workspace, target: PinDocumentTarget,
                                    document: WorkspaceSidebarPinDocument, focusGeneration: UInt64) {
@@ -489,7 +490,7 @@ private func revealOpenPinDocument(_ window: Window, for tab: Workspace, target:
         await pinDocumentWillFocusOpenWindow()
         guard target.isCurrent, focusChangeGeneration == focusGeneration,
               Window.get(byId: window.windowId) === window, window.isBound else { return }
-        focusWindowFromSidebarNow(window.windowId, targetMonitorScopeId: nil, keepsPointer: false)
+        focusWindowFromSidebarNow(window.windowId, targetMonitorScopeId: nil, keepsPointer: true)
     }
 }
 

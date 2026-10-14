@@ -791,6 +791,93 @@ final class WorkspaceSidebarPinDocumentTest: XCTestCase {
         XCTAssertFalse(focus.windowOrNil === window, "The pin changed before its turn: nothing is focused for it")
     }
 
+    // MARK: - F6: revealing a document open on another display keeps the pointer
+
+    /// Two synthetic displays: Left shows "work", focused; Right shows "other", whose one window shows
+    /// `file`. The pinned document "doc" has no window. Sessions run, with the sidebar off so no panel
+    /// is framed; `on-focused-monitor-changed` is recorded instead of run, and no pointer can move.
+    private func documentOpenOnTheOtherDisplay(_ file: URL) throws -> (pin: Workspace, work: Workspace, other: Workspace,
+                                                                       window: Window, monitors: [Monitor]) {
+        config.workspaceSidebar.enabled = false
+        let monitors: [Monitor] = ["Left", "Right"].enumerated().map { index, name in
+            let rect = Rect(topLeftX: CGFloat(index) * 1920, topLeftY: 0, width: 1920, height: 1080)
+            return WorkspaceSidebarDragTestMonitor(monitorAppKitNsScreenScreensId: index + 1, name: name, rect: rect,
+                visibleRect: rect, isMain: index == 0)
+        }
+        setMonitorsForTests(monitors)
+        Workspace.reconcileWorkspaceState()
+        let (pin, _) = try emptyPinnedDocument("doc", file: file)
+        let work = Workspace.get(byName: "work")
+        _ = TestWindow.new(id: 62, parent: work.rootTilingContainer, app: TestApp(pid: 77, bundleId: "com.example.editor"))
+        let (other, window) = makeTab("other", windowId: 61, showing: file)
+        XCTAssertTrue(monitors[0].setActiveWorkspace(work))
+        XCTAssertTrue(monitors[1].setActiveWorkspace(other))
+        XCTAssertTrue(work.focusWorkspace())
+        checkOnFocusChangedCallbacks()
+        candidates = [window]
+        return (pin, work, other, window, monitors)
+    }
+
+    private func recordMonitorHooks() -> () -> [String] {
+        let savedHooks = runFocusedMonitorChangedCommands
+        let savedMove = postMoveMouseEvent
+        var hooks: [String] = []
+        runFocusedMonitorChangedCommands = { focus, keepsPointer in hooks.append("\(focus.workspace.name) keepsPointer=\(keepsPointer)") }
+        postMoveMouseEvent = { _ in XCTFail("No real pointer move"); return false }
+        addTeardownBlock { @MainActor in
+            runFocusedMonitorChangedCommands = savedHooks
+            postMoveMouseEvent = savedMove
+            setMonitorsForTests(nil)
+        }
+        return { hooks }
+    }
+
+    func testRevealingADocumentOpenOnAnotherDisplayKeepsThePointerForThatChangeOnly() async throws {
+        let hooks = recordMonitorHooks()
+        let pinned = try file("report.txt")
+        let (pin, work, other, window, monitors) = try documentOpenOnTheOtherDisplay(pinned)
+        XCTAssertEqual(hooks(), [])
+
+        openSavedTabApps(pin) { _, _ in XCTFail("The app isn't asked") }
+
+        let focused = await eventually { focus.windowOrNil === window }
+        XCTAssertTrue(focused, "Focused where it is, on Right")
+        let hooked = await eventually { !hooks().isEmpty }
+        XCTAssertTrue(hooked)
+        XCTAssertEqual(hooks(), ["other keepsPointer=true"], "The reveal's own display change keeps the pointer")
+        XCTAssertTrue(window.nodeWorkspace === other, "Same window, same tab")
+        XCTAssertTrue(monitors[1].activeWorkspace === other, "Still on its own display")
+        XCTAssertTrue(pin.allLeafWindowsRecursive.isEmpty, "Nothing moved into the pin")
+        XCTAssertTrue(opened.isEmpty, "Nothing opened")
+        XCTAssertTrue(notices.first?.body.contains("already open in") == true)
+
+        // A later change of display, not the reveal's, is as always.
+        XCTAssertTrue(work.focusWorkspace())
+        checkOnFocusChangedCallbacks()
+        XCTAssertEqual(hooks(), ["other keepsPointer=true", "work keepsPointer=false"])
+    }
+
+    func testACancelledRevealOnAnotherDisplayFocusesNothingAndKeepsNothing() async throws {
+        let hooks = recordMonitorHooks()
+        let pinned = try file("report.txt")
+        let (pin, _, other, window, _) = try documentOpenOnTheOtherDisplay(pinned)
+        focusGate.close()
+
+        openSavedTabApps(pin) { _, _ in XCTFail("The app isn't asked") }
+        let queued = await eventually { self.focusGate.waiting == 1 }
+        XCTAssertTrue(queued)
+        commit(pin, nil, title: "Forget Document")
+        focusGate.open()
+        await settle()
+
+        XCTAssertFalse(focus.windowOrNil === window, "Withdrawn: nothing is focused for it")
+        XCTAssertEqual(hooks(), [], "No display change")
+        // Nothing was kept for a later change either.
+        XCTAssertTrue(other.focusWorkspace())
+        checkOnFocusChangedCallbacks()
+        XCTAssertEqual(hooks(), ["other keepsPointer=false"])
+    }
+
     // MARK: - Generic placement leaves pinned documents alone
 
     func testAWindowOfTheAppDoesntGoIntoAnEmptyPinnedDocument() throws {
