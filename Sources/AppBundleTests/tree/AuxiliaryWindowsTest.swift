@@ -577,6 +577,25 @@ final class AuxiliaryWindowsTest: XCTestCase {
         }
     }
 
+    func testAWindowOnScreenWhoseFrameCantBeReadIsntPressed() async throws {
+        try await withWinMuxEnabled {
+            let here = focus.workspace
+            let app = TracedMailApp(pid: 43)
+            let area = here.workspaceMonitor.visibleRect
+            let draft = ParkedTestWindow(id: 21, app: app, parent: here, rect: Rect(topLeftX: area.minX + 40, topLeftY: area.minY + 40,
+                width: 720, height: 654))
+            XCTAssertTrue(draft.focusWindow())
+            // A move back from the corner that may not have taken, and a frame that can't be read.
+            draft.readsFail = true
+            workspaceTabCloseIO = { window in closeIO(window, app.trace) }
+            await closeWorkspaceSidebarTabWindows(here.name)?.value
+            XCTAssertEqual(app.trace.presses, [], "Whether it's on screen can't be told: not pressed")
+            XCTAssertTrue(draft.isBound)
+            XCTAssertEqual(notices.last, "Some windows weren't closed: Mail's window couldn't be shown in its tab, so it wasn't closed. "
+                + "Nothing after it was closed.")
+        }
+    }
+
     func testAWindowMovedAwayWhileItsTabIsShownIsLeftAloneAndTheRestStillClose() async throws {
         try await withWinMuxEnabled {
             _ = viewerTab()
@@ -641,7 +660,12 @@ final class AuxiliaryWindowsTest: XCTestCase {
         }
     }
 
-    func testBackOnAnEmptyTabARefreshDoesntFollowMacOSToTheTabClosingFocused() async throws {
+    /// From an empty tab there's no window to focus in macOS, which a refresh would follow away again:
+    /// it ends where closing left it, as after closing the tab on screen, and stays there.
+    func testFromAnEmptyTabTheCloseEndsWhereClosingLeftIt() async throws {
+        // What the close leaves, before any refresh after it: run below, as the one that follows would.
+        setScheduledRefreshOverrideForTests { _, _, _ in }
+        defer { setScheduledRefreshOverrideForTests(nil) }
         try await withWinMuxEnabled {
             let empty = Workspace.get(byName: "empty")
             try saveWorkspaceSidebarIdentity(empty)
@@ -652,20 +676,13 @@ final class AuxiliaryWindowsTest: XCTestCase {
             let next = Workspace.get(byName: "next")
             let nextWindow = TestWindow.new(id: 50, parent: next.rootTilingContainer, app: mail, title: "Next")
             workspaceTabCloseConfirm = { _, _ in true }
-            var focusedByClosing: Window?
-            workspaceTabCloseIO = { window in
-                closeIO(window, app.trace, forget: {
-                    window.removeClosedWindowFromTree()
-                    if window.windowId == 20 { focusedByClosing = focus.windowOrNil }
-                })
-            }
+            workspaceTabCloseIO = { window in closeIO(window, app.trace, forget: { window.removeClosedWindowFromTree() }) }
             await closeWorkspaceSidebarTabWindows(away.name)?.value
             XCTAssertEqual(app.trace.presses, [21, 20])
-            XCTAssertTrue(focusedByClosing === nextWindow, "Closing the last window went to the next tab: \(String(describing: focusedByClosing))")
-            XCTAssertTrue(focus.workspace === empty && focus.windowOrNil == nil, "Back on the empty tab")
-            // The refresh that follows sees macOS still on the next tab's window.
+            XCTAssertTrue(focus.windowOrNil === nextWindow && next.isVisible, "Where closing went, shown: \(focus.workspace.name)")
+            // The refresh that follows sees macOS there too.
             updateFocusCache(nextWindow)
-            XCTAssertTrue(focus.workspace === empty, "Not taken back there by macOS's focus")
+            XCTAssertTrue(focus.windowOrNil === nextWindow && next.isVisible)
         }
     }
 
