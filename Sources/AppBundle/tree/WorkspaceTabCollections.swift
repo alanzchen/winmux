@@ -143,6 +143,12 @@ final class WorkspaceSidebarOrganizationStore {
     private(set) var state: WorkspaceSidebarOrganization
     let url: URL?
     private(set) var readOnlyReason: String?
+    /// Bumped for a workspace each time a write changes its appearance, Undo included, so work begun
+    /// for one state of it can tell that state is gone. Not saved.
+    private var appearanceRevisions: [String: UInt64] = [:]
+    private var lastAppearanceRevision: UInt64 = 0
+
+    func appearanceRevision(of name: String) -> UInt64 { appearanceRevisions[name] ?? 0 }
 
     init(state: WorkspaceSidebarOrganization = .init(), url: URL? = nil, readOnlyReason: String? = nil) {
         self.state = state
@@ -184,7 +190,15 @@ final class WorkspaceSidebarOrganizationStore {
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
             try data.write(to: url, options: .atomic)
         }
+        let previous = state
         state = next
+        var changed: Set<String> = []
+        for name in Set(previous.workspaces.keys).union(next.workspaces.keys) where previous.workspaces[name] != next.workspaces[name] {
+            lastAppearanceRevision &+= 1
+            appearanceRevisions[name] = lastAppearanceRevision
+            changed.insert(name)
+        }
+        if !changed.isEmpty { workspaceSidebarAppearancesDidChange(changed) }
     }
 
     func collection(containing name: String) -> WorkspaceTabCollection? {

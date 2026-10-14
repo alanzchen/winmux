@@ -41,6 +41,9 @@ final class NewWindowIntent {
     var focusWhenSent: NewWindowFocusSnapshot?
     /// A pinned document opened again: only a window showing this very file is the one asked for.
     let document: PinDocumentIdentity?
+    /// Whether the request still stands: a pinned document's pin unchanged since. Once it doesn't, the
+    /// request is withdrawn, waiting or claimed, and its window follows the usual rules.
+    let isStillWanted: (@MainActor () -> Bool)?
     var completion: ((NewWindowRequestOutcome) -> Void)?
     /// Withdrawn after its window was claimed: the window then follows the usual rules.
     var isCancelled = false
@@ -48,7 +51,7 @@ final class NewWindowIntent {
     init(id: Int, bundleId: String, pid: Int32?, targetWorkspaceId: WorkspaceId, preexistingWindowIds: Set<UInt32>,
          createdUptime: TimeInterval, deadlineUptime: TimeInterval, focusGeneration: UInt64, reopens: Bool = false,
          instancePidsAtRequest: Set<Int32> = [], document: PinDocumentIdentity? = nil,
-         completion: ((NewWindowRequestOutcome) -> Void)?) {
+         completion: ((NewWindowRequestOutcome) -> Void)?, isStillWanted: (@MainActor () -> Bool)? = nil) {
         self.id = id
         self.bundleId = bundleId
         self.pid = pid
@@ -60,6 +63,7 @@ final class NewWindowIntent {
         self.reopens = reopens
         self.instancePidsAtRequest = instancePidsAtRequest
         self.document = document
+        self.isStillWanted = isStillWanted
         self.completion = completion
     }
 }
@@ -172,6 +176,7 @@ final class NewWindowIntentRegistry {
         instancePidsAtRequest: Set<Int32> = [],
         document: PinDocumentIdentity? = nil,
         completion: ((NewWindowRequestOutcome) -> Void)? = nil,
+        isStillWanted: (@MainActor () -> Bool)? = nil,
     ) -> NewWindowIntent? {
         expireOverdueIntents()
         guard !intents.contains(where: { $0.bundleId == bundleId }) else { return nil }
@@ -179,7 +184,7 @@ final class NewWindowIntentRegistry {
         let intent = NewWindowIntent(id: nextId, bundleId: bundleId, pid: pid, targetWorkspaceId: targetWorkspace.id,
             preexistingWindowIds: preexistingWindowIds, createdUptime: created, deadlineUptime: created + timeout,
             focusGeneration: focusGeneration, reopens: reopens, instancePidsAtRequest: instancePidsAtRequest,
-            document: document, completion: completion)
+            document: document, completion: completion, isStillWanted: isStillWanted)
         nextId += 1
         intents.append(intent)
         return intent
@@ -199,6 +204,7 @@ final class NewWindowIntentRegistry {
     func claim(windowId: UInt32, pid: Int32, bundleId: String?, firstSeenUptime: TimeInterval,
                document: String? = nil) -> Workspace? {
         expireOverdueIntents()
+        withdrawUnwantedIntents()
         guard let bundleId, !intents.isEmpty else { return nil }
         let isRestorationCandidate = isRestorationCandidate(windowId)
         guard let index = intents.firstIndex(where: { intent in
@@ -226,9 +232,35 @@ final class NewWindowIntentRegistry {
         return workspace
     }
 
-    /// Detection asks once whether an intent reserved the window, withdrawn or not.
+    /// Detection asks once whether an intent reserved the window, withdrawn or not. A request that no
+    /// longer stands is withdrawn now, at the latest, before anything places or focuses its window.
     func consumeClaim(windowId: UInt32) -> NewWindowIntentClaim? {
-        claims.removeValue(forKey: windowId)
+        guard let claim = claims.removeValue(forKey: windowId) else { return nil }
+        if !claim.intent.isCancelled, claim.intent.isStillWanted?() == false {
+            claim.intent.isCancelled = true
+            finish(claim.intent, .cancelled)
+        }
+        return claim
+    }
+
+    /// Requests that no longer stand, a pinned document's pin changed since (Forget, Unpin, Undo,
+    /// another document): withdrawn, waiting or already claimed. The app may still open the window; it
+    /// then follows the usual rules, with no placement, focus or report from the request.
+    func withdrawUnwantedIntents() {
+        let unwanted = intents.filter { $0.isStillWanted?() == false }
+        guard !unwanted.isEmpty || claims.values.contains(where: { $0.intent.isStillWanted != nil }) ||
+            deferredPlacements.values.contains(where: { $0.claim.intent.isStillWanted != nil }) else { return }
+        intents.removeAll { intent in unwanted.contains { $0 === intent } }
+        for intent in unwanted { finish(intent, .cancelled) }
+        for claim in claims.values where !claim.intent.isCancelled && claim.intent.isStillWanted?() == false {
+            claim.intent.isCancelled = true
+            finish(claim.intent, .cancelled)
+        }
+        for (id, deferred) in deferredPlacements where deferred.claim.intent.isStillWanted?() == false {
+            deferredPlacements.removeValue(forKey: id)
+            deferred.claim.intent.isCancelled = true
+            finish(deferred.claim.intent, .cancelled)
+        }
     }
 
     func pendingClaim(windowId: UInt32) -> NewWindowIntentClaim? { claims[windowId] }
