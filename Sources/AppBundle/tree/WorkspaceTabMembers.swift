@@ -372,9 +372,15 @@ func closeWorkspaceTabMembers(_ members: [WorkspaceTabMember], in tab: Workspace
             leftOpen += 1
             continue
         }
-        guard await placeWorkspaceTabMemberForClose(member, in: tab, viewports: viewports) else {
-            showWorkspaceTabCloseNotShown(window)
-            return (false, leftOpen)
+        switch await placeWorkspaceTabMemberForClose(member, in: tab, viewports: viewports) {
+            case .inPlace:
+                break
+            case .changed:
+                leftOpen += 1
+                continue
+            case .notShown:
+                showWorkspaceTabCloseNotShown(window)
+                return (false, leftOpen)
         }
         let outcome = await close(window, authorization)
         switch outcome {
@@ -391,14 +397,21 @@ func closeWorkspaceTabMembers(_ members: [WorkspaceTabMember], in tab: Workspace
     return (true, leftOpen)
 }
 
-/// What showing tabs out of sight to close their windows replaced: the tab each display showed, and
-/// the window or tab in use. One close of several tabs shares it, and puts it back once, at the end.
+/// When the user last pressed a key or a mouse button. Tests replace it.
+@MainActor var workspaceTabCloseLastUserInput: @MainActor () -> TimeInterval? = {
+    AuxiliaryWindowOriginEnvironment.native.lastUserInput()
+}
+
+/// What showing tabs out of sight to close their windows replaced: the tab each display showed, in
+/// the project it showed it in, and the window or tab in use. One close of several tabs shares it,
+/// and puts it back once, at the end.
 @MainActor
 final class WorkspaceTabCloseViewports {
     private let closing: [Workspace]
+    private let startedAt = ProcessInfo.processInfo.systemUptime
     private let focusedWindow: Window?
     private let focusedWorkspace: Workspace
-    private var displaced: [(display: CGPoint, workspace: Workspace)] = []
+    private var displaced: [(display: CGPoint, workspace: Workspace, projectId: WorkspaceProjectId?)] = []
 
     init(closing: [Workspace]) {
         self.closing = closing
@@ -412,61 +425,79 @@ final class WorkspaceTabCloseViewports {
     func show(_ tab: Workspace) -> Bool {
         let monitor = tab.workspaceMonitor
         if !displaced.contains(where: { $0.display == monitor.rect.topLeftCorner }) {
-            displaced.append((monitor.rect.topLeftCorner, monitor.activeWorkspace))
+            displaced.append((monitor.rect.topLeftCorner, monitor.activeWorkspace,
+                winMuxWorkspaceState.monitorViewportsById[MonitorViewportId(monitor)]?.contextProjectId))
         }
         return tab.focusWorkspace()
     }
 
-    /// Once every window has closed: each display shows the tab it showed, unless it was one of those
-    /// closed or the display has moved on meanwhile, and the user is back on the window or tab in use.
+    /// Once every window has closed: each display shows the tab it showed, in the project it showed it
+    /// in, unless that was one of those closed, whatever closing them chose instead, and the user is back
+    /// on the window or tab in use. A key or a click since the close began is the user choosing where
+    /// to be, and nothing is put back.
     func restore() {
         guard hasShownTabs else { return }
+        if let input = workspaceTabCloseLastUserInput(), input > startedAt { return }
         func isClosing(_ workspace: Workspace?) -> Bool { closing.contains { $0 === workspace } }
         func isLive(_ workspace: Workspace) -> Bool {
             Workspace.existing(byName: workspace.name) === workspace && !workspace.isArchived && !isClosing(workspace)
         }
-        for (display, workspace) in displaced where isLive(workspace) {
+        for (display, workspace, projectId) in displaced where isLive(workspace) {
             guard let monitor = monitors.first(where: { $0.rect.topLeftCorner == display }),
-                  isClosing(monitor.activeWorkspace) else { continue }
-            _ = monitor.setActiveWorkspace(workspace)
+                  monitor.activeWorkspace !== workspace else { continue }
+            // Shown again, not chosen: no project's remembered tab changes.
+            _ = monitor.setActiveWorkspace(workspace, contextProjectId: projectId, isChosen: false)
         }
+        // Closing a tab's last window focused the next one in macOS too, which a later refresh would
+        // follow back: focus goes back there as well.
         if let window = focusedWindow, Window.get(byId: window.windowId) === window, !isClosing(window.nodeWorkspace),
-           window.focusWindow() { return }
-        if isLive(focusedWorkspace) { _ = focusedWorkspace.focusWorkspace() }
+           window.focusWindow()
+        {
+            window.nativeFocus()
+            return
+        }
+        if isLive(focusedWorkspace), focusedWorkspace.focusWorkspace() { focus.windowOrNil?.nativeFocus() }
     }
+}
+
+enum WorkspaceTabMemberPlacement: Equatable {
+    case inPlace
+    /// It left the tab, or was replaced, meanwhile: left alone, as any window that changed.
+    case changed
+    /// It couldn't be shown in its tab.
+    case notShown
 }
 
 /// A window of a tab out of sight waits parked in a corner, and an app that asks to save puts its
 /// window back, once answered, where it was when it asked: pressed there, the question and then the
 /// window would stay out of sight. So its tab is shown and laid out, and the moves have reached the
-/// app, before it's pressed; its frame, read back, has to be on a display. False if it isn't.
+/// app, before it's pressed; its frame, read back, has to be on a display. Every parkable window's
+/// queued moves are made first, as the press cancels one still waiting.
 @MainActor
 func placeWorkspaceTabMemberForClose(_ member: WorkspaceTabMember, in tab: Workspace,
-                                     viewports: WorkspaceTabCloseViewports) async -> Bool
+                                     viewports: WorkspaceTabCloseViewports) async -> WorkspaceTabMemberPlacement
 {
     let window = member.window
     guard !member.state.isOffscreen, window is any WorkspaceWindowVisibility, window.nodeWorkspace === tab,
-          !shouldKeepWindowHiddenForVisibleWorkspaceLayout(window) else { return true }
-    // On screen all along, as any close before.
-    if tab.isVisible, !window.isHiddenInCorner, !viewports.hasShownTabs { return true }
-    if !tab.isVisible { guard viewports.show(tab) else { return false } }
+          !shouldKeepWindowHiddenForVisibleWorkspaceLayout(window) else { return .inPlace }
+    if tab.isVisible, !window.isHiddenInCorner, !viewports.hasShownTabs {
+        // On screen all along, as any close before; a move still queued is made first.
+        try? await window.app.waitForPendingFrameWrites()
+        return .inPlace
+    }
+    if !tab.isVisible { guard viewports.show(tab) else { return .notShown } }
     // A newer layout may take over before reaching the window: once more lets it settle.
     for _ in 0 ..< 2 {
         try? await layoutWorkspaces()
-        // The press cancels a move still waiting, so the moves are made first.
         try? await window.app.waitForPendingFrameWrites()
-        guard tab.isVisible, window.nodeWorkspace === tab else { return false }
-        if await isWorkspaceTabMemberOnDisplay(window) { return true }
+        // Read after its moves were made, and checked after the read: the last look before the press.
+        let frame = try? await window.getAxRect()
+        guard Window.get(byId: window.windowId) === window, window.nodeWorkspace === tab else { return .changed }
+        if tab.isVisible, !window.isHiddenInCorner, let frame, monitors.contains(where: { $0.rect.contains(frame.center) }) {
+            return .inPlace
+        }
     }
-    return false
-}
-
-/// Not parked, and where its app says it is, when it can say, on a display.
-@MainActor
-private func isWorkspaceTabMemberOnDisplay(_ window: Window) async -> Bool {
-    guard !window.isHiddenInCorner else { return false }
-    guard let rect = try? await window.getAxRect() else { return true }
-    return monitors.contains { $0.rect.contains(rect.center) }
+    return .notShown
 }
 
 /// The close stopped before `window`: it couldn't be shown in its tab, and pressed out of sight,
