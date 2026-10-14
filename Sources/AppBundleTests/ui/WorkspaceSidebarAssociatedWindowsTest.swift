@@ -132,14 +132,32 @@ final class WorkspaceSidebarAssociatedWindowsTest: XCTestCase {
             badgeModel: WorkspaceSidebarDockBadgeModel(), onBeginRename: {}, onCommitOverride: {}, onCancelOverride: {})
         let viewerRowY = inset + row / 2, draftRowY = inset + row + 2 + row / 2
         try click(card, size: CGSize(width: width, height: 2 * inset + 2 * row + 2), points: [
-            // Where a disclosure would be on the draft's row: it selects the draft.
+            // Where the disclosure is on the viewer's row: the draft's row starts a step further in, so
+            // there's nothing there to click on its line.
             CGPoint(x: 14, y: draftRowY),
+            // The draft's own icon, a step in.
+            CGPoint(x: inset + workspaceSidebarTabIndentStep + 18, y: draftRowY),
             CGPoint(x: width / 2, y: viewerRowY),
             // The viewer's row's own disclosure.
             CGPoint(x: 14, y: viewerRowY),
         ])
         XCTAssertEqual(sent, [.selectWindow(11), .selectWindow(10)], "Rows select their own window; the disclosure selects nothing")
         XCTAssertTrue(WorkspaceSidebarAssociatedWindowsDisclosure.shared.isCollapsed(tab.name), "The viewer's row folds them")
+    }
+
+    /// A window listed under another one is marked in use by a tint on its row alone, never the raised,
+    /// shadowed pill a tab's row in use has; tab rows, browser tabs' among them, keep theirs.
+    func testADraftInUseIsTintedNotRaisedAsATab() {
+        let child = WorkspaceSidebarTabRowStyle.associatedChild, tab = WorkspaceSidebarTabRowStyle.tab
+        XCTAssertEqual(child.shadowOpacity(isActive: true), 0, "No shadow: it isn't a card of its own")
+        XCTAssertEqual(child.fill(isActive: true, isHovered: false, isSearchSelected: false), Color.accentColor.opacity(0.2))
+        XCTAssertEqual(tab.shadowOpacity(isActive: true), 0.22)
+        XCTAssertEqual(tab.fill(isActive: true, isHovered: false, isSearchSelected: false), Color(nsColor: .controlBackgroundColor))
+        for style in [child, tab] {
+            XCTAssertEqual(style.shadowOpacity(isActive: false), 0)
+            XCTAssertEqual(style.fill(isActive: false, isHovered: true, isSearchSelected: false), Color.primary.opacity(0.07))
+            XCTAssertEqual(style.fill(isActive: false, isHovered: false, isSearchSelected: false), .clear)
+        }
     }
 
     /// Under a split, windows opened from one of its windows are listed under a header naming that one.

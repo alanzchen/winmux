@@ -126,6 +126,26 @@ struct WorkspaceSidebarTabActivation {
     }
 }
 
+/// How a window's row is drawn. A tab's row in use is a raised pill; a window listed one level under
+/// another's, inside that window's card, is a row of the card, its use marked by a tint on the row
+/// alone, never a pill that reads as a tab of its own.
+enum WorkspaceSidebarTabRowStyle: Equatable {
+    case tab
+    case associatedChild
+
+    func fill(isActive: Bool, isHovered: Bool, isSearchSelected: Bool) -> Color {
+        switch self {
+            case .tab:
+                if isActive { return Color(nsColor: .controlBackgroundColor) }
+            case .associatedChild:
+                if isActive { return Color.accentColor.opacity(0.2) }
+        }
+        return isHovered || isSearchSelected ? Color.primary.opacity(0.07) : .clear
+    }
+
+    func shadowOpacity(isActive: Bool) -> Double { self == .tab && isActive ? 0.22 : 0 }
+}
+
 struct WorkspaceSidebarTabRowView: View {
     let window: WorkspaceSidebarWindowViewModel
     let indent: CGFloat
@@ -150,6 +170,7 @@ struct WorkspaceSidebarTabRowView: View {
     var groupTint: Color? = nil
     /// A window listed under another one: its menu also moves it to a tab of its own.
     var detach: (() -> Void)? = nil
+    var rowStyle: WorkspaceSidebarTabRowStyle = .tab
     let onSelect: () -> Void
     @State private var isHovered = false
     @Environment(\.workspaceSidebarTabIndent) private var tabIndent
@@ -248,8 +269,8 @@ struct WorkspaceSidebarTabRowView: View {
         }
         .background {
             RoundedRectangle(cornerRadius: tabIndent.rowCornerRadius, style: .continuous)
-                .fill(backgroundFill)
-                .shadow(color: isActive ? Color.black.opacity(0.22) : .clear, radius: 3, y: 1)
+                .fill(rowStyle.fill(isActive: isActive, isHovered: isHovered, isSearchSelected: isSearchSelected))
+                .shadow(color: Color.black.opacity(rowStyle.shadowOpacity(isActive: isActive)), radius: 3, y: 1)
         }
         // The selected tab's pill fades to its new row instead of jumping there.
         .animation(WorkspaceSidebarTabMotion.selection(reducesMotion: reducesMotion), value: isActive)
@@ -274,11 +295,6 @@ struct WorkspaceSidebarTabRowView: View {
         actions.send(.closeWindow(window.windowId))
     }
 
-    private var backgroundFill: Color {
-        if isActive { return Color(nsColor: .controlBackgroundColor) }
-        if isHovered || isSearchSelected { return Color.primary.opacity(0.07) }
-        return .clear
-    }
 }
 
 struct WorkspaceSidebarTabIcon: View {

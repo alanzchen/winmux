@@ -82,7 +82,8 @@ struct WorkspaceSidebarAssociatedWindowsGroupView<Header: View>: View {
             .map { $0.title ?? $0.appName } ?? workspace.lentWindow.map { $0.title ?? $0.appName }
     }
 
-    /// A window's own row, one level in: highlighted alone while it's the one in use.
+    /// A window's own row, a step in from the one it came from, row and highlight alike: tinted alone
+    /// while it's the one in use.
     private func childRow(_ child: WorkspaceSidebarAssociatedWindowViewModel) -> some View {
         WorkspaceSidebarTabRowView(
             window: child.window,
@@ -93,9 +94,11 @@ struct WorkspaceSidebarAssociatedWindowsGroupView<Header: View>: View {
             isDragSource: dragSourceWindowId == child.window.windowId,
             actions: actions,
             detach: { actions.send(.detachTabWindow(child.window.windowId)) },
+            rowStyle: .associatedChild,
             onSelect: { activation.select(.selectWindow(child.window.windowId), send: actions.send) },
             badgeModel: badgeModel,
         )
+        .padding(.leading, workspaceSidebarTabIndentStep)
         // What it is and where it came from: "Mail compose window, opened from Inbox".
         .accessibilityHint([workspaceSidebarAuxiliaryWindowKind(child.role, appName: child.window.appName),
             parentTitle(child).map { "opened from \($0)" }].compactMap { $0 }.joined(separator: ", "))
