@@ -43,6 +43,14 @@ func workspaceTabMembers(_ tab: Workspace) -> [WorkspaceTabMember] {
     return members
 }
 
+/// Of a tab's `members`, its recognized auxiliary windows, in any state, whether listed under their
+/// parent, left by it or lent away with it: a Close Tab closes them first and names them, so a draft
+/// that asks to be saved stops it before anything else closes.
+@MainActor
+func workspaceTabAuxiliaryMembers(_ members: [WorkspaceTabMember]) -> [WorkspaceTabMember] {
+    members.filter { AuxiliaryWindowRegistry.shared.role(of: $0.window) != nil }
+}
+
 /// Whether `window` belongs to `tab` now, in whichever state.
 @MainActor
 func workspaceTabOwns(_ tab: Workspace, _ window: Window) -> Bool {
@@ -127,25 +135,52 @@ enum WorkspaceTabCloseConsequence: Equatable {
 
 /// What closing some tabs closes, decided before anything is asked or closed: each tab's windows
 /// then, by identity and state. Only these are closed, each only while it's still its tab's and in
-/// the state the user agreed to close it in.
+/// the state the user agreed to close it in. In each tab, its auxiliary windows
+/// (`workspaceTabAuxiliaryMembers`) come first, so a draft that asks to be saved stops the rest while
+/// the window it came from is still open.
 @MainActor
 struct WorkspaceTabClosePlan {
     let tabs: [(tab: Workspace, members: [WorkspaceTabMember])]
+    /// Of `tabs`' members, their recognized auxiliary windows, in plan order.
+    let auxiliary: [WorkspaceTabMember]
 
     init(_ tabs: [Workspace]) {
-        self.tabs = tabs.map { ($0, workspaceTabMembers($0)) }
+        var auxiliary: [WorkspaceTabMember] = []
+        self.tabs = tabs.map { tab in
+            let members = workspaceTabMembers(tab)
+            let opened = workspaceTabAuxiliaryMembers(members)
+            auxiliary += opened
+            return (tab, opened + members.filter { member in !opened.contains { $0.window === member.window } })
+        }
+        self.auxiliary = auxiliary
     }
 
     var windowCount: Int { tabs.reduce(0) { $0 + $1.members.count } }
     var offscreen: [WorkspaceTabMember] { tabs.flatMap { $0.members.filter(\.state.isOffscreen) } }
 
+    /// "This includes 1 Mail compose window.", by app and kind, never a title.
+    private var auxiliaryLine: String? {
+        var counts: [(kind: String, count: Int)] = []
+        for member in auxiliary {
+            guard let role = AuxiliaryWindowRegistry.shared.role(of: member.window) else { continue }
+            let kind = workspaceSidebarAuxiliaryWindowKind(role, appName: member.window.app.name ?? "An app")
+            if let index = counts.firstIndex(where: { $0.kind == kind }) { counts[index].count += 1 } else { counts.append((kind, 1)) }
+        }
+        guard !counts.isEmpty else { return nil }
+        let parts = counts.map { "\($0.count) \($0.kind)\($0.count == 1 ? "" : "s")" }
+        let list = parts.count == 1 ? parts[0] : parts.dropLast().joined(separator: ", ") + " and " + parts.last!
+        return "This includes \(list)."
+    }
+
     /// The question to ask first, if any. Whenever a window that isn't on screen would close, always:
     /// how many in each state, in full, then up to eight by app, never a window's title, and, whenever
-    /// one is in full screen, that closing it ends its full-screen space. Otherwise, as before, only
-    /// when there are more windows than tabs (`multipleWindowsMessage`).
+    /// one is in full screen, that closing it ends its full-screen space. Whenever an auxiliary window
+    /// would close, always too, naming how many of which kind. Otherwise, as before,
+    /// only when there are more windows than tabs (`multipleWindowsMessage`).
     func confirmation(multipleWindowsMessage: String) -> (message: String, informative: String)? {
         let away = offscreen
         let saves = "Each app may ask you to save changes."
+        let opened = auxiliaryLine.map { [$0] } ?? []
         guard away.isEmpty else {
             let count = windowCount
             let message = tabs.count == 1
@@ -171,10 +206,10 @@ struct WorkspaceTabClosePlan {
             let more = away.count > 8 ? ["• and \(away.count - 8) more"] : []
             let fullScreen = number(.nativeFullscreen) > 0
                 ? ["Closing a window in full screen also ends its full-screen space."] : []
-            return (message, ([lead] + shown + more + fullScreen + [saves]).joined(separator: "\n"))
+            return (message, ([lead] + shown + more + fullScreen + opened + [saves]).joined(separator: "\n"))
         }
-        guard windowCount > tabs.count else { return nil }
-        return (multipleWindowsMessage, "This closes the application windows. \(saves)")
+        guard windowCount > tabs.count || !opened.isEmpty else { return nil }
+        return (multipleWindowsMessage, (opened + ["This closes the application windows. \(saves)"]).joined(separator: "\n"))
     }
 }
 

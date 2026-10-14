@@ -147,11 +147,18 @@ enum WorkspaceSidebarPinSplitRole: Equatable {
     }
 }
 
+/// The windows that make a pin what it is, as its split, lending and recall go by: all of them but
+/// those opened from one of them, a draft or a dialog, which are still the pin's to focus and close.
+@MainActor
+func workspaceSidebarPinResourceWindows(_ pin: Workspace) -> [Window] {
+    pin.allLeafWindowsRecursive.filter { !isAuxiliaryWindowOfOpenParent($0) }
+}
+
 @MainActor
 func workspaceSidebarPinSplitRole(_ pin: Workspace) -> WorkspaceSidebarPinSplitRole {
     let state = workspaceSidebarOrganizationStore.state
     if state.workspaces[pin.name]?.composition != nil { return .composition }
-    let windows = pin.allLeafWindowsRecursive
+    let windows = workspaceSidebarPinResourceWindows(pin)
     if windows.isEmpty { return workspaceSidebarLentWindow(of: pin) == nil ? .empty : .refuses }
     let tiled = windows.filter { $0.parent is TilingContainer }
     // A pinned split from before they were recorded, until it is: then only the record says.
@@ -678,7 +685,7 @@ private func workspaceSidebarAwayWindows(of composition: WorkspaceSidebarPinComp
         guard let window = link.live, window.nodeWorkspace !== split, seen.insert(window.windowId).inserted else { continue }
         let home = homes[link].flatMap { Workspace.existing(byName: $0) }.flatMap { workspaceSidebarIsPinned($0) ? $0 : nil }
         let tab = window.nodeWorkspace
-        let inHome = tab != nil && tab === home && home?.allLeafWindowsRecursive.count == 1
+        let inHome = tab != nil && tab === home && home.map(workspaceSidebarPinResourceWindows)?.count == 1
         let inOrdinaryTab = tab.map { !workspaceSidebarIsPinned($0) } ?? false
         if inHome && window.parent is TilingContainer || inOrdinaryTab && (window.parent is TilingContainer || window.isFloating) {
             recallable.append((window, home))
@@ -699,7 +706,7 @@ func workspaceSidebarPinRecallsWindows(_ pin: Workspace) -> Bool {
     if workspaceSidebarLentWindow(of: pin) != nil { return true }
     guard let composition = workspaceSidebarOrganizationStore.state.workspaces[pin.name]?.composition else { return false }
     let away = workspaceSidebarAwayWindows(of: composition, from: pin)
-    return !away.recallable.isEmpty || !away.hidden.isEmpty || (!away.elsewhere.isEmpty && pin.allLeafWindowsRecursive.isEmpty)
+    return !away.recallable.isEmpty || !away.hidden.isEmpty || (!away.elsewhere.isEmpty && workspaceSidebarPinResourceWindows(pin).isEmpty)
 }
 
 /// Rebuilds `split`'s laid-out windows as `layout` places them, as far as `windows` are there: each
@@ -761,7 +768,7 @@ func recallWorkspaceSidebarPinWindows(_ pin: Workspace) throws -> WorkspaceSideb
     guard config.usesBrowserTabs, workspaceSidebarIsPinned(pin) else { return .nothing }
     try saveWorkspaceSidebarPinCompositions(of: [pin, workspaceSidebarLentWindow(of: pin)?.nodeWorkspace].compactMap { $0 })
     if workspaceSidebarPinSplitRole(pin) == .composition { return try recallWorkspaceSidebarComposition(pin) }
-    guard pin.allLeafWindowsRecursive.isEmpty, let window = workspaceSidebarLentWindow(of: pin) else { return .nothing }
+    guard workspaceSidebarPinResourceWindows(pin).isEmpty, let window = workspaceSidebarLentWindow(of: pin) else { return .nothing }
     if window.parent is MacosMinimizedWindowsContainer { return .minimized(window) }
     if window.parent is MacosHiddenAppsWindowsContainer { return .hidden(window) }
     let isFloating = window.parent is Workspace
@@ -850,7 +857,7 @@ func recallMinimizedWorkspaceSidebarPinWindow(_ pin: Workspace, _ window: Window
     let lent = WorkspaceSidebarPinWindow(window)
     guard await workspaceSidebarRestoreMinimizedWindow(window) else { return .stayedMinimized }
     // Across the wait, the pin may have been unpinned or given its window back, and the window closed.
-    guard workspaceSidebarIsPinned(pin), pin.allLeafWindowsRecursive.isEmpty, let now = lent.live, now === window,
+    guard workspaceSidebarIsPinned(pin), workspaceSidebarPinResourceWindows(pin).isEmpty, let now = lent.live, now === window,
           workspaceSidebarOrganizationStore.state.workspaces[pin.name]?.lentWindow.flatMap({ $0.live }) === window
     else { return .changed }
     syncClosedWindowsCacheToCurrentWorld()
@@ -1007,7 +1014,7 @@ func recallPinWindowsFromSidebar(_ name: String, focusing windowId: UInt32?, tar
             case .recalled(let windows, let elsewhere):
                 // Nothing to bring back to an empty pinned split, and a window of it in full screen: that
                 // window is found where it is, not the empty split shown instead.
-                if windows.isEmpty, pin.allLeafWindowsRecursive.isEmpty,
+                if windows.isEmpty, workspaceSidebarPinResourceWindows(pin).isEmpty,
                    let window = elsewhere.first(where: { $0.parent is MacosFullscreenWindowsContainer }) {
                     if !window.focusWindow() { _ = window.nodeWorkspace?.focusWorkspace() }
                     workspaceSidebarPinRecallNotice("Exit full screen first",

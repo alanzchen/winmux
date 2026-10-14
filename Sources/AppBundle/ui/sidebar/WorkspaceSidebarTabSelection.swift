@@ -93,8 +93,10 @@ func workspaceSidebarTabSelectionMenuEntries(_ names: [String], workspaces: [Wor
         destinations += [.separator, .init(title: "Remove from Group", perform: act(.assignTabsToCollection(names, nil)))]
     }
     let allPinned = tabs.allSatisfy(\.appearance.isFavorite)
-    let windowCount = tabs.reduce(0) { $0 + workspaceSidebarPinnedTabWindows($1).count + $1.offscreenMembers.count }
-    let asksFirst = windowCount > tabs.count || tabs.contains { !$0.offscreenMembers.isEmpty }
+    let windowCount = tabs.reduce(0) {
+        $0 + workspaceSidebarPinnedTabWindows($1).count + $1.offscreenMembers.count + $1.associatedWindows.count
+    }
+    let asksFirst = windowCount > tabs.count || tabs.contains { !$0.offscreenMembers.isEmpty || !$0.associatedWindows.isEmpty }
     var entries: [WorkspaceSidebarAppMenuEntry] = [
         .header("\(tabs.count) Tabs"),
         .init(title: allPinned ? "Unpin \(tabs.count) Tabs" : "Pin \(tabs.count) Tabs",
@@ -115,7 +117,7 @@ func workspaceSidebarTabSelectionMenuEntries(_ names: [String], workspaces: [Wor
         .separator,
         .init(title: "Deselect Tabs", perform: { clear() }),
         .separator,
-        // Asks first when that closes more windows than tabs, or any that isn't on screen.
+        // Asks first when that closes more windows than tabs, any that isn't on screen, or one opened from another.
         .init(title: asksFirst ? "Close \(tabs.count) Tabs…" : "Close \(tabs.count) Tabs",
             isDestructive: true, perform: act(.closeTabs(names))),
     ]
@@ -157,7 +159,9 @@ func closeWorkspaceSidebarTabs(_ names: [String], requestClose: (@MainActor (Win
     guard config.usesBrowserTabs, !serverArgs.isReadOnly else { return nil }
     let tabs = names.compactMap { Workspace.existing(byName: $0) }
     let plan = WorkspaceTabClosePlan(tabs)
-    if let ask = plan.confirmation(multipleWindowsMessage: "Close \(tabs.count) tabs and their \(plan.windowCount) windows?") {
+    let message = tabs.count == 1 ? "Close this tab and its \(plan.windowCount) windows?"
+        : "Close \(tabs.count) tabs and their \(plan.windowCount) windows?"
+    if let ask = plan.confirmation(multipleWindowsMessage: message) {
         guard workspaceTabCloseConfirm(ask.message, ask.informative) else { return nil }
     }
     let close = requestClose.map(workspaceTabClose(from:)) ?? workspaceTabCloseMember

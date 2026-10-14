@@ -10,6 +10,9 @@ struct WorkspaceSidebarWorkspaceViewModel: Hashable, Identifiable {
     var isVisible: Bool
     let items: [WorkspaceSidebarItemViewModel]
     var apps: [WorkspaceSidebarAppViewModel] = []
+    /// Tabs mode: auxiliary windows floating in this tab, listed under the window they were opened
+    /// from instead of in `items`.
+    var associatedWindows: [WorkspaceSidebarAssociatedWindowViewModel] = []
     /// nil when the workspace isn't saved.
     var savedState: WorkspaceSidebarSavedState? = nil
     var appearance: WorkspaceSidebarItemAppearance = .init()

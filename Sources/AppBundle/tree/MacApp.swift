@@ -524,6 +524,14 @@ final class MacApp: AbstractApp {
         } ?? .window
     }
 
+    /// Only Mail's windows are recognized; any other app's are nil, without asking it.
+    func getAuxiliaryWindowRole(_ windowId: UInt32) async throws -> AuxiliaryWindowRole? {
+        guard appId == .mail else { return nil }
+        return try await withWindow(windowId) { window, job in
+            window.mailAuxiliaryWindowRole()
+        }
+    }
+
     func isDialogHeuristic(_ windowId: UInt32, _ windowLevel: MacOsWindowLevel?) async throws -> Bool {
         try await withWindow(windowId) { [appId] window, job in
             window.isDialogHeuristic(appId, windowLevel)

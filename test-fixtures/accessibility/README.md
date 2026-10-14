@@ -59,3 +59,17 @@ The same day, WinMux's scanner code ran natively against one Safari window with 
 - Once any tab had been selected through `AXPress`, every tab named the tab bar again.
 
 WinMux used to require every tab to name its container and to have a title, so these windows never became browser tab groups. `BrowserTabsTest` replays the capture and checks that the whole group appears; that a tab out of view is scrolled into view before it's pressed or closed, and is refused rather than reported done if it still names no parent; that a piled-up tab is named by its description; and that the guards against foreign and stale controls still hold.
+
+## Mail message and compose windows (auxiliary windows)
+
+`mail-16.0-auxiliary-windows.json` is a reduced **actual native AX capture** of Mail **16.0 (3901.100.1.1.11)** on macOS **27.0 (26A428)**, taken on October 14, 2026 in a disposable Tart guest made from a clean image. Mail had one synthetic Other Mail Account on a loopback-only GreenMail server and one synthetic message. No real account, address or message was involved, and the guest was deleted afterwards.
+
+Each window keeps only its role, subrole, `AXIdentifier`, window buttons, and its direct children's roles and identifiers. Titles, message text and every other label are omitted. The window identifiers were read as `AXIdentifier`. The children's identifiers came from a dump that printed each element's non-empty title, description, value and identifier, in that order. `Mail.toField` was the last label after a recipient token value, and the other identifiers were the only or last label each child had, so they are read as identifiers too.
+
+### Captured behavior
+
+- All four windows are `AXStandardWindow`s with all four window buttons, and the full-screen button is enabled. WinMux's dialog heuristic therefore treats each of them as a regular window.
+- The main viewer and a message opened in its own window both have identifiers of the form `Mail.messageViewer.window.N`, so the identifier alone can't tell them apart. The main viewer's direct children are a split group and the toolbar. The message window's direct children are a scroll area identified as `_MAIL_MESSAGE_CONTENT` and the toolbar.
+- New Message and Reply both have the identifier `_NS:41`, which looks generated rather than chosen. Their direct children include text fields identified as `Mail.toField`, `Mail.ccField` and `Mail.subjectField`.
+
+`AuxiliaryWindowsTest` replays the capture. A window with `Mail.toField` and `Mail.subjectField` among its children is a compose window. A `Mail.messageViewer.window.N` with `_MAIL_MESSAGE_CONTENT` as its own child is a message window. The main viewer, a bare `_NS:41`, and a window whose children aren't built yet are not recognized, so they stay regular windows. Only this one Mail build was captured. Other versions and languages are untested.

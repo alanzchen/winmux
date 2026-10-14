@@ -281,6 +281,13 @@ enum Ax {
             CFGetTypeID(child as CFTypeRef) == AXUIElementGetTypeID() ? (child as! AXUIElement) : nil
         } },
     )
+    /// The same children, readable through `AxUiElementMock`, so tests can supply them.
+    static let childElementsAttr = ReadableAttrImpl<[any AxUiElementMock]>(
+        key: kAXChildrenAttribute,
+        getter: { ($0 as? NSArray)?.compactMap { child -> (any AxUiElementMock)? in
+            CFGetTypeID(child as CFTypeRef) == AXUIElementGetTypeID() ? (child as! AXUIElement) : nil
+        } },
+    )
     static let closeButtonAttr = ReadableAttrImpl<any AxUiElementMock>(
         key: kAXCloseButtonAttribute,
         getter: castToAxUiElementMock,

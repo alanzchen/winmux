@@ -31,8 +31,10 @@ final class MacWindow: Window {
         // Before any AX round-trip: a launcher request counts only windows first seen after it.
         let observedAt = ProcessInfo.processInfo.systemUptime
         let firstSeenInActiveApp = macApp.nsApp.isActive
+        // Also before any: what could tie it to the window it was opened from, read all at once.
+        let originEvidence = captureAuxiliaryWindowOriginEvidence(newWindowId: windowId, pid: macApp.pid, observedAt: observedAt)
         let rect = try await macApp.getAxRect(windowId)
-        let (data, windowType, claimed) = try await classifyAndGetBindingDataForNewWindow(
+        let (data, windowType, claimed, auxiliary) = try await classifyAndGetBindingDataForNewWindow(
             windowId,
             macApp,
             isStartup
@@ -40,6 +42,7 @@ final class MacWindow: Window {
                 : focus.workspace,
             window: nil,
             observedAt: observedAt,
+            originEvidence: originEvidence,
         )
 
         // atomic synchronous section
@@ -54,9 +57,12 @@ final class MacWindow: Window {
         NewWindowIntentRegistry.shared.windowsBeingDetected.insert(windowId)
         defer { NewWindowIntentRegistry.shared.windowsBeingDetected.remove(windowId) }
 
+        if let auxiliary { recordAuxiliaryWindow(window, placement: auxiliary, initialRect: rect) }
+
         try await debugWindowsIfRecording(window)
         let focusBeforeDetectionCallbacks = focusChangeGeneration
-        let wasRestored = try await restoreOrDetectNewWindow(window, isRegularWindow: windowType == .window)
+        // An auxiliary window isn't a regular one: no tab, saved slot or empty pin takes it.
+        let wasRestored = try await restoreOrDetectNewWindow(window, isRegularWindow: windowType == .window && auxiliary == nil)
         // A concurrent registration may have claimed it after detection checked for a claim.
         settleClaimLeftAfterDetection(window)
         window.popupPresentationState.wasRestored = wasRestored
@@ -118,6 +124,8 @@ final class MacWindow: Window {
         // Closed: no pin lends it, and no pinned split brings it back, any more.
         let (windowId, pid) = (windowId, macApp.pid)
         forgetWorkspaceSidebarPinWindows { $0.windowId == windowId && $0.pid == pid }
+        // Windows opened from it stay open, as windows of their own.
+        AuxiliaryWindowRegistry.shared.forget(windowId: windowId, pid: pid)
     }
 
     @MainActor override var title: String { get async throws { try await macApp.getAxTitle(windowId) ?? "" } }

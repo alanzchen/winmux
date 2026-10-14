@@ -1060,6 +1060,9 @@ func focusWindowFromSidebar(_ window: Window, targetMonitorScopeId: String?) -> 
 @MainActor
 func workspaceSidebarFallbackWorkspaceName(for windowId: UInt32) -> String? {
     for workspace in TrayMenuModel.shared.workspaceSidebarWorkspaces {
+        if let child = workspace.associatedWindows.first(where: { $0.window.windowId == windowId }) {
+            return child.window.workspaceName
+        }
         for item in workspace.items {
             switch item.kind {
                 case .window(let window) where window.windowId == windowId:

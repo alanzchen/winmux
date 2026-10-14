@@ -18,6 +18,8 @@ enum GlobalObserver {
         let activatedAppPid = notifName == NSWorkspace.didActivateApplicationNotification.rawValue
             ? (notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication)?.processIdentifier
             : nil
+        // At once, on the main queue it's delivered on: a window that app opens next is judged by it.
+        if let activatedAppPid { MainActor.assumeIsolated { noteAppActivatedForAuxiliaryWindows(pid: activatedAppPid) } }
         Task { @MainActor in
             if !TrayMenuModel.shared.isEnabled { return }
             if notifName == NSWorkspace.didActivateApplicationNotification.rawValue {
@@ -115,6 +117,8 @@ enum GlobalObserver {
         isInitialized = true
         DoubleSidedWindowGesture.shared.install()
         startSystemFrontWindowWatcher()
+        // The app in use is taken as active since now: it became so earlier, which only makes this stricter.
+        if let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier { noteAppActivatedForAuxiliaryWindows(pid: pid) }
 
         let nc = NSWorkspace.shared.notificationCenter
         notificationObserverTokens.append(nc.addObserver(forName: NSWorkspace.didLaunchApplicationNotification, object: nil, queue: .main, using: onNotif))

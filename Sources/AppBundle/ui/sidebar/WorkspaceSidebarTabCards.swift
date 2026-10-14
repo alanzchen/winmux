@@ -115,10 +115,25 @@ struct WorkspaceSidebarTabCardView: View {
 
     /// The row heading a card shows where a drop goes. Only a browser card's row takes drops
     /// itself: its tabs below are targets of their own, while all of Music's card takes them.
-    private var headsCard: Bool { hasBrowserGroups || drawsNowPlaying }
+    private var headsCard: Bool { hasBrowserGroups || drawsNowPlaying || hasAssociatedWindows }
+
+    /// Windows opened from this tab's windows, listed one level under them.
+    private var hasAssociatedWindows: Bool { !workspace.associatedWindows.isEmpty }
+
+    /// The tab's rows, then any windows listed under them.
+    private var cardContent: some View {
+        VStack(spacing: 2) {
+            content
+            if hasAssociatedWindows {
+                WorkspaceSidebarAssociatedWindowsView(workspace: workspace, isActive: isActive, isSearching: isSearching,
+                    selectedSearchTarget: selectedSearchTarget, dragSourceWindowId: isBatchSource ? nil : dragSourceWindowId,
+                    allowsDrag: allowsDragAndDrop, activation: activation, actions: actions, badgeModel: badgeModel)
+            }
+        }
+    }
 
     var body: some View {
-        content
+        cardContent
             .frame(minHeight: isShowingOverride ? overrideMinHeight : nil, alignment: .top)
             .background {
                 if !drawsBrowserCard {
@@ -169,7 +184,7 @@ struct WorkspaceSidebarTabCardView: View {
                             frame: geometry.frame(in: .named("workspaceSidebarContent")), gapTarget: gapTarget,
                             // An empty tab has no window to go beside.
                             acceptsSides: presentation != .empty, collectionId: collectionId).map { target in
-                                guard case .workspace = target.kind, hasBrowserGroups else { return target }
+                                guard case .workspace = target.kind, hasBrowserGroups || hasAssociatedWindows else { return target }
                                 // The header row of the window's tabs, inside their card's padding.
                                 let inset = drawsBrowserCard ? workspaceSidebarTabGroupInset : 0
                                 return WorkspaceSidebarDropTargetFrame(kind: target.kind,
@@ -190,8 +205,9 @@ struct WorkspaceSidebarTabCardView: View {
         switch presentation {
             // Two windows share one tab, shown as one.
             case .split, .multiple: return isActive ? 0.1 : 0.04
-            // The tab on screen stays marked even while its window isn't the focused one.
-            case .single: return isActive ? 0.1 : (drawsNowPlaying ? 0.05 : 0)
+            // The tab on screen stays marked even while its window isn't the focused one. One with
+            // windows listed under its own reads as one card, as a split does.
+            case .single: return isActive ? 0.1 : (hasAssociatedWindows ? 0.04 : drawsNowPlaying ? 0.05 : 0)
             case .empty, .offscreen, .folder: return 0
         }
     }

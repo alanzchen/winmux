@@ -326,7 +326,9 @@ func snapshotLiveSavedLayout(
     var liveFloating: Set<String> = []
 
     func slot(for window: Window, weight: CGFloat, isMostRecent: Bool) -> SavedWindowSlot? {
-        guard !excludingWindowIds.contains(window.windowId), let bundleId = window.app.rawAppBundleId else { return nil }
+        // A draft or a message opened to read goes when it's done: a saved tab or pin never records it.
+        guard !excludingWindowIds.contains(window.windowId), !isEphemeralAuxiliaryWindow(window),
+              let bundleId = window.app.rawAppBundleId else { return nil }
         let previousSlot = previousByWindow[SavedWindowIdentity(windowId: window.windowId, pid: window.app.pid)]
         var slot = previousSlot ?? SavedWindowSlot(bundleId: bundleId)
         slot.bundleId = bundleId

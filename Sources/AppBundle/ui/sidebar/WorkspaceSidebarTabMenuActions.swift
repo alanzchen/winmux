@@ -63,23 +63,28 @@ func detachWorkspaceTabWindow(_ window: Window, keepsGroup: Bool = true,
         throw error
     }
     window.bind(to: window.isFloating ? tab : tab.rootTilingContainer, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
+    // Taken out on purpose: it isn't listed under the window it was opened from again.
+    AuxiliaryWindowRegistry.shared.detach(window)
     captureNewAutomaticWorkspaceIdentity(tab)
     _ = window.focusWindow()
 }
 
 /// Close All Windows in a split or tab: all the windows that belong to it, those not on screen too,
-/// asking first when that's more than one, and always, saying which, when one isn't on screen. Each
-/// closes only while it's still the tab's, in the state it was agreed to in.
+/// asking first when that's more than one, and always, saying which, when one isn't on screen or was
+/// opened from another of its windows. Each closes only while it's still the tab's, in the state it
+/// was agreed to in; those opened from another close first.
 @MainActor
-func closeWorkspaceSidebarTabWindows(_ name: String) {
+@discardableResult
+func closeWorkspaceSidebarTabWindows(_ name: String) -> Task<Void, Never>? {
     guard config.usesBrowserTabs, !serverArgs.isReadOnly,
-          let workspace = Workspace.existing(byName: name) else { return }
+          let workspace = Workspace.existing(byName: name) else { return nil }
     let plan = WorkspaceTabClosePlan([workspace])
-    guard plan.windowCount > 0 else { return }
-    if let ask = plan.confirmation(multipleWindowsMessage: "Close all \(plan.windowCount) windows in this split?") {
-        guard workspaceTabCloseConfirm(ask.message, ask.informative) else { return }
+    guard plan.windowCount > 0 else { return nil }
+    let whole = plan.auxiliary.isEmpty ? "split" : "tab"
+    if let ask = plan.confirmation(multipleWindowsMessage: "Close all \(plan.windowCount) windows in this \(whole)?") {
+        guard workspaceTabCloseConfirm(ask.message, ask.informative) else { return nil }
     }
-    runWorkspaceSidebarSession {
+    return runWorkspaceSidebarSession {
         let result = await closeWorkspaceTabMembers(plan.tabs.first?.members ?? [], in: workspace, close: workspaceTabCloseMember)
         showWorkspaceTabCloseLeftOpen(result.leftOpen)
     }

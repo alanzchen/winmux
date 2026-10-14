@@ -1,0 +1,37 @@
+{
+  "capture": {
+    "date": "2026-10-14",
+    "macOS": "27.0 (26A428)",
+    "mail": "16.0 (3901.100.1.1.11)",
+    "setting": "Disposable Tart guest from a clean image, one synthetic Other Mail Account on a loopback-only GreenMail server, one synthetic message. No real account or personal data.",
+    "fields": "Each window's own role, subrole and AXIdentifier, its window buttons, and its direct children's roles and AXIdentifiers. Titles and other labels are omitted."
+  },
+  "mainViewer": {
+    "AXRole": "AXWindow", "AXSubrole": "AXStandardWindow", "AXIdentifier": "Mail.messageViewer.window.1",
+    "windowButtons": ["AXCloseButton", "AXFullScreenButton", "AXMinimizeButton", "AXZoomButton"],
+    "children": [{"AXRole": "AXSplitGroup"}, {"AXRole": "AXToolbar"}]
+  },
+  "messageWindow": {
+    "AXRole": "AXWindow", "AXSubrole": "AXStandardWindow", "AXIdentifier": "Mail.messageViewer.window.2",
+    "windowButtons": ["AXCloseButton", "AXFullScreenButton", "AXMinimizeButton", "AXZoomButton"],
+    "children": [{"AXRole": "AXScrollArea", "AXIdentifier": "_MAIL_MESSAGE_CONTENT"}, {"AXRole": "AXToolbar"}]
+  },
+  "newMessage": {
+    "AXRole": "AXWindow", "AXSubrole": "AXStandardWindow", "AXIdentifier": "_NS:41",
+    "windowButtons": ["AXCloseButton", "AXFullScreenButton", "AXMinimizeButton", "AXZoomButton"],
+    "children": [
+      {"AXRole": "AXTextField", "AXIdentifier": "Mail.toField"}, {"AXRole": "AXButton"},
+      {"AXRole": "AXTextField", "AXIdentifier": "Mail.ccField"}, {"AXRole": "AXButton"},
+      {"AXRole": "AXTextField", "AXIdentifier": "Mail.subjectField"}, {"AXRole": "AXGroup"}, {"AXRole": "AXToolbar"}
+    ]
+  },
+  "reply": {
+    "AXRole": "AXWindow", "AXSubrole": "AXStandardWindow", "AXIdentifier": "_NS:41",
+    "windowButtons": ["AXCloseButton", "AXFullScreenButton", "AXMinimizeButton", "AXZoomButton"],
+    "children": [
+      {"AXRole": "AXTextField", "AXIdentifier": "Mail.toField"}, {"AXRole": "AXButton"},
+      {"AXRole": "AXTextField", "AXIdentifier": "Mail.ccField"}, {"AXRole": "AXButton"},
+      {"AXRole": "AXTextField", "AXIdentifier": "Mail.subjectField"}, {"AXRole": "AXGroup"}, {"AXRole": "AXToolbar"}
+    ]
+  }
+}

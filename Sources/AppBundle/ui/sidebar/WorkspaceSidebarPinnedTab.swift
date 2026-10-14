@@ -240,9 +240,24 @@ struct WorkspaceSidebarPinnedTab: View {
                 Text(emoji).font(.system(size: 9)).padding(1).allowsHitTesting(false).accessibilityHidden(true)
             }
         }
+        // Windows opened from the pin's own: only their count, never a member of the pin. Its menu
+        // and accessibility actions bring one forward.
+        .overlay(alignment: .top) {
+            if !workspace.associatedWindows.isEmpty {
+                WorkspaceSidebarAssociatedWindowsCountBadge(count: workspace.associatedWindows.count,
+                    isInUse: isActiveHere && workspace.associatedWindows.contains(where: \.window.isFocused), compact: compact)
+                    .padding(.top, compact ? 1 : 3)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
+        }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(workspace.displayName)
-        .accessibilityValue(workspace.appearance.isPinnedInAllProjects ? "Pinned in all projects" : "")
+        .accessibilityValue([workspace.appearance.isPinnedInAllProjects ? "Pinned in all projects" : nil,
+            workspace.associatedWindows.isEmpty ? nil
+                : "\(workspaceSidebarAssociatedWindowsCountText(workspace.associatedWindows.count)) opened from it"]
+            .compactMap { $0 }.joined(separator: ", "))
+        .modifier(WorkspaceSidebarAssociatedWindowActions(windows: workspace.associatedWindows, select: { onSelect($0) }))
     }
 
     private var isActiveHere: Bool {

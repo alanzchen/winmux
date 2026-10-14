@@ -263,16 +263,25 @@ func workspaceSidebarWorkspaceIdentityMenuModel(_ workspace: WorkspaceSidebarWor
             leading.append(.named(window.title?.takeIf { !$0.isEmpty } ?? window.appName, { "Move “\($0)” to New Tab" },
                 perform: { send(.detachTabWindow(window.windowId)) }))
         }
+        // Windows listed under the tab's own, to bring one forward: a pin's tile shows only their count.
+        let associated = workspace.associatedWindows
+        if !associated.isEmpty {
+            leading.append(.init(title: "Opened from This Tab", children: associated.map { child in
+                .named(child.window.title?.takeIf { !$0.isEmpty } ?? child.window.appName,
+                    perform: { send(.selectWindow(child.window.windowId)) })
+            }))
+        }
         leading += entries(sections.layout) + [.separator] + entries(sections.keep)
         trailing = entries(sections.remove) + [.separator]
         if let window = clickedWindow {
             trailing.append(.init(title: "Close Window", isDestructive: true, perform: { send(.closeWindow(window.windowId)) }))
         }
-        if windows.count > 1 {
-            let whole = workspaceSidebarTabPresentation(workspace) == .folder ? "Tab" : "Split"
+        if windows.count + associated.count > 1 {
+            let whole = workspaceSidebarTabPresentation(workspace) == .folder || !associated.isEmpty ? "Tab" : "Split"
             trailing.append(.init(title: "Close All Windows in \(whole)…", isDestructive: true, perform: { send(.closeTabWindows(name)) }))
-        } else if windows.isEmpty, !workspace.offscreenMembers.isEmpty {
-            // Its windows aren't on screen, but it isn't empty: closing it closes them, once agreed to.
+        } else if windows.isEmpty, !workspace.offscreenMembers.isEmpty || !associated.isEmpty {
+            // Its windows aren't on screen, or only a draft is left, as in a pin that lent its window: it
+            // isn't empty, and closing it closes them, once agreed to.
             trailing.append(.init(title: "Close Tab and Its Windows…", isDestructive: true, perform: { send(.closeTabs([name])) }))
         } else if windows.isEmpty {
             trailing.append(.init(title: "Close Empty Tab", isDestructive: true, perform: { send(.closeEmptyTab(name)) }))
@@ -837,17 +846,19 @@ struct WorkspaceSidebarOptionalIdentityMenu: ViewModifier {
 }
 
 /// A Tabs row's menu: the tab's own for a tab's row, or only Close Window for a window listed
-/// inside a folder.
+/// inside a folder. A window listed under another one can also move to a tab of its own.
 struct WorkspaceSidebarTabRowMenu: ViewModifier {
     let target: WorkspaceSidebarIdentityTarget?
     let close: () -> Void
+    var detach: (() -> Void)? = nil
 
     func body(content: Content) -> some View {
         if let target {
             content.modifier(WorkspaceSidebarIdentityMenuModifier(target: target, tabActions: true))
         } else {
-            content.modifier(WorkspaceSidebarNativeContextMenu { [close] in
-                [.init(title: "Close Window", isDestructive: true, perform: close)]
+            content.modifier(WorkspaceSidebarNativeContextMenu { [close, detach] in
+                (detach.map { [.init(title: "Move to New Tab", perform: $0), .separator] } ?? [])
+                    + [.init(title: "Close Window", isDestructive: true, perform: close)]
             })
         }
     }

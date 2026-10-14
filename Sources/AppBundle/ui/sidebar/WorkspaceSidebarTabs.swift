@@ -148,6 +148,8 @@ struct WorkspaceSidebarTabRowView: View {
     /// Such a row titles itself like every group's header.
     var trailingCount: Int? = nil
     var groupTint: Color? = nil
+    /// A window listed under another one: its menu also moves it to a tab of its own.
+    var detach: (() -> Void)? = nil
     let onSelect: () -> Void
     @State private var isHovered = false
     @Environment(\.workspaceSidebarTabIndent) private var tabIndent
@@ -263,7 +265,7 @@ struct WorkspaceSidebarTabRowView: View {
         ))
         .onHover { hovering in withAnimation(WorkspaceSidebarTabMotion.hover) { isHovered = hovering } }
         .modifier(WorkspaceSidebarTabRowMenu(
-            target: workspaceMenu.map { .tab($0.workspace.name, windowId: window.windowId) }, close: close))
+            target: workspaceMenu.map { .tab($0.workspace.name, windowId: window.windowId) }, close: close, detach: detach))
     }
 
     private func close() {
@@ -909,6 +911,10 @@ func workspaceSidebarFocusedTabRowId(in workspace: WorkspaceSidebarWorkspaceView
                 continue
         }
     }
+    // A window listed under another one. Folded, its tab's card is scrolled to all the same.
+    if let child = workspace.associatedWindows.first(where: \.window.isFocused) {
+        return "window:\(child.window.windowId)"
+    }
     return nil
 }
 
@@ -965,7 +971,7 @@ func workspaceSidebarTabWindowIds(in workspace: WorkspaceSidebarWorkspaceViewMod
             case .window(let window): [window.windowId]
             case .tabGroup(let group): workspaceSidebarTabGroupWindows(group).map(\.windowId)
         }
-    }
+    } + workspace.associatedWindows.map(\.window.windowId)
 }
 
 /// Scrolls once layout settles: a scroll requested while the list is being created is dropped.

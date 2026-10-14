@@ -51,7 +51,9 @@ private func makeWorkspaceSidebarWorkspaceViewModel(
         lentWindow = await makeWorkspaceSidebarWindowViewModel(for: lent, workspaceName: lent.nodeWorkspace?.name ?? workspace.name,
             currentFocus: currentFocus)
     }
-    return WorkspaceSidebarWorkspaceViewModel(
+    let (items, associated) = workspaceSidebarSeparatingAssociatedWindows(
+        await buildWorkspaceSidebarItems(for: workspace, currentFocus: currentFocus), in: workspace, isPinned: isPinned)
+    var viewModel = WorkspaceSidebarWorkspaceViewModel(
         name: workspace.name,
         projectId: workspace.projectId,
         displayName: workspaceDisplayName(workspace.name),
@@ -61,7 +63,7 @@ private func makeWorkspaceSidebarWorkspaceViewModel(
         monitorName: availableMonitors.count > 1 ? workspaceMonitor.name : nil,
         isFocused: currentFocus.workspace == workspace,
         isVisible: workspace.isVisible,
-        items: await buildWorkspaceSidebarItems(for: workspace, currentFocus: currentFocus),
+        items: items,
         apps: buildWorkspaceSidebarAppSummaries(for: workspace),
         savedState: runningApps.flatMap { workspaceSidebarSavedState(for: workspace, runningApps: $0) },
         appearance: workspaceSidebarOrganizationStore.state.workspaces[workspace.name] ?? .init(),
@@ -77,6 +79,8 @@ private func makeWorkspaceSidebarWorkspaceViewModel(
         recallsWindows: isPinned && workspaceSidebarPinRecallsWindows(workspace),
         offscreenMembers: workspaceSidebarOffscreenMembers(workspace),
     )
+    viewModel.associatedWindows = associated
+    return viewModel
 }
 
 /// The tab's windows it doesn't show now, for its row and its Close.

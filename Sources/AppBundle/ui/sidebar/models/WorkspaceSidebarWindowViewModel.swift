@@ -10,6 +10,15 @@ struct WorkspaceSidebarWindowViewModel: Hashable, Identifiable {
     var id: UInt32 { windowId }
 }
 
+/// Tabs mode: an auxiliary window, listed one level under the window of its tab it was opened from.
+struct WorkspaceSidebarAssociatedWindowViewModel: Hashable, Identifiable {
+    let window: WorkspaceSidebarWindowViewModel
+    let parentWindowId: UInt32
+    let role: AuxiliaryWindowRole
+
+    var id: UInt32 { window.windowId }
+}
+
 struct WorkspaceSidebarTabGroupViewModel: Hashable, Identifiable {
     let representativeWindowId: UInt32
     let workspaceName: String

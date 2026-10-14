@@ -32,11 +32,32 @@ private func workspaceSidebarFilteredWorkspace(
     terms: [String],
     browserTabs: [UInt32: BrowserWindowTabs],
 ) -> WorkspaceSidebarWorkspaceViewModel? {
-    let matchingItems = workspace.items.compactMap { item in
-        workspaceSidebarSearchResultItem(item, workspace: workspace, projectName: projectName, terms: terms, browserTabs: browserTabs)
+    // A window listed under another one is found by its own title too, shown under its parent, which
+    // gives it context, among the tab's rows that match themselves, in their order.
+    let matchingAssociated = workspace.associatedWindows.filter { child in
+        workspaceSidebarSearchTextMatches(
+            [child.window.title, child.window.appName, child.window.appBundleId,
+             workspaceSidebarSearchableBundleName(child.window.appBundlePath), workspace.displayName, workspace.name, projectName],
+            terms: terms,
+        )
     }
-    if !matchingItems.isEmpty {
-        return WorkspaceSidebarWorkspaceViewModel(
+    let neededParents = Set(matchingAssociated.map(\.parentWindowId))
+    var matchingItems: [WorkspaceSidebarItemViewModel] = []
+    var items: [WorkspaceSidebarItemViewModel] = []
+    for item in workspace.items {
+        if let match = workspaceSidebarSearchResultItem(item, workspace: workspace, projectName: projectName, terms: terms,
+            browserTabs: browserTabs) {
+            matchingItems.append(match)
+            items.append(match)
+        } else if case .window(let window) = item.kind, neededParents.contains(window.windowId) {
+            items.append(item)
+        }
+    }
+    if !matchingItems.isEmpty || !matchingAssociated.isEmpty {
+        let shownWindowIds = Set(items.compactMap { item -> UInt32? in
+            if case .window(let window) = item.kind { window.windowId } else { nil }
+        })
+        var filtered = WorkspaceSidebarWorkspaceViewModel(
             name: workspace.name,
             projectId: workspace.projectId,
             displayName: workspace.displayName,
@@ -46,7 +67,7 @@ private func workspaceSidebarFilteredWorkspace(
             monitorName: workspace.monitorName,
             isFocused: workspace.isFocused,
             isVisible: workspace.isVisible,
-            items: matchingItems,
+            items: items,
             apps: workspace.apps,
             savedState: workspace.savedState,
             appearance: workspace.appearance,
@@ -54,6 +75,8 @@ private func workspaceSidebarFilteredWorkspace(
             lentWindow: workspace.lentWindow,
             recallsWindows: workspace.recallsWindows,
         )
+        filtered.associatedWindows = matchingAssociated.filter { shownWindowIds.contains($0.parentWindowId) }
+        return filtered
     }
     if workspaceSidebarWorkspaceMatchesSearch(workspace, projectName: projectName, terms: terms) {
         return workspace

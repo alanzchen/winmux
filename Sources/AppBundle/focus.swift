@@ -138,6 +138,7 @@ func replaceWorkspaceNameInFocusState(oldName: String, newName: String) {
 
     _focus = newFocus.frozen
     focusChangeGeneration &+= 1
+    noteFocusedWindowForAuxiliaryWindows(newFocus.windowOrNil)
     newFocus.windowOrNil?.markAsMostRecentChild()
     return true
 }

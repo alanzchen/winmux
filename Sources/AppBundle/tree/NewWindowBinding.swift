@@ -18,17 +18,22 @@ func classifyAndGetBindingDataForNewWindow(
     _ workspace: Workspace,
     window: Window?,
     observedAt: TimeInterval = ProcessInfo.processInfo.systemUptime,
+    originEvidence: AuxiliaryWindowOriginEvidence? = nil,
     abandonIf: (@MainActor (Window) -> Bool)? = nil,
-) async throws -> (binding: BindingData, type: AxUiElementWindowType, claimed: Bool) {
+) async throws -> (binding: BindingData, type: AxUiElementWindowType, claimed: Bool, auxiliary: AuxiliaryWindowPlacement?) {
     let windowLevel = getWindowLevel(for: windowId)
     let type = try await macApp.getAxUiElementWindowType(windowId, windowLevel)
     // Checked after the wait and before the window is unbound below.
     if let window, abandonIf?(window) == true { throw WindowRelayoutAbandoned() }
     switch type {
         case .popup:
-            return (BindingData(parent: macosPopupWindowsContainer, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST), type, false)
+            return (BindingData(parent: macosPopupWindowsContainer, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST), type, false, nil)
         case .dialog:
-            return (BindingData(parent: workspace, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST), type, false)
+            // A dialog floats where it appears; one opened from a window there is also listed under it.
+            if window == nil, let placement = await auxiliaryWindowPlacement(originEvidence, type: type, role: { nil }) {
+                return (floatingBinding(placement.workspace), type, false, placement)
+            }
+            return (floatingBinding(workspace), type, false, nil)
         case .window:
             // A window the launcher asked for goes straight to its workspace, before a stack
             // or the focused workspace can take it.
@@ -36,10 +41,23 @@ func classifyAndGetBindingDataForNewWindow(
                let target = NewWindowIntentRegistry.shared.claim(windowId: windowId, pid: macApp.pid,
                    bundleId: macApp.rawAppBundleId, firstSeenUptime: observedAt)
             {
-                return (newWindowIntentBinding(targetWorkspace: target), type, true)
+                return (newWindowIntentBinding(targetWorkspace: target), type, true, nil)
             }
-            return (bindingDataForNewRegularWindow(workspace, window: window), type, false)
+            // An auxiliary window stays floating when it's laid out again, never tiled in.
+            if let window, AuxiliaryWindowRegistry.shared.role(of: window) != nil {
+                return (floatingBinding(workspace), type, false, nil)
+            }
+            // Mail's message and compose windows float in the tab they were opened from.
+            if window == nil, let placement = try await auxiliaryWindowPlacement(originEvidence, type: type,
+                role: { try await macApp.getAuxiliaryWindowRole(windowId) }) {
+                return (floatingBinding(placement.workspace), type, false, placement)
+            }
+            return (bindingDataForNewRegularWindow(workspace, window: window), type, false, nil)
     }
+}
+
+private func floatingBinding(_ workspace: Workspace) -> BindingData {
+    BindingData(parent: workspace, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
 }
 
 @MainActor
