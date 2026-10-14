@@ -16,6 +16,14 @@ func resetFocusCacheForTests() {
     workspaceProjectFocusHold = nil
 }
 
+/// A window WinMux focused in macOS while focus in WinMux has since moved to an empty tab, which
+/// has no window to focus there: taken as seen, as the window in use is when an empty tab is chosen,
+/// so the next refresh doesn't follow macOS back to it.
+@MainActor
+func noteNativeFocusLeftBehind(_ window: Window) {
+    lastKnownNativeFocusedWindowId = window.windowId
+}
+
 @MainActor
 func holdFocusOnWorkspaceProject(_ projectId: WorkspaceProjectId, for duration: TimeInterval) {
     workspaceProjectFocusHold = WorkspaceProjectFocusHold(

@@ -443,8 +443,9 @@ final class WorkspaceTabCloseViewports {
             Workspace.existing(byName: workspace.name) === workspace && !workspace.isArchived && !isClosing(workspace)
         }
         for (display, workspace, projectId) in displaced where isLive(workspace) {
-            guard let monitor = monitors.first(where: { $0.rect.topLeftCorner == display }),
-                  monitor.activeWorkspace !== workspace else { continue }
+            guard let monitor = monitors.first(where: { $0.rect.topLeftCorner == display }) else { continue }
+            let shownProjectId = winMuxWorkspaceState.monitorViewportsById[MonitorViewportId(monitor)]?.contextProjectId
+            guard monitor.activeWorkspace !== workspace || projectId.map({ $0 != shownProjectId }) == true else { continue }
             // Shown again, not chosen: no project's remembered tab changes.
             _ = monitor.setActiveWorkspace(workspace, contextProjectId: projectId, isChosen: false)
         }
@@ -456,7 +457,15 @@ final class WorkspaceTabCloseViewports {
             window.nativeFocus()
             return
         }
-        if isLive(focusedWorkspace), focusedWorkspace.focusWorkspace() { focus.windowOrNil?.nativeFocus() }
+        // An empty tab has no window to focus in macOS: the one closing focused there stays, as when
+        // an empty tab is chosen, and isn't followed back to.
+        let focusedByClosing = focus.windowOrNil
+        guard isLive(focusedWorkspace), focusedWorkspace.focusWorkspace() else { return }
+        if let window = focus.windowOrNil {
+            window.nativeFocus()
+        } else if let focusedByClosing {
+            noteNativeFocusLeftBehind(focusedByClosing)
+        }
     }
 }
 
@@ -481,9 +490,12 @@ func placeWorkspaceTabMemberForClose(_ member: WorkspaceTabMember, in tab: Works
     guard !member.state.isOffscreen, window is any WorkspaceWindowVisibility, window.nodeWorkspace === tab,
           !shouldKeepWindowHiddenForVisibleWorkspaceLayout(window) else { return .inPlace }
     if tab.isVisible, !window.isHiddenInCorner, !viewports.hasShownTabs {
-        // On screen all along, as any close before; a move still queued is made first.
+        // On screen all along, as any close before; a move still queued is made first, and the
+        // window looked at again after it. A frame that can't be read is taken as WinMux placed it.
         try? await window.app.waitForPendingFrameWrites()
-        return .inPlace
+        let frame = try? await window.getAxRect()
+        guard Window.get(byId: window.windowId) === window, window.nodeWorkspace === tab else { return .changed }
+        if tab.isVisible, !window.isHiddenInCorner, frame.map(isOnADisplay) ?? true { return .inPlace }
     }
     if !tab.isVisible { guard viewports.show(tab) else { return .notShown } }
     // A newer layout may take over before reaching the window: once more lets it settle.
@@ -493,12 +505,13 @@ func placeWorkspaceTabMemberForClose(_ member: WorkspaceTabMember, in tab: Works
         // Read after its moves were made, and checked after the read: the last look before the press.
         let frame = try? await window.getAxRect()
         guard Window.get(byId: window.windowId) === window, window.nodeWorkspace === tab else { return .changed }
-        if tab.isVisible, !window.isHiddenInCorner, let frame, monitors.contains(where: { $0.rect.contains(frame.center) }) {
-            return .inPlace
-        }
+        if tab.isVisible, !window.isHiddenInCorner, let frame, isOnADisplay(frame) { return .inPlace }
     }
     return .notShown
 }
+
+@MainActor
+private func isOnADisplay(_ frame: Rect) -> Bool { monitors.contains { $0.rect.contains(frame.center) } }
 
 /// The close stopped before `window`: it couldn't be shown in its tab, and pressed out of sight,
 /// a question to save would stay out of sight.

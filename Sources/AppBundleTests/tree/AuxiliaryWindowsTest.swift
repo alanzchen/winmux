@@ -557,6 +557,26 @@ final class AuxiliaryWindowsTest: XCTestCase {
         }
     }
 
+    func testAWindowOnScreenThatEndsUpOffItWhileItsMovesAreMadeIsntPressedThere() async throws {
+        try await withWinMuxEnabled {
+            let here = focus.workspace
+            let app = TracedMailApp(pid: 43)
+            let area = here.workspaceMonitor.visibleRect
+            let draft = ParkedTestWindow(id: 21, app: app, parent: here, rect: Rect(topLeftX: area.minX + 40, topLeftY: area.minY + 40,
+                width: 720, height: 654))
+            XCTAssertTrue(draft.focusWindow())
+            // While its moves are made, it ends up in a corner: a move back that didn't take, or a park.
+            app.onBarrier = { [unowned app] in
+                app.onBarrier = nil
+                draft.moveNatively(to: CGPoint(x: area.maxX - 1, y: area.maxY - 1))
+            }
+            var frames: [Rect?] = []
+            workspaceTabCloseIO = { window in closeIO(window, app.trace, atPress: { frames.append($0) }) }
+            await closeWorkspaceSidebarTabWindows(here.name)?.value
+            XCTAssertTrue(frames.allSatisfy(isOnADisplay), "Never pressed out of sight: \(frames) \(app.trace.events)")
+        }
+    }
+
     func testAWindowMovedAwayWhileItsTabIsShownIsLeftAloneAndTheRestStillClose() async throws {
         try await withWinMuxEnabled {
             _ = viewerTab()
@@ -621,6 +641,34 @@ final class AuxiliaryWindowsTest: XCTestCase {
         }
     }
 
+    func testBackOnAnEmptyTabARefreshDoesntFollowMacOSToTheTabClosingFocused() async throws {
+        try await withWinMuxEnabled {
+            let empty = Workspace.get(byName: "empty")
+            try saveWorkspaceSidebarIdentity(empty)
+            XCTAssertTrue(empty.focusWorkspace())
+            XCTAssertNil(focus.windowOrNil, "On an empty tab, kept")
+            let (away, _, _, app) = try await parkedMailTabOutOfSight()
+            // The next tab after it, which closing its last window goes to, in macOS too.
+            let next = Workspace.get(byName: "next")
+            let nextWindow = TestWindow.new(id: 50, parent: next.rootTilingContainer, app: mail, title: "Next")
+            workspaceTabCloseConfirm = { _, _ in true }
+            var focusedByClosing: Window?
+            workspaceTabCloseIO = { window in
+                closeIO(window, app.trace, forget: {
+                    window.removeClosedWindowFromTree()
+                    if window.windowId == 20 { focusedByClosing = focus.windowOrNil }
+                })
+            }
+            await closeWorkspaceSidebarTabWindows(away.name)?.value
+            XCTAssertEqual(app.trace.presses, [21, 20])
+            XCTAssertTrue(focusedByClosing === nextWindow, "Closing the last window went to the next tab: \(String(describing: focusedByClosing))")
+            XCTAssertTrue(focus.workspace === empty && focus.windowOrNil == nil, "Back on the empty tab")
+            // The refresh that follows sees macOS still on the next tab's window.
+            updateFocusCache(nextWindow)
+            XCTAssertTrue(focus.workspace === empty, "Not taken back there by macOS's focus")
+        }
+    }
+
     func testClosingAnOrdinaryTabOutOfSightOnAnotherDisplayGivesThatDisplayItsTabBack() async throws {
         let main = SavedWorkspaceTestMonitor(id: 1, name: "Main", x: 0, isMain: true, uuid: nil)
         let secondary = SavedWorkspaceTestMonitor(id: 2, name: "Secondary", x: 1920, uuid: nil)
@@ -654,6 +702,16 @@ final class AuxiliaryWindowsTest: XCTestCase {
     }
 
     func testAPinInAllProjectsShownAgainKeepsTheProjectItWasShownIn() async throws {
+        try await closeTabOutOfSightWhileAPinIsShownInAnotherProject(reactivatingThePin: false)
+    }
+
+    /// A refresh following macOS can show the pin again before the close ends, in the project the
+    /// closed tab was in.
+    func testAPinShownAgainMeanwhileInTheClosedTabsProjectGoesBackToItsOwn() async throws {
+        try await closeTabOutOfSightWhileAPinIsShownInAnotherProject(reactivatingThePin: true)
+    }
+
+    private func closeTabOutOfSightWhileAPinIsShownInAnotherProject(reactivatingThePin: Bool) async throws {
         try await withWinMuxEnabled {
             let a = createWorkspaceProject().id, b = createWorkspaceProject().id, c = createWorkspaceProject().id
             let pin = Workspace.get(byName: "pin")
@@ -670,7 +728,12 @@ final class AuxiliaryWindowsTest: XCTestCase {
             away.assignProject(c)
             let (_, _, _, app) = try await parkedMailTabOutOfSight(away)
             workspaceTabCloseConfirm = { _, _ in true }
-            workspaceTabCloseIO = { window in closeIO(window, app.trace) }
+            workspaceTabCloseIO = { window in
+                closeIO(window, app.trace, atPress: { _ in
+                    guard reactivatingThePin, window.windowId == 20 else { return }
+                    XCTAssertTrue(monitor.setActiveWorkspace(pin, contextProjectId: c))
+                })
+            }
             await closeWorkspaceSidebarTabWindows(away.name)?.value
             XCTAssertEqual(app.trace.presses, [21, 20])
             XCTAssertTrue(monitor.activeWorkspace === pin)
@@ -818,6 +881,11 @@ private final class ParkedTestWindow: Window, WorkspaceWindowVisibility {
                 window.invalidateLastKnownNativeState()
             }
         }
+    }
+
+    /// Moved by macOS or the app, or a move of WinMux's that didn't take: WinMux isn't told.
+    @MainActor func moveNatively(to point: CGPoint) {
+        frame = Rect(topLeftX: point.x, topLeftY: point.y, width: frame.width, height: frame.height)
     }
 
     func unhideFromCorner() { restoreFromCorner(cornerParking) }
