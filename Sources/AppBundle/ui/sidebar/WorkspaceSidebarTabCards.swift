@@ -275,7 +275,7 @@ struct WorkspaceSidebarTabCardView: View {
                     onOpenSavedApps: { activation.select(.openSavedTab(workspace.name), send: actions.send) })
             case .offscreen(let members):
                 WorkspaceSidebarOffscreenTabRowView(isActive: isActive, actions: actions, workspace: workspace, members: members,
-                    onSelect: { activation.select(.showOffscreenTab(workspace.name), send: actions.send) })
+                    onSelect: { activation.select(workspaceSidebarOffscreenRowAction(workspace), send: actions.send) })
             case .folder:
                 EmptyView()
         }
@@ -446,6 +446,13 @@ struct WorkspaceSidebarEmptyTabRowView: View {
         guard !isWorkspaceSidebarDragInProgress() else { return }
         actions.send(.closeEmptyTab(workspace.name))
     }
+}
+
+/// What a click on a tab none of whose windows is on screen asks. A pin asks what any click on it does,
+/// so that ⌘ still brings a shared pin from another display here, or says why it stays, before any
+/// modifier or selection is decided; any other tab brings one of its windows back.
+func workspaceSidebarOffscreenRowAction(_ workspace: WorkspaceSidebarWorkspaceViewModel) -> WorkspaceSidebarAction {
+    workspace.appearance.isFavorite ? .selectWorkspace(workspace.name) : .showOffscreenTab(workspace.name)
 }
 
 /// The tab of a workspace whose windows all belong to it but none is shown in it now: hidden with

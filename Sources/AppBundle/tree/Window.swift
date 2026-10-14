@@ -9,7 +9,15 @@ open class Window: TreeNode, Hashable {
     var lastFloatingSize: CGSize?
     var isFullscreen: Bool = false
     var noOuterGapsInFullscreen: Bool = false
-    var layoutReason: LayoutReason = .standard
+    /// Which tab a minimized or hidden window still belongs to, among others: a change is a change of
+    /// its place, which `placementStamp` counts.
+    var layoutReason: LayoutReason = .standard {
+        didSet { if layoutReason != oldValue { placementStamp.bump() } }
+    }
+    /// Counts every change of where the window is: bound elsewhere, unbound, or its layout reason
+    /// changed. Read from an app's AX thread, where a close agreed to for one place must not press
+    /// once the window is in another.
+    nonisolated let placementStamp = WindowPlacementStamp()
     /// Event-invalidated caches of the native window state (frame, fullscreen, minimized),
     /// read on hot paths instead of polling every window over AX. Entering/exiting native
     /// fullscreen always resizes the window (invalidated via moved/resized events); minimize
@@ -151,4 +159,22 @@ extension Window {
     }
 
     func asMacWindow() -> MacWindow { self as! MacWindow }
+}
+
+/// A count of a window's moves, readable from any thread.
+final class WindowPlacementStamp: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: UInt64 = 0
+
+    func bump() {
+        lock.lock()
+        value &+= 1
+        lock.unlock()
+    }
+
+    var current: UInt64 {
+        lock.lock()
+        defer { lock.unlock() }
+        return value
+    }
 }

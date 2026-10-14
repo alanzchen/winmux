@@ -100,6 +100,8 @@ open class TreeNode: Equatable, WinMuxAny {
 
     private func unbindIfBound() -> BindingData? {
         guard let _parent else { return nil }
+        // Every window under it changes place, whichever node moves: the window, or a container of it.
+        for window in allLeafWindowsRecursive { window.placementStamp.bump() }
 
         let index = _parent._children.remove(element: self) ?? dieT("Can't find child in its parent")
         check(_parent._mruChildren.remove(self))

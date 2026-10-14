@@ -13,6 +13,9 @@ final class WorkspaceSidebarTabMembersTest: XCTestCase {
     private var notices: [String] = []
     private var savedConfirm: (@MainActor (String, String) -> Bool)!
     private var savedNotice: (@MainActor (String, String) -> Void)!
+    private var savedCloseIO: (@MainActor (Window) -> WindowCloseIO?)!
+    private var savedRestore: (@MainActor (Window) async -> Bool)!
+    private var savedUnhide: (@MainActor (Window) async -> Bool)!
 
     override func setUp() async throws {
         setUpWorkspacesForTests()
@@ -21,6 +24,9 @@ final class WorkspaceSidebarTabMembersTest: XCTestCase {
         workspaceSidebarOrganizationStore = .init()
         savedConfirm = workspaceTabCloseConfirm
         savedNotice = workspaceSidebarPinRecallNotice
+        savedCloseIO = workspaceTabCloseIO
+        savedRestore = workspaceSidebarRestoreMinimizedWindow
+        savedUnhide = workspaceSidebarUnhideWindow
         workspaceTabCloseConfirm = { [unowned self] message, informative in
             asked.append((message, informative))
             return answer
@@ -31,9 +37,21 @@ final class WorkspaceSidebarTabMembersTest: XCTestCase {
     override func tearDown() async throws {
         workspaceTabCloseConfirm = savedConfirm
         workspaceSidebarPinRecallNotice = savedNotice
+        workspaceTabCloseIO = savedCloseIO
+        workspaceSidebarRestoreMinimizedWindow = savedRestore
+        workspaceSidebarUnhideWindow = savedUnhide
         workspaceSidebarOrganizationStore = .init()
         config = defaultConfig
         try await super.tearDown()
+    }
+
+    /// A fresh world for one case of a loop, in Tabs mode again.
+    private func resetWorld() {
+        setUpWorkspacesForTests()
+        config.workspaceSidebar.enabled = true
+        config.workspaceSidebar.mode = .tabs
+        workspaceSidebarOrganizationStore = .init()
+        notices = []
     }
 
     private func minimized(_ id: UInt32, from tab: Workspace) -> Window {
@@ -193,5 +211,240 @@ final class WorkspaceSidebarTabMembersTest: XCTestCase {
         XCTAssertEqual(asked.count, 1)
         XCTAssertTrue(asked[0].message.contains("3 windows"), "All three are the tab's")
         XCTAssertTrue(asked[0].informative.contains("hidden with its app"))
+    }
+
+    // MARK: - F1: each window closes only in the state the user agreed to close it in
+
+    func testAWindowThatGoesFullScreenWhileTheQuestionIsUpIsLeftOpen() async {
+        let tab = Workspace.get(byName: "mixed")
+        _ = TestWindow.new(id: 100, parent: tab.macOsNativeHiddenAppsWindowsContainer)
+        let normal = TestWindow.new(id: 101, parent: tab.rootTilingContainer)
+        var closed: [UInt32] = []
+        workspaceTabCloseConfirm = { [unowned self] message, informative in
+            asked.append((message, informative))
+            normal.bind(to: tab.macOsNativeFullscreenWindowsContainer, adaptiveWeight: WEIGHT_DOESNT_MATTER, index: INDEX_BIND_LAST)
+            return true
+        }
+        await closeWorkspaceSidebarTabs([tab.name]) { closed.append($0.windowId); return true }?.value
+        XCTAssertFalse(asked[0].informative.contains("full screen"), "Asked about a hidden window only")
+        XCTAssertEqual(closed, [100], "The window now in full screen wasn't agreed to in full screen")
+        XCTAssertEqual(notices.count, 1)
+    }
+
+    func testAWindowThatChangesStateBetweenClosesIsLeftOpen() async {
+        let tab = Workspace.get(byName: "mixed")
+        _ = TestWindow.new(id: 110, parent: tab.macOsNativeHiddenAppsWindowsContainer)
+        let normal = TestWindow.new(id: 111, parent: tab.rootTilingContainer)
+        let minimizedOne = minimized(112, from: tab)
+        var closed: [UInt32] = []
+        await closeWorkspaceSidebarTabs([tab.name]) { window in
+            closed.append(window.windowId)
+            if window.windowId == 111 {
+                // While the first close waits, another window goes to full screen.
+                minimizedOne.bind(to: tab.macOsNativeFullscreenWindowsContainer, adaptiveWeight: WEIGHT_DOESNT_MATTER,
+                    index: INDEX_BIND_LAST)
+            }
+            return true
+        }?.value
+        XCTAssertEqual(closed, [111, 110], "Laid out, then hidden; the minimized one went full screen meanwhile")
+        XCTAssertTrue(normal.isBound)
+    }
+
+    func testAConfirmedHiddenWindowThatGoesFullScreenIsLeftOpen() async {
+        let tab = Workspace.get(byName: "discord")
+        let hidden = TestWindow.new(id: 120, parent: tab.macOsNativeHiddenAppsWindowsContainer)
+        var closed: [UInt32] = []
+        workspaceTabCloseConfirm = { [unowned self] message, informative in
+            asked.append((message, informative))
+            hidden.bind(to: tab.macOsNativeFullscreenWindowsContainer, adaptiveWeight: WEIGHT_DOESNT_MATTER, index: INDEX_BIND_LAST)
+            return true
+        }
+        await closeWorkspaceSidebarTabs([tab.name]) { closed.append($0.windowId); return true }?.value
+        XCTAssertEqual(closed, [])
+        XCTAssertEqual(notices.count, 1)
+    }
+
+    func testTheFullScreenWarningIsGivenEvenBeyondTheWindowsListedByName() async {
+        let tab = Workspace.get(byName: "many")
+        for id in UInt32(130) ..< 138 { _ = TestWindow.new(id: id, parent: tab.macOsNativeHiddenAppsWindowsContainer) }
+        _ = TestWindow.new(id: 138, parent: tab.macOsNativeFullscreenWindowsContainer)
+        answer = false
+        await closeWorkspaceSidebarTabs([tab.name]) { _ in true }?.value
+        let text = asked[0].informative
+        XCTAssertTrue(text.contains("8 hidden with their app, 1 in full screen"), text)
+        XCTAssertTrue(text.contains("and 1 more"), "The ninth isn't listed by name")
+        XCTAssertTrue(text.contains("Closing a window in full screen also ends its full-screen space."), text)
+    }
+
+    // MARK: - F2: only a window proven gone counts as closed
+
+    private func io(presence: [WindowPresence], windowServer: Bool? = true, press: WindowClosePress = .pressed,
+                    pressed: @escaping @MainActor (UInt32) -> Void, forgot: @escaping @MainActor (UInt32) -> Void)
+        -> @MainActor (Window) -> WindowCloseIO?
+    {
+        { window in
+            var answers = presence
+            return WindowCloseIO(
+                press: { isStillValid in
+                    guard isStillValid() else { return .invalidated }
+                    pressed(window.windowId)
+                    return press
+                },
+                presence: { answers.count > 1 ? answers.removeFirst() : answers.first ?? .unknown },
+                windowServerHasWindow: { windowServer },
+                forget: { forgot(window.windowId) },
+                timeout: 0.2, pause: {})
+        }
+    }
+
+    func testAnUnreadableWindowListIsNotAClosedWindowAndStopsTheRest() async {
+        let tab = Workspace.get(byName: "two")
+        let first = TestWindow.new(id: 140, parent: tab.rootTilingContainer)
+        _ = TestWindow.new(id: 141, parent: tab.rootTilingContainer)
+        var pressed: [UInt32] = []
+        var forgot: [UInt32] = []
+        workspaceTabCloseIO = io(presence: [.unknown], pressed: { pressed.append($0) }, forgot: { forgot.append($0) })
+        await closeWorkspaceSidebarTabs([tab.name])?.value
+        XCTAssertEqual(pressed, [140], "The first close couldn't be told: nothing after it")
+        XCTAssertEqual(forgot, [], "Not forgotten: it may be showing a save sheet")
+        XCTAssertTrue(Window.get(byId: 140) === first)
+        XCTAssertTrue(notices.last?.contains("couldn't tell") == true, "\(notices)")
+    }
+
+    func testEveryCloseOutcomeIsTakenForWhatItIs() async {
+        let cases: [(String, [WindowPresence], Bool?, WindowClosePress, pressed: [UInt32], forgot: [UInt32])] = [
+            ("a save sheet keeps it open", [.present], true, .pressed, [150], []),
+            ("no close button", [.present], true, .notPressed, [150], []),
+            ("gone from the app's list", [.present, .absent], true, .pressed, [150, 151], [150, 151]),
+            ("app can't say, window server has no such window", [.unknown], false, .pressed, [150, 151], [150, 151]),
+        ]
+        for (label, presence, server, press, wantPressed, wantForgot) in cases {
+            resetWorld()
+            let tab = Workspace.get(byName: "two")
+            _ = TestWindow.new(id: 150, parent: tab.rootTilingContainer)
+            _ = TestWindow.new(id: 151, parent: tab.rootTilingContainer)
+            var pressed: [UInt32] = []
+            var forgot: [UInt32] = []
+            workspaceTabCloseIO = io(presence: presence, windowServer: server, press: press,
+                pressed: { pressed.append($0) }, forgot: { forgot.append($0) })
+            await closeWorkspaceSidebarTabs([tab.name])?.value
+            XCTAssertEqual(pressed, wantPressed, label)
+            XCTAssertEqual(forgot, wantForgot, label)
+        }
+    }
+
+    func testAMinimizedWindowThatWontCloseStopsItAndSaysSoWithoutShowingAnything() async {
+        let tab = Workspace.get(byName: "mini")
+        _ = minimized(160, from: tab)
+        _ = minimized(161, from: tab)
+        var pressed: [UInt32] = []
+        workspaceTabCloseIO = io(presence: [.present], pressed: { pressed.append($0) }, forgot: { _ in })
+        await closeWorkspaceSidebarTabs([tab.name])?.value
+        XCTAssertEqual(pressed, [160])
+        XCTAssertTrue(notices.last?.contains("minimized") == true && notices.last?.contains("didn't close") == true, "\(notices)")
+    }
+
+    // MARK: - F3: the agreement is checked again right before the press
+
+    func testAPressWaitingForItsAppDoesntCloseAWindowThatMovedChangedOrWasReplaced() async throws {
+        for change in ["moved to another tab", "went full screen", "replaced"] {
+            resetWorld()
+            let tab = Workspace.get(byName: "mixed")
+            let waiting = TestWindow.new(id: 170, parent: tab.rootTilingContainer)
+            _ = TestWindow.new(id: 171, parent: tab.rootTilingContainer)
+            var gate: CheckedContinuation<Void, Never>?
+            var pressed: [UInt32] = []
+            var forgot: [UInt32] = []
+            workspaceTabCloseIO = { window in
+                WindowCloseIO(
+                    press: { isStillValid in
+                        if window.windowId == 170 { await withCheckedContinuation { gate = $0 } }
+                        // The app's thread checks right before it presses.
+                        guard isStillValid() else { return .invalidated }
+                        pressed.append(window.windowId)
+                        return .pressed
+                    },
+                    presence: { .absent }, windowServerHasWindow: { false },
+                    forget: { forgot.append(window.windowId) }, timeout: 0.2, pause: {})
+            }
+            let task = closeWorkspaceSidebarTabs([tab.name])
+            for _ in 0 ..< 200 where gate == nil { try await Task.sleep(for: .milliseconds(5)) }
+            XCTAssertNotNil(gate, change)
+            switch change {
+                case "moved to another tab":
+                    waiting.bind(to: Workspace.get(byName: "elsewhere").rootTilingContainer, adaptiveWeight: WEIGHT_AUTO,
+                        index: INDEX_BIND_LAST)
+                case "went full screen":
+                    waiting.bind(to: tab.macOsNativeFullscreenWindowsContainer, adaptiveWeight: WEIGHT_DOESNT_MATTER,
+                        index: INDEX_BIND_LAST)
+                default:
+                    waiting.unbindFromParent()
+            }
+            gate?.resume()
+            await task?.value
+            XCTAssertEqual(pressed, [171], "\(change): never pressed; the other window still closes")
+            XCTAssertEqual(forgot, [171], change)
+            XCTAssertEqual(notices.last, "Some windows stayed open: A window moved or changed while the tab was closing, so it wasn't closed.",
+                change)
+        }
+    }
+
+    // MARK: - F5: bringing a window back doesn't override what changed meanwhile
+
+    private func gatedRestore() -> (seam: @MainActor (Window) async -> Bool, release: () -> Void, reached: () -> Bool) {
+        var gate: CheckedContinuation<Void, Never>?
+        var reached = false
+        return ({ _ in
+            reached = true
+            await withCheckedContinuation { gate = $0 }
+            return true
+        }, { gate?.resume() }, { reached })
+    }
+
+    func testRestoringAMinimizedOnlyTabShowsItUnlessItMovedOrTheUserChoseAnotherTab() async throws {
+        for change in ["nothing", "moved to another tab", "another tab chosen"] {
+            resetWorld()
+            let tab = Workspace.get(byName: "mini")
+            let window = minimized(180, from: tab)
+            let start = Workspace.get(byName: "start")
+            XCTAssertTrue(start.focusWorkspace())
+            let restore = gatedRestore()
+            workspaceSidebarRestoreMinimizedWindow = restore.seam
+            let task = showWorkspaceSidebarOffscreenTab(tab.name, targetMonitorScopeId: nil)
+            for _ in 0 ..< 200 where !restore.reached() { try await Task.sleep(for: .milliseconds(5)) }
+            XCTAssertTrue(restore.reached(), change)
+            let other = Workspace.get(byName: "chosen")
+            switch change {
+                case "moved to another tab":
+                    window.layoutReason = .macos(prevParentKind: .tilingContainer, prevWorkspaceName: "elsewhere")
+                case "another tab chosen":
+                    XCTAssertTrue(other.focusWorkspace())
+                default: break
+            }
+            restore.release()
+            await task?.value
+            switch change {
+                case "nothing": XCTAssertTrue(focus.workspace === tab, "Shown, as clicked")
+                case "moved to another tab":
+                    XCTAssertTrue(focus.workspace === start, "Not shown: its window isn't in it any more")
+                    XCTAssertEqual(notices.count, 1)
+                default: XCTAssertTrue(focus.workspace === other, "The newer choice stands")
+            }
+        }
+    }
+
+    func testShowingAHiddenOnlyTabDoesntOverrideANewerChoice() async throws {
+        let tab = Workspace.get(byName: "discord")
+        _ = TestWindow.new(id: 190, parent: tab.macOsNativeHiddenAppsWindowsContainer)
+        XCTAssertTrue(Workspace.get(byName: "start").focusWorkspace())
+        let unhide = gatedRestore()
+        workspaceSidebarUnhideWindow = unhide.seam
+        let task = showWorkspaceSidebarOffscreenTab(tab.name, targetMonitorScopeId: nil)
+        for _ in 0 ..< 200 where !unhide.reached() { try await Task.sleep(for: .milliseconds(5)) }
+        let other = Workspace.get(byName: "chosen")
+        XCTAssertTrue(other.focusWorkspace())
+        unhide.release()
+        await task?.value
+        XCTAssertTrue(focus.workspace === other)
     }
 }

@@ -983,6 +983,45 @@ final class WorkspaceSidebarRemotePinRoutingTest: XCTestCase {
     /// Clicks `name`'s row in the sidebar of `monitor`, as its activation sends `action` to the
     /// handler; `deferred` runs right after, before the session the click started.
     @discardableResult
+    /// A shared pin from another display whose only window is in full screen shows as that window. ⌘ on
+    /// that row still asks the pin to come, from the list and from search, and it stays, saying why; a
+    /// plain click goes as any pin's does. Another tab's row brings its window back.
+    func testCommandClickOnAPinShownAsItsOffscreenWindowStillAsksItToCome() async throws {
+        let (monitors, tabs) = try multidisplayFixture(2)
+        config.workspaceSidebar.sharePinnedTabs = true
+        let pinWindow = try XCTUnwrap(tabs["pin1"]!.allLeafWindowsRecursive.first)
+        pinWindow.bind(to: tabs["pin1"]!.macOsNativeFullscreenWindowsContainer, adaptiveWeight: WEIGHT_DOESNT_MATTER,
+            index: INDEX_BIND_LAST)
+        let left = monitors[0]
+        let list = await multidisplaySnapshot(listing: left)
+        let pin = try XCTUnwrap(list.workspaces.first { $0.name == "pin1" })
+        guard case .offscreen = workspaceSidebarTabPresentation(pin) else { return XCTFail("Shown as its window") }
+        let action = workspaceSidebarOffscreenRowAction(pin)
+        let (listed, _) = WorkspaceSidebarView(snapshot: list).tabActivation(pin, isPinned: false, pageAllowsActivation: true)
+        XCTAssertTrue(listed.isRemotePin)
+        let searching = WorkspaceSidebarTabActivation(allowsActivation: true, isInUseOnOtherDisplay: false, requestOverride: {},
+            tabName: "pin1", selectionContext: nil, isRemotePin: true)
+        var sent: [WorkspaceSidebarAction] = []
+        listed.select(action, modifiers: .command) { sent.append($0) }
+        searching.select(action, modifiers: .command) { sent.append($0) }
+        XCTAssertEqual(sent, Array(repeating: .bringPinnedTabHere("pin1", windowId: nil, recalls: false), count: 2))
+        XCTAssertEqual(WorkspaceSidebarTabSelection.shared.names, [], "Not added to a selection")
+        sent = []
+        listed.select(action, modifiers: []) { sent.append($0) }
+        XCTAssertEqual(sent, [.selectWorkspace("pin1")], "A plain click goes as any pin's does")
+
+        notices = []
+        _ = try await click("pin1", action, .command, on: left)
+        try await waitUntil { !notices.isEmpty }
+        XCTAssertEqual(notices.map(\.body), ["“pin1” is in full screen on “Right”, so it stays there. Exit full screen to move it."])
+        XCTAssertTrue(tabs["pin1"]!.workspaceMonitor.rect == monitors[1].rect, "It stays in full screen there")
+
+        let ordinary = WorkspaceSidebarWorkspaceViewModel(name: "plain", projectId: workspaceProjectDefaultId, displayName: "plain",
+            sidebarLabel: "", isGeneratedName: true, monitorScopeId: scope(left), monitorName: nil, isFocused: false,
+            isVisible: false, items: [])
+        XCTAssertEqual(workspaceSidebarOffscreenRowAction(ordinary), .showOffscreenTab("plain"))
+    }
+
     private func click(_ name: String, _ action: WorkspaceSidebarAction, _ modifiers: NSEvent.ModifierFlags, on monitor: Monitor,
                        deferred: (() throws -> Void)? = nil) async throws -> WorkspaceSidebarTabActivation {
         let list = await multidisplaySnapshot(listing: monitor)

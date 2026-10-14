@@ -131,6 +131,33 @@ final class MacApp: AbstractApp {
         }
     }
 
+    /// Presses the window's close button only if `isStillAuthorized` holds on this app's thread right
+    /// before the press: the window wasn't moved, hidden, minimized, put in full screen or replaced since
+    /// the close was agreed to. The window is the one this app registered under the number; one it no
+    /// longer has isn't pressed.
+    func pressCloseButton(_ windowId: UInt32, ifStillAuthorized isStillAuthorized: @Sendable @escaping () -> Bool)
+        async throws -> WindowClosePress
+    {
+        if serverArgs.isReadOnly { return .notPressed }
+        setFrameJobs.removeValue(forKey: windowId)?.cancel()
+        return try await withWindow(windowId) { window, job -> WindowClosePress in
+            guard let closeButton = window.get(Ax.closeButtonAttr) else { return .notPressed }
+            guard isStillAuthorized() else { return .invalidated }
+            return AXUIElementPerformAction(closeButton.cast, kAXPressAction as CFString) == .success ? .pressed : .notPressed
+        } ?? .invalidated
+    }
+
+    /// Whether the app still lists the window: present, absent, or unknown when it couldn't answer.
+    /// Only a list the app gave proves the window is gone.
+    func axWindowPresence(_ windowId: UInt32) async throws -> WindowPresence {
+        try await thread?.runInLoop { [axApp] job -> WindowPresence in
+            var raw: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(axApp.threadGuarded, kAXWindowsAttribute as CFString, &raw) == .success,
+                  let raw, let windows = Ax.windowsAttr.getter(raw) else { return .unknown }
+            return windows.contains { $0.windowId == windowId } ? .present : .absent
+        } ?? .unknown
+    }
+
     func pressCloseButton(_ windowId: UInt32) async throws -> Bool {
         if serverArgs.isReadOnly { return false }
         setFrameJobs.removeValue(forKey: windowId)?.cancel()

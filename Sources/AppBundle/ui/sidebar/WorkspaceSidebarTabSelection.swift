@@ -148,34 +148,30 @@ func workspaceSidebarTabSelectionMenu(containing name: String, scope: String? = 
 /// Closes every window of several tabs: all that belong to them, laid out, floating, hidden with their
 /// app, in native full screen or minimized from them. It asks first whenever one of those isn't on
 /// screen, saying which, and otherwise, as before, when that's more than one window per tab. Only the
-/// windows the tabs had when it asked are closed, each while it's still its tab's.
+/// windows the tabs had when it asked are closed, each while it's still its tab's and in the state it
+/// was agreed to in, checked again right before its press. `requestClose` replaces the native close
+/// for callers that only say whether a window closed.
 @MainActor
 @discardableResult
-func closeWorkspaceSidebarTabs(_ names: [String], requestClose: @escaping @MainActor (Window) async -> Bool = { window in
-    if let macWindow = window as? MacWindow { return await macWindow.requestCloseForProjectDeletion() }
-    window.closeAxWindow()
-    return true
-}) -> Task<Void, Never>? {
+func closeWorkspaceSidebarTabs(_ names: [String], requestClose: (@MainActor (Window) async -> Bool)? = nil) -> Task<Void, Never>? {
     guard config.usesBrowserTabs, !serverArgs.isReadOnly else { return nil }
     let tabs = names.compactMap { Workspace.existing(byName: $0) }
     let plan = WorkspaceTabClosePlan(tabs)
-    var offscreenAgreed = false
     if let ask = plan.confirmation(multipleWindowsMessage: "Close \(tabs.count) tabs and their \(plan.windowCount) windows?") {
         guard workspaceTabCloseConfirm(ask.message, ask.informative) else { return nil }
-        offscreenAgreed = !plan.offscreen.isEmpty
     }
+    let close = requestClose.map(workspaceTabClose(from:)) ?? workspaceTabCloseMember
     return runWorkspaceSidebarSession {
         var leftOpen = 0
         defer { showWorkspaceTabCloseLeftOpen(leftOpen) }
-        // In order: a save prompt or a refused close stops the rest, and its window comes forward.
+        // In order: a save prompt, a refused close or one that can't be told stops the rest.
         for (tab, members) in plan.tabs where winMuxWorkspaceState.workspaceById[tab.id] === tab {
             if members.isEmpty {
                 // Empty when asked, and still: a window that came to it since keeps it.
                 if workspaceTabMembers(tab).isEmpty { try closeWorkspaceSidebarEmptyTab(tab) }
                 continue
             }
-            let result = await closeWorkspaceTabMembers(members, in: tab, offscreenAgreed: offscreenAgreed,
-                requestClose: requestClose)
+            let result = await closeWorkspaceTabMembers(members, in: tab, close: close)
             leftOpen += result.leftOpen
             if !result.finished { return }
         }

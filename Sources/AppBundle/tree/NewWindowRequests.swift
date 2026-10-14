@@ -178,6 +178,14 @@ func runningAppHasWindows(pid: Int32, windows: [Window]) -> Bool {
     windows.contains { $0.app.pid == pid && $0.isBound && !($0.parent is MacosPopupWindowsContainer) }
 }
 
+/// The same, or nil when the window server gave no list, which says nothing about any window.
+nonisolated func windowServerWindowIdsIfListed(pid: Int32) -> Set<UInt32>? {
+    guard let windows = CGWindowListCopyWindowInfo([.optionAll], kCGNullWindowID) as? [[String: Any]] else { return nil }
+    return Set(windows.compactMap { window in
+        (window[kCGWindowOwnerPID as String] as? Int32) == pid ? window[kCGWindowNumber as String] as? UInt32 : nil
+    })
+}
+
 /// A snapshot of every window on the system, so keep it off the main thread when polling.
 nonisolated func windowServerWindowIds(pid: Int32, onScreenOnly: Bool = false) -> Set<UInt32> {
     guard let windows = CGWindowListCopyWindowInfo(onScreenOnly ? [.optionOnScreenOnly] : [.optionAll], kCGNullWindowID)

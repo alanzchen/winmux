@@ -68,27 +68,19 @@ func detachWorkspaceTabWindow(_ window: Window, keepsGroup: Bool = true,
 }
 
 /// Close All Windows in a split or tab: all the windows that belong to it, those not on screen too,
-/// asking first when that's more than one, and always, saying which, when one isn't on screen.
+/// asking first when that's more than one, and always, saying which, when one isn't on screen. Each
+/// closes only while it's still the tab's, in the state it was agreed to in.
 @MainActor
 func closeWorkspaceSidebarTabWindows(_ name: String) {
     guard config.usesBrowserTabs, !serverArgs.isReadOnly,
           let workspace = Workspace.existing(byName: name) else { return }
     let plan = WorkspaceTabClosePlan([workspace])
     guard plan.windowCount > 0 else { return }
-    var offscreenAgreed = false
     if let ask = plan.confirmation(multipleWindowsMessage: "Close all \(plan.windowCount) windows in this split?") {
         guard workspaceTabCloseConfirm(ask.message, ask.informative) else { return }
-        offscreenAgreed = !plan.offscreen.isEmpty
     }
     runWorkspaceSidebarSession {
-        let result = await closeWorkspaceTabMembers(plan.tabs.first?.members ?? [], in: workspace,
-            offscreenAgreed: offscreenAgreed) { window in
-            if let macWindow = window as? MacWindow {
-                return await macWindow.requestCloseForProjectDeletion()
-            }
-            window.closeAxWindow()
-            return true
-        }
+        let result = await closeWorkspaceTabMembers(plan.tabs.first?.members ?? [], in: workspace, close: workspaceTabCloseMember)
         showWorkspaceTabCloseLeftOpen(result.leftOpen)
     }
 }

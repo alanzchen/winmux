@@ -52,9 +52,13 @@ func workspaceTabOwns(_ tab: Workspace, _ window: Window) -> Bool {
 /// A tab none of whose windows is shown in it, clicked: the first of them comes back the way its
 /// state allows, a hidden app shown again, a minimized window restored, a full-screen window found
 /// in its own Space, never taken out of full screen. If one is shown in it by now, the tab is only shown.
+/// Restoring takes a moment: the tab is shown only if then it's still the same tab with the same window,
+/// still its, and the user hasn't chosen something else meanwhile.
 @MainActor
-func showWorkspaceSidebarOffscreenTab(_ name: String, targetMonitorScopeId: String?) {
-    runWorkspaceSidebarSession {
+@discardableResult
+func showWorkspaceSidebarOffscreenTab(_ name: String, targetMonitorScopeId: String?) -> Task<Void, Never>? {
+    let focusedAtClick = focus.workspace
+    return runWorkspaceSidebarSession {
         guard let tab = Workspace.existing(byName: name) else { return }
         let members = workspaceTabMembers(tab)
         guard !members.contains(where: { !$0.state.isOffscreen }), let first = members.first else {
@@ -62,21 +66,38 @@ func showWorkspaceSidebarOffscreenTab(_ name: String, targetMonitorScopeId: Stri
             return
         }
         let window = first.window
+        let appName = window.app.name ?? "The app"
+        /// After the wait: the user's choice stands if it changed, and a window that moved stays where it is.
+        @MainActor func mayShow() -> Bool {
+            let choiceStands = focus.workspace === focusedAtClick || focus.workspace === tab
+            guard choiceStands else { return false }
+            guard Workspace.existing(byName: name) === tab, !tab.isArchived,
+                  Window.get(byId: window.windowId) === window, workspaceTabOwns(tab, window)
+            else {
+                workspaceSidebarPinRecallNotice("The window moved meanwhile",
+                    "\(appName)'s window is no longer in this tab, so it stayed where it is.")
+                return false
+            }
+            return true
+        }
         switch first.state {
             case .hiddenWithApp:
-                if await showHiddenWorkspaceSidebarWindow(window), workspaceTabOwns(tab, window) {
+                let shown = await showHiddenWorkspaceSidebarWindow(window)
+                guard mayShow() else { return }
+                if shown {
                     focusWindowFromSidebarNow(window.windowId, targetMonitorScopeId: targetMonitorScopeId, keepsPointer: false)
                 } else {
-                    workspaceSidebarPinRecallNotice("Couldn't bring the window back",
-                        "\(window.app.name ?? "The app") stayed hidden, or its window moved meanwhile.")
+                    workspaceSidebarPinRecallNotice("Couldn't bring the window back", "\(appName) stayed hidden.")
                 }
             case .minimized:
-                if await workspaceSidebarRestoreMinimizedWindow(window) {
+                let restored = await workspaceSidebarRestoreMinimizedWindow(window)
+                guard mayShow() else { return }
+                if restored {
                     // macOS restores it, and WinMux puts it back in the tab it was minimized from.
                     _ = focusWorkspaceFromSidebar(tab, targetMonitorScopeId: targetMonitorScopeId)
                 } else {
                     workspaceSidebarPinRecallNotice("Couldn't bring the window back",
-                        "\(window.app.name ?? "The window") stayed minimized. Restore it from the Dock.")
+                        "\(appName)'s window stayed minimized. Restore it from the Dock.")
                 }
             case .nativeFullscreen:
                 if !window.focusWindow() { _ = tab.focusWorkspace() }
@@ -89,8 +110,24 @@ func showWorkspaceSidebarOffscreenTab(_ name: String, targetMonitorScopeId: Stri
 
 // MARK: - Closing a tab means all its windows
 
+/// What closing a window means, by where it is: on screen, or out of sight in one way or another.
+/// A window is closed only while this is still what it was when the user agreed.
+enum WorkspaceTabCloseConsequence: Equatable {
+    case onScreen, hiddenWithApp, minimized, nativeFullscreen
+
+    init(_ state: WorkspaceTabMemberState) {
+        self = switch state {
+            case .laidOut, .floating: .onScreen
+            case .hiddenWithApp: .hiddenWithApp
+            case .minimized: .minimized
+            case .nativeFullscreen: .nativeFullscreen
+        }
+    }
+}
+
 /// What closing some tabs closes, decided before anything is asked or closed: each tab's windows
-/// then, by identity and state. Only these are closed, and only while each still belongs to its tab.
+/// then, by identity and state. Only these are closed, each only while it's still its tab's and in
+/// the state the user agreed to close it in.
 @MainActor
 struct WorkspaceTabClosePlan {
     let tabs: [(tab: Workspace, members: [WorkspaceTabMember])]
@@ -102,8 +139,9 @@ struct WorkspaceTabClosePlan {
     var windowCount: Int { tabs.reduce(0) { $0 + $1.members.count } }
     var offscreen: [WorkspaceTabMember] { tabs.flatMap { $0.members.filter(\.state.isOffscreen) } }
 
-    /// The question to ask first, if any. Whenever a window that isn't on screen would close, always,
-    /// listing them: an app's name and its state, never a window's title. Otherwise, as before, only
+    /// The question to ask first, if any. Whenever a window that isn't on screen would close, always:
+    /// how many in each state, in full, then up to eight by app, never a window's title, and, whenever
+    /// one is in full screen, that closing it ends its full-screen space. Otherwise, as before, only
     /// when there are more windows than tabs (`multipleWindowsMessage`).
     func confirmation(multipleWindowsMessage: String) -> (message: String, informative: String)? {
         let away = offscreen
@@ -113,18 +151,27 @@ struct WorkspaceTabClosePlan {
             let message = tabs.count == 1
                 ? "Close this tab and its \(count == 1 ? "window" : "\(count) windows")?"
                 : "Close \(tabs.count) tabs and their \(count) windows?"
+            func number(_ state: WorkspaceTabMemberState) -> Int { away.count { $0.state == state } }
+            let counts = [
+                (number(.hiddenWithApp), "hidden with its app", "hidden with their app"),
+                (number(.minimized), "minimized", "minimized"),
+                (number(.nativeFullscreen), "in full screen", "in full screen"),
+            ].filter { $0.0 > 0 }.map { "\($0.0) \($0.0 == 1 ? $0.1 : $0.2)" }
+            let lead = (away.count == 1 ? "This includes a window that isn't on screen: "
+                : "This includes \(away.count) windows that aren't on screen: ") + counts.joined(separator: ", ") + "."
             let shown = away.prefix(8).map { member in
                 let app = member.window.app.name ?? member.window.app.rawAppBundleId ?? "An app"
                 return switch member.state {
                     case .hiddenWithApp: "• \(app): hidden with its app"
                     case .minimized: "• \(app): minimized"
-                    case .nativeFullscreen: "• \(app): in full screen. Closing it also ends its full-screen space."
+                    case .nativeFullscreen: "• \(app): in full screen"
                     case .laidOut, .floating: "• \(app)"
                 }
             }
             let more = away.count > 8 ? ["• and \(away.count - 8) more"] : []
-            let lead = away.count == 1 ? "This includes a window that isn't on screen:" : "This includes \(away.count) windows that aren't on screen:"
-            return (message, ([lead] + shown + more + [saves]).joined(separator: "\n"))
+            let fullScreen = number(.nativeFullscreen) > 0
+                ? ["Closing a window in full screen also ends its full-screen space."] : []
+            return (message, ([lead] + shown + more + fullScreen + [saves]).joined(separator: "\n"))
         }
         guard windowCount > tabs.count else { return nil }
         return (multipleWindowsMessage, "This closes the application windows. \(saves)")
@@ -144,36 +191,194 @@ var workspaceTabCloseConfirm: @MainActor (_ message: String, _ informative: Stri
     return alert.runModal() == .alertSecondButtonReturn
 }
 
-/// Closes `members` of `tab`, each only if it's still the same window and still the tab's. A window
-/// that left its screen since without the user having agreed to close windows off screen is left
-/// open. A save sheet or a refused close stops it, and that window comes forward. Gives whether
-/// nothing stopped it, and how many were left open because they'd changed.
+/// A close the user agreed to for one window in one place, carried to the press itself: valid while
+/// nothing has moved the window, changed its state or replaced it, checked on the app's own thread
+/// right before its close button is pressed.
+struct WorkspaceTabCloseAuthorization: Sendable {
+    let windowId: UInt32
+    let isStillValid: @Sendable () -> Bool
+}
+
+/// The authorization to close `member` now, or nil if it's no longer that window, in that tab, in the
+/// state the user agreed to close it in.
 @MainActor
-func closeWorkspaceTabMembers(_ members: [WorkspaceTabMember], in tab: Workspace, offscreenAgreed: Bool,
-                              requestClose: @MainActor (Window) async -> Bool) async -> (finished: Bool, leftOpen: Int) {
+func workspaceTabCloseAuthorization(_ member: WorkspaceTabMember, in tab: Workspace) -> WorkspaceTabCloseAuthorization? {
+    let window = member.window
+    guard Window.get(byId: window.windowId) === window, Workspace.existing(byName: tab.name) === tab, !tab.isArchived,
+          let now = workspaceTabMembers(tab).first(where: { $0.window === window }),
+          WorkspaceTabCloseConsequence(now.state) == WorkspaceTabCloseConsequence(member.state)
+    else { return nil }
+    let stamp = window.placementStamp
+    let expected = stamp.current
+    return WorkspaceTabCloseAuthorization(windowId: window.windowId, isStillValid: { stamp.current == expected })
+}
+
+enum WindowClosePress: Equatable, Sendable {
+    case pressed
+    /// No close button, or the press failed: the app didn't take it.
+    case notPressed
+    /// The window changed since the close was agreed to, so it wasn't pressed.
+    case invalidated
+}
+
+enum WindowPresence: Equatable, Sendable {
+    case present, absent
+    /// The app couldn't say.
+    case unknown
+}
+
+/// How a close went.
+enum WindowCloseOutcome: Equatable, Sendable {
+    case closed
+    /// Pressed, and still open: a save sheet, or the app refused.
+    case stillOpen
+    /// Not pressed: no close button, or the press failed.
+    case notPressed
+    /// Not pressed: the window changed since the close was agreed to.
+    case invalidated
+    /// Pressed, and whether it closed couldn't be told.
+    case unknown
+}
+
+/// What closing a native window takes: its press, the app's and the window server's word on whether
+/// it's still there, and forgetting it once it's gone. Tests replace it with answers of their own.
+struct WindowCloseIO {
+    var press: @MainActor (_ isStillValid: @escaping @Sendable () -> Bool) async -> WindowClosePress
+    var presence: @MainActor () async -> WindowPresence
+    /// Whether the window server lists the window; nil when it gave no list.
+    var windowServerHasWindow: @MainActor () -> Bool?
+    var forget: @MainActor () -> Void
+    var timeout: TimeInterval = 1.5
+    var pause: @MainActor () async -> Void = { try? await Task.sleep(nanoseconds: 100_000_000) }
+}
+
+@MainActor
+var workspaceTabCloseIO: @MainActor (Window) -> WindowCloseIO? = { window in
+    guard let macWindow = window as? MacWindow else { return nil }
+    let windowId = macWindow.windowId
+    let app = macWindow.macApp
+    return WindowCloseIO(
+        press: { isStillValid in (try? await app.pressCloseButton(windowId, ifStillAuthorized: isStillValid)) ?? .notPressed },
+        presence: { (try? await app.axWindowPresence(windowId)) ?? .unknown },
+        windowServerHasWindow: { windowServerWindowIdsIfListed(pid: app.pid)?.contains(windowId) },
+        forget: { macWindow.garbageCollect(skipClosedWindowsCache: true) })
+}
+
+/// Presses and watches until the window is gone, proven so by the app's own list of its windows or,
+/// when the app can't answer, by the window server's. An answer that can't be read is never taken
+/// for a closed window.
+@MainActor
+func observeWindowClose(_ io: WindowCloseIO, isStillValid: @escaping @Sendable () -> Bool) async -> WindowCloseOutcome {
+    switch await io.press(isStillValid) {
+        case .invalidated: return .invalidated
+        case .notPressed: return .notPressed
+        case .pressed: break
+    }
+    let deadline = ProcessInfo.processInfo.systemUptime + io.timeout
+    var lastUnknown = false
+    repeat {
+        switch await io.presence() {
+            case .absent: return .closed
+            case .present: lastUnknown = false
+            case .unknown:
+                if io.windowServerHasWindow() == false { return .closed }
+                lastUnknown = true
+        }
+        await io.pause()
+    } while ProcessInfo.processInfo.systemUptime < deadline
+    return lastUnknown ? .unknown : .stillOpen
+}
+
+/// Closes one window of a tab with what the user agreed to: the press waits for its app's turn and
+/// checks the agreement right before it. Forgotten only once it's proven gone.
+@MainActor
+func workspaceTabCloseMember(_ window: Window, _ authorization: WorkspaceTabCloseAuthorization) async -> WindowCloseOutcome {
+    guard let io = workspaceTabCloseIO(window) else {
+        guard authorization.isStillValid() else { return .invalidated }
+        window.closeAxWindow()
+        return .closed
+    }
+    let outcome = await observeWindowClose(io, isStillValid: authorization.isStillValid)
+    if outcome == .closed { io.forget() }
+    return outcome
+}
+
+/// A close given as whether the window closed, as callers wrote them before: valid only while the
+/// agreement holds when it's asked.
+@MainActor
+func workspaceTabClose(from requestClose: @escaping @MainActor (Window) async -> Bool)
+    -> @MainActor (Window, WorkspaceTabCloseAuthorization) async -> WindowCloseOutcome
+{
+    { window, authorization in
+        guard authorization.isStillValid() else { return .invalidated }
+        return await requestClose(window) ? .closed : .stillOpen
+    }
+}
+
+/// Closes `members` of `tab`, in order, each with the user's agreement for that window in that state
+/// (`workspaceTabCloseAuthorization`). One that's gone, moved, changed state or been replaced since is
+/// left alone and counted. One that doesn't close, or whose close can't be told, stops it all: an on-
+/// screen window comes forward, as before, and for one out of sight the notice says what happened.
+/// Gives whether nothing stopped it, and how many were left open because they'd changed.
+@MainActor
+func closeWorkspaceTabMembers(_ members: [WorkspaceTabMember], in tab: Workspace,
+                              close: @MainActor (Window, WorkspaceTabCloseAuthorization) async -> WindowCloseOutcome)
+    async -> (finished: Bool, leftOpen: Int)
+{
     // As any close of a tab's windows from the sidebar: what Undo would put back is gone.
     WorkspaceSidebarTabUndo.shared.clear()
     var leftOpen = 0
     for member in members {
         let window = member.window
-        guard Window.get(byId: window.windowId) === window,
-              let now = workspaceTabMembers(tab).first(where: { $0.window === window }) else { continue }
-        if now.state.isOffscreen, !offscreenAgreed {
+        guard Window.get(byId: window.windowId) === window else { continue }
+        guard let authorization = workspaceTabCloseAuthorization(member, in: tab) else {
             leftOpen += 1
             continue
         }
-        if !(await requestClose(window)) {
-            if Window.get(byId: window.windowId) === window { _ = window.focusWindow() }
-            return (false, leftOpen)
+        let outcome = await close(window, authorization)
+        switch outcome {
+            case .closed:
+                continue
+            case .invalidated:
+                leftOpen += 1
+                continue
+            case .stillOpen, .notPressed, .unknown:
+                showWorkspaceTabCloseStopped(window, in: tab, outcome: outcome)
+                return (false, leftOpen)
         }
     }
     return (true, leftOpen)
+}
+
+/// The close stopped at `window`. Still on screen in its tab, it comes forward, as before, with any
+/// save sheet; out of sight, nothing is shown or moved, and the notice says what happened.
+@MainActor
+private func showWorkspaceTabCloseStopped(_ window: Window, in tab: Workspace, outcome: WindowCloseOutcome) {
+    guard Window.get(byId: window.windowId) === window,
+          let state = workspaceTabMembers(tab).first(where: { $0.window === window })?.state else { return }
+    if !state.isOffscreen, outcome != .unknown {
+        _ = window.focusWindow()
+        return
+    }
+    let app = window.app.name ?? "The app"
+    let place = switch state {
+        case .hiddenWithApp: ", hidden with its app,"
+        case .minimized: ", minimized,"
+        case .nativeFullscreen: ", in full screen,"
+        case .laidOut, .floating: ""
+    }
+    let body = switch outcome {
+        case .unknown: "WinMux couldn't tell whether \(app) closed its window\(place) so it stopped there."
+        case .notPressed: "\(app)'s window\(place) couldn't be closed from WinMux, so it stopped there."
+        default: "\(app)'s window\(place) didn't close. It may be asking to save changes; show \(app) to answer."
+    }
+    workspaceSidebarPinRecallNotice("Some windows weren't closed", body + " Nothing after it was closed.")
 }
 
 @MainActor
 func showWorkspaceTabCloseLeftOpen(_ count: Int) {
     guard count > 0 else { return }
     workspaceSidebarPinRecallNotice("Some windows stayed open",
-        count == 1 ? "A window left the screen while the tab was closing, so it wasn't closed."
-            : "\(count) windows left the screen while their tabs were closing, so they weren't closed.")
+        count == 1 ? "A window moved or changed while the tab was closing, so it wasn't closed."
+            : "\(count) windows moved or changed while their tabs were closing, so they weren't closed.")
 }
