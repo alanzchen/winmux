@@ -587,6 +587,13 @@ final class MacApp: AbstractApp {
         }
     }
 
+    /// What a browser window shows now, its selected tab's address and whether it's private, for a
+    /// pinned page. Nil for a window of another app.
+    func getPinPageWindowRead(_ windowId: UInt32) async throws -> PinPageWindowRead? {
+        guard let adapter = BrowserTabAdapter(bundleId: rawAppBundleId) else { return nil }
+        return try await withWindow(windowId) { window, job in readPinPageWindow(window, adapter: adapter) }
+    }
+
     /// The window's type and, in the same AX call, the document it shows, for a pinned document
     /// waiting for its window.
     func getAxUiElementWindowTypeAndDocument(_ windowId: UInt32, _ windowLevel: MacOsWindowLevel?) async throws

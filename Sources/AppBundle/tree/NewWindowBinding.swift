@@ -44,6 +44,15 @@ func classifyAndGetBindingDataForNewWindow(
             }
             return (floatingBinding(workspace), type, false, nil)
         case .window:
+            // A pinned page asked a browser for a fresh window: this one may be it. It waits,
+            // briefly, for the browser's answer saying which window the request made, rather
+            // than be placed by guess.
+            if window == nil, !isStartup,
+               let page = NewWindowIntentRegistry.shared.pendingPageExpectation(windowId: windowId, pid: macApp.pid,
+                   bundleId: macApp.rawAppBundleId, firstSeenUptime: observedAt), !page.isDecided
+            {
+                await waitForPinPageDecision(page)
+            }
             // A window the launcher asked for goes straight to its workspace, before a stack
             // or the focused workspace can take it.
             if window == nil, !isStartup,

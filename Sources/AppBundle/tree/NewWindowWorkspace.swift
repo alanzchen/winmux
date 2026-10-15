@@ -70,12 +70,13 @@ private func emptyPinHome(for window: Window, detectedIn initialWorkspace: Works
 /// The first pin listed on `monitor`'s display for `projectId` with no window at all, whose apps
 /// include `bundleId`: its saved apps, or its saved places' apps. Pins in All Projects come first,
 /// then the project's own, each in their tiles' order. A pin on screen, or another display's
-/// unless shared pins bring it here, is never one, nor is a pinned document: it's the home of
-/// one file, which only its own click opens and proves, not of any window of its app.
+/// unless shared pins bring it here, is never one, nor is a pin with a resource, a document or a
+/// link: it's the home of one file, page or item, which only its own click opens and proves, not
+/// of any window of its app.
 @MainActor
 private func firstEmptyPin(bundleId: String, projectId: WorkspaceProjectId, monitor: Monitor) -> Workspace? {
     (workspacePinnedTabsInAllProjects() + workspacePinnedTabs(in: projectId)).first { pin in
-        guard !pin.isArchived, !pin.isVisible, !workspaceHasLifecycleWindows(pin), !workspaceIsPinnedDocument(pin),
+        guard !pin.isArchived, !pin.isVisible, !workspaceHasLifecycleWindows(pin), !workspaceIsPinnedResource(pin),
               let record = savedWorkspaceStore.record(named: pin.name),
               (record.launchApps ?? []).contains(where: { $0.bundleId == bundleId }) ||
               record.layout.allSlots.contains(where: { $0.bundleId == bundleId })

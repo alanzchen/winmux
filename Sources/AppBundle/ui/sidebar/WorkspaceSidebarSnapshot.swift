@@ -111,6 +111,14 @@ enum WorkspaceSidebarAction: Equatable {
     case pinDocument(String)
     case updatePinDocument(String)
     case forgetPinDocument(String)
+    /// Tabs mode: pins a tab to the page or message its one window shows, keeps a pinned link to what
+    /// its window shows now, asks for a link to pin (Pin Link…, Edit Link…), or forgets it, keeping the pin.
+    case pinLinkFromWindow(String)
+    case updatePinLinkFromWindow(String)
+    case editPinLink(String)
+    case forgetPinLink(String)
+    /// Tabs mode: asks for a link and makes a new pin of it in the project, on that display.
+    case newLinkPin(projectId: WorkspaceProjectId, monitorScopeId: String)
     /// Tabs mode: pins a tab in All Projects, or a pin in All Projects back among `projectId`'s
     /// pins, the project the sidebar shows.
     case setWorkspacePinScope(String, WorkspaceSidebarPinScope?, projectId: WorkspaceProjectId)

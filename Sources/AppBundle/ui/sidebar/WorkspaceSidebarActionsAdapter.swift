@@ -109,6 +109,17 @@ func handleWorkspaceSidebarAction(
             pinDocumentFromSidebar(name, updating: true)
         case .forgetPinDocument(let name):
             forgetPinDocumentFromSidebar(name)
+        case .pinLinkFromWindow(let name):
+            pinLinkFromWindowFromSidebar(name, updating: false)
+        case .updatePinLinkFromWindow(let name):
+            pinLinkFromWindowFromSidebar(name, updating: true)
+        case .editPinLink(let name):
+            // After the menu closes: the prompt is modal.
+            DispatchQueue.main.async { editPinLinkFromSidebar(name) }
+        case .forgetPinLink(let name):
+            forgetPinLinkFromSidebar(name)
+        case .newLinkPin(let projectId, let monitorScopeId):
+            DispatchQueue.main.async { newLinkPinFromSidebar(projectId: projectId, monitorScopeId: monitorScopeId) }
         case .bringPinnedTabHere(let name, let windowId, let recalls):
             bringPinnedTabHereFromSidebar(name, windowId: windowId, recalls: recalls, targetMonitorScopeId: targetMonitorScopeId)
         case .moveTabsToDisplay(let projectId, let source, let target):

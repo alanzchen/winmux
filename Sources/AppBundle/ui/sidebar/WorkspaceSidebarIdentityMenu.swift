@@ -131,7 +131,12 @@ func workspaceSidebarIdentityMenuModel(_ target: WorkspaceSidebarIdentityTarget,
                 entries: [
                     .init(title: "Switch to Project", perform: { send(.selectProject(id)) }),
                     .init(title: "New Project", perform: { send(.createProject) }),
-                ] + (workspaceTopicSuggestionsOffered(projectId: id, panelScopeId: actionScope)
+                ] + (config.usesBrowserTabs
+                    ? [.init(title: "New Link Pin…", perform: {
+                        send(.newLinkPin(projectId: id,
+                            monitorScopeId: actionScope ?? TrayMenuModel.shared.workspaceSidebarTargetMonitorScopeId))
+                    }, help: "A pin that opens a web page or an app's link you type or paste")]
+                    : []) + (workspaceTopicSuggestionsOffered(projectId: id, panelScopeId: actionScope)
                     ? [.separator, .init(title: workspaceTopicSuggestMenuTitle, perform: { send(.suggestTopicGroups(id, tabs: nil)) })]
                     : []),
                 trailingEntries: [
@@ -191,6 +196,7 @@ func workspaceSidebarTabListTitle(_ tab: WorkspaceSidebarWorkspaceViewModel) -> 
     guard tab.sidebarLabel.isEmpty else { return tab.displayName }
     let windows = workspaceSidebarPinnedTabWindows(tab)
     if !windows.isEmpty { return windows.map { $0.title?.takeIf { !$0.isEmpty } ?? $0.appName }.joined(separator: " · ") }
+    if tab.appearance.isFavorite, let link = tab.appearance.link, !link.title.isEmpty { return link.title }
     let savedApps = tab.savedState?.apps ?? []
     return savedApps.isEmpty ? "Empty Tab" : workspaceSidebarSavedAppNames(savedApps)
 }
@@ -232,7 +238,7 @@ func workspaceSidebarWorkspaceIdentityMenuModel(_ workspace: WorkspaceSidebarWor
         leading = [
             .init(title: workspace.appearance.isFavorite ? "Unpin Tab" : "Pin Tab",
                 perform: { send(.setWorkspaceFavorite(name, !workspace.appearance.isFavorite)) }),
-        ] + workspaceSidebarPinDocumentMenuEntries(workspace, send: send) + [
+        ] + workspaceSidebarPinResourceMenuEntries(workspace, send: send) + [
             isPinnedInAllProjects
                 ? .init(title: "Pin to “\(contextProjectName)” Only",
                     perform: { send(.setWorkspacePinScope(name, nil, projectId: contextProjectId)) })

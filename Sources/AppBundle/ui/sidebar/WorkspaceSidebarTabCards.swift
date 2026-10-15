@@ -438,6 +438,7 @@ struct WorkspaceSidebarEmptyTabRowView: View {
     private var savedApps: [WorkspaceSidebarSavedApp] { workspace.savedState?.apps ?? [] }
     private var title: String {
         if !workspace.sidebarLabel.isEmpty { return workspace.displayName }
+        if workspace.appearance.isFavorite, let link = workspace.appearance.link, !link.title.isEmpty { return link.title }
         return savedApps.isEmpty ? "Empty Tab" : workspaceSidebarSavedAppNames(savedApps)
     }
 

@@ -160,8 +160,8 @@ let pinDocumentChangedMessage = "The tab changed while WinMux read its window. N
 
 // MARK: - Which pin, in which state
 
-/// What a document operation or request was started for: a pin by name, that very workspace, and
-/// its appearance's revision then. Any write to that appearance since, Undo included, another
+/// What a document or link operation or request was started for: a pin by name, that very workspace,
+/// and its appearance's revision then. Any write to that appearance since, Undo included, another
 /// workspace under the name, or another organization store, makes it stale.
 @MainActor
 struct PinDocumentTarget {
@@ -202,6 +202,16 @@ func workspaceIsPinnedDocument(named name: String) -> Bool {
     workspaceSidebarOrganizationStore.state.workspaces[name].map { $0.isFavorite && $0.document != nil } == true
 }
 
+/// A pin that opens its own resource, a file or an address: never any window of its app, so it's no
+/// app's home, and saved routing sends it nothing.
+@MainActor
+func workspaceIsPinnedResource(_ workspace: Workspace) -> Bool { workspaceIsPinnedResource(named: workspace.name) }
+
+@MainActor
+func workspaceIsPinnedResource(named name: String) -> Bool {
+    workspaceSidebarOrganizationStore.state.workspaces[name].map { $0.isFavorite && $0.resource != nil } == true
+}
+
 /// The window a tab's document is taken from: its only window, in a tab that isn't a pinned split.
 @MainActor
 func pinDocumentSourceWindow(_ tab: Workspace) -> Result<Window, PinDocumentRefusal> {
@@ -214,7 +224,7 @@ func pinDocumentSourceWindow(_ tab: Workspace) -> Result<Window, PinDocumentRefu
 
 /// Whether `window` is still `tab`'s one window, and still the window WinMux knows by its number.
 @MainActor
-private func pinDocumentStillSource(_ tab: Workspace, _ window: Window) -> Bool {
+func pinDocumentStillSource(_ tab: Workspace, _ window: Window) -> Bool {
     guard case .success(let now) = pinDocumentSourceWindow(tab), now === window, window.isBound else { return false }
     return Window.get(byId: window.windowId) === window
 }
@@ -291,8 +301,24 @@ func capturePinDocument(from window: Window) async -> PinDocumentCapture {
 }
 
 @MainActor private var lastPinDocumentOperation: UInt64 = 0
-/// The Pin or Update of each tab under way: a newer one for the tab supersedes it.
+/// The Pin or Update of each tab under way, of a document or a link: a newer one for the tab
+/// supersedes it.
 @MainActor private var pinDocumentOperations: [String: UInt64] = [:]
+
+/// Starts a Pin or Update of the tab named `name`, superseding any under way.
+@MainActor
+func beginPinResourceOperation(_ name: String) -> UInt64 {
+    lastPinDocumentOperation &+= 1
+    pinDocumentOperations[name] = lastPinDocumentOperation
+    return lastPinDocumentOperation
+}
+
+/// Whether `operation` is still the tab's newest Pin or Update.
+@MainActor
+func isNewestPinResourceOperation(_ name: String, _ operation: UInt64) -> Bool { pinDocumentOperations[name] == operation }
+
+@MainActor
+func endPinResourceOperation(_ name: String, _ operation: UInt64) { endPinDocumentOperation(name, operation) }
 
 @MainActor
 private func endPinDocumentOperation(_ name: String, _ operation: UInt64) {
@@ -315,9 +341,7 @@ func pinDocumentFromSidebar(_ name: String, updating: Bool) {
         case .failure(let refusal): return showPinDocumentNotice(title, refusal.message)
     }
     let target = PinDocumentTarget(tab)
-    lastPinDocumentOperation &+= 1
-    let operation = lastPinDocumentOperation
-    pinDocumentOperations[name] = operation
+    let operation = beginPinResourceOperation(name)
     _ = Task { @MainActor in
         let capture = await capturePinDocument(from: window)
         // A newer Pin or Update of this tab took over: it reports.
@@ -357,7 +381,7 @@ func forgetPinDocumentFromSidebar(_ name: String) {
 /// Runs `checkAndWrite` in its own session, once that session's turn comes: synchronous, so nothing
 /// changes between its last check and its write. It returns what to tell the user, if anything.
 @MainActor
-private func runPinDocumentWrite(_ title: String, _ checkAndWrite: @escaping @MainActor () -> String?) {
+func runPinDocumentWrite(_ title: String, _ checkAndWrite: @escaping @MainActor () -> String?) {
     guard let token: RunSessionGuard = .isServerEnabled else { return }
     _ = Task { @MainActor in
         var message: String?
@@ -380,9 +404,15 @@ private func runPinDocumentWrite(_ title: String, _ checkAndWrite: @escaping @Ma
 /// fails. Undo, recorded only on success, puts back exactly this. Returns the failure's message.
 @MainActor
 func commitWorkspaceSidebarPinDocument(_ tab: Workspace, _ document: WorkspaceSidebarPinDocument?, title: String) -> String? {
+    commitWorkspaceSidebarPinResource(tab, document.map(WorkspaceSidebarPinResource.file), title: title)
+}
+
+/// The same write for any resource: a file or an address replaces whatever the pin had; nil forgets it.
+@MainActor
+func commitWorkspaceSidebarPinResource(_ tab: Workspace, _ resource: WorkspaceSidebarPinResource?, title: String) -> String? {
     let store = workspaceSidebarOrganizationStore
     let isPinned = store.state.workspaces[tab.name]?.isFavorite == true
-    let pins = document != nil && !isPinned
+    let pins = resource != nil && !isPinned
     guard pins || isPinned else { return nil }
     let savedBefore = savedWorkspaceStore.file
     let runtimeBefore = SavedWorkspaceRuntimeIdentityState()
@@ -407,7 +437,7 @@ func commitWorkspaceSidebarPinDocument(_ tab: Workspace, _ document: WorkspaceSi
                 // A pinned tab leaves its group, as pinning always has.
                 for index in state.collections.indices { state.collections[index].workspaceNames.removeAll { $0 == tab.name } }
             }
-            state.workspaces[tab.name]?.document = document
+            state.workspaces[tab.name]?.resource = resource
         }
     } catch {
         // Nothing has used the new identity yet: this is the same main-actor turn.

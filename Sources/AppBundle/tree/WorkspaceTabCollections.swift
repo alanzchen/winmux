@@ -68,14 +68,33 @@ struct WorkspaceSidebarItemAppearance: Codable, Hashable {
     /// Tabs mode, a pin made with Pin Document: the file its one window showed, which a click on the
     /// pin with no window opens again, in the same app. Means something only while pinned.
     var document: WorkspaceSidebarPinDocument? = nil
+    /// Tabs mode, a pin made with Pin Page, Pin Message and the like, or New Link Pin: the address of
+    /// a page or an app's item, which a click on the pin with no window opens again. Never set together
+    /// with `document`. Means something only while pinned.
+    var link: WorkspaceSidebarPinLink? = nil
 
     var isPinnedInAllProjects: Bool { isFavorite && pinScope == .allProjects }
 
+    /// The pin's resource, whichever kind: what a click on it with no window opens. Setting it replaces
+    /// the other kind.
+    var resource: WorkspaceSidebarPinResource? {
+        get { document.map(WorkspaceSidebarPinResource.file) ?? link.map(WorkspaceSidebarPinResource.link) }
+        set {
+            document = nil
+            link = nil
+            switch newValue {
+                case .file(let file): document = file
+                case .link(let address): link = address
+                case nil: break
+            }
+        }
+    }
+
     /// A new pin goes after the arranged pins, among its project's, and an unpinned tab forgets
-    /// its place and its scope, the windows it lent or would bring back, and its document.
+    /// its place and its scope, the windows it lent or would bring back, and its resource.
     mutating func setFavorite(_ favorite: Bool) {
         if favorite != isFavorite { pinOrder = nil; pinScope = nil }
-        if !favorite { lentWindow = nil; composition = nil; document = nil }
+        if !favorite { lentWindow = nil; composition = nil; document = nil; link = nil }
         isFavorite = favorite
     }
 
@@ -106,6 +125,75 @@ struct WorkspaceSidebarPinDocument: Codable, Hashable {
     var name: String
     var fileId: UInt64? = nil
     var volume: String? = nil
+}
+
+/// What a pin opens when it has no window: a file, or an address.
+enum WorkspaceSidebarPinResource: Hashable {
+    case file(WorkspaceSidebarPinDocument)
+    case link(WorkspaceSidebarPinLink)
+
+    /// Its mark in the corner of the pin's tile.
+    var symbolName: String {
+        switch self {
+            case .file: "doc.fill"
+            case .link(let link): link.url.lowercased().hasPrefix("http") ? "globe" : "link"
+        }
+    }
+
+    var pinHelp: String {
+        switch self {
+            case .file(let document): "Pinned document: \(document.name)"
+            case .link(let link): "Pinned link: \(link.title)"
+        }
+    }
+}
+
+/// A pinned address, kept exactly as it was taken or typed: a page in a browser, or an item in an
+/// app, such as a message or a note. What the pin knows of a browser's window or tab is only for
+/// this session and never kept here. A file written by a newer WinMux, with a newer `version`, is
+/// read but not opened.
+struct WorkspaceSidebarPinLink: Codable, Hashable {
+    static let currentVersion = 1
+
+    var version: Int = Self.currentVersion
+    /// The full address, never shortened or cleaned of its query.
+    var url: String
+    /// What the pin calls it: the page's or item's title when taken, or the name typed for it.
+    var title: String
+    /// The adapter that took it, and opens it: `safari`, `chromium`, `mail`, `notes`, … or `link`.
+    var adapter: String
+    /// The app it was taken in, or that opens it; nil for the system's choice.
+    var bundleId: String? = nil
+    /// `window` when taken from a tab's window, `manual` when typed or pasted.
+    var source: Source = .manual
+
+    enum Source: String, Codable, Hashable {
+        case window
+        case manual
+    }
+
+    init(url: String, title: String, adapter: String, bundleId: String? = nil, source: Source = .manual) {
+        self.url = url
+        self.title = title
+        self.adapter = adapter
+        self.bundleId = bundleId
+        self.source = source
+    }
+
+    /// Never fails: a link a newer WinMux wrote, or a damaged one, must not keep the rest of the
+    /// organization from loading. What it lacks makes it a link the pin won't open.
+    init(from decoder: Decoder) throws {
+        let values = try? decoder.container(keyedBy: CodingKeys.self)
+        version = (try? values?.decodeIfPresent(Int.self, forKey: .version)) ?? Self.currentVersion
+        url = (try? values?.decodeIfPresent(String.self, forKey: .url)) ?? ""
+        title = (try? values?.decodeIfPresent(String.self, forKey: .title)) ?? ""
+        adapter = (try? values?.decodeIfPresent(String.self, forKey: .adapter)) ?? ""
+        bundleId = try? values?.decodeIfPresent(String.self, forKey: .bundleId)
+        source = (try? values?.decodeIfPresent(String.self, forKey: .source)).flatMap(Source.init(rawValue:)) ?? .manual
+    }
+
+    /// Whether this WinMux can open it: a version it knows, and an address.
+    var isReadable: Bool { version <= Self.currentVersion && !url.isEmpty }
 }
 
 /// A pinned split: its layout as it was split, and its windows away now, back alone in their own pins,

@@ -106,27 +106,38 @@ let newWindowScriptTimeout: TimeInterval = 60
 
 /// Runs the script in `osascript` so a first-time permission prompt never blocks WinMux.
 func runNewWindowScript(_ source: String, timeout: TimeInterval = newWindowScriptTimeout) async -> NewWindowScriptResult {
+    await runAppleScript(source, timeout: timeout).result
+}
+
+/// Runs `source` in `osascript`, with `arguments` as its run handler's `argv`, so text such as an
+/// address is never part of the script itself. Returns the script's answer too.
+func runAppleScript(_ source: String, arguments: [String] = [], timeout: TimeInterval = newWindowScriptTimeout) async
+    -> (result: NewWindowScriptResult, output: String)
+{
     await withCheckedContinuation { continuation in
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-        process.arguments = ["-e", source]
+        process.arguments = ["-e", source] + arguments
         let errorPipe = Pipe()
+        let outputPipe = Pipe()
         process.standardError = errorPipe
-        process.standardOutput = FileHandle.nullDevice
+        process.standardOutput = outputPipe
         let state = NewWindowScriptState(continuation)
         process.terminationHandler = { finished in
             let stderr = String(data: errorPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-            state.resume(newWindowScriptResult(exitStatus: finished.terminationStatus, stderr: stderr))
+            let stdout = String(data: outputPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            state.resume((newWindowScriptResult(exitStatus: finished.terminationStatus, stderr: stderr),
+                stdout.trimmingCharacters(in: .newlines)))
         }
         do {
             try process.run()
         } catch {
-            state.resume(.failed(error.localizedDescription))
+            state.resume((.failed(error.localizedDescription), ""))
             return
         }
         DispatchQueue.global().asyncAfter(deadline: .now() + timeout) {
             if process.isRunning { process.terminate() }
-            state.resume(.failed("The app didn't respond"))
+            state.resume((.failed("The app didn't respond"), ""))
         }
     }
 }
@@ -134,11 +145,13 @@ func runNewWindowScript(_ source: String, timeout: TimeInterval = newWindowScrip
 /// Resumes the continuation once, whichever of termination or timeout comes first.
 private final class NewWindowScriptState: @unchecked Sendable {
     private let lock = NSLock()
-    private var continuation: CheckedContinuation<NewWindowScriptResult, Never>?
+    private var continuation: CheckedContinuation<(result: NewWindowScriptResult, output: String), Never>?
 
-    init(_ continuation: CheckedContinuation<NewWindowScriptResult, Never>) { self.continuation = continuation }
+    init(_ continuation: CheckedContinuation<(result: NewWindowScriptResult, output: String), Never>) {
+        self.continuation = continuation
+    }
 
-    func resume(_ result: NewWindowScriptResult) {
+    func resume(_ result: (result: NewWindowScriptResult, output: String)) {
         lock.lock()
         let pending = continuation
         continuation = nil
@@ -417,13 +430,13 @@ func watchNewWindowIntentExpiry(_ intentId: Int) async {
     }
 }
 
-private struct NewWindowLaunch {
+struct NewWindowLaunch {
     var app: NSRunningApplication?
     var failure: String?
 }
 
 @MainActor
-private func launchApplication(_ target: NewWindowRequestTarget, activates: Bool) async -> NewWindowLaunch {
+func launchApplication(_ target: NewWindowRequestTarget, activates: Bool) async -> NewWindowLaunch {
     let url = target.bundleURL ?? NSWorkspace.shared.urlForApplication(withBundleIdentifier: target.bundleId)
     guard let url else { return NewWindowLaunch(failure: "\(target.appName) isn't installed") }
     let configuration = NSWorkspace.OpenConfiguration()
@@ -439,7 +452,7 @@ private func launchApplication(_ target: NewWindowRequestTarget, activates: Bool
 /// Waits for launch to finish, then until the app stops opening the windows it restores:
 /// its window list unchanged for most of a second, or six seconds at most.
 @MainActor
-private func waitUntilSettled(_ app: NSRunningApplication) async {
+func waitUntilSettled(_ app: NSRunningApplication) async {
     for _ in 0..<150 {
         if app.isFinishedLaunching { break }
         try? await Task.sleep(for: .milliseconds(100))

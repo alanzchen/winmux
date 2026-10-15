@@ -981,9 +981,11 @@ func openSavedTabApps(_ tab: Workspace, requestNewWindow: @MainActor (NewWindowR
         if let message = savedTabAppFailureMessage(outcome, appName: target.appName) { showWorkspaceSidebarError(message) }
     }
 }) {
-    // A pinned document opens its own file, never just its app.
-    if let document = workspaceSidebarOrganizationStore.state.workspaces[tab.name].flatMap({ $0.isFavorite ? $0.document : nil }) {
-        return openPinnedDocument(tab, document)
+    // A pinned document or link opens its own file or address, never just its app.
+    switch workspaceSidebarOrganizationStore.state.workspaces[tab.name].flatMap({ $0.isFavorite ? $0.resource : nil }) {
+        case .file(let document): return openPinnedDocument(tab, document)
+        case .link(let link): return openPinnedLink(tab, link)
+        case nil: break
     }
     let apps = workspaceSidebarDistinctSavedApps(workspaceSidebarSavedApps(for: tab))
     let runningApps = savedWorkspaceRuntime.environment.runningApps()

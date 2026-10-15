@@ -13,6 +13,41 @@ enum NewWindowRequestOutcome: Equatable {
     case cancelled
 }
 
+/// A pinned page opened again in a fresh browser window: which window the request made, learned only
+/// from the request itself once the browser has answered (the window number Safari returns, or the
+/// one window the browser's process gained meanwhile), never from a window's being merely new or
+/// showing the same address. Undecided while the browser hasn't answered; decided with no window when
+/// that couldn't be told for sure.
+@MainActor
+final class PinPageExpectation {
+    let url: String
+    private(set) var windowId: UInt32?
+    private(set) var isDecided = false
+
+    init(url: String) { self.url = url }
+
+    /// Once only: a later answer changes nothing.
+    func decide(_ windowId: UInt32?) {
+        guard !isDecided else { return }
+        self.windowId = windowId
+        isDecided = true
+    }
+}
+
+/// How long detection holds a new browser window for a pinned page's request to say whether it's
+/// the window it made. Past it, the window is placed as any other.
+let pinPageDecisionWait: TimeInterval = 3
+
+/// Waits until the request has said which window it made, or `pinPageDecisionWait` passes.
+/// Replaceable for tests.
+@MainActor
+var waitForPinPageDecision: @MainActor (PinPageExpectation) async -> Void = { page in
+    let deadline = ProcessInfo.processInfo.systemUptime + pinPageDecisionWait
+    while !page.isDecided, ProcessInfo.processInfo.systemUptime < deadline {
+        try? await Task.sleep(nanoseconds: 50_000_000)
+    }
+}
+
 /// "The next new regular window of this app goes to this workspace." Registered before WinMux
 /// asks the app for a window, so the window can't be placed anywhere else first.
 @MainActor
@@ -41,6 +76,8 @@ final class NewWindowIntent {
     var focusWhenSent: NewWindowFocusSnapshot?
     /// A pinned document opened again: only a window showing this very file is the one asked for.
     let document: PinDocumentIdentity?
+    /// A pinned page opened again: only the window the request made is the one asked for.
+    let page: PinPageExpectation?
     /// Whether the request still stands: a pinned document's pin unchanged since. Once it doesn't, the
     /// request is withdrawn, waiting or claimed, and its window follows the usual rules.
     let isStillWanted: (@MainActor () -> Bool)?
@@ -50,7 +87,7 @@ final class NewWindowIntent {
 
     init(id: Int, bundleId: String, pid: Int32?, targetWorkspaceId: WorkspaceId, preexistingWindowIds: Set<UInt32>,
          createdUptime: TimeInterval, deadlineUptime: TimeInterval, focusGeneration: UInt64, reopens: Bool = false,
-         instancePidsAtRequest: Set<Int32> = [], document: PinDocumentIdentity? = nil,
+         instancePidsAtRequest: Set<Int32> = [], document: PinDocumentIdentity? = nil, page: PinPageExpectation? = nil,
          completion: ((NewWindowRequestOutcome) -> Void)?, isStillWanted: (@MainActor () -> Bool)? = nil) {
         self.id = id
         self.bundleId = bundleId
@@ -63,6 +100,7 @@ final class NewWindowIntent {
         self.reopens = reopens
         self.instancePidsAtRequest = instancePidsAtRequest
         self.document = document
+        self.page = page
         self.isStillWanted = isStillWanted
         self.completion = completion
     }
@@ -175,6 +213,7 @@ final class NewWindowIntentRegistry {
         reopens: Bool = false,
         instancePidsAtRequest: Set<Int32> = [],
         document: PinDocumentIdentity? = nil,
+        page: PinPageExpectation? = nil,
         completion: ((NewWindowRequestOutcome) -> Void)? = nil,
         isStillWanted: (@MainActor () -> Bool)? = nil,
     ) -> NewWindowIntent? {
@@ -184,7 +223,7 @@ final class NewWindowIntentRegistry {
         let intent = NewWindowIntent(id: nextId, bundleId: bundleId, pid: pid, targetWorkspaceId: targetWorkspace.id,
             preexistingWindowIds: preexistingWindowIds, createdUptime: created, deadlineUptime: created + timeout,
             focusGeneration: focusGeneration, reopens: reopens, instancePidsAtRequest: instancePidsAtRequest,
-            document: document, completion: completion, isStillWanted: isStillWanted)
+            document: document, page: page, completion: completion, isStillWanted: isStillWanted)
         nextId += 1
         intents.append(intent)
         return intent
@@ -195,6 +234,19 @@ final class NewWindowIntentRegistry {
     func hasDocumentIntent(bundleId: String?) -> Bool {
         guard let bundleId else { return false }
         return intents.contains { $0.bundleId == bundleId && $0.document != nil }
+    }
+
+    /// The pinned page waiting for this app's next window, if `windowId` could be it: a window of the
+    /// process asked, not there before the request, and first seen after it. Detection waits for the
+    /// browser's answer before it decides, rather than place the window by guess.
+    func pendingPageExpectation(windowId: UInt32, pid: Int32, bundleId: String?, firstSeenUptime: TimeInterval)
+        -> PinPageExpectation?
+    {
+        guard let bundleId else { return nil }
+        return intents.first { intent in
+            intent.page != nil && intent.bundleId == bundleId && (intent.pid.map { $0 == pid } ?? true) &&
+                !intent.preexistingWindowIds.contains(windowId) && firstSeenUptime >= intent.createdUptime
+        }?.page
     }
 
     /// Reserves a newly seen window for the intent waiting for it and returns its workspace.
@@ -220,7 +272,8 @@ final class NewWindowIntentRegistry {
                       !intent.preexistingWindowIds.contains(windowId) &&
                       // A window first seen before the request, promoted from a popup now, isn't it.
                       firstSeenUptime >= intent.createdUptime &&
-                      (intent.document.map { expected in PinDocumentIdentity(axDocument: document) == expected } ?? true)
+                      (intent.document.map { expected in PinDocumentIdentity(axDocument: document) == expected } ?? true) &&
+                      (intent.page.map { $0.isDecided && $0.windowId == windowId } ?? true)
               })
         else { return nil }
         let intent = intents.remove(at: index)

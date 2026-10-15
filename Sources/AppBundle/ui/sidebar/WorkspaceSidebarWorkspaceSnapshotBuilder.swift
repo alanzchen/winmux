@@ -129,8 +129,16 @@ func workspaceSidebarSavedState(for workspace: Workspace, runningApps: [String: 
             savedWorkspaceAppDisplayName(bundleId: app.bundleId, appName: app.appName, bundlePath: app.bundlePath)
         },
         keepWhenEmpty: record.keepWhenEmpty != false,
-        apps: workspaceSidebarSavedApps(for: workspace),
+        apps: workspaceSidebarPinnedLinkApp(workspace).map { [$0] } ?? workspaceSidebarSavedApps(for: workspace),
     )
+}
+
+/// A pinned link opens in its own app, whatever apps the tab had: that app is the one its tile shows.
+@MainActor
+func workspaceSidebarPinnedLinkApp(_ workspace: Workspace) -> WorkspaceSidebarSavedApp? {
+    workspaceSidebarOrganizationStore.state.workspaces[workspace.name]
+        .flatMap { $0.isFavorite ? $0.link : nil }
+        .flatMap(workspaceSidebarPinLinkApp)
 }
 
 /// The apps a saved tab opens in: those of its saved windows, one per window, then any others its

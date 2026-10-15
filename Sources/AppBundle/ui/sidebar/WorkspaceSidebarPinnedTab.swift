@@ -158,9 +158,11 @@ struct WorkspaceSidebarPinnedTab: View {
                         .contentShape(Rectangle())
                     }.buttonStyle(.plain)
                         .help(workspace.appearance.document.map { "Open “\($0.name)” in \(appNames)" }
+                            ?? workspace.appearance.link.map { "Open “\($0.title)” in \(appNames)" }
                             ?? (savedApps.isEmpty ? workspace.displayName : "Open \(appNames)"))
                         .accessibilityLabel(savedApps.isEmpty ? workspace.displayName : "\(workspace.displayName), \(appNames) not open")
-                        .accessibilityHint(workspace.appearance.document.map { "Opens \($0.name)" } ?? (savedApps.isEmpty ? "" : "Opens \(appNames)"))
+                        .accessibilityHint(workspace.appearance.document.map { "Opens \($0.name)" }
+                            ?? workspace.appearance.link.map { "Opens \($0.title)" } ?? (savedApps.isEmpty ? "" : "Opens \(appNames)"))
                         .sidebarIdentityMenu(.workspace(workspace.name))
                 } else {
                     ForEach(displayedWindows) { window in
@@ -206,14 +208,14 @@ struct WorkspaceSidebarPinnedTab: View {
         .overlay {
             WorkspaceSidebarTabSelectionHighlight(isSelected: selection.contains(workspace.name), cornerRadius: compact ? 8 : 13)
         }
-        // A pinned document: a small page in the corner nothing else takes.
+        // A pinned document or link: a small page or link in the corner nothing else takes.
         .overlay(alignment: .topLeading) {
-            if workspace.appearance.isFavorite, let document = workspace.appearance.document {
-                Image(systemName: "doc.fill")
+            if workspace.appearance.isFavorite, let resource = workspace.appearance.resource {
+                Image(systemName: resource.symbolName)
                     .font(.system(size: compact ? 7 : 9, weight: .semibold))
                     .foregroundStyle(.secondary)
                     .padding(compact ? 2 : 5)
-                    .help("Pinned document: \(document.name)")
+                    .help(resource.pinHelp)
                     .accessibilityHidden(true)
             }
         }
