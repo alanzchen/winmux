@@ -28,65 +28,128 @@ struct PinPageWindowRead: Equatable, Sendable {
     var showsSeveralPages = false
 }
 
-/// At most this many elements are read looking for a Safari window's page or its private marker.
-private let pinPageReadLimit = 400
+/// At most this many elements are read looking for a Safari window's page or its private marker. The
+/// page's own content is never walked: its area ends the search there.
+let pinPageReadLimit = 400
 
-/// Reads `window` of a browser of `adapter`'s kind. Runs on the app's AX thread.
-func readPinPageWindow(_ window: AXUIElement, adapter: BrowserTabAdapter) -> PinPageWindowRead {
-    AXUIElementSetMessagingTimeout(window, 0.2)
-    defer { AXUIElementSetMessagingTimeout(window, 1.0) }
-    let title = pinPageString(window, kAXTitleAttribute)
+/// One element of a browser window, as the page reader reads it. `NativePinPageNode` reads accessibility;
+/// tests bring their own.
+protocol PinPageAXNode {
+    /// The attribute's text: nil when the element has none, `unreadable` when the read failed otherwise.
+    func text(_ attribute: String) -> (value: String?, unreadable: Bool)
+    /// Nil when the children couldn't be read.
+    func children() -> [Self]?
+}
+
+struct NativePinPageNode: PinPageAXNode {
+    let element: AXUIElement
+
+    func text(_ attribute: String) -> (value: String?, unreadable: Bool) {
+        AXUIElementSetMessagingTimeout(element, 0.1)
+        var value: CFTypeRef?
+        let error = AXUIElementCopyAttributeValue(element, attribute as CFString, &value)
+        if error == .noValue || error == .attributeUnsupported { return (nil, false) }
+        guard error == .success, let value else { return (nil, true) }
+        if let string = value as? String { return (string, false) }
+        if CFGetTypeID(value) == CFURLGetTypeID() { return ((value as! NSURL).absoluteString, false) }
+        return (nil, false)
+    }
+
+    func children() -> [Self]? {
+        AXUIElementSetMessagingTimeout(element, 0.1)
+        var value: CFTypeRef?
+        let error = AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &value)
+        if error == .noValue || error == .attributeUnsupported { return [] }
+        guard error == .success, let list = value as? [AXUIElement] else { return nil }
+        return list.map { Self(element: $0) }
+    }
+}
+
+/// Reads `window` of a browser of `adapter`'s kind. Runs on the app's AX thread, or off the main thread.
+/// A Safari window is normal only once its toolbar was found and everything around its page was read
+/// without the private marker: a read that failed, or a search cut short, leaves it unknown, never normal.
+func readPinPageWindow<Node: PinPageAXNode>(_ window: Node, adapter: BrowserTabAdapter) -> PinPageWindowRead {
+    let title = window.text(kAXTitleAttribute).value
     switch adapter {
         case .chromium:
             let incognito = title?.contains("(Incognito)") == true
-            return .init(url: pinPageString(window, kAXDocumentAttribute), title: title, privacy: incognito ? .private : .unknown)
+            return .init(url: window.text(kAXDocumentAttribute).value, title: title, privacy: incognito ? .private : .unknown)
         case .safari:
             var urls: [String] = []
-            var privacy: PinPagePrivacy = title?.hasSuffix(", Private Browsing") == true ? .private : .unknown
+            var isPrivate = title?.hasSuffix(", Private Browsing") == true
             var sawToolbar = false
-            var queue: [(element: AXUIElement, inToolbar: Bool)] = [(window, false)]
+            var isComplete = true
+            var queue: [(node: Node, inToolbar: Bool)] = [(window, false)]
             var visited = 0
-            while !queue.isEmpty, visited < pinPageReadLimit {
-                let (element, inToolbar) = queue.removeFirst()
+            while !queue.isEmpty {
+                guard visited < pinPageReadLimit else {
+                    isComplete = false
+                    break
+                }
+                let (node, inToolbar) = queue.removeFirst()
                 visited += 1
-                AXUIElementSetMessagingTimeout(element, 0.1)
-                let role = pinPageString(element, kAXRoleAttribute)
-                if role == "AXWebArea" {
+                let role = node.text(kAXRoleAttribute)
+                if role.unreadable { isComplete = false }
+                if role.value == "AXWebArea" {
                     // A page's frames are inside its own area, never read as pages of their own.
-                    if let url = pinPageString(element, "AXURL"), !urls.contains(url) { urls.append(url) }
+                    if let url = node.text("AXURL").value, !urls.contains(url) { urls.append(url) }
                     continue
                 }
-                let isToolbar = role == kAXToolbarRole
+                let isToolbar = role.value == kAXToolbarRole
                 if isToolbar { sawToolbar = true }
-                if inToolbar || isToolbar, pinPageString(element, kAXIdentifierAttribute) == "Private" { privacy = .private }
-                var children: CFTypeRef?
-                guard AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &children) == .success,
-                      let list = children as? [AXUIElement] else { continue }
-                for child in list { queue.append((child, inToolbar || isToolbar)) }
+                if inToolbar || isToolbar {
+                    let identifier = node.text(kAXIdentifierAttribute)
+                    if identifier.unreadable { isComplete = false }
+                    if identifier.value == "Private" { isPrivate = true }
+                }
+                guard let children = node.children() else {
+                    isComplete = false
+                    continue
+                }
+                for child in children { queue.append((child, inToolbar || isToolbar)) }
             }
-            if privacy == .unknown, sawToolbar { privacy = .normal }
+            let privacy: PinPagePrivacy = isPrivate ? .private : sawToolbar && isComplete ? .normal : .unknown
             return .init(url: urls.count == 1 ? urls[0] : nil, title: title, privacy: privacy, showsSeveralPages: urls.count > 1)
     }
 }
 
-private func pinPageString(_ element: AXUIElement, _ name: String) -> String? {
-    var value: CFTypeRef?
-    guard AXUIElementCopyAttributeValue(element, name as CFString, &value) == .success, let value else { return nil }
-    if let string = value as? String { return string }
-    if CFGetTypeID(value) == CFURLGetTypeID() { return (value as! NSURL).absoluteString }
-    return nil
-}
-
 /// The windows a process lists for accessibility, by number: what a person sees as its windows, never
 /// the helper windows a browser keeps off screen (a new Chrome window brings four). Nil when the
-/// process didn't answer. Safe off the main thread.
+/// process didn't answer, or a window's number couldn't be read. Safe off the main thread.
 nonisolated func pinPageAXWindowNumbers(pid: Int32) -> Set<UInt32>? {
     let app = AXUIElementCreateApplication(pid)
     AXUIElementSetMessagingTimeout(app, 0.5)
     var raw: CFTypeRef?
     guard AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &raw) == .success,
           let windows = raw as? [AXUIElement] else { return nil }
-    return Set(windows.compactMap { $0.containingWindowId() })
+    // A window whose number can't be read might be the one looked for: then nothing is known.
+    let numbers = windows.map { $0.containingWindowId() }
+    guard !numbers.contains(nil) else { return nil }
+    return Set(numbers.compactMap { $0 })
+}
+
+/// The page the window numbered `windowId` of process `pid` shows now, read from that window by
+/// accessibility, whether or not WinMux has registered it. Nil when there's no such window or no one
+/// page. Safe off the main thread.
+nonisolated func pinPageAXWindowURL(pid: Int32, windowId: UInt32, adapter: BrowserTabAdapter) -> String? {
+    let app = AXUIElementCreateApplication(pid)
+    AXUIElementSetMessagingTimeout(app, 0.5)
+    var raw: CFTypeRef?
+    guard AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &raw) == .success,
+          let window = (raw as? [AXUIElement])?.first(where: { $0.containingWindowId() == windowId }) else { return nil }
+    return readPinPageWindow(NativePinPageNode(element: window), adapter: adapter).url
+}
+
+/// Whether two addresses are the same page: equal, or equal once the letter case of the scheme and the
+/// host, and an empty path, which is `/`, are set aside, as browsers report an address back. The query
+/// and the fragment count in full.
+func pinLinkAddressesMatch(_ a: String, _ b: String) -> Bool {
+    if a == b { return true }
+    guard let x = URLComponents(string: a), let y = URLComponents(string: b) else { return false }
+    func path(_ c: URLComponents) -> String { c.percentEncodedPath.isEmpty && c.host != nil ? "/" : c.percentEncodedPath }
+    return x.scheme?.lowercased() == y.scheme?.lowercased() && x.percentEncodedHost?.lowercased() == y.percentEncodedHost?.lowercased()
+        && x.port == y.port && x.percentEncodedUser == y.percentEncodedUser && x.percentEncodedPassword == y.percentEncodedPassword
+        && path(x) == path(y) && x.percentEncodedQuery == y.percentEncodedQuery && x.percentEncodedFragment == y.percentEncodedFragment
 }
 
 /// The title a browser gives a window, without the browser's own name or private suffix.

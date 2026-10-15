@@ -20,6 +20,10 @@ final class WorkspaceSidebarPinLinkTest: XCTestCase {
 
     private var notices: [WinMuxToastNotice] = []
     private var reads: [UInt32: PinPageWindowRead] = [:]
+    /// Reads given in turn before `reads` answers: a window that changes between two reads.
+    private var readQueue: [UInt32: [PinPageWindowRead]] = [:]
+    /// What each new window shows, read back once the browser names it.
+    private var windowURLs: [UInt32: String] = [:]
     private var readCount = 0
     private var scripts: [(source: String, arguments: [String])] = []
     private var answers: [(result: NewWindowScriptResult, output: String)] = []
@@ -38,6 +42,7 @@ final class WorkspaceSidebarPinLinkTest: XCTestCase {
         let read: @MainActor (Window) async -> PinPageWindowRead?
         let script: @MainActor (String, [String]) async -> (result: NewWindowScriptResult, output: String)
         let axWindows: @MainActor (Int32) async -> Set<UInt32>?
+        let windowURL: @MainActor (Int32, UInt32, BrowserTabAdapter) async -> String?
         let running: @MainActor (String) -> Int32?
         let launch: @MainActor (String, URL) async -> Int32?
         let handler: @MainActor (URL) -> (url: URL, bundleId: String?)?
@@ -62,7 +67,8 @@ final class WorkspaceSidebarPinLinkTest: XCTestCase {
         NewWindowIntentRegistry.shared.resetForTests()
         WorkspaceSidebarTabUndo.shared.clear()
         resetPinLinkAppCacheForTests()
-        saved = Saved(read: pinPageWindowRead, script: pinLinkScript, axWindows: pinPageAXWindows, running: pinPageRunningPid,
+        saved = Saved(read: pinPageWindowRead, script: pinLinkScript, axWindows: pinPageAXWindows, windowURL: pinPageWindowURL,
+            running: pinPageRunningPid,
             launch: pinPageLaunchBrowser, handler: pinLinkHandlerApp, open: openPinLinkURL, prompt: pinLinkPrompt,
             appURL: pinDocumentAppURL, notice: showWorkspaceSidebarNotice, decision: waitForPinPageDecision,
             adapters: pinLinkAdapters, savedStore: savedWorkspaceStore)
@@ -77,8 +83,14 @@ final class WorkspaceSidebarPinLinkTest: XCTestCase {
         pinPageWindowRead = { [unowned self] window in
             readCount += 1
             await readGate.pass()
+            if var queued = readQueue[window.windowId], !queued.isEmpty {
+                let read = queued.removeFirst()
+                readQueue[window.windowId] = queued
+                return read
+            }
             return reads[window.windowId]
         }
+        pinPageWindowURL = { [unowned self] _, windowId, _ in windowURLs[windowId] }
         pinLinkScript = { [unowned self] source, arguments in
             scripts.append((source, arguments))
             await scriptGate.pass()
@@ -107,6 +119,7 @@ final class WorkspaceSidebarPinLinkTest: XCTestCase {
             pinPageWindowRead = saved.read
             pinLinkScript = saved.script
             pinPageAXWindows = saved.axWindows
+            pinPageWindowURL = saved.windowURL
             pinPageRunningPid = saved.running
             pinPageLaunchBrowser = saved.launch
             pinLinkHandlerApp = saved.handler
@@ -491,6 +504,7 @@ final class WorkspaceSidebarPinLinkTest: XCTestCase {
         let tab = try emptyPinnedLink("page", safariLink)
         running[safariId] = safari.pid
         answers = [(.success, "77;77")]
+        windowURLs[77] = page
 
         openSavedTabApps(tab) { _, _ in XCTFail("The app alone is never asked for a window") }
 
@@ -534,6 +548,7 @@ final class WorkspaceSidebarPinLinkTest: XCTestCase {
         let tab = try emptyPinnedLink("page", link)
         running[chromeId] = chrome.pid
         axWindows = [[9], [9]]
+        windowURLs[9] = page.replacingOccurrences(of: "example.com", with: "EXAMPLE.com")
 
         openSavedTabApps(tab) { _, _ in }
 
@@ -674,9 +689,10 @@ final class WorkspaceSidebarPinLinkTest: XCTestCase {
         func titles(_ model: WorkspaceSidebarWorkspaceViewModel) -> [String] {
             workspaceSidebarPinResourceMenuEntries(model, send: { _ in }).map(\.title)
         }
-        XCTAssertEqual(titles(viewModel("a", windows: [(1, safariId)])), ["Pin Page", "Pin Link…"])
-        XCTAssertEqual(titles(viewModel("b", windows: [(1, chromeId)])), ["Pin Page", "Pin Link…"])
-        XCTAssertEqual(titles(viewModel("c", windows: [(1, mailId)])), ["Pin Message", "Pin Link…"])
+        XCTAssertEqual(titles(viewModel("a", windows: [(1, safariId)])), ["Pin Page", "Pin Document", "Pin Link…"])
+        XCTAssertEqual(titles(viewModel("b", windows: [(1, chromeId)])), ["Pin Page", "Pin Document", "Pin Link…"],
+            "A browser can show a file: Pin Document stays")
+        XCTAssertEqual(titles(viewModel("c", windows: [(1, mailId)])), ["Pin Message", "Pin Document", "Pin Link…"])
         XCTAssertEqual(titles(viewModel("d", windows: [(1, "com.example.editor")])), ["Pin Document", "Pin Link…"])
         XCTAssertEqual(titles(viewModel("e", windows: [(1, safariId), (2, safariId)])), ["Pin Document", "Pin Link…"])
         var pinned = WorkspaceSidebarItemAppearance()
@@ -699,7 +715,7 @@ final class WorkspaceSidebarPinLinkTest: XCTestCase {
             capture: { _ in .captured(url: "x-example-tasks://task/42", title: "Ship it") }))
         let tasks = TestApp(pid: 18801, bundleId: "com.example.tasks", name: "Tasks")
         XCTAssertEqual(workspaceSidebarPinResourceMenuEntries(viewModel("t", windows: [(1, "com.example.tasks")]), send: { _ in })
-            .map(\.title), ["Pin Task", "Pin Link…"])
+            .map(\.title), ["Pin Task", "Pin Document", "Pin Link…"])
         let (tab, _) = makeTab("t", windowId: 91, app: tasks)
 
         pinLinkFromWindowFromSidebar(tab.name, updating: false)
@@ -723,4 +739,133 @@ final class WorkspaceSidebarPinLinkTest: XCTestCase {
         XCTAssertEqual(WorkspaceSidebarPinResource.link(note).symbolName, "link")
         XCTAssertEqual(WorkspaceSidebarPinResource.link(safariLink).symbolName, "globe")
     }
+
+    // MARK: - Identity and privacy evidence, read fail-closed
+
+    func testANamedWindowThatDoesntShowThePageIsntTaken() async throws {
+        let registry = NewWindowIntentRegistry.shared
+        // Safari names window 77, but 77 shows another page: a window that took its place.
+        let tab = try emptyPinnedLink("page", safariLink)
+        running[safariId] = safari.pid
+        answers = [(.success, "77;77")]
+        windowURLs[77] = "https://example.com/elsewhere"
+        openSavedTabApps(tab) { _, _ in }
+        let told = await eventually { !self.notices.isEmpty }
+        XCTAssertTrue(told)
+        XCTAssertTrue(notices.first?.body.contains("couldn't tell which window") == true)
+        XCTAssertNil(registry.claim(windowId: 77, pid: safari.pid, bundleId: safariId, firstSeenUptime: registry.now()))
+
+        // A Chromium window gained that shows nothing WinMux can read isn't taken either.
+        let link = WorkspaceSidebarPinLink(url: page, title: "Report", adapter: "chromium", bundleId: chromeId, source: .window)
+        let other = try emptyPinnedLink("other", link)
+        running[chromeId] = chrome.pid
+        axWindows = [[9], [9]]
+        notices = []
+        openSavedTabApps(other) { _, _ in }
+        let toldAgain = await eventually { !self.notices.isEmpty }
+        XCTAssertTrue(toldAgain)
+        XCTAssertNil(registry.claim(windowId: 9, pid: chrome.pid, bundleId: chromeId, firstSeenUptime: registry.now()))
+    }
+
+    func testAnIncompleteListOfTheBrowsersWindowsDecidesNothing() async {
+        axWindows = [nil, nil, nil]
+        let made = await pinPageChromiumMadeWindow(pid: chrome.pid, before: [])
+        XCTAssertNil(made, "A list missing a window's number is no list")
+        axWindows = [[9], [9, 10], [9, 10]]
+        let several = await pinPageChromiumMadeWindow(pid: chrome.pid, before: [])
+        XCTAssertNil(several, "Two looks that disagree, then two windows: nothing")
+    }
+
+    func testAChromiumWindowThatChangedWhileTheBrowserWasAskedPinsNothing() async throws {
+        let cases: [(String, PinPageWindowRead, String)] = [
+            ("navigated", .init(url: "https://example.com/next", title: "Next - Google Chrome", privacy: .unknown),
+             "This window changed while WinMux checked it, so it pins nothing. Try again."),
+            ("incognito", .init(url: page, title: "Report - Google Chrome (Incognito)", privacy: .private), pinPagePrivateMessage),
+        ]
+        for (index, (name, after, message)) in cases.enumerated() {
+            let (tab, window) = makeTab(name, windowId: UInt32(140 + index), app: chrome)
+            readQueue[window.windowId] = [.init(url: page, title: "Report - Google Chrome", privacy: .unknown), after]
+            answers = [(.success, "normal\t\(page)")]
+            notices = []
+
+            pinLinkFromWindowFromSidebar(tab.name, updating: false)
+
+            let refused = await eventually { !self.notices.isEmpty }
+            XCTAssertTrue(refused, name)
+            XCTAssertEqual(notices.first?.body, message, name)
+            XCTAssertNil(appearance(name), name)
+        }
+    }
+
+    func testSafariIsNormalOnlyWhenEverythingAroundThePageWasRead() {
+        let page = FakeNode(attributes: [kAXRoleAttribute: "AXWebArea", "AXURL": self.page])
+        func window(toolbar: FakeNode?, extra: [FakeNode] = [], title: String = "Report") -> FakeNode {
+            FakeNode(attributes: [kAXRoleAttribute: kAXWindowRole, kAXTitleAttribute: title],
+                kids: (toolbar.map { [$0] } ?? []) + [FakeNode(attributes: [kAXRoleAttribute: "AXGroup"], kids: [page])] + extra)
+        }
+        let button = FakeNode(attributes: [kAXRoleAttribute: kAXButtonRole, kAXIdentifierAttribute: "Back"])
+        let toolbar = FakeNode(attributes: [kAXRoleAttribute: kAXToolbarRole], kids: [button])
+        func read(_ node: FakeNode) -> PinPageWindowRead { readPinPageWindow(node, adapter: .safari) }
+
+        XCTAssertEqual(read(window(toolbar: toolbar)), .init(url: self.page, title: "Report", privacy: .normal))
+        let marker = FakeNode(attributes: [kAXRoleAttribute: kAXStaticTextRole, kAXIdentifierAttribute: "Private"])
+        XCTAssertEqual(read(window(toolbar: FakeNode(attributes: [kAXRoleAttribute: kAXToolbarRole], kids: [button, marker]),
+            title: "Rapport, Navigation privée")).privacy, .private, "Whatever the title's language")
+        XCTAssertEqual(read(window(toolbar: nil)).privacy, .unknown, "No toolbar: nothing says it's normal")
+        XCTAssertEqual(read(window(toolbar: FakeNode(attributes: [kAXRoleAttribute: kAXToolbarRole], kids: nil))).privacy, .unknown,
+            "The toolbar's contents couldn't be read")
+        var unreadableId = button
+        unreadableId.unreadable = [kAXIdentifierAttribute]
+        XCTAssertEqual(read(window(toolbar: FakeNode(attributes: [kAXRoleAttribute: kAXToolbarRole], kids: [unreadableId]))).privacy,
+            .unknown, "An identifier in the toolbar couldn't be read")
+        var unreadableRole = FakeNode(attributes: [:])
+        unreadableRole.unreadable = [kAXRoleAttribute]
+        XCTAssertEqual(read(window(toolbar: toolbar, extra: [unreadableRole])).privacy, .unknown, "An element couldn't be read")
+        let crowd = (0 ..< pinPageReadLimit).map { _ in FakeNode(attributes: [kAXRoleAttribute: "AXGroup"]) }
+        XCTAssertEqual(read(window(toolbar: toolbar, extra: crowd)).privacy, .unknown, "The search was cut short")
+        let second = FakeNode(attributes: [kAXRoleAttribute: "AXWebArea", "AXURL": "https://example.com/other"])
+        let several = read(window(toolbar: toolbar, extra: [second]))
+        XCTAssertTrue(several.showsSeveralPages)
+        XCTAssertNil(several.url)
+    }
+
+    func testACancelledDetectionStopsWaitingForTheBrowsersAnswer() async throws {
+        let wait = try XCTUnwrap(saved?.decision)
+        let pending = PinPageExpectation(url: page)
+        let start = ProcessInfo.processInfo.systemUptime
+        let task = Task { @MainActor in await wait(pending) }
+        task.cancel()
+        await task.value
+        XCTAssertLessThan(ProcessInfo.processInfo.systemUptime - start, 1, "Not a spin until the deadline")
+        XCTAssertFalse(pending.isDecided)
+
+        let decided = PinPageExpectation(url: page)
+        let started = ProcessInfo.processInfo.systemUptime
+        let waiting = Task { @MainActor in await wait(decided) }
+        try await Task.sleep(for: .milliseconds(100))
+        decided.decide(7)
+        await waiting.value
+        XCTAssertLessThan(ProcessInfo.processInfo.systemUptime - started, 1, "Done once the answer is in")
+    }
+
+    func testAddressesMatchAsBrowsersReportThemBackButQueriesCountInFull() {
+        XCTAssertTrue(pinLinkAddressesMatch("https://Example.COM", "https://example.com/"))
+        XCTAssertTrue(pinLinkAddressesMatch(page, page))
+        XCTAssertFalse(pinLinkAddressesMatch(page, page.replacingOccurrences(of: "Q=Case", with: "q=case")))
+        XCTAssertFalse(pinLinkAddressesMatch(page, page.replacingOccurrences(of: "#Section-2", with: "")))
+        XCTAssertFalse(pinLinkAddressesMatch("https://example.com/a", "http://example.com/a"))
+    }
+}
+
+/// A browser window's element, for the page reader.
+private struct FakeNode: PinPageAXNode {
+    var attributes: [String: String] = [:]
+    var unreadable: Set<String> = []
+    var kids: [FakeNode]? = []
+
+    func text(_ attribute: String) -> (value: String?, unreadable: Bool) {
+        unreadable.contains(attribute) ? (nil, true) : (attributes[attribute], false)
+    }
+
+    func children() -> [FakeNode]? { kids }
 }

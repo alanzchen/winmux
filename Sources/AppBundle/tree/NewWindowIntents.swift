@@ -44,7 +44,8 @@ let pinPageDecisionWait: TimeInterval = 3
 var waitForPinPageDecision: @MainActor (PinPageExpectation) async -> Void = { page in
     let deadline = ProcessInfo.processInfo.systemUptime + pinPageDecisionWait
     while !page.isDecided, ProcessInfo.processInfo.systemUptime < deadline {
-        try? await Task.sleep(nanoseconds: 50_000_000)
+        // Detection cancelled: it stops waiting, and the window, undecided, isn't claimed.
+        do { try await Task.sleep(nanoseconds: 50_000_000) } catch { return }
     }
 }
 

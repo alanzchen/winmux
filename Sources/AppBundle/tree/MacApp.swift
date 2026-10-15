@@ -591,7 +591,11 @@ final class MacApp: AbstractApp {
     /// pinned page. Nil for a window of another app.
     func getPinPageWindowRead(_ windowId: UInt32) async throws -> PinPageWindowRead? {
         guard let adapter = BrowserTabAdapter(bundleId: rawAppBundleId) else { return nil }
-        return try await withWindow(windowId) { window, job in readPinPageWindow(window, adapter: adapter) }
+        return try await withWindow(windowId) { window, job in
+            // Short reads while it looks; the window's usual timeout afterwards.
+            defer { AXUIElementSetMessagingTimeout(window, 1.0) }
+            return readPinPageWindow(NativePinPageNode(element: window), adapter: adapter)
+        }
     }
 
     /// The window's type and, in the same AX call, the document it shows, for a pinned document

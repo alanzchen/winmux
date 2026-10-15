@@ -38,6 +38,13 @@ var pinPageAXWindows: @MainActor (Int32) async -> Set<UInt32>? = { pid in
     await Task.detached { pinPageAXWindowNumbers(pid: pid) }.value
 }
 
+/// The page the window numbered so of a process shows now, read from that window, registered or not.
+/// Replaceable for tests.
+@MainActor
+var pinPageWindowURL: @MainActor (Int32, UInt32, BrowserTabAdapter) async -> String? = { pid, windowId, browser in
+    await Task.detached { pinPageAXWindowURL(pid: pid, windowId: windowId, adapter: browser) }.value
+}
+
 /// The running, regular process of an app. Replaceable for tests.
 @MainActor
 var pinPageRunningPid: @MainActor (String) -> Int32? = { bundleId in
@@ -204,6 +211,13 @@ func capturePinPage(_ window: Window, browser: BrowserTabAdapter) async -> PinLi
                 case .private: return .refused(pinPageIncognitoMessage)
                 case .unknown:
                     return .refused("\(appName) no longer shows this page in a window WinMux can check, so it pins nothing.")
+            }
+            // The answer is about the windows showing the page when the browser was asked. This window
+            // must have shown it all along: read before, and again now, with nothing private about it.
+            let after = await pinPageWindowRead(window)
+            guard after?.url == url, after?.privacy == .unknown else {
+                return .refused(after?.privacy == .private ? pinPagePrivateMessage
+                    : "This window changed while WinMux checked it, so it pins nothing. Try again.")
             }
     }
     let title = pinPageDisplayTitle(read.title, appName: window.app.name) ?? URL(string: url)?.host ?? url
@@ -546,7 +560,18 @@ private func requestPinnedPageWindow(_ tab: Workspace, target: PinDocumentTarget
                 case .safari: made = pinPageSafariMadeWindow(answer.output)
                 case .chromium: made = await pinPageChromiumMadeWindow(pid: pid, before: intent.preexistingWindowIds)
             }
-            page.decide(made.flatMap { intent.preexistingWindowIds.contains($0) ? nil : $0 })
+            // The window the answer names, new since the request, must show the page it was sent: a
+            // window that took its place meanwhile doesn't.
+            if let candidate = made {
+                let isNew = !intent.preexistingWindowIds.contains(candidate)
+                let shows = isNew ? await pinPageWindowShows(link.url, pid: pid, windowId: candidate, browser: browser) : false
+                if !shows { made = nil }
+            }
+            guard target.isCurrent else {
+                page.decide(nil)
+                return registry.cancel(intentId: intentId)
+            }
+            page.decide(made)
             if page.windowId == nil {
                 registry.cancel(intentId: intentId, outcome: .failed("\(appName) opened “\(link.title)”, but WinMux couldn't tell "
                     + "which window it opened in, so that window went where new windows go."))
@@ -556,13 +581,28 @@ private func requestPinnedPageWindow(_ tab: Workspace, target: PinDocumentTarget
     }
 }
 
-/// The one window a Chromium browser gained for accessibility since `before`, once two looks agree. Nil
-/// if it gained several, as when someone opens another meanwhile, or none.
+/// Whether the window numbered `windowId` shows `url`, within the moment a new window takes to: the page
+/// the request sent it to, as the browser reports it back.
+@MainActor
+func pinPageWindowShows(_ url: String, pid: Int32, windowId: UInt32, browser: BrowserTabAdapter) async -> Bool {
+    for attempt in 0 ..< 12 {
+        if attempt > 0 {
+            do { try await Task.sleep(for: .milliseconds(150)) } catch { return false }
+        }
+        if let shown = await pinPageWindowURL(pid, windowId, browser), pinLinkAddressesMatch(shown, url) { return true }
+    }
+    return false
+}
+
+/// The one window a Chromium browser gained for accessibility since `before`, once two complete looks
+/// agree. Nil if it gained several, as when someone opens another meanwhile, or none.
 @MainActor
 func pinPageChromiumMadeWindow(pid: Int32, before: Set<UInt32>) async -> UInt32? {
     var last: Set<UInt32>?
     for attempt in 0 ..< 8 {
-        if attempt > 0 { try? await Task.sleep(for: .milliseconds(150)) }
+        if attempt > 0 {
+            do { try await Task.sleep(for: .milliseconds(150)) } catch { return nil }
+        }
         guard let windows = await pinPageAXWindows(pid) else { continue }
         let gained = windows.subtracting(before)
         if gained.count > 1 { return nil }
@@ -590,7 +630,7 @@ private func finishPinnedPageRequest(_ outcome: NewWindowRequestOutcome, target:
 
 /// Tabs mode: the identity menu's resource items for a tab. A pinned document's own; for a pinned link,
 /// Update … from Window when an adapter reads its one window, Edit Link… and Forget Link; otherwise Pin
-/// Page or Pin Message for a window an adapter reads, else Pin Document, and Pin Link….
+/// Page or Pin Message for a window an adapter reads, then Pin Document and Pin Link….
 @MainActor
 func workspaceSidebarPinResourceMenuEntries(_ workspace: WorkspaceSidebarWorkspaceViewModel,
                                             send: @escaping @MainActor (WorkspaceSidebarAction) -> Void) -> [WorkspaceSidebarAppMenuEntry] {
@@ -614,12 +654,12 @@ func workspaceSidebarPinResourceMenuEntries(_ workspace: WorkspaceSidebarWorkspa
             .init(title: "Forget Link", perform: { send(.forgetPinLink(name)) }),
         ]
     }
-    let capture: WorkspaceSidebarAppMenuEntry = adapter.map { adapter in
-        .init(title: "Pin \(adapter.itemName)", enabled: refusal == nil, perform: { send(.pinLinkFromWindow(name)) },
-            help: refusal.map { _ in splitHelp } ?? "Pins this tab to the \(adapter.itemName.lowercased()) its window shows")
-    } ?? workspaceSidebarPinDocumentMenuEntries(workspace, send: send)[0]
-    return [
-        capture,
+    // Pin Document stays for every window: a browser can show a file too.
+    let capture: [WorkspaceSidebarAppMenuEntry] = adapter.map { adapter in
+        [.init(title: "Pin \(adapter.itemName)", enabled: refusal == nil, perform: { send(.pinLinkFromWindow(name)) },
+            help: refusal.map { _ in splitHelp } ?? "Pins this tab to the \(adapter.itemName.lowercased()) its window shows")]
+    } ?? []
+    return capture + workspaceSidebarPinDocumentMenuEntries(workspace, send: send) + [
         .init(title: "Pin Link…", enabled: !isSplitPin, perform: { send(.editPinLink(name)) },
             help: isSplitPin ? splitHelp : "Pins this tab to a web page or an app's link you type or paste"),
     ]
