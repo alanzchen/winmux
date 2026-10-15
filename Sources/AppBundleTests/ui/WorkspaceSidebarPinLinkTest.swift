@@ -310,11 +310,14 @@ final class WorkspaceSidebarPinLinkTest: XCTestCase {
             let done = await eventually { self.appearance(name)?.link != nil || !self.notices.isEmpty }
             XCTAssertTrue(done, name)
             XCTAssertEqual(appearance(name)?.link != nil, pins, name)
+            if name == "both" { XCTAssertEqual(notices.first?.body, pinPageIncognitoMessage, "Says why, without the page") }
             XCTAssertEqual(scripts.first?.arguments, [page], "\(name): the address goes as an argument")
             XCTAssertEqual(scripts.first?.source.contains(page), false, "\(name): never into the script")
             XCTAssertEqual(scripts.first?.source.contains(#"tell application id "com.google.Chrome""#), true)
         }
         XCTAssertEqual(appearance("normal")?.link?.title, "Report", "Without the browser's name")
+        XCTAssertNil(appearance("both"))
+        XCTAssertEqual(pinPageChromiumPrivacy("incognito\t\(page)\nnormal\t\(page)", url: page), .private)
         XCTAssertEqual(appearance("normal")?.link?.adapter, "chromium")
     }
 

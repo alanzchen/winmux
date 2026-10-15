@@ -155,6 +155,7 @@ func pinLinkAdapter(forBundleId bundleId: String?) -> PinLinkAdapter? {
 }
 
 let pinPagePrivateMessage = "Pages in a private window aren't pinned: WinMux keeps nothing of private browsing."
+let pinPageIncognitoMessage = "This page is open in an Incognito window, so it isn't pinned: WinMux keeps nothing of private browsing."
 
 /// Only web pages are pinned from a browser's window, and opened in one.
 func pinLinkIsWebAddress(_ address: String) -> Bool {
@@ -199,7 +200,8 @@ func capturePinPage(_ window: Window, browser: BrowserTabAdapter) async -> PinLi
             }
             switch pinPageChromiumPrivacy(answer.output, url: url) {
                 case .normal: break
-                case .private: return .refused(pinPagePrivateMessage)
+                // This window, or another showing the same page: either way, it's open in Incognito.
+                case .private: return .refused(pinPageIncognitoMessage)
                 case .unknown:
                     return .refused("\(appName) no longer shows this page in a window WinMux can check, so it pins nothing.")
             }
