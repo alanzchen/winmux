@@ -22,8 +22,9 @@ final class WorkspaceSidebarPinLinkTest: XCTestCase {
     private var reads: [UInt32: PinPageWindowRead] = [:]
     /// Reads given in turn before `reads` answers: a window that changes between two reads.
     private var readQueue: [UInt32: [PinPageWindowRead]] = [:]
-    /// The processes of each app.
-    private var instances: [String: [Int32]] = [:]
+    /// What each process says of its windows' modes, in turn, and which processes were asked.
+    private var modeAnswers: [Result<[String], PinPageAskFailure>] = []
+    private var askedPids: [Int32] = []
     private let marker = "about:blank#winmux-TEST"
     private var readCount = 0
     private var scripts: [(source: String, arguments: [String])] = []
@@ -41,7 +42,7 @@ final class WorkspaceSidebarPinLinkTest: XCTestCase {
     private struct Saved {
         let read: @MainActor (Window) async -> PinPageWindowRead?
         let script: @MainActor (String, [String]) async -> (result: NewWindowScriptResult, output: String)
-        let instances: @MainActor (String) -> [Int32]
+        let modes: @MainActor (Int32) async -> Result<[String], PinPageAskFailure>
         let marker: @MainActor () -> String
         let running: @MainActor (String) -> Int32?
         let launch: @MainActor (String, URL) async -> Int32?
@@ -67,7 +68,7 @@ final class WorkspaceSidebarPinLinkTest: XCTestCase {
         NewWindowIntentRegistry.shared.resetForTests()
         WorkspaceSidebarTabUndo.shared.clear()
         resetPinLinkAppCacheForTests()
-        saved = Saved(read: pinPageWindowRead, script: pinLinkScript, instances: pinPageRunningPids, marker: pinPageNewWindowMarker,
+        saved = Saved(read: pinPageWindowRead, script: pinLinkScript, modes: pinPageChromiumModesOf, marker: pinPageNewWindowMarker,
             running: pinPageRunningPid,
             launch: pinPageLaunchBrowser, handler: pinLinkHandlerApp, open: openPinLinkURL, prompt: pinLinkPrompt,
             appURL: pinDocumentAppURL, notice: showWorkspaceSidebarNotice, decision: waitForPinPageDecision,
@@ -90,8 +91,10 @@ final class WorkspaceSidebarPinLinkTest: XCTestCase {
             }
             return reads[window.windowId]
         }
-        instances = [chromeId: [chrome.pid], safariId: [safari.pid]]
-        pinPageRunningPids = { [unowned self] bundleId in instances[bundleId] ?? [] }
+        pinPageChromiumModesOf = { [unowned self] pid in
+            askedPids.append(pid)
+            return modeAnswers.isEmpty ? .success(["normal"]) : modeAnswers.removeFirst()
+        }
         pinPageNewWindowMarker = { [unowned self] in marker }
         pinLinkScript = { [unowned self] source, arguments in
             scripts.append((source, arguments))
@@ -119,7 +122,7 @@ final class WorkspaceSidebarPinLinkTest: XCTestCase {
         if let saved {
             pinPageWindowRead = saved.read
             pinLinkScript = saved.script
-            pinPageRunningPids = saved.instances
+            pinPageChromiumModesOf = saved.modes
             pinPageNewWindowMarker = saved.marker
             pinPageRunningPid = saved.running
             pinPageLaunchBrowser = saved.launch
@@ -305,43 +308,39 @@ final class WorkspaceSidebarPinLinkTest: XCTestCase {
         XCTAssertFalse(notices.contains { $0.body.contains("example.com") || $0.title.contains("Report") })
     }
 
-    func testChromiumPinsOnlyWhileEveryWindowTheBrowserHasIsNormal() async throws {
-        let cases: [(String, String, String?)] = [
-            ("normal", "normal\nnormal", nil),
-            ("anyIncognito", "normal\nincognito", pinPageIncognitoOpenMessage("Google Chrome")),
-            ("none", "", "Google Chrome didn't say whether this is an Incognito window, so WinMux pins nothing."),
+    func testChromiumPinsOnlyWhileEveryWindowOfItsProcessIsNormal() async throws {
+        let cases: [(String, Result<[String], PinPageAskFailure>, String?)] = [
+            ("normal", .success(["normal", "normal"]), nil),
+            ("anyIncognito", .success(["normal", "incognito"]), pinPageIncognitoOpenMessage("Google Chrome")),
+            ("none", .success([]), "Google Chrome didn't say whether this is an Incognito window, so WinMux pins nothing."),
+            ("denied", .failure(.notAuthorized), nil),
+            ("failed", .failure(.failed("error -600")),
+             "Google Chrome didn't say whether this is an Incognito window, so WinMux pins nothing."),
         ]
         for (index, (name, answer, refusal)) in cases.enumerated() {
             let (tab, window) = makeTab(name, windowId: UInt32(40 + index), app: chrome)
             reads[window.windowId] = .init(url: page, title: "Report - Google Chrome", privacy: .unknown)
-            answers = [(.success, answer)]
-            scripts = []
+            modeAnswers = [answer]
+            askedPids = []
             notices = []
 
             pinLinkFromWindowFromSidebar(tab.name, updating: false)
 
             let done = await eventually { self.appearance(name)?.link != nil || !self.notices.isEmpty }
             XCTAssertTrue(done, name)
-            XCTAssertEqual(appearance(name)?.link != nil, refusal == nil, name)
-            XCTAssertEqual(notices.first?.body, refusal, name)
-            XCTAssertEqual(scripts.first?.arguments, [], "\(name): no address is sent or asked for")
-            XCTAssertEqual(scripts.first?.source, pinPageChromiumModeScript(bundleId: chromeId))
+            XCTAssertEqual(askedPids, [chrome.pid], "\(name): asked of this window's own process, nothing else")
+            if name == "normal" {
+                XCTAssertNotNil(appearance(name)?.link, name)
+            } else {
+                XCTAssertNil(appearance(name), name)
+                if let refusal { XCTAssertEqual(notices.first?.body, refusal, name) }
+                if name == "denied" { XCTAssertTrue(notices.first?.body.contains("Privacy & Security → Automation") == true, name) }
+            }
         }
         XCTAssertEqual(appearance("normal")?.link?.title, "Report", "Without the browser's name")
         XCTAssertEqual(appearance("normal")?.link?.adapter, "chromium")
+        XCTAssertTrue(scripts.isEmpty, "No script, so no address, is sent to the browser to pin")
         XCTAssertFalse(pinPageIncognitoOpenMessage("Google Chrome").contains("example.com"), "Says why, without the page")
-
-        // Two copies of the browser: "the" browser might not be this window's.
-        let (copies, window) = makeTab("copies", windowId: 49, app: chrome)
-        reads[window.windowId] = .init(url: page, title: "Report - Google Chrome", privacy: .unknown)
-        instances[chromeId] = [chrome.pid, 18502]
-        scripts = []
-        notices = []
-        pinLinkFromWindowFromSidebar(copies.name, updating: false)
-        let refused = await eventually { !self.notices.isEmpty }
-        XCTAssertTrue(refused)
-        XCTAssertTrue(scripts.isEmpty, "Not asked: the answer might be another copy's")
-        XCTAssertNil(appearance("copies"))
     }
 
     func testAnIncognitoTitleOrADeniedQuestionPinsNothing() async throws {
@@ -351,11 +350,11 @@ final class WorkspaceSidebarPinLinkTest: XCTestCase {
         let refused = await eventually { !self.notices.isEmpty }
         XCTAssertTrue(refused)
         XCTAssertEqual(notices.first?.body, pinPagePrivateMessage)
-        XCTAssertTrue(scripts.isEmpty, "Known private from its title: the browser isn't asked")
+        XCTAssertTrue(askedPids.isEmpty, "Known private from its title: the browser isn't asked")
 
         let (denied, deniedWindow) = makeTab("denied", windowId: 52, app: chrome)
         reads[deniedWindow.windowId] = .init(url: page, title: "Report - Google Chrome", privacy: .unknown)
-        answers = [(.notAuthorized, "")]
+        modeAnswers = [.failure(.notAuthorized)]
         notices = []
         pinLinkFromWindowFromSidebar(denied.name, updating: false)
         let told = await eventually { !self.notices.isEmpty }
@@ -702,11 +701,16 @@ final class WorkspaceSidebarPinLinkTest: XCTestCase {
         XCTAssertNil(pinPageSafariMadeWindow("none"))
         XCTAssertNil(pinPageSafariMadeWindow("55;55"))
         XCTAssertNil(pinPageSafariMadeWindow(""))
-        XCTAssertEqual(pinPageChromiumPrivacy("normal"), .normal)
-        XCTAssertEqual(pinPageChromiumPrivacy("normal\nnormal\n"), .normal)
-        XCTAssertEqual(pinPageChromiumPrivacy("normal\nincognito"), .private)
-        XCTAssertEqual(pinPageChromiumPrivacy("normal\nsomething else"), .private, "Anything but normal")
-        XCTAssertEqual(pinPageChromiumPrivacy(""), .unknown)
+        XCTAssertEqual(pinPageChromiumPrivacy(["normal"]), .normal)
+        XCTAssertEqual(pinPageChromiumPrivacy(["normal", "normal "]), .normal)
+        XCTAssertEqual(pinPageChromiumPrivacy(["normal", "incognito"]), .private)
+        XCTAssertEqual(pinPageChromiumPrivacy(["normal", "something else"]), .private, "Anything but normal")
+        XCTAssertEqual(pinPageChromiumPrivacy([""]), .private)
+        XCTAssertEqual(pinPageChromiumPrivacy([]), .unknown)
+        for check in ["if made is not {madeId} then return \"none\"", "if (count of tabs of window id madeId) is not 1 then return \"none\"",
+                      "set URL of (first tab of window id madeId whose URL is marker) to target"] {
+            XCTAssertTrue(pinPageSafariOpenScript.contains(check), "Safari's script checks: \(check)")
+        }
         XCTAssertTrue(pinPageWindowMarker().hasPrefix("about:blank#winmux-"))
         XCTAssertNotEqual(pinPageWindowMarker(), pinPageWindowMarker(), "One-time")
         XCTAssertEqual(pinPageDisplayTitle("Report - Google Chrome", appName: "Google Chrome"), "Report")
@@ -782,7 +786,7 @@ final class WorkspaceSidebarPinLinkTest: XCTestCase {
             let (tab, window) = makeTab(name, windowId: UInt32(140 + index), app: chrome)
             readQueue[window.windowId] = [.init(url: page, title: "Report - Google Chrome", privacy: .unknown)]
             reads[window.windowId] = after
-            answers = [(.success, "normal")]
+            modeAnswers = [.success(["normal"])]
             notices = []
 
             pinLinkFromWindowFromSidebar(tab.name, updating: false)

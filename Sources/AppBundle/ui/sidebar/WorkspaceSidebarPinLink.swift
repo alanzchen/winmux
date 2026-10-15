@@ -43,11 +43,10 @@ var pinPageRunningPid: @MainActor (String) -> Int32? = { bundleId in
         .first { $0.activationPolicy == .regular && !$0.isTerminated }?.processIdentifier
 }
 
-/// The processes of an app now, so a question for "the" app is known to reach the one meant.
-/// Replaceable for tests.
+/// A Chromium browser process's own answer: the mode of each of its windows. Replaceable for tests.
 @MainActor
-var pinPageRunningPids: @MainActor (String) -> [Int32] = { bundleId in
-    NSRunningApplication.runningApplications(withBundleIdentifier: bundleId).filter { !$0.isTerminated }.map(\.processIdentifier)
+var pinPageChromiumModesOf: @MainActor (Int32) async -> Result<[String], PinPageAskFailure> = { pid in
+    await Task.detached { pinPageChromiumModes(pid: pid) }.value
 }
 
 /// Launches a browser in the background and waits until it has put back its own windows. Its pid, or
@@ -196,21 +195,18 @@ func capturePinPage(_ window: Window, browser: BrowserTabAdapter) async -> PinLi
                 return .refused("WinMux can't tell whether this is a Private Browsing window, so it pins nothing.")
             }
         case .chromium:
-            guard let bundleId = window.app.rawAppBundleId else { return .refused("WinMux doesn't know which app shows this window.") }
-            // The browser is asked as "the" app: it must be this window's process, and the only one.
-            guard pinPageRunningPids(bundleId) == [window.app.pid] else {
-                return .refused("More than one copy of \(appName) is running, so WinMux can't ask the right one about this window.")
-            }
             // Only the browser can say a window isn't Incognito, whatever its language, and nothing ties its
-            // windows to this one. A window keeps its mode for its life: if every window the browser has is
-            // normal while this one is there, before and after, this one is normal.
-            let answer = await pinLinkScript(pinPageChromiumModeScript(bundleId: bundleId), [])
-            switch answer.result {
-                case .success: break
-                case .notAuthorized:
+            // windows to this one. A window keeps its mode for its life: if every window this window's own
+            // process has is normal while this one is there, before and after, this one is normal. The
+            // question goes to that process itself, not to whichever copy of the app answers to its name.
+            let answer = await pinPageChromiumModesOf(window.app.pid)
+            let modes: [String]
+            switch answer {
+                case .success(let answered): modes = answered
+                case .failure(.notAuthorized):
                     return .refused("To pin a page, WinMux asks \(appName) whether its windows are Incognito windows. Allow WinMux "
                         + "to control \(appName) in System Settings → Privacy & Security → Automation, then try again.")
-                case .failed:
+                case .failure:
                     return .refused("\(appName) didn't say whether this is an Incognito window, so WinMux pins nothing.")
             }
             let after = await pinPageWindowRead(window)
@@ -218,7 +214,7 @@ func capturePinPage(_ window: Window, browser: BrowserTabAdapter) async -> PinLi
                 return .refused(after?.privacy == .private ? pinPagePrivateMessage
                     : "This window changed while WinMux checked it, so it pins nothing. Try again.")
             }
-            switch pinPageChromiumPrivacy(answer.output) {
+            switch pinPageChromiumPrivacy(modes) {
                 case .normal: break
                 case .private: return .refused(pinPageIncognitoOpenMessage(appName))
                 case .unknown: return .refused("\(appName) didn't say whether this is an Incognito window, so WinMux pins nothing.")
