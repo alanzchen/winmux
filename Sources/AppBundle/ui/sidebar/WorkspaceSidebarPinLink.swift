@@ -32,18 +32,15 @@ var pinLinkScript: @MainActor (String, [String]) async -> (result: NewWindowScri
     await runAppleScript(source, arguments: arguments)
 }
 
-/// The windows a process lists for accessibility. Replaceable for tests.
+/// The windows of a process that show exactly an address, read from each window. Replaceable for tests.
 @MainActor
-var pinPageAXWindows: @MainActor (Int32) async -> Set<UInt32>? = { pid in
-    await Task.detached { pinPageAXWindowNumbers(pid: pid) }.value
+var pinPageWindowsShowing: @MainActor (Int32, String, BrowserTabAdapter) async -> [UInt32]? = { pid, url, browser in
+    await Task.detached { pinPageAXWindowsShowing(pid: pid, url: url, adapter: browser) }.value
 }
 
-/// The page the window numbered so of a process shows now, read from that window, registered or not.
-/// Replaceable for tests.
+/// The marker a pinned page's fresh window first shows. Replaceable for tests.
 @MainActor
-var pinPageWindowURL: @MainActor (Int32, UInt32, BrowserTabAdapter) async -> String? = { pid, windowId, browser in
-    await Task.detached { pinPageAXWindowURL(pid: pid, windowId: windowId, adapter: browser) }.value
-}
+var pinPageNewWindowMarker: @MainActor () -> String = pinPageWindowMarker
 
 /// The running, regular process of an app. Replaceable for tests.
 @MainActor
@@ -195,8 +192,10 @@ func capturePinPage(_ window: Window, browser: BrowserTabAdapter) async -> PinLi
             }
         case .chromium:
             guard let bundleId = window.app.rawAppBundleId else { return .refused("WinMux doesn't know which app shows this window.") }
-            // Only the browser can say a window isn't Incognito, whatever its language.
-            let answer = await pinLinkScript(pinPageChromiumModeScript(bundleId: bundleId), [url])
+            guard let frame = read.frame else { return .refused("WinMux couldn't read where this \(appName) window is, so it pins nothing.") }
+            // Only the browser can say a window isn't Incognito, whatever its language. A window keeps its
+            // mode for its life; the browser's windows are told apart by their frames, not their pages.
+            let answer = await pinLinkScript(pinPageChromiumModeScript(bundleId: bundleId), [])
             switch answer.result {
                 case .success: break
                 case .notAuthorized:
@@ -205,19 +204,18 @@ func capturePinPage(_ window: Window, browser: BrowserTabAdapter) async -> PinLi
                 case .failed:
                     return .refused("\(appName) didn't say whether this is an Incognito window, so WinMux pins nothing.")
             }
-            switch pinPageChromiumPrivacy(answer.output, url: url) {
-                case .normal: break
-                // This window, or another showing the same page: either way, it's open in Incognito.
-                case .private: return .refused(pinPageIncognitoMessage)
-                case .unknown:
-                    return .refused("\(appName) no longer shows this page in a window WinMux can check, so it pins nothing.")
-            }
-            // The answer is about the windows showing the page when the browser was asked. This window
-            // must have shown it all along: read before, and again now, with nothing private about it.
+            // This window must have stayed where it was, showing the page, while the browser answered: the
+            // answer is then about this window, or a window exactly where it is, and any Incognito one there
+            // refuses.
             let after = await pinPageWindowRead(window)
-            guard after?.url == url, after?.privacy == .unknown else {
+            guard after?.url == url, after?.frame == frame, after?.privacy == .unknown else {
                 return .refused(after?.privacy == .private ? pinPagePrivateMessage
                     : "This window changed while WinMux checked it, so it pins nothing. Try again.")
+            }
+            switch pinPageChromiumPrivacy(answer.output, frame: frame) {
+                case .normal: break
+                case .private: return .refused(pinPageIncognitoMessage)
+                case .unknown: return .refused("\(appName) didn't say whether this is an Incognito window, so WinMux pins nothing.")
             }
     }
     let title = pinPageDisplayTitle(read.title, appName: window.app.name) ?? URL(string: url)?.host ?? url
@@ -511,10 +509,12 @@ func openPinnedLink(_ tab: Workspace, _ link: WorkspaceSidebarPinLink) {
     }
 }
 
-/// Registers the request for the page's window, then asks the browser for a fresh window showing it.
-/// The browser's answer decides which window that is: Safari names it; a Chromium browser's is the one
-/// window it gained for accessibility meanwhile. Nothing else, such as a window showing the same
-/// address, is taken for it. A window that can't be told goes where any new window goes.
+/// Registers the request for the page's window, then asks the browser for a fresh window. That window
+/// first shows a one-time marker, so the browser's window made for this request, and only it, is found
+/// by what it shows, before it's sent to the page: Safari names it in its answer; a Chromium browser's is
+/// the one window showing the marker, sent on by the browser's own number for the window it made.
+/// Nothing else, such as a window showing the same page, is taken for it. A window that can't be told
+/// goes where any new window goes.
 @MainActor
 private func requestPinnedPageWindow(_ tab: Workspace, target: PinDocumentTarget, link: WorkspaceSidebarPinLink,
                                      bundleId: String, appURL: URL, browser: BrowserTabAdapter, focusGeneration: UInt64) async {
@@ -540,76 +540,53 @@ private func requestPinnedPageWindow(_ tab: Workspace, target: PinDocumentTarget
     let intentId = intent.id
     registry.recordFocusWhenSent(forIntent: intentId, .current)
     _ = Task { @MainActor in await watchNewWindowIntentExpiry(intentId) }
-    let script = browser == .safari ? pinPageSafariOpenScript : pinPageChromiumOpenScript(bundleId: bundleId)
-    let answer = await pinLinkScript(script, [link.url])
-    guard target.isCurrent else {
+    func giveUp(_ outcome: NewWindowRequestOutcome) {
         page.decide(nil)
-        return registry.cancel(intentId: intentId)
+        registry.cancel(intentId: intentId, outcome: target.isCurrent ? outcome : .cancelled)
     }
-    switch answer.result {
-        case .notAuthorized:
-            page.decide(nil)
-            registry.cancel(intentId: intentId, outcome: .failed(
-                "Allow WinMux to control \(appName) in System Settings → Privacy & Security → Automation to open pinned pages."))
-        case .failed(let message):
-            page.decide(nil)
-            registry.cancel(intentId: intentId, outcome: .failed("\(appName) couldn't open “\(link.title)”: \(message)"))
-        case .success:
-            var made: UInt32?
-            switch browser {
-                case .safari: made = pinPageSafariMadeWindow(answer.output)
-                case .chromium: made = await pinPageChromiumMadeWindow(pid: pid, before: intent.preexistingWindowIds)
-            }
-            // The window the answer names, new since the request, must show the page it was sent: a
-            // window that took its place meanwhile doesn't.
-            if let candidate = made {
-                let isNew = !intent.preexistingWindowIds.contains(candidate)
-                let shows = isNew ? await pinPageWindowShows(link.url, pid: pid, windowId: candidate, browser: browser) : false
-                if !shows { made = nil }
-            }
-            guard target.isCurrent else {
-                page.decide(nil)
-                return registry.cancel(intentId: intentId)
-            }
-            page.decide(made)
-            if page.windowId == nil {
-                registry.cancel(intentId: intentId, outcome: .failed("\(appName) opened “\(link.title)”, but WinMux couldn't tell "
-                    + "which window it opened in, so that window went where new windows go."))
-            } else {
-                registry.restartDeadline(forIntent: intentId)
-            }
-    }
-}
-
-/// Whether the window numbered `windowId` shows `url`, within the moment a new window takes to: the page
-/// the request sent it to, as the browser reports it back.
-@MainActor
-func pinPageWindowShows(_ url: String, pid: Int32, windowId: UInt32, browser: BrowserTabAdapter) async -> Bool {
-    for attempt in 0 ..< 12 {
-        if attempt > 0 {
-            do { try await Task.sleep(for: .milliseconds(150)) } catch { return false }
+    func failure(_ result: NewWindowScriptResult) -> NewWindowRequestOutcome {
+        switch result {
+            case .notAuthorized:
+                .failed("Allow WinMux to control \(appName) in System Settings → Privacy & Security → Automation to open pinned pages.")
+            case .failed(let message): .failed("\(appName) couldn't open “\(link.title)”: \(message)")
+            case .success: .failed("\(appName) opened “\(link.title)”, but WinMux couldn't tell which window it opened in, "
+                + "so that window went where new windows go.")
         }
-        if let shown = await pinPageWindowURL(pid, windowId, browser), pinLinkAddressesMatch(shown, url) { return true }
     }
-    return false
-}
+    let marker = pinPageNewWindowMarker()
+    var made: UInt32?
+    switch browser {
+        case .safari:
+            let answer = await pinLinkScript(pinPageSafariOpenScript, [link.url, marker])
+            guard answer.result == .success else { return giveUp(failure(answer.result)) }
+            made = pinPageSafariMadeWindow(answer.output)
+        case .chromium:
+            let answer = await pinLinkScript(pinPageChromiumOpenScript(bundleId: bundleId), [marker])
+            guard answer.result == .success else { return giveUp(failure(answer.result)) }
+            guard let number = pinPageChromiumWindowNumber(answer.output), let marked = await pinPageWindowShowing(marker, pid: pid)
+            else { return giveUp(failure(.success)) }
+            let sent = await pinLinkScript(pinPageChromiumGoScript(bundleId: bundleId), [number, link.url])
+            guard sent.result == .success else { return giveUp(failure(sent.result)) }
+            made = marked
+    }
+    guard target.isCurrent else { return giveUp(.cancelled) }
+    // A window the process had before the request can't be the one it made.
+    guard let made, !intent.preexistingWindowIds.contains(made) else { return giveUp(failure(.success)) }
+    page.decide(made)
+    registry.restartDeadline(forIntent: intentId)
 
-/// The one window a Chromium browser gained for accessibility since `before`, once two complete looks
-/// agree. Nil if it gained several, as when someone opens another meanwhile, or none.
-@MainActor
-func pinPageChromiumMadeWindow(pid: Int32, before: Set<UInt32>) async -> UInt32? {
-    var last: Set<UInt32>?
-    for attempt in 0 ..< 8 {
-        if attempt > 0 {
-            do { try await Task.sleep(for: .milliseconds(150)) } catch { return nil }
+    @MainActor func pinPageWindowShowing(_ marker: String, pid: Int32) async -> UInt32? {
+        // The window is there once the browser has answered; what it shows may take a moment to read.
+        for attempt in 0 ..< 12 {
+            if attempt > 0 {
+                do { try await Task.sleep(for: .milliseconds(150)) } catch { return nil }
+            }
+            guard let showing = await pinPageWindowsShowing(pid, marker, .chromium) else { continue }
+            if showing.count > 1 { return nil }
+            if let only = showing.first { return only }
         }
-        guard let windows = await pinPageAXWindows(pid) else { continue }
-        let gained = windows.subtracting(before)
-        if gained.count > 1 { return nil }
-        if gained.count == 1, gained == last { return gained.first }
-        last = gained
+        return nil
     }
-    return nil
 }
 
 @MainActor

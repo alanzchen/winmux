@@ -9,7 +9,8 @@ import AppKit
 // the language, and its title ends in ", Private Browsing" in English. Chromium browsers report the
 // selected tab's address as the window's AXDocument, Incognito windows too; their title says
 // "(Incognito)" in English only, so a Chromium window is known not to be private only from the
-// browser's own answer to `mode`.
+// browser's own answer to `mode`, which a window keeps for its life, found by the window's frame: the
+// browser's `bounds` of a window are its accessibility frame.
 
 enum PinPagePrivacy: Equatable, Sendable {
     case normal
@@ -26,6 +27,8 @@ struct PinPageWindowRead: Equatable, Sendable {
     var privacy: PinPagePrivacy
     /// The window shows several pages side by side: none of them is "the" page.
     var showsSeveralPages = false
+    /// The window's frame, top-left origin, as accessibility reports it; read for Chromium browsers.
+    var frame: CGRect? = nil
 }
 
 /// At most this many elements are read looking for a Safari window's page or its private marker. The
@@ -39,6 +42,12 @@ protocol PinPageAXNode {
     func text(_ attribute: String) -> (value: String?, unreadable: Bool)
     /// Nil when the children couldn't be read.
     func children() -> [Self]?
+    /// The element's frame, top-left origin; nil when it couldn't be read.
+    func frame() -> CGRect?
+}
+
+extension PinPageAXNode {
+    func frame() -> CGRect? { nil }
 }
 
 struct NativePinPageNode: PinPageAXNode {
@@ -63,6 +72,20 @@ struct NativePinPageNode: PinPageAXNode {
         guard error == .success, let list = value as? [AXUIElement] else { return nil }
         return list.map { Self(element: $0) }
     }
+
+    func frame() -> CGRect? {
+        AXUIElementSetMessagingTimeout(element, 0.1)
+        var position: CFTypeRef?
+        var size: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXPositionAttribute as CFString, &position) == .success,
+              AXUIElementCopyAttributeValue(element, kAXSizeAttribute as CFString, &size) == .success,
+              let position, let size, CFGetTypeID(position) == AXValueGetTypeID(), CFGetTypeID(size) == AXValueGetTypeID()
+        else { return nil }
+        var point = CGPoint.zero
+        var extent = CGSize.zero
+        guard AXValueGetValue(position as! AXValue, .cgPoint, &point), AXValueGetValue(size as! AXValue, .cgSize, &extent) else { return nil }
+        return CGRect(origin: point, size: extent)
+    }
 }
 
 /// Reads `window` of a browser of `adapter`'s kind. Runs on the app's AX thread, or off the main thread.
@@ -73,7 +96,8 @@ func readPinPageWindow<Node: PinPageAXNode>(_ window: Node, adapter: BrowserTabA
     switch adapter {
         case .chromium:
             let incognito = title?.contains("(Incognito)") == true
-            return .init(url: window.text(kAXDocumentAttribute).value, title: title, privacy: incognito ? .private : .unknown)
+            return .init(url: window.text(kAXDocumentAttribute).value, title: title, privacy: incognito ? .private : .unknown,
+                frame: window.frame())
         case .safari:
             var urls: [String] = []
             var isPrivate = title?.hasSuffix(", Private Browsing") == true
@@ -113,43 +137,19 @@ func readPinPageWindow<Node: PinPageAXNode>(_ window: Node, adapter: BrowserTabA
     }
 }
 
-/// The windows a process lists for accessibility, by number: what a person sees as its windows, never
-/// the helper windows a browser keeps off screen (a new Chrome window brings four). Nil when the
-/// process didn't answer, or a window's number couldn't be read. Safe off the main thread.
-nonisolated func pinPageAXWindowNumbers(pid: Int32) -> Set<UInt32>? {
+/// The windows of process `pid` that show exactly `url`, by number, read from each window by
+/// accessibility whether or not WinMux has registered it. Nil when the process didn't list its windows.
+/// Safe off the main thread.
+nonisolated func pinPageAXWindowsShowing(pid: Int32, url: String, adapter: BrowserTabAdapter) -> [UInt32]? {
     let app = AXUIElementCreateApplication(pid)
     AXUIElementSetMessagingTimeout(app, 0.5)
     var raw: CFTypeRef?
     guard AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &raw) == .success,
           let windows = raw as? [AXUIElement] else { return nil }
-    // A window whose number can't be read might be the one looked for: then nothing is known.
-    let numbers = windows.map { $0.containingWindowId() }
-    guard !numbers.contains(nil) else { return nil }
-    return Set(numbers.compactMap { $0 })
-}
-
-/// The page the window numbered `windowId` of process `pid` shows now, read from that window by
-/// accessibility, whether or not WinMux has registered it. Nil when there's no such window or no one
-/// page. Safe off the main thread.
-nonisolated func pinPageAXWindowURL(pid: Int32, windowId: UInt32, adapter: BrowserTabAdapter) -> String? {
-    let app = AXUIElementCreateApplication(pid)
-    AXUIElementSetMessagingTimeout(app, 0.5)
-    var raw: CFTypeRef?
-    guard AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &raw) == .success,
-          let window = (raw as? [AXUIElement])?.first(where: { $0.containingWindowId() == windowId }) else { return nil }
-    return readPinPageWindow(NativePinPageNode(element: window), adapter: adapter).url
-}
-
-/// Whether two addresses are the same page: equal, or equal once the letter case of the scheme and the
-/// host, and an empty path, which is `/`, are set aside, as browsers report an address back. The query
-/// and the fragment count in full.
-func pinLinkAddressesMatch(_ a: String, _ b: String) -> Bool {
-    if a == b { return true }
-    guard let x = URLComponents(string: a), let y = URLComponents(string: b) else { return false }
-    func path(_ c: URLComponents) -> String { c.percentEncodedPath.isEmpty && c.host != nil ? "/" : c.percentEncodedPath }
-    return x.scheme?.lowercased() == y.scheme?.lowercased() && x.percentEncodedHost?.lowercased() == y.percentEncodedHost?.lowercased()
-        && x.port == y.port && x.percentEncodedUser == y.percentEncodedUser && x.percentEncodedPassword == y.percentEncodedPassword
-        && path(x) == path(y) && x.percentEncodedQuery == y.percentEncodedQuery && x.percentEncodedFragment == y.percentEncodedFragment
+    return windows.compactMap { window in
+        guard readPinPageWindow(NativePinPageNode(element: window), adapter: adapter).url == url else { return nil }
+        return window.containingWindowId()
+    }
 }
 
 /// The title a browser gives a window, without the browser's own name or private suffix.
@@ -162,62 +162,78 @@ func pinPageDisplayTitle(_ title: String?, appName: String?) -> String? {
 
 // MARK: - The browsers' own answers
 
-/// Safari: a new window showing `item 1 of argv`, and which window that is, by Safari's own count of its
-/// windows before and after, in one script: "<new windows' numbers>;<front window's number>". Safari's
-/// window numbers are the window server's. `make new document` always makes a window, even for an
-/// address another window shows.
+/// A one-time address a pinned page's fresh window first shows, so that window, and only it, can be
+/// found by what it shows: the browser's own window made for this request, never one merely new or
+/// showing the same page. Nothing is logged or kept of it.
+func pinPageWindowMarker() -> String { "about:blank#winmux-\(UUID().uuidString)" }
+
+/// Safari: a new window showing the marker `item 2 of argv`, then the one window showing it is sent to
+/// `item 1 of argv`. Its answer is that window's number, which is the window server's, or "none".
+/// `make new document` always makes a window, even for an address another window shows.
 let pinPageSafariOpenScript = """
     on run argv
+        set target to item 1 of argv
+        set marker to item 2 of argv
         tell application id "com.apple.Safari"
-            set known to (get id of every window)
-            make new document with properties {URL:(item 1 of argv)}
-            set current to (get id of every window)
-            set frontId to (get id of front window)
+            make new document with properties {URL:marker}
+            set marked to (get id of every window whose URL of current tab is marker)
+            if (count of marked) is not 1 then return "none"
+            set madeId to item 1 of marked
+            set URL of current tab of window id madeId to target
         end tell
-        set made to {}
-        repeat with candidate in current
-            if known does not contain (contents of candidate) then set end of made to (contents of candidate)
-        end repeat
-        set AppleScript's text item delimiters to ","
-        return (made as text) & ";" & frontId
+        return madeId as text
     end run
     """
 
-/// The window Safari's answer names: one new window only, and the one in front. Nil otherwise.
+/// The window Safari's answer names, if it named one.
 func pinPageSafariMadeWindow(_ answer: String) -> UInt32? {
-    let parts = answer.trimmingCharacters(in: .whitespacesAndNewlines).split(separator: ";", omittingEmptySubsequences: false)
-    guard parts.count == 2, let front = UInt32(parts[1].trimmingCharacters(in: .whitespaces)) else { return nil }
-    let made = parts[0].split(separator: ",").map { UInt32($0.trimmingCharacters(in: .whitespaces)) }
-    guard made.count == 1, let window = made[0], window == front else { return nil }
-    return window
+    UInt32(answer.trimmingCharacters(in: .whitespacesAndNewlines))
 }
 
-/// A Chromium browser: a new window, its selected tab sent to `item 1 of argv`. Its answer names the
-/// browser's own window, not the window server's, so the window is told by the browser's windows.
+/// A Chromium browser: a new normal window showing the marker `item 1 of argv`. Its answer is the
+/// browser's own number for that window, which isn't the window server's: the window is found by the
+/// marker it shows, then sent to the page by this number.
 func pinPageChromiumOpenScript(bundleId: String) -> String {
     """
     on run argv
         tell application id "\(bundleId)"
-            set w to make new window
+            set w to make new window with properties {mode:"normal"}
             set URL of active tab of w to (item 1 of argv)
+            return (id of w) as text
+        end tell
+    end run
+    """
+}
+
+/// A Chromium browser: the window it numbers `item 1 of argv`, sent to `item 2 of argv`.
+func pinPageChromiumGoScript(bundleId: String) -> String {
+    """
+    on run argv
+        tell application id "\(bundleId)"
+            set URL of active tab of (window id ((item 1 of argv) as integer)) to (item 2 of argv)
         end tell
         return "ok"
     end run
     """
 }
 
-/// A Chromium browser: the mode and selected address of each of its windows whose selected tab may be
-/// `item 1 of argv`, one per line: "normal<TAB>address". The browser matches letter case loosely, so
-/// the address is compared again exactly; no other window's address is asked for.
+/// The browser's own number for the window its answer names, if any.
+func pinPageChromiumWindowNumber(_ answer: String) -> String? {
+    let number = answer.trimmingCharacters(in: .whitespacesAndNewlines)
+    return !number.isEmpty && number.allSatisfy(\.isNumber) ? number : nil
+}
+
+/// A Chromium browser: the mode and bounds of each of its windows, one per line: "normal<TAB>l,t,r,b".
+/// No window's address is asked for.
 func pinPageChromiumModeScript(bundleId: String) -> String {
     """
     on run argv
-        set wanted to item 1 of argv
         set separator to character id 9
         set answer to {}
         tell application id "\(bundleId)"
-            repeat with candidate in (get every window whose URL of active tab is wanted)
-                set end of answer to ((mode of candidate) & separator & (URL of active tab of candidate))
+            repeat with candidate in (get every window)
+                set {x1, y1, x2, y2} to bounds of candidate
+                set end of answer to ((mode of candidate) & separator & x1 & "," & y1 & "," & x2 & "," & y2)
             end repeat
         end tell
         set AppleScript's text item delimiters to character id 10
@@ -226,12 +242,18 @@ func pinPageChromiumModeScript(bundleId: String) -> String {
     """
 }
 
-/// What the browser's answer says of the windows whose selected tab is exactly `url`: private if any is,
-/// normal if each says so, unknown if none shows it.
-func pinPageChromiumPrivacy(_ answer: String, url: String) -> PinPagePrivacy {
+/// What the browser's answer says of the window whose frame is `frame`: a window keeps its mode for its
+/// life, and the browser's bounds of a window are its accessibility frame. Private if any window there
+/// is Incognito, normal if each window there is normal, unknown if none is there.
+func pinPageChromiumPrivacy(_ answer: String, frame: CGRect) -> PinPagePrivacy {
+    let wanted = [frame.minX, frame.minY, frame.maxX, frame.maxY].map { Int($0.rounded()) }
     let modes = answer.split(whereSeparator: \.isNewline).compactMap { line -> Substring? in
         let fields = line.split(separator: "\t", maxSplits: 1, omittingEmptySubsequences: false)
-        return fields.count == 2 && fields[1] == url ? fields[0] : nil
+        guard fields.count == 2 else { return nil }
+        let bounds = fields[1].split(separator: ",").map { Double($0.trimmingCharacters(in: .whitespaces)) }
+        guard bounds.count == 4, !bounds.contains(nil) else { return nil }
+        let isThere = zip(bounds.compactMap { $0 }.map { Int($0.rounded()) }, wanted).allSatisfy { abs($0 - $1) <= 1 }
+        return isThere ? fields[0] : nil
     }
     if modes.isEmpty { return .unknown }
     return modes.allSatisfy { $0 == "normal" } ? .normal : .private
