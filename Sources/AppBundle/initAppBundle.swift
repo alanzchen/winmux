@@ -21,6 +21,7 @@ import Foundation
         defer { finishSavedWorkspaceStartup() }
         loadSavedWorkspaceStoreForStartup()
         loadWorkspaceSidebarOrganization()
+        loadLinkIntegrations()
         materializeSavedWorkspaceNames()
         do {
             bootstrappedConfigUrl = try ensureBootstrapConfigExistsIfNeeded()

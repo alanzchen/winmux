@@ -12,7 +12,8 @@ import Common
 //   a fresh window, which comes to the pin only once the browser's own answer names it. An address
 //   other windows show too, or a window that can't be told, is never taken for it.
 // - Opening any other link: the app the system opens such links with opens it, as a launcher does.
-//   Nothing is claimed or moved: the app shows it where it does.
+//   Nothing is claimed or moved: the app shows it where it does. A link an integration took, or typed
+//   for a scheme only an integration opens, is opened by that integration's Open Item the same way.
 //
 // The address is kept exactly as it was taken or typed. A page its window goes on to isn't the pin's
 // until Update Page from Window says so. Nothing of a private window is kept, and no address is logged.
@@ -350,6 +351,7 @@ func pinLinkFromEntry(_ entry: PinLinkEntry, editing previous: WorkspaceSidebarP
         return .failure(.init("That isn't an address WinMux can open."))
     }
     var handlerName: String?
+    var opener: LinkIntegration?
     switch scheme {
         case "file":
             return .failure(.init("To pin a file, open it in this tab and choose Pin Document: it keeps the file even when it's renamed or moved."))
@@ -358,19 +360,30 @@ func pinLinkFromEntry(_ entry: PinLinkEntry, editing previous: WorkspaceSidebarP
         case "http", "https":
             guard url.host?.isEmpty == false else { return .failure(.init("That web address has no site in it.")) }
         default:
-            guard let handler = pinLinkHandlerApp(url) else {
-                return .failure(.init("No app on this Mac opens “\(scheme):” links."))
+            if let handler = pinLinkHandlerApp(url) {
+                handlerName = FileManager.default.displayName(atPath: handler.url.path)
+                    .replacingOccurrences(of: ".app", with: "", options: [.anchored, .backwards])
+                break
             }
-            handlerName = FileManager.default.displayName(atPath: handler.url.path)
-                .replacingOccurrences(of: ".app", with: "", options: [.anchored, .backwards])
+            // No app opens it: an integration on now that opens such links may, if it's the only one.
+            switch linkIntegrationStore.opener(forScheme: scheme) {
+                case .none: return .failure(.init("No app on this Mac opens “\(scheme):” links."))
+                case .several(let apps):
+                    return .failure(.init("The \(apps.joined(separator: ", ")) integrations all open “\(scheme):” links, "
+                        + "so WinMux doesn't choose. Turn off all but one in Settings → Integrations."))
+                case .one(let integration): opener = integration
+            }
+            handlerName = opener?.appName
     }
     var name = String(entry.name.trimmingCharacters(in: .whitespacesAndNewlines).prefix(200))
     if name.isEmpty { name = url.host?.takeIf { !$0.isEmpty && (scheme == "http" || scheme == "https") } ?? handlerName ?? scheme }
-    var link = WorkspaceSidebarPinLink(url: address, title: name, adapter: "link", bundleId: nil, source: .manual)
+    var link = WorkspaceSidebarPinLink(url: address, title: name, adapter: "link", bundleId: opener?.bundleId, source: .manual,
+        integration: opener?.id)
     if let previous, previous.url == address {
         link.adapter = previous.adapter
         link.bundleId = previous.bundleId
         link.source = previous.source
+        link.integration = previous.integration
     } else if let previous, pinLinkIsWebAddress(address), BrowserTabAdapter(bundleId: previous.bundleId) != nil {
         // Still a page, still opened in the browser it was taken in.
         link.adapter = previous.adapter
@@ -458,6 +471,8 @@ enum PinLinkOpening: Equatable {
     case newBrowserWindow(bundleId: String, appURL: URL)
     /// By an app, as a launcher opens it: nothing is claimed or moved.
     case launcher(appURL: URL)
+    /// By an integration's Open Item, as a launcher opens it: nothing is claimed or moved.
+    case integration(LinkIntegration)
 }
 
 private func pinLinkBrowserOpening(bundleId: String, appURL: URL, browser: BrowserTabAdapter) -> PinLinkOpening {
@@ -477,12 +492,18 @@ func pinLinkOpening(_ link: WorkspaceSidebarPinLink) -> Result<PinLinkOpening, P
     guard link.isReadable, let url = URL(string: link.url), let scheme = url.scheme else {
         return .failure(.init("This pin's link is empty or damaged. Choose Edit Link… to set it again."))
     }
+    switch linkIntegrationOpening(link) {
+        case .success(let integration)?: return .success(.integration(integration))
+        case .failure(let refusal)?: return .failure(refusal)
+        case nil: break
+    }
     let isPage = pinLinkIsWebAddress(link.url)
     if let bundleId = link.bundleId, let appURL = pinDocumentAppURL(bundleId) {
         if isPage, let browser = BrowserTabAdapter(bundleId: bundleId) {
             return .success(pinLinkBrowserOpening(bundleId: bundleId, appURL: appURL, browser: browser))
         }
-        return .success(.launcher(appURL: appURL))
+        // An integration's link with no Open Item to run opens as macOS opens it, as Hookmark leaves it.
+        if link.integration == nil { return .success(.launcher(appURL: appURL)) }
     }
     guard let handler = pinLinkHandlerApp(url) else { return .failure(.init("No app on this Mac opens “\(scheme):” links.")) }
     if isPage, let bundleId = handler.bundleId, let browser = BrowserTabAdapter(bundleId: bundleId) {
@@ -522,6 +543,8 @@ func openPinnedLink(_ tab: Workspace, _ link: WorkspaceSidebarPinLink) {
             }
         case .newBrowserWindow(let bundleId, let appURL):
             _ = Task { @MainActor in await openPinnedPageInNewWindow(target: target, link: link, bundleId: bundleId, appURL: appURL) }
+        case .integration(let integration):
+            openPinnedLinkWithIntegration(integration, link: link, target: target)
     }
 }
 
@@ -615,8 +638,9 @@ private func finishPinnedPageRequest(_ outcome: NewWindowRequestOutcome, target:
 // MARK: - Menu and display
 
 /// Tabs mode: the identity menu's resource items for a tab. A pinned document's own; for a pinned link,
-/// Update … from Window when an adapter reads its one window, Edit Link… and Forget Link; otherwise Pin
-/// Page or Pin Message for a window an adapter reads, then Pin Document and Pin Link….
+/// Update … from Window when an adapter or an integration reads its one window, Edit Link… and Forget
+/// Link; otherwise Pin Page or Pin Message for a window an adapter reads, Pin with an integration for one
+/// whose app has one, then Pin Document and Pin Link….
 @MainActor
 func workspaceSidebarPinResourceMenuEntries(_ workspace: WorkspaceSidebarWorkspaceViewModel,
                                             send: @escaping @MainActor (WorkspaceSidebarAction) -> Void) -> [WorkspaceSidebarAppMenuEntry] {
@@ -627,6 +651,8 @@ func workspaceSidebarPinResourceMenuEntries(_ workspace: WorkspaceSidebarWorkspa
     let isSplitPin = appearance.composition != nil
     let refusal: PinDocumentRefusal? = isSplitPin ? .split : windows.isEmpty ? .noWindow : windows.count > 1 ? .severalWindows : nil
     let adapter = windows.count == 1 ? pinLinkAdapter(forBundleId: windows[0].appBundleId) : nil
+    let integration = workspaceSidebarPinIntegrationMenuEntries(workspace, windowBundleId: windows.count == 1 ? windows[0].appBundleId : nil,
+        refusal: refusal, send: send)
     let splitHelp = "A pinned split brings back its own windows."
     if appearance.isFavorite, let link = appearance.link {
         var entries: [WorkspaceSidebarAppMenuEntry] = []
@@ -635,7 +661,7 @@ func workspaceSidebarPinResourceMenuEntries(_ workspace: WorkspaceSidebarWorkspa
                 perform: { send(.updatePinLinkFromWindow(name)) },
                 help: refusal.map { _ in splitHelp } ?? "Pins this tab to the \(adapter.itemName.lowercased()) its window shows now, instead of “\(link.title)”"))
         }
-        return entries + [
+        return entries + integration + [
             .init(title: "Edit Link…", perform: { send(.editPinLink(name)) }, help: "Changes the address this pin opens"),
             .init(title: "Forget Link", perform: { send(.forgetPinLink(name)) }),
         ]
@@ -645,7 +671,7 @@ func workspaceSidebarPinResourceMenuEntries(_ workspace: WorkspaceSidebarWorkspa
         [.init(title: "Pin \(adapter.itemName)", enabled: refusal == nil, perform: { send(.pinLinkFromWindow(name)) },
             help: refusal.map { _ in splitHelp } ?? "Pins this tab to the \(adapter.itemName.lowercased()) its window shows")]
     } ?? []
-    return capture + workspaceSidebarPinDocumentMenuEntries(workspace, send: send) + [
+    return capture + integration + workspaceSidebarPinDocumentMenuEntries(workspace, send: send) + [
         .init(title: "Pin Link…", enabled: !isSplitPin, perform: { send(.editPinLink(name)) },
             help: isSplitPin ? splitHelp : "Pins this tab to a web page or an app's link you type or paste"),
     ]

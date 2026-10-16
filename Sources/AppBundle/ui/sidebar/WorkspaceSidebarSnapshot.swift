@@ -117,6 +117,9 @@ enum WorkspaceSidebarAction: Equatable {
     case updatePinLinkFromWindow(String)
     case editPinLink(String)
     case forgetPinLink(String)
+    /// Tabs mode: pins a tab to what its one window shows, read by the user's integration for its app,
+    /// or brings a pinned link up to date with it.
+    case pinLinkWithIntegration(String, integrationId: String, updating: Bool)
     /// Tabs mode: asks for a link and makes a new pin of it in the project, on that display.
     case newLinkPin(projectId: WorkspaceProjectId, monitorScopeId: String)
     /// Tabs mode: pins a tab in All Projects, or a pin in All Projects back among `projectId`'s

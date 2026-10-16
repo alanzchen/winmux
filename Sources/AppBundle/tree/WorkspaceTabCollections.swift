@@ -166,18 +166,21 @@ struct WorkspaceSidebarPinLink: Codable, Hashable {
     var bundleId: String? = nil
     /// `window` when taken from a tab's window, `manual` when typed or pasted.
     var source: Source = .manual
+    /// The integration that took it, by id, whose Open Item opens it; nil for the built-in ones.
+    var integration: String? = nil
 
     enum Source: String, Codable, Hashable {
         case window
         case manual
     }
 
-    init(url: String, title: String, adapter: String, bundleId: String? = nil, source: Source = .manual) {
+    init(url: String, title: String, adapter: String, bundleId: String? = nil, source: Source = .manual, integration: String? = nil) {
         self.url = url
         self.title = title
         self.adapter = adapter
         self.bundleId = bundleId
         self.source = source
+        self.integration = integration
     }
 
     /// Never fails: a link a newer WinMux wrote, or a damaged one, must not keep the rest of the
@@ -190,6 +193,7 @@ struct WorkspaceSidebarPinLink: Codable, Hashable {
         adapter = (try? values?.decodeIfPresent(String.self, forKey: .adapter)) ?? ""
         bundleId = try? values?.decodeIfPresent(String.self, forKey: .bundleId)
         source = (try? values?.decodeIfPresent(String.self, forKey: .source)).flatMap(Source.init(rawValue:)) ?? .manual
+        integration = try? values?.decodeIfPresent(String.self, forKey: .integration)
     }
 
     /// Whether this WinMux can open it: a version it knows, and an address.

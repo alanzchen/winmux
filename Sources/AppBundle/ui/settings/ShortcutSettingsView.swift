@@ -36,8 +36,8 @@ public func openShortcutSettingsWindow(_ openWindow: OpenWindowAction) {
 }
 
 enum SettingsSidebarItem: String, Hashable, Identifiable, CaseIterable {
-    case general, appearance, behavior, workspaces, shortcuts, configuration, reference
-    static let navigation: [Self] = [.general, .appearance, .behavior, .workspaces, .shortcuts, .configuration]
+    case general, appearance, behavior, workspaces, shortcuts, integrations, configuration, reference
+    static let navigation: [Self] = [.general, .appearance, .behavior, .workspaces, .shortcuts, .integrations, .configuration]
     var id: Self { self }
     var label: String {
         switch self {
@@ -46,6 +46,7 @@ enum SettingsSidebarItem: String, Hashable, Identifiable, CaseIterable {
             case .behavior: "Windows & Layout"
             case .workspaces: "Projects & Workspaces"
             case .shortcuts: "Shortcuts"
+            case .integrations: "Integrations"
             case .configuration: "Advanced"
             case .reference: "Configuration Reference"
         }
@@ -57,6 +58,7 @@ enum SettingsSidebarItem: String, Hashable, Identifiable, CaseIterable {
             case .behavior: "macwindow.on.rectangle"
             case .workspaces: "rectangle.3.group"
             case .shortcuts: "keyboard"
+            case .integrations: "puzzlepiece.extension"
             case .configuration: "slider.horizontal.3"
             case .reference: "book"
         }
@@ -140,6 +142,7 @@ struct ShortcutSettingsView: View {
                     openTOMLEditor: { advancedTab = "editor"; selectedItem = .configuration })
                     .id(selectedItem)
             case .shortcuts: ShortcutSettingsShortcutsView(model: model)
+            case .integrations: LinkIntegrationsSettingsView(store: linkIntegrationStore)
             case .configuration: SettingsAdvancedPane(model: model, editor: editor, tab: $advancedTab, targetField: targetField)
             case .reference: ShortcutConfigurationReferenceView()
             case nil: Text("Select a settings page")
@@ -150,7 +153,7 @@ struct ShortcutSettingsView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 8) {
                 let matches = SettingsCatalog.results(query)
-                if matches.isEmpty && !matchesPage("shortcuts keyboard bindings permissions accessibility screen recording debug performance logs diagnostics automation toml configuration reference") {
+                if matches.isEmpty && !matchesPage("shortcuts keyboard bindings integrations hookmark scripts applescript javascript links permissions accessibility screen recording debug performance logs diagnostics automation toml configuration reference") {
                     Label("No matching settings", systemImage: "magnifyingglass").font(.headline)
                     Text("Try a name such as opacity, magnification, clock, or a TOML key.").foregroundStyle(.secondary)
                 }
@@ -171,6 +174,9 @@ struct ShortcutSettingsView: View {
                 }
                 if matchesPage("shortcuts keyboard bindings") {
                     Button("Open keyboard shortcuts") { selectedItem = .shortcuts; query = "" }
+                }
+                if matchesPage("integrations hookmark scripts applescript javascript links") {
+                    Button("Open Integrations") { selectedItem = .integrations; query = "" }
                 }
                 if matchesPage("permissions accessibility screen recording") {
                     Button("Open permissions") {

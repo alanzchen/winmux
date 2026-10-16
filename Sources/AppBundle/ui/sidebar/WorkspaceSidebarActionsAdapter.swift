@@ -118,6 +118,8 @@ func handleWorkspaceSidebarAction(
             DispatchQueue.main.async { editPinLinkFromSidebar(name) }
         case .forgetPinLink(let name):
             forgetPinLinkFromSidebar(name)
+        case .pinLinkWithIntegration(let name, let integrationId, let updating):
+            pinLinkWithIntegrationFromSidebar(name, integrationId: integrationId, updating: updating)
         case .newLinkPin(let projectId, let monitorScopeId):
             DispatchQueue.main.async { newLinkPinFromSidebar(projectId: projectId, monitorScopeId: monitorScopeId) }
         case .bringPinnedTabHere(let name, let windowId, let recalls):
