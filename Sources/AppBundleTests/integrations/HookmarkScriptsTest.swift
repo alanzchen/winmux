@@ -181,6 +181,29 @@ final class HookmarkScriptsTest: XCTestCase {
         XCTAssertFalse(hookmarkScriptTraits("//JavaScript\n`see ${ '$0' }`").placeholderInTemplate)
     }
 
+    func testRegularExpressionsAreReadAsSuchAndDeepNestingIsRefused() async throws {
+        try XCTSkipUnless(canRunOsascript)
+        let address = "x-notebook://note/{7}"
+        let inTemplate = await runHookmarkScript("//JavaScript\n`${ /[}`\"]/.test('}') ? \"$0\" : 'no' }`", .init(address: address))
+        XCTAssertEqual(inTemplate, .success(address), "A regex's } and quotes don't end the expression or start a string")
+        let division = await runHookmarkScript("//JavaScript\nvar a = 6, g = 2; var r = a / g / 1; '' + r + \"$0\"", .init(address: address))
+        XCTAssertEqual(division, .success("3" + address), "A division isn't a regular expression")
+        let afterReturn = await runHookmarkScript("//JavaScript\n(function(){ return /\"/.test('\"') ? \"$0\" : 'no' })()",
+            .init(address: address))
+        XCTAssertEqual(afterReturn, .success(address))
+        XCTAssertThrowsError(try hookmarkExecutableSource("//JavaScript\n/$0/.test('x')", values: .init(address: address))) { error in
+            XCTAssertEqual(error as? HookmarkPlaceholderError, .templateString, "Not bound into a regular expression")
+        }
+
+        let deep = "//JavaScript\n" + String(repeating: "`${", count: 40_000) + String(repeating: "}`", count: 40_000)
+        XCTAssertTrue(hookmarkScriptTraits(deep).tooDeep, "Analysed without exhausting the stack")
+        let integration = LinkIntegration(bundleId: "com.example.Deep", appName: "Deep", getAddress: deep, source: .init(kind: .pasted))
+        XCTAssertEqual(integration.analysis.verdict, .unsupported)
+        XCTAssertThrowsError(try hookmarkExecutableSource(deep, values: .init(appName: "Deep"))) { error in
+            XCTAssertEqual(error as? HookmarkPlaceholderError, .tooDeep)
+        }
+    }
+
     func testUnicodeArrivesWholeInBothLanguagesAndInHandlers() async throws {
         try XCTSkipUnless(canRunOsascript)
         let address = "https://例え.jp/ü?q=é&name=\"Grüße\" 🙂"

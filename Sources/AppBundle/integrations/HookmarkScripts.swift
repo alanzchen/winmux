@@ -43,8 +43,11 @@ struct HookmarkScriptTraits: Equatable {
     var usesShell = false
     /// Presses keys or clicks through System Events: acts on whatever is in front.
     var usesUIScripting = false
-    /// `$0` or `$$` in the text of a JavaScript template string, which WinMux can't bind safely.
+    /// `$0` or `$$` in the text of a JavaScript template string or in a regular expression literal, which
+    /// WinMux can't bind safely.
     var placeholderInTemplate = false
+    /// JavaScript templates nested deeper than WinMux reads.
+    var tooDeep = false
     /// The apps it addresses by name or id, as written.
     var apps: [String] = []
 }
@@ -58,6 +61,7 @@ func hookmarkScriptTraits(_ source: String) -> HookmarkScriptTraits {
     traits.usesAppName = scan.appName
     traits.usesTitle = source.contains("$title")
     traits.placeholderInTemplate = scan.inTemplate
+    traits.tooDeep = scan.tooDeep
     traits.needsHookmark = lower.contains("hook://") || lower.contains("hookmark://") || lower.contains("com.cogsciapps.hook")
         || lower.range(of: #"application\s+"hookmark""#, options: .regularExpression) != nil
         || lower.range(of: #"application\(\s*["']hookmark["']\s*\)"#, options: .regularExpression) != nil
@@ -151,9 +155,11 @@ func analyzeLinkIntegration(_ integration: LinkIntegration) -> LinkIntegrationAn
             cannotRun(name, "\(name) asks the app to call Hookmark back (x-callback-url), and only Hookmark receives that call.")
         } else if trait.needsHookmark {
             cannotRun(name, "\(name) uses Hookmark itself (its app, its hook:// links or its database), which WinMux can't stand in for.")
+        } else if trait.tooDeep {
+            cannotRun(name, "\(name) nests JavaScript template strings more deeply than WinMux reads.")
         } else if trait.placeholderInTemplate {
-            cannotRun(name, "\(name) puts $0 or $$ in the text of a JavaScript template string (`…`), which WinMux can't fill "
-                + "safely. Put it in an ordinary \"…\" string instead.")
+            cannotRun(name, "\(name) puts $0 or $$ in the text of a JavaScript template string (`…`) or in a regular expression, "
+                + "which WinMux can't fill safely. Put it in an ordinary \"…\" string instead.")
         }
         if trait.usesAddress, name != "Open Item" {
             notes.append("\(name) mentions $0, which only Open Item is given; there it stays as written.")
@@ -201,13 +207,20 @@ func analyzeLinkIntegration(_ integration: LinkIntegration) -> LinkIntegrationAn
 struct HookmarkPlaceholderScan: Equatable {
     var address = false
     var appName = false
+    /// A placeholder in a JavaScript template's text or in a regular expression literal.
     var inTemplate = false
+    var tooDeep = false
 }
 
 enum HookmarkPlaceholderError: Error, Equatable {
     case templateString
     case unterminated
+    /// Templates nested deeper than WinMux reads.
+    case tooDeep
 }
+
+/// How deep JavaScript templates and their `${…}` may nest for WinMux to read them.
+let hookmarkTemplateDepthLimit = 32
 
 /// The values a script's placeholders take, passed through the environment, never into its text.
 struct HookmarkPlaceholderValues: Equatable {
@@ -222,7 +235,11 @@ let hookmarkAddressEnvironment = "WINMUX_HM_ADDRESS_HEX"
 
 func hookmarkScanPlaceholders(_ source: String, language: HookmarkScriptLanguage) throws -> HookmarkPlaceholderScan {
     var scan = HookmarkPlaceholderScan()
-    _ = try hookmarkRewrite(source, language: language, address: true, appName: "", refusesTemplates: false, scan: &scan)
+    do {
+        _ = try hookmarkRewrite(source, language: language, address: true, appName: "", refusesTemplates: false, scan: &scan)
+    } catch HookmarkPlaceholderError.tooDeep {
+        scan.tooDeep = true
+    }
     return scan
 }
 
@@ -355,10 +372,18 @@ private func hookmarkRewrite(_ source: String, language: HookmarkScriptLanguage,
                 out.append(c); index += 1
             }
         case .javaScript:
-            /// Code, up to the `}` that closes a template's `${` when inside one: comments as written, strings and
-            /// templates scanned as such, placeholders bound.
-            func javaScriptCode(closesTemplateExpression: Bool) throws {
-                var depth = 0
+            /// Words after which a `/` starts a regular expression, not a division.
+            let regexKeywords: Set<String> = ["return", "typeof", "instanceof", "in", "of", "new", "delete", "void", "throw",
+                                              "case", "do", "else", "yield", "await"]
+            /// Code, up to the `}` that closes a template's `${` when inside one: comments as written, strings,
+            /// templates and regular expressions scanned as such, placeholders bound. `depth` counts templates.
+            func javaScriptCode(closesTemplateExpression: Bool, depth: Int) throws {
+                var braces = 0
+                // What came last, to tell a regular expression's `/` from a division's.
+                var last: Character?
+                var lastWord = ""
+                var spaceSinceLast = false
+                func isWordCharacter(_ c: Character) -> Bool { c.isLetter || c.isNumber || c == "_" || c == "$" }
                 while index < chars.count {
                     let c = chars[index]
                     let next = index + 1 < chars.count ? chars[index + 1] : nil
@@ -374,21 +399,61 @@ private func hookmarkRewrite(_ source: String, language: HookmarkScriptLanguage,
                         if index < chars.count { out += "*/"; index += 2 }
                         continue
                     }
-                    if c == "\"" || c == "'" { try javaScriptString(c); continue }
-                    if c == "`" { try javaScriptTemplate(); continue }
-                    if closesTemplateExpression, c == "{" { depth += 1 }
+                    if c == "/", last.map({ !isWordCharacter($0) && !")]\"'`".contains($0) }) ?? true
+                        || regexKeywords.contains(lastWord), try javaScriptRegex() {
+                        last = "/"; lastWord = ""
+                        continue
+                    }
+                    if c == "\"" || c == "'" { try javaScriptString(c); last = c; lastWord = ""; continue }
+                    if c == "`" { try javaScriptTemplate(depth: depth + 1); last = c; lastWord = ""; continue }
+                    if closesTemplateExpression, c == "{" { braces += 1 }
                     if closesTemplateExpression, c == "}" {
-                        if depth == 0 { return }
-                        depth -= 1
+                        if braces == 0 { return }
+                        braces -= 1
                     }
                     if let p = placeholder(at: index), wanted(p.kind) {
                         note(p.kind)
                         out += code(p.kind)
-                        index += p.length; continue
+                        index += p.length
+                        last = ")"; lastWord = ""
+                        continue
                     }
                     out.append(c); index += 1
+                    if c.isWhitespace {
+                        spaceSinceLast = true
+                    } else {
+                        let continuesWord = isWordCharacter(c) && last.map(isWordCharacter) == true && !spaceSinceLast
+                        lastWord = isWordCharacter(c) ? (continuesWord ? lastWord : "") + String(c) : ""
+                        last = c
+                        spaceSinceLast = false
+                    }
                 }
                 if closesTemplateExpression { throw HookmarkPlaceholderError.unterminated }
+            }
+            /// A regular expression literal at `index`, copied as written with its flags; false, copying nothing,
+            /// when the `/` doesn't open one on this line. A placeholder in it can't be bound: it refuses.
+            func javaScriptRegex() throws -> Bool {
+                var end = index + 1, inClass = false
+                while end < chars.count {
+                    let s = chars[end]
+                    if s == "\n" || s == "\r" { return false }
+                    if s == "\\" { end += 2; continue }
+                    if s == "[" { inClass = true } else if s == "]" { inClass = false } else if s == "/", !inClass { break }
+                    end += 1
+                }
+                guard end < chars.count else { return false }
+                end += 1
+                while end < chars.count, chars[end].isLetter { end += 1 }
+                for i in index ..< end {
+                    if let p = placeholder(at: i), wanted(p.kind), i + p.length <= end {
+                        note(p.kind)
+                        scan.inTemplate = true
+                        if refusesTemplates { throw HookmarkPlaceholderError.templateString }
+                    }
+                }
+                out += String(chars[index ..< end])
+                index = end
+                return true
             }
             /// A "…" or '…' string. One that takes the address becomes a concatenation, in parentheses, so it
             /// stays one value to whatever follows it.
@@ -403,6 +468,7 @@ private func hookmarkRewrite(_ source: String, language: HookmarkScriptLanguage,
                         out += bindsAddress ? "(\(literal))" : literal
                         return
                     }
+                    if s == "\n" { throw HookmarkPlaceholderError.unterminated }
                     if let p = placeholder(at: index), wanted(p.kind) {
                         note(p.kind)
                         bindsAddress = bindsAddress || p.kind == "0"
@@ -414,7 +480,8 @@ private func hookmarkRewrite(_ source: String, language: HookmarkScriptLanguage,
                 throw HookmarkPlaceholderError.unterminated
             }
             /// A `…` template: its text takes no placeholder, as nothing in it is only text; its `${…}` are code.
-            func javaScriptTemplate() throws {
+            func javaScriptTemplate(depth: Int) throws {
+                guard depth <= hookmarkTemplateDepthLimit else { throw HookmarkPlaceholderError.tooDeep }
                 out.append("`"); index += 1
                 while index < chars.count {
                     let s = chars[index]
@@ -422,7 +489,7 @@ private func hookmarkRewrite(_ source: String, language: HookmarkScriptLanguage,
                     if s == "`" { out.append(s); index += 1; return }
                     if s == "$", index + 1 < chars.count, chars[index + 1] == "{" {
                         out += "${"; index += 2
-                        try javaScriptCode(closesTemplateExpression: true)
+                        try javaScriptCode(closesTemplateExpression: true, depth: depth)
                         out.append("}"); index += 1
                         continue
                     }
@@ -437,7 +504,7 @@ private func hookmarkRewrite(_ source: String, language: HookmarkScriptLanguage,
                 }
                 throw HookmarkPlaceholderError.unterminated
             }
-            try javaScriptCode(closesTemplateExpression: false)
+            try javaScriptCode(closesTemplateExpression: false, depth: 0)
     }
     return out
 }
@@ -492,7 +559,10 @@ var runHookmarkScript: @MainActor (_ source: String, _ values: HookmarkPlacehold
     do {
         executable = try hookmarkExecutableSource(source, values: values)
     } catch HookmarkPlaceholderError.templateString {
-        return .failed("It puts $0 or $$ in the text of a JavaScript template string, which WinMux can't fill safely.")
+        return .failed("It puts $0 or $$ in the text of a JavaScript template string or in a regular expression, which WinMux "
+            + "can't fill safely.")
+    } catch HookmarkPlaceholderError.tooDeep {
+        return .failed("It nests JavaScript template strings more deeply than WinMux reads.")
     } catch {
         return .failed("Its text has an unterminated string, so WinMux didn't run it.")
     }
