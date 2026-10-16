@@ -204,6 +204,35 @@ final class HookmarkScriptsTest: XCTestCase {
         }
     }
 
+    func testASlashThatMayStartARegularExpressionBeforeAPlaceholderRefuses() async throws {
+        let values = HookmarkPlaceholderValues(address: "x-notebook://1")
+        XCTAssertThrowsError(try hookmarkExecutableSource("//JavaScript\nif (true) /\"/.test('\"'); \"$0\"", values: values)) { error in
+            XCTAssertEqual(error as? HookmarkPlaceholderError, .ambiguousSlash)
+        }
+        XCTAssertTrue(hookmarkScriptTraits("//JavaScript\nif (true) /\"/.test('\"'); \"$0\"").ambiguousSlash)
+        XCTAssertNoThrow(try hookmarkExecutableSource("//JavaScript\nvar h = (6) / 2 / 1; \"$0\"", values: values),
+            "A plain division after ) changes nothing")
+        XCTAssertFalse(hookmarkScriptTraits("//JavaScript\nif (true) /\"/.test('\"')").ambiguousSlash, "No placeholder, no matter")
+        try XCTSkipUnless(canRunOsascript)
+        let division = await runHookmarkScript("//JavaScript\nvar h = (6) / 2 / 1; '' + h + \"$0\"", .init(address: "x-notebook://1"))
+        XCTAssertEqual(division, .success("3x-notebook://1"))
+    }
+
+    func testEveryLineEndingEndsALine() async throws {
+        try XCTSkipUnless(canRunOsascript)
+        let address = "x-notebook://note/7"
+        for ending in ["\r", "\r\n", "\n"] {
+            let javaScript = await runHookmarkScript("//JavaScript" + ending + "// $0 in a comment" + ending + "'<' + \"$0\" + '>'",
+                .init(address: address))
+            XCTAssertEqual(javaScript, .success("<\(address)>"), "JavaScript with \(ending.debugDescription)")
+            let appleScript = await runHookmarkScript(["(* a header", "comment *)", "use scripting additions", "on run",
+                                                       "  return \"<$0>\"", "end run"].joined(separator: ending), .init(address: address))
+            XCTAssertEqual(appleScript, .success("<\(address)>"), "AppleScript with \(ending.debugDescription)")
+        }
+        let commentedRun = await runHookmarkScript("-- on run\n(* on run *)\nreturn \"$0\"", .init(address: address))
+        XCTAssertEqual(commentedRun, .success(address), "An `on run` in a comment isn't the run handler")
+    }
+
     func testUnicodeArrivesWholeInBothLanguagesAndInHandlers() async throws {
         try XCTSkipUnless(canRunOsascript)
         let address = "https://例え.jp/ü?q=é&name=\"Grüße\" 🙂"

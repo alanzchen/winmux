@@ -48,6 +48,8 @@ struct HookmarkScriptTraits: Equatable {
     var placeholderInTemplate = false
     /// JavaScript templates nested deeper than WinMux reads.
     var tooDeep = false
+    /// A `/` WinMux can't tell is a division or a regular expression, before a placeholder.
+    var ambiguousSlash = false
     /// The apps it addresses by name or id, as written.
     var apps: [String] = []
 }
@@ -62,6 +64,7 @@ func hookmarkScriptTraits(_ source: String) -> HookmarkScriptTraits {
     traits.usesTitle = source.contains("$title")
     traits.placeholderInTemplate = scan.inTemplate
     traits.tooDeep = scan.tooDeep
+    traits.ambiguousSlash = scan.ambiguousSlash
     traits.needsHookmark = lower.contains("hook://") || lower.contains("hookmark://") || lower.contains("com.cogsciapps.hook")
         || lower.range(of: #"application\s+"hookmark""#, options: .regularExpression) != nil
         || lower.range(of: #"application\(\s*["']hookmark["']\s*\)"#, options: .regularExpression) != nil
@@ -155,6 +158,9 @@ func analyzeLinkIntegration(_ integration: LinkIntegration) -> LinkIntegrationAn
             cannotRun(name, "\(name) asks the app to call Hookmark back (x-callback-url), and only Hookmark receives that call.")
         } else if trait.needsHookmark {
             cannotRun(name, "\(name) uses Hookmark itself (its app, its hook:// links or its database), which WinMux can't stand in for.")
+        } else if trait.ambiguousSlash {
+            cannotRun(name, "\(name) has a / after ) or } that WinMux can't tell is a division or a regular expression, and "
+                + "where its placeholders go depends on it. Put the regular expression in parentheses or a variable.")
         } else if trait.tooDeep {
             cannotRun(name, "\(name) nests JavaScript template strings more deeply than WinMux reads.")
         } else if trait.placeholderInTemplate {
@@ -210,6 +216,8 @@ struct HookmarkPlaceholderScan: Equatable {
     /// A placeholder in a JavaScript template's text or in a regular expression literal.
     var inTemplate = false
     var tooDeep = false
+    /// A `/` after `)` or `}` that may or may not start a regular expression holding quotes, braces or `$`.
+    var ambiguousSlash = false
 }
 
 enum HookmarkPlaceholderError: Error, Equatable {
@@ -217,6 +225,9 @@ enum HookmarkPlaceholderError: Error, Equatable {
     case unterminated
     /// Templates nested deeper than WinMux reads.
     case tooDeep
+    /// A `/` after `)` or `}` that may start a regular expression, where reading it either way would
+    /// place a placeholder differently.
+    case ambiguousSlash
 }
 
 /// How deep JavaScript templates and their `${…}` may nest for WinMux to read them.
@@ -239,7 +250,12 @@ func hookmarkScanPlaceholders(_ source: String, language: HookmarkScriptLanguage
         _ = try hookmarkRewrite(source, language: language, address: true, appName: "", refusesTemplates: false, scan: &scan)
     } catch HookmarkPlaceholderError.tooDeep {
         scan.tooDeep = true
+    } catch HookmarkPlaceholderError.ambiguousSlash {
+        // The scan stopped there: whether placeholders follow is told from the text.
+        scan.address = scan.address || source.contains("$0")
+        scan.appName = scan.appName || source.contains("$$")
     }
+    if !(scan.address || scan.appName) { scan.ambiguousSlash = false }
     return scan
 }
 
@@ -253,11 +269,13 @@ func hookmarkExecutableSource(_ source: String, values: HookmarkPlaceholderValue
     let body = try hookmarkRewrite(source, language: language, address: values.address != nil, appName: values.appName,
         refusesTemplates: true, scan: &scan)
     guard scan.address || scan.appName else { return source }
+    if scan.ambiguousSlash { throw HookmarkPlaceholderError.ambiguousSlash }
     switch language {
         case .javaScript:
             return body
         case .appleScript:
-            return scan.address ? hookmarkAppleScriptWithPrelude(body) : body
+            return scan.address ? hookmarkAppleScriptWithPrelude(body)
+                : body.replacingOccurrences(of: hookmarkLeadingMarker, with: "").replacingOccurrences(of: hookmarkRunMarker, with: "")
     }
 }
 
@@ -323,6 +341,16 @@ private func hookmarkRewrite(_ source: String, language: HookmarkScriptLanguage,
     switch language {
         case .appleScript:
             var depth = 0 // block comments (* … *) nest
+            // Where the address's prelude goes, marked here, where comments and strings are known: after the
+            // leading comments and `use` statements, and first thing in an explicit run handler.
+            var leading = true, atLineStart = true, runHandlerLine = false, markedRunHandler = false
+            func startsWord(_ word: String, at i: Int) -> Bool {
+                let letters = Array(word)
+                guard i + letters.count <= chars.count else { return false }
+                for (k, letter) in letters.enumerated() where chars[i + k].lowercased() != String(letter) { return false }
+                let after = i + letters.count
+                return after == chars.count || !(chars[after].isLetter || chars[after].isNumber || chars[after] == "_")
+            }
             while index < chars.count {
                 let c = chars[index]
                 let next = index + 1 < chars.count ? chars[index + 1] : nil
@@ -333,8 +361,28 @@ private func hookmarkRewrite(_ source: String, language: HookmarkScriptLanguage,
                 }
                 if c == "(" && next == "*" { depth = 1; out += "(*"; index += 2; continue }
                 if (c == "-" && next == "-") || c == "#" {
-                    while index < chars.count, chars[index] != "\n", chars[index] != "\r" { out.append(chars[index]); index += 1 }
+                    while index < chars.count, !hookmarkIsLineBreak(chars[index]) { out.append(chars[index]); index += 1 }
                     continue
+                }
+                if hookmarkIsLineBreak(c) {
+                    out.append(c); index += 1
+                    if c == "\r", index < chars.count, chars[index] == "\n" { out.append("\n"); index += 1 }
+                    if runHandlerLine, !markedRunHandler { out += hookmarkRunMarker; markedRunHandler = true }
+                    runHandlerLine = false
+                    atLineStart = true
+                    continue
+                }
+                if c == " " || c == "\t" { out.append(c); index += 1; continue }
+                if atLineStart {
+                    atLineStart = false
+                    if !(leading && startsWord("use", at: index)) {
+                        if leading { out += hookmarkLeadingMarker; leading = false }
+                        if !markedRunHandler, startsWord("on", at: index) {
+                            var j = index + 2
+                            while j < chars.count, chars[j] == " " || chars[j] == "\t" { j += 1 }
+                            runHandlerLine = startsWord("run", at: j)
+                        }
+                    }
                 }
                 if c == "|" { // an identifier between bars is a name, never a placeholder
                     out.append(c); index += 1
@@ -371,6 +419,7 @@ private func hookmarkRewrite(_ source: String, language: HookmarkScriptLanguage,
                 }
                 out.append(c); index += 1
             }
+            if leading { out += hookmarkLeadingMarker }
         case .javaScript:
             /// Words after which a `/` starts a regular expression, not a division.
             let regexKeywords: Set<String> = ["return", "typeof", "instanceof", "in", "of", "new", "delete", "void", "throw",
@@ -388,7 +437,7 @@ private func hookmarkRewrite(_ source: String, language: HookmarkScriptLanguage,
                     let c = chars[index]
                     let next = index + 1 < chars.count ? chars[index + 1] : nil
                     if c == "/" && next == "/" {
-                        while index < chars.count, chars[index] != "\n" { out.append(chars[index]); index += 1 }
+                        while index < chars.count, !hookmarkIsLineBreak(chars[index]) { out.append(chars[index]); index += 1 }
                         continue
                     }
                     if c == "/" && next == "*" {
@@ -399,10 +448,16 @@ private func hookmarkRewrite(_ source: String, language: HookmarkScriptLanguage,
                         if index < chars.count { out += "*/"; index += 2 }
                         continue
                     }
-                    if c == "/", last.map({ !isWordCharacter($0) && !")]\"'`".contains($0) }) ?? true
+                    if c == "/", last.map({ !isWordCharacter($0) && !")]}\"'`".contains($0) }) ?? true
                         || regexKeywords.contains(lastWord), try javaScriptRegex() {
                         last = "/"; lastWord = ""
                         continue
+                    }
+                    // After `)` or `}` a `/` may divide or start a regular expression (`if (x) /re/…`). Where it
+                    // makes no difference to what follows, it's read as a division; otherwise it's marked.
+                    if c == "/", let last, last == ")" || last == "}", let end = javaScriptRegexEnd(),
+                       chars[(index + 1) ..< end].contains(where: { "\"'`{}$/*".contains($0) }) {
+                        scan.ambiguousSlash = true
                     }
                     if c == "\"" || c == "'" { try javaScriptString(c); last = c; lastWord = ""; continue }
                     if c == "`" { try javaScriptTemplate(depth: depth + 1); last = c; lastWord = ""; continue }
@@ -432,16 +487,20 @@ private func hookmarkRewrite(_ source: String, language: HookmarkScriptLanguage,
             }
             /// A regular expression literal at `index`, copied as written with its flags; false, copying nothing,
             /// when the `/` doesn't open one on this line. A placeholder in it can't be bound: it refuses.
-            func javaScriptRegex() throws -> Bool {
+            /// Where a regular expression starting at `index` would close, at its last `/`, if on this line.
+            func javaScriptRegexEnd() -> Int? {
                 var end = index + 1, inClass = false
                 while end < chars.count {
                     let s = chars[end]
-                    if s == "\n" || s == "\r" { return false }
+                    if hookmarkIsLineBreak(s) { return nil }
                     if s == "\\" { end += 2; continue }
-                    if s == "[" { inClass = true } else if s == "]" { inClass = false } else if s == "/", !inClass { break }
+                    if s == "[" { inClass = true } else if s == "]" { inClass = false } else if s == "/", !inClass { return end }
                     end += 1
                 }
-                guard end < chars.count else { return false }
+                return nil
+            }
+            func javaScriptRegex() throws -> Bool {
+                guard var end = javaScriptRegexEnd() else { return false }
                 end += 1
                 while end < chars.count, chars[end].isLetter { end += 1 }
                 for i in index ..< end {
@@ -468,7 +527,8 @@ private func hookmarkRewrite(_ source: String, language: HookmarkScriptLanguage,
                         out += bindsAddress ? "(\(literal))" : literal
                         return
                     }
-                    if s == "\n" { throw HookmarkPlaceholderError.unterminated }
+                    // A string ends at its line (U+2028 and U+2029 may sit in one).
+                    if s == "\n" || s == "\r" || s == "\r\n" { throw HookmarkPlaceholderError.unterminated }
                     if let p = placeholder(at: index), wanted(p.kind) {
                         note(p.kind)
                         bindsAddress = bindsAddress || p.kind == "0"
@@ -504,38 +564,39 @@ private func hookmarkRewrite(_ source: String, language: HookmarkScriptLanguage,
                 }
                 throw HookmarkPlaceholderError.unterminated
             }
-            try javaScriptCode(closesTemplateExpression: false, depth: 0)
+            do {
+                try javaScriptCode(closesTemplateExpression: false, depth: 0)
+            } catch let error as HookmarkPlaceholderError where scan.ambiguousSlash && error != .tooDeep {
+                // Read as a division, what follows a slash that may start a regular expression didn't make sense.
+                throw HookmarkPlaceholderError.ambiguousSlash
+            }
     }
     return out
 }
 
+/// Where the rewrite marks the prelude's places: a private-use character and a value fixed for this run of
+/// WinMux, which no script can hold.
+private let hookmarkMarkerSeed = UUID().uuidString
+let hookmarkLeadingMarker = "\u{E000}winmux-leading-\(hookmarkMarkerSeed)\u{E000}"
+let hookmarkRunMarker = "\u{E000}winmux-run-\(hookmarkMarkerSeed)\u{E000}"
+
+/// A line break, as AppleScript and JavaScript both end lines: LF, CR (and so CRLF), and Unicode's two.
+func hookmarkIsLineBreak(_ c: Character) -> Bool { c == "\n" || c == "\r" || c == "\r\n" || c == "\u{2028}" || c == "\u{2029}" }
+
 /// AppleScript reads the address once, at its own top level, where `system attribute` reads this run's
 /// environment rather than a `tell` target's: into a global, so handlers see it too. Hex decodes as UTF-8
-/// through a data literal made only of hex digits WinMux wrote.
+/// through a data literal made only of hex digits WinMux wrote. The global is declared after the leading
+/// comments and `use` statements; it's set first thing in an explicit run handler, or else right there.
 private func hookmarkAppleScriptWithPrelude(_ body: String) -> String {
-    let declarations = ["global \(hookmarkAddressVariable)"]
-    let assignments = ["set \(hookmarkAddressVariable) to \"\"",
-                       "if (system attribute \"\(hookmarkAddressEnvironment)\") is not \"\" then set \(hookmarkAddressVariable) to "
-                           + "run script (\"«data utf8\" & (system attribute \"\(hookmarkAddressEnvironment)\") & \"» as text\")"]
-    var lines = body.components(separatedBy: "\n")
-    // `use` statements come first; then the declarations. A script with its own run handler sets the values
-    // first thing in it; any other sets them at its top level.
-    var insertAt = 0
-    while insertAt < lines.count {
-        let line = lines[insertAt].trimmingCharacters(in: .whitespaces).lowercased()
-        if line.isEmpty || line.hasPrefix("--") || line.hasPrefix("#") || line.hasPrefix("use ") { insertAt += 1 } else { break }
+    let declaration = "global \(hookmarkAddressVariable)\n"
+    let assignments = "set \(hookmarkAddressVariable) to \"\"\n"
+        + "if (system attribute \"\(hookmarkAddressEnvironment)\") is not \"\" then set \(hookmarkAddressVariable) to "
+        + "run script (\"«data utf8\" & (system attribute \"\(hookmarkAddressEnvironment)\") & \"» as text\")\n"
+    if body.contains(hookmarkRunMarker) {
+        return body.replacingOccurrences(of: hookmarkLeadingMarker, with: declaration)
+            .replacingOccurrences(of: hookmarkRunMarker, with: assignments)
     }
-    let runHandler = lines.firstIndex { line in
-        let trimmed = line.trimmingCharacters(in: .whitespaces).lowercased()
-        return trimmed == "on run" || trimmed.hasPrefix("on run ") || trimmed == "on run argv"
-    }
-    if let runHandler, runHandler >= insertAt {
-        lines.insert(contentsOf: assignments, at: runHandler + 1)
-        lines.insert(contentsOf: declarations, at: insertAt)
-    } else {
-        lines.insert(contentsOf: declarations + assignments, at: insertAt)
-    }
-    return lines.joined(separator: "\n")
+    return body.replacingOccurrences(of: hookmarkLeadingMarker, with: declaration + assignments)
 }
 
 // MARK: - Running
@@ -563,6 +624,8 @@ var runHookmarkScript: @MainActor (_ source: String, _ values: HookmarkPlacehold
             + "can't fill safely.")
     } catch HookmarkPlaceholderError.tooDeep {
         return .failed("It nests JavaScript template strings more deeply than WinMux reads.")
+    } catch HookmarkPlaceholderError.ambiguousSlash {
+        return .failed("It has a / after ) or } that WinMux can't tell is a division or a regular expression.")
     } catch {
         return .failed("Its text has an unterminated string, so WinMux didn't run it.")
     }
