@@ -195,7 +195,7 @@ final class HookmarkScriptsTest: XCTestCase {
             XCTAssertEqual(error as? HookmarkPlaceholderError, .templateString, "Not bound into a regular expression")
         }
 
-        let deep = "//JavaScript\n" + String(repeating: "`${", count: 40_000) + String(repeating: "}`", count: 40_000)
+        let deep = "//JavaScript\n" + String(repeating: "`${", count: 40_000) + "'$$'" + String(repeating: "}`", count: 40_000)
         XCTAssertTrue(hookmarkScriptTraits(deep).tooDeep, "Analysed without exhausting the stack")
         let integration = LinkIntegration(bundleId: "com.example.Deep", appName: "Deep", getAddress: deep, source: .init(kind: .pasted))
         XCTAssertEqual(integration.analysis.verdict, .unsupported)
