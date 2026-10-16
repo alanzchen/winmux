@@ -213,9 +213,15 @@ final class HookmarkScriptsTest: XCTestCase {
         XCTAssertNoThrow(try hookmarkExecutableSource("//JavaScript\nvar h = (6) / 2 / 1; \"$0\"", values: values),
             "A plain division after ) changes nothing")
         XCTAssertFalse(hookmarkScriptTraits("//JavaScript\nif (true) /\"/.test('\"')").ambiguousSlash, "No placeholder, no matter")
+        let unbound = "//JavaScript\nif (true) /\"/.test('\"'); \"https://example.com/\""
+        XCTAssertEqual(try hookmarkExecutableSource(unbound, values: .init(address: "x", appName: "N")), unbound, "Runs as written")
+        XCTAssertEqual(try hookmarkExecutableSource("return \"unterminated", values: .init(appName: "N")), "return \"unterminated",
+            "Nothing to bind: WinMux doesn't judge its text")
         try XCTSkipUnless(canRunOsascript)
         let division = await runHookmarkScript("//JavaScript\nvar h = (6) / 2 / 1; '' + h + \"$0\"", .init(address: "x-notebook://1"))
         XCTAssertEqual(division, .success("3x-notebook://1"))
+        let ran = await runHookmarkScript(unbound, .init(appName: "N"))
+        XCTAssertEqual(ran, .success("https://example.com/"))
     }
 
     func testEveryLineEndingEndsALine() async throws {

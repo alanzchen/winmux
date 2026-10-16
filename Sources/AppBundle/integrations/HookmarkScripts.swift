@@ -264,6 +264,8 @@ func hookmarkScanPlaceholders(_ source: String, language: HookmarkScriptLanguage
 /// escaped literal, so the app is known when the script compiles, as Hookmark's default script needs.
 /// Unchanged when it uses neither.
 func hookmarkExecutableSource(_ source: String, values: HookmarkPlaceholderValues) throws -> String {
+    // Nothing to bind: the script runs exactly as written, however WinMux would read it.
+    guard (values.address != nil && source.contains("$0")) || (values.appName != nil && source.contains("$$")) else { return source }
     let language = hookmarkScriptLanguage(source)
     var scan = HookmarkPlaceholderScan()
     let body = try hookmarkRewrite(source, language: language, address: values.address != nil, appName: values.appName,
