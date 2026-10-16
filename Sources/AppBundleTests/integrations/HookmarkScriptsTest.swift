@@ -102,7 +102,7 @@ final class HookmarkScriptsTest: XCTestCase {
         XCTAssertTrue(executable.contains("-- opens $0"), "Comments are left as written")
         XCTAssertTrue(executable.contains("(* $0 (* nested $0 *) *)"))
         XCTAssertTrue(executable.contains("set |$0| to (winmuxHookmarkAddress)"))
-        XCTAssertTrue(executable.contains("open location \"\" & winmuxHookmarkAddress & \"\""))
+        XCTAssertTrue(executable.contains("open location (\"\" & winmuxHookmarkAddress & \"\")"), "One value, in parentheses")
         XCTAssertTrue(executable.contains("return \"Note\\\"book\""), "$$ is the app name, escaped")
         XCTAssertTrue(executable.hasPrefix("-- opens $0\nglobal winmuxHookmarkAddress\n"), "After leading comments and use lines")
         XCTAssertEqual(hookmarkEnvironment(values)[hookmarkAddressEnvironment], hookmarkHex(values.address!))
@@ -152,6 +152,24 @@ final class HookmarkScriptsTest: XCTestCase {
         let result = await runHookmarkScript("//JavaScript\n'' + '$0'", .init(address: address))
         XCTAssertEqual(result, .success(address))
         XCTAssertFalse(FileManager.default.fileExists(atPath: marker.path))
+    }
+
+    func testAStringHoldingTheAddressStaysOneValueToWhatFollowsIt() async throws {
+        try XCTSkipUnless(canRunOsascript)
+        let address = "x-notebook://note/12345"
+        let javaScript = await runHookmarkScript("//JavaScript\n\"$0\".split(\"/\").pop()", .init(address: address))
+        XCTAssertEqual(javaScript, .success("12345"))
+        let indexed = await runHookmarkScript("//JavaScript\n'id=$0'.length", .init(address: address))
+        XCTAssertEqual(indexed, .success(String("id=\(address)".count)))
+        let appleScript = await runHookmarkScript("return text 1 thru 10 of \"$0\"", .init(address: address))
+        XCTAssertEqual(appleScript, .success("x-notebook"))
+    }
+
+    func testAnAppNameInATemplateStringIsOnlyText() async throws {
+        try XCTSkipUnless(canRunOsascript)
+        let name = "Note${1+1}`book\\"
+        let result = await runHookmarkScript("//JavaScript\n`$$`", .init(appName: name))
+        XCTAssertEqual(result, .success(name), "No interpolation, no escape")
     }
 
     func testUnicodeArrivesWholeInBothLanguagesAndInHandlers() async throws {

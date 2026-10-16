@@ -39,16 +39,24 @@ var linkIntegrationFrontWindow: @MainActor () async -> (pid: Int32, windowId: UI
     }.value
 }
 
+/// How many native focus changes macOS has reported so far. Replaceable for tests.
+@MainActor
+var linkIntegrationFocusEvents: @MainActor () -> UInt64 = { nativeFocusEvents.value }
+
 /// The clipboard a script may use. Replaceable for tests.
 @MainActor
 var linkIntegrationClipboard: LinkIntegrationClipboard = GeneralLinkIntegrationClipboard()
 
 /// How long WinMux waits for the window it brought forward to be the front window.
 let linkIntegrationFrontWait: TimeInterval = 2
+/// How long the focus change WinMux made has to be reported before a script runs.
+let linkIntegrationFocusSettle: TimeInterval = 0.2
 
 @MainActor
 protocol LinkIntegrationClipboard: AnyObject {
     var changeCount: Int { get }
+    /// Its plain text, if any.
+    var string: String? { get }
     func snapshot() -> [[String: Data]]
     func restore(_ items: [[String: Data]])
 }
@@ -56,6 +64,7 @@ protocol LinkIntegrationClipboard: AnyObject {
 @MainActor
 final class GeneralLinkIntegrationClipboard: LinkIntegrationClipboard {
     var changeCount: Int { NSPasteboard.general.changeCount }
+    var string: String? { NSPasteboard.general.string(forType: .string) }
 
     func snapshot() -> [[String: Data]] {
         (NSPasteboard.general.pasteboardItems ?? []).map { item in
@@ -121,8 +130,14 @@ func pinLinkWithIntegrationFromSidebar(_ name: String, integrationId: String, up
     if updating, appearance?.isFavorite != true || appearance?.link == nil { return }
     let target = PinDocumentTarget(tab)
     let operation = beginPinResourceOperation(name)
+    // Each script runs only while this is the tab's newest Pin or Update, the tab is as it was, and the
+    // integration is still on with the scripts the user trusted.
+    let isStillWanted: @MainActor () -> Bool = {
+        isNewestPinResourceOperation(name, operation) && target.isCurrent && pinDocumentStillSource(tab, window)
+            && linkIntegrationStore.integration(id: integration.id).map { $0.isActive && $0.digest == integration.digest } == true
+    }
     _ = Task { @MainActor in
-        let capture = await captureWithLinkIntegration(integration, window: window)
+        let capture = await captureWithLinkIntegration(integration, window: window, isStillWanted: isStillWanted)
         guard isNewestPinResourceOperation(name, operation) else { return }
         guard target.isCurrent, pinDocumentStillSource(tab, window) else {
             endPinResourceOperation(name, operation)
@@ -147,21 +162,27 @@ func pinLinkWithIntegrationFromSidebar(_ name: String, integrationId: String, up
     }
 }
 
-/// Runs the integration's Get Address, and Get Name if needed, on `window`, with it in front throughout.
+let linkIntegrationWithdrawnMessage = "The integration was turned off, changed or removed, or the tab changed, so WinMux ran nothing more."
+let linkIntegrationFrontChangedMessage = "The front window changed while the integration ran, so WinMux keeps nothing it found."
+
+/// Runs the integration's Get Address, and Get Name if needed, on `window`, with it in front throughout:
+/// any focus change macOS reports while a script runs, even one that comes back, voids what it found.
 @MainActor
-func captureWithLinkIntegration(_ integration: LinkIntegration, window: Window) async -> LinkIntegrationCapture {
+func captureWithLinkIntegration(_ integration: LinkIntegration, window: Window,
+                                isStillWanted: @escaping @MainActor () -> Bool = { true }) async -> LinkIntegrationCapture {
     let appName = integration.appName
     // A browser's window must be known not to be private before anything is read from it.
     if let browser = BrowserTabAdapter(bundleId: integration.bundleId),
        let refusal = await pinPageWindowPrivacyRefusal(window, browser: browser) {
         return .refused(refusal)
     }
+    guard isStillWanted() else { return .refused(linkIntegrationWithdrawnMessage) }
     guard await linkIntegrationBringToFront(window) else {
         return .refused("WinMux couldn't bring this tab's window to the front, so it ran nothing. Integrations read what's in front.")
     }
     let usesClipboard = [integration.getAddress, integration.getName ?? ""].contains { hookmarkScriptTraits($0).usesClipboard }
     let address = await runLinkIntegrationSlot(integration.getAddress, integration: integration, window: window,
-        clipboard: usesClipboard)
+        clipboard: usesClipboard, isStillWanted: isStillWanted)
     let output: String
     switch address {
         case .failure(let refusal): return .refused(refusal.message)
@@ -184,12 +205,10 @@ func captureWithLinkIntegration(_ integration: LinkIntegration, window: Window) 
         case .link(let url, let answeredName):
             var name = answeredName
             if name == nil, let getName = integration.getName, integration.analysis.canName {
-                // Get Name runs only when the address carried no name, with the window still in front.
-                guard await linkIntegrationWindowIsInFront(window) else {
-                    return .refused("The front window changed while \(appName)'s integration ran, so WinMux keeps nothing it found.")
-                }
+                // Get Name runs only when the address carried no name, under the same checks. Its answer is
+                // kept only if they all held; the address, checked already, is kept either way.
                 if case .success(let answer) = await runLinkIntegrationSlot(getName, integration: integration, window: window,
-                    clipboard: usesClipboard) {
+                    clipboard: usesClipboard, isStillWanted: isStillWanted) {
                     name = hookmarkCleanName(answer)
                 }
             }
@@ -199,22 +218,23 @@ func captureWithLinkIntegration(_ integration: LinkIntegration, window: Window) 
     }
 }
 
-/// One script slot run with the window in front before and after, the clipboard put back if the script
-/// changed it and nothing has since. The answer, or why there's none.
+/// One script slot: run only while still wanted and with the window in front, and its answer kept only if
+/// macOS reported no focus change while it ran and the window is still in front. The clipboard is put back
+/// when the script left its own answer there. The answer, or why there's none.
 @MainActor
-private func runLinkIntegrationSlot(_ script: String, integration: LinkIntegration, window: Window, clipboard: Bool) async
-    -> Result<String, LinkIntegrationRefusal>
-{
+private func runLinkIntegrationSlot(_ script: String, integration: LinkIntegration, window: Window, clipboard: Bool,
+                                    isStillWanted: @MainActor () -> Bool) async -> Result<String, LinkIntegrationRefusal> {
     let appName = integration.appName
+    guard isStillWanted() else { return .failure(.init(linkIntegrationWithdrawnMessage)) }
+    let focusEvents = linkIntegrationFocusEvents()
+    guard await linkIntegrationWindowIsInFront(window), isStillWanted() else {
+        return .failure(.init(linkIntegrationFrontChangedMessage))
+    }
     let saved = clipboard ? (count: linkIntegrationClipboard.changeCount, items: linkIntegrationClipboard.snapshot()) : nil
     let result = await runHookmarkScript(script, HookmarkPlaceholderValues(appName: appName))
-    // Put back what was on the clipboard if it changed while the script ran, in the turn the script's
-    // end resumes, so nothing copied after it is overwritten. A copy made during the run can't be told
-    // apart from the script's own.
-    if let saved, linkIntegrationClipboard.changeCount != saved.count { linkIntegrationClipboard.restore(saved.items) }
-    guard await linkIntegrationWindowIsInFront(window) else {
-        return .failure(.init("The front window changed while \(appName)'s integration ran, so WinMux keeps nothing it found."))
-    }
+    if case .success(let output) = result { restoreLinkIntegrationClipboard(saved, leftBy: linkIntegrationClipboardMarks(output)) }
+    let inFront = await linkIntegrationWindowIsInFront(window)
+    guard inFront, linkIntegrationFocusEvents() == focusEvents else { return .failure(.init(linkIntegrationFrontChangedMessage)) }
     switch result {
         case .success(let output): return .success(output)
         case .notAuthorized:
@@ -223,6 +243,30 @@ private func runLinkIntegrationSlot(_ script: String, integration: LinkIntegrati
         case .timedOut:
             return .failure(.init("\(appName)'s integration didn't answer within \(Int(hookmarkScriptTimeout)) seconds."))
     }
+}
+
+/// What a script's answer may have left on the clipboard: the answer, and the address in it.
+func linkIntegrationClipboardMarks(_ answer: String) -> [String] {
+    var marks = [answer]
+    switch parseHookmarkAddress(answer) {
+        case .link(let url, _): marks.append(url)
+        case .file(let url, _): marks.append(url.path)
+        default: break
+    }
+    return marks
+}
+
+/// Puts back what was on the clipboard if a script changed it and what's there now is what the script
+/// found: then it's the script's. Anything else may be the user's, copied meanwhile, and stays.
+@MainActor
+func restoreLinkIntegrationClipboard(_ saved: (count: Int, items: [[String: Data]])?, leftBy marks: [String]) {
+    guard let saved, linkIntegrationClipboard.changeCount != saved.count,
+          let now = linkIntegrationClipboard.string?.trimmingCharacters(in: .whitespacesAndNewlines), !now.isEmpty
+    else { return }
+    let owned = marks.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.contains { mark in
+        !mark.isEmpty && (now == mark || (mark.count >= 8 && now.contains(mark)))
+    }
+    if owned { linkIntegrationClipboard.restore(saved.items) }
 }
 
 struct LinkIntegrationRefusal: Error, Equatable {
@@ -237,7 +281,12 @@ func linkIntegrationBringToFront(_ window: Window) async -> Bool {
     await linkIntegrationFocusWindow(window)
     let deadline = ProcessInfo.processInfo.systemUptime + linkIntegrationFrontWait
     while ProcessInfo.processInfo.systemUptime < deadline {
-        if await linkIntegrationWindowIsInFront(window) { return true }
+        if await linkIntegrationWindowIsInFront(window) {
+            // macOS reports the focus change WinMux just made a moment later: let it land before a script's
+            // run is measured against it.
+            do { try await Task.sleep(for: .seconds(linkIntegrationFocusSettle)) } catch { return false }
+            return await linkIntegrationWindowIsInFront(window)
+        }
         do { try await Task.sleep(for: .milliseconds(100)) } catch { return false }
     }
     return false
@@ -296,7 +345,11 @@ func openPinnedLinkWithIntegration(_ integration: LinkIntegration, link: Workspa
         // Only the scripts the user trusted, as they were when the pin was clicked.
         guard target.isCurrent, let current = linkIntegrationStore.integration(id: integration.id), current.isActive,
               current.digest == integration.digest else { return }
+        let saved = hookmarkScriptTraits(openItem).usesClipboard
+            ? (count: linkIntegrationClipboard.changeCount, items: linkIntegrationClipboard.snapshot()) : nil
         let result = await runHookmarkScript(openItem, HookmarkPlaceholderValues(address: link.url, appName: integration.appName))
+        // An Open Item that copied the address to paste it gets its clipboard put back, as Get Address does.
+        restoreLinkIntegrationClipboard(saved, leftBy: [link.url])
         guard target.isCurrent else { return }
         switch result {
             case .success: break
@@ -322,7 +375,7 @@ func linkIntegrationOpening(_ link: WorkspaceSidebarPinLink) -> Result<LinkInteg
         return .failure(.init("This pin opens with an integration that's since been removed. Add it again in Settings → "
             + "Integrations, then choose Update from Window, or choose Edit Link…"))
     }
-    guard integration.openItem?.isEmpty == false else { return nil }
+    // Off or changed, it stands for nothing, not even macOS's own way of opening the link.
     if !integration.isEnabled {
         return .failure(.init("This pin opens with the \(integration.appName) integration, which is off. "
             + "Turn it on in Settings → Integrations, or choose Edit Link…"))
@@ -331,6 +384,7 @@ func linkIntegrationOpening(_ link: WorkspaceSidebarPinLink) -> Result<LinkInteg
         return .failure(.init("The \(integration.appName) integration's scripts changed since you turned it on, so it runs "
             + "nothing. Look at them again in Settings → Integrations."))
     }
+    guard integration.openItem?.isEmpty == false else { return nil }
     return integration.analysis.canOpen ? .success(integration) : nil
 }
 

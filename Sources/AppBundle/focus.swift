@@ -119,6 +119,27 @@ func replaceWorkspaceNameInFocusState(oldName: String, newName: String) {
 
 @MainActor private(set) var focusChangeGeneration: UInt64 = 0
 
+/// Every native focus change macOS reports, as it reports it: an app activated, or an app's focused window
+/// changed. Counted on whichever thread the report arrives, before any refresh coalesces reports.
+final class NativeFocusEvents: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count: UInt64 = 0
+
+    func note() {
+        lock.lock()
+        count &+= 1
+        lock.unlock()
+    }
+
+    var value: UInt64 {
+        lock.lock()
+        defer { lock.unlock() }
+        return count
+    }
+}
+
+let nativeFocusEvents = NativeFocusEvents()
+
 @MainActor func setFocus(to newFocus: LiveFocus) -> Bool {
     if _focus == newFocus.frozen {
         let status = newFocus.workspace.isVisible || newFocus.workspace.workspaceMonitor.setActiveWorkspace(newFocus.workspace)

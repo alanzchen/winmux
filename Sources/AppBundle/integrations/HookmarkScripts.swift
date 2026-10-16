@@ -164,7 +164,8 @@ func analyzeLinkIntegration(_ integration: LinkIntegration) -> LinkIntegrationAn
                 + "WinMux needs Accessibility for it, which it already has.")
         }
         if trait.usesClipboard {
-            notes.append("\(name) uses the clipboard. WinMux puts back what was on it, unless something else changed it after the script.")
+            notes.append("\(name) uses the clipboard. WinMux puts back what was on it when what the script left there is what it "
+                + "found; anything else there it leaves alone, as it may be yours.")
         }
         if trait.usesShell { notes.append("\(name) runs shell commands, with your permissions.") }
     }
@@ -282,6 +283,8 @@ private func hookmarkRewrite(_ source: String, language: HookmarkScriptLanguage,
             switch c {
                 case "\\": text += "\\\\"
                 case quote: text += "\\" + String(c)
+                // In a template string, `${` would be code.
+                case "$" where quote == "`": text += "\\$"
                 case "\n": text += "\\n"
                 case "\r": text += "\\r"
                 default: text.append(c)
@@ -324,20 +327,25 @@ private func hookmarkRewrite(_ source: String, language: HookmarkScriptLanguage,
                     continue
                 }
                 if c == "\"" {
-                    out.append(c); index += 1
+                    // A string that takes the address becomes a concatenation, in parentheses, so it stays
+                    // one value to whatever follows it.
+                    var literal = String(c), bindsAddress = false
+                    index += 1
                     var closed = false
                     while index < chars.count {
                         let s = chars[index]
-                        if s == "\\", index + 1 < chars.count { out.append(s); out.append(chars[index + 1]); index += 2; continue }
-                        if s == "\"" { out.append(s); index += 1; closed = true; break }
+                        if s == "\\", index + 1 < chars.count { literal.append(s); literal.append(chars[index + 1]); index += 2; continue }
+                        if s == "\"" { literal.append(s); index += 1; closed = true; break }
                         if let p = placeholder(at: index), wanted(p.kind) {
                             note(p.kind)
-                            out += inString(p.kind, "\"")
+                            bindsAddress = bindsAddress || p.kind == "0"
+                            literal += inString(p.kind, "\"")
                             index += p.length; continue
                         }
-                        out.append(s); index += 1
+                        literal.append(s); index += 1
                     }
                     if !closed { throw HookmarkPlaceholderError.unterminated }
+                    out += bindsAddress ? "(\(literal))" : literal
                     continue
                 }
                 if let p = placeholder(at: index), wanted(p.kind) {
@@ -365,24 +373,27 @@ private func hookmarkRewrite(_ source: String, language: HookmarkScriptLanguage,
                 }
                 if c == "\"" || c == "'" || c == "`" {
                     let quote = c
-                    out.append(c); index += 1
+                    var literal = String(c), bindsAddress = false
+                    index += 1
                     var closed = false
                     while index < chars.count {
                         let s = chars[index]
-                        if s == "\\", index + 1 < chars.count { out.append(s); out.append(chars[index + 1]); index += 2; continue }
-                        if s == quote { out.append(s); index += 1; closed = true; break }
+                        if s == "\\", index + 1 < chars.count { literal.append(s); literal.append(chars[index + 1]); index += 2; continue }
+                        if s == quote { literal.append(s); index += 1; closed = true; break }
                         if let p = placeholder(at: index), wanted(p.kind) {
                             note(p.kind)
                             if quote == "`", p.kind == "0" {
                                 scan.inTemplate = true
                                 if refusesTemplates { throw HookmarkPlaceholderError.templateString }
                             }
-                            out += inString(p.kind, quote)
+                            bindsAddress = bindsAddress || p.kind == "0"
+                            literal += inString(p.kind, quote)
                             index += p.length; continue
                         }
-                        out.append(s); index += 1
+                        literal.append(s); index += 1
                     }
                     if !closed { throw HookmarkPlaceholderError.unterminated }
+                    out += bindsAddress ? "(\(literal))" : literal
                     continue
                 }
                 if let p = placeholder(at: index), wanted(p.kind) {

@@ -109,6 +109,10 @@ final class LinkIntegrationStoreTest: XCTestCase {
             getName: nil, openItem: nil, newItem: nil, scheme: nil) })
         XCTAssertNotNil(refusal { try makePastedLinkIntegration(bundleId: "com.example.A", appName: "", getAddress: "return 1",
             getName: nil, openItem: nil, newItem: nil, scheme: "x-a://") })
+        for hookmarks in ["hook", "Hookmark"] {
+            XCTAssertNotNil(refusal { try makePastedLinkIntegration(bundleId: "com.example.A", appName: "", getAddress: "return 1",
+                getName: nil, openItem: "open location \"$0\"", newItem: nil, scheme: hookmarks) }, "Hookmark's own links stay its own")
+        }
         XCTAssertNotNil(refusal { try makePastedLinkIntegration(bundleId: "com.example.A", appName: "",
             getAddress: String(repeating: "x", count: linkIntegrationScriptLimit + 1), getName: nil, openItem: nil, newItem: nil,
             scheme: nil) })
@@ -142,12 +146,14 @@ final class LinkIntegrationStoreTest: XCTestCase {
             "not a bundle id": ["name": "Odd", "url": "return 1"],
             "com.example.NoAddress": ["name": "Nothing"],
             "com.example.BadScheme": ["name": "Bad", "url": "return 1", "scheme": "x bad://"],
+            "com.example.HookScheme": ["name": "Hooked", "url": "return 1", "open": "open location \"$0\"", "scheme": "hook"],
             "com.example.NotARecord": "text",
         ]])
         let found = try importHookmarkIntegrations(data, fileName: "Customized.plist", existingBundleIds: ["com.example.Existing"])
         XCTAssertEqual(found.integrations.map(\.bundleId), ["com.example.Ledger", "com.example.Notebook"])
         XCTAssertEqual(Set(found.skipped.map(\.key)), ["com.csa.mymeta.default", "com.example.Existing", "not a bundle id",
-                                                       "com.example.NoAddress", "com.example.BadScheme", "com.example.NotARecord"])
+                                                       "com.example.NoAddress", "com.example.BadScheme", "com.example.NotARecord",
+                                                       "com.example.HookScheme"])
         let notebook = try XCTUnwrap(found.integrations.last)
         XCTAssertEqual(notebook.getName, "tell application \"Notebook\" to return name of front note")
         XCTAssertEqual(notebook.openItem, "tell application \"Notebook\" to open location \"$0\"")
@@ -160,7 +166,7 @@ final class LinkIntegrationStoreTest: XCTestCase {
         XCTAssertEqual(notebook.source.fileDigest?.count, 64)
         XCTAssertEqual(notebook.analysis.verdict, .runsUnchanged)
         XCTAssertEqual(found.integrations.first?.analysis.verdict, .unsupported, "An x-callback-url record")
-        XCTAssertTrue(linkIntegrationImportSummary(found).hasPrefix("2 records found: 1 runs unchanged, 1 unsupported; 6 left out."))
+        XCTAssertTrue(linkIntegrationImportSummary(found).hasPrefix("2 records found: 1 runs unchanged, 1 unsupported; 7 left out."))
 
         let topLevel = try importHookmarkIntegrations(try plist(["com.example.Notebook": ["name": "Notebook", "url": "return 1"]]),
             fileName: "one.plist")

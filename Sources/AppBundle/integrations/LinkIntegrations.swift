@@ -158,6 +158,7 @@ final class LinkIntegrationStore: ObservableObject {
 
     /// Which integration on now opens addresses of `scheme` with its Open Item.
     func opener(forScheme scheme: String) -> LinkIntegrationOpener {
+        guard !linkIntegrationSchemeIsHookmarks(scheme) else { return .none }
         let openers = integrations.filter {
             $0.isActive && $0.analysis.canOpen && $0.scheme?.lowercased() == scheme.lowercased()
         }
@@ -270,6 +271,9 @@ func linkIntegrationSchemeIsValid(_ scheme: String) -> Bool {
     scheme.range(of: #"^[A-Za-z][A-Za-z0-9+.\-]{0,63}$"#, options: .regularExpression) != nil
 }
 
+/// Hookmark's own schemes: its links are Hookmark's to open, never an integration's.
+func linkIntegrationSchemeIsHookmarks(_ scheme: String) -> Bool { ["hook", "hookmark"].contains(scheme.lowercased()) }
+
 /// An integration typed or pasted, checked: an app and a Get Address script at least, within limits, with a
 /// well-formed scheme if any.
 func makePastedLinkIntegration(bundleId: String, appName: String, getAddress: String, getName: String?, openItem: String?,
@@ -287,6 +291,9 @@ func makePastedLinkIntegration(bundleId: String, appName: String, getAddress: St
     let scheme = scheme?.trimmingCharacters(in: .whitespaces)
     if let scheme, !scheme.isEmpty, !linkIntegrationSchemeIsValid(scheme) {
         throw LinkIntegrationError.invalid("A scheme is letters, then letters, digits, +, - or ., without :// — for example x-example.")
+    }
+    if let scheme, linkIntegrationSchemeIsHookmarks(scheme) {
+        throw LinkIntegrationError.invalid("“\(scheme):” links are Hookmark's own, so no integration opens them in WinMux.")
     }
     let name = appName.trimmingCharacters(in: .whitespacesAndNewlines)
     return LinkIntegration(bundleId: bundleId, appName: name.isEmpty ? bundleId : String(name.prefix(100)),
@@ -369,6 +376,10 @@ func importHookmarkIntegrations(_ data: Data, fileName: String, existingBundleId
         let scheme = text("scheme")?.trimmingCharacters(in: .whitespaces)
         if let scheme, !linkIntegrationSchemeIsValid(scheme) {
             skipped.append(.init(key: key, reason: "Its scheme “\(scheme.prefix(40))” isn't a URL scheme."))
+            continue
+        }
+        if let scheme, linkIntegrationSchemeIsHookmarks(scheme) {
+            skipped.append(.init(key: key, reason: "It opens Hookmark's own “\(scheme):” links, which stay Hookmark's."))
             continue
         }
         do {

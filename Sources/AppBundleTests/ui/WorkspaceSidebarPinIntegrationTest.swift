@@ -26,6 +26,8 @@ final class WorkspaceSidebarPinIntegrationTest: XCTestCase {
     private var front: (pid: Int32, windowId: UInt32)?
     private var focused: [UInt32] = []
     private var focusBringsFront = true
+    /// Native focus changes macOS reported, as the stand-in counts them.
+    private var focusEvents: UInt64 = 0
     private var reads: [UInt32: PinPageWindowRead] = [:]
     private var handlers: [String: (url: URL, bundleId: String?)] = [:]
     private var launched: [(url: URL, app: URL)] = []
@@ -36,6 +38,7 @@ final class WorkspaceSidebarPinIntegrationTest: XCTestCase {
         let run: @MainActor (String, HookmarkPlaceholderValues) async -> HookmarkScriptResult
         let focus: @MainActor (Window) async -> Void
         let front: @MainActor () async -> (pid: Int32, windowId: UInt32)?
+        let focusEvents: @MainActor () -> UInt64
         let clipboard: LinkIntegrationClipboard
         let store: LinkIntegrationStore
         let read: @MainActor (Window) async -> PinPageWindowRead?
@@ -53,6 +56,7 @@ final class WorkspaceSidebarPinIntegrationTest: XCTestCase {
         var items: [[String: Data]] = [["public.utf8-plain-text": Data("mine".utf8)]]
         var snapshots = 0
         var restored: [[[String: Data]]] = []
+        var string: String? { items.first?["public.utf8-plain-text"].map { String(decoding: $0, as: UTF8.self) } }
 
         func snapshot() -> [[String: Data]] {
             snapshots += 1
@@ -84,7 +88,7 @@ final class WorkspaceSidebarPinIntegrationTest: XCTestCase {
         WorkspaceSidebarTabUndo.shared.clear()
         resetPinLinkAppCacheForTests()
         saved = Saved(run: runHookmarkScript, focus: linkIntegrationFocusWindow, front: linkIntegrationFrontWindow,
-            clipboard: linkIntegrationClipboard, store: linkIntegrationStore, read: pinPageWindowRead, modes: pinPageChromiumModesOf,
+            focusEvents: linkIntegrationFocusEvents, clipboard: linkIntegrationClipboard, store: linkIntegrationStore, read: pinPageWindowRead, modes: pinPageChromiumModesOf,
             handler: pinLinkHandlerApp, open: openPinLinkURL, appURL: pinDocumentAppURL, notice: showWorkspaceSidebarNotice,
             savedStore: savedWorkspaceStore)
         linkIntegrationStore = LinkIntegrationStore()
@@ -98,6 +102,7 @@ final class WorkspaceSidebarPinIntegrationTest: XCTestCase {
             if focusBringsFront { front = (window.app.pid, window.windowId) }
         }
         linkIntegrationFrontWindow = { [unowned self] in front }
+        linkIntegrationFocusEvents = { [unowned self] in focusEvents }
         linkIntegrationClipboard = clipboard
         pinPageWindowRead = { [unowned self] window in reads[window.windowId] }
         pinPageChromiumModesOf = { _ in .success(["normal"]) }
@@ -112,6 +117,7 @@ final class WorkspaceSidebarPinIntegrationTest: XCTestCase {
             runHookmarkScript = saved.run
             linkIntegrationFocusWindow = saved.focus
             linkIntegrationFrontWindow = saved.front
+            linkIntegrationFocusEvents = saved.focusEvents
             linkIntegrationClipboard = saved.clipboard
             linkIntegrationStore = saved.store
             pinPageWindowRead = saved.read
@@ -277,6 +283,53 @@ final class WorkspaceSidebarPinIntegrationTest: XCTestCase {
         XCTAssertEqual(appearance("note")?.link?.title, "x-notebook://note/7")
     }
 
+    func testAFocusChangeWhileAScriptRunsVoidsItEvenIfTheWindowComesBack() async throws {
+        let integration = install(getName: .some(nil))
+        let (tab, window) = makeTab("note", windowId: 41, app: notebook)
+        front = (notebook.pid, window.windowId)
+        answers = [.success("x-notebook://note/7")]
+        // Away to another window and back while it ran: macOS reported the changes, the front is as it was.
+        duringScript = { [unowned self] in focusEvents += 2 }
+
+        await pin(tab.name, integration)
+
+        XCTAssertEqual(ran.count, 1)
+        XCTAssertEqual(notices.last?.body, linkIntegrationFrontChangedMessage)
+        XCTAssertNil(appearance("note")?.link)
+    }
+
+    func testTurningAnIntegrationOffOrEditingItStopsACaptureBeforeItsNextScript() async throws {
+        let integration = install(getName: .some(nil))
+        let (tab, other) = makeTab("note", windowId: 41, app: notebook)
+        _ = other
+        front = nil
+        // Turned off while WinMux brings the window forward: Get Address never runs.
+        linkIntegrationFocusWindow = { [unowned self] window in
+            front = (window.app.pid, window.windowId)
+            try? linkIntegrationStore.setEnabled(id: integration.id, false)
+        }
+        await pin(tab.name, integration)
+        XCTAssertTrue(ran.isEmpty)
+        XCTAssertEqual(notices.last?.body, linkIntegrationWithdrawnMessage)
+
+        // Edited while Get Address runs: Get Name never runs, and nothing is kept.
+        linkIntegrationStore = LinkIntegrationStore()
+        let named = install()
+        notices = []
+        front = (notebook.pid, 41)
+        answers = [.success("x-notebook://note/7"), .success("Plan")]
+        duringScript = { [unowned self] in
+            var edited = named
+            edited.getName = "return \"Other\""
+            edited.trustedDigest = edited.digest
+            linkIntegrationStore = LinkIntegrationStore(integrations: [edited])
+            duringScript = nil
+        }
+        await pin(tab.name, named)
+        XCTAssertEqual(ran.map(\.source), [getAddress])
+        XCTAssertNil(appearance("note")?.link)
+    }
+
     func testAnIntegrationThatsOffChangedUnsupportedOrForAnotherAppRunsNothing() async throws {
         let off = install(on: false)
         let (tab, _) = makeTab("note", windowId: 41, app: notebook)
@@ -366,6 +419,29 @@ final class WorkspaceSidebarPinIntegrationTest: XCTestCase {
         duringScript = nil
         await pin(second.name, integration)
         XCTAssertEqual(clipboard.restored.count, 1, "Unchanged: nothing is written to it")
+
+        // Something else on it afterwards may be the user's, copied meanwhile: it stays.
+        let (third, _) = makeTab("third", windowId: 44, app: notebook)
+        answers = [.success("x-notebook://note/9")]
+        duringScript = { [unowned self] in clipboard.copy("x-notebook://note/9"); clipboard.copy("the user's own copy") }
+        await pin(third.name, integration)
+        XCTAssertEqual(clipboard.restored.count, 1)
+        XCTAssertEqual(clipboard.string, "the user's own copy")
+        XCTAssertEqual(appearance("third")?.link?.url, "x-notebook://note/9")
+    }
+
+    func testAnOpenItemThatCopiesTheAddressGetsTheClipboardPutBack() async throws {
+        let integration = install(openItem: "set the clipboard to \"$0\"\ntell application \"System Events\" to keystroke \"v\" using command down")
+        let link = WorkspaceSidebarPinLink(url: "x-notebook://note/7", title: "Plan", adapter: "integration", bundleId: notebookId,
+            source: .window, integration: integration.id)
+        let tab = try emptyPinnedLink("note", link)
+        duringScript = { [unowned self] in clipboard.copy("x-notebook://note/7") }
+
+        openSavedTabApps(tab) { _, _ in XCTFail() }
+
+        let opened = await eventually { !self.clipboard.restored.isEmpty }
+        XCTAssertTrue(opened)
+        XCTAssertEqual(clipboard.string, "mine")
     }
 
     func testAPrivateOrUncertainBrowserWindowRunsNothing() async throws {
@@ -479,6 +555,14 @@ final class WorkspaceSidebarPinIntegrationTest: XCTestCase {
         XCTAssertTrue(launched.isEmpty)
         XCTAssertTrue(ran.isEmpty)
         XCTAssertTrue(notices.last?.body.contains("since been removed") == true)
+    }
+
+    func testAnIntegrationOffWithoutAnOpenItemStillStandsForItsLinks() throws {
+        handlers["x-notebook"] = (URL(fileURLWithPath: "/Applications/Notebook.app"), notebookId)
+        let off = install(openItem: .some(nil), on: false)
+        let link = WorkspaceSidebarPinLink(url: "x-notebook://note/7", title: "Plan", adapter: "integration", bundleId: notebookId,
+            source: .window, integration: off.id)
+        XCTAssertTrue(pinLinkOpening(link).failureMessage?.contains("which is off") == true, "Not macOS's handler instead")
     }
 
     func testWithoutAnOpenItemItCanRunMacOSOpensTheLink() throws {

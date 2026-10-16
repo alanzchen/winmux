@@ -520,6 +520,7 @@ private func refresh() async throws {
 
 func refreshObs(_: AXObserver, _ ax: AXUIElement, notif: CFString, _: UnsafeMutableRawPointer?) {
     let notif = notif as String
+    if notif == kAXFocusedWindowChangedNotification as String { nativeFocusEvents.note() }
     if notif == kAXFocusedWindowChangedNotification as String || notif == kAXUIElementDestroyedNotification as String {
         debugFocusLog("refreshObs notif=\(notif)")
     }
