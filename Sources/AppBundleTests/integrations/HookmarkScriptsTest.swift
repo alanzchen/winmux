@@ -177,6 +177,8 @@ final class HookmarkScriptsTest: XCTestCase {
         XCTAssertEqual(failed, .failed("No note is open. (-2700)"))
         let timedOut = await runOsaScript("delay 5", language: .appleScript, environment: [:], timeout: 0.5)
         XCTAssertEqual(timedOut, .timedOut)
+        let long = await runOsaScript("'x'.repeat(200000)", language: .javaScript, environment: [:], timeout: 10)
+        XCTAssertEqual(long, .success(String(repeating: "x", count: 200_000)), "A long answer can't stall the script")
         let template = await runHookmarkScript("//JavaScript\n`$0`", .init(address: "x"))
         guard case .failed = template else { return XCTFail("A template string refuses before anything runs") }
     }

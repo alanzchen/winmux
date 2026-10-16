@@ -287,7 +287,9 @@ func pinPageWindowPrivacyRefusal(_ window: Window, browser: BrowserTabAdapter) a
 func openPinnedLinkWithIntegration(_ integration: LinkIntegration, link: WorkspaceSidebarPinLink, target: PinDocumentTarget) {
     guard let openItem = integration.openItem else { return }
     _ = Task { @MainActor in
-        guard target.isCurrent, linkIntegrationStore.integration(id: integration.id)?.isActive == true else { return }
+        // Only the scripts the user trusted, as they were when the pin was clicked.
+        guard target.isCurrent, let current = linkIntegrationStore.integration(id: integration.id), current.isActive,
+              current.digest == integration.digest else { return }
         let result = await runHookmarkScript(openItem, HookmarkPlaceholderValues(address: link.url, appName: integration.appName))
         guard target.isCurrent else { return }
         switch result {

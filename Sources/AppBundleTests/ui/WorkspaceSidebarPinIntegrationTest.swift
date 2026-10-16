@@ -430,6 +430,16 @@ final class WorkspaceSidebarPinIntegrationTest: XCTestCase {
         XCTAssertTrue(launched.isEmpty)
         XCTAssertFalse(NewWindowIntentRegistry.shared.hasPendingIntents, "Nothing waits for, claims or moves a window")
         XCTAssertTrue(focused.isEmpty)
+
+        // Scripts changed and trusted again between the click and the run: not the ones clicked, so nothing runs.
+        ran = []
+        openSavedTabApps(tab) { _, _ in XCTFail() }
+        var edited = integration
+        edited.openItem = "tell application \"Notebook\" to activate"
+        edited.trustedDigest = edited.digest
+        linkIntegrationStore = LinkIntegrationStore(integrations: [edited])
+        await settle()
+        XCTAssertTrue(ran.isEmpty)
     }
 
     func testALinkWhoseIntegrationIsOffChangedOrGoneSaysSoAndOpensNothingElse() async throws {

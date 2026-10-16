@@ -473,9 +473,21 @@ func runOsaScript(_ source: String, language: HookmarkScriptLanguage, environmen
         process.standardOutput = output
         process.standardError = errors
         let state = HookmarkRunState(continuation)
+        // Both pipes are read as the script writes, so a long answer can't fill one and stall the script.
+        let reads = DispatchGroup()
+        let stdoutData = HookmarkPipeData(), stderrData = HookmarkPipeData()
+        for (pipe, data) in [(output, stdoutData), (errors, stderrData)] {
+            reads.enter()
+            DispatchQueue.global().async {
+                let handle = pipe.fileHandleForReading
+                while case let chunk = handle.availableData, !chunk.isEmpty { data.append(chunk) }
+                reads.leave()
+            }
+        }
         process.terminationHandler = { finished in
-            let stdout = String(data: output.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-            let stderr = String(data: errors.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            reads.wait()
+            let stdout = String(data: stdoutData.data, encoding: .utf8) ?? ""
+            let stderr = String(data: stderrData.data, encoding: .utf8) ?? ""
             if finished.terminationStatus == 0 {
                 state.resume(.success(stdout.hasSuffix("\n") ? String(stdout.dropLast()) : stdout))
             } else if stderr.contains("-1743") || stderr.localizedCaseInsensitiveContains("not authorized") {
@@ -509,6 +521,24 @@ func hookmarkErrorSummary(_ stderr: String, status: Int32) -> String {
     let trimmed = message.trimmingCharacters(in: .whitespaces)
     if trimmed.isEmpty { return "The script ended with status \(status)." }
     return String(trimmed.prefix(240))
+}
+
+/// What a pipe gave, kept up to a limit far beyond any address.
+private final class HookmarkPipeData: @unchecked Sendable {
+    private let lock = NSLock()
+    private var kept = Data()
+
+    func append(_ more: Data) {
+        lock.lock()
+        kept.append(more.prefix(max(0, 1 << 20 - kept.count)))
+        lock.unlock()
+    }
+
+    var data: Data {
+        lock.lock()
+        defer { lock.unlock() }
+        return kept
+    }
 }
 
 private final class HookmarkRunState: @unchecked Sendable {
