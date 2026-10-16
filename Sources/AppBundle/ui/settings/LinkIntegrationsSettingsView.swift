@@ -335,7 +335,8 @@ private struct LinkIntegrationEditor: View {
             }
         }
         .padding(20)
-        .frame(width: 640, height: 660)
+        // Fits a 768-point-tall display with the Dock: the scripts scroll.
+        .frame(width: 640, height: 560)
     }
 
     private func chooseApp() {

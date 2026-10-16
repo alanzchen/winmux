@@ -253,7 +253,13 @@ func linkIntegrationWindowIsInFront(_ window: Window) async -> Bool {
 @MainActor
 func pinPageWindowPrivacyRefusal(_ window: Window, browser: BrowserTabAdapter) async -> String? {
     let appName = window.app.name ?? (browser == .safari ? "Safari" : "The browser")
-    let read = await pinPageWindowRead(window)
+    var read = await pinPageWindowRead(window)
+    // Safari builds a window's accessibility only once something asks, so a first read of a window in the
+    // background may not reach its toolbar yet: read again, as Pin Page does, before calling it uncertain.
+    for _ in 0 ..< 2 where browser == .safari && read != nil && read?.privacy == .unknown {
+        try? await Task.sleep(for: .milliseconds(250))
+        read = await pinPageWindowRead(window)
+    }
     guard let read else { return "WinMux couldn't read this \(appName) window, so it runs nothing on it." }
     if read.privacy == .private { return pinPagePrivateMessage }
     switch browser {

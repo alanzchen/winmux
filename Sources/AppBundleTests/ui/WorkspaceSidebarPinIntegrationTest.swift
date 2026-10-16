@@ -385,6 +385,21 @@ final class WorkspaceSidebarPinIntegrationTest: XCTestCase {
         XCTAssertTrue(focused.isEmpty)
     }
 
+    func testASafariWindowReadBeforeItsToolbarIsBuiltIsReadAgain() async throws {
+        let integration = install(safariId, appName: "Safari", getName: .some(nil), scheme: nil)
+        let (tab, window) = makeTab("page", windowId: 73, app: safari)
+        var reads = [PinPageWindowRead(url: nil, title: "HM", privacy: .unknown),
+                     PinPageWindowRead(url: "https://example.com/", title: "HM", privacy: .normal)]
+        pinPageWindowRead = { _ in reads.count > 1 ? reads.removeFirst() : reads[0] }
+        answers = [.success("https://example.com/a?Q=Case#Part")]
+
+        await pin(tab.name, integration)
+
+        XCTAssertEqual(notices, [])
+        XCTAssertEqual(appearance("page")?.link?.url, "https://example.com/a?Q=Case#Part")
+        XCTAssertTrue(window.nodeWorkspace === tab)
+    }
+
     func testAChangeToTheTabWhileTheScriptRunsWritesNothing() async throws {
         let integration = install(getName: .some(nil))
         let (tab, _) = makeTab("note", windowId: 41, app: notebook)
