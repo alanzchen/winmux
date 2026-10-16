@@ -234,7 +234,8 @@ final class WorkspaceSidebarPinIntegrationTest: XCTestCase {
     }
 
     func testNothingRunsUnlessTheTabsWindowIsInFrontAndNothingIsKeptIfItStopsBeing() async throws {
-        let integration = install()
+        // No Get Name: what Get Address read is checked on its own.
+        let integration = install(getName: .some(nil))
         let (tab, _) = makeTab("note", windowId: 41, app: notebook)
         let (_, other) = makeTab("other", windowId: 42, app: notebook)
         front = (notebook.pid, other.windowId)
@@ -256,6 +257,24 @@ final class WorkspaceSidebarPinIntegrationTest: XCTestCase {
         XCTAssertEqual(ran.count, 1)
         XCTAssertTrue(notices.last?.body.contains("The front window changed") == true)
         XCTAssertNil(appearance("note")?.link, "What it read may be another window's")
+
+        // Get Name's answer is checked the same way: read once the window left the front, it isn't kept. The
+        // address, read and checked before, is, named by itself.
+        linkIntegrationStore = LinkIntegrationStore()
+        let named = install()
+        ran = []
+        notices = []
+        front = nil
+        answers = [.success("x-notebook://note/7"), .success("Another window's note")]
+        var runs = 0
+        duringScript = { [unowned self] in
+            runs += 1
+            if runs == 2 { front = (notebook.pid, other.windowId) }
+        }
+        await pin(tab.name, named)
+        XCTAssertEqual(ran.map(\.source), [getAddress, getName])
+        XCTAssertEqual(appearance("note")?.link?.url, "x-notebook://note/7")
+        XCTAssertEqual(appearance("note")?.link?.title, "x-notebook://note/7")
     }
 
     func testAnIntegrationThatsOffChangedUnsupportedOrForAnotherAppRunsNothing() async throws {
