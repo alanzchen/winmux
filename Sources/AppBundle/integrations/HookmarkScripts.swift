@@ -147,10 +147,10 @@ func analyzeLinkIntegration(_ integration: LinkIntegration) -> LinkIntegrationAn
         blocked = true
     }
     for (name, trait) in traits {
-        if trait.needsHookmark {
-            cannotRun(name, "\(name) uses Hookmark itself (its app, its hook:// links or its database), which WinMux can't stand in for.")
-        } else if trait.usesCallback {
+        if trait.usesCallback {
             cannotRun(name, "\(name) asks the app to call Hookmark back (x-callback-url), and only Hookmark receives that call.")
+        } else if trait.needsHookmark {
+            cannotRun(name, "\(name) uses Hookmark itself (its app, its hook:// links or its database), which WinMux can't stand in for.")
         } else if trait.placeholderInTemplate {
             cannotRun(name, "\(name) puts $0 inside a JavaScript template string (`…`), which WinMux can't fill safely. "
                 + "Put it in an ordinary \"…\" string instead.")

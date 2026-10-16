@@ -74,6 +74,9 @@ final class HookmarkScriptsTest: XCTestCase {
 
         let callback = integration("open location \"x-notebook://x-callback-url/get\"", scriptingMethod: "x-callback-url")
         XCTAssertEqual(callback.analysis.verdict, .unsupported)
+        let setCurrentNode = integration("open location \"x-notebook://get?x-success=hook://x-callback-url/setCurrentNode\"")
+        XCTAssertEqual(setCurrentNode.analysis.verdict, .unsupported)
+        XCTAssertTrue(setCurrentNode.analysis.problems.first?.contains("call Hookmark back") == true, "Said as what it is")
 
         let newItem = integration("return \"x-notebook://1\"", newItem: "tell application \"Notebook\" to make new note named \"$title\"")
         XCTAssertTrue(newItem.analysis.notes.contains { $0.contains("New Item is kept") })
