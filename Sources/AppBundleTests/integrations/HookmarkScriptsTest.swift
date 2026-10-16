@@ -165,11 +165,20 @@ final class HookmarkScriptsTest: XCTestCase {
         XCTAssertEqual(appleScript, .success("x-notebook"))
     }
 
-    func testAnAppNameInATemplateStringIsOnlyText() async throws {
+    func testATemplatesTextTakesNoPlaceholderButItsExpressionsAreCode() async throws {
         try XCTSkipUnless(canRunOsascript)
-        let name = "Note${1+1}`book\\"
-        let result = await runHookmarkScript("//JavaScript\n`$$`", .init(appName: name))
-        XCTAssertEqual(result, .success(name), "No interpolation, no escape")
+        let refused = await runHookmarkScript("//JavaScript\n`$$`", .init(appName: "Note${1+1}book"))
+        guard case .failed = refused else { return XCTFail("$$ in a template's text refuses before anything runs") }
+        let name = "Bob's \"Notes\" ${1+1}`"
+        let inExpression = await runHookmarkScript("//JavaScript\n`<${ '$$' }>`", .init(appName: name))
+        XCTAssertEqual(inExpression, .success("<\(name)>"), "A string inside ${…} is an ordinary string")
+        let address = "x-notebook://note/1?q=' + 1 + '"
+        let addressInExpression = await runHookmarkScript("//JavaScript\n`[${ \"$0\".length }|${ $0 }]`", .init(address: address))
+        XCTAssertEqual(addressInExpression, .success("[\(address.count)|\(address)]"))
+        let nested = await runHookmarkScript("//JavaScript\n`a${ `b${ '$$' }` }c`", .init(appName: "N'"))
+        XCTAssertEqual(nested, .success("abN'c"))
+        XCTAssertTrue(hookmarkScriptTraits("//JavaScript\n`see $$`").placeholderInTemplate)
+        XCTAssertFalse(hookmarkScriptTraits("//JavaScript\n`see ${ '$0' }`").placeholderInTemplate)
     }
 
     func testUnicodeArrivesWholeInBothLanguagesAndInHandlers() async throws {

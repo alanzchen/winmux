@@ -29,7 +29,7 @@ var linkIntegrationFocusWindow: @MainActor (Window) async -> Void = { window in
 var linkIntegrationFrontWindow: @MainActor () async -> (pid: Int32, windowId: UInt32)? = {
     guard let app = NSWorkspace.shared.frontmostApplication else { return nil }
     let pid = app.processIdentifier
-    return await Task.detached {
+    let front: (pid: Int32, windowId: UInt32)? = await Task.detached {
         let element = AXUIElementCreateApplication(pid)
         AXUIElementSetMessagingTimeout(element, 0.5)
         var raw: CFTypeRef?
@@ -37,53 +37,19 @@ var linkIntegrationFrontWindow: @MainActor () async -> (pid: Int32, windowId: UI
               CFGetTypeID(raw) == AXUIElementGetTypeID() else { return nil }
         return unsafeDowncast(raw, to: AXUIElement.self).containingWindowId().map { (pid, $0) }
     }.value
+    // The app read must still be the front one: another may have come forward during the read.
+    guard let front, NSWorkspace.shared.frontmostApplication?.processIdentifier == front.pid else { return nil }
+    return front
 }
 
 /// How many native focus changes macOS has reported so far. Replaceable for tests.
 @MainActor
 var linkIntegrationFocusEvents: @MainActor () -> UInt64 = { nativeFocusEvents.value }
 
-/// The clipboard a script may use. Replaceable for tests.
-@MainActor
-var linkIntegrationClipboard: LinkIntegrationClipboard = GeneralLinkIntegrationClipboard()
-
 /// How long WinMux waits for the window it brought forward to be the front window.
 let linkIntegrationFrontWait: TimeInterval = 2
 /// How long the focus change WinMux made has to be reported before a script runs.
 let linkIntegrationFocusSettle: TimeInterval = 0.2
-
-@MainActor
-protocol LinkIntegrationClipboard: AnyObject {
-    var changeCount: Int { get }
-    /// Its plain text, if any.
-    var string: String? { get }
-    func snapshot() -> [[String: Data]]
-    func restore(_ items: [[String: Data]])
-}
-
-@MainActor
-final class GeneralLinkIntegrationClipboard: LinkIntegrationClipboard {
-    var changeCount: Int { NSPasteboard.general.changeCount }
-    var string: String? { NSPasteboard.general.string(forType: .string) }
-
-    func snapshot() -> [[String: Data]] {
-        (NSPasteboard.general.pasteboardItems ?? []).map { item in
-            Dictionary(item.types.compactMap { type in item.data(forType: type).map { (type.rawValue, $0) } },
-                uniquingKeysWith: { first, _ in first })
-        }
-    }
-
-    func restore(_ items: [[String: Data]]) {
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        let restored = items.map { values in
-            let item = NSPasteboardItem()
-            for (type, data) in values { item.setData(data, forType: NSPasteboard.PasteboardType(type)) }
-            return item
-        }
-        if !restored.isEmpty { pasteboard.writeObjects(restored) }
-    }
-}
 
 // MARK: - Taking a link
 
@@ -180,9 +146,8 @@ func captureWithLinkIntegration(_ integration: LinkIntegration, window: Window,
     guard await linkIntegrationBringToFront(window) else {
         return .refused("WinMux couldn't bring this tab's window to the front, so it ran nothing. Integrations read what's in front.")
     }
-    let usesClipboard = [integration.getAddress, integration.getName ?? ""].contains { hookmarkScriptTraits($0).usesClipboard }
     let address = await runLinkIntegrationSlot(integration.getAddress, integration: integration, window: window,
-        clipboard: usesClipboard, isStillWanted: isStillWanted)
+        isStillWanted: isStillWanted)
     let output: String
     switch address {
         case .failure(let refusal): return .refused(refusal.message)
@@ -208,7 +173,7 @@ func captureWithLinkIntegration(_ integration: LinkIntegration, window: Window,
                 // Get Name runs only when the address carried no name, under the same checks. Its answer is
                 // kept only if they all held; the address, checked already, is kept either way.
                 if case .success(let answer) = await runLinkIntegrationSlot(getName, integration: integration, window: window,
-                    clipboard: usesClipboard, isStillWanted: isStillWanted) {
+                    isStillWanted: isStillWanted) {
                     name = hookmarkCleanName(answer)
                 }
             }
@@ -218,21 +183,21 @@ func captureWithLinkIntegration(_ integration: LinkIntegration, window: Window,
     }
 }
 
-/// One script slot: run only while still wanted and with the window in front, and its answer kept only if
-/// macOS reported no focus change while it ran and the window is still in front. The clipboard is put back
-/// when the script left its own answer there. The answer, or why there's none.
+/// One script slot: run only while still wanted, with the window in front and no focus change reported since
+/// that was checked; its answer kept only if macOS reported no focus change while it ran and the window is
+/// still in front. The clipboard is the script's to use: WinMux never writes it. The answer, or why there's none.
 @MainActor
-private func runLinkIntegrationSlot(_ script: String, integration: LinkIntegration, window: Window, clipboard: Bool,
+private func runLinkIntegrationSlot(_ script: String, integration: LinkIntegration, window: Window,
                                     isStillWanted: @MainActor () -> Bool) async -> Result<String, LinkIntegrationRefusal> {
     let appName = integration.appName
     guard isStillWanted() else { return .failure(.init(linkIntegrationWithdrawnMessage)) }
     let focusEvents = linkIntegrationFocusEvents()
-    guard await linkIntegrationWindowIsInFront(window), isStillWanted() else {
+    let inFrontBefore = await linkIntegrationWindowIsInFront(window)
+    // Right before the script starts: nothing reported since the count, and still wanted.
+    guard inFrontBefore, linkIntegrationFocusEvents() == focusEvents, isStillWanted() else {
         return .failure(.init(linkIntegrationFrontChangedMessage))
     }
-    let saved = clipboard ? (count: linkIntegrationClipboard.changeCount, items: linkIntegrationClipboard.snapshot()) : nil
     let result = await runHookmarkScript(script, HookmarkPlaceholderValues(appName: appName))
-    if case .success(let output) = result { restoreLinkIntegrationClipboard(saved, leftBy: linkIntegrationClipboardMarks(output)) }
     let inFront = await linkIntegrationWindowIsInFront(window)
     guard inFront, linkIntegrationFocusEvents() == focusEvents else { return .failure(.init(linkIntegrationFrontChangedMessage)) }
     switch result {
@@ -243,30 +208,6 @@ private func runLinkIntegrationSlot(_ script: String, integration: LinkIntegrati
         case .timedOut:
             return .failure(.init("\(appName)'s integration didn't answer within \(Int(hookmarkScriptTimeout)) seconds."))
     }
-}
-
-/// What a script's answer may have left on the clipboard: the answer, and the address in it.
-func linkIntegrationClipboardMarks(_ answer: String) -> [String] {
-    var marks = [answer]
-    switch parseHookmarkAddress(answer) {
-        case .link(let url, _): marks.append(url)
-        case .file(let url, _): marks.append(url.path)
-        default: break
-    }
-    return marks
-}
-
-/// Puts back what was on the clipboard if a script changed it and what's there now is what the script
-/// found: then it's the script's. Anything else may be the user's, copied meanwhile, and stays.
-@MainActor
-func restoreLinkIntegrationClipboard(_ saved: (count: Int, items: [[String: Data]])?, leftBy marks: [String]) {
-    guard let saved, linkIntegrationClipboard.changeCount != saved.count,
-          let now = linkIntegrationClipboard.string?.trimmingCharacters(in: .whitespacesAndNewlines), !now.isEmpty
-    else { return }
-    let owned = marks.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.contains { mark in
-        !mark.isEmpty && (now == mark || (mark.count >= 8 && now.contains(mark)))
-    }
-    if owned { linkIntegrationClipboard.restore(saved.items) }
 }
 
 struct LinkIntegrationRefusal: Error, Equatable {
@@ -345,11 +286,7 @@ func openPinnedLinkWithIntegration(_ integration: LinkIntegration, link: Workspa
         // Only the scripts the user trusted, as they were when the pin was clicked.
         guard target.isCurrent, let current = linkIntegrationStore.integration(id: integration.id), current.isActive,
               current.digest == integration.digest else { return }
-        let saved = hookmarkScriptTraits(openItem).usesClipboard
-            ? (count: linkIntegrationClipboard.changeCount, items: linkIntegrationClipboard.snapshot()) : nil
         let result = await runHookmarkScript(openItem, HookmarkPlaceholderValues(address: link.url, appName: integration.appName))
-        // An Open Item that copied the address to paste it gets its clipboard put back, as Get Address does.
-        restoreLinkIntegrationClipboard(saved, leftBy: [link.url])
         guard target.isCurrent else { return }
         switch result {
             case .success: break

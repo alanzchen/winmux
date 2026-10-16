@@ -43,7 +43,7 @@ struct HookmarkScriptTraits: Equatable {
     var usesShell = false
     /// Presses keys or clicks through System Events: acts on whatever is in front.
     var usesUIScripting = false
-    /// `$0` inside a JavaScript template string, which WinMux can't bind safely.
+    /// `$0` or `$$` in the text of a JavaScript template string, which WinMux can't bind safely.
     var placeholderInTemplate = false
     /// The apps it addresses by name or id, as written.
     var apps: [String] = []
@@ -152,8 +152,8 @@ func analyzeLinkIntegration(_ integration: LinkIntegration) -> LinkIntegrationAn
         } else if trait.needsHookmark {
             cannotRun(name, "\(name) uses Hookmark itself (its app, its hook:// links or its database), which WinMux can't stand in for.")
         } else if trait.placeholderInTemplate {
-            cannotRun(name, "\(name) puts $0 inside a JavaScript template string (`…`), which WinMux can't fill safely. "
-                + "Put it in an ordinary \"…\" string instead.")
+            cannotRun(name, "\(name) puts $0 or $$ in the text of a JavaScript template string (`…`), which WinMux can't fill "
+                + "safely. Put it in an ordinary \"…\" string instead.")
         }
         if trait.usesAddress, name != "Open Item" {
             notes.append("\(name) mentions $0, which only Open Item is given; there it stays as written.")
@@ -164,8 +164,8 @@ func analyzeLinkIntegration(_ integration: LinkIntegration) -> LinkIntegrationAn
                 + "WinMux needs Accessibility for it, which it already has.")
         }
         if trait.usesClipboard {
-            notes.append("\(name) uses the clipboard. WinMux puts back what was on it when what the script left there is what it "
-                + "found; anything else there it leaves alone, as it may be yours.")
+            notes.append("\(name) uses the clipboard: what it copies stays there. WinMux doesn't put the clipboard back, as it "
+                + "can't tell what the script copied from what you copied meanwhile.")
         }
         if trait.usesShell { notes.append("\(name) runs shell commands, with your permissions.") }
     }
@@ -260,7 +260,8 @@ private func javaScriptRead(_ environment: String) -> String {
 
 /// Rewrites `$0` (when asked) outside comments: in code, to a read of the address; inside a string, to a
 /// concatenation with it. And `$$` (when given a name): to that name, escaped, as a literal in code or as
-/// text inside a string. JavaScript template strings holding `$0` refuse, or, only scanned, are noted.
+/// text inside a string. A JavaScript template's text holding either refuses, or, only scanned, is noted;
+/// its `${…}` expressions are code like any other.
 private func hookmarkRewrite(_ source: String, language: HookmarkScriptLanguage, address: Bool, appName: String?,
                              refusesTemplates: Bool, scan: inout HookmarkPlaceholderScan) throws -> String {
     let chars = Array(source)
@@ -283,8 +284,6 @@ private func hookmarkRewrite(_ source: String, language: HookmarkScriptLanguage,
             switch c {
                 case "\\": text += "\\\\"
                 case quote: text += "\\" + String(c)
-                // In a template string, `${` would be code.
-                case "$" where quote == "`": text += "\\$"
                 case "\n": text += "\\n"
                 case "\r": text += "\\r"
                 default: text.append(c)
@@ -356,53 +355,89 @@ private func hookmarkRewrite(_ source: String, language: HookmarkScriptLanguage,
                 out.append(c); index += 1
             }
         case .javaScript:
-            while index < chars.count {
-                let c = chars[index]
-                let next = index + 1 < chars.count ? chars[index + 1] : nil
-                if c == "/" && next == "/" {
-                    while index < chars.count, chars[index] != "\n" { out.append(chars[index]); index += 1 }
-                    continue
-                }
-                if c == "/" && next == "*" {
-                    out += "/*"; index += 2
-                    while index < chars.count, !(chars[index] == "*" && index + 1 < chars.count && chars[index + 1] == "/") {
-                        out.append(chars[index]); index += 1
+            /// Code, up to the `}` that closes a template's `${` when inside one: comments as written, strings and
+            /// templates scanned as such, placeholders bound.
+            func javaScriptCode(closesTemplateExpression: Bool) throws {
+                var depth = 0
+                while index < chars.count {
+                    let c = chars[index]
+                    let next = index + 1 < chars.count ? chars[index + 1] : nil
+                    if c == "/" && next == "/" {
+                        while index < chars.count, chars[index] != "\n" { out.append(chars[index]); index += 1 }
+                        continue
                     }
-                    if index < chars.count { out += "*/"; index += 2 }
-                    continue
-                }
-                if c == "\"" || c == "'" || c == "`" {
-                    let quote = c
-                    var literal = String(c), bindsAddress = false
-                    index += 1
-                    var closed = false
-                    while index < chars.count {
-                        let s = chars[index]
-                        if s == "\\", index + 1 < chars.count { literal.append(s); literal.append(chars[index + 1]); index += 2; continue }
-                        if s == quote { literal.append(s); index += 1; closed = true; break }
-                        if let p = placeholder(at: index), wanted(p.kind) {
-                            note(p.kind)
-                            if quote == "`", p.kind == "0" {
-                                scan.inTemplate = true
-                                if refusesTemplates { throw HookmarkPlaceholderError.templateString }
-                            }
-                            bindsAddress = bindsAddress || p.kind == "0"
-                            literal += inString(p.kind, quote)
-                            index += p.length; continue
+                    if c == "/" && next == "*" {
+                        out += "/*"; index += 2
+                        while index < chars.count, !(chars[index] == "*" && index + 1 < chars.count && chars[index + 1] == "/") {
+                            out.append(chars[index]); index += 1
                         }
-                        literal.append(s); index += 1
+                        if index < chars.count { out += "*/"; index += 2 }
+                        continue
                     }
-                    if !closed { throw HookmarkPlaceholderError.unterminated }
-                    out += bindsAddress ? "(\(literal))" : literal
-                    continue
+                    if c == "\"" || c == "'" { try javaScriptString(c); continue }
+                    if c == "`" { try javaScriptTemplate(); continue }
+                    if closesTemplateExpression, c == "{" { depth += 1 }
+                    if closesTemplateExpression, c == "}" {
+                        if depth == 0 { return }
+                        depth -= 1
+                    }
+                    if let p = placeholder(at: index), wanted(p.kind) {
+                        note(p.kind)
+                        out += code(p.kind)
+                        index += p.length; continue
+                    }
+                    out.append(c); index += 1
                 }
-                if let p = placeholder(at: index), wanted(p.kind) {
-                    note(p.kind)
-                    out += code(p.kind)
-                    index += p.length; continue
-                }
-                out.append(c); index += 1
+                if closesTemplateExpression { throw HookmarkPlaceholderError.unterminated }
             }
+            /// A "…" or '…' string. One that takes the address becomes a concatenation, in parentheses, so it
+            /// stays one value to whatever follows it.
+            func javaScriptString(_ quote: Character) throws {
+                var literal = String(quote), bindsAddress = false
+                index += 1
+                while index < chars.count {
+                    let s = chars[index]
+                    if s == "\\", index + 1 < chars.count { literal.append(s); literal.append(chars[index + 1]); index += 2; continue }
+                    if s == quote {
+                        literal.append(s); index += 1
+                        out += bindsAddress ? "(\(literal))" : literal
+                        return
+                    }
+                    if let p = placeholder(at: index), wanted(p.kind) {
+                        note(p.kind)
+                        bindsAddress = bindsAddress || p.kind == "0"
+                        literal += inString(p.kind, quote)
+                        index += p.length; continue
+                    }
+                    literal.append(s); index += 1
+                }
+                throw HookmarkPlaceholderError.unterminated
+            }
+            /// A `…` template: its text takes no placeholder, as nothing in it is only text; its `${…}` are code.
+            func javaScriptTemplate() throws {
+                out.append("`"); index += 1
+                while index < chars.count {
+                    let s = chars[index]
+                    if s == "\\", index + 1 < chars.count { out.append(s); out.append(chars[index + 1]); index += 2; continue }
+                    if s == "`" { out.append(s); index += 1; return }
+                    if s == "$", index + 1 < chars.count, chars[index + 1] == "{" {
+                        out += "${"; index += 2
+                        try javaScriptCode(closesTemplateExpression: true)
+                        out.append("}"); index += 1
+                        continue
+                    }
+                    if let p = placeholder(at: index), wanted(p.kind) {
+                        note(p.kind)
+                        scan.inTemplate = true
+                        if refusesTemplates { throw HookmarkPlaceholderError.templateString }
+                        out += String(chars[index ..< index + p.length])
+                        index += p.length; continue
+                    }
+                    out.append(s); index += 1
+                }
+                throw HookmarkPlaceholderError.unterminated
+            }
+            try javaScriptCode(closesTemplateExpression: false)
     }
     return out
 }
@@ -457,7 +492,7 @@ var runHookmarkScript: @MainActor (_ source: String, _ values: HookmarkPlacehold
     do {
         executable = try hookmarkExecutableSource(source, values: values)
     } catch HookmarkPlaceholderError.templateString {
-        return .failed("It puts $0 inside a JavaScript template string, which WinMux can't fill safely.")
+        return .failed("It puts $0 or $$ in the text of a JavaScript template string, which WinMux can't fill safely.")
     } catch {
         return .failed("Its text has an unterminated string, so WinMux didn't run it.")
     }
