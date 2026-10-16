@@ -61,6 +61,16 @@ final class LinkIntegrationStoreTest: XCTestCase {
         }
     }
 
+    func testHookmarksOwnSchemesNeverGoToAnIntegrationEvenFromAHandEditedFile() {
+        var hooked = LinkIntegration(bundleId: "com.example.Hooked", appName: "Hooked", getAddress: "return 1",
+            openItem: "open location \"$0\"", scheme: "hook", source: .init(kind: .pasted))
+        hooked.isEnabled = true
+        hooked.trustedDigest = hooked.digest
+        let store = LinkIntegrationStore(integrations: [hooked])
+        XCTAssertEqual(store.opener(forScheme: "hook"), .none)
+        XCTAssertEqual(store.opener(forScheme: "HOOKMARK"), .none)
+    }
+
     func testAnUnsupportedIntegrationCantBeTurnedOn() throws {
         let store = LinkIntegrationStore()
         let hookmark = try pasted(getAddress: "tell application \"Hookmark\" to return address of current node")
