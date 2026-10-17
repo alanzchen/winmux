@@ -19,6 +19,7 @@ final class WorkspaceTopicCoordinatorTest: XCTestCase {
 
     override func tearDown() async throws {
         await provider.release()
+        coordinator.cancel()
         WorkspaceTopicTestEnvironment.tearDown()
         TopicTestApps.reset()
         try await super.tearDown()
@@ -191,6 +192,47 @@ final class WorkspaceTopicCoordinatorTest: XCTestCase {
         XCTAssertEqual(prompts.count, 1, "Nothing else was asked after Cancel")
     }
 
+    func testARequestThatExpiresBeforeItsQueuedRunNeverCallsTheModel() async throws {
+        // Reset deliberately keeps an in-flight model call's occupancy. This regression starts
+        // with no earlier call, independently of the shared coordinator's previous tests.
+        coordinator = WorkspaceTopicCoordinator()
+        coordinator.makeProvider = { [provider] in provider }
+        let clock = ManualWorkspaceTopicClock()
+        coordinator.clock = clock
+        coordinator.totalTimeout = 25
+        makeTabs()
+        await updateWorkspaceSidebarModel()
+        let callsBefore = coordinator.providerCallCount
+        coordinator.suggest(WorkspaceTopicTestEnvironment.scope(), snapshot: WorkspaceTopicTestEnvironment.snapshot)
+        // The main actor hasn't yielded to the queued run, but its total budget has elapsed.
+        clock.advance(by: 26)
+        try await WorkspaceTopicTestEnvironment.settle(coordinator)
+        XCTAssertEqual(coordinator.phase, .failed(.timedOut))
+        XCTAssertEqual(coordinator.providerCallCount, callsBefore, "An expired request must not start inference")
+        XCTAssertEqual(coordinator.cachedTagCount, 0)
+    }
+
+    func testAnAnswerAfterTheTotalDeadlineIsRejectedEvenWhenItsTimerIsDelayed() async throws {
+        coordinator = WorkspaceTopicCoordinator()
+        coordinator.makeProvider = { [provider] in provider }
+        let clock = DelayedWorkspaceTopicClock()
+        coordinator.clock = clock
+        coordinator.totalTimeout = 25
+        makeTabs()
+        await provider.hold()
+        await suggest()
+        try await WorkspaceTopicTestEnvironment.waitUntil { await self.provider.heldCount == 1 }
+        // The deadline passes while the timer's executor is delayed. The answer gets its turn first.
+        clock.advance(by: 26)
+        await provider.release()
+        try await WorkspaceTopicTestEnvironment.settle(coordinator)
+        XCTAssertEqual(coordinator.phase, .failed(.timedOut))
+        XCTAssertEqual(coordinator.cachedTagCount, 0, "A late answer must not populate the cache")
+        XCTAssertTrue(coordinator.groups.isEmpty)
+        let prompts = await provider.prompts
+        XCTAssertEqual(prompts.count, 1, "No later tab is sent after the deadline")
+    }
+
     func testATabThatTimesOutIsLeftOutAndTheDeadlineEndsTheRun() async throws {
         let clock = ManualWorkspaceTopicClock()
         coordinator.clock = clock
@@ -317,4 +359,15 @@ final class WorkspaceTopicCoordinatorTest: XCTestCase {
         XCTAssertFalse(coordinator.isActive, "Not applied to a list the user no longer sees")
         TrayMenuModel.shared.workspaceSidebarSelectedMonitorScopeId = workspaceSidebarDefaultScopeId
     }
+}
+
+/// Elapsed time advances while timer delivery waits, as when an executor is busy. Timer waits
+/// remain cancellable, so finishing a model call still cleans them up without a real delay.
+private final class DelayedWorkspaceTopicClock: WorkspaceTopicClock, Sendable {
+    private let elapsed = ManualWorkspaceTopicClock()
+    private let timers = ManualWorkspaceTopicClock()
+
+    var now: Double { elapsed.now }
+    func advance(by seconds: Double) { elapsed.advance(by: seconds) }
+    func sleep(seconds: Double) async throws { try await timers.sleep(seconds: seconds) }
 }

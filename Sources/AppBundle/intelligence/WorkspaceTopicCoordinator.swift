@@ -148,6 +148,10 @@ final class WorkspaceTopicCoordinator: ObservableObject {
                      privacy: WorkspaceIntelligenceConfig, started: Double) async {
         // A run queued just before Off, Cancel or a newer request never reaches the model.
         guard mayContinue(generation, privacy: privacy) else { return }
+        let deadline = started + totalTimeout
+        // Timer delivery may be delayed; elapsed time still bounds work and results once this
+        // run gets control, including cached items and the policy's answer.
+        guard clock.now < deadline else { return fail(.timedOut, generation) }
         if provider == nil {
             providerFactoryCallCount += 1
             provider = makeProvider()
@@ -161,12 +165,12 @@ final class WorkspaceTopicCoordinator: ObservableObject {
         request?.thin = thin
         request?.analyzed = enough
         phase = .analyzing(done: 0, total: enough.count)
-        let deadline = started + totalTimeout
         var items: [WorkspaceTopicPolicyItem] = []
         var calls = 0
         var hits = 0
         var abstained: [WorkspaceTopicToken] = []
         for (index, evidence) in enough.enumerated() {
+            guard clock.now < deadline else { return fail(.timedOut, generation) }
             let key = WorkspaceTopicTagCache.key(evidence, version: provider.cacheVersion, projectId: projectId, privacy: privacy)
             var tags: [String]
             if let cached = cache.value(for: key) {
@@ -182,6 +186,7 @@ final class WorkspaceTopicCoordinator: ObservableObject {
                 }
                 // A newer suggestion, Cancel, Off or a new exclusion may have come while waiting.
                 guard mayContinue(generation, privacy: privacy) else { return }
+                guard clock.now < deadline else { return fail(.timedOut, generation) }
                 let call = Task { try await provider.topics(for: evidence) }
                 occupancy = Task { _ = try? await call.value }
                 providerCallCount += 1
@@ -190,6 +195,7 @@ final class WorkspaceTopicCoordinator: ObservableObject {
                     tags = try await workspaceTopicAwait(call, timeout: min(itemTimeout, max(0, deadline - clock.now)), clock: clock)
                     // A reset while the answer came back cleared the cache; don't refill it.
                     guard mayContinue(generation, privacy: privacy) else { return }
+                    guard clock.now < deadline else { return fail(.timedOut, generation) }
                     cache.insert(tags, for: key)
                     cachePrivacy = privacy
                 } catch is CancellationError {
@@ -213,6 +219,7 @@ final class WorkspaceTopicCoordinator: ObservableObject {
         }
         let suggested = await workspaceTopicRunPolicy(items)
         guard mayContinue(generation, privacy: privacy) else { return }
+        guard clock.now < deadline else { return fail(.timedOut, generation) }
         request?.untagged = abstained
         groups = suggested.map { group in
             WorkspaceTopicDraftGroup(id: group.id, name: group.name,
