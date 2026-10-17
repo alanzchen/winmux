@@ -2,8 +2,8 @@ import Common
 import TOMLKit
 
 func parseCommand(_ raw: String) -> ParsedCmd<any Command> {
-    if raw.starts(with: "exec-and-forget") {
-        return .cmd(ExecAndForgetCommand(args: ExecAndForgetCmdArgs(bashScript: raw.removePrefix("exec-and-forget"))))
+    if let args = ExecAndForgetCmdArgs(configCommand: raw) {
+        return .cmd(ExecAndForgetCommand(args: args))
     }
     return switch raw.splitArgs() {
         case .success(let args): parseCommand(args)

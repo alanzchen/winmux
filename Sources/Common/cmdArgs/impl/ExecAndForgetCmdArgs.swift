@@ -13,5 +13,14 @@ public struct ExecAndForgetCmdArgs: CmdArgs {
         self.bashScript = bashScript
     }
 
+    /// Config keeps the Bash suffix verbatim, after an exact WinMux command name.
+    public init?(configCommand: String) {
+        let name = "exec-and-forget"
+        guard configCommand.hasPrefix(name) else { return nil }
+        let script = configCommand.dropFirst(name.count)
+        guard script.isEmpty || script.first?.isWhitespace == true else { return nil }
+        self.init(bashScript: String(script))
+    }
+
     public let bashScript: String
 }

@@ -105,8 +105,8 @@ func persistMainModeBindings(assignments: [String: String], managedCommands: Set
 func canonicalConfigCommandScript(_ raw: String) -> String? {
     // Only argument formatting is needed here. Opening Command's associated args type
     // through an existential miscompiles in optimized Swift 6.2.4 startup builds.
-    if raw.starts(with: "exec-and-forget") {
-        return ExecAndForgetCmdArgs(bashScript: raw.removePrefix("exec-and-forget")).description
+    if let args = ExecAndForgetCmdArgs(configCommand: raw) {
+        return args.description
     }
     guard case .success(let arguments) = raw.splitArgs() else { return nil }
     return switch parseCmdArgs(arguments.slice) {
