@@ -133,6 +133,77 @@ final class WorkspaceSidebarProjectReorderTest: XCTestCase {
             "A commented table header also ends the search for the closing bracket")
     }
 
+    func testProjectOrderSaveRecognizesCommentedTablesAndPreservesOtherKeys() throws {
+        let source = """
+            [workspace-sidebar] # appearance
+                project-order = [ # hand-sorted
+                    'default',
+                    'project-1',
+                ]
+                enabled = true
+
+            [workspace-sidebar.project-labels] # names
+                "project-order" = "Order research"
+            """
+        let rewritten = try XCTUnwrap(updateWorkspaceSidebarProjectOrderConfig(in: source, order: ["project-1", "default"]))
+        XCTAssertEqual(rewritten, """
+            [workspace-sidebar] # appearance
+                project-order = ["project-1", "default"] # hand-sorted
+                enabled = true
+
+            [workspace-sidebar.project-labels] # names
+                "project-order" = "Order research"
+            """)
+        let (parsed, errors) = parseConfig(rewritten)
+        XCTAssertTrue(errors.isEmpty, "\(errors)")
+        XCTAssertEqual(parsed.workspaceSidebar.projectOrder, ["project-1", "default"])
+        XCTAssertEqual(parsed.workspaceSidebar.projectLabels["project-order"], "Order research")
+    }
+
+    func testSidebarScalarSaveStopsAtCommentedChildTable() {
+        let source = """
+            [workspace-sidebar]
+                mode = 'tabs'
+
+            [workspace-sidebar.project-labels] # names
+                "tabs-always-expanded" = "Keep this project label"
+            """
+        let rewritten = updateWorkspaceSidebarScalarConfig(in: source, key: "tabs-always-expanded", renderedValue: "true")
+        XCTAssertEqual(rewritten, """
+            [workspace-sidebar]
+                tabs-always-expanded = true
+                mode = 'tabs'
+
+            [workspace-sidebar.project-labels] # names
+                "tabs-always-expanded" = "Keep this project label"
+            """)
+        let (parsed, errors) = parseConfig(rewritten)
+        XCTAssertTrue(errors.isEmpty, "\(errors)")
+        XCTAssertTrue(parsed.workspaceSidebar.tabsAlwaysExpanded)
+        XCTAssertEqual(parsed.workspaceSidebar.projectLabels["tabs-always-expanded"], "Keep this project label")
+    }
+
+    func testProjectOrderSaveIgnoresTableAndKeyTextInsideMultilineLabels() throws {
+        let label = "[workspace-sidebar]\nproject-order = ['do-not-edit']\ntabs-always-expanded = false\n"
+        let source = "[workspace-sidebar.workspace-labels]\n'default' = '''\n" + label + "'''\n"
+            + "[workspace-sidebar] # real table\nproject-order = ['default']\n"
+        let reordered = try XCTUnwrap(updateWorkspaceSidebarProjectOrderConfig(in: source, order: ["project-1", "default"]))
+        let rewritten = updateWorkspaceSidebarScalarConfig(in: reordered, key: "tabs-always-expanded", renderedValue: "true")
+        let (parsed, errors) = parseConfig(rewritten)
+        XCTAssertTrue(errors.isEmpty, "\(errors)")
+        XCTAssertEqual(parsed.workspaceSidebar.projectOrder, ["project-1", "default"])
+        XCTAssertTrue(parsed.workspaceSidebar.tabsAlwaysExpanded)
+        XCTAssertEqual(parsed.workspaceSidebar.workspaceLabels["default"], label)
+    }
+
+    func testProjectOrderSaveFoldsMultilineIdsAndRejectsUnclosedArrayAtEnd() throws {
+        let source = "[workspace-sidebar]\nproject-order = [\n'''first\n]still-id''',\n'default',\n]\nenabled = true\n"
+        let rewritten = try XCTUnwrap(updateWorkspaceSidebarProjectOrderConfig(in: source, order: ["default"]))
+        XCTAssertEqual(rewritten, "[workspace-sidebar]\nproject-order = [\"default\"]\nenabled = true\n")
+        XCTAssertTrue(parseConfig(rewritten).errors.isEmpty)
+        XCTAssertNil(updateWorkspaceSidebarProjectOrderConfig(in: "[workspace-sidebar]\nproject-order = [", order: ["default"]))
+    }
+
     func testProjectHeaderDropReordersOnlySideBySideColumns() async throws {
         let data = try XCTUnwrap(WorkspaceSidebarProjectDragPayload(projectId: "research").pasteboardItem?
             .data(forType: .init("public.data")))

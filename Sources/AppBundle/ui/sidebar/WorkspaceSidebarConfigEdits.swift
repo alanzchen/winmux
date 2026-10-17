@@ -34,23 +34,21 @@ func updateWorkspaceSidebarProjectOrderConfig(in configText: String, order: [Str
     let rendered = "[" + order.map { "\"\(tomlEscape($0))\"" }.joined(separator: ", ") + "]"
     // The value is rewritten on one line; drop the continuation lines of a hand-written multi-line array.
     var lines = configText.components(separatedBy: "\n")
-    // Brackets inside quoted ids or comments do not open or close the list.
-    func content(_ line: String) -> String { tomlUnquotedContent(line) }
-    if let sectionIndex = lines.firstIndex(where: { $0.trimmingCharacters(in: .whitespaces) == workspaceSidebarSectionHeader }) {
-        // A table header may carry a comment; it still ends the table.
-        let section = lines[(sectionIndex + 1)...].prefix { line in
-            let header = content(line)
-            return !(header.hasPrefix("[") && header.hasSuffix("]"))
+    let continuations = tomlMultilineValueContinuations(lines)
+    if let section = workspaceSidebarConfigSection(in: lines, continuations: continuations),
+       let keyIndex = section.dropFirst().first(where: {
+           !continuations.contains($0) && workspaceSidebarConfigKey(in: lines[$0]) == workspaceSidebarProjectOrderKey
+       }),
+       let equal = settingsAssignmentIndex(in: lines[keyIndex]),
+       lines[keyIndex][lines[keyIndex].index(after: equal)...].trimmingCharacters(in: .whitespaces).hasPrefix("[")
+    {
+        let valueEnd = lines.indices[(keyIndex + 1)...].first { !continuations.contains($0) } ?? lines.endIndex
+        // Parsing the complete assignment also handles bracket characters in multi-line ids.
+        // An unterminated array may have consumed the next table; never rewrite that input.
+        guard (try? TOMLTable(string: lines[keyIndex..<valueEnd].joined(separator: "\n") + "\n")) != nil else {
+            return nil
         }
-        if let keyIndex = section.firstIndex(where: { workspaceSidebarConfigKey(in: $0) == workspaceSidebarProjectOrderKey }),
-           let value = content(lines[keyIndex]).split(separator: "=", maxSplits: 1).last,
-           value.contains("["), !value.contains("]")
-        {
-            guard let closingIndex = section[(keyIndex + 1)...].firstIndex(where: { content($0).contains("]") }) else {
-                return nil
-            }
-            lines.removeSubrange((keyIndex + 1)...closingIndex)
-        }
+        lines.removeSubrange((keyIndex + 1)..<valueEnd)
     }
     return updateWorkspaceSidebarScalarConfig(in: lines.joined(separator: "\n"), key: workspaceSidebarProjectOrderKey,
         renderedValue: rendered)
@@ -62,7 +60,8 @@ func updateWorkspaceSidebarScalarConfig(
     renderedValue: String,
 ) -> String {
     let lines = configText.components(separatedBy: "\n")
-    guard let sectionIndex = lines.firstIndex(where: { $0.trimmingCharacters(in: .whitespaces) == workspaceSidebarSectionHeader }) else {
+    let continuations = tomlMultilineValueContinuations(lines)
+    guard let section = workspaceSidebarConfigSection(in: lines, continuations: continuations) else {
         var result = configText
         if !result.isEmpty, !result.hasSuffix("\n") {
             result += "\n"
@@ -75,15 +74,10 @@ func updateWorkspaceSidebarScalarConfig(
         return result
     }
 
-    let sectionEnd = lines[(sectionIndex + 1)...]
-        .firstIndex(where: { line in
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            return trimmed.hasPrefix("[") && trimmed.hasSuffix("]")
-        }) ?? lines.endIndex
-
+    let sectionIndex = section.lowerBound
     var resultLines = lines
-    for lineIndex in (sectionIndex + 1)..<sectionEnd {
-        guard workspaceSidebarConfigKey(in: resultLines[lineIndex]) == key else { continue }
+    for lineIndex in section.dropFirst() {
+        guard !continuations.contains(lineIndex), workspaceSidebarConfigKey(in: resultLines[lineIndex]) == key else { continue }
         let indentation = String(resultLines[lineIndex].prefix(while: { $0.isWhitespace }))
         let trailingComment = trailingTomlComment(in: resultLines[lineIndex]).map { " " + $0 } ?? ""
         resultLines[lineIndex] = "\(indentation)\(key) = \(renderedValue)\(trailingComment)"
@@ -92,6 +86,22 @@ func updateWorkspaceSidebarScalarConfig(
 
     resultLines.insert("    \(key) = \(renderedValue)", at: sectionIndex + 1)
     return resultLines.joined(separator: "\n")
+}
+
+/// Real table boundaries exclude comments and text contained in multi-line values.
+private func workspaceSidebarConfigSection(in lines: [String], continuations: Set<Int>) -> Range<Int>? {
+    guard let start = lines.indices.first(where: { index in
+        guard !continuations.contains(index) else { return false }
+        let line = lines[index]
+        let text = tomlCommentStart(in: line).map { String(line[..<$0]) } ?? line
+        return text.trimmingCharacters(in: .whitespaces) == workspaceSidebarSectionHeader
+    }) else { return nil }
+    let end = lines.indices[(start + 1)...].first { index in
+        guard !continuations.contains(index) else { return false }
+        let content = tomlUnquotedContent(lines[index])
+        return content.hasPrefix("[") && content.hasSuffix("]")
+    } ?? lines.endIndex
+    return start..<end
 }
 
 @MainActor
