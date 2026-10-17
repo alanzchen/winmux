@@ -47,7 +47,7 @@ extension [String] {
                 return result + separator + trailing
             }
             let elem = separator + _elem
-            if elemCount < remainingLen {
+            if elemCount <= remainingLen {
                 result += elem
                 remainingLen -= elemCount
             } else {
