@@ -6,7 +6,7 @@
 - `Sources/WinMuxApp/`: application entry point; `Sources/Cli/`: command-line client; `Sources/Common/`: shared types and protocol.
 - `Sources/PrivateApi/` and `Sources/SparkleSupport/`: native accessibility bridge and updates.
 - `Sources/AppBundleTests/`: tests grouped by subsystem. `test-fixtures/accessibility/` holds anonymized native regression captures.
-- `resources/`: default TOML configuration, asset catalogs, and bundle metadata. `docs/` contains CLI and validation guides; `script/` contains build tooling. `ShellParserGenerated/` contains the generated parser package.
+- `resources/`: default TOML configuration, asset catalogs, and bundle metadata. `docs/` contains CLI and validation guides; `script/` contains build tooling.
 
 ## Build, Test, and Development Commands
 

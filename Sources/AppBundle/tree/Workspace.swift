@@ -1,7 +1,6 @@
 import Foundation
 
 let sidebarDraftWorkspacePrefix = "__sidebar_draft_workspace_"
-let internalAutomaticWorkspacePrefix = "__internal_auto_workspace_"
 let workspaceProjectDefaultId = WorkspaceProjectId.defaultProject
 
 struct WorkspaceProject: Hashable, Identifiable {

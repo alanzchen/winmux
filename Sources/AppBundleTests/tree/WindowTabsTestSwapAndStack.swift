@@ -145,31 +145,7 @@ import XCTest
     }
 
     @MainActor
-    func testPinnedDraggedWindowRectUsesWindowRectForGroupSidebarDrag() {
-        setUpWorkspacesForTests()
-        let workspace = Workspace.get(byName: "tabs")
-        let tabGroup = TilingContainer(parent: workspace.rootTilingContainer, adaptiveWeight: WEIGHT_AUTO, .v, .tabGroup, index: INDEX_BIND_LAST)
-        let window = TestWindow.new(id: 1, parent: tabGroup)
-        _ = TestWindow.new(id: 2, parent: tabGroup)
-        let windowRect = Rect(topLeftX: 12, topLeftY: 40, width: 300, height: 220)
-        let groupRect = Rect(topLeftX: 0, topLeftY: 0, width: 320, height: 260)
-        window.lastAppliedLayoutPhysicalRect = windowRect
-        tabGroup.lastAppliedLayoutPhysicalRect = groupRect
-
-        let pinnedRect = pinnedDraggedWindowRect(
-            for: window,
-            subject: .group,
-            fallbackAnchorRect: groupRect,
-        )
-
-        XCTAssertEqual(pinnedRect.topLeftX, windowRect.topLeftX)
-        XCTAssertEqual(pinnedRect.topLeftY, windowRect.topLeftY)
-        XCTAssertEqual(pinnedRect.width, windowRect.width)
-        XCTAssertEqual(pinnedRect.height, windowRect.height)
-    }
-
-    @MainActor
-    func testPinnedDraggedWindowRectFallsBackWhenWindowRectMissing() {
+    func testResolvedDraggedWindowAnchorRectFallsBackWhenWindowRectMissing() {
         setUpWorkspacesForTests()
         let workspace = Workspace.get(byName: "tabs")
         let tabGroup = TilingContainer(parent: workspace.rootTilingContainer, adaptiveWeight: WEIGHT_AUTO, .v, .tabGroup, index: INDEX_BIND_LAST)
@@ -178,16 +154,12 @@ import XCTest
         let groupRect = Rect(topLeftX: 0, topLeftY: 0, width: 320, height: 260)
         tabGroup.lastAppliedLayoutPhysicalRect = groupRect
 
-        let pinnedRect = pinnedDraggedWindowRect(
-            for: window,
-            subject: .group,
-            fallbackAnchorRect: groupRect,
-        )
+        let anchorRect = resolvedDraggedWindowAnchorRect(for: window, subject: .window).orDie()
 
-        XCTAssertEqual(pinnedRect.topLeftX, groupRect.topLeftX)
-        XCTAssertEqual(pinnedRect.topLeftY, groupRect.topLeftY)
-        XCTAssertEqual(pinnedRect.width, groupRect.width)
-        XCTAssertEqual(pinnedRect.height, groupRect.height)
+        XCTAssertEqual(anchorRect.topLeftX, groupRect.topLeftX)
+        XCTAssertEqual(anchorRect.topLeftY, groupRect.topLeftY)
+        XCTAssertEqual(anchorRect.width, groupRect.width)
+        XCTAssertEqual(anchorRect.height, groupRect.height)
     }
 
     @MainActor

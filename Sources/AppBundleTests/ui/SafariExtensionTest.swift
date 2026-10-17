@@ -365,29 +365,29 @@ final class SafariExtensionTest: XCTestCase {
         let other = tabs(["News", "Weather"], selected: 1, window: 3)
         let inbox = described(["Inbox", "Docs"], selected: 0, id: 10)
         let news = described(["News", "Weather"], selected: 1, id: 11)
-        XCTAssertEqual(safariExtensionPairs([.init(snapshot: first), .init(snapshot: other)], [inbox, news]),
+        XCTAssertEqual(safariExtensionMatches([.init(snapshot: first), .init(snapshot: other)], [inbox, news]).pairs,
             [1: inbox.key, 3: news.key])
-        XCTAssertEqual(safariExtensionPairs([.init(snapshot: first), .init(snapshot: second)], [inbox]), [:],
+        XCTAssertEqual(safariExtensionMatches([.init(snapshot: first), .init(snapshot: second)], [inbox]).pairs, [:],
             "A Safari profile without the extension can't lend its twin window another profile's icons")
         let frame = CGRect(x: 0, y: 25, width: 900, height: 700)
         let placed = described(["Inbox", "Docs"], selected: 0, id: 10, bounds: frame.offsetBy(dx: 2, dy: -3),
             sighting: [1: frame, 2: frame.offsetBy(dx: 900, dy: 0)])
-        XCTAssertEqual(safariExtensionPairs([.init(snapshot: first), .init(snapshot: second)], [placed]), [1: placed.key],
+        XCTAssertEqual(safariExtensionMatches([.init(snapshot: first), .init(snapshot: second)], [placed]).pairs, [1: placed.key],
             "Where the windows were when the report came settles which twin is which")
         let elsewhere = described(["Inbox", "Docs"], selected: 0, id: 12, source: "q:s", bounds: frame.offsetBy(dx: 400, dy: 0), sighting: [1: frame])
-        XCTAssertEqual(safariExtensionPairs([.init(snapshot: first)], [placed, elsewhere]), [1: placed.key])
+        XCTAssertEqual(safariExtensionMatches([.init(snapshot: first)], [placed, elsewhere]).pairs, [1: placed.key])
         var unseen = placed
         unseen.sighting = [:]
-        XCTAssertEqual(safariExtensionPairs([.init(snapshot: first)], [unseen, elsewhere]), [:],
+        XCTAssertEqual(safariExtensionMatches([.init(snapshot: first)], [unseen, elsewhere]).pairs, [:],
             "A window the report's arrival didn't see in place could be either twin")
         XCTAssertEqual(safariExtensionMatches([.init(snapshot: first)], [unseen, elsewhere]).needsFrames, [1], "Safari's next report may settle it")
         let together = safariExtensionMatches([.init(snapshot: first), .init(snapshot: second)], [placed, described(["Inbox", "Docs"], selected: 0, id: 11,
             bounds: frame.offsetBy(dx: 2, dy: -3), sighting: [1: frame, 2: frame])])
         XCTAssertEqual(together.pairs, [:], "Twins seen in the same place can't be told apart")
         XCTAssertEqual(together.needsFrames, [], "and another report from the same places wouldn't settle it")
-        XCTAssertEqual(safariExtensionPairs([.init(snapshot: first)], [described(["Inbox", "Docs"], selected: 1, id: 10)]), [:])
-        XCTAssertEqual(safariExtensionPairs([.init(snapshot: first)], [described(["Docs", "Inbox"], selected: 1, id: 10)]), [:])
-        XCTAssertEqual(safariExtensionPairs([.init(snapshot: first)], [described(["Inbox", "Docs", "More"], selected: 0, id: 10)]), [:])
+        XCTAssertEqual(safariExtensionMatches([.init(snapshot: first)], [described(["Inbox", "Docs"], selected: 1, id: 10)]).pairs, [:])
+        XCTAssertEqual(safariExtensionMatches([.init(snapshot: first)], [described(["Docs", "Inbox"], selected: 1, id: 10)]).pairs, [:])
+        XCTAssertEqual(safariExtensionMatches([.init(snapshot: first)], [described(["Inbox", "Docs", "More"], selected: 0, id: 10)]).pairs, [:])
     }
 
     func testTitlesSafariWithholdsMayDifferButNeverOutnumberReadableOnes() {

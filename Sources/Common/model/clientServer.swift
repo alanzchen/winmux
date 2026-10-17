@@ -34,9 +34,6 @@ public struct ServerAnswer: Codable, Sendable {
 }
 
 public struct ClientRequest: Codable, Sendable, ConvenienceCopyable, Equatable {
-    // periphery:ignore - Unused. keep it for API compatibility with old servers for a couple of version
-    public var command: String? = nil
-
     public let args: [String]
     public let stdin: String
 

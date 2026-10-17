@@ -570,8 +570,8 @@ final class SafariExtensionTwinWindowsTest: XCTestCase {
         var measured = x
         measured.sighting = [1: Self.shown, 2: Self.parked]
         measured.measured = 4
-        XCTAssertEqual(safariExtensionPairs([late, .init(snapshot: b)], [measured]), [:])
-        XCTAssertEqual(safariExtensionPairs([.init(snapshot: a), .init(snapshot: b)], [measured]), [1: x.key])
+        XCTAssertEqual(safariExtensionMatches([late, .init(snapshot: b)], [measured]).pairs, [:])
+        XCTAssertEqual(safariExtensionMatches([.init(snapshot: a), .init(snapshot: b)], [measured]).pairs, [1: x.key])
     }
 
     /// The extension notes when it begins measuring, before Safari lists its windows and before it
@@ -810,8 +810,8 @@ final class SafariExtensionTwinWindowsTest: XCTestCase {
         let a = Self.lone("Demo Page", window: 1)
         let x = SafariExtensionWindow(key: .init(source: "p:s", id: 10), bounds: Self.shown, tabs: [Self.tab(id: 100)],
             measured: 10, sighting: [1: Self.shown, 3: Self.parked])
-        XCTAssertEqual(safariExtensionPairs([.init(snapshot: a)], [x], unread: [3], unreadAppeared: [3: 5]), [1: x.key])
-        XCTAssertEqual(safariExtensionPairs([.init(snapshot: a)], [x], unread: [3], unreadAppeared: [3: 12]), [:])
+        XCTAssertEqual(safariExtensionMatches([.init(snapshot: a)], [x], unread: [3], unreadAppeared: [3: 5]).pairs, [1: x.key])
+        XCTAssertEqual(safariExtensionMatches([.init(snapshot: a)], [x], unread: [3], unreadAppeared: [3: 12]).pairs, [:])
     }
 
     func testFramesTrackedWhileHiddenStartCountingAgainButKeepWhenTheirWindowsAppeared() {

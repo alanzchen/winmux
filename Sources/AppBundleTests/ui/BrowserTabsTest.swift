@@ -1548,7 +1548,7 @@ final class BrowserTabsTest: XCTestCase {
 
             let reported = SafariExtensionWindow(key: .init(source: "p:s", id: 1), session: "s",
                 tabs: window.pages.enumerated().map { .init(id: 100 + $0, title: $1.title, isActive: $1.selected) }, measured: 0)
-            XCTAssertEqual(safariExtensionPairs([.init(snapshot: snapshot)], [reported]), [123: reported.key], order)
+            XCTAssertEqual(safariExtensionMatches([.init(snapshot: snapshot)], [reported]).pairs, [123: reported.key], order)
             var associations = SafariExtensionAssociations()
             associations.update([.init(snapshot: snapshot, observed: 1)], windows: [reported], now: 1)
             associations.update([.init(snapshot: snapshot, observed: 2)], windows: [reported], now: 2)
@@ -1622,7 +1622,7 @@ final class BrowserTabsTest: XCTestCase {
             XCTAssertEqual(topic.performed, [], name)
             let reported = SafariExtensionWindow(key: .init(source: "p:s", id: 1), session: "s",
                 tabs: listed.enumerated().map { .init(id: 100 + $0, title: $1.title, isActive: $1.selected) }, measured: 0)
-            XCTAssertEqual(safariExtensionPairs([.init(snapshot: snapshot)], [reported]), [:], name)
+            XCTAssertEqual(safariExtensionMatches([.init(snapshot: snapshot)], [reported]).pairs, [:], name)
         }
     }
 
@@ -1646,7 +1646,7 @@ final class BrowserTabsTest: XCTestCase {
         XCTAssertEqual(topic.performed, [])
         let reported = SafariExtensionWindow(key: .init(source: "p:s", id: 1), session: "s",
             tabs: window.pages.enumerated().map { .init(id: 100 + $0, title: $1.title, isActive: $1.selected) }, measured: 0)
-        XCTAssertEqual(safariExtensionPairs([.init(snapshot: snapshot)], [reported]), [:])
+        XCTAssertEqual(safariExtensionMatches([.init(snapshot: snapshot)], [reported]).pairs, [:])
 
         window.pages[0].selected = false
         topic.selected = true
@@ -1823,7 +1823,7 @@ final class BrowserTabsTest: XCTestCase {
                 XCTAssertEqual(topic.performed, [], "\(name), \(order)")
                 let reported = SafariExtensionWindow(key: .init(source: "p:s", id: 1), session: "s",
                     tabs: window.pages.enumerated().map { .init(id: 100 + $0, title: $1.title, isActive: $1.selected) }, measured: 0)
-                XCTAssertEqual(safariExtensionPairs([.init(snapshot: snapshot)], [reported]), [:], "\(name), \(order)")
+                XCTAssertEqual(safariExtensionMatches([.init(snapshot: snapshot)], [reported]).pairs, [:], "\(name), \(order)")
             }
         }
 
@@ -1884,7 +1884,7 @@ final class BrowserTabsTest: XCTestCase {
         XCTAssertEqual(lostTopic.performed, [])
         let reported = SafariExtensionWindow(key: .init(source: "p:s", id: 1), session: "s",
             tabs: lost.pages.enumerated().map { .init(id: 100 + $0, title: $1.title, isActive: $1.selected) }, measured: 0)
-        XCTAssertEqual(safariExtensionPairs([.init(snapshot: unclearTabs)], [reported]), [:])
+        XCTAssertEqual(safariExtensionMatches([.init(snapshot: unclearTabs)], [reported]).pairs, [:])
         let close = safariCloseAction
         for showsTopics in [false, true] {
             let window = try crowdedSafariWindow()

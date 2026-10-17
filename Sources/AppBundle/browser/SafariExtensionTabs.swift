@@ -367,11 +367,6 @@ struct SafariExtensionMatches {
 /// real twin. With one, a pairing also needs the window to have been where the report says and
 /// every unread one to have been seen elsewhere.
 /// `unreadAppeared` says when each unread window appeared, as for candidates.
-func safariExtensionPairs(_ candidates: [SafariExtensionCandidate], _ windows: [SafariExtensionWindow],
-                          unread: [UInt32] = [], unreadAppeared: [UInt32: TimeInterval] = [:]) -> [UInt32: SafariExtensionWindowKey] {
-    safariExtensionMatches(candidates, windows, unread: unread, unreadAppeared: unreadAppeared).pairs
-}
-
 func safariExtensionMatches(_ candidates: [SafariExtensionCandidate], _ windows: [SafariExtensionWindow],
                             unread: [UInt32] = [], unreadAppeared: [UInt32: TimeInterval] = [:]) -> SafariExtensionMatches {
     var forward: [Int: [Int]] = [:]

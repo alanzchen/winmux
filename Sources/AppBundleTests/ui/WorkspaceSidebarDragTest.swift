@@ -786,28 +786,29 @@ final class WorkspaceSidebarDragTest: XCTestCase {
         XCTAssertEqual(workspaceSidebarFooterBottomPadding(showsClock: false), 6)
     }
 
-    func testWorkspaceSidebarHoverExpansionRequiresAtLeastThreeQuarterDepth() {
-        XCTAssertFalse(
-            isWorkspaceSidebarHoverDeepEnoughToExpand(
-                mouseX: 8,
-                sidebarMinX: 0,
-                collapsedWidth: 28,
-            ),
-        )
-        XCTAssertTrue(
-            isWorkspaceSidebarHoverDeepEnoughToExpand(
-                mouseX: 7,
-                sidebarMinX: 0,
-                collapsedWidth: 28,
-            ),
-        )
-        XCTAssertTrue(
-            isWorkspaceSidebarHoverDeepEnoughToExpand(
-                mouseX: 14,
-                sidebarMinX: 8,
-                collapsedWidth: 28,
-            ),
-        )
+    func testWorkspaceSidebarHoverExpansionRequiresAtLeastThreeQuarterDepthOnEveryEdge() {
+        let display = CGRect(x: -1920, y: -100, width: 1920, height: 1080)
+        for position in WorkspaceDockPosition.allCases {
+            for gap in [0, 8] {
+                let settings = WorkspaceSidebarConfig(mode: .dock, dockPosition: position, dockLeftGap: gap)
+                func point(depth: CGFloat) -> CGPoint {
+                    let inset = CGFloat(gap) + depth
+                    switch position {
+                        case .left: return CGPoint(x: display.minX + inset, y: display.midY)
+                        case .right: return CGPoint(x: display.maxX - inset, y: display.midY)
+                        case .bottom: return CGPoint(x: display.midX, y: display.minY + inset)
+                    }
+                }
+                XCTAssertFalse(workspaceSidebarHoverDepth(point: point(depth: 8), displayFrame: display,
+                    sidebarConfig: settings, thickness: 28), "\(position), gap \(gap)")
+                XCTAssertTrue(workspaceSidebarHoverDepth(point: point(depth: 7), displayFrame: display,
+                    sidebarConfig: settings, thickness: 28), "\(position), gap \(gap)")
+                XCTAssertTrue(workspaceSidebarHoverDepth(point: point(depth: 6), displayFrame: display,
+                    sidebarConfig: settings, thickness: 28), "\(position), gap \(gap)")
+                XCTAssertFalse(workspaceSidebarHoverDepth(point: point(depth: 0), displayFrame: display,
+                    sidebarConfig: settings, thickness: 0))
+            }
+        }
     }
 
     func testWorkspaceSidebarAutoHideUsesZeroRestingWidthAndKeepsConfiguredEdgeActivationWidth() {

@@ -1,13 +1,6 @@
 import Common
 
 @MainActor
-func nextSidebarDraftWorkspaceName() -> String {
-    clearOrphanedWorkspaceSidebarLabels()
-    let nextIndex = lowestUnusedPositiveIndex(Set(winMuxWorkspaceState.workspaceIdByName.keys.compactMap(sidebarDraftWorkspaceIndex)))
-    return "\(sidebarDraftWorkspacePrefix)\(nextIndex)"
-}
-
-@MainActor
 func nextSidebarCreatedWorkspaceName(projectId: WorkspaceProjectId = workspaceProjectDefaultId, monitor: Monitor = mainMonitor) -> String {
     nextAutomaticWorkspaceName(projectId: projectId, monitor: monitor)
 }

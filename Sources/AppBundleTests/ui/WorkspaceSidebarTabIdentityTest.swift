@@ -313,7 +313,6 @@ final class WorkspaceSidebarTabIdentityTest: XCTestCase {
         XCTAssertFalse(target.isOrdinaryEmptySlot)
         XCTAssertFalse(isUserFacingWorkspace(target))
         let monitor = origin.workspaceMonitor
-        XCTAssertNil(preferredWorkspace(projectId: project.id, monitor: monitor))
         XCTAssertNil(availablePreferredWorkspace(projectId: project.id, monitor: monitor))
         XCTAssertFalse(workspaceNavigationTabs(current: target).contains(target))
         let viewport = MonitorViewportId(monitor)

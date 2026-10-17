@@ -277,29 +277,6 @@ final class TreeNodeTest: XCTestCase {
         )
     }
 
-    func testNextSidebarDraftWorkspaceNameReusesLowestAvailableGap() {
-        _ = Workspace.get(byName: "__sidebar_draft_workspace_1")
-        _ = Workspace.get(byName: "__sidebar_draft_workspace_3")
-
-        XCTAssertEqual(nextSidebarDraftWorkspaceName(), "__sidebar_draft_workspace_2")
-    }
-
-    func testNextSidebarDraftWorkspaceNameReusesCollectedDraftName() {
-        _ = Workspace.get(byName: "__sidebar_draft_workspace_1")
-        _ = Workspace.get(byName: "__sidebar_draft_workspace_2")
-
-        Workspace.reconcileWorkspaceState()
-
-        XCTAssertEqual(nextSidebarDraftWorkspaceName(), "__sidebar_draft_workspace_1")
-    }
-
-    func testNextSidebarDraftWorkspaceNameClearsStalePersistedDraftLabelBeforeReuse() {
-        config.workspaceSidebar.workspaceLabels["__sidebar_draft_workspace_1"] = "Old Name"
-
-        XCTAssertEqual(nextSidebarDraftWorkspaceName(), "__sidebar_draft_workspace_1")
-        XCTAssertNil(config.workspaceSidebar.workspaceLabels["__sidebar_draft_workspace_1"])
-    }
-
     func testReconcileWorkspaceStateClearsCollectedDraftWorkspaceLabel() {
         config.workspaceSidebar.workspaceLabels["__sidebar_draft_workspace_1"] = "Old Name"
         _ = Workspace.get(byName: "__sidebar_draft_workspace_1")
@@ -341,19 +318,6 @@ final class TreeNodeTest: XCTestCase {
 
     func testWorkspaceDisplayNameUsesSidebarDraftFallback() {
         XCTAssertEqual(workspaceDisplayName("__sidebar_draft_workspace_4"), "Workspace 4")
-    }
-
-    func testShouldShowWorkspaceInSidebarIncludesPersistentEmptyWorkspace() {
-        config.persistentWorkspaces = ["persistent"]
-        let persistentWorkspace = Workspace.get(byName: "persistent")
-
-        XCTAssertTrue(
-            shouldShowWorkspaceInSidebar(
-                persistentWorkspace,
-                currentFocus: focus,
-                isEditingWorkspace: false,
-            ),
-        )
     }
 
     func testUserFacingWorkspacesExcludeUnretainedFocusedEmptyWorkspace() {

@@ -59,8 +59,3 @@ func isUserFacingWorkspace(_ workspace: Workspace, focusedWorkspace: Workspace? 
 func userFacingWorkspaces(_ workspaces: [Workspace], focusedWorkspace: Workspace? = nil) -> [Workspace] {
     workspaces.filter { isUserFacingWorkspace($0, focusedWorkspace: focusedWorkspace) }
 }
-
-@MainActor
-func shouldShowWorkspaceInSidebar(_ workspace: Workspace, currentFocus: LiveFocus, isEditingWorkspace: Bool) -> Bool {
-    isEditingWorkspace || isUserFacingWorkspace(workspace, focusedWorkspace: currentFocus.workspace)
-}
