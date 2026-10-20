@@ -349,7 +349,7 @@ final class WindowTabsTest: XCTestCase {
         let window = TestWindow.new(id: 1, parent: root)
         window.lastAppliedLayoutPhysicalRect = Rect(topLeftX: 0, topLeftY: 0, width: 320, height: 220)
 
-        let tabDropZone = window.tabDropZoneRect.orDie()
+        let tabDropZone = window.windowDragVisibleRect.orDie().tabInsertPreviewRect(barHeight: resolvedWindowTabBarHeight())
         let tabInteractionZone = window.tabDropInteractionRect.orDie()
         let swapDropZone = window.swapDropZoneRect.orDie()
 

@@ -102,8 +102,8 @@ import XCTest
         tabGroup.lastAppliedLayoutPhysicalRect = Rect(topLeftX: 0, topLeftY: 0, width: 420, height: 280)
         tabGroupWindow.lastAppliedLayoutPhysicalRect = Rect(topLeftX: 0, topLeftY: 34, width: 420, height: 246)
 
-        let windowZone = window.tabDropZoneRect.orDie()
-        let tabGroupZone = tabGroupWindow.tabDropZoneRect.orDie()
+        let windowZone = window.windowDragVisibleRect.orDie().tabInsertPreviewRect(barHeight: resolvedWindowTabBarHeight())
+        let tabGroupZone = tabGroupWindow.windowDragVisibleRect.orDie().tabInsertPreviewRect(barHeight: resolvedWindowTabBarHeight())
         let tabGroupRect = tabGroupWindow.lastAppliedLayoutPhysicalRect.orDie()
 
         XCTAssertEqual(windowZone.height, tabGroupZone.height)

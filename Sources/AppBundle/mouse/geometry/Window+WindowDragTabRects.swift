@@ -2,12 +2,6 @@ import Common
 
 extension Window {
     @MainActor
-    var tabDropZoneRect: Rect? {
-        guard let rect = windowDragVisibleRect else { return nil }
-        return rect.tabInsertPreviewRect(barHeight: resolvedWindowTabBarHeight())
-    }
-
-    @MainActor
     var tabDropInteractionRect: Rect? {
         guard let rect = windowDragVisibleRect else { return nil }
         return rect.tabInsertInteractionRect(barHeight: resolvedWindowTabBarHeight())

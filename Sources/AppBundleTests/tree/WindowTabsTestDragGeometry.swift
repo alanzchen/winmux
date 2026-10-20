@@ -286,7 +286,7 @@ import XCTest
         window.lastAppliedLayoutPhysicalRect = Rect(topLeftX: 10, topLeftY: 20, width: 360, height: 240)
 
         let fullRect = window.lastAppliedLayoutPhysicalRect.orDie()
-        let tabPreview = window.tabDropZoneRect.orDie()
+        let tabPreview = window.windowDragVisibleRect.orDie().tabInsertPreviewRect(barHeight: resolvedWindowTabBarHeight())
         let expectedTabBandHeight = min(max(resolvedWindowTabBarHeight() + 18, 52), fullRect.height)
 
         XCTAssertEqual(tabPreview.minX, fullRect.minX)
