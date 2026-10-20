@@ -10,7 +10,6 @@ let windowTabPreviewCornerRadius: CGFloat = {
     if #available(macOS 26.0, *) { return 16 } else { return 12 }
 }()
 let windowTabStripContentHorizontalPadding: CGFloat = 3
-let windowTabStripGroupHandleWidth: CGFloat = 26
 let windowTabStripReservedHandleWidth: CGFloat = 24
 let windowTabStripTrailingGroupDragGutterWidth: CGFloat = 28
 let windowTabStripCornerRadius: CGFloat = RadiusToken.section
@@ -61,14 +60,6 @@ func windowTabStripTabWidth(stripWidth: CGFloat, count: Int) -> CGFloat {
     return min(
         max(availableWidth / CGFloat(count), windowTabStripMinimumTabWidth),
         windowTabStripPreferredTabWidth
-    )
-}
-
-func windowTabStripAvailableTabsWidth(stripWidth: CGFloat) -> CGFloat {
-    max(
-        0,
-        windowTabStripScrollViewportWidth(stripWidth: stripWidth)
-            - (windowTabStripContentHorizontalPadding * 2),
     )
 }
 

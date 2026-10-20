@@ -231,14 +231,15 @@ import XCTest
             - windowTabStripReservedGroupHandleWidth()
             - windowTabStripTrailingGroupDragGutterWidth
             - 18
-        let expectedTabsWidth = expectedViewportWidth
-            - (windowTabStripContentPadding() * 2)
 
         XCTAssertEqual(windowTabStripScrollViewportWidth(stripWidth: stripWidth), expectedViewportWidth)
-        XCTAssertEqual(windowTabStripAvailableTabsWidth(stripWidth: stripWidth), expectedTabsWidth)
         XCTAssertEqual(windowTabStripTabWidth(stripWidth: stripWidth, count: 1), 240)
         XCTAssertEqual(windowTabStripTabWidth(stripWidth: stripWidth, count: 2), 132)
         XCTAssertEqual(windowTabStripTabWidth(stripWidth: stripWidth, count: 3), windowTabStripMinimumTabWidth)
+        XCTAssertEqual(
+            windowTabStripTabWidth(stripWidth: 600, count: 3),
+            (windowTabStripScrollViewportWidth(stripWidth: 600) - windowTabStripContentPadding() * 2 - 2 * windowTabStripTabSpacing) / 3
+        )
         XCTAssertLessThanOrEqual(
             CGFloat(2) * windowTabStripTabWidth(stripWidth: stripWidth, count: 2)
                 + windowTabStripTabSpacing
@@ -251,7 +252,6 @@ import XCTest
                 + windowTabStripContentPadding() * 2,
             windowTabStripScrollViewportWidth(stripWidth: stripWidth)
         )
-        XCTAssertLessThan(windowTabStripAvailableTabsWidth(stripWidth: stripWidth), stripWidth)
     }
 
     func testWindowTabStripScrollBackgroundDragIgnoresTabPills() {
