@@ -3,7 +3,7 @@ import XCTest
 
 final class SwitcherPaletteTest: XCTestCase {
     private func item(_ id: UInt32, app: String, title: String, workspace: String = "1") -> SwitcherPaletteItem {
-        SwitcherPaletteItem(id: id, title: title, appName: app, icon: nil, workspaceName: workspace, isFocused: false)
+        SwitcherPaletteItem(id: id, title: title, appName: app, icon: nil, workspaceName: workspace)
     }
 
     func testEmptyQueryKeepsOriginalOrder() {
@@ -50,7 +50,6 @@ final class SwitcherPaletteTest: XCTestCase {
         let item = await makeSwitcherPaletteItem(
             window: window,
             workspaceName: workspace.name,
-            focusedWindowId: nil,
         )
 
         XCTAssertEqual(item.title, "TestWindow(88)")

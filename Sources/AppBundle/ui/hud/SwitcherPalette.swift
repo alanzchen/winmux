@@ -12,7 +12,6 @@ struct SwitcherPaletteItem: Identifiable {
     let appName: String
     let icon: NSImage?
     let workspaceName: String
-    let isFocused: Bool
 }
 
 // MARK: - Panel
@@ -153,7 +152,6 @@ private func appKitScreenMaxY() -> CGFloat {
 
 @MainActor
 private func buildSwitcherPaletteItems() async -> [SwitcherPaletteItem] {
-    let focusedWindowId = focus.windowOrNil?.windowId
     let focusedWorkspace = focus.workspace
     // Focused workspace first, then the rest — so an empty query shows nearby windows on top.
     let workspaces = [focusedWorkspace] + Workspace.all.filter { $0 != focusedWorkspace }
@@ -167,7 +165,6 @@ private func buildSwitcherPaletteItems() async -> [SwitcherPaletteItem] {
                 (index, await makeSwitcherPaletteItem(
                     window: entry.window,
                     workspaceName: entry.workspaceName,
-                    focusedWindowId: focusedWindowId,
                 ))
             }
         }
@@ -182,7 +179,6 @@ private func buildSwitcherPaletteItems() async -> [SwitcherPaletteItem] {
 func makeSwitcherPaletteItem(
     window: Window,
     workspaceName: String,
-    focusedWindowId: UInt32?,
 ) async -> SwitcherPaletteItem {
     let appName = window.app.name ?? window.app.rawAppBundleId ?? "Unknown"
     // A cold cache previously indexed every Finder window as only "Finder" until some other
@@ -196,7 +192,6 @@ func makeSwitcherPaletteItem(
         appName: appName,
         icon: (window as? MacWindow)?.macApp.nsApp.icon,
         workspaceName: workspaceName,
-        isFocused: window.windowId == focusedWindowId,
     )
 }
 
