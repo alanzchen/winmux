@@ -24,7 +24,7 @@ struct MenuBarLabel: View {
     }
 
     var body: some View {
-        if #available(macOS 14, *) { // https://github.com/nikitabobko/WinMux/issues/1122
+        if #available(macOS 14, *) { // https://github.com/nikitabobko/AeroSpace/issues/1122
             // body re-runs on every publish of the whole TrayMenuModel (sidebar hover, drop
             // previews, ...), but rasterizing is only needed when the rendered inputs change.
             let renderKey = MenuBarLabelRenderKey(
