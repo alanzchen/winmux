@@ -57,10 +57,6 @@ final class WindowMiddleClickView: NSView {
     private var pressedButtonNumber: Int?
     private var pressedIdentity: AnyHashable?
 
-    func update(windowId nextWindowId: UInt32, onMiddleClick nextAction: @escaping @MainActor () -> Void) {
-        update(identity: AnyHashable(nextWindowId), onMiddleClick: nextAction)
-    }
-
     /// SwiftUI can hand this view to another tab or row while the button is down; a
     /// release then belongs to no window.
     func update(identity nextIdentity: AnyHashable, onMiddleClick nextAction: @escaping @MainActor () -> Void) {

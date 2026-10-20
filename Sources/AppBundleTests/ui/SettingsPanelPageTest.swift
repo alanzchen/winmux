@@ -8,7 +8,7 @@ final class SettingsPanelPageTest: XCTestCase {
     func testEachModeListsExactlyTheSettingsItUses() {
         let pageFields = SettingsCatalog.fields.filter { $0.group.page == .appearance }
         for mode in WorkspaceSidebarMode.settingsOrder {
-            let listed = SettingsPanelLayout.allSections(mode).flatMap(\.fields)
+            let listed = (SettingsPanelLayout.sections(mode) + [SettingsPanelLayout.shared]).flatMap(\.fields)
             XCTAssertEqual(listed.count, Set(listed).count, "\(mode): a setting is listed twice")
             let used = pageFields.filter { $0.modes?.contains(mode) == true }.map(\.id)
             XCTAssertEqual(Set(listed), Set(used), "\(mode)")

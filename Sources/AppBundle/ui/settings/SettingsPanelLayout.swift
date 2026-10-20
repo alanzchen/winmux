@@ -65,8 +65,6 @@ enum SettingsPanelLayout {
         fields: ["workspace-sidebar.display-filter", "workspace-sidebar.enable-focus",
                  "workspace-sidebar.menu-bar-reserve-height", "workspace-sidebar.stay-on-top"])
 
-    static func allSections(_ mode: WorkspaceSidebarMode) -> [SettingsPanelSection] { sections(mode) + [shared] }
-
     /// The mode a search result belongs to: the active one if it uses the setting.
     static func home(of field: SettingsField, activeMode: WorkspaceSidebarMode) -> WorkspaceSidebarMode? {
         guard let modes = field.modes else { return nil }

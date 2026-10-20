@@ -526,7 +526,7 @@ final class SettingsEditorTest: XCTestCase {
         editor.saveDocument(edited, expected: original) { completions += 1 }
         await editor.waitUntilIdle()
         XCTAssertEqual(completions, 0)
-        editor.saveRaw([SettingsFileEdit(values: ["unknown-setting": "true"])], title: "Invalid later request")
+        editor.saveDocument(edited + "unknown-setting = true\n", expected: edited)
         disk.failWrites = false
         editor.retry()
         await editor.waitUntilIdle()

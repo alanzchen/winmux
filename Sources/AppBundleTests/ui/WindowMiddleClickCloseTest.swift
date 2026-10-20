@@ -38,7 +38,7 @@ final class WindowMiddleClickCloseTest: XCTestCase {
     func testCatcherViewClosesOnMiddleClickAndHonorsTheSetting() {
         let view = WindowMiddleClickView(frame: CGRect(x: 0, y: 0, width: 120, height: 24))
         var closes = 0
-        view.update(windowId: 7) { closes += 1 }
+        update(view, windowId: 7) { closes += 1 }
         func click(_ button: Int, releasedAt point: CGPoint = CGPoint(x: 60, y: 12)) {
             view.pressButton(button)
             view.releaseButton(button, at: point)
@@ -61,16 +61,16 @@ final class WindowMiddleClickCloseTest: XCTestCase {
     func testReusedCatcherNeverClosesAWindowItWasNotPressedOn() {
         let view = WindowMiddleClickView(frame: CGRect(x: 0, y: 0, width: 120, height: 24))
         var closed: [UInt32] = []
-        view.update(windowId: 7) { closed.append(7) }
+        update(view, windowId: 7) { closed.append(7) }
         view.pressButton(2)
         // SwiftUI hands the view to another tab while the button is down.
-        view.update(windowId: 8) { closed.append(8) }
+        update(view, windowId: 8) { closed.append(8) }
         view.releaseButton(2, at: CGPoint(x: 60, y: 12))
         XCTAssertEqual(closed, [])
 
-        view.update(windowId: 8) { closed.append(8) }
+        update(view, windowId: 8) { closed.append(8) }
         view.pressButton(2)
-        view.update(windowId: 8) { closed.append(8) }
+        update(view, windowId: 8) { closed.append(8) }
         view.releaseButton(2, at: CGPoint(x: 60, y: 12))
         XCTAssertEqual(closed, [8], "Refreshing the same tab keeps the press")
     }
@@ -117,5 +117,12 @@ final class WindowMiddleClickCloseTest: XCTestCase {
         let (parsed, errors) = parseConfig("middle-click-closes-windows = false")
         XCTAssertEqual(errors.descriptions, [])
         XCTAssertFalse(parsed.middleClickClosesWindows)
+    }
+
+    /// Hands the view a window's catcher the way WindowMiddleClickCatcher's makeNSView and
+    /// updateNSView do.
+    private func update(_ view: WindowMiddleClickView, windowId: UInt32, onMiddleClick: @escaping @MainActor () -> Void) {
+        let catcher = WindowMiddleClickCatcher(windowId: windowId, onMiddleClick: onMiddleClick)
+        view.update(identity: catcher.identity, onMiddleClick: catcher.onMiddleClick)
     }
 }

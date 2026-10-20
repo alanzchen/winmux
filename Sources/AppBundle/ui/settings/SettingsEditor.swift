@@ -166,7 +166,6 @@ final class SettingsEditor: ObservableObject {
         var title: String
         var fields: [SettingsField]
         var values: [String: SettingsValue]
-        var edits: [SettingsFileEdit] = []
         var document: (text: String, expected: String, expectedURL: URL?)?
         var onSuccess: (() -> Void)?
         /// Fields restored by removing their key.
@@ -206,7 +205,7 @@ final class SettingsEditor: ObservableObject {
     }
 
     private func fileEdits(for request: Request) -> [SettingsFileEdit] {
-        request.edits + request.fields.compactMap { field in
+        request.fields.compactMap { field in
             guard field.writePreference == nil, let value = request.values[field.id] else { return nil }
             let rendered = request.unsetting.contains(field.id) ? settingsUnsetRenderedValue : field.render(value)
             return SettingsFileEdit(section: field.section, values: [field.key: rendered],
@@ -291,10 +290,6 @@ final class SettingsEditor: ObservableObject {
         drafts.merge(values) { _, next in next }
         unsetDrafts.formUnion(unsetting)
         enqueue(Request(title: "Restore \(title)", fields: fields, values: values, unsetting: unsetting))
-    }
-
-    func saveRaw(_ edits: [SettingsFileEdit], title: String) {
-        enqueue(Request(title: title, fields: [], values: [:], edits: edits))
     }
 
     func saveDocument(_ text: String, expected: String, expectedURL: URL? = nil, onSuccess: (() -> Void)? = nil) {
