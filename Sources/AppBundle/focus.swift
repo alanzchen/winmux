@@ -78,11 +78,6 @@ func debugDescribe(_ focus: LiveFocus?) -> String {
     return "w:\(focus.windowOrNil?.windowId.description ?? "nil") ws:\(focus.workspace.name)"
 }
 
-func debugDescribe(_ focus: FrozenFocus?) -> String {
-    guard let focus else { return "nil" }
-    return "w:\(focus.windowId?.description ?? "nil") ws:\(focus.workspaceName)"
-}
-
 @MainActor
 func debugDescribe(_ snapshot: RefreshSessionFocusSnapshot?) -> String {
     guard let snapshot else { return "nil" }

@@ -79,18 +79,6 @@ final class MacWindow: Window {
         popupPresentationState.consume()
     }
 
-    // var description: String {
-    //     let description = [
-    //         ("title", title),
-    //         ("role", axWindow.get(Ax.roleAttr)),
-    //         ("subrole", axWindow.get(Ax.subroleAttr)),
-    //         ("identifier", axWindow.get(Ax.identifierAttr)),
-    //         ("modal", axWindow.get(Ax.modalAttr).map { String($0) } ?? ""),
-    //         ("windowId", String(windowId)),
-    //     ].map { "\($0.0): '\(String(describing: $0.1))'" }.joined(separator: ", ")
-    //     return "Window(\(description))"
-    // }
-
     func isWindowHeuristic(_ windowLevel: MacOsWindowLevel?) async throws -> Bool { // todo cache
         try await macApp.isWindowHeuristic(windowId, windowLevel)
     }
