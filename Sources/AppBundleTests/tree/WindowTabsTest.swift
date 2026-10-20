@@ -14,27 +14,6 @@ struct WindowTabsTestMonitor: Monitor {
     var height: CGFloat { rect.height }
 }
 
-func cgWindowBounds(windowNumber: Int) -> CGRect? {
-    guard let windows = CGWindowListCopyWindowInfo(
-        [.optionIncludingWindow],
-        CGWindowID(windowNumber),
-    ) as? [[String: Any]],
-        let bounds = windows.first?[kCGWindowBounds as String] as? [String: Any],
-        let x = bounds["X"] as? NSNumber,
-        let y = bounds["Y"] as? NSNumber,
-        let width = bounds["Width"] as? NSNumber,
-        let height = bounds["Height"] as? NSNumber
-    else {
-        return nil
-    }
-    return CGRect(
-        x: CGFloat(truncating: x),
-        y: CGFloat(truncating: y),
-        width: CGFloat(truncating: width),
-        height: CGFloat(truncating: height),
-    )
-}
-
 final class WindowTabsTest: XCTestCase {
     @MainActor
     func testCreateTabStackFromTwoSiblingWindows() {
