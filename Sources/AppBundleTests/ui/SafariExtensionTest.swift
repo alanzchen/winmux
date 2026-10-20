@@ -392,15 +392,15 @@ final class SafariExtensionTest: XCTestCase {
 
     func testTitlesSafariWithholdsMayDifferButNeverOutnumberReadableOnes() {
         let window = tabs(["Start Page", "GitHub", "Favorites"], selected: 1, window: 1)
-        XCTAssertTrue(safariExtensionTabsAgree(window.tabs, described(["", "GitHub", "Favorites"], selected: 1, id: 1)))
-        XCTAssertFalse(safariExtensionTabsAgree(window.tabs, described(["", "GitHub", ""], selected: 1, id: 1)),
+        XCTAssertTrue(safariExtensionTabsAgree(.init(snapshot: window), described(["", "GitHub", "Favorites"], selected: 1, id: 1)))
+        XCTAssertFalse(safariExtensionTabsAgree(.init(snapshot: window), described(["", "GitHub", ""], selected: 1, id: 1)),
             "One readable title can't vouch for two withheld ones")
         var hosted = described(["", "GitHub", "Favorites"], selected: 1, id: 1)
         hosted.tabs[0].host = "example.com"
-        XCTAssertFalse(safariExtensionTabsAgree(window.tabs, hosted), "A web page with a title Safari shows must match it")
-        XCTAssertFalse(safariExtensionTabsAgree(window.tabs, described(["", "", ""], selected: 1, id: 1)))
+        XCTAssertFalse(safariExtensionTabsAgree(.init(snapshot: window), hosted), "A web page with a title Safari shows must match it")
+        XCTAssertFalse(safariExtensionTabsAgree(.init(snapshot: window), described(["", "", ""], selected: 1, id: 1)))
         let spaced = tabs(["Build  #42\n passed", "Other"], selected: 0, window: 2)
-        XCTAssertTrue(safariExtensionTabsAgree(spaced.tabs, described(["Build #42 passed", "Other"], selected: 0, id: 2)))
+        XCTAssertTrue(safariExtensionTabsAgree(.init(snapshot: spaced), described(["Build #42 passed", "Other"], selected: 0, id: 2)))
     }
 
     func testAPairingCountsAfterTwoObservationsAndKeepsIconsButNotSoundThroughAMismatch() {

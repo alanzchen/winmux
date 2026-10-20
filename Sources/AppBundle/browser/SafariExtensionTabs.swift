@@ -256,11 +256,7 @@ func safariExtensionComparableTitle(_ title: String) -> String {
 /// from the extension when it can't read that site; such a tab may differ, but the window's
 /// readable titles must agree and outnumber them. A window whose read didn't list all its tabs
 /// (`BrowserWindowTabs.isComplete`) agrees with none.
-func safariExtensionTabsAgree(_ tabs: [BrowserTab], _ window: SafariExtensionWindow) -> Bool {
-    safariExtensionTabsAgree(SafariExtensionCandidate(snapshot: BrowserWindowTabs(windowId: 0, pid: 0, windowSession: UUID(), tabs: tabs)), window)
-}
-
-private func safariExtensionTabsAgree(_ candidate: SafariExtensionCandidate, _ window: SafariExtensionWindow) -> Bool {
+func safariExtensionTabsAgree(_ candidate: SafariExtensionCandidate, _ window: SafariExtensionWindow) -> Bool {
     let tabs = candidate.snapshot.tabs
     guard candidate.snapshot.isComplete, tabs.count == window.tabs.count, zip(tabs, window.tabs).allSatisfy({ $0.isSelected == $1.isActive }) else { return false }
     var agreeing = 0
@@ -894,10 +890,6 @@ struct SafariExtensionFrameTrack {
     /// from its next sample, as nothing says where it was meanwhile.
     mutating func pause() {
         for id in entries.keys { entries[id]?.paused = true }
-    }
-
-    mutating func observe(_ frames: [UInt32: CGRect?], now: TimeInterval) {
-        observe(frames.mapValues { SafariExtensionFrameSample(frame: $0) }, now: now)
     }
 
     /// The windows that have been where they are, unmoved, since before `measured`, when Safari
