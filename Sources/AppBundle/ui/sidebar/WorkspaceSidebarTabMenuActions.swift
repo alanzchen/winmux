@@ -92,20 +92,3 @@ func closeWorkspaceSidebarTabWindows(_ name: String) -> Task<Void, Never>? {
         showWorkspaceTabCloseLeftOpen(result.leftOpen)
     }
 }
-
-/// Whether every window closed; false when one stopped at a save sheet or refused.
-@MainActor
-@discardableResult
-func closeWorkspaceSidebarSplitWindows(_ windows: [Window], in workspace: Workspace,
-                                      requestClose: @MainActor (Window) async -> Bool) async -> Bool {
-    WorkspaceSidebarTabUndo.shared.clear()
-    for window in windows {
-        guard Window.get(byId: window.windowId) === window, window.nodeWorkspace === workspace else { continue }
-        if !(await requestClose(window)) {
-            // Stop at a save sheet or a refused close, and bring it forward.
-            if Window.get(byId: window.windowId) === window { _ = window.focusWindow() }
-            return false
-        }
-    }
-    return true
-}

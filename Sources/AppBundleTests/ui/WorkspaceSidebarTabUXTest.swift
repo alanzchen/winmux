@@ -6,13 +6,20 @@ import XCTest
 
 @MainActor
 final class WorkspaceSidebarTabUXTest: XCTestCase {
+    private var savedCloseConfirm: (@MainActor (String, String) -> Bool)!
+    private var savedNotice: (@MainActor (String, String) -> Void)!
+
     override func setUp() async throws {
+        savedCloseConfirm = workspaceTabCloseConfirm
+        savedNotice = workspaceSidebarPinRecallNotice
         setUpWorkspacesForTests()
         config.workspaceSidebar.mode = .tabs
         workspaceSidebarOrganizationStore = .init()
     }
 
     override func tearDown() async throws {
+        workspaceTabCloseConfirm = savedCloseConfirm
+        workspaceSidebarPinRecallNotice = savedNotice
         WorkspaceSidebarTabUndo.shared.clear()
         workspaceSidebarOrganizationStore = .init()
         config = defaultConfig
@@ -554,14 +561,18 @@ final class WorkspaceSidebarTabUXTest: XCTestCase {
         try workspaceSidebarOrganizationStore.update { $0.workspaces[workspace.name] = .init(isFavorite: true) }
         WorkspaceSidebarTabUndo.shared.record("Pin Tab", before: before)
         XCTAssertNotNil(WorkspaceSidebarTabUndo.shared.title)
+        workspaceTabCloseConfirm = { _, _ in true }
+        var notices: [String] = []
+        workspaceSidebarPinRecallNotice = { title, _ in notices.append(title) }
         var attempted: [UInt32] = []
-        await closeWorkspaceSidebarSplitWindows(windows, in: workspace) { window in
+        await closeWorkspaceSidebarTabs([workspace.name]) { window in
             attempted.append(window.windowId)
             if window.windowId == 102 { return false }
             window.closeAxWindow()
             return true
-        }
+        }?.value
         XCTAssertEqual(attempted, [101, 102])
+        XCTAssertEqual(notices, [], "An on-screen window that stops the close comes forward instead")
         XCTAssertNil(Window.get(byId: 101))
         XCTAssertNotNil(Window.get(byId: 103))
         XCTAssertTrue(focus.windowOrNil === windows[1])
