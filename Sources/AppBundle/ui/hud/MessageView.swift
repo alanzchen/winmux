@@ -81,6 +81,8 @@ struct MessageView: View {
                         case .config:
                             reloadConfigButton()
                             openConfigButton()
+                        case .general:
+                            EmptyView()
                     }
                 }
                 let closeButton = Button("Close") { model.detailMessage = nil }.keyboardShortcut(.defaultAction)
@@ -128,10 +130,18 @@ public final class MessageModel: ObservableObject {
         detailMessage = message
         detailRequestId += 1
     }
+
+    /// A successful reload resolves a config file diagnostic, so its details window closes.
+    /// Other details stay open: the reload doesn't change what they describe.
+    @MainActor func closeConfigErrorDetails() {
+        if detailMessage?.type == .config { detailMessage = nil }
+    }
 }
 
 public enum MessageType {
+    /// A config file diagnostic: its details offer Reload config and Open config.
     case config
+    case general
 }
 
 public struct Message: Hashable, Equatable {
@@ -141,7 +151,7 @@ public struct Message: Hashable, Equatable {
     public let body: String
     let actions: [MessageAction]
 
-    init(type: MessageType = .config, title: String = winMuxAppName, description: String, body: String, actions: [MessageAction] = []) {
+    init(type: MessageType = .general, title: String = winMuxAppName, description: String, body: String, actions: [MessageAction] = []) {
         self.type = type
         self.title = title
         self.description = description

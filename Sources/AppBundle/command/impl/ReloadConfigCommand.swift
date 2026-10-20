@@ -40,14 +40,14 @@ struct ReloadConfigCommand: Command {
                 try await activateMode(activeMode)
                 syncStartAtLogin()
                 applyReloadedConfigurationToRunningApp()
-                MessageModel.shared.message = nil
+                MessageModel.shared.closeConfigErrorDetails()
             }
             result = true
         case .failure(let msg):
             stdout.append(msg)
             if !args.noGui {
                 Task { @MainActor in
-                    MessageModel.shared.message = Message(description: "WinMux Config Error", body: msg)
+                    MessageModel.shared.message = Message(type: .config, description: "WinMux Config Error", body: msg)
                 }
             }
             result = false

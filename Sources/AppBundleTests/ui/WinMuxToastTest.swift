@@ -53,6 +53,34 @@ final class WinMuxToastTest: XCTestCase {
         XCTAssertEqual(output, diagnostic.body)
     }
 
+    func testSuccessfulReloadClosesOnlyConfigErrorDetails() async throws {
+        let saved = config
+        defer { config = saved }
+        config.workspaceSidebar.enabled = false
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("winmux-invalid-\(UUID()).toml")
+        try "config-version = 2\n[workspace-sidebar\n".write(to: url, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+        var args = ReloadConfigCmdArgs(rawArgs: [])
+        args.dryRun = true
+        var output = ""
+        let succeeded = try await reloadConfig(args: args, forceConfigUrl: url, stdout: &output)
+        XCTAssertFalse(succeeded)
+        for _ in 0..<4 { await Task.yield() }
+        let panel = WinMuxToastPanel.shared
+        let diagnostic = try XCTUnwrap(panel.model.shown?.notice.details)
+        panel.detailsPanel.button.performClick(nil)
+        XCTAssertEqual(MessageModel.shared.detailMessage, diagnostic)
+
+        // reloadConfig's success branch runs this once the file is fixed.
+        MessageModel.shared.closeConfigErrorDetails()
+        XCTAssertNil(MessageModel.shared.detailMessage, "A successful reload closes the stale config error details")
+
+        let launcherFailure = Message(description: "App Launcher", body: "Ghost isn't installed")
+        MessageModel.shared.openDetails(launcherFailure)
+        MessageModel.shared.closeConfigErrorDetails()
+        XCTAssertEqual(MessageModel.shared.detailMessage, launcherFailure, "A reload leaves unrelated details open")
+    }
+
     func testLongAndSimilarErrorsKeepTheirOwnOriginalDetailsAcrossReplacementAndDismissal() throws {
         var time = 0.0
         var opened: [WinMuxToastNotice] = []
