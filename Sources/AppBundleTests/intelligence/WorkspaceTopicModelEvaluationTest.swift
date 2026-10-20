@@ -69,8 +69,12 @@ final class WorkspaceTopicModelEvaluationTest: XCTestCase {
 
     func testRealModelThroughThePolicy() async throws {
         var lines = ["OS \(workspaceTopicOperatingSystemBuild())"]
+        // Model calls that answered: without one, nothing here measured the model.
+        var inferred = 0
         for variant in WorkspaceTopicModelVariant.allCases {
-            let provider = try XCTUnwrap(makeSystemWorkspaceTopicProvider(variant: variant))
+            guard let provider = makeSystemWorkspaceTopicProvider(variant: variant) else {
+                throw XCTSkip(WorkspaceTopicUnavailableReason.requiresNewerMacOS.message)
+            }
             let availability = await provider.availability()
             lines.append("variant=\(variant.rawValue) availability=\(availability) cache=\(provider.cacheVersion)")
             guard availability == .available else { continue }
@@ -83,7 +87,10 @@ final class WorkspaceTopicModelEvaluationTest: XCTestCase {
                     var tags: [String] = []
                     var note = ""
                     if workspaceTopicHasEnoughEvidence(evidence) {
-                        do { tags = try await provider.topics(for: evidence) } catch { note = " error=\((error as? WorkspaceTopicFailure)?.category ?? "other")" }
+                        do {
+                            tags = try await provider.topics(for: evidence)
+                            inferred += 1
+                        } catch { note = " error=\((error as? WorkspaceTopicFailure)?.category ?? "other")" }
                     } else { note = " thin" }
                     let ms = Double(start.duration(to: .now).components.attoseconds) / 1e15 + Double(start.duration(to: .now).components.seconds) * 1000
                     lines.append(String(format: "  %@ %@ t%d %5.0fms %@%@", variant.rawValue, testCase.name, index, ms,
@@ -96,12 +103,18 @@ final class WorkspaceTopicModelEvaluationTest: XCTestCase {
             }
         }
         print("TOPIC-EVAL\n" + lines.joined(separator: "\n"))
+        try XCTSkipIf(inferred == 0, "No real-model inference completed; see the TOPIC-EVAL availability and error lines")
     }
 
     /// Click-to-preview time with the real model: building the request, every model call, and the
     /// policy, for 10, 30 and 100 tabs, first with an empty cache and then again cached.
     func testRealModelEndToEndLatency() async throws {
         var lines: [String] = []
+        // Whether any model call answered. The coordinator caches only answers, one per distinct
+        // prompt, and each count starts from an empty cache, so after a cold pass it's zero only
+        // when no inference completed. Not a call count.
+        var cachedAnswers = 0
+        var lastPhase = ""
         for count in [10, 30, 100] {
             setUpWorkspacesForTests()
             TopicTestApps.reset()
@@ -117,6 +130,8 @@ final class WorkspaceTopicModelEvaluationTest: XCTestCase {
                 try await WorkspaceTopicTestEnvironment.settle(coordinator, timeout: 400)
                 let elapsed = start.duration(to: .now).components
                 let seconds = Double(elapsed.seconds) + Double(elapsed.attoseconds) / 1e18
+                if pass == "cold-cache" { cachedAnswers += coordinator.cachedTagCount }
+                lastPhase = String(describing: coordinator.phase)
                 lines.append(String(format: "n=%d %@ phase=%@ analyzed=%d groups=%d calls=%d total=%.1fs", count, pass,
                     String(describing: coordinator.phase), coordinator.request?.analyzed.count ?? 0, coordinator.groups.count,
                     coordinator.providerCallCount - callsBefore, seconds))
@@ -124,6 +139,7 @@ final class WorkspaceTopicModelEvaluationTest: XCTestCase {
             }
         }
         print("TOPIC-LATENCY\n" + lines.joined(separator: "\n"))
+        try XCTSkipIf(cachedAnswers == 0, "No real-model inference completed (last phase \(lastPhase))")
     }
 }
 
