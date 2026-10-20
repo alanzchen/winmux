@@ -30,18 +30,6 @@ final class WindowDragCursorProxyPanel: NSPanelHud {
         hostingView.autoresizingMask = [.width, .height]
     }
 
-    func show(label: String, isGroup: Bool, mouseScreenPoint: CGPoint) {
-        updateContent(label: label, isGroup: isGroup)
-        proxySize = windowDragCursorProxySize(label: label)
-        proxyPointer = nil
-        batchProxy = nil
-        updateFrame(mouseScreenPoint: mouseScreenPoint)
-        startFollowingMouseIfNeeded()
-        if !isVisible {
-            orderFrontRegardless()
-        }
-    }
-
     func show(preview: WorkspaceSidebarDropPreviewViewModel, mouseScreenPoint: CGPoint, style: WorkspaceSidebarDragPreviewStyle = .row) {
         if case .appIcon = style, preview.batchTabCount != nil {
             batchProxy = (preview, style)
@@ -91,13 +79,6 @@ struct WindowDragCursorProxyContent: Equatable {
 }
 
 extension WindowDragCursorProxyPanel {
-    func updateContent(label: String, isGroup: Bool) {
-        let nextContent = WindowDragCursorProxyContent(label: label, isGroup: isGroup)
-        guard currentContent != nextContent else { return }
-        hostingView.rootView = AnyView(WindowDragCursorProxyView(label: label, isGroup: isGroup))
-        currentContent = nextContent
-    }
-
     func updateContent(preview: WorkspaceSidebarDropPreviewViewModel, style: WorkspaceSidebarDragPreviewStyle = .row,
                        batchLabelPlacement: WindowDragCursorProxyBatchLabelPlacement = .above) {
         let nextContent = WindowDragCursorProxyContent(

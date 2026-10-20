@@ -7,13 +7,6 @@ struct WindowDragCursorProxyView: View {
     let style: WorkspaceSidebarDragPreviewStyle
     var batchLabelPlacement: WindowDragCursorProxyBatchLabelPlacement = .above
 
-    init(label: String, isGroup: Bool) {
-        self.label = label
-        self.isGroup = isGroup
-        self.preview = nil
-        self.style = .row
-    }
-
     init(preview: WorkspaceSidebarDropPreviewViewModel, style: WorkspaceSidebarDragPreviewStyle = .row,
          batchLabelPlacement: WindowDragCursorProxyBatchLabelPlacement = .above) {
         self.label = preview.label
