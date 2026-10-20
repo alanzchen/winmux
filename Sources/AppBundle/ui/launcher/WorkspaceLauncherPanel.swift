@@ -13,7 +13,7 @@ enum WorkspaceLauncherState: Equatable {
 
 /// Why the launcher closed, which decides what happens to a new tab it opened in.
 enum WorkspaceLauncherDismissal {
-    /// Esc or Cancel: the tab closes now.
+    /// Esc, Cancel, or a failed request: the tab closes now.
     case closed
     /// The user clicked elsewhere or left the tab: the tab closes shortly, if still on screen.
     case focusMoved
