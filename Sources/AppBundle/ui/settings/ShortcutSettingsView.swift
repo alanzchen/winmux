@@ -308,7 +308,7 @@ struct ShortcutSectionView: View {
             } else if section.id == "managed-move" {
                 EmptyView()
             } else if section.id == "managed-splits" {
-                CompassPad(model: model, title: "Split", prefix: "split") {
+                CompassPad(model: model, prefix: "split") {
                     SplitDemoView()
                 }
             } else if section.id == "workspaces" {
@@ -351,8 +351,7 @@ struct ShortcutRow: View {
 
             ShortcutRecorderView(
                 shortcut: .init(get: { model.shortcutValue(for: action.id) },
-                                set: { model.setShortcutValue($0, for: action.id) }),
-                onChange: { _ in }
+                                set: { model.setShortcutValue($0, for: action.id) })
             )
             .frame(width: 140, height: 22)
         }

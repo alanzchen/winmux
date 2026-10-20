@@ -3,7 +3,6 @@ import SwiftUI
 
 struct ShortcutRecorderView: NSViewRepresentable {
     @Binding var shortcut: MASShortcut?
-    var onChange: (MASShortcut?) -> Void
 
     final class Coordinator {
         var isSynchronizingShortcut = false
@@ -25,7 +24,6 @@ struct ShortcutRecorderView: NSViewRepresentable {
             let newValue = sender.shortcutValue
             guard !context.coordinator.isSynchronizingShortcut else { return }
             shortcut = newValue
-            onChange(newValue)
         }
         return recorder
     }

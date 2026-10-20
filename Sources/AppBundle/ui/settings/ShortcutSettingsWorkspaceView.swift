@@ -112,8 +112,7 @@ private struct WorkspaceOverrideRecorder: View {
             shortcut: Binding(
                 get: { model.workspaceOverrideShortcutValue(workspaceName: workspaceName, kind: kind) },
                 set: { model.setWorkspaceOverrideShortcutValue($0, workspaceName: workspaceName, kind: kind) }
-            ),
-            onChange: { _ in }
+            )
         )
         .frame(width: 150, height: 22)
     }

@@ -26,7 +26,7 @@ struct ManagedDirectionalShortcutsView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text(title)
                 .font(.headline)
-            CompassPad(model: model, title: title, prefix: prefix, demo: demo)
+            CompassPad(model: model, prefix: prefix, demo: demo)
         }
     }
 }
@@ -199,13 +199,11 @@ struct SplitDemoView: View {
 
 struct CompassPad<Demo: View>: View {
     @ObservedObject var model: ShortcutSettingsModel
-    let title: String
     let prefix: String
     let demo: Demo
 
-    init(model: ShortcutSettingsModel, title: String, prefix: String, @ViewBuilder demo: () -> Demo) {
+    init(model: ShortcutSettingsModel, prefix: String, @ViewBuilder demo: () -> Demo) {
         self.model = model
-        self.title = title
         self.prefix = prefix
         self.demo = demo()
     }
@@ -245,8 +243,7 @@ struct CompassPad<Demo: View>: View {
                 .foregroundStyle(.secondary)
             ShortcutRecorderView(
                 shortcut: .init(get: { model.shortcutValue(for: id) },
-                                set: { model.setShortcutValue($0, for: id) }),
-                onChange: { _ in }
+                                set: { model.setShortcutValue($0, for: id) })
             )
             .frame(width: 120, height: 22)
         }
