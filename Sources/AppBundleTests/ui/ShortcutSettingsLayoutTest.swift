@@ -34,22 +34,28 @@ final class ShortcutSettingsLayoutTest: XCTestCase {
     }
 
     func testPanesFillTheResizedWindowWithoutHorizontalScroll() throws {
-        for pane: SettingsSidebarItem in SettingsSidebarItem.navigation + [.reference] {
+        for pane in SettingsSidebarItem.navigation {
             let window = makeWindow(pane)
             defer { window.close() }
-            for size in [shortcutSettingsMinimumSize, CGSize(width: 1320, height: 900), shortcutSettingsDefaultSize] {
-                resize(window, to: size)
-                let content = try XCTUnwrap(window.contentView)
-                XCTAssertEqual(window.contentLayoutRect.size, size)
-                let scrollViews = descendants(content).compactMap { $0 as? NSScrollView }
-                XCTAssertFalse(scrollViews.isEmpty)
-                for scroll in scrollViews where !scroll.isHiddenOrHasHiddenAncestor {
-                    guard let document = scroll.documentView else { continue }
-                    XCTAssertLessThanOrEqual(document.frame.width, scroll.contentView.bounds.width + 1,
-                                             "\(pane): content must fit horizontally at \(size)")
-                }
+            try assertFillsResizedWindowWithoutHorizontalScroll(window, "\(pane)")
+        }
+
+        // The configuration reference is the Advanced pane's Reference tab.
+        let advancedTabKey = "WinMux.settings.advancedTab"
+        let savedAdvancedTab = UserDefaults.standard.object(forKey: advancedTabKey)
+        defer {
+            if let savedAdvancedTab {
+                UserDefaults.standard.set(savedAdvancedTab, forKey: advancedTabKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: advancedTabKey)
             }
         }
+        UserDefaults.standard.set("reference", forKey: advancedTabKey)
+        let window = makeWindow(.configuration)
+        defer { window.close() }
+        let anchors = descendants(try XCTUnwrap(window.contentView)).compactMap { $0 as? SettingsScrollAnchor }
+        XCTAssertTrue(anchors.contains { $0.page == "advanced.reference" }, "Advanced must show its Reference tab")
+        try assertFillsResizedWindowWithoutHorizontalScroll(window, "Advanced Reference")
     }
 
     func testResizePreservesEditorDraftAndFirstResponder() throws {
@@ -221,6 +227,21 @@ final class ShortcutSettingsLayoutTest: XCTestCase {
         configureShortcutSettingsWindow(window)
         settle(window)
         return window
+    }
+
+    private func assertFillsResizedWindowWithoutHorizontalScroll(_ window: NSWindow, _ pane: String) throws {
+        for size in [shortcutSettingsMinimumSize, CGSize(width: 1320, height: 900), shortcutSettingsDefaultSize] {
+            resize(window, to: size)
+            let content = try XCTUnwrap(window.contentView)
+            XCTAssertEqual(window.contentLayoutRect.size, size)
+            let scrollViews = descendants(content).compactMap { $0 as? NSScrollView }
+            XCTAssertFalse(scrollViews.isEmpty)
+            for scroll in scrollViews where !scroll.isHiddenOrHasHiddenAncestor {
+                guard let document = scroll.documentView else { continue }
+                XCTAssertLessThanOrEqual(document.frame.width, scroll.contentView.bounds.width + 1,
+                                         "\(pane): content must fit horizontally at \(size)")
+            }
+        }
     }
 
     private func resize(_ window: NSWindow, to usableSize: CGSize) {

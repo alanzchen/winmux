@@ -36,7 +36,7 @@ public func openShortcutSettingsWindow(_ openWindow: OpenWindowAction) {
 }
 
 enum SettingsSidebarItem: String, Hashable, Identifiable, CaseIterable {
-    case general, appearance, behavior, workspaces, shortcuts, integrations, configuration, reference
+    case general, appearance, behavior, workspaces, shortcuts, integrations, configuration
     static let navigation: [Self] = [.general, .appearance, .behavior, .workspaces, .shortcuts, .integrations, .configuration]
     var id: Self { self }
     var label: String {
@@ -48,7 +48,6 @@ enum SettingsSidebarItem: String, Hashable, Identifiable, CaseIterable {
             case .shortcuts: "Shortcuts"
             case .integrations: "Integrations"
             case .configuration: "Advanced"
-            case .reference: "Configuration Reference"
         }
     }
     var icon: String {
@@ -60,7 +59,6 @@ enum SettingsSidebarItem: String, Hashable, Identifiable, CaseIterable {
             case .shortcuts: "keyboard"
             case .integrations: "puzzlepiece.extension"
             case .configuration: "slider.horizontal.3"
-            case .reference: "book"
         }
     }
 }
@@ -144,7 +142,6 @@ struct ShortcutSettingsView: View {
             case .shortcuts: ShortcutSettingsShortcutsView(model: model)
             case .integrations: LinkIntegrationsSettingsView(store: linkIntegrationStore)
             case .configuration: SettingsAdvancedPane(model: model, editor: editor, tab: $advancedTab, targetField: targetField)
-            case .reference: ShortcutConfigurationReferenceView()
             case nil: Text("Select a settings page")
         }
     }
