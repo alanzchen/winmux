@@ -366,8 +366,6 @@ func winMuxToastFrame(size: CGSize, beside surface: CGRect?, in screen: CGRect) 
 
 struct WinMuxToastView: View {
     @ObservedObject var model: WinMuxToastModel
-    /// The sidebar's chrome when nil.
-    var chromeStyle: ChromeStyle? = nil
 
     var body: some View {
         if let shown = model.shown {
@@ -399,7 +397,7 @@ struct WinMuxToastView: View {
             .padding(.bottom, 29)
             .background {
                 GlassSurface(shape: RoundedRectangle(cornerRadius: RadiusToken.card, style: .continuous),
-                    style: chromeStyle ?? config.workspaceSidebar.chromeStyle, solidColor: config.workspaceSidebar.resolvedSolidChromeColor)
+                    style: config.workspaceSidebar.chromeStyle, solidColor: config.workspaceSidebar.resolvedSolidChromeColor)
             }
             .clipShape(RoundedRectangle(cornerRadius: RadiusToken.card, style: .continuous))
             .fixedSize()
