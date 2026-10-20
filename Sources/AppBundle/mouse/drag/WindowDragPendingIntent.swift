@@ -362,8 +362,6 @@ func applyPendingWindowDragIntentIfPossible() -> Bool {
                 showWorkspaceSidebarError(error.localizedDescription)
                 return false
             }
-        case .sidebarHover:
-            return false
     }
 }
 

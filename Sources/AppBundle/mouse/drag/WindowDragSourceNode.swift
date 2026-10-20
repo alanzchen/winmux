@@ -134,7 +134,7 @@ func updateSidebarDragFeedback(sourceWindow: Window, subject: WindowDragSubject,
     let targetWorkspaceName: String? = switch destination.kind {
         case .moveToWorkspace(let workspaceName): workspaceName
         case .moveToWorkspaceZone(let workspaceName, _): workspaceName
-        case .createWorkspace, .sidebarHover, .tabStack, .reorderTab, .detachTab, .stackSplit, .swap: nil
+        case .createWorkspace, .tabStack, .reorderTab, .detachTab, .stackSplit, .swap: nil
     }
     if targetWorkspaceName != nil {
         setWorkspaceSidebarDropPreviewIfChanged(WorkspaceSidebarDropPreviewViewModel(

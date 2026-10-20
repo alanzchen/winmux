@@ -7,7 +7,6 @@ enum WindowDragIntentKind: Equatable {
     case moveToWorkspace(workspaceName: String)
     case moveToWorkspaceZone(workspaceName: String, zone: WindowDropZone)
     case createWorkspace(projectId: WorkspaceProjectId? = nil, monitorScopeId: String? = nil)
-    case sidebarHover
 }
 
 @MainActor
@@ -15,7 +14,7 @@ func isWindowDragIntentKindEnabled(_ kind: WindowDragIntentKind) -> Bool {
     switch kind {
         case .tabStack, .reorderTab:
             return (config.windowTabs.enabled && !config.usesBrowserTabs)
-        case .detachTab, .stackSplit, .swap, .moveToWorkspace, .moveToWorkspaceZone, .createWorkspace, .sidebarHover:
+        case .detachTab, .stackSplit, .swap, .moveToWorkspace, .moveToWorkspaceZone, .createWorkspace:
             return true
     }
 }
