@@ -565,12 +565,13 @@ final class WorkspaceSidebarTabUXTest: XCTestCase {
         var notices: [String] = []
         workspaceSidebarPinRecallNotice = { title, _ in notices.append(title) }
         var attempted: [UInt32] = []
-        await closeWorkspaceSidebarTabs([workspace.name]) { window in
+        let close = try XCTUnwrap(closeWorkspaceSidebarTabs([workspace.name]) { window in
             attempted.append(window.windowId)
             if window.windowId == 102 { return false }
             window.closeAxWindow()
             return true
-        }?.value
+        }, "Closing a tab with windows starts a close")
+        await close.value
         XCTAssertEqual(attempted, [101, 102])
         XCTAssertEqual(notices, [], "An on-screen window that stops the close comes forward instead")
         XCTAssertNil(Window.get(byId: 101))
