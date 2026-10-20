@@ -6,7 +6,6 @@ import SwiftUI
 struct SettingsDockPreview: View {
     @ObservedObject var editor: SettingsEditor
     @State private var expanded = false
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     private var sidebar: WorkspaceSidebarConfig { editor.projection.workspaceSidebar }
     var previewConfiguration: WorkspaceSidebarConfiguration { workspaceSidebarConfiguration(editor.projection) }
 

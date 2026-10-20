@@ -305,8 +305,6 @@ struct ShortcutSectionView: View {
 
             if section.id == "managed-focus" {
                 ManagedDirectionalShortcutsView(model: model)
-            } else if section.id == "managed-move" {
-                EmptyView()
             } else if section.id == "managed-splits" {
                 CompassPad(model: model, prefix: "split") {
                     SplitDemoView()
