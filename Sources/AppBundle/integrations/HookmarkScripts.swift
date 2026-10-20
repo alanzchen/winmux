@@ -33,8 +33,6 @@ func hookmarkScriptLanguage(_ source: String) -> HookmarkScriptLanguage {
 struct HookmarkScriptTraits: Equatable {
     var language: HookmarkScriptLanguage
     var usesAddress = false
-    var usesAppName = false
-    var usesTitle = false
     /// Talks to Hookmark itself, its links, or its callbacks: only Hookmark can answer.
     var needsHookmark = false
     /// Waits for the app to call Hookmark back.
@@ -50,8 +48,6 @@ struct HookmarkScriptTraits: Equatable {
     var tooDeep = false
     /// A `/` WinMux can't tell is a division or a regular expression, before a placeholder.
     var ambiguousSlash = false
-    /// The apps it addresses by name or id, as written.
-    var apps: [String] = []
 }
 
 func hookmarkScriptTraits(_ source: String) -> HookmarkScriptTraits {
@@ -60,8 +56,6 @@ func hookmarkScriptTraits(_ source: String) -> HookmarkScriptTraits {
     var traits = HookmarkScriptTraits(language: language)
     let scan = (try? hookmarkScanPlaceholders(source, language: language)) ?? HookmarkPlaceholderScan()
     traits.usesAddress = scan.address
-    traits.usesAppName = scan.appName
-    traits.usesTitle = source.contains("$title")
     traits.placeholderInTemplate = scan.inTemplate
     traits.tooDeep = scan.tooDeep
     traits.ambiguousSlash = scan.ambiguousSlash
@@ -75,17 +69,6 @@ func hookmarkScriptTraits(_ source: String) -> HookmarkScriptTraits {
     traits.usesShell = lower.contains("do shell script") || lower.contains("doshellscript")
     traits.usesUIScripting = lower.contains("system events") && (lower.contains("keystroke") || lower.contains("key code")
         || lower.contains("click ") || lower.contains(".click(") || lower.contains("perform action") || lower.contains("keycode("))
-    var apps: [String] = []
-    for pattern in [#"application\s+(?:id\s+)?"([^"]+)""#, #"Application\(\s*["']([^"']+)["']\s*\)"#] {
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { continue }
-        for match in regex.matches(in: source, range: NSRange(source.startIndex..., in: source)) {
-            if let range = Range(match.range(at: 1), in: source) {
-                let app = String(source[range])
-                if !apps.contains(app) { apps.append(app) }
-            }
-        }
-    }
-    traits.apps = apps
     return traits
 }
 

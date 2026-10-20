@@ -33,7 +33,6 @@ final class HookmarkScriptsTest: XCTestCase {
         XCTAssertTrue(ui.usesClipboard)
         XCTAssertTrue(ui.usesShell)
         XCTAssertFalse(ui.needsHookmark)
-        XCTAssertEqual(ui.apps, ["System Events"])
         XCTAssertTrue(hookmarkScriptTraits("tell application \"Hookmark\" to get name").needsHookmark)
         XCTAssertTrue(hookmarkScriptTraits("return \"hook://file/ABC\"").needsHookmark)
         XCTAssertTrue(hookmarkScriptTraits("//JavaScript\nApplication('Hookmark').name()").needsHookmark)
