@@ -219,7 +219,7 @@ final class WorkspaceSidebarNarrowWidthTest: XCTestCase {
         var snapshot = WorkspaceSidebarSnapshot.empty
         snapshot.configuration = WorkspaceSidebarConfiguration(collapsedWidth: 44, expandedWidth: width, topPadding: 12,
             showMonitorSelector: false, showsClock: false, showsSeconds: false, showsDate: false, showsWeekday: false,
-            showsStatusPills: false, chromeStyle: .solid, solidChromeColor: .fog, solidChromeCustomColor: "#D8E3EE",
+            chromeStyle: .solid, solidChromeColor: .fog, solidChromeCustomColor: "#D8E3EE",
             usesTabsList: true, alwaysExpanded: true)
         snapshot.configuration.musicPlayerAtBottom = true
         snapshot.configuration.tabCollections = [

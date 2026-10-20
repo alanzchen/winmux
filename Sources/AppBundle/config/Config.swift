@@ -182,6 +182,7 @@ struct WorkspaceSidebarConfig: ConvenienceCopyable, Equatable, Sendable {
     var displayWidths: [String: Int] = [:]
     var monitor: [MonitorDescription] = []
     var displayFilter: WorkspaceSidebarDisplayFilter = .thisDisplay
+    /// `show-status-pills`: accepted from older configurations; it has no effect.
     var showStatusPills: Bool = true
     var showClock: Bool = true
     var showSeconds: Bool = true

@@ -26,7 +26,6 @@ struct WorkspaceSidebarConfiguration: Equatable {
     var showsSeconds: Bool
     var showsDate: Bool
     var showsWeekday: Bool
-    var showsStatusPills: Bool
     var chromeStyle: ChromeStyle
     var solidChromeColor: ChromeSolidColor
     var solidChromeCustomColor: String
@@ -78,7 +77,6 @@ struct WorkspaceSidebarConfiguration: Equatable {
         showsSeconds: false,
         showsDate: false,
         showsWeekday: false,
-        showsStatusPills: false,
         chromeStyle: .liquidGlass,
         solidChromeColor: .midnight,
         solidChromeCustomColor: "#191B20",

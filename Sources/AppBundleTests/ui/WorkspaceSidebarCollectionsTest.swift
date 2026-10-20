@@ -374,7 +374,7 @@ final class WorkspaceSidebarCollectionsTest: XCTestCase {
         var result = WorkspaceSidebarSnapshot.empty
         result.configuration = .init(collapsedWidth: 44, expandedWidth: 280, topPadding: 12,
             showMonitorSelector: false, showsClock: false, showsSeconds: false, showsDate: false, showsWeekday: false,
-            showsStatusPills: false, chromeStyle: .solid, solidChromeColor: .midnight, solidChromeCustomColor: "#191B20",
+            chromeStyle: .solid, solidChromeColor: .midnight, solidChromeCustomColor: "#191B20",
             usesTabsList: true, alwaysExpanded: true)
         result.visibleWidth = 280
         result.targetMonitorScopeId = "monitor:0,0"

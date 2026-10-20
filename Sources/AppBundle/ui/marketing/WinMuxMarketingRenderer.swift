@@ -777,7 +777,6 @@ private enum MarketingFixtures {
             showsSeconds: false,
             showsDate: true,
             showsWeekday: true,
-            showsStatusPills: true,
             chromeStyle: .liquidGlass,
             solidChromeColor: .midnight,
             solidChromeCustomColor: "#191B20"

@@ -141,7 +141,7 @@ final class LocalPromoRenderHarness: XCTestCase {
         var s = WorkspaceSidebarSnapshot.empty
         var c = WorkspaceSidebarConfiguration(collapsedWidth: 44, expandedWidth: width, topPadding: 12,
             showMonitorSelector: false, showsClock: false, showsSeconds: false, showsDate: false, showsWeekday: false,
-            showsStatusPills: false, chromeStyle: .solid, solidChromeColor: .fog, solidChromeCustomColor: "#D8E3EE",
+            chromeStyle: .solid, solidChromeColor: .fog, solidChromeCustomColor: "#D8E3EE",
             showAppIcons: false, usesTabsList: true, alwaysExpanded: true)
         c.configuredCollapsedWidth = 44
         c.sharesPinnedTabs = w.shared

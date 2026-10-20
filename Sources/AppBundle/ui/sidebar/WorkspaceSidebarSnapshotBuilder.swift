@@ -20,7 +20,6 @@ func workspaceSidebarConfiguration(_ source: Config = config, displayName: Strin
         showsSeconds: source.workspaceSidebar.showSeconds,
         showsDate: source.workspaceSidebar.showDate,
         showsWeekday: source.workspaceSidebar.showWeekday,
-        showsStatusPills: source.workspaceSidebar.showStatusPills,
         chromeStyle: source.workspaceSidebar.dockChromeStyle,
         solidChromeColor: source.workspaceSidebar.dockSolidColor,
         solidChromeCustomColor: source.workspaceSidebar.dockCustomColor,

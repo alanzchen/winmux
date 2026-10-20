@@ -156,7 +156,7 @@ final class WorkspaceSidebarProjectPageTransitionTest: XCTestCase {
         var snapshot = WorkspaceSidebarSnapshot.empty
         snapshot.configuration = WorkspaceSidebarConfiguration(collapsedWidth: 64, expandedWidth: 300,
             topPadding: 12, showMonitorSelector: false, showsClock: false, showsSeconds: false,
-            showsDate: false, showsWeekday: false, showsStatusPills: false,
+            showsDate: false, showsWeekday: false,
             chromeStyle: .solid, solidChromeColor: .midnight, solidChromeCustomColor: "#191B20",
             showAppIcons: false, dockPosition: .left, compactLeftGap: 2)
         snapshot.visibleWidth = 300

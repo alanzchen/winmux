@@ -114,7 +114,6 @@ private func workspaceSidebarSnapshotForTopFilterBar(
             showsSeconds: true,
             showsDate: false,
             showsWeekday: false,
-            showsStatusPills: false,
             chromeStyle: .liquidGlass,
             solidChromeColor: .midnight,
             solidChromeCustomColor: "#191B20",

@@ -134,7 +134,7 @@ final class WorkspaceSidebarTabSelectionTest: XCTestCase {
         var fixture = WorkspaceSidebarSnapshot.empty
         fixture.configuration = WorkspaceSidebarConfiguration(collapsedWidth: 44, expandedWidth: 280,
             topPadding: 12, showMonitorSelector: false, showsClock: false, showsSeconds: false,
-            showsDate: false, showsWeekday: false, showsStatusPills: false, chromeStyle: .solid, solidChromeColor: .midnight,
+            showsDate: false, showsWeekday: false, chromeStyle: .solid, solidChromeColor: .midnight,
             solidChromeCustomColor: "#191B20", showAppIcons: false, usesTabsList: true, alwaysExpanded: true)
         fixture.visibleWidth = 280
         fixture.targetMonitorScopeId = "monitor:0,0"
