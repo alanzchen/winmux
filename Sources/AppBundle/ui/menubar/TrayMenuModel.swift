@@ -48,7 +48,7 @@ public final class TrayMenuModel: ObservableObject {
 
 extension ObservableObject {
     /// Assigning a @Published property fires objectWillChange even when the value is unchanged,
-    /// re-rendering every observing view (menu bar label, sidebar panels, tab strips). Models
+    /// re-rendering every observing view (menu bar icon, sidebar panels, tab strips). Models
     /// republished wholesale on every refresh session must equality-guard their writes.
     /// Returns whether the value actually changed, for callers that need to chain side effects.
     @discardableResult

@@ -3,7 +3,7 @@ import Combine
 import XCTest
 
 /// The tray model is republished wholesale on every refresh session, and each unguarded
-/// @Published write re-renders every observing view (menu bar label, sidebar panels, tab
+/// @Published write re-renders every observing view (menu bar icon, sidebar panels, tab
 /// strips). setIfChanged must publish only on real changes.
 final class TrayMenuModelSetIfChangedTest: XCTestCase {
     @MainActor

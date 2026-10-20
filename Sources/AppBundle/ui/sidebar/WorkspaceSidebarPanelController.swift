@@ -185,7 +185,7 @@ final class WorkspaceSidebarPanel: NSPanelHud, WorkspaceSidebarInputOwner {
         // @Published write would invalidate the whole sidebar SwiftUI tree even when nothing
         // changed. workspaceSidebarVisibleWidth/isWorkspaceSidebarExpanded are panel-local and
         // never synced. experimentalUISettings is stateless (reads UserDefaults live) and only
-        // the menu bar label observes it, so it isn't synced either.
+        // the menu bar icon observes it, so it isn't synced either.
         viewModel.refreshWorkspaceSidebarAppearance(displayName: sidebarDisplayName)
         viewModel.setIfChanged(\.trayText, TrayMenuModel.shared.trayText)
         viewModel.setIfChanged(\.trayItems, TrayMenuModel.shared.trayItems)
