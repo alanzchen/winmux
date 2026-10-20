@@ -157,10 +157,10 @@ import XCTest
         window.lastAppliedLayoutPhysicalRect = Rect(topLeftX: 10, topLeftY: 20, width: 360, height: 240)
 
         let fullRect = window.lastAppliedLayoutPhysicalRect.orDie()
-        let leftPreview = window.stackSplitPreviewRect(position: .left).orDie()
-        let rightPreview = window.stackSplitPreviewRect(position: .right).orDie()
-        let topPreview = window.stackSplitPreviewRect(position: .above).orDie()
-        let bottomPreview = window.stackSplitPreviewRect(position: .below).orDie()
+        let leftPreview = resolvedWindowStackSplitPreview(targetNode: window, position: .left).orDie().rect
+        let rightPreview = resolvedWindowStackSplitPreview(targetNode: window, position: .right).orDie().rect
+        let topPreview = resolvedWindowStackSplitPreview(targetNode: window, position: .above).orDie().rect
+        let bottomPreview = resolvedWindowStackSplitPreview(targetNode: window, position: .below).orDie().rect
 
         XCTAssertEqual(leftPreview.minX, fullRect.minX)
         XCTAssertEqual(leftPreview.maxX, fullRect.minX + fullRect.width / 2)

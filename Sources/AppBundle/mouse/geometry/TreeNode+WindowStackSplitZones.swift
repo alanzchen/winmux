@@ -15,11 +15,6 @@ extension TreeNode {
         )
     }
 
-    @MainActor
-    func stackSplitPreviewRect(position: WindowStackSplitPosition) -> Rect? {
-        windowDragVisibleRect?.stackSplitPreviewRect(position: position)
-    }
-
     private func stackSplitDropZoneRect(
         position: WindowStackSplitPosition,
         centeredBodyRect: Rect,
