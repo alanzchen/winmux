@@ -47,7 +47,6 @@ public func parseCaseInsensitiveRegex(_ raw: String) -> Parsed<Regex<AnyRegexOut
 public struct SendableRegex<Output>: Sendable {
     nonisolated(unsafe) public let val: Regex<Output>
     init(_ regex: Regex<Output>) { self.val = regex }
-    // init(_ str: String) { self.regex = regex }
 }
 
 extension SendableRegex where Output == AnyRegexOutput {

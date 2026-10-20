@@ -55,8 +55,6 @@ public enum ProjectTarget: Equatable, Sendable {
     }
 }
 
-let projectTargetPlaceholder = "(<project-id>|<project-index>|next|prev)"
-
 func optionalProjectTargetParser<Root>(
     _ keyPath: SendableWritableKeyPath<Root, Lateinit<ProjectTarget>>,
 ) -> PosArgParser<Root, Lateinit<ProjectTarget>> {

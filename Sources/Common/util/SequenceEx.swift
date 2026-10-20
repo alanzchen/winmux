@@ -55,14 +55,6 @@ extension Sequence {
         self.min(by: { a, b in selector(a) < selector(b) })
     }
 
-    @inlinable public func maxByOrDie(_ selector: (Self.Element) -> some Comparable) -> Self.Element? {
-        self.maxBy(selector) ?? dieT("Empty sequence")
-    }
-
-    @inlinable public func maxBy(_ selector: (Self.Element) -> some Comparable) -> Self.Element? {
-        self.max(by: { a, b in selector(a) < selector(b) })
-    }
-
     @inlinable public func sortedBy(_ selector: (Self.Element) -> some Comparable) -> [Self.Element] {
         sorted(by: { a, b in selector(a) < selector(b) })
     }
@@ -111,10 +103,6 @@ extension Sequence {
 extension Sequence where Self.Element: Comparable {
     public func minOrDie() -> Self.Element {
         self.min() ?? dieT("Empty sequence")
-    }
-
-    public func maxOrDie() -> Self.Element {
-        self.max() ?? dieT("Empty sequence")
     }
 }
 

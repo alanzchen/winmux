@@ -70,7 +70,6 @@ extension ArrSlice: Equatable where Element: Equatable {
 extension Array {
     public var slice: ArrSlice<Element> { slice(0 ..< count).orDie() }
     public func slice(_ range: PartialRangeFrom<Int>) -> ArrSlice<Element>? { slice(range.lowerBound ..< count) }
-    public func slice(_ range: PartialRangeUpTo<Int>) -> ArrSlice<Element>? { slice(0 ..< range.upperBound) }
 
     public func slice(_ range: Range<Int>) -> ArrSlice<Element>? { .new(self, range) }
 }
@@ -85,7 +84,6 @@ extension Range<Int> {
 // periphery:ignore
 extension ArrSlice {
     public func slice(_ range: PartialRangeFrom<Int>) -> ArrSlice<Element>? { slice(range.lowerBound ..< count) }
-    public func slice(_ range: PartialRangeUpTo<Int>) -> ArrSlice<Element>? { slice(0 ..< range.upperBound) }
 
     public func slice(_ range: Range<Int>) -> ArrSlice<Element>? {
         range.isSubRange(of: indices) ? .new(self.backing, range.shift(by: self.offsetInBacking)) : nil
