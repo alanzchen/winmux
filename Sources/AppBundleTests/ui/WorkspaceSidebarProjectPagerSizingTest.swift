@@ -90,12 +90,15 @@ final class WorkspaceSidebarProjectPagerSizingTest: XCTestCase {
                 XCTAssertEqual(pager.pagerHeight, workspaceSidebarPagerHeight, "One row, with no project menu above it")
                 XCTAssertEqual(pager.projectTrackWidth + pager.projectControlsSpacing + pager.projectCreateButtonWidth,
                     pager.sectionWidth, "The New Project button shares the switcher's row")
-                XCTAssertTrue(pager.showsProjectName(isCurrent: true))
-                XCTAssertFalse(pager.showsProjectName(isCurrent: false))
+                XCTAssertTrue(pager.usesProjectChips)
+                if projectCount > 1 {
+                    let other = NSHostingView(rootView: pager.projectDot(pager.projects[1], index: 1).fixedSize())
+                    XCTAssertEqual(other.fittingSize.width, 36, "Only the current project is named")
+                }
             }
         }
         let collapsed = pager(iconSize: 24, showAppIcons: false, progress: 0)
-        XCTAssertFalse(collapsed.showsProjectName(isCurrent: true), "The collapsed rail has no room for names")
+        XCTAssertFalse(collapsed.usesProjectChips, "The collapsed rail has no room for names")
     }
 
     func testCurrentProjectPillFitsItsNameUpToALimit() {
@@ -119,8 +122,8 @@ final class WorkspaceSidebarProjectPagerSizingTest: XCTestCase {
             XCTAssertLessThanOrEqual(pill, pager.projectTrackWidth, "The current project fits the track at \(width) points")
         }
         let narrow = expandedPager(showAppIcons: false, projectCount: 3, expandedWidth: 120)
-        XCTAssertFalse(narrow.showsProjectName(isCurrent: true), "A 120-point sidebar has no room for the name")
-        XCTAssertTrue(expandedPager(showAppIcons: false, projectCount: 3).showsProjectName(isCurrent: true))
+        XCTAssertFalse(narrow.usesProjectChips, "A 120-point sidebar has no room for the name")
+        XCTAssertTrue(expandedPager(showAppIcons: false, projectCount: 3).usesProjectChips)
     }
 
     func testExpandedSwitcherShowsProjectEmojiInBothModes() {

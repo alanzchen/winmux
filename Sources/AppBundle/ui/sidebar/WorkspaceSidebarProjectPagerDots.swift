@@ -69,11 +69,6 @@ extension WorkspaceSidebarProjectPager {
             : workspaceSidebarProjectTrackDensity(projectCount: projects.count, trackWidth: projectTrackWidth)
     }
 
-    /// The expanded switcher names the current project in place of a separate menu.
-    func showsProjectName(isCurrent: Bool) -> Bool {
-        isCurrent && usesProjectChips
-    }
-
     /// Where the current project is named, every project is the same chip, so switching widens
     /// one chip into the named pill and narrows the other back instead of fading between two.
     var usesProjectChips: Bool {

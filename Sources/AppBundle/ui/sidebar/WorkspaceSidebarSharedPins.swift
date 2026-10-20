@@ -54,18 +54,6 @@ func workspaceSidebarTabsListedWorkspaces(_ workspaces: [WorkspaceSidebarWorkspa
     }, collections: collections)
 }
 
-/// The pinned tiles a list of `selectedScopeId`'s tabs shows for `projectId`, in order.
-func workspaceSidebarTabsPinnedWorkspaces(_ workspaces: [WorkspaceSidebarWorkspaceViewModel], projectId: WorkspaceProjectId,
-                                          selectedScopeId: String, focusedMonitorScopeId: String,
-                                          collections: [WorkspaceTabCollection], sharesPinnedTabs: Bool,
-                                          contextProjectId: WorkspaceProjectId? = nil)
-    -> [WorkspaceSidebarWorkspaceViewModel] {
-    workspaceSidebarTabsListedWorkspaces(workspaces, projectId: projectId, selectedScopeId: selectedScopeId,
-        focusedMonitorScopeId: focusedMonitorScopeId, collections: collections, sharesPinnedTabs: sharesPinnedTabs,
-        contextProjectId: contextProjectId)
-        .filter(\.appearance.isFavorite)
-}
-
 /// The project whose list shows `workspace`: its own, or for a pin in All Projects, the one the
 /// list shows.
 func workspaceSidebarListedProjectId(_ workspace: WorkspaceSidebarWorkspaceViewModel,

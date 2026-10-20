@@ -160,8 +160,12 @@ final class WorkspaceSidebarPinScopeTest: XCTestCase {
         XCTAssertEqual(listed(a, context: a).prefix(2), [g.name, p.name])
         XCTAssertEqual(listed(a, context: nil).filter { [g.name, p.name].contains($0) }.count, 2,
             "Without a project to show, every tab is listed with its own")
-        XCTAssertEqual(workspaceSidebarTabsPinnedWorkspaces(workspaces, projectId: b, selectedScopeId: scopeId,
-            focusedMonitorScopeId: scopeId, collections: [], sharesPinnedTabs: false, contextProjectId: b).map(\.name), [g.name, q.name])
+        var snapshot = WorkspaceSidebarSnapshot.empty
+        snapshot.workspaces = workspaces
+        snapshot.selectedMonitorScopeId = scopeId
+        snapshot.focusedMonitorScopeId = scopeId
+        snapshot.activeProjectId = b
+        XCTAssertEqual(snapshot.tabsPinnedWorkspaces(for: b).map(\.name), [g.name, q.name])
 
         // Search lists it once, with the project it's shown in.
         let byProject = workspaceSidebarTabsListedWorkspacesByProject(workspaces, selectedScopeId: scopeId,
