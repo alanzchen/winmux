@@ -54,6 +54,11 @@ final class SettingsAvailabilityTest: XCTestCase {
         XCTAssertTrue(parseConfig("[workspace-sidebar]\nshow-status-pills = false\n").errors.isEmpty, "The key still parses")
     }
 
+    func testMenuBarSettingsOfferOnlyWhatTheStatusItemRenders() {
+        XCTAssertEqual(SettingsCatalog.fields.filter { $0.group == .menuBar }.map(\.id), ["preferences.menu-bar.icon"],
+            "The status item is MenuBarAppIcon; a Menu bar setting it does not read does nothing")
+    }
+
     func testKeepingThePanelOpenDisablesCollapsedRailSettings() {
         let pinnedDock = mode(.dock) { $0.workspaceSidebar.alwaysExpanded = true }
         for id in ["dock-left-gap", "dock-appearance.style", "dock-icon-size", "dock-identity-labels", "dock-magnification",

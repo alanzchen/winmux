@@ -379,13 +379,6 @@ enum SettingsCatalog {
     ]
 
     private static var preferenceFields: [SettingsField] {
-        var style = choice(.menuBar, "style", "Menu bar style", "Choose how workspaces appear in the menu bar.", section: "preferences.menu-bar", options: MenuBarStyle.allCases.map { .init($0.title, $0.rawValue) }, read: { _ in ExperimentalUISettings().displayStyle.rawValue })
-        style.preferenceDefault = .text(MenuBarStyle.monospacedText.rawValue)
-        style.writePreference = { value in
-            guard let next = MenuBarStyle(rawValue: value.text) else { return }
-            var settings = ExperimentalUISettings(); settings.displayStyle = next
-            TrayMenuModel.shared.experimentalUISettings = settings; updateTrayText()
-        }
         var icon = choice(.menuBar, "icon", "Menu bar icon", "Choose the WinMux status icon.", section: "preferences.menu-bar", options: MenuBarIconAppearance.allCases.map { .init($0.title, $0.rawValue) }, read: { _ in ExperimentalUISettings().iconAppearance.rawValue })
         icon.preferenceDefault = .text(MenuBarIconAppearance.color.rawValue)
         icon.writePreference = { value in
@@ -400,6 +393,6 @@ enum SettingsCatalog {
             var settings = ExperimentalUISettings(); settings.doubleSidedWindows = value.bool
             scheduleRefreshSession(.menuBarButton)
         }
-        return [style, icon, pairs]
+        return [icon, pairs]
     }
 }
