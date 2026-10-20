@@ -13,10 +13,6 @@ struct WindowTabStripViewModel: Identifiable, Equatable {
     var tabStripIsOccludedByFloatingWindow: Bool {
         occludingFloatingWindowFrames.contains { $0.intersects(frame) }
     }
-
-    var groupFrameIsOccludedByFloatingWindow: Bool {
-        occludingFloatingWindowFrames.contains { $0.intersects(groupFrame) }
-    }
 }
 
 struct WindowTabItemViewModel: Hashable, Identifiable {

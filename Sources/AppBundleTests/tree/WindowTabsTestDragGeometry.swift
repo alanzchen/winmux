@@ -100,7 +100,10 @@ import XCTest
         )
 
         XCTAssertFalse(model.tabStripIsOccludedByFloatingWindow)
-        XCTAssertTrue(model.groupFrameIsOccludedByFloatingWindow)
+        XCTAssertFalse(windowTabLocalOcclusionRects(
+            panelFrame: model.groupFrame,
+            occludingScreenFrames: model.occludingFloatingWindowFrames,
+        ).isEmpty)
     }
 
     @MainActor
