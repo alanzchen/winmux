@@ -8,7 +8,7 @@ actor FakeWorkspaceTopicProvider: WorkspaceTopicProvider {
     nonisolated let cacheVersion: String
     private var availabilityResult: WorkspaceTopicAvailability
     /// Tags for prompts containing a key; others get none.
-    private var script: [String: [String]]
+    private let script: [String: [String]]
     private var failures: [String: WorkspaceTopicFailure] = [:]
     private var holds = false
     private var held: [CheckedContinuation<Void, Never>] = []
@@ -23,7 +23,6 @@ actor FakeWorkspaceTopicProvider: WorkspaceTopicProvider {
         cacheVersion = version
     }
 
-    func setScript(_ script: [String: [String]]) { self.script = script }
     func fail(_ key: String, with failure: WorkspaceTopicFailure) { failures[key] = failure }
     /// While held, every call waits for `release()`, cancelled or not.
     func hold() { holds = true }

@@ -255,14 +255,6 @@ final class WorkspaceTopicSuggestionViewTest: XCTestCase {
         }
         spin(0.15)
     }
-
-    private func describe(_ view: NSView, depth: Int) -> [String] {
-        var lines = [String(repeating: "  ", count: depth) + String(describing: type(of: view)) +
-            ((view as? NSButton).map { " title=\($0.title) state=\($0.state.rawValue)" } ?? "") +
-            ((view as? NSTextField).map { " text=\($0.stringValue)" } ?? "")]
-        for subview in view.subviews { lines += describe(subview, depth: depth + 1) }
-        return lines
-    }
 }
 
 private final class KeyablePanel: NSPanel {
