@@ -448,8 +448,7 @@ final class WorkspaceSidebarIdentityMenu: NSObject, NSWindowDelegate {
         panel.delegate = self
         panel.contentView = NSHostingView(rootView: WorkspaceSidebarIdentityMenuView(model: model, selectName: selectName,
             usesMaterial: true,
-            resized: { [weak self] in self?.resize() },
-            dismiss: { [weak self] commit in self?.close(commit: commit) }))
+            resized: { [weak self] in self?.resize() }))
         self.panel = panel
         resizeNow()
         menuObservers = [
@@ -559,7 +558,6 @@ struct WorkspaceSidebarIdentityMenuView: View {
     /// In its panel the editor sits on popover material; a render without a window gets a plain card.
     var usesMaterial = false
     var resized: () -> Void = {}
-    var dismiss: (Bool) -> Void = { _ in }
     @FocusState private var nameFocused: Bool
     @FocusState private var searchFocused: Bool
     @Environment(\.colorSchemeContrast) private var contrast
