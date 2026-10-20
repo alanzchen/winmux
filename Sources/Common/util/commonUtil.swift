@@ -56,7 +56,7 @@ public func dieT<T>(
         """
     if !isUnitTest && isServer {
         showDiagnosticMessage(
-            filenameIfConsoleApp: recursionDetectorDuringTermination
+            filename: recursionDetectorDuringTermination
                 ? "winmux-runtime-error-recursion.txt"
                 : "winmux-runtime-error.txt",
             title: "WinMux Runtime Error",
