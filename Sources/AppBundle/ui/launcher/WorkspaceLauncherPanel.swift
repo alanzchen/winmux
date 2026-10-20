@@ -9,12 +9,11 @@ let workspaceLauncherHeight: CGFloat = 440
 enum WorkspaceLauncherState: Equatable {
     case choosing
     case opening(appName: String)
-    case failed(String)
 }
 
 /// Why the launcher closed, which decides what happens to a new tab it opened in.
 enum WorkspaceLauncherDismissal {
-    /// Esc, Cancel, or OK: the tab closes now.
+    /// Esc or Cancel: the tab closes now.
     case closed
     /// The user clicked elsewhere or left the tab: the tab closes shortly, if still on screen.
     case focusMoved
@@ -281,9 +280,7 @@ final class WorkspaceLauncherPanel: NSPanelHud {
                 case 53: dismiss(); return // esc
                 case 125: model.moveSelection(1); return // down arrow
                 case 126: model.moveSelection(-1); return // up arrow
-                case 36, 76: // return / keypad enter
-                    if case .failed = model.state { dismiss() } else { model.chooseCurrent() }
-                    return
+                case 36, 76: model.chooseCurrent(); return // return / keypad enter
                 default: break
             }
         }
@@ -326,7 +323,6 @@ struct WorkspaceLauncherView: View {
             switch model.state {
                 case .choosing: chooser
                 case .opening(let appName): opening(appName)
-                case .failed(let message): failure(message)
             }
         }
         .frame(maxWidth: workspaceLauncherWidth)
@@ -418,20 +414,6 @@ struct WorkspaceLauncherView: View {
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 22)
-    }
-
-    private func failure(_ message: String) -> some View {
-        VStack(spacing: 12) {
-            Text(message)
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(Color.white.opacity(GlassToken.textPrimary))
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
-            Button("OK") { model.onDismiss?() }
-                .keyboardShortcut(.defaultAction)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(20)
     }
 }
 

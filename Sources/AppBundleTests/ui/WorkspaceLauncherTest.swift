@@ -239,8 +239,8 @@ final class WorkspaceLauncherTest: XCTestCase {
         for _ in 0..<20 { await Task.yield() }
         try await Task.sleep(for: .milliseconds(100))
         let failure = "Ghost isn't installed"
-        XCTAssertTrue(panel.model.state == .failed(failure) || MessageModel.shared.message?.body == failure,
-            "The current session reports why nothing opened")
+        XCTAssertEqual(MessageModel.shared.message?.body, failure, "The current session reports why nothing opened")
+        XCTAssertFalse(panel.isShowing)
     }
 
     func testCancelWhileOpeningClosesTheLauncherAndWithdrawsTheRequest() async throws {
