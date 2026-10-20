@@ -6,13 +6,6 @@ public protocol WinMuxAny {}
 extension WinMuxAny {
     @discardableResult
     @inlinable
-    public func apply(_ block: (Self) -> Void) -> Self {
-        block(self)
-        return self
-    }
-
-    @discardableResult
-    @inlinable
     public func also(_ block: (Self) -> Void) -> Self {
         block(self)
         return self

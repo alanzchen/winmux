@@ -81,13 +81,6 @@ public enum ParsedCmd<T: Sendable>: Sendable {
         }
     }
 
-    public var cmdOrNil: T? {
-        switch self {
-            case .cmd(let t): t
-            default: nil
-        }
-    }
-
     public func unwrap() -> (T?, String?, String?) {
         switch self {
             case .cmd(let command):   (command, nil, nil)

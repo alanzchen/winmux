@@ -13,10 +13,6 @@ public enum MonitorDescription: Equatable, Sendable {
             default: false
         }
     }
-
-    public static func caseSensitivePattern(_ raw: String) -> MonitorDescription? {
-        (try? SendableRegex(raw)).flatMap { .pattern(raw, $0) }
-    }
 }
 
 public func parseMonitorDescription(_ raw: String) -> Parsed<MonitorDescription> {
@@ -47,10 +43,4 @@ public func parseCaseInsensitiveRegex(_ raw: String) -> Parsed<Regex<AnyRegexOut
 public struct SendableRegex<Output>: Sendable {
     nonisolated(unsafe) public let val: Regex<Output>
     init(_ regex: Regex<Output>) { self.val = regex }
-}
-
-extension SendableRegex where Output == AnyRegexOutput {
-    public init(_ pattern: String) throws {
-        self = SendableRegex(try Regex(pattern))
-    }
 }
