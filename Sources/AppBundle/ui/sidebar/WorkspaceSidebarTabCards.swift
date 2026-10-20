@@ -89,7 +89,6 @@ struct WorkspaceSidebarTabCardView: View {
     var isSearching = false
     /// False while Music's player sits at the bottom of the sidebar instead.
     var showsNowPlaying = true
-    let onBeginRename: () -> Void
     let onCommitOverride: () -> Void
     let onCancelOverride: () -> Void
     @Environment(\.workspaceSidebarTabIndent) private var indent
@@ -333,7 +332,6 @@ struct WorkspaceSidebarTabCardView: View {
                 }
             case .empty:
                 WorkspaceSidebarEmptyTabRowView(isActive: isActive, actions: actions, workspace: workspace,
-                    onBeginRename: onBeginRename,
                     onSelect: { activation.select(.selectWorkspace(workspace.name), send: actions.send) },
                     onOpenSavedApps: { activation.select(.openSavedTab(workspace.name), send: actions.send) })
             case .offscreen(let members):
@@ -406,7 +404,7 @@ struct WorkspaceSidebarTabCardView: View {
             isSearchSelected: selectedSearchTarget == .window(window.windowId),
             isDragSource: !isBatchSource && dragSourceWindowId == window.windowId,
             actions: actions,
-            workspaceMenu: (workspace, onBeginRename),
+            workspaceMenu: workspace,
             followsIndent: followsIndent,
             trailingCount: trailingCount,
             groupTint: groupTint,
@@ -427,7 +425,6 @@ struct WorkspaceSidebarEmptyTabRowView: View {
     let isActive: Bool
     let actions: WorkspaceSidebarActions
     let workspace: WorkspaceSidebarWorkspaceViewModel
-    let onBeginRename: () -> Void
     let onSelect: () -> Void
     /// Selects it and opens its saved apps, as a click that activates it does.
     var onOpenSavedApps: () -> Void = {}

@@ -161,7 +161,7 @@ struct WorkspaceSidebarTabRowView: View {
     let isDragSource: Bool
     let actions: WorkspaceSidebarActions
     /// A tab that is its workspace also offers the workspace's menu.
-    var workspaceMenu: (workspace: WorkspaceSidebarWorkspaceViewModel, rename: () -> Void)? = nil
+    var workspaceMenu: WorkspaceSidebarWorkspaceViewModel? = nil
     /// The second half of a split starts right after the divider, not on the grid's column.
     var followsIndent = true
     /// A count shown where the close button appears on hover, for a row that heads a group.
@@ -286,7 +286,7 @@ struct WorkspaceSidebarTabRowView: View {
         ))
         .onHover { hovering in withAnimation(WorkspaceSidebarTabMotion.hover) { isHovered = hovering } }
         .modifier(WorkspaceSidebarTabRowMenu(
-            target: workspaceMenu.map { .tab($0.workspace.name, windowId: window.windowId) }, close: close, detach: detach))
+            target: workspaceMenu.map { .tab($0.name, windowId: window.windowId) }, close: close, detach: detach))
     }
 
     private func close() {
@@ -388,7 +388,6 @@ struct WorkspaceSidebarTabFolderView: View {
     let onToggleCollapsed: () -> Void
     let onCommitOverride: () -> Void
     let onCancelOverride: () -> Void
-    let onBeginRename: () -> Void
     let onCommitRename: @MainActor @Sendable () -> Void
     let onCancelRename: @MainActor @Sendable () -> Void
     /// Tabs mode: the edge a dragged tab would be inserted at, and where drops between tabs land.
@@ -747,7 +746,6 @@ extension WorkspaceSidebarView {
                     collections: snapshot.configuration.tabCollections),
                 isSearching: isSearching,
                 showsNowPlaying: !snapshot.configuration.musicPlayerAtBottom,
-                onBeginRename: { beginWorkspaceRename(workspace) },
                 onCommitOverride: {
                     activeInUseOverrideWorkspaceName = nil
                     actions.send(.overrideWorkspaceInUse(workspace.name))
@@ -853,7 +851,6 @@ extension WorkspaceSidebarView {
                 actions.send(.overrideWorkspaceInUse(workspace.name))
             },
             onCancelOverride: { activeInUseOverrideWorkspaceName = nil },
-            onBeginRename: { beginWorkspaceRename(workspace) },
             onCommitRename: { finishWorkspaceRename() },
             onCancelRename: { finishWorkspaceRename(cancelled: true) },
             insertionEdge: insertionEdge,

@@ -351,7 +351,6 @@ struct WorkspaceSidebarDropDestinationTabsList: View {
                 gapTarget: (projectId, scope),
                 collectionId: collectionId,
                 showsNowPlaying: false,
-                onBeginRename: {},
                 onCommitOverride: {},
                 onCancelOverride: {},
             )

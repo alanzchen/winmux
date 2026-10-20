@@ -175,7 +175,7 @@ final class WorkspaceSidebarTabUXTest: XCTestCase {
             dragSourceWindowId: nil, selectedSearchTarget: nil,
             activation: .init(allowsActivation: true, isInUseOnOtherDisplay: false, requestOverride: {}),
             isShowingOverride: false, overrideMinHeight: 36, actions: .init(send: { selected.append($0) }),
-            onBeginRename: {}, onCommitOverride: {}, onCancelOverride: {})
+            onCommitOverride: {}, onCancelOverride: {})
         let host = NSHostingView(rootView: card.frame(width: 150, height: 36))
         let native = NSWindow(contentRect: CGRect(x: 300, y: 200, width: 150, height: 36),
             styleMask: [.borderless], backing: .buffered, defer: false)

@@ -541,7 +541,7 @@ final class WorkspaceSidebarTabIdentityTest: XCTestCase {
                 isActive: false, isDropTarget: false, dragSourceWindowId: nil, selectedSearchTarget: nil,
                 activation: .init(allowsActivation: true, isInUseOnOtherDisplay: false, requestOverride: {}),
                 isShowingOverride: false, overrideMinHeight: 36, actions: .init(send: { selected.append($0) }),
-                onBeginRename: {}, onCommitOverride: {}, onCancelOverride: {})
+                onCommitOverride: {}, onCancelOverride: {})
             try click(card, size: CGSize(width: width, height: 36), points: [
                 CGPoint(x: width - 63, y: 18), CGPoint(x: width - 20, y: 18), CGPoint(x: 30, y: 18),
             ])
@@ -571,7 +571,7 @@ final class WorkspaceSidebarTabIdentityTest: XCTestCase {
             isActive: false, isDropTarget: false, dragSourceWindowId: nil, selectedSearchTarget: nil,
             activation: .init(allowsActivation: true, isInUseOnOtherDisplay: false, requestOverride: {}),
             isShowingOverride: false, overrideMinHeight: 36, actions: .init(send: { selected.append($0) }),
-            onBeginRename: {}, onCommitOverride: {}, onCancelOverride: {})
+            onCommitOverride: {}, onCancelOverride: {})
         try click(card, size: CGSize(width: 180, height: 36), points: ids.indices.map {
             CGPoint(x: (CGFloat($0) + 0.5) * 180 / 8, y: 18)
         })

@@ -129,7 +129,7 @@ final class WorkspaceSidebarAssociatedWindowsTest: XCTestCase {
             isActive: false, isDropTarget: false, dragSourceWindowId: nil, selectedSearchTarget: nil,
             activation: .init(allowsActivation: true, isInUseOnOtherDisplay: false, requestOverride: {}),
             isShowingOverride: false, overrideMinHeight: row, actions: .init(send: { sent.append($0) }),
-            badgeModel: WorkspaceSidebarDockBadgeModel(), onBeginRename: {}, onCommitOverride: {}, onCancelOverride: {})
+            badgeModel: WorkspaceSidebarDockBadgeModel(), onCommitOverride: {}, onCancelOverride: {})
         let viewerRowY = inset + row / 2, draftRowY = inset + row + 2 + row / 2
         try click(card, size: CGSize(width: width, height: 2 * inset + 2 * row + 2), points: [
             // Where the disclosure is on the viewer's row: the draft's row starts a step further in, so
@@ -334,7 +334,7 @@ final class WorkspaceSidebarAssociatedWindowsTest: XCTestCase {
             activation: .init(allowsActivation: true, isInUseOnOtherDisplay: false, requestOverride: {}),
             isShowingOverride: false, overrideMinHeight: workspaceSidebarTabRowHeight, actions: .init(send: { _ in }),
             badgeModel: WorkspaceSidebarDockBadgeModel(), isSearching: isSearching,
-            onBeginRename: {}, onCommitOverride: {}, onCancelOverride: {})
+            onCommitOverride: {}, onCancelOverride: {})
         let host = NSHostingView(rootView: view.frame(width: 280).transaction { $0.animation = nil })
         host.layoutSubtreeIfNeeded()
         return host.fittingSize.height
