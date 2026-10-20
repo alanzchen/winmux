@@ -1,24 +1,6 @@
 import AppKit
 
 @MainActor
-func tabStackDestination(targetWindow: Window, mouseLocation: CGPoint? = nil) -> WindowDragIntentDestination? {
-    guard isWindowDragIntentKindEnabled(.tabStack(targetWindowId: targetWindow.windowId)),
-          let rects = targetWindow.tabStackTargetRects,
-          mouseLocation.map(rects.interactionRect.contains) ?? true
-    else { return nil }
-    return WindowDragIntentDestination(
-        kind: .tabStack(targetWindowId: targetWindow.windowId),
-        previewRect: rects.previewRect,
-        interactionRect: rects.interactionRect,
-        title: "Insert Into Tabs",
-        subtitle: "Drop near the top edge to add this window",
-        previewStyle: .tabInsert,
-        previewGeometry: .tabStrip,
-        isGroup: false,
-    )
-}
-
-@MainActor
 func selfTabGroupTabReentryDestination(
     sourceWindow: Window,
     targetWindow: Window,

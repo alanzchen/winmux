@@ -2,29 +2,6 @@ import Common
 
 extension Window {
     @MainActor
-    var tabStackTargetRects: (containerRect: Rect, previewRect: Rect, interactionRect: Rect)? {
-        if let parent = parent as? TilingContainer,
-           parent.layout == .tabGroup,
-           let previewRect = parent.windowTabDropZoneRect,
-           let interactionRect = parent.windowTabDropInteractionRect
-        {
-            return (
-                containerRect: parent.windowDragVisibleRect ?? previewRect,
-                previewRect: previewRect,
-                interactionRect: interactionRect,
-            )
-        }
-        guard let previewRect = tabDropZoneRect,
-              let interactionRect = tabDropInteractionRect
-        else { return nil }
-        return (
-            containerRect: windowDragVisibleRect ?? previewRect,
-            previewRect: previewRect,
-            interactionRect: interactionRect,
-        )
-    }
-
-    @MainActor
     var tabDropZoneRect: Rect? {
         guard let rect = windowDragVisibleRect else { return nil }
         return rect.tabInsertPreviewRect(barHeight: resolvedWindowTabBarHeight())
