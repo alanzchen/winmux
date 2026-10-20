@@ -59,7 +59,7 @@ extension ObservableObject {
     }
 }
 
-@MainActor func updateTrayText() {
+@MainActor func updateTrayWorkspaces() {
     let workspaces = userFacingWorkspaces(Workspace.all).filter {
         workspaceContextProjectId(of: $0) == activeWorkspaceProjectId(for: $0.workspaceMonitor)
     }.map { WorkspaceViewModel(name: $0.name) }

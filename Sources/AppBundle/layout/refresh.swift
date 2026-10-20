@@ -249,7 +249,7 @@ func runRefreshSessionBlocking(
                     }
                     await updateNativeFullscreenChromeSuppression(nativeFocused: nativeFocused)
                     try checkCancellation()
-                    updateTrayText()
+                    updateTrayWorkspaces()
                     await updateWorkspaceSidebarModel()
                     SecureInputPanel.shared.refresh()
                     WorkspaceLauncherPanel.shared.revalidate()
@@ -360,7 +360,7 @@ func runLightSession<T>(
 
                     let focusAfter = focus.windowOrNil
 
-                    updateTrayText()
+                    updateTrayWorkspaces()
                     await updateWorkspaceSidebarModel()
                     SecureInputPanel.shared.refresh()
                     WorkspaceLauncherPanel.shared.revalidate()

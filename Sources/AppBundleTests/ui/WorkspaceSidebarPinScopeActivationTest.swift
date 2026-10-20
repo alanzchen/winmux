@@ -349,7 +349,7 @@ final class WorkspaceSidebarPinScopeActivationTest: XCTestCase {
     func testTheTrayAndTheSidebarListThePinWhereItsShown() async throws {
         let t = try tabs()
         XCTAssertTrue(t.g.focusWorkspace())
-        updateTrayText()
+        updateTrayWorkspaces()
         XCTAssertTrue(TrayMenuModel.shared.workspaces.contains { $0.name == "g" })
         XCTAssertFalse(TrayMenuModel.shared.workspaces.contains { $0.name == "a1" })
         await updateWorkspaceSidebarModel()
