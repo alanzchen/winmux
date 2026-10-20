@@ -67,38 +67,33 @@ extension WorkspaceSidebarView {
 
     private func expandedProjectHeader(_ project: WorkspaceSidebarProjectViewModel) -> some View {
         HStack(spacing: 6) {
-            if renamingProjectId == project.id {
-                WorkspaceSidebarProjectRenameField(project: project, text: $renamingProjectText,
-                    onCommit: { finishProjectRename() }, onCancel: { finishProjectRename(cancelled: true) })
-            } else {
-                Button {
-                    guard searchText.isEmpty else { return }
-                    if !collapsedProjectIds.insert(project.id).inserted {
-                        collapsedProjectIds.remove(project.id)
-                    }
-                } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: collapsedProjectIds.contains(project.id) && searchText.isEmpty
-                            ? "chevron.right" : "chevron.down")
-                            .font(.system(size: 9, weight: .semibold))
-                        Circle()
-                            .fill(workspaceSidebarProjectColor(projectId: project.id, configuredHex: project.colorHex))
-                            .frame(width: 7, height: 7)
-                        if let emoji = project.emoji {
-                            Text(emoji).font(.system(size: 14))
-                        }
-                        Text(project.displayName)
-                            .font(.system(size: 12, weight: .semibold))
-                            .lineLimit(1)
-                        Spacer(minLength: 0)
-                    }
-                    .frame(height: workspaceSidebarDropdownHeight)
-                    .contentShape(Rectangle())
+            Button {
+                guard searchText.isEmpty else { return }
+                if !collapsedProjectIds.insert(project.id).inserted {
+                    collapsedProjectIds.remove(project.id)
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("\(collapsedProjectIds.contains(project.id) && searchText.isEmpty ? "Expand" : "Collapse") \(project.displayName)")
-                .sidebarIdentityMenu(.project(project.id))
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: collapsedProjectIds.contains(project.id) && searchText.isEmpty
+                        ? "chevron.right" : "chevron.down")
+                        .font(.system(size: 9, weight: .semibold))
+                    Circle()
+                        .fill(workspaceSidebarProjectColor(projectId: project.id, configuredHex: project.colorHex))
+                        .frame(width: 7, height: 7)
+                    if let emoji = project.emoji {
+                        Text(emoji).font(.system(size: 14))
+                    }
+                    Text(project.displayName)
+                        .font(.system(size: 12, weight: .semibold))
+                        .lineLimit(1)
+                    Spacer(minLength: 0)
+                }
+                .frame(height: workspaceSidebarDropdownHeight)
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+            .accessibilityLabel("\(collapsedProjectIds.contains(project.id) && searchText.isEmpty ? "Expand" : "Collapse") \(project.displayName)")
+            .sidebarIdentityMenu(.project(project.id))
         }
         .foregroundStyle(Color.white.opacity(project.id == snapshot.activeProjectId ? 0.95 : 0.75))
         .padding(.horizontal, 8)

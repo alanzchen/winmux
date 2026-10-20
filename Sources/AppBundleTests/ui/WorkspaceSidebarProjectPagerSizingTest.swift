@@ -257,12 +257,8 @@ final class WorkspaceSidebarProjectPagerSizingTest: XCTestCase {
             selectedProjectId: workspaceProjectDefaultId,
             expansionProgress: 1,
             layout: layout,
-            renamingProjectId: .constant(nil),
-            renamingProjectText: .constant(""),
             onSelectProject: { _ in },
             onCreateProject: {},
-            onCommitRenameProject: {},
-            onCancelRenameProject: {},
         )
     }
 
@@ -280,12 +276,8 @@ final class WorkspaceSidebarProjectPagerSizingTest: XCTestCase {
             selectedProjectId: selectedProjectId,
             expansionProgress: progress,
             layout: layout,
-            renamingProjectId: .constant(nil),
-            renamingProjectText: .constant(""),
             onSelectProject: { _ in },
             onCreateProject: {},
-            onCommitRenameProject: {},
-            onCancelRenameProject: {},
             hoveredProjectDotId: hoveredProjectId
         )
     }

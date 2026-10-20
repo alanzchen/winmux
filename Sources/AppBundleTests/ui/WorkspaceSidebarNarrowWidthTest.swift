@@ -95,8 +95,7 @@ final class WorkspaceSidebarNarrowWidthTest: XCTestCase {
         func folds(_ scopes: [WorkspaceSidebarMonitorScopeViewModel], section: CGFloat, projects: [WorkspaceSidebarProjectViewModel] = projects) -> Bool {
             WorkspaceSidebarMonitorSelector(scopes: scopes, projects: projects, selectedScopeId: here.id,
                 activeProjectId: workspaceProjectDefaultId, browsedProjectId: nil, expansionProgress: 1, sectionWidth: section,
-                targetScopeId: here.id, automaticScopeId: here.id, renamingProjectId: .constant(nil),
-                renamingProjectText: .constant("")).foldsScopePillsIntoMenu
+                targetScopeId: here.id, automaticScopeId: here.id).foldsScopePillsIntoMenu
         }
         // A 120-point Sidebar leaves 96 points; This Display and Focus alone need more.
         XCTAssertTrue(folds([here, focus], section: 96))
@@ -189,8 +188,7 @@ final class WorkspaceSidebarNarrowWidthTest: XCTestCase {
                 colorHex: nil, emoji: "🔬")
         }
         return WorkspaceSidebarProjectPager(projects: projects, selectedProjectId: projects[0].id, expansionProgress: 1,
-            layout: layout, renamingProjectId: .constant(nil), renamingProjectText: .constant(""), onSelectProject: { _ in },
-            onCreateProject: {}, onCommitRenameProject: {}, onCancelRenameProject: {})
+            layout: layout, onSelectProject: { _ in }, onCreateProject: {})
     }
 
     private func runningMusic() -> AppleMusicNowPlayingModel {

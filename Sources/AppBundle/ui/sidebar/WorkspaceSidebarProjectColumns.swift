@@ -266,10 +266,7 @@ extension WorkspaceSidebarView {
                 .fill(Color.white.opacity(isActive ? 0.12 : 0.05))
         }
         return Group {
-            if renamingProjectId == project.id {
-                WorkspaceSidebarProjectRenameField(project: project, text: $renamingProjectText,
-                    onCommit: { finishProjectRename() }, onCancel: { finishProjectRename(cancelled: true) })
-            } else if snapshot.projects.isEmpty {
+            if snapshot.projects.isEmpty {
                 // A snapshot without projects shows its workspaces under a plain label.
                 label
             } else {

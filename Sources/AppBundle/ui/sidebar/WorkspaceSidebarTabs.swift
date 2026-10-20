@@ -382,14 +382,10 @@ struct WorkspaceSidebarTabFolderView: View {
     let isShowingOverride: Bool
     let overrideMinHeight: CGFloat
     let projectContext: (label: String, color: Color)?
-    let isRenaming: Bool
-    @Binding var renamingText: String
     let actions: WorkspaceSidebarActions
     let onToggleCollapsed: () -> Void
     let onCommitOverride: () -> Void
     let onCancelOverride: () -> Void
-    let onCommitRename: @MainActor @Sendable () -> Void
-    let onCancelRename: @MainActor @Sendable () -> Void
     /// Tabs mode: the edge a dragged tab would be inserted at, and where drops between tabs land.
     var insertionEdge: VerticalEdge? = nil
     var insertionLabel: String? = nil
@@ -472,56 +468,42 @@ struct WorkspaceSidebarTabFolderView: View {
 
     private var header: some View {
         ZStack(alignment: .leading) {
-            if isRenaming {
+            Button {
+                activation.select(.selectWorkspace(workspace.name), send: actions.send)
+            } label: {
                 WorkspaceSidebarTabGroupHeaderLabel(isExpanded: !isCollapsed, tint: color, count: windowCount,
                     canToggle: !isSearching, drawsChevron: false) {
                     folderIcon
                 } title: {
-                    WorkspaceSidebarWorkspaceRenameField(
-                        text: $renamingText,
-                        workspaceName: workspace.name,
-                        onCommit: onCommitRename,
-                        onCancel: onCancelRename,
-                    )
-                }
-            } else {
-                Button {
-                    activation.select(.selectWorkspace(workspace.name), send: actions.send)
-                } label: {
-                    WorkspaceSidebarTabGroupHeaderLabel(isExpanded: !isCollapsed, tint: color, count: windowCount,
-                        canToggle: !isSearching, drawsChevron: false) {
-                        folderIcon
-                    } title: {
-                        HStack(spacing: 6) {
-                            WorkspaceSidebarTabGroupTitle(text: workspace.displayName, tint: color, isActive: isActive)
-                            if let savedState = workspace.savedState {
-                                Image(systemName: savedState.isPinnedToDisplay ? "pin.fill" : "bookmark.fill")
-                                    .font(.system(size: 8.5, weight: .semibold))
-                                    .foregroundStyle(color.opacity(0.7))
-                                    .accessibilityLabel(workspaceSidebarSavedWorkspaceDescription(savedState))
-                            }
-                            if let projectContext {
-                                Text(projectContext.label)
-                                    .font(.system(size: 8.5, weight: .bold))
-                                    .foregroundStyle(projectContext.color.opacity(0.9))
-                                    .lineLimit(1)
-                                    .padding(.horizontal, 5)
-                                    .frame(height: 15)
-                                    .background { Capsule(style: .continuous).fill(projectContext.color.opacity(0.14)) }
-                            }
+                    HStack(spacing: 6) {
+                        WorkspaceSidebarTabGroupTitle(text: workspace.displayName, tint: color, isActive: isActive)
+                        if let savedState = workspace.savedState {
+                            Image(systemName: savedState.isPinnedToDisplay ? "pin.fill" : "bookmark.fill")
+                                .font(.system(size: 8.5, weight: .semibold))
+                                .foregroundStyle(color.opacity(0.7))
+                                .accessibilityLabel(workspaceSidebarSavedWorkspaceDescription(savedState))
+                        }
+                        if let projectContext {
+                            Text(projectContext.label)
+                                .font(.system(size: 8.5, weight: .bold))
+                                .foregroundStyle(projectContext.color.opacity(0.9))
+                                .lineLimit(1)
+                                .padding(.horizontal, 5)
+                                .frame(height: 15)
+                                .background { Capsule(style: .continuous).fill(projectContext.color.opacity(0.14)) }
                         }
                     }
-                    .background {
-                        // The arrow keys can select a folder itself; show where Enter goes.
-                        RoundedRectangle(cornerRadius: workspaceSidebarTabCornerRadius, style: .continuous)
-                            .fill(Color.primary.opacity(selectedSearchTarget == .workspace(workspace.name) ? 0.1 : 0))
-                    }
                 }
-                .buttonStyle(.plain)
-                .help(workspaceSidebarWorkspaceTooltip(workspace))
-                .accessibilityLabel(headerAccessibilityLabel)
-                .accessibilityAddTraits(isActive ? .isSelected : [])
+                .background {
+                    // The arrow keys can select a folder itself; show where Enter goes.
+                    RoundedRectangle(cornerRadius: workspaceSidebarTabCornerRadius, style: .continuous)
+                        .fill(Color.primary.opacity(selectedSearchTarget == .workspace(workspace.name) ? 0.1 : 0))
+                }
             }
+            .buttonStyle(.plain)
+            .help(workspaceSidebarWorkspaceTooltip(workspace))
+            .accessibilityLabel(headerAccessibilityLabel)
+            .accessibilityAddTraits(isActive ? .isSelected : [])
             // A search shows every match, so collapsing would visibly do nothing. The chevron
             // hides, while titles keep their place.
             if !isSearching {
@@ -834,8 +816,6 @@ extension WorkspaceSidebarView {
             projectContext: showsProjectContext
                 ? (projectName(contextProjectId), projectColor(contextProjectId))
                 : nil,
-            isRenaming: renamingWorkspaceName == workspace.name,
-            renamingText: $renamingWorkspaceText,
             actions: actions,
             onToggleCollapsed: {
                 withAnimation(WorkspaceSidebarTabMotion.disclosure(reducesMotion: reduceDockMotion)) {
@@ -849,8 +829,6 @@ extension WorkspaceSidebarView {
                 actions.send(.overrideWorkspaceInUse(workspace.name))
             },
             onCancelOverride: { activeInUseOverrideWorkspaceName = nil },
-            onCommitRename: { finishWorkspaceRename() },
-            onCancelRename: { finishWorkspaceRename(cancelled: true) },
             insertionEdge: insertionEdge,
             insertionLabel: insertionLabel,
             gapTarget: gapTarget,

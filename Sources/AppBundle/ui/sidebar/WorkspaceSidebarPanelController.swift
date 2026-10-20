@@ -7,9 +7,6 @@ final class WorkspaceSidebarPanel: NSPanelHud, WorkspaceSidebarInputOwner {
     static let shared = WorkspaceSidebarPanel(monitor: mainMonitor)
     private static var panelsByMonitorScopeId: [String: WorkspaceSidebarPanel] = [:]
     static let inputSession = WorkspaceSidebarInputSession()
-    static var activeInlineTextEditingPanel: WorkspaceSidebarPanel? {
-        inputSession.owner as? WorkspaceSidebarPanel
-    }
     var canCaptureSidebarInput: Bool {
         inlineTextEditingActive && isVisible && autoHideReason == nil && isKeyWindow && NSApp.isActive &&
             config.workspaceSidebar.enabled && TrayMenuModel.shared.isEnabled
@@ -36,7 +33,6 @@ final class WorkspaceSidebarPanel: NSPanelHud, WorkspaceSidebarInputOwner {
     var menuTrackingDepth = 0
     var menuTrackingGraceUntil: Date = .distantPast
     var inlineTextEditingActive = false
-    var inlineTextEditingGeneration = 0
     var inlineTextEditingPreviousApplication: NSRunningApplication?
     var inlineTextEditingLocksExpansion = true
     var inlineTextEditingCancelsOnPointerExit = true

@@ -511,7 +511,6 @@ extension WorkspaceSidebarPanel {
                 ? frontmost : (focus.windowOrNil?.app as? MacApp)?.nsApp
         }
         inlineTextEditingActive = true
-        inlineTextEditingGeneration += 1
         inlineTextEditingLocksExpansion = locksExpansion
         inlineTextEditingCancelsOnPointerExit = cancelsOnPointerExit
         inlineTextEditingCancel = onCancel

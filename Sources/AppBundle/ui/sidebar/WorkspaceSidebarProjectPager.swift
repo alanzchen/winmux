@@ -7,12 +7,8 @@ struct WorkspaceSidebarProjectPager: View {
     let selectedProjectId: WorkspaceProjectId
     let expansionProgress: CGFloat
     let layout: WorkspaceSidebarConfiguration
-    @Binding var renamingProjectId: WorkspaceProjectId?
-    @Binding var renamingProjectText: String
     let onSelectProject: (WorkspaceProjectId) -> Void
     let onCreateProject: () -> Void
-    let onCommitRenameProject: @MainActor @Sendable () -> Void
-    let onCancelRenameProject: @MainActor @Sendable () -> Void
     var reduceMotionOverride: Bool? = nil
 
     @State var isHovered = false
@@ -35,12 +31,7 @@ struct WorkspaceSidebarProjectPager: View {
             ?? projects.indices.first
     }
     var selectedProject: WorkspaceSidebarProjectViewModel? {
-        if let renamingProjectId,
-           let renamingProject = projects.first(where: { $0.id == renamingProjectId })
-        {
-            return renamingProject
-        }
-        return projects.first { $0.id == selectedProjectId }
+        projects.first { $0.id == selectedProjectId }
             ?? projects.first
     }
     var showsProjectIndicator: Bool { projects.count > 1 }

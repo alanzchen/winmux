@@ -131,17 +131,7 @@ extension WorkspaceSidebarProjectPager {
 
     var projectControls: some View {
         HStack(alignment: .center, spacing: projectControlsSpacing) {
-            if let renamingProjectId, let project = projects.first(where: { $0.id == renamingProjectId }) {
-                WorkspaceSidebarProjectRenameField(
-                    project: project,
-                    text: $renamingProjectText,
-                    onCommit: onCommitRenameProject,
-                    onCancel: onCancelRenameProject,
-                )
-                .frame(width: projectTrackWidth, height: workspaceSidebarPagerHeight, alignment: .leading)
-            } else {
-                projectDotTrack
-            }
+            projectDotTrack
             newProjectButton
                 .frame(width: projectCreateButtonWidth, height: workspaceSidebarPagerHeight, alignment: .trailing)
         }

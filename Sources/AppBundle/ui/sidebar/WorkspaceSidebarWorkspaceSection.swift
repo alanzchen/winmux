@@ -16,11 +16,7 @@ struct WorkspaceSidebarWorkspaceSection: View, Animatable {
     let isActiveOnTargetMonitor: Bool
     let projectContextLabel: String?
     let projectContextColor: Color?
-    @Binding var renamingWorkspaceName: String?
-    @Binding var renamingWorkspaceText: String
     let onBeginRenameWorkspace: @MainActor () -> Void
-    let onCommitRenameWorkspace: @MainActor () -> Void
-    let onCancelRenameWorkspace: @MainActor () -> Void
     let selectedSearchTarget: WorkspaceSidebarSearchSelection?
     let isSearchFiltering: Bool
     @Binding var activeInUseOverrideWorkspaceName: String?
@@ -98,7 +94,6 @@ struct WorkspaceSidebarWorkspaceSection: View, Animatable {
         expansionProgress >= 1 && allowsWorkspaceActivation && isInUseOnOtherDisplay && isShowingInUseOverlay
     }
     var isSearchSelectedWorkspace: Bool { selectedSearchTarget == .workspace(workspace.name) }
-    var isRenamingWorkspace: Bool { renamingWorkspaceName == workspace.name }
     var inUseOverrideText: String {
         if let monitorName = workspace.monitorName, !monitorName.isEmpty {
             return "In use on \(monitorName)"
@@ -193,7 +188,7 @@ struct WorkspaceSidebarWorkspaceSection: View, Animatable {
     }
 }
 extension WorkspaceSidebarWorkspaceSection {
-    var morphsTitle: Bool { layout.showAppIcons && !isRenamingWorkspace }
+    var morphsTitle: Bool { layout.showAppIcons }
 
     /// Only pair the icons shown in the fixed compact column with rows actually rendered below.
     var appMorphTargets: [String: WorkspaceSidebarAppMorphTarget] {
@@ -242,7 +237,7 @@ extension WorkspaceSidebarWorkspaceSection {
                 iconSize: layout.dockIconSize,
                 magnificationAmount: layout.dockMagnificationAmount,
                 position: layout.dockPosition,
-                compactActions: allowsWorkspaceActivation && !isRenamingWorkspace
+                compactActions: allowsWorkspaceActivation
                     ? .init(actions: actions, onSelectApp: handleAppClick, onSelectWorkspace: handleSectionClick) : nil
             )
             .modifier(WorkspaceSidebarReadOnlySummary(isEnabled: !allowsWorkspaceActivation, label: workspaceSidebarAppSummaryLabel(workspace)))
@@ -294,7 +289,7 @@ extension WorkspaceSidebarWorkspaceSection {
                     railWidth: layout.compactRailWidth,
                     restingIconSize: appIconLayout.itemSize,
                 )
-                if allowsWorkspaceActivation, !isRenamingWorkspace, morphProgress < 1 {
+                if allowsWorkspaceActivation, morphProgress < 1 {
                     WorkspaceSidebarDockAppButtons(
                         anchors: anchors,
                         progress: morphProgress,
@@ -313,7 +308,7 @@ extension WorkspaceSidebarWorkspaceSection {
     func handleSectionClick() {
         guard allowsWorkspaceActivation,
               shouldHandleWorkspaceSidebarActivation(
-                isEditing: isRenamingWorkspace,
+                isEditing: false,
                 isSidebarDragInProgress: isWorkspaceSidebarDragInProgress(),
               )
         else { return }
@@ -331,7 +326,7 @@ extension WorkspaceSidebarWorkspaceSection {
     func handleAppClick(_ app: WorkspaceSidebarAppViewModel) {
         guard allowsWorkspaceActivation,
               shouldHandleWorkspaceSidebarActivation(
-                isEditing: isRenamingWorkspace,
+                isEditing: false,
                 isSidebarDragInProgress: isWorkspaceSidebarDragInProgress()
               )
         else { return }
@@ -546,7 +541,7 @@ extension WorkspaceSidebarWorkspaceSection {
 extension WorkspaceSidebarWorkspaceSection {
     @ViewBuilder
     var draggableExpandedHeader: some View {
-        if allowsProjectMove, !isRenamingWorkspace, morphProgress >= 1 {
+        if allowsProjectMove, morphProgress >= 1 {
             expandedHeader
                 .frame(height: workspaceSidebarWorkspaceSectionHeaderHeight)
                 .overlay {
@@ -595,21 +590,12 @@ extension WorkspaceSidebarWorkspaceSection {
 
     var expandedHeader: some View {
         HStack(spacing: workspaceSidebarHeaderSpacing) {
-            if isRenamingWorkspace && (!layout.showAppIcons || morphProgress >= 1) {
-                WorkspaceSidebarWorkspaceRenameField(
-                    text: $renamingWorkspaceText,
-                    workspaceName: workspace.name,
-                    onCommit: onCommitRenameWorkspace,
-                    onCancel: onCancelRenameWorkspace,
-                )
-            } else {
-                Text((workspace.appearance.emoji.map { $0 + " " } ?? "") + workspace.displayName)
-                    .font(expandedTitleFont)
-                    .foregroundStyle(workspace.appearance.colorHex.flatMap(workspaceSidebarColor) ?? (isActiveOnTargetMonitor ? Color.white : Color.white.opacity(0.85)))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .modifier(WorkspaceSidebarMorphAnchor(element: .expandedTitle, isEnabled: morphsTitle))
-            }
+            Text((workspace.appearance.emoji.map { $0 + " " } ?? "") + workspace.displayName)
+                .font(expandedTitleFont)
+                .foregroundStyle(workspace.appearance.colorHex.flatMap(workspaceSidebarColor) ?? (isActiveOnTargetMonitor ? Color.white : Color.white.opacity(0.85)))
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .modifier(WorkspaceSidebarMorphAnchor(element: .expandedTitle, isEnabled: morphsTitle))
             if let savedState = workspace.savedState {
                 Image(systemName: savedState.isPinnedToDisplay ? "pin.fill" : "bookmark.fill")
                     .font(.system(size: 9, weight: .semibold))

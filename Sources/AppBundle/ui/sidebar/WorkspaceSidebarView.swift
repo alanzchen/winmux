@@ -62,10 +62,6 @@ struct WorkspaceSidebarView: View {
     @State var pendingInUseOverrideAppId: String? = nil
     @State var isSidebarCollapsing = false
     @State var isSidebarExpanding = false
-    @State var renamingProjectId: WorkspaceProjectId? = nil
-    @State var renamingProjectText = ""
-    @State var renamingWorkspaceName: String? = nil
-    @State var renamingWorkspaceText = ""
     @State var searchText = ""
     @State var isSearchEditing = false
     @State var searchEditingPanel: WorkspaceSidebarPanel? = nil
@@ -250,9 +246,6 @@ struct WorkspaceSidebarView: View {
             browseMode = .activeProject
             showsPinnedActiveWorkspaceForBrowsedProject = true
             activeInUseOverrideWorkspaceName = nil
-            // In the floating columns, a double-click's first click switches to the project its
-            // second click starts renaming. Switching to any other project still ends the rename.
-            if !usesProjectColumns || renamingProjectId != projectId { finishProjectRename(cancelled: true) }
             finishSidebarSearch(clearText: true)
             resetProjectSwipeWithoutAnimation()
             if swipeSlidPages || wasBrowsingAnotherProject {
@@ -272,12 +265,6 @@ struct WorkspaceSidebarView: View {
         .onChange(of: snapshot.projects) { _ in
             if let browsedProjectId, !snapshot.projects.contains(where: { $0.id == browsedProjectId }) {
                 browseMode = .activeProject
-            }
-            if let renamingProjectId, !snapshot.projects.contains(where: { $0.id == renamingProjectId }) {
-                finishProjectRename(cancelled: true)
-            }
-            if let renamingWorkspaceName, !snapshot.workspaces.contains(where: { $0.name == renamingWorkspaceName }) {
-                finishWorkspaceRename(cancelled: true)
             }
             if let projectPageTransition, [projectPageTransition.fromProjectId, projectPageTransition.toProjectId]
                 .contains(where: { projectId in !snapshot.projects.contains { $0.id == projectId } })
@@ -346,31 +333,9 @@ struct WorkspaceSidebarView: View {
         WorkspaceSidebarIdentityMenu.show(.project(project.id), selectName: true)
     }
 
-    func finishProjectRename(cancelled: Bool = false) {
-        guard let projectId = renamingProjectId else { return }
-        let displayName = renamingProjectText.trimmingCharacters(in: .whitespacesAndNewlines)
-        debugWorkspaceSidebarRenameLog("finishProjectRename project=\(projectId.rawValue) cancelled=\(cancelled) raw=\(renamingProjectText) trimmed=\(displayName)")
-        renamingProjectId = nil
-        renamingProjectText = ""
-        currentPanel()?.endInlineTextEditing()
-        guard !cancelled, !displayName.isEmpty else { return }
-        actions.send(.renameProject(projectId, displayName: displayName))
-    }
-
     func beginWorkspaceRename(_ workspace: WorkspaceSidebarWorkspaceViewModel) {
         finishSidebarSearch(clearText: false)
         WorkspaceSidebarIdentityMenu.show(.workspace(workspace.name), selectName: true)
-    }
-
-    func finishWorkspaceRename(cancelled: Bool = false) {
-        guard let workspaceName = renamingWorkspaceName else { return }
-        let displayName = renamingWorkspaceText.trimmingCharacters(in: .whitespacesAndNewlines)
-        debugWorkspaceSidebarRenameLog("finishWorkspaceRename workspace=\(workspaceName) cancelled=\(cancelled) raw=\(renamingWorkspaceText) trimmed=\(displayName) targetScope=\(snapshot.targetMonitorScopeId)")
-        renamingWorkspaceName = nil
-        renamingWorkspaceText = ""
-        currentPanel()?.endInlineTextEditing()
-        guard !cancelled, !displayName.isEmpty else { return }
-        actions.send(.renameWorkspace(workspaceName, displayName: displayName))
     }
 
     func currentPanel() -> WorkspaceSidebarPanel? {
@@ -378,14 +343,13 @@ struct WorkspaceSidebarView: View {
     }
 
     func beginSidebarSearchIfNeeded(panel: WorkspaceSidebarPanel? = nil) {
-        guard renamingProjectId == nil, renamingWorkspaceName == nil, !isSearchEditing else { return }
+        guard !isSearchEditing else { return }
         guard snapshot.visibleWidth > snapshot.configuration.expansionStartWidth + 0.5 || isSidebarExpanding else { return }
         let editingPanel = panel ?? currentPanel() ?? WorkspaceSidebarPanel.shared
         adoptCommandSidebarSearchIfNeeded(panel: editingPanel)
     }
 
     func adoptCommandSidebarSearchIfNeeded(panel editingPanel: WorkspaceSidebarPanel) {
-        guard renamingProjectId == nil, renamingWorkspaceName == nil else { return }
         if !isSearchEditing {
             isSearchEditing = true
             searchEditingPanel = editingPanel
@@ -705,8 +669,6 @@ extension WorkspaceSidebarView {
             selectedProjectId: snapshot.activeProjectId,
             expansionProgress: expansionProgress,
             layout: layout,
-            renamingProjectId: $renamingProjectId,
-            renamingProjectText: $renamingProjectText,
             onSelectProject: { projectId in
                 debugWorkspaceSidebarProjectLog(
                     "pagerSectionSelect project=\(projectId.rawValue) active=\(snapshot.activeProjectId.rawValue) browsed=\(browsedProjectId?.rawValue ?? "nil")"
@@ -715,12 +677,6 @@ extension WorkspaceSidebarView {
                 actions.send(.selectProject(projectId))
             },
             onCreateProject: { actions.send(.createProject) },
-            onCommitRenameProject: {
-                finishProjectRename()
-            },
-            onCancelRenameProject: {
-                finishProjectRename(cancelled: true)
-            },
             // The switcher morphs, or not, exactly as the pages slide.
             reduceMotionOverride: reduceDockMotion,
         )
@@ -872,7 +828,6 @@ extension WorkspaceSidebarView {
         activeInUseOverrideWorkspaceName = nil
         isSidebarCollapsing = false
         isSidebarExpanding = false
-        finishWorkspaceRename(cancelled: true)
         resetProjectEdgeDrag()
         resetProjectSwipeWithoutAnimation()
         projectSwipeCommit = nil
@@ -922,14 +877,6 @@ extension WorkspaceSidebarView {
                 WorkspaceSidebarPanel.panel(for: snapshot.targetMonitorScopeId)?.cancelExpansionWork()
                 browseMode = projectId.map { .split(otherProjectId: $0) } ?? .activeProject
                 showsPinnedActiveWorkspaceForBrowsedProject = false
-            },
-            renamingProjectId: $renamingProjectId,
-            renamingProjectText: $renamingProjectText,
-            onCommitRenameProject: {
-                finishProjectRename()
-            },
-            onCancelRenameProject: {
-                finishProjectRename(cancelled: true)
             },
             showsProjectSelector: !showsAllProjects,
         )
@@ -1460,16 +1407,8 @@ extension WorkspaceSidebarView {
             isActiveOnTargetMonitor: workspace.monitorScopeId == snapshot.targetMonitorScopeId && workspace.isVisible,
             projectContextLabel: projectContextLabel,
             projectContextColor: projectContextColor,
-            renamingWorkspaceName: $renamingWorkspaceName,
-            renamingWorkspaceText: $renamingWorkspaceText,
             onBeginRenameWorkspace: {
                 beginWorkspaceRename(workspace)
-            },
-            onCommitRenameWorkspace: {
-                finishWorkspaceRename()
-            },
-            onCancelRenameWorkspace: {
-                finishWorkspaceRename(cancelled: true)
             },
             selectedSearchTarget: searchText.isEmpty ? nil : selectedSearchTarget,
             isSearchFiltering: !searchText.isEmpty,
@@ -1543,7 +1482,7 @@ extension WorkspaceSidebarView {
         }
         if reduceDockMotion { blockers.insert(.reduceMotion) }
         if dockMenuTracking { blockers.insert(.menu) }
-        if isSearchEditing || renamingProjectId != nil || renamingWorkspaceName != nil { blockers.insert(.editing) }
+        if isSearchEditing { blockers.insert(.editing) }
         if snapshot.dropPreview != nil { blockers.insert(.drop) }
         if projectSwipeTranslation != 0 { blockers.insert(.swipe) }
         return blockers

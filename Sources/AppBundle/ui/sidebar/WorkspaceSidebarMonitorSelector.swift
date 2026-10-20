@@ -28,10 +28,6 @@ struct WorkspaceSidebarMonitorSelector: View {
     var automaticScopeId: String = workspaceSidebarDefaultScopeId
     var onSelectScope: (String) -> Void = { selectWorkspaceSidebarMonitorScope($0) }
     var onSelectProject: (WorkspaceProjectId?) -> Void = { _ in }
-    @Binding var renamingProjectId: WorkspaceProjectId?
-    @Binding var renamingProjectText: String
-    var onCommitRenameProject: @MainActor @Sendable () -> Void = {}
-    var onCancelRenameProject: @MainActor @Sendable () -> Void = {}
     var showsProjectSelector = true
 
     @State private var isProjectMenuOpen = false
@@ -188,21 +184,7 @@ struct WorkspaceSidebarMonitorSelector: View {
 
     private var projectSelector: some View {
         let isActive = selectedProject != nil || isProjectMenuOpen
-        if let selectedProject, renamingProjectId == selectedProject.id {
-            return AnyView(
-                WorkspaceSidebarProjectRenameField(
-                    project: selectedProject,
-                    text: $renamingProjectText,
-                    onCommit: onCommitRenameProject,
-                    onCancel: onCancelRenameProject,
-                )
-                // Beside the display pills, a narrow sidebar narrows it instead of pushing it past the edge.
-                .frame(maxWidth: projectPopupWidth)
-                .frame(height: workspaceSidebarDropdownHeight)
-                .layoutPriority(1)
-            )
-        }
-        return AnyView(Button {
+        return Button {
             guard !browsableProjects.isEmpty else { return }
             isProjectMenuOpen.toggle()
         } label: {
@@ -236,7 +218,6 @@ struct WorkspaceSidebarMonitorSelector: View {
         }
         .zIndex(isProjectMenuOpen ? 200 : 0)
         .help("Browse another project")
-        )
     }
 
     private var projectPopup: some View {
