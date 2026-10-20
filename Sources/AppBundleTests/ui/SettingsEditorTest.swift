@@ -97,6 +97,26 @@ final class SettingsEditorTest: XCTestCase {
         XCTAssertTrue(SettingsCatalog.results("nonexistent-setting-xyz").isEmpty)
     }
 
+    /// Settings offers only choices that can be saved: each option, written the way a save writes
+    /// it, leaves a configuration that parses without errors.
+    func testEveryChoiceOptionSavesToAValidConfiguration() {
+        for field in SettingsCatalog.fields where field.writePreference == nil {
+            guard case .choice(let options) = field.control else { continue }
+            for option in options {
+                let text = updateSettingsAppearanceConfig(in: "config-version = 2\n", section: field.section,
+                    values: [field.key: field.render(.text(option.value))],
+                    preservingDockAppearance: field.preservingDockAppearance)
+                let parsed = parseConfig(text)
+                XCTAssertTrue(parsed.errors.isEmpty, "\(field.id) = \(option.value): \(parsed.errors.descriptions)")
+            }
+        }
+    }
+
+    func testRemovedShortcutPresetIsNotOfferedButItsKeyStillLoads() {
+        XCTAssertFalse(SettingsCatalog.allFields.contains { $0.key == "shortcuts-preset" })
+        XCTAssertTrue(parseConfig("shortcuts-preset = 'none'\n").errors.isEmpty)
+    }
+
     func testTooltipSettingsAreDiscoverableAndRespectDisplayMode() {
         let workspace = SettingsCatalog.field("workspace-sidebar.show-workspace-tooltips")
         let app = SettingsCatalog.field("workspace-sidebar.show-app-tooltips")

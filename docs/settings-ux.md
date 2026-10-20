@@ -10,7 +10,7 @@ the Tabs sidebar, to open the Workspace Panel page directly.
 | General | Startup, automatic TOML reload, menu bar, permissions |
 | Workspace Panel | Panel switch and mode cards; the active mode's settings; settings every mode shares |
 | Windows & Layout | New-window behavior, default layout, window chrome, tabs, tiling gaps |
-| Projects & Workspaces | Project deletion, saved workspaces, persistent workspaces, shortcut preset, workspace shortcuts |
+| Projects & Workspaces | Project deletion, saved workspaces, persistent workspaces, workspace shortcuts |
 | Shortcuts | Window-management shortcuts and directional controls |
 | Advanced | TOML Editor, automation actions, performance diagnostics, configuration reference |
 

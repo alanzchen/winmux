@@ -421,6 +421,12 @@ extension ConfigTest {
         assertEquals(parsed.modes[mainModeId]?.bindings[explicitBinding.descriptionWithKeyCode], explicitBinding)
     }
 
+    func testRemovedRectangleShortcutsPresetWithoutModesReportsOnlyTheRemoval() {
+        assertEquals(parseConfig("shortcuts-preset = 'rectangle'\n").errors.descriptions, [
+            "shortcuts-preset: The 'rectangle' shortcuts preset has been removed",
+        ])
+    }
+
     func testParseOnWindowDetected() {
         let (parsed, errors) = parseConfig(
             """

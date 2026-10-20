@@ -152,8 +152,8 @@ func parseCommandOrCommands(_ raw: TOMLValueConvertible) -> Parsed<[any Command]
     if let modes = rawTable[modeConfigRootKey].flatMap({ parseModes($0, .rootKey(modeConfigRootKey), &errors, config.keyMapping.resolve()) }) {
         config.modes = modes
     }
-    applyShortcutsPreset(&config, mapping: config.keyMapping.resolve(), errors: &errors)
-    let shouldValidateMainMode = rawTable.contains(key: modeConfigRootKey) || config.shortcutsPreset != .none
+    applyShortcutsPreset(&config, errors: &errors)
+    let shouldValidateMainMode = rawTable.contains(key: modeConfigRootKey)
     if shouldValidateMainMode && !config.modes.keys.contains(mainModeId) {
         errors += [.semantic(.rootKey(modeConfigRootKey), "Please specify '\(mainModeId)' mode")]
     }
@@ -258,7 +258,7 @@ private func parseShortcutsPreset(_ raw: TOMLValueConvertible, _ backtrace: Toml
 }
 
 @MainActor
-private func applyShortcutsPreset(_ config: inout Config, mapping: [String: Key], errors: inout [TomlParseError]) {
+private func applyShortcutsPreset(_ config: inout Config, errors: inout [TomlParseError]) {
     guard config.shortcutsPreset == .rectangle else { return }
     errors += [.semantic(.rootKey("shortcuts-preset"), "The 'rectangle' shortcuts preset has been removed")]
 }

@@ -359,8 +359,6 @@ enum SettingsCatalog {
             SettingsField(group: .projects, section: nil, key: "persistent-workspaces", title: "Persistent workspaces", help: "Comma-separated names of workspaces to keep when empty. Press Return to save.", control: .text,
                 read: { .text($0.persistentWorkspaces.joined(separator: ", ")) }, render: { "[" + $0.text.split(separator: ",").map { SettingsValue.text($0.trimmingCharacters(in: .whitespaces)).toml }.joined(separator: ", ") + "]" })
                 .requiring(.disables("Requires config-version = 2. Update the configuration in the TOML Editor to use persistent workspaces.") { $0.configVersion >= 2 }),
-            choice(.projects, "shortcuts-preset", "Shortcut preset", "Use your custom shortcuts or install the built-in Rectangle set.", options: [.init("Custom", "none"), .init("Rectangle", "rectangle")], read: { $0.shortcutsPreset.rawValue },
-                project: SettingsProjection.raw(\.shortcutsPreset)),
         ]
         for (key, title, path) in gapPaths {
             result.append(SettingsField(group: .gaps, section: "gaps", key: key, title: title, help: "Spacing in points. Editing replaces any per-monitor values for this gap.", control: .integer(key.hasPrefix("inner") ? 0...80 : 0...120),
