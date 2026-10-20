@@ -564,7 +564,7 @@ private func requestPinnedPageWindow(_ tab: Workspace, target: PinDocumentTarget
     }
     guard let pid else { return showPinDocumentNotice("Pinned Page", "\(appName) couldn't be opened.") }
     guard target.isCurrent, !workspaceHasLifecycleWindows(tab) else { return }
-    let page = PinPageExpectation(url: link.url)
+    let page = PinPageExpectation()
     let registry = NewWindowIntentRegistry.shared
     guard let intent = registry.register(bundleId: bundleId, pid: pid, targetWorkspace: tab,
         preexistingWindowIds: existingWindowIds(pid: pid), focusGeneration: focusGeneration,

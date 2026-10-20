@@ -20,11 +20,8 @@ enum NewWindowRequestOutcome: Equatable {
 /// that couldn't be told for sure.
 @MainActor
 final class PinPageExpectation {
-    let url: String
     private(set) var windowId: UInt32?
     private(set) var isDecided = false
-
-    init(url: String) { self.url = url }
 
     /// Once only: a later answer changes nothing.
     func decide(_ windowId: UInt32?) {

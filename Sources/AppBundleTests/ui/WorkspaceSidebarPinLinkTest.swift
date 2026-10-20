@@ -678,7 +678,7 @@ final class WorkspaceSidebarPinLinkTest: XCTestCase {
     func testDetectionWaitsOnlyForANewWindowOfTheProcessAsked() throws {
         let tab = Workspace.get(byName: "page")
         let registry = NewWindowIntentRegistry.shared
-        let expectation = PinPageExpectation(url: page)
+        let expectation = PinPageExpectation()
         XCTAssertNotNil(registry.register(bundleId: safariId, pid: safari.pid, targetWorkspace: tab, preexistingWindowIds: [5],
             focusGeneration: focusChangeGeneration, page: expectation))
         let now = registry.now()
@@ -832,7 +832,7 @@ final class WorkspaceSidebarPinLinkTest: XCTestCase {
 
     func testACancelledDetectionStopsWaitingForTheBrowsersAnswer() async throws {
         let wait = try XCTUnwrap(saved?.decision)
-        let pending = PinPageExpectation(url: page)
+        let pending = PinPageExpectation()
         let start = ProcessInfo.processInfo.systemUptime
         let task = Task { @MainActor in await wait(pending) }
         task.cancel()
@@ -840,7 +840,7 @@ final class WorkspaceSidebarPinLinkTest: XCTestCase {
         XCTAssertLessThan(ProcessInfo.processInfo.systemUptime - start, 1, "Not a spin until the deadline")
         XCTAssertFalse(pending.isDecided)
 
-        let decided = PinPageExpectation(url: page)
+        let decided = PinPageExpectation()
         let started = ProcessInfo.processInfo.systemUptime
         let waiting = Task { @MainActor in await wait(decided) }
         try await Task.sleep(for: .milliseconds(100))
