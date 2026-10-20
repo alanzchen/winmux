@@ -28,7 +28,6 @@ struct WorkspaceTopicEvidence: Hashable, Sendable {
     /// list, or more than one request takes. A long title cut short still counts as read.
     let isComplete: Bool
 
-    var appNames: [String] { windows.map(\.appName) }
     var bundleIds: Set<String> { Set(windows.compactMap(\.bundleId)) }
 
     /// Exactly what the model receives, as the preview shows it.
@@ -96,7 +95,6 @@ enum WorkspaceTopicUnavailableReason: Hashable, Sendable {
     case modelNotReady
     case languageNotSupported
     case notTabsMode
-    case readOnly(String)
 
     var message: String {
         switch self {
@@ -106,7 +104,6 @@ enum WorkspaceTopicUnavailableReason: Hashable, Sendable {
             case .modelNotReady: "Apple Intelligence is still getting ready. Try again later."
             case .languageNotSupported: "Apple Intelligence doesn't support this Mac's language yet."
             case .notTabsMode: "Topic suggestions are for Tabs mode."
-            case .readOnly(let reason): reason
         }
     }
 }

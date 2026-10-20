@@ -24,7 +24,6 @@ struct WorkspaceTopicWindowRef {
 /// A request's token, mapped to the live tab it stood for. Only the main actor holds these.
 @MainActor
 struct WorkspaceTopicBinding {
-    let token: WorkspaceTopicToken
     let name: String
     let projectId: WorkspaceProjectId
     weak var workspace: Workspace?
@@ -177,7 +176,7 @@ func prepareWorkspaceTopicRequest(scope: WorkspaceTopicScope, snapshot: Workspac
         let live = workspaceTopicLiveWindows(workspace)
         let liveIds = Set(live.map(\.windowId))
         let evidence = workspaceTopicEvidence(for: tab, token: token, liveWindowCount: live.count)
-        bindings[token] = WorkspaceTopicBinding(token: token, name: tab.name, projectId: tab.projectId, workspace: workspace,
+        bindings[token] = WorkspaceTopicBinding(name: tab.name, projectId: tab.projectId, workspace: workspace,
             windows: live.map { WorkspaceTopicWindowRef(windowId: $0.windowId, window: $0) }.sorted { $0.windowId < $1.windowId },
             evidenceText: evidence.promptText)
         let first = shown.first
