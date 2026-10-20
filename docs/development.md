@@ -53,9 +53,15 @@ Developer ID–signed build with your team can talk to it. To try the extension,
 read a bundle elsewhere in your home folder), and open it once so Launch Services registers the
 extension. Safari 27.0 lists an extension that isn't notarized only after **Settings › Developer ›
 Allow unsigned extensions**, which Safari turns off each time it quits. Don't register the extension with `pluginkit -a` on its own: Safari 27.0 crashes
-at launch loading an extension whose app Launch Services doesn't know. The extension's scripts
-can be exercised without Safari in `SafariExtensionTest` (JavaScriptCore) and, for the
-background script's lifecycle, with a fake `browser` object in Node.
+at launch loading an extension whose app Launch Services doesn't know. The extensions' scripts
+run without a browser in JavaScriptCore: `SafariExtensionTest` covers the `shared.js` helpers,
+`SafariExtensionBackgroundTest` runs the Safari background script's lifecycle against a fake
+`browser` object, and `BrowserPushBackgroundTest` runs the Safari and Chrome background scripts,
+and Safari's `content.js`, against synthetic browser APIs:
+
+```sh
+swift test --arch arm64 --filter 'SafariExtension|BrowserPushBackground'
+```
 
 To build only the release CLI:
 
