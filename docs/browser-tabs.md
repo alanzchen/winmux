@@ -306,7 +306,7 @@ team. See [Local development](development.md#build-an-app-and-matching-cli) to t
 
 ## Chrome extension
 
-The Preview includes **WinMux Tabs for Chrome** (extension version 1.1.0), an optional Manifest V3
+The Preview includes **WinMux Tabs for Chrome** (extension version 1.1.1), an optional Manifest V3
 extension for Google Chrome 120 or later on macOS. Chrome Beta/Dev/Canary, Chromium, Brave and
 Edge keep the existing Accessibility integration; the native-host registration targets Google
 Chrome only. The version floor is an API requirement, not a claim of live testing across those

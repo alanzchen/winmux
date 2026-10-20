@@ -34,7 +34,7 @@ class PackageChromeExtensionTest(unittest.TestCase):
         manifest = json.loads((ROOT / "Sources/ChromeExtension/manifest.json").read_text())
         self.assertEqual(manifest["manifest_version"], 3)
         self.assertEqual(manifest["incognito"], "not_allowed")
-        self.assertEqual(sorted(manifest["permissions"]), ["alarms", "nativeMessaging", "storage", "tabs"])
+        self.assertEqual(sorted(manifest["permissions"]), ["alarms", "nativeMessaging", "tabs"])
         # Chrome adds a site-access line to the button's accessible name only for an extension
         # with or wanting host access; the marker must be its whole name.
         self.assertNotIn("host_permissions", manifest)
