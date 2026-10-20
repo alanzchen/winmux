@@ -55,7 +55,7 @@ private let winmuxRepositoryURL = "https://github.com/alanzchen/winmux"
 }
 
 @MainActor @ViewBuilder
-func openConfigButton(showShortcutGroup: Bool = false) -> some View {
+func openConfigButton() -> some View {
     let button = Button("Open config") {
         switch findCustomConfigUrl() {
             case .file(let url):
@@ -67,26 +67,18 @@ func openConfigButton(showShortcutGroup: Bool = false) -> some View {
                 NSWorkspace.shared.open(preferredEditableConfigUrl())
         }
     }.keyboardShortcut(",", modifiers: .command)
-    if showShortcutGroup {
-        shortcutGroup(label: Text("⌘ ,"), content: button)
-    } else {
-        button
-    }
+    shortcutGroup(label: Text("⌘ ,"), content: button)
 }
 
 @MainActor @ViewBuilder
-func reloadConfigButton(showShortcutGroup: Bool = false) -> some View {
+func reloadConfigButton() -> some View {
     if let token: RunSessionGuard = .isServerEnabled {
         let button = Button("Reload config") {
             _ = Task {
                 try await runLightSession(.menuBarButton, token) { _ = try await reloadConfig() }
             }
         }.keyboardShortcut("R", modifiers: .command)
-        if showShortcutGroup {
-            shortcutGroup(label: Text("⌘ R"), content: button)
-        } else {
-            button
-        }
+        shortcutGroup(label: Text("⌘ R"), content: button)
     }
 }
 
