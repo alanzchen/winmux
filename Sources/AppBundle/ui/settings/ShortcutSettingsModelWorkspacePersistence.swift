@@ -3,7 +3,7 @@ import Foundation
 
 extension ShortcutSettingsModel {
     func setWorkspaceOverrideNotation(_ notation: String?, workspaceName: String, kind: WorkspaceShortcutKind) {
-        if let conflict = notation.flatMap({ customWorkspaceConflict(for: $0, workspaceName: workspaceName, kind: kind) }) {
+        if let conflict = notation.flatMap({ customWorkspaceConflict(for: $0) }) {
             errorMessage = "'\((notation ?? ""))' is already used by custom binding: \(conflict)"
             reload()
             return
@@ -60,15 +60,11 @@ extension ShortcutSettingsModel {
         return renderedAssignments
     }
 
-    func customWorkspaceConflict(for notation: String, workspaceName: String, kind: WorkspaceShortcutKind) -> String? {
+    func customWorkspaceConflict(for notation: String) -> String? {
         let commandForNotation = config.modes[mainModeId]?.bindings.values
             .first(where: { $0.descriptionWithKeyNotation == notation })?
             .commands.prettyDescription
         guard let commandForNotation else { return nil }
-        let managedWorkspaceCommand = workspaceCommand(workspaceName, kind: kind)
-        if managedCommands.contains(commandForNotation) {
-            return commandForNotation == managedWorkspaceCommand ? nil : nil
-        }
-        return commandForNotation
+        return managedCommands.contains(commandForNotation) ? nil : commandForNotation
     }
 }

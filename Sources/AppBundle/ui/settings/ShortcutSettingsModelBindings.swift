@@ -34,7 +34,7 @@ extension ShortcutSettingsModel {
     }
 
     func applyBindingNotation(_ notation: String, to actionId: String) {
-        if let conflict = customCommandConflict(for: notation, excluding: actionId) {
+        if let conflict = customCommandConflict(for: notation) {
             errorMessage = "'\(notation)' is already used by custom binding: \(conflict)"
             reload()
             return
@@ -68,14 +68,11 @@ extension ShortcutSettingsModel {
         }
     }
 
-    func customCommandConflict(for notation: String, excluding actionId: String) -> String? {
+    func customCommandConflict(for notation: String) -> String? {
         guard let binding = config.modes[mainModeId]?.bindings.values.first(where: { $0.descriptionWithKeyNotation == notation }) else {
             return nil
         }
         let command = binding.commands.prettyDescription
-        guard let boundActionId = actionIdByCommand[command] else {
-            return command
-        }
-        return boundActionId == actionId ? nil : nil
+        return actionIdByCommand[command] == nil ? command : nil
     }
 }
