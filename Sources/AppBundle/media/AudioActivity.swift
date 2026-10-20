@@ -33,18 +33,27 @@ private func audioObjectValue<T>(_ object: AudioObjectID, _ selector: AudioObjec
     } ? value : nil
 }
 
-/// Core Audio's per-process state, which needs no permission to read. It exists on macOS 14.2
-/// and later; earlier systems report nothing playing.
-nonisolated func readAudioProcessSamples() -> [AudioProcessSample] {
-    guard #available(macOS 14.2, *) else { return [] }
+/// Core Audio's process objects, and the status of reading their list, which needs no
+/// permission. None unless the status is `noErr`.
+@available(macOS 14.2, *)
+nonisolated func readAudioProcessObjectList() -> (status: OSStatus, objects: [AudioObjectID]) {
     var address = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyProcessObjectList,
         mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
     let system = AudioObjectID(kAudioObjectSystemObject)
     var size: UInt32 = 0
-    guard AudioObjectGetPropertyDataSize(system, &address, 0, nil, &size) == noErr, size > 0 else { return [] }
+    let sized = AudioObjectGetPropertyDataSize(system, &address, 0, nil, &size)
+    guard sized == noErr, size > 0 else { return (sized, []) }
     var objects = [AudioObjectID](repeating: 0, count: Int(size) / MemoryLayout<AudioObjectID>.size)
-    guard AudioObjectGetPropertyData(system, &address, 0, nil, &size, &objects) == noErr else { return [] }
-    return objects.prefix(Int(size) / MemoryLayout<AudioObjectID>.size).compactMap { object in
+    let read = AudioObjectGetPropertyData(system, &address, 0, nil, &size, &objects)
+    guard read == noErr else { return (read, []) }
+    return (noErr, Array(objects.prefix(Int(size) / MemoryLayout<AudioObjectID>.size)))
+}
+
+/// Core Audio's per-process state, which needs no permission to read. It exists on macOS 14.2
+/// and later; earlier systems, and a refused read, report nothing playing.
+nonisolated func readAudioProcessSamples() -> [AudioProcessSample] {
+    guard #available(macOS 14.2, *) else { return [] }
+    return readAudioProcessObjectList().objects.compactMap { object in
         guard let pid = audioObjectValue(object, kAudioProcessPropertyPID, pid_t(0)), pid > 0 else { return nil }
         let isRunning = audioObjectValue(object, kAudioProcessPropertyIsRunningOutput, UInt32(0)) ?? 0
         return AudioProcessSample(pid: pid, isRunningOutput: isRunning != 0,

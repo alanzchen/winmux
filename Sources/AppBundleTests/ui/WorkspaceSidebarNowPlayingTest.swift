@@ -1,5 +1,6 @@
 import AppKit
 @testable import AppBundle
+import CoreAudio
 import SwiftUI
 import XCTest
 
@@ -17,8 +18,14 @@ final class WorkspaceSidebarNowPlayingTest: XCTestCase {
         XCTAssertEqual(audioPlayingAppPids(samples, ownPid: 99), [10, 20, 40, 50])
     }
 
-    func testCoreAudioReadsWithoutPermission() {
-        // Nothing need be playing; the read must just not fail or hang.
+    func testCoreAudioReadsWithoutPermission() throws {
+        guard #available(macOS 14.2, *) else { throw XCTSkip("Core Audio process objects need macOS 14.2") }
+        // The read the speaker indicator makes: a refused read would look just like nothing playing.
+        let status = readAudioProcessObjectList().status
+        // Only a session without a running audio server says nothing about the permission.
+        if status == kAudioHardwareNotRunningError { throw XCTSkip("Core Audio isn't running in this session") }
+        XCTAssertEqual(status, noErr, "Core Audio's process list is readable without a permission")
+        // Nothing need be playing; the read must also not crash or hang.
         _ = readAudioProcessSamples()
     }
 
