@@ -74,7 +74,6 @@ final class WorkspaceSidebarDockMotionController {
 
     func owns(_ view: WorkspaceSidebarDockDisplayLinkView) -> Bool { self.view === view }
 
-    func receive(_ point: CGPoint?) { view?.receive(point) }
     func reset(publishFrame: Bool = true) { view?.reset(publishFrame: publishFrame) }
     func recordGeometry(surfaceY: Double? = nil, icons: Int? = nil) {
         view?.performanceTrace?.geometry(surfaceY: surfaceY, icons: icons)

@@ -209,15 +209,6 @@ func selectWorkspaceSidebarMonitorScope(_ scopeId: String, viewModel: TrayMenuMo
 }
 
 @MainActor
-func createWorkspaceFromSidebarButton() {
-    let targetMonitor = sidebarWorkspaceTargetMonitor()
-    createWorkspaceFromSidebarButton(
-        projectId: activeWorkspaceProjectId(for: targetMonitor),
-        monitorScopeId: TrayMenuModel.shared.workspaceSidebarSelectedMonitorScopeId,
-    )
-}
-
-@MainActor
 func createWorkspaceFromSidebarButton(projectId: WorkspaceProjectId, monitorScopeId: String) {
     if config.usesBrowserTabs {
         openNewTabFromSidebar(projectId: projectId, monitorScopeId: monitorScopeId)

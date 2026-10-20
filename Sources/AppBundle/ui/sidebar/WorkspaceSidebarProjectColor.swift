@@ -9,10 +9,6 @@ func workspaceSidebarProjectHue(projectId: WorkspaceProjectId) -> Double {
     return Double(hash % 360) / 360.0
 }
 
-func workspaceSidebarProjectColor(projectId: WorkspaceProjectId) -> Color {
-    workspaceSidebarProjectColor(projectId: projectId, configuredHex: nil)
-}
-
 func workspaceSidebarProjectColor(projectId: WorkspaceProjectId, configuredHex: String?) -> Color {
     if let configuredHex, let color = workspaceSidebarColor(hex: configuredHex) {
         return color

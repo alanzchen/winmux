@@ -22,13 +22,10 @@ let workspaceSidebarWindowRowsLeadingIndent: CGFloat = 8
 let workspaceSidebarAppIconSize: CGFloat = 14
 let workspaceSidebarAppIconTextSpacing: CGFloat = 6
 let workspaceSidebarTabGroupChildLeadingIndent: CGFloat = workspaceSidebarAppIconSize + workspaceSidebarAppIconTextSpacing - 2
-let workspaceSidebarControlHeight: CGFloat = 30
 let workspaceSidebarDropdownHeight: CGFloat = 28
 let workspaceSidebarSearchHeight: CGFloat = 28
 let workspaceSidebarDropdownCornerRadius: CGFloat = RadiusToken.card
 let workspaceSidebarDropdownPadding: CGFloat = 7
-let workspaceSidebarDropdownLabelSize: CGFloat = 11.5
-let workspaceSidebarDropdownSymbolSize: CGFloat = 10.5
 let workspaceSidebarPagerHeight: CGFloat = 32
 let workspaceSidebarWorkspaceSectionHeaderHeight: CGFloat = 32
 let workspaceSidebarWorkspaceRowHeight: CGFloat = 24
@@ -36,9 +33,7 @@ let workspaceSidebarWorkspaceSectionHeightCompact: CGFloat = 32
 let workspaceSidebarWorkspaceSectionHeightExpanded: CGFloat = 32
 let workspaceSidebarInUseOverrideEmptySectionMinHeight: CGFloat = 76
 let workspaceSidebarProjectDotFrameHeight: CGFloat = 32
-let workspaceSidebarMenuRowHeight: CGFloat = 28
 let workspaceSidebarMenuRowSpacing: CGFloat = 3
-let workspaceSidebarMenuRowHorizontalPadding: CGFloat = 10
 let workspaceSidebarHoverAnimation: Animation = MotionToken.hover
 let workspaceSidebarReducedMotionHoverAnimation: Animation = MotionToken.quick
 let workspaceSidebarProjectSwipeIntentThreshold: CGFloat = 5
@@ -48,23 +43,6 @@ let workspaceSidebarProjectSwipeFormationStart: CGFloat = 22
 let workspaceSidebarHoverOpenThresholdFraction: CGFloat = 0.75
 let workspaceSidebarDisplayEdgeCompactionMargin: CGFloat = 12
 
-struct WorkspaceSidebarProjectColorPreset: Hashable, Identifiable {
-    let name: String
-    let hex: String
-
-    var id: String { hex }
-}
-
-let workspaceSidebarProjectColorPresets: [WorkspaceSidebarProjectColorPreset] = [
-    WorkspaceSidebarProjectColorPreset(name: "Blue", hex: "#7BA3C9"),
-    WorkspaceSidebarProjectColorPreset(name: "Cyan", hex: "#6FBAB4"),
-    WorkspaceSidebarProjectColorPreset(name: "Green", hex: "#7DBF8E"),
-    WorkspaceSidebarProjectColorPreset(name: "Yellow", hex: "#C9B97A"),
-    WorkspaceSidebarProjectColorPreset(name: "Orange", hex: "#C4956E"),
-    WorkspaceSidebarProjectColorPreset(name: "Red", hex: "#C48181"),
-    WorkspaceSidebarProjectColorPreset(name: "Pink", hex: "#BF8AAE"),
-    WorkspaceSidebarProjectColorPreset(name: "Violet", hex: "#9B8FC4"),
-]
 extension WorkspaceSidebarPanel {
     func animateVisibleSidebarWidth(_ width: CGFloat, animation: Animation) {
         // Only refresh, after checking native visibility, can reveal a suppressed
@@ -764,11 +742,6 @@ extension WorkspaceSidebarPanel {
             (config.workspaceSidebar.showAppIcons && SystemDockCoordinator.shared.hidesDock(on: monitor))
     }
 
-    func workspaceSidebarPanelScreen() -> NSScreen? {
-        guard let monitor = workspaceSidebarMonitor(forScopeId: monitorScopeId) else { return nil }
-        return workspaceSidebarPanelScreen(for: monitor)
-    }
-
     func workspaceSidebarPanelScreen(for monitor: Monitor) -> NSScreen? {
         NSScreen.screens.getOrNil(
             atIndex: monitor.monitorAppKitNsScreenScreensId - 1
@@ -1297,11 +1270,6 @@ extension WorkspaceSidebarPanel {
         // Panel geometry may have just changed under a stationary cursor; hover is otherwise
         // event-driven from the pointer monitors.
         scheduleHoverRecheckSoon()
-    }
-
-    func refreshForCurrentDragIfNeeded() {
-        guard isMouseWindowDragInProgress() else { return }
-        WorkspaceSidebarPanel.refreshAll()
     }
 
     func resetHiddenSidebarState() {

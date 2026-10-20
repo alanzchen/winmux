@@ -18,12 +18,6 @@ struct WorkspaceSidebarDropDestinationIdentity: Equatable {
         topologyGeneration = MonitorConfigurationObserver.shared.topologyGeneration
     }
 
-    init(monitorScopeId: String, displayIdentity: MonitorDisplayIdentity?, topologyGeneration: UInt64) {
-        self.monitorScopeId = monitorScopeId
-        self.displayIdentity = displayIdentity
-        self.topologyGeneration = topologyGeneration
-    }
-
     /// The display, if it's still the one the list showed.
     @MainActor
     func resolve() -> Monitor? {

@@ -13,7 +13,6 @@ final class WorkspaceSidebarPinIntegrationTest: XCTestCase {
     private let safariId = "com.apple.Safari"
     private lazy var notebook = TestApp(pid: 19101, bundleId: notebookId, name: "Notebook")
     private lazy var safari = TestApp(pid: 19201, bundleId: safariId, name: "Safari")
-    private lazy var editor = TestApp(pid: 19301, bundleId: "com.example.editor", name: "Editor")
     private let getAddress = "tell application \"Notebook\" to return URL of front note"
     private let getName = "tell application \"Notebook\" to return name of front note"
     private let openItem = "tell application \"Notebook\" to open location \"$0\""

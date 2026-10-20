@@ -199,12 +199,6 @@ extension EnvironmentValues {
     }
 }
 
-struct WorkspaceSidebarDockContextReader<Content: View>: View {
-    @Environment(\.workspaceSidebarDockLayoutContext) private var context
-    @ViewBuilder let content: (WorkspaceSidebarDockLayoutContext) -> Content
-    var body: some View { content(context) }
-}
-
 func workspaceSidebarIndicatorLeadingOffset(tileSize: CGFloat, railWidth: CGFloat) -> CGFloat {
     // Leading alignment places the dot's left edge at zero; subtract its radius too.
     -max(railWidth - tileSize, 0) / 4 - workspaceSidebarIndicatorDiameter(railWidth: railWidth) / 2
