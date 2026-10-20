@@ -735,6 +735,6 @@ final class BrowserTabIconCacheTest: XCTestCase {
         XCTAssertLessThanOrEqual(recency.count, 8)
         XCTAssertEqual(recency.peek(99, now: 1), 99, "The most recent stay")
         XCTAssertNil(recency.peek(0, now: 1))
-        XCTAssertNil(recency.value(99, now: 20), "Unused for its lifetime")
+        XCTAssertNil(recency.peek(99, now: 20), "Unused for its lifetime")
     }
 }

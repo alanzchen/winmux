@@ -57,7 +57,7 @@ struct BrowserTabChromeIconGate {
     mutating func retain(_ targets: Set<BrowserTabTarget>) { states = states.filter { targets.contains($0.key) } }
 }
 
-/// At most `capacity` values, each dropped `lifetime` after its last use, least recently used
+/// At most `capacity` values, each dropped `lifetime` after it was last set, least recently set
 /// first: for indexes that must not grow with browsing history.
 struct BrowserTabRecency<Key: Hashable, Value> {
     private var entries: [Key: (value: Value, used: TimeInterval)] = [:]
@@ -70,18 +70,6 @@ struct BrowserTabRecency<Key: Hashable, Value> {
     }
 
     var count: Int { entries.count }
-    var values: [Value] { entries.values.map(\.value) }
-
-    /// The value, which counts as a use.
-    mutating func value(_ key: Key, now: TimeInterval) -> Value? {
-        guard let entry = entries[key] else { return nil }
-        guard now - entry.used < lifetime else {
-            entries[key] = nil
-            return nil
-        }
-        entries[key]?.used = now
-        return entry.value
-    }
 
     func peek(_ key: Key, now: TimeInterval) -> Value? {
         entries[key].flatMap { now - $0.used < lifetime ? $0.value : nil }
@@ -94,10 +82,6 @@ struct BrowserTabRecency<Key: Hashable, Value> {
         let kept = entries.filter { now - $0.value.used < lifetime }
             .sorted { $0.value.used > $1.value.used }.prefix(max(1, capacity - capacity / 8))
         entries = Dictionary(uniqueKeysWithValues: kept.map { ($0.key, $0.value) })
-    }
-
-    mutating func removeAll(where shouldRemove: (Key, Value) -> Bool) {
-        entries = entries.filter { !shouldRemove($0.key, $0.value.value) }
     }
 
     mutating func removeAll() { entries = [:] }
