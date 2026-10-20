@@ -55,10 +55,7 @@ struct WorkspaceSidebarDockAnimationHost<Surface: Shape, Content: View>: View {
             WorkspaceSidebarDockDisplayLink(controller: motion, blockers: blockers,
                 horizontal: configuration.dockPosition == .bottom,
                 containsPointer: { [shape, hitRegions] point in
-                    let insideSurface = hitRegions.surface.map { surface in
-                        surface.contains(point) && shape.path(in: surface).contains(point)
-                    } ?? false
-                    return insideSurface || hitRegions.icons.contains { $0.contains(point) }
+                    workspaceSidebarDockContainsPointer(point, shape: shape, hitRegions: hitRegions)
                 }, onFrame: { frame = $0 })
         }
     }
@@ -69,6 +66,18 @@ struct WorkspaceSidebarDockAnimationHost<Surface: Shape, Content: View>: View {
         else { return nil }
         return point
     }
+}
+
+/// Whether native pointer input at `point` is over the Dock: inside its glass surface's shape, or on
+/// an icon protruding past it. The panel also covers transparent space beside and above the Dock,
+/// which doesn't magnify.
+@MainActor
+func workspaceSidebarDockContainsPointer(_ point: CGPoint, shape: some Shape,
+                                         hitRegions: WorkspaceSidebarDockHitRegions) -> Bool {
+    let insideSurface = hitRegions.surface.map { surface in
+        surface.contains(point) && shape.path(in: surface).contains(point)
+    } ?? false
+    return insideSurface || hitRegions.icons.contains { $0.contains(point) }
 }
 
 private struct WorkspaceSidebarDockOverflowFrame: ViewModifier {

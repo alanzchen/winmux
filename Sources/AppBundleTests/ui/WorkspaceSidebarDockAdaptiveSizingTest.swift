@@ -143,12 +143,16 @@ final class WorkspaceSidebarDockAdaptiveSizingTest: XCTestCase {
         let fit = view.dockLayout(availableHeight: 340)
         XCTAssertLessThan(fit.dockIconSize, snapshot.configuration.dockIconSize)
         XCTAssertEqual(view.dockMagnificationOverflow(layout: fit), fit.dockMagnificationOverflow)
+        XCTAssertEqual(view.dockMagnificationBlockers, [])
         let surface = CGRect(x: 0, y: 0, width: fit.compactRailWidth, height: 340)
         let fittedShape = RoundedRectangle(cornerRadius: fit.compactRailWidth / 3, style: .continuous).path(in: surface)
+        let hitRegions = WorkspaceSidebarDockHitRegions()
+        hitRegions.surface = surface
+        let shape = view.sidebarShape(layout: fit)
         for x: CGFloat in stride(from: 0, through: surface.maxX, by: 1) {
             for y: CGFloat in stride(from: 0, through: fit.compactRailWidth / 2, by: 1) {
                 let point = CGPoint(x: x, y: y)
-                XCTAssertEqual(view.dockMagnificationPointer(point, in: surface, layout: fit) != nil,
+                XCTAssertEqual(workspaceSidebarDockContainsPointer(point, shape: shape, hitRegions: hitRegions),
                     fittedShape.contains(point))
             }
         }

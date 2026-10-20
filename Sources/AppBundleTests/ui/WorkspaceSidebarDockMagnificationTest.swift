@@ -246,26 +246,35 @@ final class WorkspaceSidebarDockMagnificationTest: XCTestCase {
         snapshot.configuration.expandedWidth = 240
         snapshot.visibleWidth = 64
         let view = WorkspaceSidebarView(snapshot: snapshot)
+        XCTAssertEqual(view.dockMagnificationBlockers, [], "The resting Dock magnifies")
         let surface = workspaceSidebarSurfaceFrame(availableSize: CGSize(width: 240, height: 900),
             visibleWidth: 64, compactHeight: 400, expansionProgress: 0, fitsDockContent: true)
+        let shape = view.sidebarShape(layout: snapshot.configuration)
+        let hitRegions = WorkspaceSidebarDockHitRegions()
+        hitRegions.surface = surface
+        // As native input does: only a point over the Dock reaches its motion.
+        func accepted(_ point: CGPoint) -> CGPoint? {
+            workspaceSidebarDockContainsPointer(point, shape: shape, hitRegions: hitRegions) ? point : nil
+        }
         let inside = CGPoint(x: 32, y: surface.midY)
-        XCTAssertEqual(view.dockMagnificationPointer(inside, in: surface, layout: snapshot.configuration), inside)
+        XCTAssertEqual(accepted(inside), inside)
         let layout = WorkspaceSidebarDockMagnification(itemSize: 40, count: 3, enabled: true)
         for outside in [CGPoint(x: 65, y: inside.y), CGPoint(x: 230, y: inside.y),
                         CGPoint(x: -1, y: inside.y), CGPoint(x: 32, y: surface.minY - 1),
                         CGPoint(x: 32, y: surface.maxY + 1), CGPoint(x: 1, y: surface.minY + 1)] {
-            let pointer = view.dockMagnificationPointer(outside, in: surface, layout: snapshot.configuration)
+            let pointer = accepted(outside)
             XCTAssertNil(pointer, "Transparent panel space must not magnify icons: \(outside)")
             XCTAssertEqual(layout.frames(width: 50, pointerY: pointer?.y).map(\.width), [40, 40, 40])
         }
-        XCTAssertNil(view.dockMagnificationPointer(nil, in: surface, layout: snapshot.configuration))
         let protrudingIcon = CGRect(x: 12, y: inside.y - 40, width: 80, height: 80)
+        hitRegions.icons = [protrudingIcon]
         let onIcon = CGPoint(x: 80, y: inside.y)
-        XCTAssertEqual(view.dockMagnificationPointer(onIcon, in: surface, layout: snapshot.configuration, iconFrames: [protrudingIcon]), onIcon)
-        XCTAssertNil(view.dockMagnificationPointer(CGPoint(x: 95, y: inside.y), in: surface, layout: snapshot.configuration, iconFrames: [protrudingIcon]))
-        XCTAssertNil(view.dockMagnificationPointer(CGPoint(x: 80, y: inside.y + 50), in: surface, layout: snapshot.configuration, iconFrames: [protrudingIcon]))
+        XCTAssertEqual(accepted(onIcon), onIcon)
+        XCTAssertNil(accepted(CGPoint(x: 95, y: inside.y)))
+        XCTAssertNil(accepted(CGPoint(x: 80, y: inside.y + 50)))
         snapshot.visibleWidth = 240
-        XCTAssertNil(WorkspaceSidebarView(snapshot: snapshot).dockMagnificationPointer(inside, in: surface, layout: snapshot.configuration, iconFrames: [protrudingIcon]))
+        XCTAssertTrue(WorkspaceSidebarView(snapshot: snapshot).dockMagnificationBlockers.contains(.expanded),
+            "The expanded sidebar doesn't magnify, wherever the pointer is")
     }
 
     func testNativeIconAnchorsMatchMagnifiedRenderingForHitTargets() throws {

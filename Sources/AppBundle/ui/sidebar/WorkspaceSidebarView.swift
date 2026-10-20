@@ -1492,16 +1492,6 @@ extension WorkspaceSidebarView {
         dockSurfaceProgress == 0 && projectSwipeTranslation == 0 ? layout.dockMagnificationOverflow : 0
     }
 
-    func dockMagnificationPointer(_ pointer: CGPoint?, in surfaceFrame: CGRect,
-                                  layout: WorkspaceSidebarConfiguration, iconFrames: [CGRect] = []) -> CGPoint? {
-        // The panel also covers transparent space beside and above the compact Dock.
-        // Only the glass surface and actual protruding icons own hover magnification.
-        guard allowsDockMagnification, let pointer,
-              sidebarShape(layout: layout).path(in: surfaceFrame).contains(pointer) || iconFrames.contains(where: { $0.contains(pointer) })
-        else { return nil }
-        return pointer
-    }
-
     func dockColumnGrowth(layout: WorkspaceSidebarConfiguration) -> (CGPoint?, CGFloat, CGRect) -> CGFloat {
         guard allowsDockMagnification, dockSurfaceProgress == 0 else { return { _, _, _ in 0 } }
         let projectId = projectPagerDisplayIndex.flatMap { snapshot.projects.indices.contains($0) ? snapshot.projects[$0].id : nil } ?? snapshot.activeProjectId
