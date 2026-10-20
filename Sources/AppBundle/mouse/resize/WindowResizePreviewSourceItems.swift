@@ -11,12 +11,3 @@ func windowDragSourcePreviewItem(window: Window, subject: WindowDragSubject, fra
     }
     return WindowResizePreviewItem(window: window, rect: frame)
 }
-
-@MainActor
-func windowResizeUsesActiveTabGroupChrome(window: Window) -> Bool {
-    guard let tabGroup = window.nearestWindowTabGroup,
-          tabGroup.usesWindowTabBehavior,
-          tabGroup.tabActiveWindow == window
-    else { return false }
-    return true
-}

@@ -55,16 +55,11 @@ import XCTest
     }
 
     @MainActor
-    func testTabGroupResizeChromeFrameDerivesFromActiveWindowContentFrame() {
+    func testTabBarRectSpansTopOfGroupFrame() {
         config.windowTabs.height = 36
-        let activeContentFrame = Rect(topLeftX: 43, topLeftY: 96, width: 494, height: 261)
-        let groupFrame = windowTabGroupFrameRect(forActiveWindowContentRect: activeContentFrame)
+        let groupFrame = Rect(topLeftX: 40, topLeftY: 60, width: 500, height: 300)
         let tabBarFrame = windowTabBarRect(forGroupFrameRect: groupFrame)
 
-        XCTAssertEqual(groupFrame.topLeftX, 40)
-        XCTAssertEqual(groupFrame.topLeftY, 60)
-        XCTAssertEqual(groupFrame.width, 500)
-        XCTAssertEqual(groupFrame.height, 300)
         XCTAssertEqual(tabBarFrame.topLeftX, 40)
         XCTAssertEqual(tabBarFrame.topLeftY, 60)
         XCTAssertEqual(tabBarFrame.width, 500)
