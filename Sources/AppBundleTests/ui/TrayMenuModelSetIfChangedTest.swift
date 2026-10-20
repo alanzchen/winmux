@@ -13,15 +13,15 @@ final class TrayMenuModelSetIfChangedTest: XCTestCase {
         let subscription = model.objectWillChange.sink { publishCount += 1 }
         defer { subscription.cancel() }
 
-        model.setIfChanged(\.trayText, "A")
+        model.setIfChanged(\.workspaceSidebarFocusedMonitorScopeId, "A")
         XCTAssertEqual(publishCount, 1)
 
         // Same value again: no publish, no view invalidation.
-        model.setIfChanged(\.trayText, "A")
-        model.setIfChanged(\.trayText, "A")
+        model.setIfChanged(\.workspaceSidebarFocusedMonitorScopeId, "A")
+        model.setIfChanged(\.workspaceSidebarFocusedMonitorScopeId, "A")
         XCTAssertEqual(publishCount, 1)
 
-        model.setIfChanged(\.trayText, "B")
+        model.setIfChanged(\.workspaceSidebarFocusedMonitorScopeId, "B")
         XCTAssertEqual(publishCount, 2)
 
         model.setIfChanged(\.workspaceSidebarHoveredWorkspaceName, nil)

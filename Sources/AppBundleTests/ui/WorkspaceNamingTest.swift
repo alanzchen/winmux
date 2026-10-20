@@ -36,26 +36,6 @@ final class WorkspaceNamingTest: XCTestCase {
         XCTAssertEqual(sanitized, "live")
     }
 
-    func testTrayItemDisablesRawWorkspaceIconWhenDisplayNameIsCustom() {
-        let renamedWorkspace = TrayItem(
-            type: .workspace,
-            name: "1",
-            displayName: "Code",
-            isActive: true,
-            hasFullscreenWindows: false,
-        )
-        let plainWorkspace = TrayItem(
-            type: .workspace,
-            name: "1",
-            displayName: "1",
-            isActive: true,
-            hasFullscreenWindows: false,
-        )
-
-        XCTAssertNil(renamedWorkspace.systemImageName)
-        XCTAssertEqual(plainWorkspace.systemImageName, "1.square.fill")
-    }
-
     func testAutomaticNumericWorkspaceDisplayNamesCompactLiveWorkspaceSet() {
         let first = Workspace.get(byName: "3")
         first.markAsAutomaticallyNamed()

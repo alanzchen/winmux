@@ -187,8 +187,6 @@ final class WorkspaceSidebarPanel: NSPanelHud, WorkspaceSidebarInputOwner {
         // never synced. experimentalUISettings is stateless (reads UserDefaults live) and only
         // the menu bar icon observes it, so it isn't synced either.
         viewModel.refreshWorkspaceSidebarAppearance(displayName: sidebarDisplayName)
-        viewModel.setIfChanged(\.trayText, TrayMenuModel.shared.trayText)
-        viewModel.setIfChanged(\.trayItems, TrayMenuModel.shared.trayItems)
         viewModel.setIfChanged(\.isEnabled, TrayMenuModel.shared.isEnabled)
         viewModel.setIfChanged(\.workspaces, TrayMenuModel.shared.workspaces)
         viewModel.setIfChanged(\.workspaceSidebarWorkspaces, TrayMenuModel.shared.workspaceSidebarWorkspaces)
