@@ -3,8 +3,8 @@ import Common
 
 final class Workspace: TreeNode, NonLeafTreeNodeObject, Hashable, Comparable {
     let id: WorkspaceId
-    private(set) var name: String
-    nonisolated private var nameLogicalSegments: StringLogicalSegments
+    let name: String
+    nonisolated private let nameLogicalSegments: StringLogicalSegments
     private(set) var namingStyle: WorkspaceNamingStyle = .explicit
     var projectId: WorkspaceProjectId = workspaceProjectDefaultId
     var preferredMonitorPoint: CGPoint?
