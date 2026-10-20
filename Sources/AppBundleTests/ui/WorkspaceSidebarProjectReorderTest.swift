@@ -121,8 +121,9 @@ final class WorkspaceSidebarProjectReorderTest: XCTestCase {
         XCTAssertEqual(parseConfig(rewritten).0.workspaceSidebar.projectOrder, ["c[d", "a]b"])
 
         // A line whose quote never closes is invalid TOML; its first # still counts as the comment.
-        XCTAssertEqual(updateWorkspaceSidebarProjectDeletionActionConfig(
-            in: "[workspace-sidebar]\n    project-deletion-action = 'close # keep\n", action: .moveWindowsToFallback),
+        XCTAssertEqual(updateWorkspaceSidebarScalarConfig(
+            in: "[workspace-sidebar]\n    project-deletion-action = 'close # keep\n", key: "project-deletion-action",
+            renderedValue: "'\(WorkspaceProjectDeletionAction.moveWindowsToFallback.rawValue)'"),
             "[workspace-sidebar]\n    project-deletion-action = 'move-windows-to-fallback' # keep\n")
 
         let unclosed = "[workspace-sidebar]\n    project-order = [\n        'default',\n\n[workspace-sidebar.project-labels]\n    \"project-1\" = \"Research\"\n"

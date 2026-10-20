@@ -42,7 +42,7 @@ final class WorkspaceSidebarDropDestinationControllerTest: XCTestCase {
         let tab = try fixture(displays: 1)
         beginDrag(tab)
         XCTAssertFalse(controller.isActive)
-        XCTAssertTrue(WorkspaceSidebarTemporaryDropSurfaces.shared.isEmpty, "Nothing is made")
+        XCTAssertTrue(WorkspaceSidebarTemporaryDropSurfaces.shared.surfaces.isEmpty, "Nothing is made")
     }
 
     func testAPauseOnTheOtherDisplaysHintOpensItsListBesideTheSidebar() throws {
@@ -55,9 +55,9 @@ final class WorkspaceSidebarDropDestinationControllerTest: XCTestCase {
         XCTAssertNil(workspaceSidebarSurfaceHit(at: normalizeAppKitScreenPoint(hint.center)).target, "Hints take no drop")
 
         controller.tick(pointer: hint.center, now: 10, elapsed: 0)
-        XCTAssertNil(controller.openId, "Passing over it opens nothing yet")
+        XCTAssertNil(controller.state.openId, "Passing over it opens nothing yet")
         controller.tick(pointer: hint.center, now: 10 + workspaceSidebarDropDestinationDwell, elapsed: 0.22)
-        XCTAssertEqual(controller.openId, right)
+        XCTAssertEqual(controller.state.openId, right)
         let column = try XCTUnwrap(controller.layout?.column)
         XCTAssertEqual(controller.columnPanel.dropDestination?.monitorScopeId, right)
         XCTAssertTrue(controller.columnPanel.isVisible)
@@ -89,7 +89,7 @@ final class WorkspaceSidebarDropDestinationControllerTest: XCTestCase {
         controller.tick(pointer: hint.center, now: 30.05, elapsed: 0.016)
         XCTAssertEqual(controller.processedFrames, armed, "Before its deadline a still pointer does nothing")
         controller.tick(pointer: hint.center, now: 30 + workspaceSidebarDropDestinationDwell, elapsed: 0.016)
-        XCTAssertEqual(controller.openId, right)
+        XCTAssertEqual(controller.state.openId, right)
     }
 
     func testTheHintsPublishOnlyWhenTheyLookDifferent() throws {
@@ -122,7 +122,7 @@ final class WorkspaceSidebarDropDestinationControllerTest: XCTestCase {
         MonitorConfigurationObserver.shared.noteDisplayChangeForTests()
         controller.tick(pointer: CGPoint(x: 5000, y: 5000), now: 60, elapsed: 0.016)
         XCTAssertFalse(controller.isActive)
-        XCTAssertTrue(WorkspaceSidebarTemporaryDropSurfaces.shared.isEmpty)
+        XCTAssertTrue(WorkspaceSidebarTemporaryDropSurfaces.shared.surfaces.isEmpty)
         XCTAssertFalse(controller.columnPanel.isVisible)
         updateSidebarPinnedTabDrag(tab.name, pointer: .zero)
         XCTAssertFalse(controller.isActive, "The same gesture can't bring it back")
@@ -139,7 +139,7 @@ final class WorkspaceSidebarDropDestinationControllerTest: XCTestCase {
         try open()
         XCTAssertTrue(workspaceSidebarHandleEscapeDuringDrag(keyCode: 53))
         XCTAssertFalse(controller.isActive)
-        XCTAssertTrue(WorkspaceSidebarTemporaryDropSurfaces.shared.isEmpty)
+        XCTAssertTrue(WorkspaceSidebarTemporaryDropSurfaces.shared.surfaces.isEmpty)
         XCTAssertFalse(controller.columnPanel.isVisible)
         XCTAssertFalse(controller.hintPanel.isVisible)
         XCTAssertNil(controller.columnPanel.model.snapshot, "Its content goes too")
@@ -151,7 +151,7 @@ final class WorkspaceSidebarDropDestinationControllerTest: XCTestCase {
         try open()
         finishSidebarPinnedTabDrag(tab.name, pointer: CGPoint(x: -9000, y: -9000))
         XCTAssertFalse(controller.isActive)
-        XCTAssertTrue(WorkspaceSidebarTemporaryDropSurfaces.shared.isEmpty)
+        XCTAssertTrue(WorkspaceSidebarTemporaryDropSurfaces.shared.surfaces.isEmpty)
         XCTAssertTrue(workspacePinnedTabs(in: tab.projectId).contains(tab), "Released away from everything: nothing moved")
     }
 
@@ -257,7 +257,7 @@ final class WorkspaceSidebarDropDestinationControllerTest: XCTestCase {
         XCTAssertEqual(controller.hints.last?.id, far)
         controller.tick(pointer: farHint.center, now: 200, elapsed: 0.016)
         controller.tick(pointer: farHint.center, now: 200 + workspaceSidebarDropDestinationDwell, elapsed: 0.22)
-        XCTAssertEqual(controller.openId, far)
+        XCTAssertEqual(controller.state.openId, far)
         XCTAssertNotEqual(controller.columnPanel.surfaceRef, first, "A new list, a new surface")
         XCTAssertTrue(controller.columnPanel.targets.isEmpty, "None until its own are laid out")
         controller.columnPanel.setTargets([.init(kind: .workspace("r"), frame: row)], reportedFor: first)
@@ -410,11 +410,11 @@ final class WorkspaceSidebarDropDestinationControllerTest: XCTestCase {
             XCTAssertNil(hit.target, "\(label): a rail takes no drop")
             controller.tick(pointer: point, now: now, elapsed: 0.016)
             controller.tick(pointer: point, now: now + workspaceSidebarDropDestinationDwell, elapsed: 0.22)
-            XCTAssertEqual(controller.openId, right, label)
+            XCTAssertEqual(controller.state.openId, right, label)
             // Away long enough to close, for the next.
             controller.tick(pointer: CGPoint(x: 7000, y: 7000), now: now + 1, elapsed: 0.016)
             controller.tick(pointer: CGPoint(x: 7000, y: 7000), now: now + 2, elapsed: 0.016)
-            XCTAssertNil(controller.openId, label)
+            XCTAssertNil(controller.state.openId, label)
             now += 10
         }
     }
@@ -433,7 +433,7 @@ final class WorkspaceSidebarDropDestinationControllerTest: XCTestCase {
         var now: TimeInterval = 600
         while x < column.midX {
             controller.tick(pointer: CGPoint(x: x, y: rails[0].midY), now: now, elapsed: 0.016)
-            XCTAssertEqual(controller.openId, right, "At x=\(x)")
+            XCTAssertEqual(controller.state.openId, right, "At x=\(x)")
             x += 3
             now += 0.016
         }
@@ -451,9 +451,9 @@ final class WorkspaceSidebarDropDestinationControllerTest: XCTestCase {
         let second = try XCTUnwrap(controller.layout?.hints.last)
         let point = CGPoint(x: second.midX, y: second.minY + 40)
         controller.tick(pointer: point, now: 700, elapsed: 0.016)
-        XCTAssertEqual(controller.openId, right, "Not yet")
+        XCTAssertEqual(controller.state.openId, right, "Not yet")
         controller.tick(pointer: point, now: 700 + workspaceSidebarDropDestinationDwell, elapsed: 0.22)
-        XCTAssertEqual(controller.openId, far)
+        XCTAssertEqual(controller.state.openId, far)
         XCTAssertEqual(controller.columnPanel.dropDestination?.monitorScopeId, far)
         XCTAssertEqual(controller.layout?.hints, rails, "Switching lists moved no rail: the list's width is the drag's")
     }
@@ -472,7 +472,7 @@ final class WorkspaceSidebarDropDestinationControllerTest: XCTestCase {
             controller.tick(pointer: CGPoint(x: rail.midX, y: y), now: 800 + Double(index) * 0.016, elapsed: 0.016)
         }
         XCTAssertEqual(publications, 0)
-        XCTAssertEqual(controller.openId, right)
+        XCTAssertEqual(controller.state.openId, right)
     }
 
     /// Astra R1.1: a pointer resting on a rail stays with that rail's display through the list
@@ -484,11 +484,11 @@ final class WorkspaceSidebarDropDestinationControllerTest: XCTestCase {
         let point = CGPoint(x: before[0].midX, y: before[0].midY)
         controller.tick(pointer: point, now: 900, elapsed: 0.016)
         controller.tick(pointer: point, now: 900 + workspaceSidebarDropDestinationDwell, elapsed: 0.22)
-        XCTAssertEqual(controller.openId, right)
+        XCTAssertEqual(controller.state.openId, right)
         XCTAssertEqual(controller.layout?.hints, before, "Opening the list moved no rail")
         for later in [0.5, 1.0, 2.0, 5.0] {
             controller.tick(pointer: point, now: 900 + later, elapsed: 0.016)
-            XCTAssertEqual(controller.openId, right, "Still, at +\(later) s")
+            XCTAssertEqual(controller.state.openId, right, "Still, at +\(later) s")
         }
     }
 
@@ -501,7 +501,7 @@ final class WorkspaceSidebarDropDestinationControllerTest: XCTestCase {
         XCTAssertNotEqual(workspaceSidebarSurface(at: normalizeAppKitScreenPoint(gap))?.surface, controller.hintPanel.surfaceRef)
         controller.tick(pointer: gap, now: 950, elapsed: 0.016)
         controller.tick(pointer: gap, now: 951, elapsed: 0.016)
-        XCTAssertNil(controller.openId)
+        XCTAssertNil(controller.state.openId)
     }
 
     /// The sidebar getting shorter mid-drag: its rails follow it, and the list keeps a usable height.
@@ -515,7 +515,7 @@ final class WorkspaceSidebarDropDestinationControllerTest: XCTestCase {
         let rail = try XCTUnwrap(controller.layout?.hints.first)
         XCTAssertEqual(rail.height, 150, accuracy: 0.5)
         XCTAssertGreaterThanOrEqual(controller.layout?.column?.height ?? 0, workspaceSidebarDropDestinationMinColumnHeight)
-        XCTAssertEqual(controller.openId, right)
+        XCTAssertEqual(controller.state.openId, right)
         XCTAssertTrue(controller.columnPanel.isVisible)
     }
 
@@ -540,7 +540,7 @@ final class WorkspaceSidebarDropDestinationControllerTest: XCTestCase {
         }
         XCTAssertGreaterThan(samples, 60)
         XCTAssertLessThanOrEqual(publications, 4, "Entering and leaving the one rail crossed, at most")
-        XCTAssertEqual(controller.openId, right)
+        XCTAssertEqual(controller.state.openId, right)
     }
 
     /// A display that went away has no rail: the next drag shows only the displays still there.
@@ -683,7 +683,7 @@ final class WorkspaceSidebarDropDestinationControllerTest: XCTestCase {
         let hint = try XCTUnwrap(controller.layout?.hints.first)
         controller.tick(pointer: hint.center, now: 100, elapsed: 0)
         controller.tick(pointer: hint.center, now: 100 + workspaceSidebarDropDestinationDwell, elapsed: 0.22)
-        XCTAssertEqual(controller.openId, right)
+        XCTAssertEqual(controller.state.openId, right)
     }
 }
 

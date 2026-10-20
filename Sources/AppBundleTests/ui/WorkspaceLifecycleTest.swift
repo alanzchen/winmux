@@ -76,7 +76,7 @@ final class WorkspaceLifecycleTest: XCTestCase {
         _ = sourceWorkspace.focusWorkspace()
         Workspace.reconcileWorkspaceState()
 
-        XCTAssertTrue(createWorkspaceFromSidebarDrag(sourceNode: movedWindow, sourceWindow: movedWindow))
+        XCTAssertTrue(createWorkspaceFromSidebarDrag(sourceNode: movedWindow, sourceWindow: movedWindow, projectId: nil, monitorScopeId: nil))
 
         XCTAssertFalse(Workspace.existing(byName: deletedBlank.name) === deletedBlank)
         XCTAssertEqual(movedWindow.nodeWorkspace?.name, "2")

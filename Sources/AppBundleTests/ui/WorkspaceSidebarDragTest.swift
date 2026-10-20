@@ -490,21 +490,6 @@ final class WorkspaceSidebarDragTest: XCTestCase {
         XCTAssertFalse(shouldHandleWorkspaceSidebarActivation(isEditing: false, isSidebarDragInProgress: true))
     }
 
-    func testWorkspaceSidebarActivationBlocksWhileAnyWorkspaceIsEditing() {
-        XCTAssertFalse(
-            shouldHandleWorkspaceSidebarActivation(
-                editingWorkspaceName: "a",
-                isSidebarDragInProgress: false,
-            ),
-        )
-        XCTAssertTrue(
-            shouldHandleWorkspaceSidebarActivation(
-                editingWorkspaceName: nil,
-                isSidebarDragInProgress: false,
-            ),
-        )
-    }
-
     func testProjectSwipeDirectionRequiresHorizontalIntent() {
         XCTAssertEqual(
             workspaceSidebarProjectSwipeDirection(horizontalTranslation: -40, verticalTranslation: 4),

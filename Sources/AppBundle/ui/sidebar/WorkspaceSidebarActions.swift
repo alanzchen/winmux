@@ -247,11 +247,6 @@ func openNewTabFromSidebar(projectId: WorkspaceProjectId, monitorScopeId: String
 }
 
 @MainActor
-func createWorkspaceFromSidebarDrag(sourceNode: TreeNode, sourceWindow: Window) -> Bool {
-    createWorkspaceFromSidebarDrag(sourceNode: sourceNode, sourceWindow: sourceWindow, projectId: nil, monitorScopeId: nil)
-}
-
-@MainActor
 func createWorkspaceFromSidebarDrag(
     sourceNode: TreeNode,
     sourceWindow: Window,

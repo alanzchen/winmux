@@ -356,3 +356,8 @@ private final class DockAnchorProbe {
 private final class DockClickHostingView<Content: View>: NSHostingView<Content> {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }
+
+private extension WorkspaceSidebarDockMagnification {
+    /// The pointer position over the centre of a resting icon.
+    func restingCenter(_ index: Int) -> CGFloat { itemSize / 2 + CGFloat(index) * pitch }
+}

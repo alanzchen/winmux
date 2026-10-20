@@ -1524,10 +1524,6 @@ extension WorkspaceSidebarView {
         }
     }
 
-    var compactDockContentHeight: CGFloat {
-        compactDockContentHeight(layout: snapshot.configuration)
-    }
-
     func compactDockContentHeight(layout: WorkspaceSidebarConfiguration) -> CGFloat {
         let reminderCount = hiddenWorkspaceAppReminders.count
         return dockSizingPages.map { workspaces in

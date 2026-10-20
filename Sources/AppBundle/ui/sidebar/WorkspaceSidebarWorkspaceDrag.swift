@@ -23,23 +23,6 @@ struct WorkspaceSidebarWorkspaceDragPayload: Codable, Equatable, Sendable {
         item.setData(data, forType: NSPasteboard.PasteboardType(UTType.data.identifier))
         return item
     }
-
-    var itemProvider: NSItemProvider {
-        let provider = NSItemProvider()
-        let data = try? JSONEncoder().encode(self)
-        provider.registerDataRepresentation(forTypeIdentifier: workspaceSidebarWorkspaceDragType,
-                                            visibility: .ownProcess) { completion in
-            completion(data, nil)
-            return nil
-        }
-        return provider
-    }
-
-    static func load(from provider: NSItemProvider, completion: @escaping @MainActor (Self) -> Void) {
-        WorkspaceSidebarNativeDragItem.load(from: provider) { item in
-            if case .workspace(let workspaceName) = item { completion(Self(workspaceName: workspaceName)) }
-        }
-    }
 }
 
 // Project column headers drag their project to reorder the columns.

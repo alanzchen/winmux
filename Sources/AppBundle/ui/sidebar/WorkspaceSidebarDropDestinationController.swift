@@ -66,7 +66,6 @@ final class WorkspaceSidebarDropDestinationController {
     private(set) lazy var columnPanel = WorkspaceSidebarDropDestinationColumnPanel()
 
     var isActive: Bool { sessionGeneration != nil }
-    var openId: String? { state.openId }
 
     /// Called by each accepted update of a supported drag.
     func noteDragUpdate() {

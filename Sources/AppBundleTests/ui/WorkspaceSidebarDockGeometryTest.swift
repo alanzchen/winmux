@@ -175,7 +175,8 @@ final class WorkspaceSidebarDockGeometryTest: XCTestCase {
         snapshot.configuration.dockMagnificationAmount = 1
         let resting = render(snapshot, height: 800)
         let pointer = CGPoint(x: 32, y: try XCTUnwrap(resting.probe.icons.first).midY)
-        let compactHeight = WorkspaceSidebarView(snapshot: snapshot).compactDockContentHeight
+        let restingView = WorkspaceSidebarView(snapshot: snapshot)
+        let compactHeight = restingView.compactDockContentHeight(layout: restingView.dockLayout(availableHeight: 800))
         let progress: CGFloat = 0.001
         snapshot.visibleWidth = 64 + 176 * progress
         let probe = DockGeometryProbe()
@@ -237,7 +238,8 @@ final class WorkspaceSidebarDockGeometryTest: XCTestCase {
 
     func testNativeSurfaceAndDropTargetsUseTheSameCenteredCoordinates() throws {
         var snapshot = fixture()
-        let expectedCompactHeight = WorkspaceSidebarView(snapshot: snapshot).compactDockContentHeight
+        let restingView = WorkspaceSidebarView(snapshot: snapshot)
+        let expectedCompactHeight = restingView.compactDockContentHeight(layout: restingView.dockLayout(availableHeight: 800))
         XCTAssertLessThan(expectedCompactHeight, 800)
         for progress: CGFloat in [0, 0.25, 1] {
             snapshot.visibleWidth = 64 + 176 * progress

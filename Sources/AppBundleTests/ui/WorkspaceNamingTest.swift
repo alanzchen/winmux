@@ -211,7 +211,7 @@ final class WorkspaceNamingTest: XCTestCase {
         let window = TestWindow.new(id: 5, parent: first.rootTilingContainer)
         _ = first.focusWorkspace()
 
-        XCTAssertTrue(createWorkspaceFromSidebarDrag(sourceNode: window, sourceWindow: window))
+        XCTAssertTrue(createWorkspaceFromSidebarDrag(sourceNode: window, sourceWindow: window, projectId: nil, monitorScopeId: nil))
         XCTAssertNotNil(Workspace.existing(byName: "2"))
         XCTAssertNil(Workspace.existing(byName: "__sidebar_draft_workspace_1"))
         XCTAssertEqual(focus.workspace.name, "1")

@@ -111,8 +111,8 @@ extension ConfigTest {
         XCTAssertTrue(updated.contains("[mode.main.binding]"))
     }
 
-    func testUpdateWorkspaceSidebarMenuBarReserveConfigAddsValueToExistingSection() {
-        let updated = updateWorkspaceSidebarMenuBarReserveConfig(
+    func testUpdateWorkspaceSidebarScalarConfigAddsMenuBarReserveToExistingSection() {
+        let updated = updateWorkspaceSidebarScalarConfig(
             in: """
             [workspace-sidebar]
                 enabled = true
@@ -121,35 +121,38 @@ extension ConfigTest {
             [mode.main.binding]
                 alt-h = 'focus left'
             """,
-            height: 32,
+            key: "menu-bar-reserve-height",
+            renderedValue: "32",
         )
 
         XCTAssertTrue(updated.contains("[workspace-sidebar]\n    menu-bar-reserve-height = 32\n    enabled = true"))
         XCTAssertTrue(updated.contains("[mode.main.binding]"))
     }
 
-    func testUpdateWorkspaceSidebarMenuBarReserveConfigReplacesValueAndPreservesComment() {
-        let updated = updateWorkspaceSidebarMenuBarReserveConfig(
+    func testUpdateWorkspaceSidebarScalarConfigReplacesMenuBarReserveAndPreservesComment() {
+        let updated = updateWorkspaceSidebarScalarConfig(
             in: """
             [workspace-sidebar]
                 menu-bar-reserve-height = 28 # visible menu bar
                 enabled = true
             """,
-            height: 0,
+            key: "menu-bar-reserve-height",
+            renderedValue: "0",
         )
 
         XCTAssertTrue(updated.contains("menu-bar-reserve-height = 0 # visible menu bar"))
         XCTAssertFalse(updated.contains("menu-bar-reserve-height = 28"))
     }
 
-    func testUpdateWorkspaceSidebarProjectDeletionActionReplacesValueAndPreservesComment() {
-        let updated = updateWorkspaceSidebarProjectDeletionActionConfig(
+    func testUpdateWorkspaceSidebarScalarConfigReplacesProjectDeletionActionAndPreservesComment() {
+        let updated = updateWorkspaceSidebarScalarConfig(
             in: """
             [workspace-sidebar]
                 project-deletion-action = 'move-windows-to-fallback' # legacy
                 enabled = true
             """,
-            action: .closeWindows,
+            key: "project-deletion-action",
+            renderedValue: "'\(WorkspaceProjectDeletionAction.closeWindows.rawValue)'",
         )
 
         XCTAssertTrue(updated.contains("project-deletion-action = 'close-windows' # legacy"))

@@ -39,22 +39,22 @@ final class WorkspaceSidebarDropSurfaceTest: XCTestCase {
 
         let onHint = workspaceSidebarSurfaceHit(at: CGPoint(x: 120, y: 120))
         XCTAssertNil(onHint.target, "The hints above the row take no drop, and don't pass it down")
-        XCTAssertFalse(onHint.isOutside)
+        XCTAssertNotNil(onHint.surface)
         XCTAssertEqual(hints.lookups, 1)
         XCTAssertEqual(column.lookups, 2, "The hint's hit didn't look in the column")
 
         let blank = workspaceSidebarSurfaceHit(at: CGPoint(x: 200, y: 400))
         XCTAssertNil(blank.target, "Blank space in the list is inside it, with no drop")
-        XCTAssertFalse(blank.isOutside)
+        XCTAssertNotNil(blank.surface)
         XCTAssertEqual(workspaceSidebarSurface(at: CGPoint(x: 200, y: 400))?.rect, column.rect)
 
-        XCTAssertTrue(workspaceSidebarSurfaceHit(at: CGPoint(x: 900, y: 900)).isOutside)
+        XCTAssertNil(workspaceSidebarSurfaceHit(at: CGPoint(x: 900, y: 900)).surface)
         XCTAssertNil(workspaceSidebarSurface(at: CGPoint(x: 900, y: 900)))
 
         WorkspaceSidebarTemporaryDropSurfaces.shared.unregister(column)
         WorkspaceSidebarTemporaryDropSurfaces.shared.unregister(hints)
-        XCTAssertTrue(WorkspaceSidebarTemporaryDropSurfaces.shared.isEmpty)
-        XCTAssertTrue(workspaceSidebarSurfaceHit(at: CGPoint(x: 200, y: 120)).isOutside, "Gone with its surfaces")
+        XCTAssertTrue(WorkspaceSidebarTemporaryDropSurfaces.shared.surfaces.isEmpty)
+        XCTAssertNil(workspaceSidebarSurfaceHit(at: CGPoint(x: 200, y: 120)).surface, "Gone with its surfaces")
     }
 
     /// The inward column lies over the source sidebar: a point over both is the column's.

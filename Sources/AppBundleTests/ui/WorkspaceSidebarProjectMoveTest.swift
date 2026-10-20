@@ -137,8 +137,8 @@ final class WorkspaceSidebarProjectMoveTest: XCTestCase {
         XCTAssertFalse(WorkspaceSidebarDragPayload.window(701).itemProvider
             .hasItemConformingToTypeIdentifier(workspaceSidebarWorkspaceDragType))
         let loaded = expectation(description: "Workspace provider loads on the main actor")
-        WorkspaceSidebarWorkspaceDragPayload.load(from: provider) { decoded in
-            XCTAssertEqual(decoded, payload)
+        WorkspaceSidebarNativeDragItem.load(from: provider) { decoded in
+            XCTAssertEqual(decoded, .workspace(payload.workspaceName))
             loaded.fulfill()
         }
         await fulfillment(of: [loaded], timeout: 3)
@@ -274,5 +274,19 @@ final class WorkspaceSidebarProjectMoveTest: XCTestCase {
             actions: .init(send: { _ in rejected.fulfill() }), isTargeted: .constant(false))
         XCTAssertTrue(rejectingDelegate.performDrop(provider: unrelatedData))
         await fulfillment(of: [rejected], timeout: 0.1)
+    }
+}
+
+private extension WorkspaceSidebarWorkspaceDragPayload {
+    /// A drop's provider for this payload, under the workspace drag's own type.
+    var itemProvider: NSItemProvider {
+        let provider = NSItemProvider()
+        let data = try? JSONEncoder().encode(self)
+        provider.registerDataRepresentation(forTypeIdentifier: workspaceSidebarWorkspaceDragType,
+                                            visibility: .ownProcess) { completion in
+            completion(data, nil)
+            return nil
+        }
+        return provider
     }
 }

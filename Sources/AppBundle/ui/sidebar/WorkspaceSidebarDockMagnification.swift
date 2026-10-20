@@ -28,8 +28,6 @@ struct WorkspaceSidebarDockMagnification {
     }
     var height: CGFloat { CGFloat(count) * itemSize + CGFloat(max(count - 1, 0)) * WorkspaceSidebarAppIconLayout.spacing }
 
-    func restingCenter(_ index: Int) -> CGFloat { itemSize / 2 + CGFloat(index) * pitch }
-
     func mappedEdge(_ y: CGFloat, pointerY: CGFloat?) -> CGFloat {
         guard enabled, let pointerY, itemSize > 0 else { return y }
         let radius = 2 * pitch

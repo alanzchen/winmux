@@ -45,7 +45,6 @@ enum WorkspaceSidebarSurfaceHit {
         if case .target(let target, _) = self { target } else { nil }
     }
 
-    var isOutside: Bool { surface == nil }
     var isOnTemporarySurface: Bool { surface?.isTemporary == true }
 }
 
@@ -79,8 +78,6 @@ final class WorkspaceSidebarTemporaryDropSurfaces {
     var surfaces: [any WorkspaceSidebarTemporaryDropSurface] {
         entries.compactMap(\.surface).sorted { $0.stackingOrder > $1.stackingOrder }
     }
-
-    var isEmpty: Bool { entries.allSatisfy { $0.surface == nil } }
 
     func register(_ surface: any WorkspaceSidebarTemporaryDropSurface) {
         entries.removeAll { $0.surface == nil || $0.surface === surface }

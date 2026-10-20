@@ -203,10 +203,3 @@ func isWorkspaceSidebarDragInProgress() -> Bool {
 func shouldHandleWorkspaceSidebarActivation(isEditing: Bool, isSidebarDragInProgress: Bool) -> Bool {
     !isEditing && !isSidebarDragInProgress
 }
-
-func shouldHandleWorkspaceSidebarActivation(editingWorkspaceName: String?, isSidebarDragInProgress: Bool) -> Bool {
-    shouldHandleWorkspaceSidebarActivation(
-        isEditing: editingWorkspaceName != nil,
-        isSidebarDragInProgress: isSidebarDragInProgress,
-    )
-}

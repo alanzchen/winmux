@@ -2,31 +2,7 @@ import Foundation
 import TOMLKit
 
 private let workspaceSidebarSectionHeader = "[workspace-sidebar]"
-private let workspaceSidebarMenuBarReserveKey = "menu-bar-reserve-height"
-private let workspaceSidebarProjectDeletionActionKey = "project-deletion-action"
 private let workspaceSidebarProjectOrderKey = "project-order"
-
-func updateWorkspaceSidebarMenuBarReserveConfig(
-    in configText: String,
-    height: Int,
-) -> String {
-    updateWorkspaceSidebarScalarConfig(
-        in: configText,
-        key: workspaceSidebarMenuBarReserveKey,
-        renderedValue: "\(height)",
-    )
-}
-
-func updateWorkspaceSidebarProjectDeletionActionConfig(
-    in configText: String,
-    action: WorkspaceProjectDeletionAction,
-) -> String {
-    updateWorkspaceSidebarScalarConfig(
-        in: configText,
-        key: workspaceSidebarProjectDeletionActionKey,
-        renderedValue: "'\(action.rawValue)'",
-    )
-}
 
 /// Returns nil, leaving the file alone, when an existing multi-line value has no closing bracket
 /// inside the `[workspace-sidebar]` table.
