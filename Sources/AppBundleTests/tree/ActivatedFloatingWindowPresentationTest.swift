@@ -67,7 +67,7 @@ final class ActivatedFloatingWindowPresentationTest: XCTestCase {
         XCTAssertTrue(presentation.consumeCandidate(frontmostAppPid: 0, nativeObservation: .window(reused.windowId)) === newWindow)
     }
 
-    func testCallbackFocusChoiceAndProjectFocusHoldWin() {
+    func testCallbackFocusChoiceAndLogicalFocusMovedElsewhereWin() {
         let window = makeFocusedFloatingWindow()
         let other = TestWindow.new(id: 2, parent: focus.workspace.rootTilingContainer)
         let callback = makeActivation(window)
@@ -77,10 +77,10 @@ final class ActivatedFloatingWindowPresentationTest: XCTestCase {
         callback.recordNativeFocusBeforeLayout(window)
         XCTAssertNil(callback.consumeCandidate(frontmostAppPid: 0, nativeObservation: .window(window.windowId)))
 
-        // A project hold keeps logical focus elsewhere even while macOS reports the old
-        // project's window. Activation cannot undo that deliberate logical focus choice.
-        let held = makeActivation(window)
-        XCTAssertNil(held.consumeCandidate(frontmostAppPid: 0, nativeObservation: .window(window.windowId)))
+        // Logical focus moved elsewhere even while macOS still reports the activated
+        // window. Activation cannot undo that deliberate logical focus choice.
+        let movedAway = makeActivation(window)
+        XCTAssertNil(movedAway.consumeCandidate(frontmostAppPid: 0, nativeObservation: .window(window.windowId)))
     }
 
     func testLayoutRoutingMinimizationAndFullscreenAreRechecked() {

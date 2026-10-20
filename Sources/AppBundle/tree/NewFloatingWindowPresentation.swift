@@ -49,7 +49,7 @@ final class NewFloatingWindowPresentation {
         focusGenerationBeforeLayout = focusChangeGeneration
         // Apps such as System Settings reuse an existing floating window when another app
         // opens them. Matching focus IDs say nothing about stacking; activation still needs
-        // one raise after layout. Do not override a callback or a project focus hold.
+        // one raise after layout. Do not override a callback or logical focus moved elsewhere.
         if !isStartup, !wasConsumed, let window,
            activatedAppPid == frontmostAppPid, window.app.pid == activatedAppPid,
            !detectedDuringRefresh.contains(window.windowId),

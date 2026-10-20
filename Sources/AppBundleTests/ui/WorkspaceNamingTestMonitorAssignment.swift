@@ -34,20 +34,15 @@ extension WorkspaceNamingTest {
         XCTAssertTrue(main.activeWorkspace !== projectWorkspace)
     }
 
-    func testProjectFocusHoldIgnoresNativeFocusFromOtherProject() throws {
+    func testNativeFocusFromAnotherProjectMovesLogicalFocus() throws {
         let defaultWorkspace = focus.workspace
         let defaultWindow = TestWindow.new(id: 301, parent: defaultWorkspace.rootTilingContainer)
         let project = createWorkspaceProject()
         let projectWorkspace = createBlankWorkspace(projectId: project.id, monitor: mainMonitor)
         projectWorkspace.markAsSidebarManaged()
         XCTAssertTrue(projectWorkspace.focusWorkspace())
-
-        holdFocusOnWorkspaceProject(project.id, for: 60)
-        updateFocusCache(defaultWindow)
-
         XCTAssertTrue(focus.workspace === projectWorkspace)
 
-        clearFocusOnWorkspaceProjectHold(project.id)
         updateFocusCache(defaultWindow)
 
         XCTAssertTrue(focus.workspace === defaultWorkspace)
