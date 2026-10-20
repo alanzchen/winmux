@@ -24,7 +24,6 @@ final class MenuTrackingPointerMonitorTest: XCTestCase {
 
     func testMenuTrackingRemovesTheNativeMonitorAndRestoresItOnDismissal() {
         let fixture = Fixture()
-        defer { fixture.owner.stop() }
         fixture.owner.start()
         let original = fixture.installed[0]
         let menu = NSMenu()
@@ -42,7 +41,6 @@ final class MenuTrackingPointerMonitorTest: XCTestCase {
 
     func testNestedMenusAndDuplicateNotificationsDoNotRestoreEarlyOrInstallTwice() {
         let fixture = Fixture()
-        defer { fixture.owner.stop() }
         fixture.owner.start()
         fixture.owner.start()
         let root = NSMenu()
@@ -65,27 +63,6 @@ final class MenuTrackingPointerMonitorTest: XCTestCase {
         XCTAssertEqual(fixture.resumes, 1)
     }
 
-    func testStopDuringTrackingDoesNotLeaveObserversThatCanRestartTheMonitor() {
-        let fixture = Fixture()
-        defer { fixture.owner.stop() }
-        fixture.owner.start()
-        let menu = NSMenu()
-        fixture.begin(menu)
-        fixture.owner.stop()
-        fixture.end(menu)
-        fixture.begin(menu)
-        fixture.end(menu)
-        XCTAssertEqual(fixture.installed.count, 1)
-        XCTAssertEqual(fixture.removed.count, 1)
-        XCTAssertEqual(fixture.resumes, 0)
-
-        fixture.owner.start()
-        XCTAssertEqual(fixture.installed.count, 2)
-        fixture.owner.stop()
-        fixture.owner.stop()
-        XCTAssertEqual(fixture.removed.count, 2)
-    }
-
     func testRegistrationFailureStillRecoversAfterAMenuCloses() {
         let center = NotificationCenter()
         var attempts = 0
@@ -94,14 +71,11 @@ final class MenuTrackingPointerMonitorTest: XCTestCase {
             installMonitor: { attempts += 1; return attempts == 1 ? nil : NSObject() },
             removeMonitor: { _ in removals += 1 },
             didResume: {})
-        defer { owner.stop() }
         owner.start()
         let menu = NSMenu()
         center.post(name: NSMenu.didBeginTrackingNotification, object: menu)
         center.post(name: NSMenu.didEndTrackingNotification, object: menu)
         XCTAssertEqual(attempts, 2)
         XCTAssertEqual(removals, 0)
-        owner.stop()
-        XCTAssertEqual(removals, 1)
     }
 }

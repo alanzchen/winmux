@@ -23,8 +23,7 @@ final class MenuTrackingPointerMonitor {
         self.didResume = didResume
     }
 
-    /// The application retains this owner for its lifetime. A shorter-lived
-    /// owner must call stop() before releasing it, just like NSEvent monitors.
+    /// The application retains this owner for its lifetime.
     func start() {
         guard observers.isEmpty else { return }
         observers = [
@@ -40,13 +39,6 @@ final class MenuTrackingPointerMonitor {
             },
         ]
         monitor = installMonitor()
-    }
-
-    func stop() {
-        observers.forEach(center.removeObserver)
-        observers = []
-        trackingMenus = []
-        removeCurrentMonitor()
     }
 
     private func beginTracking(_ id: ObjectIdentifier) {
