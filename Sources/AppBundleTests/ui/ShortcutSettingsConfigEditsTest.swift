@@ -45,19 +45,23 @@ final class ShortcutSettingsConfigEditsTest: XCTestCase {
         XCTAssertTrue(updated.contains("cmd-shift-x = \"exec-and-forget open -a Xcode\""))
     }
 
-    func testReadModeBindingEntriesReadsSimpleScalarBindings() {
-        let entries = readModeBindingEntries(
+    func testUpdateModeBindingConfigReplacesAQuotedKeyBinding() {
+        let updated = updateModeBindingConfig(
             in: """
             [mode.main.binding]
             alt-h = "focus left"
             "cmd-shift-/" = "reload-config"
             """,
             modeName: "main",
-            tableKey: "binding"
+            tableKey: "binding",
+            managedCommands: [],
+            assignments: ["cmd-shift-/": "focus right"]
         )
 
-        XCTAssertEqual(entries["alt-h"], "focus left")
-        XCTAssertEqual(entries["cmd-shift-/"], "reload-config")
+        XCTAssertTrue(updated.contains("\"cmd-shift-/\" = \"focus right\""))
+        // The quoted key and its scalar value parse as the same binding, so the old line is replaced.
+        XCTAssertFalse(updated.contains("reload-config"))
+        XCTAssertTrue(updated.contains("alt-h = \"focus left\""))
     }
 
     func testInferWorkspaceShortcutStatePrefersPatternAndExtractsOverrides() {
