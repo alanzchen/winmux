@@ -37,7 +37,7 @@ import XCTest
             detachOrigin: .tabStrip,
         ))
 
-        let pendingIntent = debugPendingWindowDragIntentSummary().orDie()
+        let pendingIntent = pendingWindowDragIntent.orDie()
         let expectedPreviewRect = tabGroup.windowTabDropZoneRect.orDie()
         let expectedInteractionRect = tabGroup.windowTabDropInteractionRect.orDie()
         XCTAssertEqual(pendingIntent.kind, .reorderTab(windowId: source.windowId, targetIndex: 0))

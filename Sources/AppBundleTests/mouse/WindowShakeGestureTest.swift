@@ -178,7 +178,7 @@ final class WindowShakeLayoutToggleTest: XCTestCase {
 
         XCTAssertTrue(window.isFloating)
         XCTAssertTrue(driver.didToggleLayoutWithShake)
-        XCTAssertNil(debugPendingWindowDragIntentSummary())
+        XCTAssertNil(pendingWindowDragIntent)
 
         driver.shakeGesture = WindowShakeGestureRecognizer()
         feedShake(driver: driver, window: window, session: session, startingAt: 12)

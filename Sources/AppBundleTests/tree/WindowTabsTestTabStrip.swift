@@ -41,7 +41,7 @@ import XCTest
             detachOrigin: .window,
         ))
 
-        XCTAssertEqual(debugPendingWindowDragIntentSummary()?.kind, .moveToWorkspace(workspaceName: targetWorkspace.name))
+        XCTAssertEqual(pendingWindowDragIntent?.kind, .moveToWorkspace(workspaceName: targetWorkspace.name))
     }
 
     @MainActor
@@ -67,7 +67,7 @@ import XCTest
         ))
 
         XCTAssertEqual(
-            debugPendingWindowDragIntentSummary()?.kind,
+            pendingWindowDragIntent?.kind,
             .stackSplit(targetWindowId: target.windowId, position: .left)
         )
     }

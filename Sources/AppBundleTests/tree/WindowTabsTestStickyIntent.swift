@@ -196,11 +196,11 @@ import XCTest
         target.lastAppliedLayoutPhysicalRect = Rect(topLeftX: 220, topLeftY: 0, width: 200, height: 220)
         let mouseLocation = target.swapDropZoneRect.orDie().center
 
-        XCTAssertTrue(updatePendingWindowDragIntent(sourceWindow: source, mouseLocation: mouseLocation))
+        XCTAssertTrue(updatePendingWindowDragIntent(sourceWindow: source, mouseLocation: mouseLocation, subject: .window, detachOrigin: .window))
 
         target.unbindFromParent()
 
-        XCTAssertFalse(updatePendingWindowDragIntent(sourceWindow: source, mouseLocation: mouseLocation))
+        XCTAssertFalse(updatePendingWindowDragIntent(sourceWindow: source, mouseLocation: mouseLocation, subject: .window, detachOrigin: .window))
     }
 
     @MainActor
@@ -216,11 +216,11 @@ import XCTest
         target.lastAppliedLayoutPhysicalRect = Rect(topLeftX: 220, topLeftY: 0, width: 200, height: 220)
         let mouseLocation = target.swapDropZoneRect.orDie().center
 
-        XCTAssertTrue(updatePendingWindowDragIntent(sourceWindow: source, mouseLocation: mouseLocation))
+        XCTAssertTrue(updatePendingWindowDragIntent(sourceWindow: source, mouseLocation: mouseLocation, subject: .window, detachOrigin: .window))
 
         target.lastAppliedLayoutPhysicalRect = Rect(topLeftX: 520, topLeftY: 0, width: 200, height: 220)
 
-        XCTAssertFalse(updatePendingWindowDragIntent(sourceWindow: source, mouseLocation: mouseLocation))
+        XCTAssertFalse(updatePendingWindowDragIntent(sourceWindow: source, mouseLocation: mouseLocation, subject: .window, detachOrigin: .window))
     }
 
     @MainActor
@@ -245,7 +245,7 @@ import XCTest
             subject: .group,
             detachOrigin: .window,
         ))
-        XCTAssertNil(debugPendingWindowDragIntentSummary())
+        XCTAssertNil(pendingWindowDragIntent)
     }
 
     @MainActor
@@ -270,7 +270,7 @@ import XCTest
             subject: .group,
             detachOrigin: .window,
         ))
-        XCTAssertNil(debugPendingWindowDragIntentSummary())
+        XCTAssertNil(pendingWindowDragIntent)
     }
 
     @MainActor
@@ -288,11 +288,11 @@ import XCTest
         target.lastAppliedLayoutPhysicalRect = Rect(topLeftX: 220, topLeftY: 0, width: 200, height: 220)
         let mouseLocation = target.tabDropInteractionRect.orDie().center
 
-        XCTAssertTrue(updatePendingWindowDragIntent(sourceWindow: source, mouseLocation: mouseLocation))
+        XCTAssertTrue(updatePendingWindowDragIntent(sourceWindow: source, mouseLocation: mouseLocation, subject: .window, detachOrigin: .window))
 
         target.unbindFromParent()
 
-        XCTAssertFalse(updatePendingWindowDragIntent(sourceWindow: source, mouseLocation: mouseLocation))
+        XCTAssertFalse(updatePendingWindowDragIntent(sourceWindow: source, mouseLocation: mouseLocation, subject: .window, detachOrigin: .window))
     }
 
     @MainActor
@@ -310,11 +310,11 @@ import XCTest
         target.lastAppliedLayoutPhysicalRect = Rect(topLeftX: 220, topLeftY: 0, width: 200, height: 220)
         let mouseLocation = target.tabDropInteractionRect.orDie().center
 
-        XCTAssertTrue(updatePendingWindowDragIntent(sourceWindow: source, mouseLocation: mouseLocation))
+        XCTAssertTrue(updatePendingWindowDragIntent(sourceWindow: source, mouseLocation: mouseLocation, subject: .window, detachOrigin: .window))
 
         target.lastAppliedLayoutPhysicalRect = Rect(topLeftX: 520, topLeftY: 0, width: 200, height: 220)
 
-        XCTAssertFalse(updatePendingWindowDragIntent(sourceWindow: source, mouseLocation: mouseLocation))
+        XCTAssertFalse(updatePendingWindowDragIntent(sourceWindow: source, mouseLocation: mouseLocation, subject: .window, detachOrigin: .window))
     }
 
     @MainActor
@@ -332,11 +332,11 @@ import XCTest
         target.lastAppliedLayoutPhysicalRect = Rect(topLeftX: 220, topLeftY: 0, width: 200, height: 220)
         let mouseLocation = target.tabDropInteractionRect.orDie().center
 
-        XCTAssertTrue(updatePendingWindowDragIntent(sourceWindow: source, mouseLocation: mouseLocation))
+        XCTAssertTrue(updatePendingWindowDragIntent(sourceWindow: source, mouseLocation: mouseLocation, subject: .window, detachOrigin: .window))
 
         config.windowTabs.enabled = false
 
-        XCTAssertFalse(updatePendingWindowDragIntent(sourceWindow: source, mouseLocation: mouseLocation))
+        XCTAssertFalse(updatePendingWindowDragIntent(sourceWindow: source, mouseLocation: mouseLocation, subject: .window, detachOrigin: .window))
     }
 
     @MainActor
@@ -366,7 +366,7 @@ import XCTest
             detachOrigin: .tabStrip,
         ))
 
-        XCTAssertEqual(debugPendingWindowDragIntentSummary()?.kind, .reorderTab(windowId: source.windowId, targetIndex: 0))
+        XCTAssertEqual(pendingWindowDragIntent?.kind, .reorderTab(windowId: source.windowId, targetIndex: 0))
     }
 
     @MainActor

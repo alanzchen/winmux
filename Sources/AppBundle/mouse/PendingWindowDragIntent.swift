@@ -11,13 +11,3 @@ struct PendingWindowDragIntent {
     let isGroup: Bool
     let isPointerSettled: Bool
 }
-
-@MainActor
-func debugPendingWindowDragIntentSummary() -> (kind: WindowDragIntentKind, previewRect: Rect, interactionRect: Rect)? {
-    guard let pendingWindowDragIntent else { return nil }
-    return (
-        kind: pendingWindowDragIntent.kind,
-        previewRect: pendingWindowDragIntent.previewRect,
-        interactionRect: pendingWindowDragIntent.interactionRect,
-    )
-}

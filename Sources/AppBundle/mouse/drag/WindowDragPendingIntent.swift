@@ -2,11 +2,6 @@ import AppKit
 import Common
 
 @MainActor
-func updatePendingWindowDragIntent(sourceWindow: Window, mouseLocation: CGPoint) -> Bool {
-    updatePendingWindowDragIntent(sourceWindow: sourceWindow, mouseLocation: mouseLocation, subject: .window, detachOrigin: .window)
-}
-
-@MainActor
 func updatePendingWindowDragIntent(
     sourceWindow: Window,
     mouseLocation: CGPoint,
