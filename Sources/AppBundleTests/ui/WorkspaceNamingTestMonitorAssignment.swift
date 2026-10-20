@@ -39,7 +39,7 @@ extension WorkspaceNamingTest {
         let defaultWindow = TestWindow.new(id: 301, parent: defaultWorkspace.rootTilingContainer)
         let project = createWorkspaceProject()
         let projectWorkspace = createBlankWorkspace(projectId: project.id, monitor: mainMonitor)
-        projectWorkspace.markAsSidebarManaged()
+        projectWorkspace.markAsAutomaticDurableForTests()
         XCTAssertTrue(projectWorkspace.focusWorkspace())
         XCTAssertTrue(focus.workspace === projectWorkspace)
 

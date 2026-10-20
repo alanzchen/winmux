@@ -388,8 +388,6 @@ final class NewWindowIntentRegistry {
         }
     }
 
-    func isPending(intentId id: Int) -> Bool { intents.contains { $0.id == id } }
-
     /// Whether a window asked for `workspace` may still come: a request waiting for its window, or
     /// one whose window is claimed and not placed yet.
     func isWaitingForWindow(in workspace: Workspace) -> Bool {

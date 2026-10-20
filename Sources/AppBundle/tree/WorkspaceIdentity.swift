@@ -39,10 +39,6 @@ struct WorkspaceProjectId: RawRepresentable, Hashable, Identifiable, Sendable, C
         self.rawValue = value
     }
 
-    func hasPrefix(_ prefix: String) -> Bool {
-        rawValue.hasPrefix(prefix)
-    }
-
     init(from decoder: any Decoder) throws {
         let container = try decoder.singleValueContainer()
         rawValue = try container.decode(String.self)

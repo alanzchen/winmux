@@ -128,7 +128,7 @@ final class TreeNodeTest: XCTestCase {
     func testReconcileWorkspaceStateKeepsOnlyEmptyWorkspaceInProject() {
         let project = createWorkspaceProject()
         let workspace = Workspace.get(byName: "draft")
-        workspace.markAsSidebarManaged()
+        workspace.markAsAutomaticDurableForTests()
         workspace.assignProject(project.id)
 
         Workspace.reconcileWorkspaceState()
@@ -147,7 +147,7 @@ final class TreeNodeTest: XCTestCase {
 
     func testReconcileWorkspaceStateKeepsFreshFocusedEmptyWorkspace() {
         let workspace = Workspace.get(byName: "draft")
-        workspace.markAsSidebarManaged()
+        workspace.markAsAutomaticDurableForTests()
         _ = workspace.focusWorkspace()
 
         Workspace.reconcileWorkspaceState()
@@ -171,7 +171,7 @@ final class TreeNodeTest: XCTestCase {
         let occupiedWorkspace = Workspace.get(byName: "occupied")
         _ = TestWindow.new(id: 101, parent: occupiedWorkspace.rootTilingContainer)
         let draftWorkspace = Workspace.get(byName: "draft")
-        draftWorkspace.markAsSidebarManaged()
+        draftWorkspace.markAsAutomaticDurableForTests()
         _ = draftWorkspace.focusWorkspace()
         _ = occupiedWorkspace.focusWorkspace()
 
@@ -202,7 +202,7 @@ final class TreeNodeTest: XCTestCase {
 
     func testReconcileWorkspaceStateKeepsFocusedSidebarWorkspaceAfterLastWindowCloses() {
         let workspace = Workspace.get(byName: "2")
-        workspace.markAsSidebarManaged()
+        workspace.markAsAutomaticDurableForTests()
         _ = workspace.focusWorkspace()
         let window = TestWindow.new(id: 113, parent: workspace.rootTilingContainer)
 
@@ -217,7 +217,7 @@ final class TreeNodeTest: XCTestCase {
         survivingWorkspace.markAsAutomaticallyNamed()
         _ = TestWindow.new(id: 115, parent: survivingWorkspace.rootTilingContainer)
         let workspace = Workspace.get(byName: "2")
-        workspace.markAsSidebarManaged()
+        workspace.markAsAutomaticDurableForTests()
         _ = workspace.focusWorkspace()
         let window = TestWindow.new(id: 114, parent: workspace.rootTilingContainer)
 
@@ -336,7 +336,7 @@ final class TreeNodeTest: XCTestCase {
 
     func testUserFacingWorkspacesExcludeUnretainedAutomaticEmptyWorkspace() {
         let automaticWorkspace = Workspace.get(byName: "automatic")
-        automaticWorkspace.markAsSidebarManaged()
+        automaticWorkspace.markAsAutomaticDurableForTests()
         let occupiedWorkspace = Workspace.get(byName: "occupied")
         _ = TestWindow.new(id: 202, parent: occupiedWorkspace.rootTilingContainer)
 

@@ -111,12 +111,6 @@ extension Workspace {
     }
 
     @MainActor
-    func markAsSidebarManaged() {
-        markAsAutomaticallyNamed()
-        lifecycle = .durable
-    }
-
-    @MainActor
     func markAsTransientBlank() {
         markAsAutomaticallyNamed()
         lifecycle = .transient

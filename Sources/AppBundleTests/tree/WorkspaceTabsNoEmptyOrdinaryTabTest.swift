@@ -165,7 +165,7 @@ final class WorkspaceTabsNoEmptyOrdinaryTabTest: XCTestCase {
         var outcome: NewWindowRequestOutcome?
         let intent = try XCTUnwrap(registry.register(bundleId: editorId, pid: 501, targetWorkspace: newTab,
             preexistingWindowIds: [2], focusGeneration: focusChangeGeneration, completion: { outcome = $0 }))
-        XCTAssertTrue(registry.isPending(intentId: intent.id), "Its creation goes on")
+        XCTAssertTrue(registry.intents.contains { $0.id == intent.id }, "Its creation goes on")
         let window = TestWindow.new(id: 20, parent: macosPopupWindowsContainer, app: editor)
         let tab = try XCTUnwrap(registry.claim(windowId: 20, pid: 501, bundleId: editorId, firstSeenUptime: registry.now()))
         XCTAssertTrue(tab === newTab)

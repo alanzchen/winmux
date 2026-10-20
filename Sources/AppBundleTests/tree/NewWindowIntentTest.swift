@@ -106,12 +106,12 @@ final class NewWindowIntentTest: XCTestCase {
         // The user reads the Automation prompt for most of a minute, then allows it.
         clock += newWindowScriptTimeout - 5
         registry.expireOverdueIntents()
-        XCTAssertTrue(registry.isPending(intentId: intent.id))
+        XCTAssertTrue(registry.intents.contains { $0.id == intent.id })
         registry.restartDeadline(forIntent: intent.id)
 
         clock += newWindowIntentTimeout - 1
         registry.expireOverdueIntents()
-        XCTAssertTrue(registry.isPending(intentId: intent.id), "The window still gets its usual time after the reply")
+        XCTAssertTrue(registry.intents.contains { $0.id == intent.id }, "The window still gets its usual time after the reply")
         clock += 2
         registry.expireOverdueIntents()
         XCTAssertEqual(outcomes, [.timedOut])

@@ -215,10 +215,10 @@ final class WorkspaceNamingTest: XCTestCase {
 
     func testAutomaticDraftWorkspaceDisplayNamesCompactLiveWorkspaceSet() {
         let first = Workspace.get(byName: "__sidebar_draft_workspace_1")
-        first.markAsSidebarManaged()
+        first.markAsAutomaticDurableForTests()
         _ = TestWindow.new(id: 3, parent: first.rootTilingContainer)
         let second = Workspace.get(byName: "__sidebar_draft_workspace_3")
-        second.markAsSidebarManaged()
+        second.markAsAutomaticDurableForTests()
         _ = TestWindow.new(id: 4, parent: second.rootTilingContainer)
 
         XCTAssertEqual(workspaceDisplayName(first.name), "Workspace 1")
@@ -486,7 +486,7 @@ final class WorkspaceNamingTest: XCTestCase {
         assertUuidProjectId(second.id)
         XCTAssertNotEqual(first.id, second.id)
         XCTAssertEqual(
-            Set(workspaceProjects().map(\.id).filter { $0.hasPrefix("project-") }),
+            Set(workspaceProjects().map(\.id).filter { $0.rawValue.hasPrefix("project-") }),
             Set([first.id, second.id]),
         )
     }
@@ -505,7 +505,7 @@ final class WorkspaceNamingTest: XCTestCase {
         assertUuidProjectId(fourth.id)
         XCTAssertEqual(Set([first.id, second.id, third.id, fourth.id]).count, 4)
         XCTAssertEqual(
-            workspaceProjects().map(\.id).filter { $0.hasPrefix("project-") },
+            workspaceProjects().map(\.id).filter { $0.rawValue.hasPrefix("project-") },
             [first.id, third.id, fourth.id],
         )
     }
@@ -529,11 +529,11 @@ final class WorkspaceNamingTest: XCTestCase {
         let third = createWorkspaceProject()
 
         XCTAssertEqual(
-            workspaceProjects().map(\.id).filter { $0.hasPrefix("project-") },
+            workspaceProjects().map(\.id).filter { $0.rawValue.hasPrefix("project-") },
             [first.id, second.id, third.id],
         )
         XCTAssertEqual(
-            workspaceProjects().filter { $0.id.hasPrefix("project-") }.map(\.name),
+            workspaceProjects().filter { $0.id.rawValue.hasPrefix("project-") }.map(\.name),
             ["Project 1", "Project 2", "Project 3"],
         )
     }
