@@ -25,14 +25,3 @@ func workspaceSidebarSectionWidth(_ expansionProgress: CGFloat, layout: Workspac
     let expanded = workspaceSidebarExpandedSectionWidth(layout: layout)
     return compact + (expanded - compact) * expansionProgress
 }
-
-@MainActor
-func workspaceSidebarContentWidth(_ expansionProgress: CGFloat, layout: WorkspaceSidebarConfiguration) -> CGFloat {
-    max(
-        workspaceSidebarSectionWidth(expansionProgress, layout: layout) -
-            (workspaceSidebarSectionInnerHorizontalInset * 2) -
-            workspaceSidebarBadgeWidth -
-            workspaceSidebarHeaderSpacing,
-        0,
-    )
-}

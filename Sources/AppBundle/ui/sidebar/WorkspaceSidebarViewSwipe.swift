@@ -3,24 +3,6 @@ import Common
 import SwiftUI
 
 extension WorkspaceSidebarView {
-    func projectSwipeGesture(expansionProgress: CGFloat) -> some Gesture {
-        DragGesture(minimumDistance: 4)
-            .onChanged { value in
-                handleProjectSwipeChanged(
-                    horizontalTranslation: value.translation.width,
-                    verticalTranslation: value.translation.height,
-                    expansionProgress: expansionProgress,
-                )
-            }
-            .onEnded { value in
-                handleProjectSwipeEnded(
-                    horizontalTranslation: value.translation.width,
-                    verticalTranslation: value.translation.height,
-                    expansionProgress: expansionProgress,
-                )
-            }
-    }
-
     func handleProjectSwipeChanged(
         horizontalTranslation: CGFloat,
         verticalTranslation: CGFloat,

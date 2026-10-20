@@ -57,7 +57,6 @@ struct WorkspaceSidebarWorkspaceSection: View, Animatable {
     }
     let rowHeight: CGFloat = workspaceSidebarWorkspaceRowHeight
 
-    var contentWidth: CGFloat { workspaceSidebarContentWidth(expansionProgress, layout: layout) }
     var sectionWidth: CGFloat {
         guard layout.showAppIcons else { return workspaceSidebarSectionWidth(expansionProgress, layout: layout) }
         let compact = compactCardWidth
@@ -554,18 +553,6 @@ extension WorkspaceSidebarWorkspaceSection {
         } else {
             expandedHeader
         }
-    }
-
-    var headerButton: some View {
-        Button(action: handleSectionClick) {
-            header
-                .frame(maxWidth: .infinity, alignment: isCompact ? .center : .leading)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .frame(maxWidth: .infinity, alignment: isCompact ? .center : .leading)
-        .contentShape(Rectangle())
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     var header: some View {
