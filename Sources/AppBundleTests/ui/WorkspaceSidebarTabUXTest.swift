@@ -31,7 +31,7 @@ final class WorkspaceSidebarTabUXTest: XCTestCase {
         try workspaceSidebarOrganizationStore.update { $0.workspaces["pinned"] = .init(isFavorite: true) }
         XCTAssertEqual(workspaceNavigationTabs(current: tabs[0]).map(\.name), ["pinned", "first", "last", "between"])
         tabs[2].markAsAutomaticallyNamed()
-        XCTAssertEqual(automaticWorkspaceDisplayIndex(tabs[2], focusedWorkspace: tabs[0]), 3,
+        XCTAssertEqual(automaticWorkspaceDisplayIndex(tabs[2]), 3,
             "Automatic display numbers also count named and pinned tabs in the rendered order")
         XCTAssertTrue(getNextPrevWorkspace(current: tabs[0], isNext: true, wrapAround: false, stdin: nil) === tabs[2])
         let result = try await WorkspaceCommand(args: WorkspaceCmdArgs(target: .direct(.parse("1").getOrDie())))

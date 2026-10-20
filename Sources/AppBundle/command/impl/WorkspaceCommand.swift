@@ -109,7 +109,7 @@ private func findDirectWorkspaceTarget(named workspaceName: String, from current
         }
         guard let workspace = Workspace.existing(byName: workspaceName),
               workspaceIsListed(workspace, inProject: workspaceContextProjectId(of: current)),
-              isUserFacingWorkspace(workspace, focusedWorkspace: current)
+              isUserFacingWorkspace(workspace)
         else {
             return nil
         }
@@ -120,7 +120,7 @@ private func findDirectWorkspaceTarget(named workspaceName: String, from current
     }
 
     guard let workspace = Workspace.existing(byName: workspaceName),
-          isUserFacingWorkspace(workspace, focusedWorkspace: current)
+          isUserFacingWorkspace(workspace)
     else {
         return nil
     }
@@ -142,7 +142,7 @@ private func resolveRelativeWorkspaceCandidates(current: Workspace, stdin: Strin
             .filter { !$0.isEmpty }
             .compactMap { workspaceName in
                 guard let workspace = Workspace.existing(byName: workspaceName),
-                      isUserFacingWorkspace(workspace, focusedWorkspace: current),
+                      isUserFacingWorkspace(workspace),
                       seen.insert(workspace).inserted
                 else {
                     return nil

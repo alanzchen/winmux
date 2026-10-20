@@ -42,7 +42,7 @@ func clearOrphanedWorkspaceSidebarLabels() {
 func workspaceDefaultDisplayName(_ workspaceName: String) -> String {
     if let workspace = Workspace.existing(byName: workspaceName) {
         guard workspace.usesAutomaticDisplayName else { return workspaceName }
-        if let index = automaticWorkspaceDisplayIndex(workspace, focusedWorkspace: focus.workspace)
+        if let index = automaticWorkspaceDisplayIndex(workspace)
             ?? automaticWorkspaceDisplayIndexFallback(workspaceName)
         {
             return "Workspace \(index)"

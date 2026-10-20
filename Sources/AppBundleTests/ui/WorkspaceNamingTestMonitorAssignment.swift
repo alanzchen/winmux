@@ -247,7 +247,7 @@ extension WorkspaceNamingTest {
 
         XCTAssertEqual(activeWorkspaceProjectId(for: mainMonitor), project.id)
         XCTAssertEqual(mainMonitor.activeWorkspace.projectId, project.id)
-        XCTAssertTrue(userFacingWorkspaces(Workspace.all, focusedWorkspace: focus.workspace).contains(mainMonitor.activeWorkspace))
+        XCTAssertTrue(userFacingWorkspaces(Workspace.all).contains(mainMonitor.activeWorkspace))
     }
 
     func testClosingLastWindowKeepsOneWorkspaceInActiveProject() throws {
@@ -265,9 +265,9 @@ extension WorkspaceNamingTest {
         XCTAssertTrue(projectWorkspace.isVisible)
         XCTAssertEqual(activeWorkspaceProjectId(for: mainMonitor), project.id)
         XCTAssertFalse(workspaceHasSidebarVisibleWindows(projectWorkspace))
-        XCTAssertTrue(userFacingWorkspaces(Workspace.all, focusedWorkspace: focus.workspace).contains(projectWorkspace))
+        XCTAssertTrue(userFacingWorkspaces(Workspace.all).contains(projectWorkspace))
         XCTAssertEqual(
-            userFacingWorkspaces(Workspace.all, focusedWorkspace: focus.workspace)
+            userFacingWorkspaces(Workspace.all)
                 .filter { $0.projectId == project.id },
             [projectWorkspace],
         )

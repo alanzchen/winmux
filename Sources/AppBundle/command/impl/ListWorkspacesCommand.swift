@@ -6,7 +6,7 @@ struct ListWorkspacesCommand: Command {
     /*conforms*/ let shouldResetClosedWindowsCache = false
 
     func run(_ env: CmdEnv, _ io: CmdIo) -> Bool {
-        var result: [Workspace] = userFacingWorkspaces(orderedWorkspacesForPresentation(), focusedWorkspace: focus.workspace)
+        var result: [Workspace] = userFacingWorkspaces(orderedWorkspacesForPresentation())
         if let visible = args.filteringOptions.visible {
             result = result.filter { $0.isVisible == visible }
         }

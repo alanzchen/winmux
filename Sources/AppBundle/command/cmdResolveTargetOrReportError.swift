@@ -14,7 +14,7 @@ extension CmdArgs {
         }
         if let workspaceName {
             guard let workspace = Workspace.existing(byName: workspaceName.raw),
-                  isUserFacingWorkspace(workspace, focusedWorkspace: focus.workspace)
+                  isUserFacingWorkspace(workspace)
             else {
                 io.err("Workspace '\(workspaceName.raw)' doesn't exist")
                 return nil
@@ -32,7 +32,7 @@ extension CmdArgs {
         }
         if let wsName = env.workspaceName {
             guard let workspace = Workspace.existing(byName: wsName),
-                  isUserFacingWorkspace(workspace, focusedWorkspace: focus.workspace)
+                  isUserFacingWorkspace(workspace)
             else {
                 io.err("Workspace '\(wsName)' doesn't exist")
                 return nil

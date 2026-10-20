@@ -7,7 +7,7 @@ struct SummonWorkspaceCommand: Command {
 
     func run(_ env: CmdEnv, _ io: CmdIo) -> Bool {
         guard let workspace = Workspace.existing(byName: args.target.val.raw),
-              isUserFacingWorkspace(workspace, focusedWorkspace: focus.workspace)
+              isUserFacingWorkspace(workspace)
         else {
             return io.err("Workspace '\(args.target.val.raw)' doesn't exist")
         }

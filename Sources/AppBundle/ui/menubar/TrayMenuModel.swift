@@ -64,7 +64,7 @@ extension ObservableObject {
 @MainActor func updateTrayText() {
     let focus = focus
     TrayMenuModel.shared.setIfChanged(\.trayText, activeMode?.takeIf { $0 != mainModeId }?.first.map { "(\($0.uppercased()))" } ?? "A")
-    let workspaces = userFacingWorkspaces(Workspace.all, focusedWorkspace: focus.workspace).filter {
+    let workspaces = userFacingWorkspaces(Workspace.all).filter {
         workspaceContextProjectId(of: $0) == activeWorkspaceProjectId(for: $0.workspaceMonitor)
     }.map {
         let apps = $0.allLeafWindowsRecursive.map { $0.app.name?.takeIf { !$0.isEmpty } }.filterNotNil().toSet()

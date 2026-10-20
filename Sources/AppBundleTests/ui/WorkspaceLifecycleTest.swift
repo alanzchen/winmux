@@ -143,7 +143,7 @@ final class WorkspaceLifecycleTest: XCTestCase {
         Workspace.reconcileWorkspaceState()
 
         XCTAssertNil(Workspace.existing(byName: emptyWorkspace.name))
-        XCTAssertEqual(userFacingWorkspaces(Workspace.all, focusedWorkspace: focus.workspace), [occupied])
+        XCTAssertEqual(userFacingWorkspaces(Workspace.all), [occupied])
     }
 
     func testConnectingSecondMonitorCreatesVisibleWorkspaceForDefaultProject() {
@@ -321,7 +321,7 @@ final class WorkspaceLifecycleTest: XCTestCase {
     }
 
     private func emptyUserFacingWorkspaces(in projectId: WorkspaceProjectId) -> [Workspace] {
-        userFacingWorkspaces(Workspace.all, focusedWorkspace: focus.workspace)
+        userFacingWorkspaces(Workspace.all)
             .filter { $0.projectId == projectId && $0.isOrdinaryEmptySlot }
     }
 }

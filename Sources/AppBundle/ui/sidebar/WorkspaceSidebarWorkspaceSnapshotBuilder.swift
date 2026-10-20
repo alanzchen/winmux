@@ -11,7 +11,7 @@ func buildWorkspaceSidebarWorkspaceViewModels(
     // Read running apps once per build, and only when something is saved.
     let runningApps = savedWorkspaceStore.isEmpty ? nil : savedWorkspaceRuntime.environment.runningApps()
     for workspace in orderedWorkspacesForPresentation() {
-        if !workspaceSidebarHasRow(workspace, focusedWorkspace: currentFocus.workspace) { continue }
+        if !workspaceSidebarHasRow(workspace) { continue }
         workspaces.append(await makeWorkspaceSidebarWorkspaceViewModel(
             workspace,
             currentFocus: currentFocus,
@@ -28,12 +28,12 @@ func buildWorkspaceSidebarWorkspaceViewModels(
 /// empty. Explicitly kept tabs and the active empty tab stay. In Tabs mode the list shows only the
 /// rows of tabs `workspaceTabIsShown` (`isLeftEmpty` marks the others).
 @MainActor
-func workspaceSidebarHasRow(_ workspace: Workspace, focusedWorkspace: Workspace) -> Bool {
+func workspaceSidebarHasRow(_ workspace: Workspace) -> Bool {
     if config.usesBrowserTabs, workspaceTabIsShown(workspace) { return true }
     guard let record = savedWorkspaceStore.record(named: workspace.name),
           record.keepWhenEmpty == false || workspaceTabClosesWithLastWindow(workspace)
     else { return true }
-    return isUserFacingWorkspace(workspace, focusedWorkspace: focusedWorkspace)
+    return isUserFacingWorkspace(workspace)
 }
 
 @MainActor

@@ -164,7 +164,7 @@ final class TreeNodeTest: XCTestCase {
 
         XCTAssertTrue(Workspace.existing(byName: workspace.name) === workspace)
         XCTAssertEqual(focus.workspace.name, workspace.name)
-        XCTAssertTrue(isUserFacingWorkspace(focus.workspace, focusedWorkspace: focus.workspace))
+        XCTAssertTrue(isUserFacingWorkspace(focus.workspace))
     }
 
     func testReconcileWorkspaceStateDeletesUnfocusedEmptyWorkspaceAfterLeavingIt() {
@@ -179,7 +179,7 @@ final class TreeNodeTest: XCTestCase {
 
         XCTAssertNil(Workspace.existing(byName: draftWorkspace.name))
         XCTAssertEqual(
-            userFacingWorkspaces(Workspace.all, focusedWorkspace: focus.workspace).filter(\.isOrdinaryEmptySlot),
+            userFacingWorkspaces(Workspace.all).filter(\.isOrdinaryEmptySlot),
             [],
         )
     }
@@ -320,30 +320,27 @@ final class TreeNodeTest: XCTestCase {
         XCTAssertEqual(workspaceDisplayName("__sidebar_draft_workspace_4"), "Workspace 4")
     }
 
-    func testUserFacingWorkspacesExcludeUnretainedFocusedEmptyWorkspace() {
-        let focusedWorkspace = Workspace.get(byName: "focused")
+    func testUserFacingWorkspacesIncludeUnretainedEmptyWorkspaceOnlyWhileVisible() {
+        let emptyWorkspace = Workspace.get(byName: "empty")
         let hiddenEmptyWorkspace = Workspace.get(byName: "hidden-empty")
         let occupiedWorkspace = Workspace.get(byName: "occupied")
         _ = TestWindow.new(id: 2, parent: occupiedWorkspace.rootTilingContainer)
 
-        let result = userFacingWorkspaces(
-            [focusedWorkspace, hiddenEmptyWorkspace, occupiedWorkspace],
-            focusedWorkspace: focusedWorkspace,
-        )
+        XCTAssertEqual(userFacingWorkspaces([emptyWorkspace, hiddenEmptyWorkspace, occupiedWorkspace]), [occupiedWorkspace])
 
-        XCTAssertEqual(result, [occupiedWorkspace])
+        _ = emptyWorkspace.focusWorkspace()
+
+        XCTAssertTrue(emptyWorkspace.isVisible)
+        XCTAssertEqual(userFacingWorkspaces([emptyWorkspace, hiddenEmptyWorkspace, occupiedWorkspace]), [emptyWorkspace, occupiedWorkspace])
     }
 
-    func testUserFacingWorkspacesExcludeUnretainedSidebarManagedEmptyWorkspace() {
-        let focusedWorkspace = Workspace.get(byName: "focused")
-        focusedWorkspace.markAsSidebarManaged()
+    func testUserFacingWorkspacesExcludeUnretainedAutomaticEmptyWorkspace() {
+        let automaticWorkspace = Workspace.get(byName: "automatic")
+        automaticWorkspace.markAsSidebarManaged()
         let occupiedWorkspace = Workspace.get(byName: "occupied")
         _ = TestWindow.new(id: 202, parent: occupiedWorkspace.rootTilingContainer)
 
-        let result = userFacingWorkspaces(
-            [focusedWorkspace, occupiedWorkspace],
-            focusedWorkspace: focusedWorkspace,
-        )
+        let result = userFacingWorkspaces([automaticWorkspace, occupiedWorkspace])
 
         XCTAssertEqual(result, [occupiedWorkspace])
     }
@@ -354,10 +351,7 @@ final class TreeNodeTest: XCTestCase {
         let occupiedWorkspace = Workspace.get(byName: "occupied")
         _ = TestWindow.new(id: 203, parent: occupiedWorkspace.rootTilingContainer)
 
-        let result = userFacingWorkspaces(
-            [persistentWorkspace, occupiedWorkspace],
-            focusedWorkspace: focus.workspace,
-        )
+        let result = userFacingWorkspaces([persistentWorkspace, occupiedWorkspace])
 
         XCTAssertEqual(result, [persistentWorkspace, occupiedWorkspace])
     }
@@ -384,32 +378,26 @@ final class TreeNodeTest: XCTestCase {
     }
 
     func testUserFacingWorkspacesExcludeWorkspaceWithOnlyMacosFullscreenWindows() {
-        let focusedWorkspace = Workspace.get(byName: "focused")
+        let emptyWorkspace = Workspace.get(byName: "empty")
         let fullscreenOnlyWorkspace = Workspace.get(byName: "fullscreen-only")
         _ = TestWindow.new(id: 22, parent: fullscreenOnlyWorkspace.macOsNativeFullscreenWindowsContainer)
         let occupiedWorkspace = Workspace.get(byName: "occupied")
         _ = TestWindow.new(id: 23, parent: occupiedWorkspace.rootTilingContainer)
 
-        let result = userFacingWorkspaces(
-            [focusedWorkspace, fullscreenOnlyWorkspace, occupiedWorkspace],
-            focusedWorkspace: focusedWorkspace,
-        )
+        let result = userFacingWorkspaces([emptyWorkspace, fullscreenOnlyWorkspace, occupiedWorkspace])
 
         XCTAssertEqual(result, [occupiedWorkspace])
         XCTAssertFalse(workspaceHasSidebarVisibleWindows(fullscreenOnlyWorkspace))
     }
 
     func testUserFacingWorkspacesExcludeWorkspaceWithOnlyMacosHiddenWindows() {
-        let focusedWorkspace = Workspace.get(byName: "focused")
+        let emptyWorkspace = Workspace.get(byName: "empty")
         let hiddenOnlyWorkspace = Workspace.get(byName: "hidden-only")
         _ = TestWindow.new(id: 24, parent: hiddenOnlyWorkspace.macOsNativeHiddenAppsWindowsContainer)
         let occupiedWorkspace = Workspace.get(byName: "occupied")
         _ = TestWindow.new(id: 25, parent: occupiedWorkspace.rootTilingContainer)
 
-        let result = userFacingWorkspaces(
-            [focusedWorkspace, hiddenOnlyWorkspace, occupiedWorkspace],
-            focusedWorkspace: focusedWorkspace,
-        )
+        let result = userFacingWorkspaces([emptyWorkspace, hiddenOnlyWorkspace, occupiedWorkspace])
 
         XCTAssertEqual(result, [occupiedWorkspace])
         XCTAssertFalse(workspaceHasSidebarVisibleWindows(hiddenOnlyWorkspace))

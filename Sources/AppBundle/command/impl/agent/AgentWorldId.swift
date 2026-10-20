@@ -3,7 +3,7 @@ import Foundation
 
 @MainActor
 func currentAgentWorldId() -> String {
-    let workspaces = userFacingWorkspaces(Workspace.all, focusedWorkspace: focus.workspace).sortedBy(\.name)
+    let workspaces = userFacingWorkspaces(Workspace.all).sortedBy(\.name)
     var lines: [String] = []
     for workspace in workspaces {
         lines += agentWorldLines(for: workspace)

@@ -77,7 +77,7 @@ final class WorkspaceNamingTest: XCTestCase {
         _ = TestWindow.new(id: 202, parent: second.rootTilingContainer)
 
         XCTAssertEqual(
-            orderedUserFacingWorkspaces(in: first.projectId, focusedWorkspace: focus.workspace)
+            orderedUserFacingWorkspaces(in: first.projectId)
                 .filter(\.usesAutomaticDisplayName)
                 .map(\.name),
             ["10", "2"],
@@ -101,7 +101,7 @@ final class WorkspaceNamingTest: XCTestCase {
         Workspace.reconcileWorkspaceState()
 
         XCTAssertEqual(
-            orderedUserFacingWorkspaces(in: first.projectId, focusedWorkspace: focus.workspace)
+            orderedUserFacingWorkspaces(in: first.projectId)
                 .filter(\.usesAutomaticDisplayName)
                 .map(\.name),
             ["1", "2"],
@@ -174,7 +174,7 @@ final class WorkspaceNamingTest: XCTestCase {
 
         XCTAssertNil(Workspace.existing(byName: deleted.name))
         XCTAssertEqual(
-            orderedUserFacingWorkspaces(in: first.projectId, focusedWorkspace: focus.workspace)
+            orderedUserFacingWorkspaces(in: first.projectId)
                 .filter(\.usesAutomaticDisplayName)
                 .map(\.name),
             ["10", "7"],

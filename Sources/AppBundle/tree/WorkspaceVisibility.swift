@@ -1,6 +1,6 @@
 @MainActor
-func orderedUserFacingWorkspaces(in projectId: WorkspaceProjectId, focusedWorkspace: Workspace? = nil) -> [Workspace] {
-    userFacingWorkspaces(orderedWorkspaces(in: projectId), focusedWorkspace: focusedWorkspace)
+func orderedUserFacingWorkspaces(in projectId: WorkspaceProjectId) -> [Workspace] {
+    userFacingWorkspaces(orderedWorkspaces(in: projectId))
 }
 
 @MainActor
@@ -38,7 +38,7 @@ func workspaceTabIsShown(_ tab: Workspace) -> Bool {
 }
 
 @MainActor
-func isUserFacingWorkspace(_ workspace: Workspace, focusedWorkspace: Workspace? = nil) -> Bool {
+func isUserFacingWorkspace(_ workspace: Workspace) -> Bool {
     !workspace.isArchived &&
         (
             workspaceHasSidebarVisibleWindows(workspace) ||
@@ -51,6 +51,6 @@ func isUserFacingWorkspace(_ workspace: Workspace, focusedWorkspace: Workspace? 
 }
 
 @MainActor
-func userFacingWorkspaces(_ workspaces: [Workspace], focusedWorkspace: Workspace? = nil) -> [Workspace] {
-    workspaces.filter { isUserFacingWorkspace($0, focusedWorkspace: focusedWorkspace) }
+func userFacingWorkspaces(_ workspaces: [Workspace]) -> [Workspace] {
+    workspaces.filter { isUserFacingWorkspace($0) }
 }

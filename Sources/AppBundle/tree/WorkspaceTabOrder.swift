@@ -75,7 +75,7 @@ func workspacePinnedTabOrder(moving tab: Workspace, beside gap: WorkspaceSidebar
 @MainActor
 func workspaceNavigationTabs(current: Workspace, keepingCurrent: Bool = false, alsoListing: Set<WorkspaceId> = []) -> [Workspace] {
     let projectId = workspaceContextProjectId(of: current)
-    guard config.usesBrowserTabs else { return orderedUserFacingWorkspaces(in: projectId, focusedWorkspace: current) }
+    guard config.usesBrowserTabs else { return orderedUserFacingWorkspaces(in: projectId) }
     let tabs = workspacePinnedTabsInAllProjects() + orderedWorkspaces(in: projectId).filter { !workspaceIsPinnedInAllProjects($0) }
     return workspaceTabsInSidebarOrder(tabs.filter {
         workspaceTabIsShown($0) || keepingCurrent && $0 === current || alsoListing.contains($0.id)

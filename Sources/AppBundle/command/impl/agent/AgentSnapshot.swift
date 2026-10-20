@@ -69,7 +69,7 @@ private struct AgentSnapshotCapture {
     let rawTrees: [AgentRawWorkspaceTree]
 
     init() {
-        let workspaces = userFacingWorkspaces(Workspace.all, focusedWorkspace: focus.workspace)
+        let workspaces = userFacingWorkspaces(Workspace.all)
         var windowNodes: [Window] = []
         var tabGroupNodes: [TilingContainer] = []
         var workspaceInfos: [AgentWorkspaceInfo] = []

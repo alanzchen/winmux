@@ -1,11 +1,11 @@
 @MainActor
-func automaticWorkspaceDisplayIndex(_ workspace: Workspace, focusedWorkspace: Workspace?) -> Int? {
+func automaticWorkspaceDisplayIndex(_ workspace: Workspace) -> Int? {
     if config.usesBrowserTabs {
         return workspaceNavigationTabs(current: workspace, keepingCurrent: true).firstIndex(of: workspace).map { $0 + 1 }
     }
     return orderedWorkspacesForPresentation()
         .filter { $0.projectId == workspace.projectId }
-        .filter { userFacingWorkspaces([$0], focusedWorkspace: focusedWorkspace).contains($0) }
+        .filter { isUserFacingWorkspace($0) }
         .filter(\.usesAutomaticDisplayName)
         .firstIndex(of: workspace)
         .map { $0 + 1 }
@@ -19,7 +19,7 @@ func automaticWorkspaceDisplayIndexFallback(_ workspaceName: String) -> Int? {
 func scopedAutomaticDisplayWorkspaces(current: Workspace) -> [Workspace] {
     orderedWorkspacesForPresentation()
         .filter { $0.projectId == current.projectId }
-        .filter { userFacingWorkspaces([$0], focusedWorkspace: current).contains($0) }
+        .filter { isUserFacingWorkspace($0) }
         .filter(\.usesAutomaticDisplayName)
 }
 

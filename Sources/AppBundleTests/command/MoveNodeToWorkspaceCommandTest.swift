@@ -64,7 +64,7 @@ final class MoveNodeToWorkspaceCommandTest: XCTestCase {
         XCTAssertTrue(Workspace.existing(byName: "a") === workspaceA)
         XCTAssertTrue(workspaceA.isEffectivelyEmpty)
         XCTAssertEqual(
-            userFacingWorkspaces(Workspace.all, focusedWorkspace: focus.workspace).filter(\.isOrdinaryEmptySlot),
+            userFacingWorkspaces(Workspace.all).filter(\.isOrdinaryEmptySlot),
             [workspaceA],
         )
     }

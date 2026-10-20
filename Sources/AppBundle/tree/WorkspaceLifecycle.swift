@@ -107,7 +107,7 @@ func closestWorkspaceForDeletion(
     // Tabs mode: the tabs shown, and the one going.
     let scopedCandidates = (config.usesBrowserTabs
         ? orderedWorkspaces(in: projectId).filter { $0 === workspace || workspaceTabIsShown($0) }
-        : userFacingWorkspaces(orderedWorkspaces(in: projectId), focusedWorkspace: focus.workspace))
+        : userFacingWorkspaces(orderedWorkspaces(in: projectId)))
         .filter { isValidAssignment(workspace: $0, screen: monitor.rect.topLeftCorner) && savedHomeAllows($0, on: monitor) }
     let automaticCandidates = scopedCandidates.filter(\.usesAutomaticDisplayName)
     let candidates = workspace.usesAutomaticDisplayName && automaticCandidates.contains(workspace)
