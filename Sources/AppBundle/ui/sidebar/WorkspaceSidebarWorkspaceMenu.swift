@@ -11,7 +11,6 @@ struct WorkspaceSidebarWorkspaceMenuEntry: Equatable {
     var title: String = ""
     var checked = false
     var enabled = true
-    var isDestructive = false
     var command: WorkspaceSidebarWorkspaceMenuCommand? = nil
     /// The title with its display name in full, when `title` shortens it.
     var fullTitle: String? = nil
@@ -94,7 +93,7 @@ func workspaceSidebarWorkspaceMenuSections(
             command: .send(.forgetSavedWorkspace(workspace.name))))
     }
     if !tabs {
-        sections.remove.append(.init(title: "Delete Workspace", isDestructive: true, command: .send(.deleteWorkspace(workspace.name))))
+        sections.remove.append(.init(title: "Delete Workspace", command: .send(.deleteWorkspace(workspace.name))))
     }
     return sections
 }
@@ -179,7 +178,6 @@ func workspaceSidebarAppMenuEntry(
         title: entry.title,
         checked: entry.checked,
         enabled: entry.enabled,
-        isDestructive: entry.isDestructive,
         perform: entry.command.map { command in
             {
                 switch command {

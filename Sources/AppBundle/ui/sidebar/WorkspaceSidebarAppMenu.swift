@@ -14,7 +14,6 @@ struct WorkspaceSidebarAppMenuEntry {
     var title: String = ""
     var checked = false
     var enabled = true
-    var isDestructive = false
     var children: [WorkspaceSidebarAppMenuEntry] = []
     var perform: (() -> Void)? = nil
     var kind = Kind.item
@@ -41,10 +40,10 @@ func workspaceSidebarMenuName(_ name: String, limit: Int = 40) -> String {
 extension WorkspaceSidebarAppMenuEntry {
     /// An entry whose title includes a name, shortened by `workspaceSidebarMenuName`.
     static func named(_ name: String, _ format: (String) -> String = { $0 }, checked: Bool = false,
-                      enabled: Bool = true, isDestructive: Bool = false, children: [Self] = [],
+                      enabled: Bool = true, children: [Self] = [],
                       perform: (() -> Void)? = nil) -> Self {
         let short = workspaceSidebarMenuName(name)
-        return Self(title: format(short), checked: checked, enabled: enabled, isDestructive: isDestructive,
+        return Self(title: format(short), checked: checked, enabled: enabled,
             children: children, perform: perform, fullTitle: short == name ? nil : format(name))
     }
 
@@ -108,7 +107,7 @@ func workspaceSidebarAppMenu(workspaceName: String, app: WorkspaceSidebarAppView
             }))
         }
         // Last in its section, so it's plain which window it closes.
-        entries.append(.init(title: "Close Window", enabled: current is MacWindow, isDestructive: true, perform: {
+        entries.append(.init(title: "Close Window", enabled: current is MacWindow, perform: {
             performWorkspaceSidebarWindowAction(.close, window: current, workspaceName: workspaceName)
         }))
     }
@@ -135,7 +134,7 @@ func workspaceSidebarAppMenu(workspaceName: String, app: WorkspaceSidebarAppView
                 if hidden { process.unhide() } else { process.hide() }
             }
         }))
-        entries += [.separator, .init(title: "Quit \(app.name)", isDestructive: true, perform: {
+        entries += [.separator, .init(title: "Quit \(app.name)", perform: {
             guard !serverArgs.isReadOnly else { return }
             for process in processes where !process.isTerminated { process.terminate() }
         })]

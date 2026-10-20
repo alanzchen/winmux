@@ -82,8 +82,8 @@ final class WorkspaceSidebarContextMenuTest: XCTestCase {
 
         let empty = workspaceSidebarWorkspaceIdentityMenuModel(tab("empty", ids: []), send: { _ in })
         XCTAssertEqual(groups(empty.entries).last, ["Close Empty Tab"])
-        XCTAssertTrue(empty.entries.filter(\.isDestructive).allSatisfy { entry in
-            groups(empty.entries).last?.contains(entry.title) == true
+        XCTAssertTrue(empty.entries.map(\.title).filter { $0.hasPrefix("Close") }.allSatisfy { title in
+            groups(empty.entries).last?.contains(title) == true
         })
     }
 
@@ -115,7 +115,6 @@ final class WorkspaceSidebarContextMenuTest: XCTestCase {
             ["Rename…", "Color", "Change Icon…"],
             ["Ungroup Tabs"],
         ])
-        XCTAssertFalse(menu.entries.contains { $0.isDestructive }, "Ungrouping keeps the tabs")
     }
 
     func testAppMenuNamesTheWindowItsControlsActOnAndQuitsLast() throws {

@@ -140,7 +140,7 @@ func workspaceSidebarIdentityMenuModel(_ target: WorkspaceSidebarIdentityTarget,
                     ? [.separator, .init(title: workspaceTopicSuggestMenuTitle, perform: { send(.suggestTopicGroups(id, tabs: nil)) })]
                     : []),
                 trailingEntries: [
-                    .init(title: asks ? "Delete Project…" : "Delete Project", enabled: canDelete, isDestructive: true,
+                    .init(title: asks ? "Delete Project…" : "Delete Project", enabled: canDelete,
                         perform: { send(.deleteProject(id)) },
                         help: canDelete ? nil : "The default project can't be deleted."),
                 ])
@@ -281,17 +281,17 @@ func workspaceSidebarWorkspaceIdentityMenuModel(_ workspace: WorkspaceSidebarWor
         leading += entries(sections.layout) + [.separator] + entries(sections.keep)
         trailing = entries(sections.remove) + [.separator]
         if let window = clickedWindow {
-            trailing.append(.init(title: "Close Window", isDestructive: true, perform: { send(.closeWindow(window.windowId)) }))
+            trailing.append(.init(title: "Close Window", perform: { send(.closeWindow(window.windowId)) }))
         }
         if windows.count + associated.count > 1 {
             let whole = workspaceSidebarTabPresentation(workspace) == .folder || !associated.isEmpty ? "Tab" : "Split"
-            trailing.append(.init(title: "Close All Windows in \(whole)…", isDestructive: true, perform: { send(.closeTabWindows(name)) }))
+            trailing.append(.init(title: "Close All Windows in \(whole)…", perform: { send(.closeTabWindows(name)) }))
         } else if windows.isEmpty, !workspace.offscreenMembers.isEmpty || !associated.isEmpty {
             // Its windows aren't on screen, or only a draft is left, as in a pin that lent its window: it
             // isn't empty, and closing it closes them, once agreed to.
-            trailing.append(.init(title: "Close Tab and Its Windows…", isDestructive: true, perform: { send(.closeTabs([name])) }))
+            trailing.append(.init(title: "Close Tab and Its Windows…", perform: { send(.closeTabs([name])) }))
         } else if windows.isEmpty {
-            trailing.append(.init(title: "Close Empty Tab", isDestructive: true, perform: { send(.closeEmptyTab(name)) }))
+            trailing.append(.init(title: "Close Empty Tab", perform: { send(.closeEmptyTab(name)) }))
         }
     } else {
         leading = entries(sections.keep)
@@ -852,7 +852,7 @@ struct WorkspaceSidebarTabRowMenu: ViewModifier {
         } else {
             content.modifier(WorkspaceSidebarNativeContextMenu { [close, detach] in
                 (detach.map { [.init(title: "Move to New Tab", perform: $0), .separator] } ?? [])
-                    + [.init(title: "Close Window", isDestructive: true, perform: close)]
+                    + [.init(title: "Close Window", perform: close)]
             })
         }
     }

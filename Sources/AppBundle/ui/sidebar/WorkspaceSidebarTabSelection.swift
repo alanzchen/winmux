@@ -119,7 +119,7 @@ func workspaceSidebarTabSelectionMenuEntries(_ names: [String], workspaces: [Wor
         .separator,
         // Asks first when that closes more windows than tabs, any that isn't on screen, or one opened from another.
         .init(title: asksFirst ? "Close \(tabs.count) Tabs…" : "Close \(tabs.count) Tabs",
-            isDestructive: true, perform: act(.closeTabs(names))),
+            perform: act(.closeTabs(names))),
     ]
 }
 

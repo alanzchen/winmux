@@ -79,8 +79,7 @@ final class WorkspaceSidebarAssociatedWindowsTest: XCTestCase {
         XCTAssertEqual(opened.children.map(\.title), ["New Message"])
         opened.children.first?.perform?()
         XCTAssertEqual(sent, [.selectWindow(11)])
-        let destructive = menu.entries.filter(\.isDestructive).map(\.title)
-        XCTAssertEqual(destructive, ["Close Window", "Close All Windows in Tab…"],
+        XCTAssertEqual(menu.entries.map(\.title).filter { $0.hasPrefix("Close") }, ["Close Window", "Close All Windows in Tab…"],
             "Close Window is the viewer's alone; the whole tab is its own item")
         sent = []
         menu.entries.first { $0.title == "Close Window" }?.perform?()
@@ -243,7 +242,7 @@ final class WorkspaceSidebarAssociatedWindowsTest: XCTestCase {
         XCTAssertEqual(model.lentWindow?.windowId, 10)
         XCTAssertTrue(workspaceSidebarPinRecallsWindows(pin))
         let menu = workspaceSidebarWorkspaceIdentityMenuModel(model, send: { _ in })
-        XCTAssertEqual(menu.entries.filter(\.isDestructive).map(\.title), ["Close Tab and Its Windows…"],
+        XCTAssertEqual(menu.entries.map(\.title).filter { $0.hasPrefix("Close") }, ["Close Tab and Its Windows…"],
             "Not an empty tab: it still holds the draft, which closing it would close, once agreed to")
 
         // Searched by its own title while the viewer is lent: the draft is found, under the lent viewer as context.

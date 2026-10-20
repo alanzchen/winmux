@@ -236,8 +236,6 @@ final class WorkspaceSidebarSavedWorkspaceTest: XCTestCase {
         let keepOn = try entry("Keep on “DELL U2723QE”", in: menu)
         XCTAssertFalse(keepOn.checked)
         XCTAssertTrue(keepOn.enabled)
-        XCTAssertTrue(try entry("Delete Workspace", in: menu).isDestructive)
-        XCTAssertEqual(menu.filter(\.isDestructive).map(\.title), ["Delete Workspace"])
     }
 
     func testSavedMenuOffersMissingAppsAndForget() throws {
@@ -354,7 +352,6 @@ final class WorkspaceSidebarSavedWorkspaceTest: XCTestCase {
 
         XCTAssertEqual(renames, 1)
         XCTAssertEqual(sent, [.openSavedWorkspaceApps("code"), .forgetSavedWorkspace("code"), .deleteWorkspace("code")])
-        XCTAssertTrue(try XCTUnwrap(menu.first { $0.title == "Delete Workspace" }).isDestructive)
     }
 
     func testNativeDockWorkspaceMenuMatchesSharedEntries() throws {
