@@ -24,10 +24,6 @@ final class WindowDropIntentOverlayPanelController {
         hostingView.autoresizingMask = [.width, .height]
     }
 
-    var isVisible: Bool {
-        panel.isVisible
-    }
-
     var level: NSWindow.Level {
         panel.level
     }

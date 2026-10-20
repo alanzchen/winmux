@@ -3,7 +3,6 @@ import SwiftUI
 
 let windowTabVisualPanelPrefix = "WinMux.windowTabs.visual."
 let windowTabStripPanelPrefix = "WinMux.windowTabs.strip."
-let windowTabDropPreviewPanelId = "WinMux.windowTabs.dropPreview"
 let windowDragCursorProxyPanelId = "WinMux.windowTabs.cursorProxy"
 let windowPreviewCornerAlphaThreshold: CGFloat = 0.3
 let windowPreviewCornerScanLimit = 48
