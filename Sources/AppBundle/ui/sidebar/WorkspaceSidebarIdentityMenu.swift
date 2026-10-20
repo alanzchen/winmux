@@ -841,15 +841,6 @@ extension View {
     }
 }
 
-/// `sidebarIdentityMenu`, for a control that offers it only sometimes.
-struct WorkspaceSidebarOptionalIdentityMenu: ViewModifier {
-    let target: WorkspaceSidebarIdentityTarget?
-
-    func body(content: Content) -> some View {
-        if let target { content.sidebarIdentityMenu(target) } else { content }
-    }
-}
-
 /// A Tabs row's menu: the tab's own for a tab's row, or only Close Window for a window listed
 /// inside a folder. A window listed under another one can also move to a tab of its own.
 struct WorkspaceSidebarTabRowMenu: ViewModifier {

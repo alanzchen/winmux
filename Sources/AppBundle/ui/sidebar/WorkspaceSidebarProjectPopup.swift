@@ -4,31 +4,18 @@ struct WorkspaceSidebarProjectPopup: View {
     let projects: [WorkspaceSidebarProjectViewModel]
     let selectedProjectId: WorkspaceProjectId
     let onSelect: (WorkspaceProjectId) -> Void
-    let onCreate: () -> Void
-    var showsCreateAction = true
-    var allowsContextMenu = true
     var menuWidth: CGFloat? = nil
-    var rowHeight: CGFloat = workspaceSidebarDropdownHeight
-    var disabledProjectIds: Set<WorkspaceProjectId> = []
-    private var rowCount: Int {
-        projects.count + (showsCreateAction ? 1 : 0)
-    }
     private var contentHeight: CGFloat {
-        let rowsHeight = CGFloat(rowCount) * rowHeight
-        let rowSpacing = CGFloat(max(rowCount - 1, 0)) * workspaceSidebarMenuRowSpacing
-        let dividerHeight = showsCreateAction ? 0.5 + 2 : 0
+        let rowsHeight = CGFloat(projects.count) * workspaceSidebarDropdownHeight
+        let rowSpacing = CGFloat(max(projects.count - 1, 0)) * workspaceSidebarMenuRowSpacing
         let verticalPadding = (workspaceSidebarMenuRowSpacing + 1) * 2
-        return rowsHeight + rowSpacing + dividerHeight + CGFloat(verticalPadding)
+        return rowsHeight + rowSpacing + CGFloat(verticalPadding)
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: workspaceSidebarMenuRowSpacing) {
             ForEach(projects) { project in
                 projectRow(project)
-            }
-            if showsCreateAction {
-                divider
-                newProjectButton
             }
         }
         .padding(workspaceSidebarMenuRowSpacing + 1)
@@ -63,39 +50,11 @@ struct WorkspaceSidebarProjectPopup: View {
                 Spacer(minLength: 0)
                 checkmark(isVisible: project.id == selectedProjectId)
             }
-            .modifier(WorkspaceSidebarDropdownMenuRowStyle(isSelected: project.id == selectedProjectId, rowHeight: rowHeight))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .disabled(disabledProjectIds.contains(project.id))
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .modifier(WorkspaceSidebarOptionalIdentityMenu(target: allowsContextMenu ? .project(project.id) : nil))
-    }
-
-    private var divider: some View {
-        Rectangle()
-            .fill(Color.white.opacity(0.08))
-            .frame(height: 0.5)
-            .padding(.horizontal, workspaceSidebarDropdownPadding)
-            .padding(.vertical, 1)
-    }
-
-    private var newProjectButton: some View {
-        Button(action: onCreate) {
-            HStack(spacing: 8) {
-                Image(systemName: "plus")
-                    .font(.system(size: 11, weight: .semibold))
-                    .frame(width: 8)
-                Text("New")
-                    .font(.system(size: 12, weight: .medium))
-                Spacer(minLength: 0)
-                checkmark(isVisible: false)
-            }
-            .foregroundStyle(Color.white.opacity(0.78))
-            .modifier(WorkspaceSidebarDropdownMenuRowStyle(isSelected: false, rowHeight: rowHeight))
+            .modifier(WorkspaceSidebarDropdownMenuRowStyle(isSelected: project.id == selectedProjectId))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .sidebarIdentityMenu(.project(project.id))
     }
 }

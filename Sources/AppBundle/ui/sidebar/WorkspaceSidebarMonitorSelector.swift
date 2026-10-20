@@ -234,8 +234,6 @@ struct WorkspaceSidebarMonitorSelector: View {
                             isProjectMenuOpen = false
                         }
                     },
-                    onCreate: {},
-                    showsCreateAction: false,
                     menuWidth: projectPopupMenuWidth
                 )
                 .transition(.asymmetric(
