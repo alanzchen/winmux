@@ -45,8 +45,14 @@ struct ShortcutRecorderView: NSViewRepresentable {
         }
     }
 
-    static func dismantleNSView(_ nsView: RecordingAwareShortcutView, coordinator: ()) {
+    static func dismantleNSView(_ nsView: RecordingAwareShortcutView, coordinator: Coordinator) {
+        // A pane switch can remove a recorder that is still recording. MASShortcut keeps
+        // that view alive with its key monitor installed, so stop it and drop its writer.
+        let wasRecording = nsView.isRecording
         nsView.onRecordingChanged = { _ in }
+        nsView.shortcutValueChange = nil
+        guard wasRecording else { return }
+        nsView.isRecording = false
         Task { @MainActor in
             setHotkeysSuspended(false)
         }
