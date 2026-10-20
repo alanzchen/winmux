@@ -48,7 +48,7 @@ func tabReentryTargetIndex(
     mouseLocation: CGPoint,
     tabStripRect: Rect,
     tabCount: Int,
-    sourceIndex: Int? = nil,
+    sourceIndex: Int,
 ) -> Int {
     guard tabCount > 1, tabStripRect.width > 0 else { return 0 }
     let tabWidth = windowTabStripTabWidth(stripWidth: tabStripRect.width, count: tabCount)
@@ -58,9 +58,6 @@ func tabReentryTargetIndex(
     let hoveredTabIndex = max(0, min(Int(floor(localX / effectiveTabWidth)), tabCount - 1))
     let hoveredTabCenterX = firstTabMinX + CGFloat(hoveredTabIndex) * effectiveTabWidth + tabWidth / 2
     let insertionSlot = hoveredTabIndex + (mouseLocation.x >= hoveredTabCenterX ? 1 : 0)
-    guard let sourceIndex else {
-        return max(0, min(insertionSlot, tabCount - 1))
-    }
     let adjustedTarget = insertionSlot > sourceIndex ? insertionSlot - 1 : insertionSlot
     return max(0, min(adjustedTarget, tabCount - 1))
 }
