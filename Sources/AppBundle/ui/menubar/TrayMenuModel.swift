@@ -60,26 +60,8 @@ extension ObservableObject {
 }
 
 @MainActor func updateTrayText() {
-    let focus = focus
     let workspaces = userFacingWorkspaces(Workspace.all).filter {
         workspaceContextProjectId(of: $0) == activeWorkspaceProjectId(for: $0.workspaceMonitor)
-    }.map {
-        let apps = $0.allLeafWindowsRecursive.map { $0.app.name?.takeIf { !$0.isEmpty } }.filterNotNil().toSet()
-        let dash = " - "
-        let suffix = switch true {
-            case !apps.isEmpty: dash + apps.sorted().joinTruncating(separator: ", ", length: 25)
-            default: ""
-        }
-        let hasFullscreenWindows = $0.allLeafWindowsRecursive.contains { $0.isFullscreen }
-        return WorkspaceViewModel(
-            name: $0.name,
-            displayName: workspaceDisplayName($0.name),
-            suffix: suffix,
-            isFocused: focus.workspace == $0,
-            isEffectivelyEmpty: !workspaceHasSidebarVisibleWindows($0),
-            isVisible: $0.isVisible,
-            hasFullscreenWindows: hasFullscreenWindows,
-        )
-    }
+    }.map { WorkspaceViewModel(name: $0.name) }
     TrayMenuModel.shared.setIfChanged(\.workspaces, workspaces)
 }

@@ -188,7 +188,6 @@ final class WorkspaceSidebarPanel: NSPanelHud, WorkspaceSidebarInputOwner {
         // the menu bar icon observes it, so it isn't synced either.
         viewModel.refreshWorkspaceSidebarAppearance(displayName: sidebarDisplayName)
         viewModel.setIfChanged(\.isEnabled, TrayMenuModel.shared.isEnabled)
-        viewModel.setIfChanged(\.workspaces, TrayMenuModel.shared.workspaces)
         viewModel.setIfChanged(\.workspaceSidebarWorkspaces, TrayMenuModel.shared.workspaceSidebarWorkspaces)
         viewModel.setIfChanged(\.workspaceSidebarProjects, TrayMenuModel.shared.workspaceSidebarProjects)
         viewModel.setIfChanged(\.workspaceSidebarActiveProjectId, resolvedLocalActiveProjectId())
