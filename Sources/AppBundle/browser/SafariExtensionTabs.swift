@@ -806,8 +806,6 @@ struct SafariExtensionAssociations {
         let described = tabs[tab.target]
         tab.siteIcon = described?.icon
         tab.host = described?.host
-        tab.siteOrigin = described?.origin
-        tab.pageRevision = described?.revision
         tab.extensionTab = bound[tab.target]
         if includeSound, agreeing.contains(tab.target.windowId) {
             tab.audio = described.flatMap { $0.isMuted ? .muted : $0.isAudible ? .playing : nil }
