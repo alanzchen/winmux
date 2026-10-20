@@ -26,10 +26,6 @@ final class WorkspaceSidebarTabCardsTest: XCTestCase {
         saved.savedState = WorkspaceSidebarSavedState(isPinnedToDisplay: false, homeDisplayName: nil, isHomeConnected: true,
             isForceAssignedByConfig: false, missingAppNames: [])
         XCTAssertEqual(workspaceSidebarTabPresentation(saved), .single(window(1, "Inbox")))
-        XCTAssertEqual(workspaceSidebarTabPresentation(one, showsProjectContext: true), .single(window(1, "Inbox")))
-        XCTAssertEqual(workspaceSidebarTabPresentation(one, isRenaming: true), .single(window(1, "Inbox")), "The shared editor preserves the row")
-        XCTAssertEqual(workspaceSidebarTabPresentation(two, isSearching: true), .split(window(2, "Draft"), window(3, "Notes")),
-            "Search preserves split rows")
         let stack = WorkspaceSidebarTabGroupViewModel(representativeWindowId: 7, workspaceName: "5", title: "Stack",
             windowCount: 2, isFocused: false, tabs: [window(7, "x")], allWindows: [window(7, "x"), window(8, "y")])
         let stacked = WorkspaceSidebarWorkspaceViewModel(name: "5", projectId: workspaceProjectDefaultId, displayName: "5",

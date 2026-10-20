@@ -703,15 +703,13 @@ extension WorkspaceSidebarView {
         monitorScopeId: String,
         collectionId: String? = nil,
     ) -> some View {
-        let showsProjectContext = isPinned || (browsedProjectId != nil && projectId != snapshot.activeProjectId)
         // Only this page's own tabs take drops between them, and only in Tabs mode's tab list.
         let gapTarget = isPinned || isSearching || !snapshot.configuration.usesTabsList ? nil
             : (projectId: projectId, monitorScopeId: monitorScopeId)
         let insertionEdge = workspaceSidebarTabInsertionEdge(snapshot.dropPreview, workspaceName: workspace.name,
             collectionId: collectionId, projectId: projectId)
         let insertionLabel = insertionEdge != nil && snapshot.dropPreview?.separatesFromTab == true ? "New Tab" : nil
-        let presentation = workspaceSidebarTabPresentation(workspace, showsProjectContext: showsProjectContext,
-            isRenaming: renamingWorkspaceName == workspace.name, isSearching: isSearching)
+        let presentation = workspaceSidebarTabPresentation(workspace)
         if presentation == .folder {
             tabFolder(workspace, isPinned: isPinned, projectId: projectId, pageAllowsActivation: pageAllowsActivation,
                 isSearching: isSearching, overrideMinHeight: overrideMinHeight, insertionEdge: insertionEdge,

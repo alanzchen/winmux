@@ -38,12 +38,7 @@ struct WorkspaceSidebarSplitIdentityLabel: View {
     }
 }
 
-func workspaceSidebarTabPresentation(
-    _ workspace: WorkspaceSidebarWorkspaceViewModel,
-    showsProjectContext: Bool = false,
-    isRenaming: Bool = false,
-    isSearching: Bool = false,
-) -> WorkspaceSidebarTabPresentation {
+func workspaceSidebarTabPresentation(_ workspace: WorkspaceSidebarWorkspaceViewModel) -> WorkspaceSidebarTabPresentation {
     let windows = workspace.items.compactMap { item -> WorkspaceSidebarWindowViewModel? in
         if case .window(let window) = item.kind { window } else { nil }
     }
