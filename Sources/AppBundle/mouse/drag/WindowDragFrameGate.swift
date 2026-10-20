@@ -44,11 +44,6 @@ struct WindowDragFrameGateCore {
         return true
     }
 
-    mutating func reset() {
-        lastSample = nil
-        state = nil
-    }
-
     private mutating func record(point: CGPoint, timestamp: CFTimeInterval, velocity: CGFloat) {
         let nextState = WindowDragFrameGateState(
             point: point,

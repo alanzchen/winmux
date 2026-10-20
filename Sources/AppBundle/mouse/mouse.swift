@@ -25,24 +25,12 @@ final class MousePointerTracker {
         latestSample ?? MousePointerSample(point: mouseLocation, timestamp: ProcessInfo.processInfo.systemUptime)
     }
 
-    func note(event: NSEvent) {
-        latestSample = MousePointerSample(
-            point: normalizedScreenPoint(for: event),
-            timestamp: event.timestamp,
-        )
-    }
-
     func note(point: CGPoint, timestamp: TimeInterval = ProcessInfo.processInfo.systemUptime) {
         latestSample = MousePointerSample(point: point, timestamp: timestamp)
     }
 
     func reset() {
         latestSample = nil
-    }
-
-    private func normalizedScreenPoint(for event: NSEvent) -> CGPoint {
-        let screenPoint = event.window.map { $0.convertPoint(toScreen: event.locationInWindow) } ?? NSEvent.mouseLocation
-        return normalizeAppKitScreenPoint(screenPoint)
     }
 }
 
