@@ -5,11 +5,8 @@ import Foundation
 public final class ShortcutSettingsModel: ObservableObject {
     public static let shared = ShortcutSettingsModel()
 
-    @Published var selectedTab: Tab = .shortcuts
     @Published var sections: [Section] = []
     @Published var assignments: [String: String] = [:]
-    @Published var tapBindings: [Summary] = []
-    @Published var customBindings: [Summary] = []
     @Published var workspaceNumbers: [String] = []
     @Published var workspaceSwitchModifiers: NSEvent.ModifierFlags = defaultWorkspaceSwitchModifiers
     @Published var workspaceMoveModifiers: NSEvent.ModifierFlags = defaultWorkspaceMoveModifiers

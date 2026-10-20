@@ -49,11 +49,6 @@ extension ShortcutSettingsModel {
         setWorkspaceOverrideNotation(notation, workspaceName: workspaceName, kind: kind)
     }
 
-    func clearWorkspaceOverride(workspaceName: String, kind: WorkspaceShortcutKind) {
-        errorMessage = nil
-        setWorkspaceOverrideNotation(nil, workspaceName: workspaceName, kind: kind)
-    }
-
     func workspaceEffectiveNotation(for workspaceName: String, kind: WorkspaceShortcutKind) -> String? {
         workspaceOverrideNotation(for: workspaceName, kind: kind)
             ?? workspacePatternNotation(for: kind, workspaceName: workspaceName)

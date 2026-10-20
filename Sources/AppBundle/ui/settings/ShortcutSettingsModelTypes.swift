@@ -24,12 +24,6 @@ extension ShortcutSettingsModel {
         let actions: [Action]
     }
 
-    struct Summary: Identifiable, Hashable {
-        let id: String
-        let notation: String
-        let command: String
-    }
-
     enum WorkspaceShortcutKind: String, CaseIterable, Identifiable {
         case switchTo
         case moveTo
@@ -57,19 +51,5 @@ extension ShortcutSettingsModel {
         var moveNotation: String?
 
         var id: String { workspaceName }
-    }
-
-    enum Tab: String, CaseIterable, Identifiable {
-        case shortcuts
-        case advanced
-
-        var id: String { rawValue }
-
-        var title: String {
-            switch self {
-                case .shortcuts: "Shortcuts"
-                case .advanced: "Advanced"
-            }
-        }
     }
 }

@@ -12,7 +12,6 @@ extension ShortcutSettingsModel {
         self.actionIdByCommand = Dictionary(uniqueKeysWithValues: actions.map { ($0.canonicalCommand, $0.id) })
 
         var nextAssignments: [String: String] = [:]
-        var nextCustomBindings: [Summary] = []
         let mainBindingEntries = config.modes[mainModeId]?.bindings.values.map {
             (notation: $0.descriptionWithKeyNotation, command: $0.commands.prettyDescription)
         } ?? []
@@ -22,11 +21,9 @@ extension ShortcutSettingsModel {
             defaultSwitchModifiers: defaultWorkspaceSwitchModifiers,
             defaultMoveModifiers: defaultWorkspaceMoveModifiers,
         )
-        collectMainBindings(workspaceNumbers: workspaceNumbers, assignments: &nextAssignments, customBindings: &nextCustomBindings)
+        collectMainBindings(workspaceNumbers: workspaceNumbers, assignments: &nextAssignments)
 
         self.assignments = nextAssignments
-        self.tapBindings = nextTapBindings()
-        self.customBindings = nextCustomBindings
         self.workspaceSwitchModifiers = workspaceState.switchModifiers
         self.workspaceMoveModifiers = workspaceState.moveModifiers
         self.workspaceOverrides = workspaceNumbers.map {
@@ -47,7 +44,6 @@ extension ShortcutSettingsModel {
     private func collectMainBindings(
         workspaceNumbers: [String],
         assignments nextAssignments: inout [String: String],
-        customBindings nextCustomBindings: inout [Summary],
     ) {
         let mainBindings = config.modes[mainModeId]?.bindings.values.sorted {
             $0.descriptionWithKeyNotation < $1.descriptionWithKeyNotation
@@ -62,25 +58,7 @@ extension ShortcutSettingsModel {
             }
             if let actionId = actionIdByCommand[command] {
                 nextAssignments[actionId] = binding.descriptionWithKeyNotation
-            } else {
-                nextCustomBindings.append(.init(
-                    id: "binding:\(binding.descriptionWithKeyNotation)",
-                    notation: binding.descriptionWithKeyNotation,
-                    command: command,
-                ))
             }
         }
-    }
-
-    private func nextTapBindings() -> [Summary] {
-        config.modes[mainModeId]?.tapBindings.values.sorted {
-            $0.descriptionWithKeyNotation < $1.descriptionWithKeyNotation
-        }.map { binding in
-            Summary(
-                id: "tap:\(binding.descriptionWithKeyNotation)",
-                notation: binding.descriptionWithKeyNotation,
-                command: binding.commands.prettyDescription,
-            )
-        } ?? []
     }
 }
