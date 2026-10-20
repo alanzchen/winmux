@@ -38,15 +38,6 @@ func retainedEmptyWorkspaceId(in scope: WorkspaceScope) -> WorkspaceId? {
 }
 
 @MainActor
-func workspaceScopeIsVisibleActiveProject(_ scope: WorkspaceScope) -> Bool {
-    winMuxWorkspaceState.monitorViewportsById.values.contains { viewport in
-        viewport.activeWorkspaceId
-            .flatMap { winMuxWorkspaceState.workspaceById[$0] }?
-            .projectId == scope.projectId
-    }
-}
-
-@MainActor
 func workspaceAnchorsEmptySlot(_ workspace: Workspace) -> Bool {
     workspaceHasLifecycleWindows(workspace) || workspace.isKeptWhenEmpty
 }

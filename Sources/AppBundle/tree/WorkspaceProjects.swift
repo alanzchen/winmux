@@ -36,11 +36,6 @@ func workspaceProjects() -> [WorkspaceProject] {
 }
 
 @MainActor
-func workspaceProjectName(_ projectId: WorkspaceProjectId) -> String {
-    workspaceProjects().first { $0.id == projectId }?.name ?? "Project"
-}
-
-@MainActor
 func workspaceProject(id rawId: String) -> WorkspaceProject? {
     workspaceProjects().first { $0.id.rawValue == rawId }
 }

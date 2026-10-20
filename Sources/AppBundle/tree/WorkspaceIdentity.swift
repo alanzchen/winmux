@@ -75,8 +75,6 @@ struct MonitorViewportId: Hashable, Sendable, Codable, CustomStringConvertible {
     }
 }
 
-typealias MonitorKey = MonitorViewportId
-
 struct WorkspaceScope: Hashable, Sendable {
     let projectId: WorkspaceProjectId
 

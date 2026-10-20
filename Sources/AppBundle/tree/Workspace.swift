@@ -13,7 +13,6 @@ struct WorkspaceProject: Hashable, Identifiable {
 
 enum WorkspaceMutationError: LocalizedError {
     case workspaceNotFound(String)
-    case workspaceCannotBeDeleted(String)
     case projectNotFound(String)
     case projectCannotBeDeleted(String)
     case projectCloseBlocked(String, Int)
@@ -21,7 +20,6 @@ enum WorkspaceMutationError: LocalizedError {
     case invalidProjectEmoji
     case emptyName
     case nameContainsControlCharacters
-    case duplicateProjectName(String)
     case unreadableProjectOrder
     case savedWorkspacesReadOnly(String)
     case displayHasNoIdentity(String)
@@ -33,8 +31,6 @@ enum WorkspaceMutationError: LocalizedError {
         switch self {
             case .workspaceNotFound(let name):
                 "Workspace '\(name)' no longer exists."
-            case .workspaceCannotBeDeleted(let name):
-                "Workspace '\(name)' cannot be deleted."
             case .projectNotFound(let id):
                 "Project '\(id)' no longer exists."
             case .projectCannotBeDeleted(let name):
@@ -49,8 +45,6 @@ enum WorkspaceMutationError: LocalizedError {
                 "Name cannot be empty."
             case .nameContainsControlCharacters:
                 "Name cannot contain control characters."
-            case .duplicateProjectName(let name):
-                "A project named '\(name)' already exists."
             case .unreadableProjectOrder:
                 "The project order could not be saved because project-order in the configuration is not a closed list."
             case .savedWorkspacesReadOnly(let reason):

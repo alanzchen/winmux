@@ -51,10 +51,6 @@ struct WinMuxWorkspaceState {
         rebuildProjectWorkspaceIndexes()
     }
 
-    mutating func resetDisplayAssignments() {
-        monitorViewportsById = [:]
-    }
-
     mutating func resetWorkspaceRegistryForTests(defaultProjectName: String) {
         workspaceById = [:]
         workspaceIdByName = [:]

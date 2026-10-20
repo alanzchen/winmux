@@ -23,12 +23,6 @@ func clearWorkspaceSidebarLabelIfNeeded(_ workspaceName: String) {
     }
 }
 
-@MainActor
-func clearSidebarDraftWorkspaceLabelIfNeeded(_ workspaceName: String) {
-    guard isSidebarDraftWorkspaceName(workspaceName) else { return }
-    clearWorkspaceSidebarLabelIfNeeded(workspaceName)
-}
-
 /// True while WinMux starts: workspaces restored from window-state.json don't exist until the
 /// startup refresh registers their windows, and clearing their labels before that would
 /// delete them from the config.

@@ -28,16 +28,6 @@ import AppKit
 }
 
 @MainActor
-func getOrCreateMonitorViewportFallbackWorkspace(forPoint point: CGPoint) -> Workspace {
-    let monitor = point.monitorApproximation
-    return getOrCreateFallbackWorkspace(
-        projectId: activeWorkspaceProjectId(for: monitor),
-        monitor: monitor,
-        excluding: nil,
-    )
-}
-
-@MainActor
 func getOrCreateFallbackWorkspace(
     projectId: WorkspaceProjectId,
     monitor: Monitor,
