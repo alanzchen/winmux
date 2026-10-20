@@ -207,11 +207,6 @@ func handleWorkspaceSidebarAction(
             if let project = workspaceSidebarProjectViewModel(projectId) {
                 setWorkspaceSidebarProjectColor(project, colorHex: colorHex)
             }
-        case .editProjectEmoji(let projectId):
-            if let project = workspaceSidebarProjectViewModel(projectId) {
-                // Let the context menu finish tracking before presenting a modal.
-                DispatchQueue.main.async { editWorkspaceSidebarProjectEmoji(project) }
-            }
         case .setProjectEmoji(let projectId, let emoji):
             setWorkspaceSidebarProjectEmoji(projectId, emoji: emoji)
         case .deleteProject(let projectId):

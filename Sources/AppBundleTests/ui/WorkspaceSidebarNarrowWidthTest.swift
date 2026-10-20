@@ -190,8 +190,7 @@ final class WorkspaceSidebarNarrowWidthTest: XCTestCase {
         }
         return WorkspaceSidebarProjectPager(projects: projects, selectedProjectId: projects[0].id, expansionProgress: 1,
             layout: layout, renamingProjectId: .constant(nil), renamingProjectText: .constant(""), onSelectProject: { _ in },
-            onCreateProject: {}, onBeginRenameProject: { _ in }, onCommitRenameProject: {}, onCancelRenameProject: {},
-            onSetProjectColor: { _, _ in }, onDeleteProject: { _ in })
+            onCreateProject: {}, onCommitRenameProject: {}, onCancelRenameProject: {})
     }
 
     private func runningMusic() -> AppleMusicNowPlayingModel {

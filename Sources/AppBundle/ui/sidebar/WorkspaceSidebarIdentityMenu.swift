@@ -321,21 +321,19 @@ final class WorkspaceSidebarIdentityMenu: NSObject, NSWindowDelegate {
     private(set) var isShowingMenu = false
     static var isVisible: Bool { shared.panel?.isVisible == true || shared.isShowingMenu }
 
-    /// The item's menu, or its editor with the name selected or the icons showing. `scope` is the
-    /// display whose sidebar asked, when known; otherwise it's the display at `point`.
+    /// The item's menu, or its editor with the name selected. `scope` is the display whose
+    /// sidebar asked, when known; otherwise it's the display at `point`.
     static func show(_ target: WorkspaceSidebarIdentityTarget, at point: NSPoint = NSEvent.mouseLocation,
-                     scope: String? = nil, selectName: Bool = false, showsIcons: Bool = false) {
-        guard selectName || showsIcons else { return shared.showMenu(target, at: point, scope: scope) }
+                     scope: String? = nil, selectName: Bool = false) {
+        guard selectName else { return shared.showMenu(target, at: point, scope: scope) }
         guard let model = model(for: target, at: point, scope: scope) else { return }
-        model.showsIcons = showsIcons
         shared.openEditor(model, at: point, selectName: selectName)
     }
 
     /// Without a click: at the control, for its own sidebar's display.
     static func show(_ target: WorkspaceSidebarIdentityTarget, from anchor: WorkspaceSidebarMenuAnchor,
-                     selectName: Bool = false, showsIcons: Bool = false) {
-        show(target, at: anchor.point ?? NSEvent.mouseLocation, scope: anchor.monitorScopeId,
-            selectName: selectName, showsIcons: showsIcons)
+                     selectName: Bool = false) {
+        show(target, at: anchor.point ?? NSEvent.mouseLocation, scope: anchor.monitorScopeId, selectName: selectName)
     }
 
     /// A right-click or Control-click. On one of several chosen tabs it opens their shared menu.

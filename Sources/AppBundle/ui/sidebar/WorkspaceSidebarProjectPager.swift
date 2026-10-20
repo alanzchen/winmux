@@ -11,13 +11,8 @@ struct WorkspaceSidebarProjectPager: View {
     @Binding var renamingProjectText: String
     let onSelectProject: (WorkspaceProjectId) -> Void
     let onCreateProject: () -> Void
-    let onBeginRenameProject: (WorkspaceSidebarProjectViewModel) -> Void
     let onCommitRenameProject: @MainActor @Sendable () -> Void
     let onCancelRenameProject: @MainActor @Sendable () -> Void
-    let onSetProjectColor: (WorkspaceSidebarProjectViewModel, String?) -> Void
-    let onDeleteProject: (WorkspaceSidebarProjectViewModel) -> Void
-    var onEditProjectEmoji: (WorkspaceSidebarProjectViewModel) -> Void = { _ in }
-    var onResetProjectEmoji: (WorkspaceSidebarProjectViewModel) -> Void = { _ in }
     var reduceMotionOverride: Bool? = nil
 
     @State var isHovered = false

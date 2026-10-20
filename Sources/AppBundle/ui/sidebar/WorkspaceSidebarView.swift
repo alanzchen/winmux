@@ -715,26 +715,11 @@ extension WorkspaceSidebarView {
                 actions.send(.selectProject(projectId))
             },
             onCreateProject: { actions.send(.createProject) },
-            onBeginRenameProject: { project in
-                beginProjectRename(project)
-            },
             onCommitRenameProject: {
                 finishProjectRename()
             },
             onCancelRenameProject: {
                 finishProjectRename(cancelled: true)
-            },
-            onSetProjectColor: { project, colorHex in
-                actions.send(.setProjectColor(project.id, colorHex: colorHex))
-            },
-            onDeleteProject: { project in
-                actions.send(.deleteProject(project.id))
-            },
-            onEditProjectEmoji: { project in
-                actions.send(.editProjectEmoji(project.id))
-            },
-            onResetProjectEmoji: { project in
-                actions.send(.setProjectEmoji(project.id, emoji: nil))
             },
             // The switcher morphs, or not, exactly as the pages slide.
             reduceMotionOverride: reduceDockMotion,
@@ -938,9 +923,6 @@ extension WorkspaceSidebarView {
                 browseMode = projectId.map { .split(otherProjectId: $0) } ?? .activeProject
                 showsPinnedActiveWorkspaceForBrowsedProject = false
             },
-            onRenameProject: { project in
-                beginProjectRename(project)
-            },
             renamingProjectId: $renamingProjectId,
             renamingProjectText: $renamingProjectText,
             onCommitRenameProject: {
@@ -948,12 +930,6 @@ extension WorkspaceSidebarView {
             },
             onCancelRenameProject: {
                 finishProjectRename(cancelled: true)
-            },
-            onSetProjectColor: { project, colorHex in
-                actions.send(.setProjectColor(project.id, colorHex: colorHex))
-            },
-            onDeleteProject: { project in
-                actions.send(.deleteProject(project.id))
             },
             showsProjectSelector: !showsAllProjects,
         )

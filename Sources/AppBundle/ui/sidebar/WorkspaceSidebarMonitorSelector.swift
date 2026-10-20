@@ -28,13 +28,10 @@ struct WorkspaceSidebarMonitorSelector: View {
     var automaticScopeId: String = workspaceSidebarDefaultScopeId
     var onSelectScope: (String) -> Void = { selectWorkspaceSidebarMonitorScope($0) }
     var onSelectProject: (WorkspaceProjectId?) -> Void = { _ in }
-    var onRenameProject: (WorkspaceSidebarProjectViewModel) -> Void = { _ in }
     @Binding var renamingProjectId: WorkspaceProjectId?
     @Binding var renamingProjectText: String
     var onCommitRenameProject: @MainActor @Sendable () -> Void = {}
     var onCancelRenameProject: @MainActor @Sendable () -> Void = {}
-    var onSetProjectColor: (WorkspaceSidebarProjectViewModel, String?) -> Void = { _, _ in }
-    var onDeleteProject: (WorkspaceSidebarProjectViewModel) -> Void = { _ in }
     var showsProjectSelector = true
 
     @State private var isProjectMenuOpen = false
@@ -257,15 +254,6 @@ struct WorkspaceSidebarMonitorSelector: View {
                         }
                     },
                     onCreate: {},
-                    onRename: { project in
-                        onRenameProject(project)
-                        isProjectMenuOpen = false
-                    },
-                    onSetColor: onSetProjectColor,
-                    onDelete: { project in
-                        onDeleteProject(project)
-                        isProjectMenuOpen = false
-                    },
                     showsCreateAction: false,
                     menuWidth: projectPopupMenuWidth
                 )

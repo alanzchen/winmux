@@ -5,9 +5,6 @@ struct WorkspaceSidebarProjectPopup: View {
     let selectedProjectId: WorkspaceProjectId
     let onSelect: (WorkspaceProjectId) -> Void
     let onCreate: () -> Void
-    let onRename: (WorkspaceSidebarProjectViewModel) -> Void
-    let onSetColor: (WorkspaceSidebarProjectViewModel, String?) -> Void
-    let onDelete: (WorkspaceSidebarProjectViewModel) -> Void
     var showsCreateAction = true
     var allowsContextMenu = true
     var menuWidth: CGFloat? = nil
