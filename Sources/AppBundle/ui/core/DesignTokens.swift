@@ -57,13 +57,11 @@ struct ShadowToken {
 
     static let resting = ShadowToken(opacity: 0.15, radius: 6, y: 2)
     static let raised = ShadowToken(opacity: 0.18, radius: 8, y: 4)
-    static let hover = ShadowToken(opacity: 0.35, radius: 12, y: 6)
 }
 
 enum MotionToken {
     static let hover = Animation.interactiveSpring(response: 0.34, dampingFraction: 0.86, blendDuration: 0.06)
     static let pill = Animation.spring(response: 0.28, dampingFraction: 0.72, blendDuration: 0.08)
-    static let appear = Animation.spring(response: 0.30, dampingFraction: 0.85)
     static let quick = Animation.easeOut(duration: 0.12)
 }
 

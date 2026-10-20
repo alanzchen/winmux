@@ -148,21 +148,3 @@ final class DisplayRefreshDelivery: @unchecked Sendable {
         return timestamp
     }
 }
-
-func displayRefreshEaseInOut(_ progress: CGFloat) -> CGFloat {
-    let clamped = min(max(progress, 0), 1)
-    return clamped * clamped * (3 - 2 * clamped)
-}
-
-func displayRefreshInterpolate(_ start: CGFloat, _ end: CGFloat, progress: CGFloat) -> CGFloat {
-    start + (end - start) * progress
-}
-
-func displayRefreshInterpolate(_ start: CGRect, _ end: CGRect, progress: CGFloat) -> CGRect {
-    CGRect(
-        x: displayRefreshInterpolate(start.minX, end.minX, progress: progress),
-        y: displayRefreshInterpolate(start.minY, end.minY, progress: progress),
-        width: displayRefreshInterpolate(start.width, end.width, progress: progress),
-        height: displayRefreshInterpolate(start.height, end.height, progress: progress),
-    )
-}
