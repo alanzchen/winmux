@@ -37,6 +37,10 @@ final class MenuTrackingPointerMonitorTest: XCTestCase {
         XCTAssertEqual(fixture.installed.count, 2)
         XCTAssertFalse(fixture.installed[1] === original)
         XCTAssertEqual(fixture.resumes, 1, "A stationary Dock pointer must be re-evaluated after cancellation")
+
+        fixture.begin(menu)
+        XCTAssertEqual(fixture.removed, [original, fixture.installed[1]], "The next menu removes the restored monitor")
+        XCTAssertEqual(fixture.installed.count, 2)
     }
 
     func testNestedMenusAndDuplicateNotificationsDoNotRestoreEarlyOrInstallTwice() {
@@ -77,5 +81,8 @@ final class MenuTrackingPointerMonitorTest: XCTestCase {
         center.post(name: NSMenu.didEndTrackingNotification, object: menu)
         XCTAssertEqual(attempts, 2)
         XCTAssertEqual(removals, 0)
+
+        center.post(name: NSMenu.didBeginTrackingNotification, object: menu)
+        XCTAssertEqual(removals, 1, "The next menu removes the recovered monitor")
     }
 }
