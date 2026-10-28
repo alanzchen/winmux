@@ -15,7 +15,7 @@ enum AxUiElementWindowType: String {
     }
 }
 
-// AppBundleTests covers synthetic AX trees and the native Zen capture in test-fixtures/accessibility.
+// AppBundleTests covers synthetic AX trees and reduced native captures in test-fixtures/accessibility.
 extension AxUiElementMock {
     // 'isDialogHeuristic' function name is referenced in the guide
     func isDialogHeuristic(
@@ -107,7 +107,8 @@ extension AxUiElementMock {
         if id == .openAndSavePanelService || isAttachedTransientHeuristic() { return false }
         if windowLevel != .normalWindow &&
             // Slowly roll out windowLevel for applications for which we have the appropriate dumps
-            (id == .slack || id == .chrome || id?.isFirefox == true || id == .braveBrowser || id == .screenstudio || id == .cleanshotx || id == .iterm2)
+            // AeroSpace a60f9630, cb347265, d56e1637: Outlook reminders, Codex pets and Wispr Flow overlays.
+            (id == .slack || id == .chrome || id?.isFirefox == true || id == .braveBrowser || id == .screenstudio || id == .cleanshotx || id == .iterm2 || id == .outlook || id == .codex || id == .wisprFlow)
         {
             return false
         }
@@ -131,6 +132,12 @@ extension AxUiElementMock {
         }
 
         if activationPolicy == .accessory && get(Ax.closeButtonAttr) == nil && id != .steam {
+            return false
+        }
+
+        // Emacs child frames (Corfu, posframe) are transient UI even at normal window level.
+        // AeroSpace 97897690 / #776. Ordinary Emacs frames keep AXStandardWindow subrole.
+        if id == .emacs && get(Ax.subroleAttr) == kAXFloatingWindowSubrole {
             return false
         }
 

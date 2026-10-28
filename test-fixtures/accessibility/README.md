@@ -1,5 +1,23 @@
 # Native accessibility regression fixtures
 
+## AeroSpace app popup backports (#1)
+
+`upstream-app-popups.json` contains reduced native AX records from AeroSpace's public
+`axDumps` fixtures, with a pinned source link for each record. These were captured
+upstream; no new native capture or macOS smoke check was performed for this port.
+Only roles, focus/main flags, enabled window buttons, app identity/version,
+activation policy, window level and the expected classification are retained.
+Titles, window/process IDs, coordinates, paths and application contents are omitted.
+
+The records cover Outlook reminders, Codex pet and ordinary windows, Emacs ordinary
+and Corfu/posframe child frames, and both Wispr Flow activation policies. Outlook
+reminders and Codex pets use elevated window levels; Wispr overlays use level 1000.
+Emacs child frames use `AXFloatingWindow` at normal level, while ordinary frames
+use `AXStandardWindow`. The upstream captures do not include ordinary Outlook or
+Wispr windows; `AxAppPopupTest` uses synthetic normal-level windows for those
+negative cases, and also covers focus changes and WinMux's attached-sheet guard.
+Existing `AxTransientWindowTest` retains native file-picker coverage.
+
 ## Zen Save As routing (#23)
 
 `zen-1.21.16b-save-panel.json` contains reduced **actual native AX observations**, captured on September 15, 2026 with Zen **1.21.16b**, bundle build **126.8.28**, and macOS **26.6.2 (25G83)**. Zen came from its official GitHub release and ran from a mounted application with an isolated test profile and a local HTML page. No browsing data was imported, no default-browser change was made, and no file was saved.

@@ -1,0 +1,154 @@
+[
+  {
+    "name": "outlook_reminder",
+    "source": "https://github.com/nikitabobko/AeroSpace/blob/a60f96304fc08ce5c24b1c07f466d0fc4b895cfa/axDumps/outlook_reminder.json5",
+    "bundleId": "com.microsoft.Outlook",
+    "activationPolicy": "regular",
+    "windowLevel": "alwaysOnTopWindow",
+    "expectedType": "popup",
+    "appVersion": "16.109.1",
+    "macOSVersion": "Version 26.5 (Build 25F71)",
+    "AXRole": "AXWindow",
+    "AXSubrole": "AXStandardWindow",
+    "AXFocused": false,
+    "AXMain": true,
+    "windowButtons": {
+      "AXCloseButton": {
+        "AXEnabled": true
+      },
+      "AXMinimizeButton": {
+        "AXEnabled": true
+      },
+      "AXZoomButton": {
+        "AXEnabled": false
+      }
+    }
+  },
+  {
+    "name": "codex_pet_window",
+    "source": "https://github.com/nikitabobko/AeroSpace/blob/cb3472658fa63c3a8ae2e6f674c9b8e01248acb4/axDumps/codex_pet_window.json5",
+    "bundleId": "com.openai.codex",
+    "activationPolicy": "regular",
+    "windowLevel": "alwaysOnTopWindow",
+    "expectedType": "popup",
+    "appVersion": "26.616.51431",
+    "macOSVersion": "Version 26.5.1 (Build 25F80)",
+    "AXRole": "AXWindow",
+    "AXSubrole": "AXStandardWindow",
+    "AXFocused": false,
+    "AXMain": false,
+    "windowButtons": {}
+  },
+  {
+    "name": "codex",
+    "source": "https://github.com/nikitabobko/AeroSpace/blob/cb3472658fa63c3a8ae2e6f674c9b8e01248acb4/axDumps/codex.json5",
+    "bundleId": "com.openai.codex",
+    "activationPolicy": "regular",
+    "windowLevel": "normalWindow",
+    "expectedType": "window",
+    "appVersion": "26.616.51431",
+    "macOSVersion": "Version 26.5.1 (Build 25F80)",
+    "AXRole": "AXWindow",
+    "AXSubrole": "AXStandardWindow",
+    "AXFocused": false,
+    "AXMain": true,
+    "windowButtons": {
+      "AXCloseButton": {
+        "AXEnabled": true
+      },
+      "AXFullScreenButton": {
+        "AXEnabled": true
+      },
+      "AXMinimizeButton": {
+        "AXEnabled": true
+      },
+      "AXZoomButton": {
+        "AXEnabled": true
+      }
+    }
+  },
+  {
+    "name": "emacs_child_frame_corfu",
+    "source": "https://github.com/nikitabobko/AeroSpace/blob/97897690b9eca7dfa05636ca2b559ab55342d2b1/axDumps/emacs_child_frame_corfu.json5",
+    "bundleId": "org.gnu.Emacs",
+    "activationPolicy": "regular",
+    "windowLevel": "normalWindow",
+    "expectedType": "popup",
+    "appVersion": "30.2",
+    "AXRole": "AXWindow",
+    "AXSubrole": "AXFloatingWindow",
+    "AXFocused": false,
+    "AXMain": false,
+    "windowButtons": {}
+  },
+  {
+    "name": "emacs_child_frame_posframe",
+    "source": "https://github.com/nikitabobko/AeroSpace/blob/97897690b9eca7dfa05636ca2b559ab55342d2b1/axDumps/emacs_child_frame_posframe.json5",
+    "bundleId": "org.gnu.Emacs",
+    "activationPolicy": "regular",
+    "windowLevel": "normalWindow",
+    "expectedType": "popup",
+    "appVersion": "30.2",
+    "AXRole": "AXWindow",
+    "AXSubrole": "AXFloatingWindow",
+    "AXFocused": false,
+    "AXMain": false,
+    "windowButtons": {}
+  },
+  {
+    "name": "emacs",
+    "source": "https://github.com/nikitabobko/AeroSpace/blob/97897690b9eca7dfa05636ca2b559ab55342d2b1/axDumps/emacs.json5",
+    "bundleId": "org.gnu.Emacs",
+    "activationPolicy": "regular",
+    "windowLevel": "normalWindow",
+    "expectedType": "window",
+    "appVersion": "30.2",
+    "macOSVersion": "Version 26.2 (Build 25C56)",
+    "AXRole": "AXWindow",
+    "AXSubrole": "AXStandardWindow",
+    "AXFocused": true,
+    "AXMain": true,
+    "windowButtons": {
+      "AXCloseButton": {
+        "AXEnabled": true
+      },
+      "AXFullScreenButton": {
+        "AXEnabled": true
+      },
+      "AXMinimizeButton": {
+        "AXEnabled": true
+      },
+      "AXZoomButton": {
+        "AXEnabled": true
+      }
+    }
+  },
+  {
+    "name": "wisprFlow1",
+    "source": "https://github.com/nikitabobko/AeroSpace/blob/d56e1637c3a1ed660d0cadd7534e94fb3218d1c3/axDumps/wisprFlow1.json5",
+    "bundleId": "com.electron.wispr-flow",
+    "activationPolicy": "accessory",
+    "windowLevel": 1000,
+    "expectedType": "popup",
+    "appVersion": "1.6.7",
+    "AXRole": "AXWindow",
+    "AXSubrole": "AXDialog",
+    "AXFocused": false,
+    "AXMain": false,
+    "windowButtons": {}
+  },
+  {
+    "name": "wisprFlow2",
+    "source": "https://github.com/nikitabobko/AeroSpace/blob/d56e1637c3a1ed660d0cadd7534e94fb3218d1c3/axDumps/wisprFlow2.json5",
+    "bundleId": "com.electron.wispr-flow",
+    "activationPolicy": "regular",
+    "windowLevel": 1000,
+    "expectedType": "popup",
+    "appVersion": "1.6.7",
+    "AXRole": "AXWindow",
+    "AXSubrole": "AXDialog",
+    "AXFocused": false,
+    "AXMain": false,
+    "windowButtons": {}
+  }
+]
