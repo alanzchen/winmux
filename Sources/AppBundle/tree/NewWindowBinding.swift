@@ -59,7 +59,8 @@ func classifyAndGetBindingDataForNewWindow(
                let target = NewWindowIntentRegistry.shared.claim(windowId: windowId, pid: macApp.pid,
                    bundleId: macApp.rawAppBundleId, firstSeenUptime: observedAt, document: document)
             {
-                return (newWindowIntentBinding(targetWorkspace: target), type, true, nil)
+                let requestedLayout = NewWindowIntentRegistry.shared.pendingClaim(windowId: windowId)?.intent.requestedLayout
+                return (newWindowIntentBinding(targetWorkspace: target, requestedLayout: requestedLayout), type, true, nil)
             }
             // An auxiliary window stays floating when it's laid out again, never tiled in.
             if let window, AuxiliaryWindowRegistry.shared.role(of: window) != nil {

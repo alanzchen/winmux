@@ -62,7 +62,7 @@ final class MacWindow: Window {
         try await debugWindowsIfRecording(window)
         let focusBeforeDetectionCallbacks = focusChangeGeneration
         // An auxiliary window isn't a regular one: no tab, saved slot or empty pin takes it.
-        let wasRestored = try await restoreOrDetectNewWindow(window, isRegularWindow: windowType == .window && auxiliary == nil)
+        let wasRestored = try await restoreOrDetectNewWindow(window, isRegularWindow: windowType == .window && auxiliary == nil, firstSeenUptime: observedAt)
         // A concurrent registration may have claimed it after detection checked for a claim.
         settleClaimLeftAfterDetection(window)
         window.popupPresentationState.wasRestored = wasRestored

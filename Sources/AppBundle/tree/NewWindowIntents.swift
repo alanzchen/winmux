@@ -79,6 +79,10 @@ final class NewWindowIntent {
     /// Whether the request still stands: a pinned document's pin unchanged since. Once it doesn't, the
     /// request is withdrawn, waiting or claimed, and its window follows the usual rules.
     let isStillWanted: (@MainActor () -> Bool)?
+    /// Captured when the launch request was made; its app/PID and expiry rules govern this mode too.
+    var requestedLayout: LayoutCmdArgs.LayoutDescription?
+    /// Original observation cutoff for the mode, which may be newer than this intent after takeover.
+    var requestedLayoutFirstSeenUptime: TimeInterval?
     var completion: ((NewWindowRequestOutcome) -> Void)?
     /// Withdrawn after its window was claimed: the window then follows the usual rules.
     var isCancelled = false
@@ -197,6 +201,37 @@ final class NewWindowIntentRegistry {
     /// Windows registered and not yet through detection, which settles their claims.
     var windowsBeingDetected: Set<UInt32> = []
     private var nextId = 1
+    private struct NextWindowLayout {
+        let mode: LayoutCmdArgs.LayoutDescription
+        let createdUptime: TimeInterval
+        let deadlineUptime: TimeInterval
+    }
+    private var nextWindowLayouts: [WorkspaceId: NextWindowLayout] = [:]
+
+    /// A short-lived, workspace-scoped preference. A launcher request captures it, so another
+    /// app's window cannot take that request's mode. Otherwise the next new regular window in
+    /// this workspace consumes it. Saved/restored windows and auxiliary windows never do.
+    func setNextWindowLayout(_ mode: LayoutCmdArgs.LayoutDescription, in workspace: Workspace) {
+        check(mode == .tiling || mode == .floating)
+        nextWindowLayouts[workspace.id] = NextWindowLayout(mode: mode, createdUptime: now(),
+            deadlineUptime: now() + newWindowIntentTimeout)
+    }
+
+    func consumeNextWindowLayout(in workspace: Workspace, firstSeenUptime: TimeInterval) -> LayoutCmdArgs.LayoutDescription? {
+        consumeNextWindowLayoutPreference(in: workspace, firstSeenUptime: firstSeenUptime)?.mode
+    }
+
+    private func consumeNextWindowLayoutPreference(in workspace: Workspace, firstSeenUptime: TimeInterval) -> NextWindowLayout? {
+        guard let preference = nextWindowLayouts[workspace.id] else { return nil }
+        guard preference.deadlineUptime >= now(),
+              winMuxWorkspaceState.workspaceById[workspace.id] === workspace, !workspace.isArchived else {
+            nextWindowLayouts.removeValue(forKey: workspace.id)
+            return nil
+        }
+        guard firstSeenUptime >= preference.createdUptime else { return nil }
+        nextWindowLayouts.removeValue(forKey: workspace.id)
+        return preference
+    }
 
     var hasPendingIntents: Bool { !intents.isEmpty }
 
@@ -222,6 +257,9 @@ final class NewWindowIntentRegistry {
             preexistingWindowIds: preexistingWindowIds, createdUptime: created, deadlineUptime: created + timeout,
             focusGeneration: focusGeneration, reopens: reopens, instancePidsAtRequest: instancePidsAtRequest,
             document: document, page: page, completion: completion, isStillWanted: isStillWanted)
+        let preference = consumeNextWindowLayoutPreference(in: targetWorkspace, firstSeenUptime: created)
+        intent.requestedLayout = preference?.mode
+        intent.requestedLayoutFirstSeenUptime = preference?.createdUptime
         nextId += 1
         intents.append(intent)
         return intent
@@ -275,6 +313,12 @@ final class NewWindowIntentRegistry {
               })
         else { return nil }
         let intent = intents.remove(at: index)
+        // A takeover may capture a mode after the app's window was already observed. Keep
+        // the new destination, but don't let that earlier window acquire the newer mode.
+        if let cutoff = intent.requestedLayoutFirstSeenUptime, firstSeenUptime < cutoff {
+            intent.requestedLayout = nil
+            intent.requestedLayoutFirstSeenUptime = nil
+        }
         guard let workspace = winMuxWorkspaceState.workspaceById[intent.targetWorkspaceId], !workspace.isArchived else {
             finish(intent, .cancelled)
             return nil
@@ -346,6 +390,15 @@ final class NewWindowIntentRegistry {
                   completion: ((NewWindowRequestOutcome) -> Void)?) {
         guard intents.contains(where: { $0 === intent }) else { return }
         let replaced = intent.completion
+        let destinationChanged = intent.targetWorkspaceId != targetWorkspace.id
+        // A takeover is a new placement request, even though the app is not asked twice.
+        // Consume the destination's preference at this click's time, not at the original
+        // launch time. A mode scoped to the old destination must not follow it elsewhere.
+        let preference = consumeNextWindowLayoutPreference(in: targetWorkspace, firstSeenUptime: now())
+        if destinationChanged || preference != nil {
+            intent.requestedLayout = preference?.mode
+            intent.requestedLayoutFirstSeenUptime = preference?.createdUptime
+        }
         intent.targetWorkspaceId = targetWorkspace.id
         intent.focusGeneration = focusGeneration
         intent.focusWhenSent = nil
@@ -433,6 +486,7 @@ final class NewWindowIntentRegistry {
 
     func expireOverdueIntents() {
         let time = now()
+        nextWindowLayouts = nextWindowLayouts.filter { $0.value.deadlineUptime >= time }
         let overdue = intents.filter { $0.deadlineUptime < time }
         intents.removeAll { $0.deadlineUptime < time }
         for intent in overdue {
@@ -461,6 +515,7 @@ final class NewWindowIntentRegistry {
         intents = []
         claims = [:]
         deferredPlacements = [:]
+        nextWindowLayouts = [:]
         resetFrozenRestoresForTests()
         windowsBeingDetected = []
         now = { ProcessInfo.processInfo.systemUptime }
@@ -481,8 +536,8 @@ final class NewWindowIntentRegistry {
 /// Binding for a window an intent claimed: appended to the target workspace, tiled or
 /// floating per the usual setting, and never auto-added to a stack.
 @MainActor
-func newWindowIntentBinding(targetWorkspace: Workspace) -> BindingData {
-    config.automaticallyTileNewWindows
+func newWindowIntentBinding(targetWorkspace: Workspace, requestedLayout: LayoutCmdArgs.LayoutDescription? = nil) -> BindingData {
+    (requestedLayout.map { $0 == .tiling } ?? config.automaticallyTileNewWindows)
         ? workspaceAppendBindingData(targetWorkspace: targetWorkspace, index: INDEX_BIND_LAST)
         : BindingData(parent: targetWorkspace, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
 }
@@ -505,9 +560,18 @@ func newWindowIntentMayTakeFocus(_ intent: NewWindowIntent, placing window: Wind
 /// focus unless the user moved on while it was opening. The request then completes.
 @MainActor
 func finishNewWindowIntentPlacement(_ window: Window, claim: NewWindowIntentClaim, broadcastsDetection: Bool = true) {
+    // The app may have entered a native state while detection was suspended. Preserve that
+    // state even if the destination or requested mode differs; complete the request for
+    // where the window actually is, without focus or a deferred placement pulling it back.
+    guard window.parent is TilingContainer || window.parent is Workspace else {
+        if broadcastsDetection { broadcastWindowDetected(window) }
+        NewWindowIntentRegistry.shared.completeClaim(claim, window: window)
+        return
+    }
     // Another registration may have bound it by the usual rules first.
-    if window.nodeWorkspace !== claim.targetWorkspace {
-        let binding = newWindowIntentBinding(targetWorkspace: claim.targetWorkspace)
+    if window.nodeWorkspace !== claim.targetWorkspace ||
+        claim.intent.requestedLayout.map({ ($0 == .floating) != window.isFloating }) == true {
+        let binding = newWindowIntentBinding(targetWorkspace: claim.targetWorkspace, requestedLayout: claim.intent.requestedLayout)
         window.bind(to: binding.parent, adaptiveWeight: binding.adaptiveWeight, index: binding.index)
     }
     if broadcastsDetection { broadcastWindowDetected(window) }
@@ -620,4 +684,19 @@ func settleClaimAfterConcurrentRegistration(_ window: Window) {
 func settleClaimLeftAfterDetection(_ window: Window) {
     guard let claim = NewWindowIntentRegistry.shared.consumeClaim(windowId: window.windowId), !claim.isWithdrawn else { return }
     finishNewWindowIntentPlacement(window, claim: claim, broadcastsDetection: false)
+}
+
+/// Apply a captured mode after ordinary detection callbacks and placement. Placement still wins:
+/// this never changes the workspace selected by a callback or by WinMux's pin/new-tab routing.
+/// A callback that entered native fullscreen/minimized state keeps that state.
+@MainActor
+func applyRequestedNewWindowLayout(_ mode: LayoutCmdArgs.LayoutDescription?, to window: Window) {
+    guard let mode, let workspace = window.nodeWorkspace,
+          window.parent is TilingContainer || window.parent is Workspace else { return }
+    if mode == .floating, !window.isFloating {
+        window.bindAsFloatingWindow(to: workspace)
+    } else if mode == .tiling, window.isFloating {
+        let binding = workspaceAppendBindingData(targetWorkspace: workspace, index: INDEX_BIND_LAST)
+        window.bind(to: binding.parent, adaptiveWeight: binding.adaptiveWeight, index: binding.index)
+    }
 }

@@ -39,6 +39,161 @@ final class NewWindowIntentTest: XCTestCase {
             focusGeneration: focusChangeGeneration, timeout: timeout, completion: outcomes)
     }
 
+    func testNextWindowLayoutIsScopedExpiresAndSkipsOlderWindows() {
+        let target = Workspace.get(byName: "a")
+        let other = Workspace.get(byName: "b")
+        registry.setNextWindowLayout(.floating, in: target)
+        XCTAssertNil(registry.consumeNextWindowLayout(in: other, firstSeenUptime: clock))
+        XCTAssertNil(registry.consumeNextWindowLayout(in: target, firstSeenUptime: clock - 1))
+        XCTAssertEqual(registry.consumeNextWindowLayout(in: target, firstSeenUptime: clock), .floating)
+        XCTAssertNil(registry.consumeNextWindowLayout(in: target, firstSeenUptime: clock))
+        registry.setNextWindowLayout(.tiling, in: target)
+        clock += newWindowIntentTimeout + 1
+        XCTAssertNil(registry.consumeNextWindowLayout(in: target, firstSeenUptime: clock))
+    }
+
+    func testLaunchIntentCapturesModeWithoutLosingProcessAndWindowChecks() throws {
+        let target = Workspace.get(byName: "launched")
+        registry.setNextWindowLayout(.floating, in: target)
+        let intent = try XCTUnwrap(register(target: target, preexisting: [10]))
+        XCTAssertEqual(intent.requestedLayout, .floating)
+        XCTAssertNil(registry.consumeNextWindowLayout(in: target, firstSeenUptime: clock))
+        XCTAssertNil(registry.claim(windowId: 10, pid: 7, bundleId: appId, firstSeenUptime: clock))
+        XCTAssertNil(registry.claim(windowId: 11, pid: 8, bundleId: appId, firstSeenUptime: clock))
+        XCTAssertNotNil(registry.claim(windowId: 11, pid: 7, bundleId: appId, firstSeenUptime: clock))
+        let claim = try XCTUnwrap(registry.consumeClaim(windowId: 11))
+        let window = TestWindow.new(id: 11, parent: target.rootTilingContainer)
+        finishNewWindowIntentPlacement(window, claim: claim)
+        XCTAssertTrue(window.isFloating)
+        XCTAssertTrue(window.nodeWorkspace === target)
+    }
+
+    func testCancelledLaunchDoesNotLeakItsCapturedModeToAnotherWindow() throws {
+        let target = Workspace.get(byName: "a")
+        registry.setNextWindowLayout(.floating, in: target)
+        let intent = try XCTUnwrap(register(target: target))
+        registry.cancel(intentId: intent.id)
+        XCTAssertNil(registry.claim(windowId: 11, pid: 7, bundleId: appId, firstSeenUptime: clock))
+        XCTAssertNil(registry.consumeNextWindowLayout(in: target, firstSeenUptime: clock))
+    }
+
+    func testNextWindowModeDoesNotPullWindowOutOfNativeFullscreen() {
+        let nativeContainer = focus.workspace.macOsNativeFullscreenWindowsContainer
+        let window = TestWindow.new(id: 11, parent: nativeContainer)
+        applyRequestedNewWindowLayout(.floating, to: window)
+        XCTAssertTrue(window.parent === nativeContainer)
+    }
+
+    func testReopenTakeoverUsesNewDestinationsLayoutAndConsumesIt() throws {
+        let first = Workspace.get(byName: "first")
+        let second = Workspace.get(byName: "second")
+        registry.setNextWindowLayout(.floating, in: first)
+        let intent = try XCTUnwrap(registry.register(bundleId: appId, pid: 7,
+            targetWorkspace: first, preexistingWindowIds: [], focusGeneration: focusChangeGeneration, reopens: true))
+        XCTAssertEqual(intent.requestedLayout, .floating)
+        // The preference for the destination was armed after the original app request.
+        clock += 1
+        registry.setNextWindowLayout(.tiling, in: second)
+        registry.takeOver(intent, targetWorkspace: second, focusGeneration: focusChangeGeneration, completion: nil)
+        XCTAssertEqual(intent.requestedLayout, .tiling)
+        XCTAssertNil(registry.consumeNextWindowLayout(in: second, firstSeenUptime: clock))
+        XCTAssertTrue(registry.claim(windowId: 11, pid: 7, bundleId: appId, firstSeenUptime: clock) === second)
+        let claim = try XCTUnwrap(registry.consumeClaim(windowId: 11))
+        let window = TestWindow.new(id: 11, parent: second)
+        finishNewWindowIntentPlacement(window, claim: claim)
+        XCTAssertTrue(window.nodeWorkspace === second)
+        XCTAssertFalse(window.isFloating)
+    }
+
+    func testReopenTakeoverClearsOldDestinationsLayoutWithoutNewPreference() throws {
+        let first = Workspace.get(byName: "first")
+        let second = Workspace.get(byName: "second")
+        registry.setNextWindowLayout(.floating, in: first)
+        let intent = try XCTUnwrap(register(target: first))
+        registry.takeOver(intent, targetWorkspace: second, focusGeneration: focusChangeGeneration, completion: nil)
+        XCTAssertNil(intent.requestedLayout)
+    }
+
+    func testRepeatedClickOnSameDestinationKeepsCapturedLayoutUnlessReplaced() throws {
+        let target = Workspace.get(byName: "a")
+        registry.setNextWindowLayout(.floating, in: target)
+        let intent = try XCTUnwrap(register(target: target))
+        registry.takeOver(intent, targetWorkspace: target, focusGeneration: focusChangeGeneration, completion: nil)
+        XCTAssertEqual(intent.requestedLayout, .floating)
+        clock += 1
+        registry.setNextWindowLayout(.tiling, in: target)
+        registry.takeOver(intent, targetWorkspace: target, focusGeneration: focusChangeGeneration, completion: nil)
+        XCTAssertEqual(intent.requestedLayout, .tiling)
+        XCTAssertNil(registry.consumeNextWindowLayout(in: target, firstSeenUptime: clock))
+    }
+
+    func testReopenTakeoverDoesNotApplyModeArmedAfterWindowsFirstObservation() throws {
+        let first = Workspace.get(byName: "first")
+        let second = Workspace.get(byName: "second")
+        let intent = try XCTUnwrap(register(target: first))
+        let firstObserved = clock + 1
+        clock += 2
+        registry.setNextWindowLayout(.floating, in: second)
+        registry.takeOver(intent, targetWorkspace: second, focusGeneration: focusChangeGeneration, completion: nil)
+        XCTAssertEqual(intent.requestedLayout, .floating)
+        clock += 1
+        XCTAssertTrue(registry.claim(windowId: 11, pid: 7, bundleId: appId, firstSeenUptime: firstObserved) === second)
+        let claim = try XCTUnwrap(registry.consumeClaim(windowId: 11))
+        XCTAssertNil(claim.intent.requestedLayout)
+        let window = TestWindow.new(id: 11, parent: second.rootTilingContainer)
+        finishNewWindowIntentPlacement(window, claim: claim)
+        XCTAssertTrue(window.nodeWorkspace === second)
+        XCTAssertFalse(window.isFloating)
+    }
+
+    func testClaimPlacementPreservesNativeFullscreenForSameAndDifferentDestination() throws {
+        for sameDestination in [true, false] {
+            let source = Workspace.get(byName: "native-source")
+            let target = sameDestination ? source : Workspace.get(byName: "other-destination")
+            var outcomes: [NewWindowRequestOutcome] = []
+            registry.setNextWindowLayout(.floating, in: target)
+            register(target: target) { outcomes.append($0) }
+            let id: UInt32 = sameDestination ? 11 : 12
+            XCTAssertTrue(registry.claim(windowId: id, pid: 7, bundleId: appId, firstSeenUptime: clock) === target)
+            let claim = try XCTUnwrap(registry.consumeClaim(windowId: id))
+            let nativeContainer = source.macOsNativeFullscreenWindowsContainer
+            let window = TestWindow.new(id: id, parent: nativeContainer)
+            finishNewWindowIntentPlacement(window, claim: claim)
+            XCTAssertTrue(window.parent === nativeContainer)
+            XCTAssertEqual(window.nativeFocusCount, 0)
+            XCTAssertEqual(outcomes, sameDestination ? [.placed(windowId: id)] : [.failed("The new window went to another workspace")])
+        }
+    }
+
+    func testNextWindowModeWinsOverCallbacksButKeepsTheirWorkspace() async throws {
+        let source = focus.workspace
+        let destination = Workspace.get(byName: "callback-target")
+        registry.setNextWindowLayout(.tiling, in: source)
+        config.openNewWindowsInNewWorkspace = false
+        config.onWindowDetected = [WindowDetectedCallback(rawRun: [
+            LayoutCommand(args: LayoutCmdArgs(rawArgs: [], toggleBetween: [.floating])),
+            MoveNodeToWorkspaceCommand(args: MoveNodeToWorkspaceCmdArgs(workspace: destination.name)),
+        ])]
+        let window = TestWindow.new(id: 11, parent: source.rootTilingContainer)
+        _ = try await restoreOrDetectNewWindow(window, isRegularWindow: true, firstSeenUptime: clock)
+        XCTAssertTrue(window.nodeWorkspace === destination)
+        XCTAssertFalse(window.isFloating)
+        XCTAssertNil(registry.consumeNextWindowLayout(in: source, firstSeenUptime: clock))
+    }
+
+    func testAuxiliaryAndStartupWindowsDoNotConsumeNextWindowMode() async throws {
+        let target = focus.workspace
+        config.openNewWindowsInNewWorkspace = false
+        registry.setNextWindowLayout(.floating, in: target)
+        let auxiliary = TestWindow.new(id: 11, parent: target)
+        _ = try await restoreOrDetectNewWindow(auxiliary, isRegularWindow: false, firstSeenUptime: clock)
+        let startup = TestWindow.new(id: 12, parent: target.rootTilingContainer)
+        try await $_isStartup.withValue(true) {
+            _ = try await restoreOrDetectNewWindow(startup, isRegularWindow: true, firstSeenUptime: clock)
+        }
+        XCTAssertEqual(registry.consumeNextWindowLayout(in: target, firstSeenUptime: clock), .floating)
+    }
+
     func testTheRequestedWindowIsClaimedOnceForItsWorkspace() throws {
         let target = Workspace.get(byName: "launched")
         var outcomes: [NewWindowRequestOutcome] = []

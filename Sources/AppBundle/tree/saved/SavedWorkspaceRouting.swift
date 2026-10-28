@@ -5,7 +5,7 @@ import Common
 /// when nothing restored it. Returns whether WinMux placed the window itself: restored it,
 /// routed it to a saved workspace, or put it where a launcher request asked.
 @MainActor
-func restoreOrDetectNewWindow(_ window: Window, isRegularWindow: Bool) async throws -> Bool {
+func restoreOrDetectNewWindow(_ window: Window, isRegularWindow: Bool, firstSeenUptime: TimeInterval? = nil) async throws -> Bool {
     // A window an app showed again because a tab reopened it goes to that tab, not back to where
     // it was before it was closed.
     let isReopenedForTab = NewWindowIntentRegistry.shared.pendingClaim(windowId: window.windowId)
@@ -39,10 +39,15 @@ func restoreOrDetectNewWindow(_ window: Window, isRegularWindow: Bool) async thr
         return true
     }
     let detectedIn = window.nodeWorkspace
+    let requestedLayout = !isStartup && isRegularWindow ? detectedIn.flatMap {
+        NewWindowIntentRegistry.shared.consumeNextWindowLayout(in: $0,
+            firstSeenUptime: firstSeenUptime ?? NewWindowIntentRegistry.shared.now())
+    } : nil
     try await tryOnWindowDetected(window)
     if !moveNewWindowToEmptyPinIfNeeded(window, detectedIn: detectedIn, isNewRegularWindow: isRegularWindow) {
         moveNewWindowToNewWorkspaceIfNeeded(window, detectedIn: detectedIn, isNewRegularWindow: isRegularWindow)
     }
+    applyRequestedNewWindowLayout(requestedLayout, to: window)
     return false
 }
 
