@@ -13,6 +13,42 @@ enum NewWindowRequestOutcome: Equatable {
     case cancelled
 }
 
+/// A next-window mode captured when a launcher choice is accepted, before a cold app
+/// launches and restores its session. An empty reservation is meaningful: later preferences
+/// must remain available to later windows, rather than being captured after the launch wait.
+@MainActor
+final class NewWindowLayoutReservation {
+    fileprivate struct Preference {
+        let mode: LayoutCmdArgs.LayoutDescription
+        let createdUptime: TimeInterval
+    }
+    private let bundleId: String
+    private let workspaceId: WorkspaceId
+    private var preference: Preference?
+    private var isConsumed = false
+
+    fileprivate init(bundleId: String, workspaceId: WorkspaceId, preference: Preference?) {
+        self.bundleId = bundleId
+        self.workspaceId = workspaceId
+        self.preference = preference
+    }
+
+    fileprivate func consume(bundleId: String, workspace: Workspace) -> Preference? {
+        guard !isConsumed else { return nil }
+        defer { discard() }
+        guard self.bundleId == bundleId, workspaceId == workspace.id,
+              winMuxWorkspaceState.workspaceById[workspaceId] === workspace, !workspace.isArchived
+        else { return nil }
+        return preference
+    }
+
+    /// Failure/cancellation never returns a captured app-specific mode to ordinary detection.
+    func discard() {
+        preference = nil
+        isConsumed = true
+    }
+}
+
 /// A pinned page opened again in a fresh browser window: which window the request made, learned only
 /// from the request itself once the browser has answered (the window number Safari returns, or the
 /// one window the browser's process gained meanwhile), never from a window's being merely new or
@@ -233,6 +269,14 @@ final class NewWindowIntentRegistry {
         return preference
     }
 
+    /// Reserve now; the eventual intent starts its own deadline and preexisting-window
+    /// snapshot after launch/settling, so session-restored windows still cannot be claimed.
+    func reserveNextWindowLayout(bundleId: String, in workspace: Workspace) -> NewWindowLayoutReservation {
+        let preference = consumeNextWindowLayoutPreference(in: workspace, firstSeenUptime: now())
+        return NewWindowLayoutReservation(bundleId: bundleId, workspaceId: workspace.id,
+            preference: preference.map { .init(mode: $0.mode, createdUptime: $0.createdUptime) })
+    }
+
     var hasPendingIntents: Bool { !intents.isEmpty }
 
     /// One request per app at a time: two outstanding requests couldn't tell their windows apart.
@@ -247,9 +291,11 @@ final class NewWindowIntentRegistry {
         instancePidsAtRequest: Set<Int32> = [],
         document: PinDocumentIdentity? = nil,
         page: PinPageExpectation? = nil,
+        layoutReservation: NewWindowLayoutReservation? = nil,
         completion: ((NewWindowRequestOutcome) -> Void)? = nil,
         isStillWanted: (@MainActor () -> Bool)? = nil,
     ) -> NewWindowIntent? {
+        defer { layoutReservation?.discard() }
         expireOverdueIntents()
         guard !intents.contains(where: { $0.bundleId == bundleId }) else { return nil }
         let created = now()
@@ -257,9 +303,15 @@ final class NewWindowIntentRegistry {
             preexistingWindowIds: preexistingWindowIds, createdUptime: created, deadlineUptime: created + timeout,
             focusGeneration: focusGeneration, reopens: reopens, instancePidsAtRequest: instancePidsAtRequest,
             document: document, page: page, completion: completion, isStillWanted: isStillWanted)
-        let preference = consumeNextWindowLayoutPreference(in: targetWorkspace, firstSeenUptime: created)
-        intent.requestedLayout = preference?.mode
-        intent.requestedLayoutFirstSeenUptime = preference?.createdUptime
+        if let layoutReservation {
+            let preference = layoutReservation.consume(bundleId: bundleId, workspace: targetWorkspace)
+            intent.requestedLayout = preference?.mode
+            intent.requestedLayoutFirstSeenUptime = preference?.createdUptime
+        } else {
+            let preference = consumeNextWindowLayoutPreference(in: targetWorkspace, firstSeenUptime: created)
+            intent.requestedLayout = preference?.mode
+            intent.requestedLayoutFirstSeenUptime = preference?.createdUptime
+        }
         nextId += 1
         intents.append(intent)
         return intent
@@ -561,11 +613,15 @@ func newWindowIntentMayTakeFocus(_ intent: NewWindowIntent, placing window: Wind
 @MainActor
 func finishNewWindowIntentPlacement(_ window: Window, claim: NewWindowIntentClaim, broadcastsDetection: Bool = true) {
     // The app may have entered a native state while detection was suspended. Preserve that
-    // state even if the destination or requested mode differs; complete the request for
-    // where the window actually is, without focus or a deferred placement pulling it back.
+    // state even if the destination or requested mode differs. An older restore must still
+    // leave a reopened window alone until it ends, without focusing or rebinding it then.
     guard window.parent is TilingContainer || window.parent is Workspace else {
         if broadcastsDetection { broadcastWindowDetected(window) }
-        NewWindowIntentRegistry.shared.completeClaim(claim, window: window)
+        if claim.intent.reopens, activeFrozenRestoreCount > 0 {
+            NewWindowIntentRegistry.shared.deferPlacement(DeferredReopenPlacement(window: window, claim: claim))
+        } else {
+            completeNewWindowIntentWithoutFocus(window, claim: claim)
+        }
         return
     }
     // Another registration may have bound it by the usual rules first.
@@ -591,6 +647,21 @@ func finishNewWindowIntentPlacement(_ window: Window, claim: NewWindowIntentClai
     NewWindowIntentRegistry.shared.completeClaim(claim, window: window)
 }
 
+/// A native window keeps its actual place. Older snapshots must forget its previous place even
+/// when that differs from the request, or when minimizing detached it from every workspace.
+@MainActor
+private func completeNewWindowIntentWithoutFocus(_ window: Window, claim: NewWindowIntentClaim) {
+    if claim.intent.reopens {
+        var workspace = window.nodeWorkspace
+        if workspace == nil, window.parent is MacosMinimizedWindowsContainer,
+           case .macos(_, let name?) = window.layoutReason {
+            workspace = Workspace.existing(byName: name)
+        }
+        noteExplicitWindowPlacement(window, in: workspace ?? claim.targetWorkspace)
+    }
+    NewWindowIntentRegistry.shared.completeClaim(claim, window: window)
+}
+
 /// The last restore under way ended: each reopened window placed meanwhile is finished where it is,
 /// if its tab and request still stand. Restores left it alone, so it's in its tab unless the user
 /// moved it, which stands. It takes focus, and shows its tab again, only if the user hasn't moved
@@ -611,8 +682,12 @@ func finishDeferredReopenPlacements() {
             registry.cancel(claim: claim)
             continue
         }
+        guard window.parent is TilingContainer || window.parent is Workspace else {
+            completeNewWindowIntentWithoutFocus(window, claim: claim)
+            continue
+        }
         guard window.nodeWorkspace === target else {
-            // The user moved it since, or it went native full screen or minimized; it stays as it is.
+            // The user moved it since; it stays as it is.
             registry.cancel(claim: claim)
             continue
         }
