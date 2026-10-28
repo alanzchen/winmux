@@ -44,13 +44,23 @@ struct ListWindowsCommand: Command {
         if args.outputOnlyCount {
             return io.out("\(windows.count)")
         } else {
+            // Adapt AeroSpace 63e0976b / 25ccedf4: do not perform AX title reads
+            // for title-free formats. Keep ordering deterministic even though the
+            // workspace set above has no iteration order.
+            let needsTitle = args.format.contains(.interVar("window-title"))
             var windowInfos: [(window: Window, title: String)] = []
             for window in windows {
-                windowInfos.append((window, try await window.title))
+                windowInfos.append((window, needsTitle ? try await window.title : ""))
             }
             windowInfos = windowInfos
                 .filter { $0.window.isBound }
-                .sortedBy([{ $0.window.app.name ?? "" }, \.title])
+                .sorted {
+                    let leftApp = $0.window.app.name ?? ""
+                    let rightApp = $1.window.app.name ?? ""
+                    if leftApp != rightApp { return leftApp < rightApp }
+                    if $0.title != $1.title { return $0.title < $1.title }
+                    return $0.window.windowId < $1.window.windowId
+                }
 
             return windowInfos.map { FormatObject.window(window: $0.window, title: $0.title) }.writeFormattedOutput(
                 to: io,

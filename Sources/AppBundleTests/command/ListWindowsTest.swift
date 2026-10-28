@@ -102,4 +102,55 @@ final class ListWindowsTest: XCTestCase {
 
         assertEquals(result.stdout, ["1"])
     }
+
+    func testTitleFreeFormatsSkipTitleReadsAndSortByWindowId() async throws {
+        let workspace = Workspace.get(byName: name)
+        var titleReads = 0
+        for id in [UInt32(20), 3, 11] {
+            let window = TestWindow.new(id: id, parent: workspace.rootTilingContainer, title: "title-\(id)")
+            window.titleGate = { titleReads += 1 }
+        }
+        for suffix in ["--format '%{window-id}'", "--json --format '%{window-id}'", "--count"] {
+            guard let command = parseCommand("list-windows --all \(suffix)").cmdOrNil as? ListWindowsCommand else {
+                XCTFail("Expected list-windows command")
+                return
+            }
+            let result = try await command.run(.defaultEnv, .emptyStdin)
+            assertEquals(result.exitCode, 0)
+            if suffix == "--format '%{window-id}'" {
+                assertEquals(result.stdout, ["3", "11", "20"])
+            }
+        }
+        assertEquals(titleReads, 0)
+    }
+
+    func testRequestedTitlesAreReadAndSortedWithStableIdTieBreaker() async throws {
+        let workspace = Workspace.get(byName: name)
+        var titleReads = 0
+        for (id, title) in [(UInt32(20), "Alpha"), (3, "Zulu"), (11, "Alpha")] {
+            let window = TestWindow.new(id: id, parent: workspace.rootTilingContainer, title: title)
+            window.titleGate = { titleReads += 1 }
+        }
+        guard let command = parseCommand("list-windows --all --format '%{window-id}: %{window-title}'").cmdOrNil as? ListWindowsCommand else {
+            XCTFail("Expected list-windows command")
+            return
+        }
+        let result = try await command.run(.defaultEnv, .emptyStdin)
+        assertEquals(result.stdout, ["11: Alpha", "20: Alpha", "3: Zulu"])
+        assertEquals(titleReads, 3)
+    }
+
+    func testJsonDefaultStillReadsRequestedTitles() async throws {
+        let workspace = Workspace.get(byName: name)
+        let window = TestWindow.new(id: 7, parent: workspace.rootTilingContainer, title: "Requested title")
+        var titleReads = 0
+        window.titleGate = { titleReads += 1 }
+        guard let command = parseCommand("list-windows --all --json").cmdOrNil as? ListWindowsCommand else {
+            XCTFail("Expected list-windows command")
+            return
+        }
+        let result = try await command.run(.defaultEnv, .emptyStdin)
+        assertTrue(result.stdout.joined().contains("Requested title"))
+        assertEquals(titleReads, 1)
+    }
 }
