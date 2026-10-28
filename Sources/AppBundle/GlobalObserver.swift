@@ -157,8 +157,8 @@ enum GlobalObserver {
                 // A sidebar drop already decided where focus goes, whichever display the pointer is on.
                 let wasSidebarDrop = takeWorkspaceSidebarConsumedRelease()
                 switch true {
-                    // Detect clicks on desktop of different monitors
-                    case !wasSidebarDrop && clickedMonitor.activeWorkspace != focus.workspace:
+                    // Detect desktop clicks on other monitors, excluding menu bars (AeroSpace cfd4eab2).
+                    case !wasSidebarDrop && clickedMonitor.visibleRect.contains(mouseLocation) && clickedMonitor.activeWorkspace != focus.workspace:
                         _ = try await runLightSession(.globalObserverLeftMouseUp, token) {
                             clickedMonitor.activeWorkspace.focusWorkspace()
                         }

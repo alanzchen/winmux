@@ -18,6 +18,10 @@ winmux reload-config --dry-run
 winmux reload-config
 ```
 
+If the selected file cannot be read or contains invalid UTF-8, reload reports an
+error and keeps the current configuration. When no custom file exists, WinMux
+still uses its bundled defaults.
+
 The [default configuration](../resources/default-config.toml) lists the available
 starting values. See the [Settings guide](settings-ux.md) for saving and recovery.
 

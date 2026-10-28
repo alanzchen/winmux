@@ -13,6 +13,9 @@ import Foundation
             interceptTermination(SIGINT)
             interceptTermination(SIGKILL)
         }
+        // Acquire permission before config reload registers hotkeys or starts live surfaces.
+        // The menu remains available while waiting; approval resumes this same startup task.
+        try await waitForAccessibilityPermission()
         // Saved names must exist before anything (config reload, sidebar refresh, focus) can
         // hand them out as automatic workspace names.
         isDeferringOrphanedWorkspaceLabelCleanup = true
@@ -47,7 +50,6 @@ import Foundation
         materializePersistedWorkspaceProjects()
         MonitorConfigurationObserver.shared.prepareForStartup()
 
-        checkAccessibilityPermissions()
         // Screen Recording is optional. Request it only from the explicit Settings action,
         // never on launch, config reload, or restoration after an update.
         startUnixSocketServer()

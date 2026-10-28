@@ -28,7 +28,7 @@ final class MacApp: AbstractApp {
     // Also holds synchronization while a noncanonical focused reference awaits
     // enumeration; restoring logical focus then could dismiss its native panel.
     @MainActor private(set) var hasActiveTransientNativeFocus = false
-    private var thread: Thread?
+    private var thread: AxAppWorker?
     private var setFrameJobs: [UInt32: RunLoopJob] = [:]
     private let frameWriteBarrier = AppFrameWriteBarrier()
     private var lastFrameSubmission: TimeInterval = 0
@@ -46,9 +46,9 @@ final class MacApp: AbstractApp {
     // todo think if it's possible to integrate this global mutable state to https://github.com/nikitabobko/AeroSpace/issues/1215
     //      and make deinitialization automatic in deinit
     @MainActor static var allAppsMap: [pid_t: MacApp] = [:]
-    @MainActor private static var wipPids: [pid_t: AwaitableOneTimeBroadcastLatch] = [:]
+    @MainActor private static let wipPids = AppRegistrationLatches()
 
-    private init(_ nsApp: NSRunningApplication, _ axApp: AXUIElement, _ axAppFastTimeout: AXUIElement, _ axSubscriptions: [AxSubscription], _ thread: Thread) {
+    private init(_ nsApp: NSRunningApplication, _ axApp: AXUIElement, _ axAppFastTimeout: AXUIElement, _ axSubscriptions: [AxSubscription], _ thread: AxAppWorker) {
         self.nsApp = nsApp
         self.axApp = .init(axApp)
         self.axAppFastTimeout = .init(axAppFastTimeout)
@@ -80,15 +80,14 @@ final class MacApp: AbstractApp {
             try checkCancellation()
             if let wip = wipPids[pid] {
                 try await wip.await()
-                continue
+                return allAppsMap[pid]
             }
             // Registration can fail (app still launching, AX subscription rejected). In that case
             // allAppsMap[pid] stays absent, so without this guard the loop would respawn the
             // registration thread forever, stalling every refresh that awaits this app.
             if attempted { return nil }
             attempted = true
-            let wip = AwaitableOneTimeBroadcastLatch()
-            wipPids[pid] = wip
+            _ = wipPids.begin(pid)
 
             let thread = Thread {
                 $axTaskLocalAppThreadToken.withValue(AxAppThreadToken(pid: pid, idForDebug: nsApp.idForDebug)) {
@@ -104,14 +103,27 @@ final class MacApp: AbstractApp {
                     let job = RunLoopJob()
                     let subscriptions = (try? AxSubscription.bulkSubscribe(nsApp, axApp, job, handlers)) ?? []
                     let isGood = !subscriptions.isEmpty
-                    let app = isGood ? MacApp(nsApp, axApp, axAppFastTimeout, subscriptions, Thread.current) : nil
+                    let app = isGood ? MacApp(nsApp, axApp, axAppFastTimeout, subscriptions, AxAppWorker()) : nil
+                    let appAxSubscriptionsThreadGuarded = app?.appAxSubscriptions
+                    let windowsThreadGuarded = app?.windows
+                    let axAppFastTimeoutThreadGuarded = app?.axAppFastTimeout
+                    let axAppThreadGuarded = app?.axApp
+                    let worker = app?.thread
                     Task { @MainActor in
                         allAppsMap[pid] = app
-                        await wip.signalToAll()
-                        wipPids[pid] = nil
+                        // Clear before the actor hop that wakes waiters. Each waiter returns
+                        // the result of this attempt, including nil, without retrying in a loop.
+                        await wipPids.complete(pid)
                     }
                     if isGood {
                         CFRunLoopRun()
+                        worker?.finish()
+                        // CFRunLoopStop only requests termination. AX wrappers must remain
+                        // valid until the loop has actually returned on their owning thread.
+                        appAxSubscriptionsThreadGuarded?.destroy()
+                        windowsThreadGuarded?.destroy()
+                        axAppFastTimeoutThreadGuarded?.destroy()
+                        axAppThreadGuarded?.destroy()
                     }
                 }
             }
@@ -713,13 +725,7 @@ final class MacApp: AbstractApp {
                 (alive, dead) = try alive.partition {
                     try job.checkCancellation()
                     let (windowId, error) = $0.value.ax.containingWindowIdWithError()
-                    if windowId != nil { return true }
-                    // .cannotComplete means the app didn't answer (CPU-starved or briefly
-                    // unresponsive), not that the window is gone. Treating it as death made
-                    // a busy app's windows get GC'd and later re-detected as new windows
-                    // (losing their tree position). Keep them; a later refresh reconciles
-                    // once the app responds or terminates.
-                    return error == .cannotComplete
+                    return shouldKeepRegisteredAxWindow(windowId: windowId, error: error)
                 }
             }
 
@@ -739,24 +745,19 @@ final class MacApp: AbstractApp {
     }
 
     private func destroy() async {
+        // Close admission before any actor hop: callers may already hold this worker, so
+        // nil alone is insufficient. The worker cancels queued continuations explicitly.
+        guard let worker = thread else { return }
+        thread = nil
+        for (_, job) in setFrameJobs { job.cancel() }
+        setFrameJobs = [:]
+        worker.shutdown()
         _ = await Task { @MainActor [pid] in
             _ = MacApp.allAppsMap.removeValue(forKey: pid)
             savedWorkspaceRuntime.firstWindowSeenByPid.removeValue(forKey: pid)
             // The process ended: no window of it is lent by a pin, or brought back by a pinned split.
             forgetWorkspaceSidebarPinWindows { $0.pid == pid }
         }.result
-        for (_, job) in setFrameJobs {
-            job.cancel()
-        }
-        setFrameJobs = [:]
-        thread?.runInLoopAsync { [windows, appAxSubscriptions, axApp, axAppFastTimeout] job in
-            appAxSubscriptions.destroy() // Destroy AX objects in reverse order of their creation
-            windows.destroy()
-            axAppFastTimeout.destroy()
-            axApp.destroy()
-            CFRunLoopStop(CFRunLoopGetCurrent())
-        }
-        thread = nil // Disallow all future job submissions
     }
 
     private func withWindow<T>(_ windowId: UInt32, _ body: @Sendable @escaping (AXUIElement, RunLoopJob) throws -> T?) async throws -> T? {

@@ -16,15 +16,23 @@ private let winmuxRepositoryURL = "https://github.com/alanzchen/winmux"
         Button("Copy to clipboard") { identification.copyToClipboard() }
             .keyboardShortcut("C", modifiers: .command)
         Divider()
-        Button(viewModel.isEnabled ? "Disable" : "Enable") {
-            _ = Task {
-                try await runLightSession(.menuBarButton, .forceRun) { () throws in
-                    _ = try await EnableCommand(args: EnableCmdArgs(rawArgs: [], targetState: .toggle))
-                        .run(.defaultEnv, .emptyStdin)
+        if viewModel.accessibilityPermissionStatus == .granted {
+            Button(viewModel.isEnabled ? "Disable" : "Enable") {
+                _ = Task {
+                    try await runLightSession(.menuBarButton, .forceRun) { () throws in
+                        _ = try await EnableCommand(args: EnableCmdArgs(rawArgs: [], targetState: .toggle))
+                            .run(.defaultEnv, .emptyStdin)
+                    }
                 }
+            }.keyboardShortcut("E", modifiers: .command)
+            OpenShortcutSettingsButton()
+        } else {
+            Text("Waiting for Accessibility permission")
+            Button("Open Accessibility Settings…") {
+                viewModel.accessibilityPermissionStatus = .waitingWithPrompt
+                openURLString("x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
             }
-        }.keyboardShortcut("E", modifiers: .command)
-        OpenShortcutSettingsButton()
+        }
         WinMuxErrorDetailsMenuButton()
         if let checkForUpdates {
             Button("Check for Updates…") {
@@ -44,7 +52,11 @@ private let winmuxRepositoryURL = "https://github.com/alanzchen/winmux"
             }
         }.keyboardShortcut("Q", modifiers: .command)
     } label: {
-        if viewModel.isEnabled {
+        if viewModel.accessibilityPermissionStatus != .granted {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+        } else if viewModel.isEnabled {
             MenuBarAppIcon().environmentObject(viewModel)
         } else {
             Image(systemName: "pause.circle.fill")

@@ -8,6 +8,7 @@ public final class TrayMenuModel: ObservableObject {
 
     /// Is "layouting" enabled
     @Published var isEnabled: Bool = true
+    @Published var accessibilityPermissionStatus: AccessibilityPermissionStatus = .waitingWithPrompt
     @Published var workspaces: [WorkspaceViewModel] = []
     @Published var workspaceSidebarWorkspaces: [WorkspaceSidebarWorkspaceViewModel] = []
     @Published var workspaceSidebarProjects: [WorkspaceSidebarProjectViewModel] = []

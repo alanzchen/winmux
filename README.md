@@ -49,7 +49,8 @@ Glass requires macOS 26 or later; older systems use a blurred background.
    newest **Preview** release. Download its `.dmg` file.
 2. Open the DMG, drag **WinMux.app** into **Applications**, and launch it.
 3. Allow **WinMux** in **System Settings → Privacy & Security → Accessibility**
-   so it can arrange and focus windows.
+   so it can arrange and focus windows. WinMux waits in the menu bar and resumes
+   startup after approval, without restarting.
 4. Open **Settings** from WinMux's menu-bar menu. Under **Dock & Sidebar**, choose
    your preferred mode and position.
 

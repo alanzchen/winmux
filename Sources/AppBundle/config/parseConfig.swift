@@ -21,7 +21,14 @@ func readConfig(forceConfigUrl: URL? = nil) -> Result<(Config, URL), String> {
                 return .failure(msg)
         }
     }
-    let (parsedConfig, errors) = (try? String(contentsOf: configUrl, encoding: .utf8)).map { parseConfig($0) } ?? (defaultConfig, [])
+    // AeroSpace a0f17f88: a selected config must never silently become defaults on read failure.
+    let configText: String
+    do {
+        configText = try String(contentsOf: configUrl, encoding: .utf8)
+    } catch {
+        return .failure("Can't read contents of \(configUrl.path.singleQuoted) as a UTF-8 string: \(error.localizedDescription)")
+    }
+    let (parsedConfig, errors) = parseConfig(configText)
 
     if errors.isEmpty {
         return .success((parsedConfig, configUrl))

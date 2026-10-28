@@ -2,16 +2,6 @@ import AppKit
 import Common
 import PrivateApi
 
-@MainActor
-func checkAccessibilityPermissions() {
-    let options = [axTrustedCheckOptionPrompt: true]
-    if !AXIsProcessTrustedWithOptions(options as CFDictionary) {
-        // Never reset TCC on a failed check: it can erase approval while the user is
-        // granting it. Signed updates retain their identity; recovery belongs in Settings.
-        terminateApp()
-    }
-}
-
 protocol ReadableAttr: Sendable {
     associatedtype T
     var getter: @Sendable (AnyObject) -> T? { get }
@@ -376,7 +366,8 @@ extension AXUIElement: AxUiElementMock {
         let state = signposter.beginInterval(#function, "axTaskLocalAppThreadToken: \(axTaskLocalAppThreadToken?.idForDebug)")
         defer { signposter.endInterval(#function, state) }
         var cgWindowId = CGWindowID()
-        return _AXUIElementGetWindow(self, &cgWindowId) == .success ? cgWindowId : nil
+        let error = _AXUIElementGetWindow(self, &cgWindowId)
+        return validAxWindowId(cgWindowId, error: error)
     }
 
     /// Like containingWindowId, but surfaces the AXError so callers can distinguish "the window
@@ -387,7 +378,7 @@ extension AXUIElement: AxUiElementMock {
         defer { signposter.endInterval(#function, state) }
         var cgWindowId = CGWindowID()
         let error = _AXUIElementGetWindow(self, &cgWindowId)
-        return error == .success ? (cgWindowId, error) : (nil, error)
+        return (validAxWindowId(cgWindowId, error: error), error)
     }
 }
 
@@ -396,4 +387,16 @@ extension AXObserver {
         var observer: AXObserver? = nil
         return AXObserverCreate(pid, handler, &observer) == .success ? observer : nil
     }
+}
+
+/// AX can report success for a non-window UI element while returning the reserved ID zero.
+/// Preserve the AX error separately: a successful but invalid ID is unknown, not proof of death.
+func validAxWindowId(_ windowId: CGWindowID, error: AXError) -> CGWindowID? {
+    error == .success && windowId != kCGNullWindowID ? windowId : nil
+}
+
+func shouldKeepRegisteredAxWindow(windowId: CGWindowID?, error: AXError) -> Bool {
+    // Only the explicit invalid-element result establishes that a registered AX window died.
+    // A zero ID, timeout, or unsupported query must be reconciled by later enumeration.
+    windowId != nil || error != .invalidUIElement
 }

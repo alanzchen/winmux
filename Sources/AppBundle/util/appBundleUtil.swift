@@ -26,12 +26,28 @@ func initTerminationHandler() {
 private struct AppServerTerminationHandler: TerminationHandler {
     func beforeTermination() async throws {
         // CLI quit, restart, and handled termination signals share this path.
-        SystemDockCoordinator.shared.shutdown()
-        savedWorkspaceStore.flushNow()
-        persistFrozenWorldForRestartIfPossible()
-        try await makeAllWindowsVisibleAndRestoreSize()
+        if TrayMenuModel.shared.accessibilityPermissionStatus == .granted {
+            SystemDockCoordinator.shared.shutdown()
+            try await prepareManagedWindowsForTermination()
+        }
         await toggleReleaseServerIfDebug(.on)
     }
+}
+
+/// Permission may have been granted before startup's first refresh finishes restoring the model.
+/// Preserve the previous session until that model is ready, but always unpark any native windows
+/// already managed during the partial refresh so quitting cannot leave them hidden off screen.
+@MainActor
+func prepareManagedWindowsForTermination(
+    runtimeReady: Bool = isWinMuxRuntimeReady,
+    persistSession: @MainActor () -> Void = {
+        savedWorkspaceStore.flushNow()
+        persistFrozenWorldForRestartIfPossible()
+    },
+    restoreWindows: @MainActor () async throws -> Void = makeAllWindowsVisibleAndRestoreSize,
+) async throws {
+    if runtimeReady { persistSession() }
+    try await restoreWindows()
 }
 
 @MainActor

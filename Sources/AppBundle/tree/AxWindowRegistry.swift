@@ -8,6 +8,7 @@ extension [UInt32: AxWindow] {
         _ nsApp: NSRunningApplication,
         _ job: RunLoopJob,
     ) throws -> AxWindow? {
+        guard id != kCGNullWindowID else { return nil }
         if let existing = self[id] { return existing }
         if isLeftMouseButtonDown { return nil }
         if nsApp.bundleIdentifier == KnownBundleId.openAndSavePanelService.rawValue || axWindow.isAttachedTransientHeuristic() {
