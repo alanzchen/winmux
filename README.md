@@ -196,6 +196,7 @@ in sync. See the [full CLI guide](docs/cli.md) for commands and examples.
 | Configuration recipes | [Configuration guide](docs/configuration.md) |
 | Stutter or an unresponsive Dock | [Record a performance report](docs/dock-performance-debugging.md) |
 | Build or contribute | [Local development](docs/development.md) · [Contributor guidelines](AGENTS.md) |
+| AeroSpace backport status and validation | [Selective upstream backports](docs/upstream-backports.md) |
 | Signing and publishing releases | [Release guide](docs/releasing.md) |
 | The product video and its source | [promo/README.md](promo/README.md) |
 

@@ -222,6 +222,11 @@ The accepted interpolation field families are:
 `list-windows` requires an explicit scope: `--all`, `--focused`, one or more
 `--workspace` selectors, or one or more `--monitor` selectors.
 
+Window output is ordered by app name, then title, then numeric window ID.
+Formats that omit `window-title` skip Accessibility title reads and order by
+app name and numeric window ID instead. This applies to both text and JSON;
+the default formats still include titles. `--count` reads no titles.
+
 Examples that transform JSON use [`jq`](https://jqlang.org/). It is optional
 for WinMux itself and is not included with macOS; install it separately if you
 want to run those examples.
@@ -408,6 +413,33 @@ winmux layout h_tab_group v_tab_group
 winmux layout tiling floating
 ```
 
+An already selected layout succeeds by default. Use `--fail-if-noop` with one
+layout to preserve the earlier nonzero exit status. With no focused window,
+container layouts target the workspace root; `tiling` and `floating` still need a
+window. `--root` targets the root explicitly, and `--workspace NAME --root`
+changes a background workspace without moving focus:
+
+```sh
+winmux layout --workspace coding --root vertical
+winmux layout --fail-if-noop horizontal
+winmux layout --for-next-detected-window --workspace coding floating
+```
+
+`--for-next-detected-window` accepts one `tiling` or `floating` mode. The preference
+is scoped to the selected workspace identity (the current workspace by default)
+and expires after eight seconds. A launcher request made in that time captures it,
+then applies its existing app/PID, preexisting-window, expiry, and cancellation
+checks. If a later launcher click moves that pending request to another workspace,
+it drops the old workspace's mode and captures the new destination's current
+preference, if any. If the request's window was already observed before that
+preference was armed, its placement changes but the captured mode is discarded.
+Otherwise the next newly detected regular window in that workspace uses
+it. Startup windows, restored windows, auxiliary windows, and saved-workspace
+routing keep their existing rules. For ordinary detection, callbacks and pin/tab
+placement choose the destination first; the requested mode then wins there. Native
+fullscreen/minimized state is preserved. A newer preference replaces an unclaimed
+preference for the same workspace.
+
 Create or adjust tab groups with:
 
 ```sh
@@ -426,6 +458,13 @@ winmux macos-native-minimize
 ```
 
 Native macOS fullscreen creates a macOS Space; WinMux fullscreen does not.
+
+Directional `focus` and `move` accept `--fail-if-fullscreen` to fail before
+changing focus or the tree when the source window uses WinMux fullscreen, and
+`--fail-if-macos-native-fullscreen` for native macOS fullscreen. Both flags can
+be combined. `move --window-id <id>` checks that window; `focus` supports these
+guards only with `left`, `down`, `up`, or `right`, preserving its separate tab
+and DFS targeting forms. A guard failure exits with status 1.
 
 Directional `focus` and `move` commands expose boundary behavior through
 `--boundaries` and `--boundaries-action`. Inspect their help before encoding a
@@ -609,7 +648,9 @@ If System Settings already lists WinMux but `doctor` reports missing access,
 check that you are running `/Applications/WinMux.app` rather than a debug build
 or another copy. Switching signing identities can require approval again;
 ordinary releases from this fork keep the same Developer ID identity. WinMux
-does not reset your Accessibility approval after a failed permission check.
+does not reset your Accessibility approval after a failed permission check. On first launch,
+WinMux waits for approval in the menu bar, where **Open Accessibility Settings…** reopens
+the permission controls. Granting access resumes startup without restarting the app.
 macOS may still show its own capture reminders when using the rotation effect's
 legacy capture APIs; removing the launch request does not suppress those OS alerts.
 
