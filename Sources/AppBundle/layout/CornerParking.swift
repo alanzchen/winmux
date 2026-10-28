@@ -136,6 +136,11 @@ extension Window {
                 let absolutePoint = topLeftCorner - monitorRect.topLeftCorner
                 unhiddenPosition =
                     CGPoint(x: absolutePoint.x / monitorRect.width, y: absolutePoint.y / monitorRect.height)
+                // Parking drops the actual-frame cache. Keep the freshly observed floating
+                // size for restore's clamp when that cache is unavailable (upstream 649301b2).
+                if isFloating {
+                    lastFloatingSize = windowRect.size
+                }
             }
         }
         let p: CGPoint

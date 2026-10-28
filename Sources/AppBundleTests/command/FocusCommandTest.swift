@@ -87,6 +87,31 @@ final class FocusCommandTest: XCTestCase {
         assertEquals(focus.windowOrNil?.windowId, 3)
     }
 
+    func testFloatingFocusDoesNotInterruptTabGroupOrder() async throws {
+        let rect = Rect(topLeftX: 0, topLeftY: 0, width: 1000, height: 800)
+        setMonitorsForTests([TestMonitor(monitorAppKitNsScreenScreensId: 1, name: "Test", rect: rect, visibleRect: rect, isMain: true)])
+        defer { setMonitorsForTests(nil) }
+        let workspace = Workspace.get(byName: name)
+        let root = workspace.rootTilingContainer
+        let group = TilingContainer(parent: root, adaptiveWeight: 1, .v, .tabGroup, index: INDEX_BIND_LAST)
+        group.lastAppliedLayoutVirtualRect = rect
+        let first = TestWindow.new(id: 1, parent: group, rect: rect)
+        let second = TestWindow.new(id: 2, parent: group, rect: rect)
+        let third = TestWindow.new(id: 3, parent: group, rect: rect)
+        let floating = TestWindow.new(id: 4, parent: workspace, rect: Rect(topLeftX: 450, topLeftY: 600, width: 100, height: 100))
+        XCTAssertTrue(second.focusWindow())
+
+        try await FocusCommand.new(direction: .down).run(.defaultEnv, .emptyStdin)
+        XCTAssertEqual(focus.windowOrNil, third, "The floating window is after the entire group, not after its active tab")
+        XCTAssertEqual(group.children, [first, second, third])
+        XCTAssertTrue(floating.isFloating)
+
+        try await FocusCommand.new(direction: .down).run(.defaultEnv, .emptyStdin)
+        XCTAssertEqual(focus.windowOrNil, floating)
+        XCTAssertEqual(group.children, [first, second, third])
+        XCTAssertTrue(floating.isFloating)
+    }
+
     func testFocusAlongTheContainerOrientation() async throws {
         Workspace.get(byName: name).rootTilingContainer.apply {
             assertEquals(TestWindow.new(id: 1, parent: $0).focusWindow(), true)

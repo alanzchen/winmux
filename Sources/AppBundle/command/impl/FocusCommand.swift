@@ -7,6 +7,13 @@ struct FocusCommand: Command {
 
     func run(_ env: CmdEnv, _ io: CmdIo) async throws -> Bool {
         guard let target = args.resolveTargetOrReportError(env, io) else { return false }
+        if let window = target.windowOrNil, try await shouldFailBecauseFullscreen(
+            window: window,
+            failIfFullscreen: args.failIfFullscreen,
+            failIfMacosNativeFullscreen: args.failIfMacosNativeFullscreen,
+        ) {
+            return false
+        }
         // todo bug: floating windows break mru
         let floatingWindows = args.floatingAsTiling ? try await makeFloatingWindowsSeenAsTiling(workspace: target.workspace) : []
         defer {
@@ -196,9 +203,15 @@ private func currentTabGroupData(_ target: LiveFocus) -> (group: TilingContainer
             guard let targetCenter = try await target.getCenter() else { continue }
             guard let _tilingParent = target.parent as? TilingContainer else { continue }
             tilingParent = _tilingParent
-            index = center.getProjection(tilingParent.orientation) >= targetCenter.getProjection(tilingParent.orientation)
-                ? target.ownIndex.orDie() + 1
-                : target.ownIndex.orDie()
+            let isAfterTarget = center.getProjection(tilingParent.orientation) >= targetCenter.getProjection(tilingParent.orientation)
+            switch tilingParent.layout {
+                case .tiles:
+                    index = isAfterTarget ? target.ownIndex.orDie() + 1 : target.ownIndex.orDie()
+                case .tabGroup:
+                    // A floating window must not interrupt the group's tab order.
+                    // Adapted from upstream 8c3efca2's accordion boundary insertion.
+                    index = isAfterTarget ? tilingParent.children.count : 0
+            }
         } else {
             index = 0
             tilingParent = workspace.rootTilingContainer

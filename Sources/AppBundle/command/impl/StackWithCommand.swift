@@ -20,7 +20,7 @@ struct StackWithCommand: Command {
             // After removal, move the window in the specified direction
             // so it lands on the correct side of the (former) tab group
             let moveArgs = MoveCmdArgs(rawArgs: [], direction)
-            return MoveCommand(args: moveArgs).run(env, io)
+            return try await MoveCommand(args: moveArgs).run(env, io)
         }
 
         // Normal: stack with window in the specified direction

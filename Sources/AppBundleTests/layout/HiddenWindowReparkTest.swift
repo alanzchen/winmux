@@ -692,6 +692,38 @@ final class HiddenWindowReparkTest: XCTestCase {
 
     // MARK: Tiling and floating windows
 
+    func testResizedFloatingWindowRestoresAtBottomRightWithoutAnActualFrameCache() async throws {
+        connect([builtin])
+        let workspace = focus.workspace
+        let floating = window(3, in: workspace, Rect(topLeftX: 100, topLeftY: 100, width: 900, height: 700))
+        let resized = Rect(topLeftX: builtin.rect.maxX - 400, topLeftY: builtin.rect.maxY - 300, width: 400, height: 300)
+        floating.nativeRect = resized
+        floating.invalidateLastKnownActualRect()
+
+        for _ in 0 ..< 2 {
+            try await floating.hideInCorner(.bottomRightCorner, reassert: false, ifStillValid: { true })
+            XCTAssertNil(floating.lastKnownActualRect, "Parking invalidates the actual-frame cache")
+            XCTAssertEqual(floating.lastFloatingSize, resized.size)
+            floating.readsFail = true
+            floating.unhideFromCorner()
+            XCTAssertEqual(floating.nativeRect.topLeftX, resized.topLeftX, accuracy: 0.001)
+            XCTAssertEqual(floating.nativeRect.topLeftY, resized.topLeftY, accuracy: 0.001)
+            XCTAssertEqual(floating.nativeRect.size, resized.size)
+            floating.readsFail = false
+        }
+    }
+
+    func testParkingATiledWindowDoesNotReplaceItsSavedFloatingSize() async throws {
+        connect([builtin])
+        let tiled = window(4, in: focus.workspace.rootTilingContainer, Rect(topLeftX: 0, topLeftY: 33, width: 1500, height: 900))
+        let savedSize = CGSize(width: 400, height: 300)
+        tiled.lastFloatingSize = savedSize
+
+        try await tiled.hideInCorner(.bottomRightCorner, reassert: false, ifStillValid: { true })
+
+        XCTAssertEqual(tiled.lastFloatingSize, savedSize)
+    }
+
     func testHiddenTilingAndFloatingWindowsAreBothReparked() async throws {
         connect([sixK])
         let hiddenWorkspace = Workspace.get(byName: "hidden-mixed")

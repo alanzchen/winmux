@@ -5,11 +5,18 @@ struct MoveCommand: Command {
     let args: MoveCmdArgs
     /*conforms*/ let shouldResetClosedWindowsCache = true
 
-    func run(_ env: CmdEnv, _ io: CmdIo) -> Bool {
+    func run(_ env: CmdEnv, _ io: CmdIo) async throws -> Bool {
         let direction = args.direction.val
         guard let target = args.resolveTargetOrReportError(env, io) else { return false }
         guard let currentWindow = target.windowOrNil else {
             return io.err(noWindowIsFocused)
+        }
+        if try await shouldFailBecauseFullscreen(
+            window: currentWindow,
+            failIfFullscreen: args.failIfFullscreen,
+            failIfMacosNativeFullscreen: args.failIfMacosNativeFullscreen,
+        ) {
+            return false
         }
         let currentNode = currentWindow.moveNode
         guard let parent = currentNode.parent else { return false }
@@ -189,4 +196,20 @@ extension Window {
             return self
         }
     }
+}
+
+// Adapted from AeroSpace ea897997, retaining WinMux's event-invalidated native state cache.
+@MainActor
+func shouldFailBecauseFullscreen(
+    window: Window,
+    failIfFullscreen: Bool,
+    failIfMacosNativeFullscreen: Bool,
+) async throws -> Bool {
+    if failIfFullscreen && window.isFullscreen { return true }
+    guard failIfMacosNativeFullscreen else { return false }
+    if let cached = window.lastKnownNativeFullscreen { return cached }
+    let token = window.nativeStateObservationToken()
+    let fullscreen = try await window.isMacosFullscreen
+    window.recordObservedNativeFullscreen(fullscreen, token: token)
+    return fullscreen
 }
