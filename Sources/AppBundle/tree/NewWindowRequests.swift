@@ -214,10 +214,30 @@ nonisolated func windowServerWindowIds(pid: Int32, onScreenOnly: Bool = false) -
 final class NewWindowRequestHandle {
     fileprivate(set) var intentId: Int?
     private(set) var isCancelled = false
+    private var layoutReservation: NewWindowLayoutReservation?
+
+    /// Only the cold scripted path waits before registering an intent. Unsupported requests
+    /// and normal opens do not reserve a mode: normal-open windows keep ordinary detection.
+    func reserveLayout(for method: NewWindowMethod, bundleId: String, workspace: Workspace) {
+        guard !isCancelled, case .launchThenScript = method else { return }
+        layoutReservation?.discard()
+        layoutReservation = NewWindowIntentRegistry.shared.reserveNextWindowLayout(bundleId: bundleId, in: workspace)
+    }
+
+    func takeLayoutReservation() -> NewWindowLayoutReservation? {
+        defer { layoutReservation = nil }
+        return layoutReservation
+    }
+
+    func discardLayoutReservation() {
+        layoutReservation?.discard()
+        layoutReservation = nil
+    }
 
     /// The app may still open a window; it just follows the usual rules instead.
     func cancel() {
         isCancelled = true
+        discardLayoutReservation()
         if let intentId { NewWindowIntentRegistry.shared.cancel(intentId: intentId) }
     }
 }
@@ -287,10 +307,14 @@ private func requestNewWindow(
                 }
             }
         case .launchThenScript(let script):
+            // Capture at the accepted launcher choice, before launching/restoring can take
+            // longer than the preference's timeout or another app can consume it.
+            handle.reserveLayout(for: .launchThenScript(script), bundleId: target.bundleId, workspace: targetWorkspace)
             Task { @MainActor in
                 let launch = await launchApplication(target, activates: false)
                 guard let app = launch.app else {
-                    completion(.failed(launch.failure ?? "\(target.appName) couldn't be opened"))
+                    handle.discardLayoutReservation()
+                    completion(handle.isCancelled ? .cancelled : .failed(launch.failure ?? "\(target.appName) couldn't be opened"))
                     return
                 }
                 // Session restore finishes first; only the window asked for afterwards is claimed.
@@ -298,11 +322,13 @@ private func requestNewWindow(
                 guard !handle.isCancelled,
                       winMuxWorkspaceState.workspaceById[targetWorkspace.id] === targetWorkspace, !targetWorkspace.isArchived
                 else {
+                    handle.discardLayoutReservation()
                     completion(.cancelled)
                     return
                 }
                 handle.intentId = startNewWindowRequest(.script(script), target: target, pid: app.processIdentifier,
-                    targetWorkspace: targetWorkspace, focusGeneration: focusGeneration, completion: completion)
+                    targetWorkspace: targetWorkspace, focusGeneration: focusGeneration,
+                    layoutReservation: handle.takeLayoutReservation(), completion: completion)
             }
         case .script, .menuItem:
             let method = newWindowMethod(bundleId: target.bundleId, isRunning: true,
@@ -321,12 +347,13 @@ private func startNewWindowRequest(
     pid: Int32?,
     targetWorkspace: Workspace,
     focusGeneration: UInt64,
+    layoutReservation: NewWindowLayoutReservation? = nil,
     completion: @escaping @MainActor (NewWindowRequestOutcome) -> Void,
 ) -> Int? {
     let registry = NewWindowIntentRegistry.shared
     guard let intent = registry.register(bundleId: target.bundleId, pid: pid, targetWorkspace: targetWorkspace,
         preexistingWindowIds: pid.map(existingWindowIds(pid:)) ?? [], focusGeneration: focusGeneration,
-        timeout: newWindowScriptTimeout + newWindowIntentTimeout,
+        timeout: newWindowScriptTimeout + newWindowIntentTimeout, layoutReservation: layoutReservation,
         completion: { outcome in completion(outcome) })
     else {
         completion(.failed("\(target.appName) is already opening a window"))
