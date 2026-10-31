@@ -142,14 +142,18 @@ func workspaceSidebarPinnedLinkApp(_ workspace: Workspace) -> WorkspaceSidebarSa
 }
 
 /// The apps a saved tab opens in: those of its saved windows, one per window, then any others its
-/// windows had last, whose slots have expired.
+/// windows had last, whose slots have expired. Never an app's helper, which may have been saved before
+/// WinMux told them apart.
 @MainActor
 func workspaceSidebarSavedApps(for workspace: Workspace) -> [WorkspaceSidebarSavedApp] {
     guard let record = savedWorkspaceStore.record(named: workspace.name) else { return [] }
-    let slots = record.layout.allSlots.filter { $0.bundleId != winMuxAppId && $0.bundleId != lockScreenAppBundleId }
+    let slots = record.layout.allSlots.filter {
+        $0.bundleId != winMuxAppId && $0.bundleId != lockScreenAppBundleId && !savedWorkspaceAppIsHelper(bundlePath: $0.bundlePath)
+    }
     let waiting = Set(slots.map(\.bundleId))
     let apps = slots.map { ($0.bundleId, $0.bundlePath, $0.appName) } +
-        (record.launchApps ?? []).filter { !waiting.contains($0.bundleId) }.map { ($0.bundleId, $0.bundlePath, $0.appName) }
+        (record.launchApps ?? []).filter { !waiting.contains($0.bundleId) && !savedWorkspaceAppIsHelper(bundlePath: $0.bundlePath) }
+            .map { ($0.bundleId, $0.bundlePath, $0.appName) }
     return apps.map { bundleId, bundlePath, appName in
         WorkspaceSidebarSavedApp(bundleId: bundleId, bundlePath: bundlePath,
             name: savedWorkspaceAppDisplayName(bundleId: bundleId, appName: appName, bundlePath: bundlePath))

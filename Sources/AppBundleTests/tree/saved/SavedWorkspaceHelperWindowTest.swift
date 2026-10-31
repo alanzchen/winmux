@@ -28,6 +28,7 @@ final class SavedWorkspaceHelperWindowTest: XCTestCase {
     private lazy var editorApp = TestApp(pid: 504, bundleId: editor, name: "Editor", bundlePath: editorPath, launchDate: longAgo)
 
     override func setUp() async throws {
+        resetSavedWorkspaceHelperCacheForTests()
         setUpWorkspacesForTests()
         resetWorkspaceTabsForTests()
         workspaceSidebarOrganizationStore = .init()
@@ -44,6 +45,7 @@ final class SavedWorkspaceHelperWindowTest: XCTestCase {
 
     override func tearDown() async throws {
         try? FileManager.default.removeItem(at: folder)
+        resetSavedWorkspaceHelperCacheForTests()
         NewWindowIntentRegistry.shared.resetForTests()
         workspaceSidebarOrganizationStore = .init()
         config = defaultConfig
@@ -130,5 +132,80 @@ final class SavedWorkspaceHelperWindowTest: XCTestCase {
         captureSavedWorkspaces(facts: savedTestFacts(now: later, runningApps: both))
 
         XCTAssertEqual(workspaceSidebarSavedApps(for: pin).map(\.bundleId), [messenger, editor])
+    }
+
+    /// A pin saved before WinMux told helpers apart: its record still holds their places and lists them
+    /// among its apps.
+    private func pinSavedBeforeTheFix() throws -> Workspace {
+        var record = SavedWorkspaceRecord(workspaceName: "legacy", displayName: "Messenger", layout: SavedWorkspaceLayout(root: savedRoot(.tiles, .h, [
+            .slot(SavedWindowSlot(id: "main", bundleId: messenger, appName: "Messenger", bundlePath: messengerPath, lastWindowId: 901, lastPid: 501)),
+            .slot(SavedWindowSlot(id: "helper", bundleId: helper, appName: "Messenger Helper", bundlePath: helperPath, lastWindowId: 902, lastPid: 502)),
+            .slot(SavedWindowSlot(id: "service", bundleId: service, appName: "QuickPreviewService", bundlePath: servicePath, lastWindowId: 903, lastPid: 503)),
+        ])))
+        record.launchApps = [
+            SavedLaunchApp(bundleId: messenger, bundlePath: messengerPath, appName: "Messenger"),
+            SavedLaunchApp(bundleId: helper, bundlePath: helperPath, appName: "Messenger Helper"),
+            SavedLaunchApp(bundleId: service, bundlePath: servicePath, appName: "QuickPreviewService"),
+        ]
+        savedWorkspaceStore.insert(record)
+        materializeSavedWorkspaceNames()
+        let pin = try XCTUnwrap(Workspace.existing(byName: "legacy"))
+        try setWorkspaceSidebarTabFavorite(pin, true)
+        return pin
+    }
+
+    func testAPinSavedBeforeTheFixShowsAndOpensOnlyItsAppAndForgetsTheHelpersAtTheNextCheckpoint() async throws {
+        let pin = try pinSavedBeforeTheFix()
+        // The messenger quit: its place keeps waiting for it, as before.
+        setSavedWorkspaceTestEnvironment(runningApps: [:])
+        XCTAssertEqual(workspaceSidebarSavedApps(for: pin).map(\.bundleId), [messenger], "Shown right away, without a checkpoint")
+        var launched: [String] = []
+        savedWorkspaceRuntime.environment.openApplication = { bundleId, _ in
+            launched.append(bundleId)
+            return true
+        }
+        _ = await openMissingSavedWorkspaceApps(workspaceNames: [pin.name])
+        XCTAssertEqual(launched, [messenger], "Only the messenger relaunches")
+
+        captureSavedWorkspaces(facts: savedTestFacts(runningApps: [:]))
+        XCTAssertEqual(savedWorkspaceStore.record(named: pin.name)?.layout.allSlots.map(\.id), ["main"],
+            "The helpers' places are dropped; the quit messenger's keeps waiting")
+    }
+
+    func testRightAfterAStartTheHelpersPlacesAreDroppedButTheAppsKeepWaiting() throws {
+        let pin = try pinSavedBeforeTheFix()
+        setSavedWorkspaceTestEnvironment(runningApps: [:])
+        captureSavedWorkspaces(facts: savedTestFacts(runningApps: [:], startupRestoreActive: true))
+        XCTAssertEqual(savedWorkspaceStore.record(named: pin.name)?.layout.allSlots.map(\.id), ["main"])
+    }
+
+    func testAMinimizedWindowOfTheAppKeepsItsPlace() throws {
+        let (pin, windows) = try pinWithHelperWindows()
+        windows[0].unbindFromParent()
+        windows[0].bind(to: macosMinimizedWindowsContainer, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
+        windows[0].layoutReason = .macos(prevParentKind: .tilingContainer, prevWorkspaceName: pin.name)
+        windows[1].unbindFromParent()
+        windows[2].unbindFromParent()
+        let messengerOnly = running([messengerApp])
+        let later = savedTestNow.addingTimeInterval(SavedWorkspaceTiming.closedWindowGrace + 1)
+        setSavedWorkspaceTestEnvironment(now: later, runningApps: messengerOnly)
+        captureSavedWorkspaces(facts: savedTestFacts(now: later, runningApps: messengerOnly))
+        XCTAssertEqual(savedWorkspaceStore.record(named: pin.name)?.layout.allSlots.map(\.bundleId), [messenger],
+            "Minimized, the messenger's window still belongs to the pin; the helpers' places are gone")
+    }
+
+    func testWhatCountsAsAHelper() {
+        let nestedAgent = "/Applications/Messenger.app/Contents/MacOS/Messenger Helper.app"
+        XCTAssertTrue(savedWorkspaceBundleIsHelper(nestedAgent, info: ["CFBundlePackageType": "APPL", "LSUIElement": true]))
+        XCTAssertTrue(savedWorkspaceBundleIsHelper(nestedAgent, info: ["LSBackgroundOnly": "1"]))
+        XCTAssertTrue(savedWorkspaceBundleIsHelper("/System/Library/Frameworks/X.framework/Versions/A/XPCServices/S.xpc", info: nil),
+            "An XPC service by where it lives, even unread")
+        XCTAssertTrue(savedWorkspaceBundleIsHelper("/Library/Services/S.bundle", info: ["CFBundlePackageType": "XPC!"]))
+        XCTAssertFalse(savedWorkspaceBundleIsHelper("/Applications/Xcode.app/Contents/Developer/Applications/Simulator.app",
+            info: ["CFBundlePackageType": "APPL"]), "A regular app inside another is an app")
+        XCTAssertFalse(savedWorkspaceBundleIsHelper("/Applications/MenuBarTool.app", info: ["LSUIElement": true]),
+            "A menu bar app of its own is an app")
+        XCTAssertFalse(savedWorkspaceBundleIsHelper(nestedAgent, info: nil), "Unreadable and not a service: no telling")
+        XCTAssertFalse(savedWorkspaceAppIsHelper(bundlePath: nil))
     }
 }

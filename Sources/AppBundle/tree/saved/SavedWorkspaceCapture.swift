@@ -256,6 +256,11 @@ func savedSlotKeepsWaiting(
     let runtime = savedWorkspaceRuntime
     // Minimized, hidden-app and native-fullscreen windows still belong here.
     if detached.contains(slot.id) { return true }
+    // An app's helper isn't relaunched to bring its window back: its place goes with its window.
+    if savedWorkspaceAppIsHelper(bundlePath: slot.bundlePath) {
+        runtime.vanishedSlots.removeValue(forKey: slot.id)
+        return false
+    }
     if let windowId = slot.lastWindowId, let pid = slot.lastPid {
         if let window = Window.get(byId: windowId), window.app.pid == pid {
             // Still classified as a popup: it may be promoted to a window later.
@@ -326,8 +331,10 @@ func snapshotLiveSavedLayout(
     var liveFloating: Set<String> = []
 
     func slot(for window: Window, weight: CGFloat, isMostRecent: Bool) -> SavedWindowSlot? {
-        // A draft or a message opened to read goes when it's done: a saved tab or pin never records it.
+        // A draft or a message opened to read goes when it's done, and an app's helper comes with the app:
+        // a saved tab or pin records neither.
         guard !excludingWindowIds.contains(window.windowId), !isEphemeralAuxiliaryWindow(window),
+              !savedWorkspaceAppIsHelper(bundlePath: window.app.bundlePath),
               let bundleId = window.app.rawAppBundleId else { return nil }
         let previousSlot = previousByWindow[SavedWindowIdentity(windowId: window.windowId, pid: window.app.pid)]
         var slot = previousSlot ?? SavedWindowSlot(bundleId: bundleId)

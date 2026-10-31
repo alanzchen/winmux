@@ -18,6 +18,7 @@ func missingSavedWorkspaceApps(
             guard runningApps[slot.bundleId] == nil,
                   slot.bundleId != winMuxAppId,
                   slot.bundleId != lockScreenAppBundleId,
+                  !savedWorkspaceAppIsHelper(bundlePath: slot.bundlePath),
                   seen.insert(slot.bundleId).inserted
             else { continue }
             result.append((slot.bundleId, slot.appName, slot.bundlePath))
