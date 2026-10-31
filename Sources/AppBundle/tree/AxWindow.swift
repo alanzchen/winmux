@@ -7,6 +7,8 @@ final class AxWindow {
     // Created, used and released on this window's owning AX thread.
     var browserTabScanner: BrowserTabScanner<NativeBrowserTabNode>?
     var browserTabObservation: BrowserTabAXObservation?
+    /// What the app made of the size WinMux last asked for.
+    var frameFit = WindowFrameFit()
 
     private init(windowId: UInt32, _ ax: AXUIElement, _ axSubscriptions: [AxSubscription]) {
         self.windowId = windowId

@@ -102,7 +102,7 @@ extension TreeNode {
                             if previousPhysicalRect.map({ !$0.isApproximatelyEqual(to: physicalRect, tolerance: 0.5) }) ?? true {
                                 window.invalidateLastKnownActualRect()
                             }
-                            window.setAxFrame(point, CGSize(width: width, height: height))
+                            window.setAxLayoutFrame(physicalRect, within: context.bounds)
                         }
                     }
                 }
@@ -139,6 +139,8 @@ private struct LayoutContext {
     let resolvedGaps: ResolvedGaps
     /// Where inactive tabs and windows covered by fullscreen are parked on this workspace's monitor
     let hideCorner: OptimalHideCorner
+    /// The workspace's area on its display: a window the app won't shrink to its cell stays inside it.
+    let bounds: Rect
     /// Whether this session re-parks hidden windows WinMux believes parked (see layoutWorkspaces).
     let reassertHiddenWindows: Bool
     private let topologyGeneration: UInt64
@@ -151,6 +153,7 @@ private struct LayoutContext {
         self.workspace = workspace
         self.resolvedGaps = ResolvedGaps(gaps: config.gaps, monitor: workspace.workspaceMonitor)
         self.hideCorner = optimalHideCorner(for: workspace.workspaceMonitor)
+        self.bounds = workspace.workspaceMonitor.standardTilingRect
         self.reassertHiddenWindows = sessionRequiresHiddenWindowsReassertion()
         self.topologyGeneration = MonitorConfigurationObserver.shared.topologyGeneration
         self.layoutPassGeneration = workspaceLayoutPassGeneration
@@ -229,7 +232,7 @@ extension Window {
         let monitorRect = noOuterGapsInFullscreen
             ? context.workspace.workspaceMonitor.visibleRect
             : context.workspace.workspaceMonitor.visibleRectPaddedByOuterGaps
-        setAxFrame(monitorRect.topLeftCorner, CGSize(width: monitorRect.width, height: monitorRect.height))
+        setAxLayoutFrame(monitorRect, within: monitorRect)
     }
 }
 

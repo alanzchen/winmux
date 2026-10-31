@@ -77,6 +77,29 @@ open class Window: TreeNode, Hashable {
         lastKnownActualRect = rect
     }
 
+    /// Where layout last placed the window when the app keeps a size of its own in its cell: the
+    /// cell, and the frame the window has there. Not an observation: AX events don't drop it, a new
+    /// cell makes it stale (`layoutPlacedRect`).
+    @MainActor private(set) var layoutFrameFit: (cell: Rect, frame: Rect)? = nil
+
+    /// The frame a layout write left the window at in `cell`, as its app's thread read it back. A report
+    /// for a cell layout has since replaced says nothing about where the window is placed now.
+    @MainActor
+    func recordLayoutFrame(_ frame: Rect, in cell: Rect, token: UInt64) {
+        recordObservedActualRect(frame, token: token)
+        guard let current = lastAppliedLayoutPhysicalRect, current.isApproximatelyEqual(to: cell, tolerance: 0.5) else { return }
+        layoutFrameFit = frame.isApproximatelyEqual(to: cell, tolerance: 1) ? nil : (cell, frame)
+    }
+
+    /// Where layout put the window: its cell, or where in the cell the app keeps it at a size of its
+    /// own. Nil when the window isn't laid out in a cell.
+    @MainActor
+    var layoutPlacedRect: Rect? {
+        guard let cell = lastAppliedLayoutPhysicalRect else { return nil }
+        guard let fit = layoutFrameFit, fit.cell.isApproximatelyEqual(to: cell, tolerance: 0.5) else { return cell }
+        return fit.frame
+    }
+
     /// For writers that move the window without learning the resulting frame (layout: an app
     /// may clamp it). The move's own AX events are suppressed right after a drag, so they can't
     /// be relied on to invalidate. Also discards observations in flight from before the move.
@@ -132,6 +155,14 @@ open class Window: TreeNode, Hashable {
     func getCenter() async throws -> CGPoint? { try await getAxRect()?.center }
 
     func setAxFrame(_ topLeft: CGPoint?, _ size: CGSize?) { die("Not implemented") }
+
+    /// Lays the window out in `cell`. An app that keeps a size of its own there isn't asked again for
+    /// the same cell: its window is centered in it, or kept inside `bounds` where it's larger
+    /// (`layoutPlacedRect`).
+    @MainActor
+    func setAxLayoutFrame(_ cell: Rect, within bounds: Rect) {
+        setAxFrame(cell.topLeftCorner, cell.size)
+    }
 }
 
 enum LayoutReason: Codable, Equatable, Sendable {

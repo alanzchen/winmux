@@ -473,11 +473,30 @@ final class MacApp: AbstractApp {
     }
 
     func setAxFrame(_ windowId: UInt32, _ topLeft: CGPoint?, _ size: CGSize?) {
+        setAxFrame(windowId, topLeft, size, within: nil, layoutToken: nil)
+    }
+
+    /// Lays a window out in `cell`. `bounds` keeps a window the app won't shrink to its cell on its
+    /// display. The frame the window is left at goes back to the main actor (`recordLayoutFrame`); as
+    /// an observation only while `layoutToken`, taken before submitting, is still current.
+    func setAxLayoutFrame(_ windowId: UInt32, _ cell: Rect, within bounds: Rect, layoutToken: UInt64) {
+        setAxFrame(windowId, cell.topLeftCorner, cell.size, within: bounds, layoutToken: layoutToken)
+    }
+
+    private func setAxFrame(_ windowId: UInt32, _ topLeft: CGPoint?, _ size: CGSize?, within bounds: Rect?, layoutToken: UInt64?) {
         lastFrameSubmission = ProcessInfo.processInfo.systemUptime
         frameWriteBarrier.recordWrite()
         setFrameJobs.removeValue(forKey: windowId)?.cancel()
-        setFrameJobs[windowId] = withWindowAsync(windowId) { [axApp, frameWriteLedger] window, job in
-            try setFrame(window, app: axApp.threadGuarded, topLeft, size, job) { try frameWriteLedger.record(windowId, $0) }
+        setFrameJobs[windowId] = withAxWindowAsync(windowId) { [axApp, frameWriteLedger] window, job in
+            let frame = try setFrame(window.ax, topLeft, size, fit: &window.frameFit, within: bounds, job) { writes in
+                try frameWriteLedger.record(windowId) { try disableAnimations(app: axApp.threadGuarded, job, writes) }
+            }
+            // Read back after every write had run: still the frame, even if a newer write was queued since.
+            guard let frame, let layoutToken, let topLeft, let size else { return }
+            let cell = Rect(topLeftX: topLeft.x, topLeftY: topLeft.y, width: size.width, height: size.height)
+            _ = Task { @MainActor in
+                Window.get(byId: windowId)?.recordLayoutFrame(frame, in: cell, token: layoutToken)
+            }
         }
     }
 
@@ -485,8 +504,10 @@ final class MacApp: AbstractApp {
         lastFrameSubmission = ProcessInfo.processInfo.systemUptime
         frameWriteBarrier.recordWrite()
         setFrameJobs.removeValue(forKey: windowId)?.cancel()
-        try await withWindow(windowId) { [axApp, frameWriteLedger] window, job in
-            try setFrame(window, app: axApp.threadGuarded, topLeft, size, job) { try frameWriteLedger.record(windowId, $0) }
+        _ = try await withAxWindow(windowId) { [axApp, frameWriteLedger] window, job in
+            try setFrame(window.ax, topLeft, size, fit: &window.frameFit, job) { writes in
+                try frameWriteLedger.record(windowId) { try disableAnimations(app: axApp.threadGuarded, job, writes) }
+            }
         }
     }
 
@@ -768,9 +789,21 @@ final class MacApp: AbstractApp {
     }
 
     private func withWindowAsync(_ windowId: UInt32, _ body: @Sendable @escaping (AXUIElement, RunLoopJob) throws -> ()) -> RunLoopJob {
+        withAxWindowAsync(windowId) { window, job in try body(window.ax, job) }
+    }
+
+    /// For state kept with the window on this app's thread.
+    private func withAxWindow<T>(_ windowId: UInt32, _ body: @Sendable @escaping (AxWindow, RunLoopJob) throws -> T?) async throws -> T? {
+        try await thread?.runInLoop { [windows] job in
+            guard let window = windows.threadGuarded[windowId] else { return nil }
+            return try body(window, job)
+        }
+    }
+
+    private func withAxWindowAsync(_ windowId: UInt32, _ body: @Sendable @escaping (AxWindow, RunLoopJob) throws -> ()) -> RunLoopJob {
         thread?.runInLoopAsync { [windows] job in
             guard let window = windows.threadGuarded[windowId] else { return }
-            try? body(window.ax, job)
+            try? body(window, job)
         } ?? .cancelled
     }
 }
