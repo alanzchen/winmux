@@ -29,16 +29,24 @@ struct WorkspaceSidebarPinHomeReading: Equatable {
 
 /// How long a reading counts as fresh.
 let workspaceSidebarPinHomeReadingFreshness: TimeInterval = 30
-/// How often a pin's window is read again, at most, as the sidebar updates.
-let workspaceSidebarPinHomeReadInterval: TimeInterval = 1.5
+/// How often the windows are read again, at most, as the sidebar updates.
+let workspaceSidebarPinHomeReadInterval: TimeInterval = 2
 
 @MainActor private(set) var workspaceSidebarPinHomeReadings: [String: WorkspaceSidebarPinHomeReading] = [:]
 @MainActor private var workspaceSidebarPinHomeReadsInFlight: Set<String> = []
+
+/// A pass is waiting for its turn or reading, an update came while it read, and when the last one began.
+@MainActor private var workspaceSidebarPinHomePassPending = false
+@MainActor private var workspaceSidebarPinHomePassAgain = false
+@MainActor private var workspaceSidebarPinHomeLastPass: TimeInterval = -.infinity
 
 @MainActor
 func resetWorkspaceSidebarPinHomeReadingsForTests() {
     workspaceSidebarPinHomeReadings = [:]
     workspaceSidebarPinHomeReadsInFlight = []
+    workspaceSidebarPinHomePassPending = false
+    workspaceSidebarPinHomePassAgain = false
+    workspaceSidebarPinHomeLastPass = -.infinity
 }
 
 /// The uptime readings are timed by. Replaceable for tests.
@@ -111,16 +119,34 @@ func readWorkspaceSidebarPinHomeEvidence(_ window: Window, home: WorkspaceSideba
     }
 }
 
-/// After the sidebar updates: each pin with a home and one window has that window read again, at most
-/// every `workspaceSidebarPinHomeReadInterval`, and so does the front window for the document shortcuts
-/// it may show. A reading that changes updates the sidebar once more.
+/// After the sidebar updates: each pin with a home and one window has that window read again, and so
+/// does the front window for the document shortcuts it may show, in one pass at most every
+/// `workspaceSidebarPinHomeReadInterval`. Updates meanwhile wait for the next pass, so the last of a burst
+/// is read too. A reading that changes updates the sidebar once more; with nothing to read, nothing runs.
 @MainActor
 func refreshWorkspaceSidebarPinHomeReadingsIfDue() {
     guard !isUnitTest else { return }
+    if workspaceSidebarPinHomePassPending { return workspaceSidebarPinHomePassAgain = true }
+    let state = workspaceSidebarOrganizationStore.state
+    guard state.workspaces.values.contains(where: { $0.isFavorite && $0.resource != nil })
+        || state.resourceShortcuts?.contains(where: { $0.document != nil }) == true
+        || !workspaceSidebarPinHomeReadings.isEmpty
+    else { return }
+    workspaceSidebarPinHomePassPending = true
+    let wait = workspaceSidebarPinHomeLastPass + workspaceSidebarPinHomeReadInterval - workspaceSidebarPinHomeNow()
     _ = Task { @MainActor in
+        if wait > 0 { try? await Task.sleep(for: .seconds(wait)) }
+        // Updates before this point are read now; one while it reads asks for another pass.
+        workspaceSidebarPinHomePassAgain = false
+        workspaceSidebarPinHomeLastPass = workspaceSidebarPinHomeNow()
         let homes = await refreshWorkspaceSidebarPinHomeReadings()
         let shortcuts = await refreshResourceShortcutFrontReading()
-        if homes || shortcuts { await updateWorkspaceSidebarModel() }
+        workspaceSidebarPinHomePassPending = false
+        if homes || shortcuts {
+            await updateWorkspaceSidebarModel()
+        } else if workspaceSidebarPinHomePassAgain {
+            refreshWorkspaceSidebarPinHomeReadingsIfDue()
+        }
     }
 }
 
@@ -128,7 +154,6 @@ func refreshWorkspaceSidebarPinHomeReadingsIfDue() {
 @MainActor
 @discardableResult
 func refreshWorkspaceSidebarPinHomeReadings() async -> Bool {
-    let now = workspaceSidebarPinHomeNow()
     var changed = false
     let names = Set(workspaceSidebarOrganizationStore.state.workspaces.filter { $0.value.isFavorite && $0.value.resource != nil }.keys)
     // Readings of pins gone, or with no home now, go.
@@ -141,8 +166,6 @@ func refreshWorkspaceSidebarPinHomeReadings() async -> Bool {
               let window = workspaceSidebarPinHomeWindow(workspace),
               !workspaceSidebarPinHomeReadsInFlight.contains(name)
         else { continue }
-        if let last = workspaceSidebarPinHomeReadings[name], last.windowId == window.windowId, last.home == home,
-           now - last.at < workspaceSidebarPinHomeReadInterval { continue }
         workspaceSidebarPinHomeReadsInFlight.insert(name)
         let evidence = await readWorkspaceSidebarPinHomeEvidence(window, home: home)
         workspaceSidebarPinHomeReadsInFlight.remove(name)
@@ -172,6 +195,10 @@ func returnPinToHomeFromSidebar(_ name: String) {
     else { return }
     if workspaceSidebarPinHomeFreshEvidence(tab, home: home) == .showsHome, let window = workspaceSidebarPinHomeWindow(tab) {
         return focusWindowFromSidebar(window.windowId)
+    }
+    // Its window is in another tab's split: a second one isn't opened for the pin meanwhile.
+    if appearance.lentWindow != nil {
+        return showPinDocumentNotice("Return to Home", "This pin's window is in another tab's split. Click the pin to bring it back first.")
     }
     switch home {
         case .file(let document):

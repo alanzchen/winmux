@@ -370,6 +370,20 @@ final class WorkspaceSidebarResourceEntriesTest: XCTestCase {
         XCTAssertEqual(launched.map(\.url.absoluteString), [note.url])
     }
 
+    func testReturnToHomeOpensNothingForAPinWhoseWindowIsLentToASplit() async throws {
+        let (tab, window) = makeTab("page", windowId: 21, app: safari)
+        pin(tab, .link(safariLink))
+        try workspaceSidebarOrganizationStore.update { $0.workspaces["page"]?.lentWindow = .init(windowId: 21, pid: safari.pid) }
+        _ = window.unbindFromParent()
+
+        returnPinToHomeFromSidebar("page")
+        await settle()
+
+        XCTAssertTrue(scripts.isEmpty, "No second window for the pin while its own is in another split")
+        XCTAssertTrue(launched.isEmpty)
+        XCTAssertTrue(notices.last?.body.contains("another tab's split") == true)
+    }
+
     func testReturnToHomeForADocumentOpensThatFileBesideTheOtherOneTheWindowShows() async throws {
         let home = try file("report.txt")
         let other = try file("notes.txt")

@@ -123,8 +123,6 @@ func refreshResourceShortcutFrontReading() async -> Bool {
         resourceShortcutFrontReading = nil
         return changed
     }
-    if let last = resourceShortcutFrontReading, last.windowId == window.windowId,
-       workspaceSidebarPinHomeNow() - last.at < workspaceSidebarPinHomeReadInterval { return false }
     let shown = PinDocumentIdentity(axDocument: await pinDocumentAXDocument(window))
     var ids: Set<String> = []
     if let shown {
