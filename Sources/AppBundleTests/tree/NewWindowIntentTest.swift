@@ -176,7 +176,13 @@ final class NewWindowIntentTest: XCTestCase {
         ])]
         let window = TestWindow.new(id: 11, parent: source.rootTilingContainer)
         _ = try await restoreOrDetectNewWindow(window, isRegularWindow: true, firstSeenUptime: clock)
-        XCTAssertTrue(window.nodeWorkspace === destination)
+        // The callback names its workspace. Empty and not shown, the one made above is pruned when the callback's
+        // first command refreshes the model, and the move makes it again by that name: the window is looked for
+        // in the workspace by that name now, not in the object made above.
+        let callbackWorkspace = try XCTUnwrap(Workspace.existing(byName: destination.name))
+        XCTAssertTrue(window.nodeWorkspace === callbackWorkspace, "The callback's workspace keeps the window")
+        XCTAssertFalse(window.nodeWorkspace === source)
+        XCTAssertTrue(window.parent is TilingContainer, "Tiled there: the next-window mode wins over the callback's floating")
         XCTAssertFalse(window.isFloating)
         XCTAssertNil(registry.consumeNextWindowLayout(in: source, firstSeenUptime: clock))
     }
