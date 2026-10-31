@@ -133,7 +133,9 @@ private struct WindowResizeWeightKey: Hashable {
 @MainActor
 func proposedResizeWeightMap(_ window: Window, rect: Rect) -> WindowResizePreviewWeightMap? {
     guard window.parent is TilingContainer else { return nil }
-    guard let lastAppliedLayoutRect = window.lastAppliedLayoutPhysicalRect else { return nil }
+    // Where layout put the window, not its cell: an app that keeps a size of its own leaves edges
+    // inside the cell that the user didn't move.
+    guard let lastAppliedLayoutRect = window.layoutPlacedRect else { return nil }
     var weightMap = WindowResizePreviewWeightMap()
     let (lParent, lOwnIndex) = window.closestParent(hasChildrenInDirection: .left, withLayout: .tiles) ?? (nil, nil)
     let (dParent, dOwnIndex) = window.closestParent(hasChildrenInDirection: .down, withLayout: .tiles) ?? (nil, nil)

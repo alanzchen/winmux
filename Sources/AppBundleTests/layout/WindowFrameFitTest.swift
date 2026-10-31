@@ -477,4 +477,27 @@ final class WindowFrameFitLayoutTest: XCTestCase {
         try await layoutAfterResizes(workspace)
         XCTAssertEqual(call.layoutPlacedRect, cell)
     }
+
+    func testDraggingTheRightEdgeOfACenteredWindowResizesOnlyTowardThatEdge() async throws {
+        let workspace = Workspace.get(byName: "call")
+        XCTAssertTrue(workspace.focusWorkspace())
+        workspace.rootTilingContainer.layout = .tiles
+        let left = TestWindow.new(id: 1, parent: workspace.rootTilingContainer)
+        // Tall and narrow: in a third of the display it keeps the cell's height and leaves room on both sides.
+        let app = SimulatedAppWindow(Rect(topLeftX: 200, topLeftY: 200, width: 300, height: 750), aspect: 0.4)
+        let call = FrameFitTestWindow(id: 2, parent: workspace.rootTilingContainer, native: app)
+        let right = TestWindow.new(id: 3, parent: workspace.rootTilingContainer)
+        try await layoutAfterResizes(workspace)
+        let cell = try XCTUnwrap(call.lastAppliedLayoutPhysicalRect)
+        let placed = try XCTUnwrap(call.layoutPlacedRect)
+        XCTAssertGreaterThan(placed.minX - cell.minX, 5, "Centered with room on the left")
+
+        // The user drags its right edge 40 points to the right; the left edge stays where it was.
+        let dragged = Rect(topLeftX: placed.minX, topLeftY: placed.minY, width: placed.width + 40, height: placed.height)
+        let changes = try XCTUnwrap(proposedResizeWeightMap(call, rect: dragged)).changes
+        let changed = Set(changes.compactMap { ($0.node as? Window)?.windowId })
+        XCTAssertTrue(changed.contains(right.windowId), "The neighbour on the dragged side gives way")
+        XCTAssertFalse(changed.contains(left.windowId), "The neighbour on the other side is left alone")
+        workspace.rootTilingContainer.resetResizeWeightBeforeResizeRecursive()
+    }
 }

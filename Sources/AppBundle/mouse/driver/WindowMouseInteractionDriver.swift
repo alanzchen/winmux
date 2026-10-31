@@ -388,7 +388,7 @@ extension WindowMouseInteractionDriver {
             state.tilingPlacement = nil
         } else {
             window.lastFloatingSize = window.lastKnownActualRect?.size ??
-                window.lastAppliedLayoutPhysicalRect?.size ??
+                window.layoutPlacedRect?.size ??
                 window.lastFloatingSize
             if let placement = window.bindAsFloatingWindow(to: workspace) {
                 state.tilingPlacement = WindowShakeTilingPlacement(placement)
@@ -451,9 +451,9 @@ extension WindowMouseInteractionDriver {
         else { return nil }
         let sample = MousePointerTracker.shared.currentSample
         guard cachedResizeCandidateIsViable(window: window, sample: sample) else { return nil }
-        let cachedRect = window.lastKnownActualRect ?? window.lastAppliedLayoutPhysicalRect
+        let cachedRect = window.lastKnownActualRect ?? window.layoutPlacedRect
         guard let observedRect = (try? await window.getAxRect()) ?? cachedRect else { return nil }
-        let baseRect = window.lastAppliedLayoutPhysicalRect ?? observedRect
+        let baseRect = window.layoutPlacedRect ?? observedRect
         let edges = resizeGestureCandidateEdges(mouse: sample.point, rect: observedRect)
         guard edges.hasAny else { return nil }
         return PendingResizeCandidate(
@@ -466,7 +466,7 @@ extension WindowMouseInteractionDriver {
     }
 
     func cachedResizeCandidateIsViable(window: Window, sample: MousePointerSample) -> Bool {
-        guard let cachedRect = window.lastKnownActualRect ?? window.lastAppliedLayoutPhysicalRect else { return true }
+        guard let cachedRect = window.lastKnownActualRect ?? window.layoutPlacedRect else { return true }
         return resizeGestureCandidateEdges(mouse: sample.point, rect: cachedRect).hasAny
     }
 }
@@ -481,7 +481,7 @@ extension WindowMouseInteractionDriver {
     }
 
     func makeResizeGesture(window: Window, observedRect: Rect?, sample: MousePointerSample) -> ResizeGestureSessionState? {
-        guard let observedRect = observedRect ?? window.lastKnownActualRect ?? window.lastAppliedLayoutPhysicalRect else { return nil }
+        guard let observedRect = observedRect ?? window.lastKnownActualRect ?? window.layoutPlacedRect else { return nil }
         if let pendingResizeCandidate,
            pendingResizeCandidate.windowId == window.windowId
         {
@@ -502,7 +502,7 @@ extension WindowMouseInteractionDriver {
         observedRect: Rect,
         sample: MousePointerSample,
     ) -> ResizeGestureSessionState? {
-        let baseRect = window.lastAppliedLayoutPhysicalRect ?? observedRect
+        let baseRect = window.layoutPlacedRect ?? observedRect
         return makeResizeGestureSession(
             windowId: window.windowId,
             baseRect: baseRect,
@@ -579,7 +579,7 @@ extension WindowMouseInteractionDriver {
         if let resizeGesture, resizeGesture.windowId == session.windowId {
             return resizeGesture.predictedRect(mouse: MousePointerTracker.shared.currentSample.point)
         }
-        return window.lastKnownActualRect ?? window.lastAppliedLayoutPhysicalRect
+        return window.lastKnownActualRect ?? window.layoutPlacedRect
     }
 }
 
@@ -620,7 +620,7 @@ extension WindowMouseInteractionDriver {
             resizeGesture = makeResizeGesture(window: window, observedRect: window.lastKnownActualRect, sample: sample)
         }
         guard let rect = resizeGesture?.predictedRect(mouse: MousePointerTracker.shared.currentSample.point) ??
-            window.lastAppliedLayoutPhysicalRect ??
+            window.layoutPlacedRect ??
             window.lastKnownActualRect
         else { return }
         beginStableResizePreviewFrame(for: window)
