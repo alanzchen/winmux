@@ -291,10 +291,10 @@ func setResourceShortcutScopeFromSidebar(_ id: String, allProjects: Bool, projec
     if let reason = pinDocumentReadOnlyReason() { return showPinDocumentNotice("Shortcut", reason) }
     runPinDocumentWrite("Move Shortcut") {
         let shortcuts = workspaceSidebarOrganizationStore.state.resourceShortcuts ?? []
-        guard let moving = shortcuts.first(where: { $0.id == id }), let resource = moving.resource else { return nil }
+        guard let moving = shortcuts.first(where: { $0.id == id }) else { return nil }
         // One shortcut to a resource in a place: none moves where there's one already.
         let scope: WorkspaceSidebarPinScope? = allProjects ? .allProjects : nil
-        if shortcuts.contains(where: {
+        if let resource = moving.resource, shortcuts.contains(where: {
             $0.id != id && $0.resource.map { resourceShortcutSameResource($0, resource) } == true && $0.pinScope == scope
                 && (allProjects || $0.projectId == projectId)
         }) {

@@ -40,8 +40,12 @@ let workspaceSidebarPinHomeReadInterval: TimeInterval = 2
 @MainActor private var workspaceSidebarPinHomePassAgain = false
 @MainActor private var workspaceSidebarPinHomeLastPass: TimeInterval = -.infinity
 
+/// Pins whose window Return is reading: another Return meanwhile does nothing.
+@MainActor private var workspaceSidebarPinHomeReturning: Set<String> = []
+
 @MainActor
 func resetWorkspaceSidebarPinHomeReadingsForTests() {
+    workspaceSidebarPinHomeReturning = []
     workspaceSidebarPinHomeReadings = [:]
     workspaceSidebarPinHomeReadsInFlight = []
     workspaceSidebarPinHomePassPending = false
@@ -207,11 +211,14 @@ func returnPinToHomeFromSidebar(_ name: String) {
             // Nothing read lately: a page pin's one window is read now, so a window already showing the home is
             // shown, not doubled. A file's window is found by the file's identity as it opens.
             if case .link = home, let window {
+                guard workspaceSidebarPinHomeReturning.insert(name).inserted else { return }
                 _ = Task { @MainActor in
+                    defer { workspaceSidebarPinHomeReturning.remove(name) }
                     let evidence = await readWorkspaceSidebarPinHomeEvidence(window, home: home)
                     // The pin, its home and its window, as they were when Return was chosen.
                     guard Workspace.existing(byName: name) === tab, workspaceSidebarPinHomeWindow(tab) === window,
-                          workspaceSidebarOrganizationStore.state.workspaces[name]?.resource == home else { return }
+                          let now = workspaceSidebarOrganizationStore.state.workspaces[name], now.isFavorite, now.resource == home
+                    else { return }
                     workspaceSidebarPinHomeReadings[name] = .init(windowId: window.windowId, home: home, evidence: evidence,
                         at: workspaceSidebarPinHomeNow())
                     if evidence == .showsHome { return focusWindowFromSidebar(window.windowId) }

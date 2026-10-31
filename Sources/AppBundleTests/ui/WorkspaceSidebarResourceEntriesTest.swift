@@ -392,6 +392,55 @@ final class WorkspaceSidebarResourceEntriesTest: XCTestCase {
         XCTAssertEqual(workspaceSidebarPinHome(for: tab)?.showsInstead, "Elsewhere", "And the tile says so")
     }
 
+    func testReturnToHomeChosenAgainWhileItsWindowIsReadOpensTheHomeOnce() async throws {
+        let (tab, _) = makeTab("page", windowId: 21, app: safari)
+        pin(tab, .link(safariLink))
+        reads[21] = .init(url: "https://example.com/elsewhere", title: "Elsewhere", privacy: .normal)
+        let gate = Gate()
+        gate.close()
+        let read = pinPageWindowRead
+        pinPageWindowRead = { window in
+            await gate.pass()
+            return await read(window)
+        }
+
+        returnPinToHomeFromSidebar("page")
+        let reading = await eventually { gate.waiting == 1 }
+        XCTAssertTrue(reading)
+        returnPinToHomeFromSidebar("page")
+        await settle()
+        XCTAssertEqual(gate.waiting, 1, "The second Return reads nothing more")
+        gate.open()
+
+        let asked = await eventually { !self.scripts.isEmpty }
+        XCTAssertTrue(asked)
+        await settle()
+        XCTAssertEqual(scripts.count, 1, "And the home opens once")
+    }
+
+    func testReturnToHomeOpensNothingWhenThePinIsUnpinnedWhileItsWindowIsRead() async throws {
+        let (tab, _) = makeTab("page", windowId: 21, app: safari)
+        pin(tab, .link(safariLink))
+        reads[21] = .init(url: "https://example.com/elsewhere", title: "Elsewhere", privacy: .normal)
+        let gate = Gate()
+        gate.close()
+        let read = pinPageWindowRead
+        pinPageWindowRead = { window in
+            await gate.pass()
+            return await read(window)
+        }
+
+        returnPinToHomeFromSidebar("page")
+        let reading = await eventually { gate.waiting == 1 }
+        XCTAssertTrue(reading)
+        try setWorkspaceSidebarTabFavorite(tab, false)
+        gate.open()
+        await settle()
+
+        XCTAssertTrue(scripts.isEmpty)
+        XCTAssertTrue(launched.isEmpty)
+    }
+
     func testReturnToHomeOpensNothingForAPinWhoseWindowIsLentToASplit() async throws {
         let (tab, window) = makeTab("page", windowId: 21, app: safari)
         pin(tab, .link(safariLink))
@@ -559,6 +608,11 @@ final class WorkspaceSidebarResourceEntriesTest: XCTestCase {
         XCTAssertTrue(told)
         XCTAssertTrue(notices.last?.body.contains("already a shortcut") == true)
         XCTAssertEqual(shortcuts.first { $0.id == own }?.pinScope, nil, "It stays where it was")
+        XCTAssertEqual(shortcuts.first { $0.id == everywhere }?.pinScope, .allProjects)
+
+        setResourceShortcutScopeFromSidebar(everywhere, allProjects: false, projectId: workspaceProjectDefaultId)
+        let toldAgain = await eventually { self.notices.count == 2 }
+        XCTAssertTrue(toldAgain, "Nor back into a project that has one")
         XCTAssertEqual(shortcuts.first { $0.id == everywhere }?.pinScope, .allProjects)
     }
 
