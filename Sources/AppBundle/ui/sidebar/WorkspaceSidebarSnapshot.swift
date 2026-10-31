@@ -15,6 +15,8 @@ struct WorkspaceSidebarSnapshot: Equatable {
     var dockDrag: WorkspaceSidebarDockDragPresentation? = nil
     // Unprojected counts keep drag-hover previews from resizing their own targets.
     var dockRestingAppCounts: [String: Int]? = nil
+    /// Tabs mode: every project's shortcuts among the pins.
+    var resourceShortcuts: [WorkspaceSidebarResourceShortcutViewModel] = []
 }
 
 struct WorkspaceSidebarConfiguration: Equatable {
@@ -106,6 +108,19 @@ enum WorkspaceSidebarAction: Equatable {
     case pinLinkWithIntegration(String, integrationId: String, updating: Bool)
     /// Tabs mode: asks for a link and makes a new pin of it in the project, on that display.
     case newLinkPin(projectId: WorkspaceProjectId, monitorScopeId: String)
+    /// Tabs mode: opens a pin's home again, beside what its window shows now, which stays.
+    case returnPinToHome(String)
+    /// Tabs mode: adds a shortcut among the pins to what the tab's one window shows, or to a link typed;
+    /// the tab stays as it is.
+    case addResourceShortcut(String, source: WorkspaceSidebarResourceShortcutSource)
+    /// Tabs mode: adds a shortcut among the pins to a pin's home; the pin stays as it is.
+    case addResourceShortcutToPinHome(String)
+    /// Tabs mode: goes to a shortcut's resource; with `bringHere`, ⌘-click, brings its window here.
+    case goToResourceShortcut(String, bringHere: Bool)
+    case removeResourceShortcut(String)
+    case editResourceShortcutLink(String)
+    /// Tabs mode: shows a shortcut among every project's pins, or only among `projectId`'s.
+    case setResourceShortcutScope(String, allProjects: Bool, projectId: WorkspaceProjectId)
     /// Tabs mode: pins a tab in All Projects, or a pin in All Projects back among `projectId`'s
     /// pins, the project the sidebar shows.
     case setWorkspacePinScope(String, WorkspaceSidebarPinScope?, projectId: WorkspaceProjectId)

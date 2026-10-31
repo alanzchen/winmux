@@ -40,6 +40,8 @@ struct WorkspaceSidebarWorkspaceViewModel: Hashable, Identifiable {
     /// minimized from it, in the order `workspaceTabMembers` gives. They still belong to it: a tab
     /// with only these isn't empty.
     var offscreenMembers: [WorkspaceSidebarOffscreenMember] = []
+    /// Tabs mode, a pin with a home: its name, and what its one window shows instead, on fresh evidence.
+    var pinHome: WorkspaceSidebarPinHomeViewModel? = nil
 
     var id: String { name }
 }

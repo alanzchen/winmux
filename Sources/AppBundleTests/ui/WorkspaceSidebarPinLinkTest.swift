@@ -267,7 +267,7 @@ final class WorkspaceSidebarPinLinkTest: XCTestCase {
         XCTAssertEqual(readCount, 1)
         XCTAssertTrue(window.nodeWorkspace === tab, "Pinning moves nothing")
         XCTAssertTrue(workspaceIsPinnedResource(tab))
-        XCTAssertEqual(WorkspaceSidebarTabUndo.shared.title, "Undo Pin Page")
+        XCTAssertEqual(WorkspaceSidebarTabUndo.shared.title, "Undo Pin with Page as Home")
         XCTAssertEqual(notices, [])
         XCTAssertTrue(scripts.isEmpty, "Safari is read, never scripted, to pin")
     }
@@ -374,7 +374,7 @@ final class WorkspaceSidebarPinLinkTest: XCTestCase {
         XCTAssertEqual(scripts.first?.arguments, [String(window.windowId)], "Mail is asked about this window only")
         XCTAssertEqual(appearance("mail")?.link, .init(url: "message://%3Cabc.123+x@example.com%3E", title: "Weekly summary",
             adapter: "mail", bundleId: mailId, source: .window))
-        XCTAssertEqual(WorkspaceSidebarTabUndo.shared.title, "Undo Pin Message")
+        XCTAssertEqual(WorkspaceSidebarTabUndo.shared.title, "Undo Pin with Message as Home")
 
         XCTAssertEqual(pinMessageCapture("selected\t0"), .refused("Select the message in this Mail window first."))
         XCTAssertEqual(pinMessageCapture("selected\t3"), .refused("Select just one message in this Mail window."))
@@ -413,7 +413,7 @@ final class WorkspaceSidebarPinLinkTest: XCTestCase {
         pinLinkFromWindowFromSidebar(tab.name, updating: true)
         let updated = await eventually { self.appearance("page")?.link?.url == "https://example.com/next" }
         XCTAssertTrue(updated)
-        XCTAssertEqual(WorkspaceSidebarTabUndo.shared.title, "Undo Update Page from Window")
+        XCTAssertEqual(WorkspaceSidebarTabUndo.shared.title, "Undo Set Current Page as Home")
         try WorkspaceSidebarTabUndo.shared.undo()
         XCTAssertEqual(appearance("page")?.link?.url, page)
     }
@@ -435,7 +435,7 @@ final class WorkspaceSidebarPinLinkTest: XCTestCase {
         XCTAssertNil(link("message://%3Cid@example.com%3E")?.bundleId, "Opened by whichever app opens such links")
         XCTAssertNotNil(refusal(""))
         XCTAssertNotNil(refusal("https://example.com/a b"))
-        XCTAssertTrue(refusal("file:///tmp/report.txt")?.contains("Pin Document") == true)
+        XCTAssertTrue(refusal("file:///tmp/report.txt")?.contains("Pin with Document as Home") == true)
         XCTAssertNotNil(refusal("javascript:alert(1)"))
         XCTAssertNotNil(refusal("data:text/html,hi"))
         XCTAssertEqual(refusal("obsidian://open?vault=Work"), "No app on this Mac opens “obsidian:” links.")
@@ -722,25 +722,30 @@ final class WorkspaceSidebarPinLinkTest: XCTestCase {
         func titles(_ model: WorkspaceSidebarWorkspaceViewModel) -> [String] {
             workspaceSidebarPinResourceMenuEntries(model, send: { _ in }).map(\.title)
         }
-        XCTAssertEqual(titles(viewModel("a", windows: [(1, safariId)])), ["Pin Page", "Pin Document", "Pin Link…"])
-        XCTAssertEqual(titles(viewModel("b", windows: [(1, chromeId)])), ["Pin Page", "Pin Document", "Pin Link…"],
-            "A browser can show a file: Pin Document stays")
-        XCTAssertEqual(titles(viewModel("c", windows: [(1, mailId)])), ["Pin Message", "Pin Document", "Pin Link…"])
-        XCTAssertEqual(titles(viewModel("d", windows: [(1, "com.example.editor")])), ["Pin Document", "Pin Link…"])
-        XCTAssertEqual(titles(viewModel("e", windows: [(1, safariId), (2, safariId)])), ["Pin Document", "Pin Link…"])
+        let asHome = ["Pin with Document as Home", "Pin with Link as Home…", "Add Shortcut"]
+        XCTAssertEqual(titles(viewModel("a", windows: [(1, safariId)])), ["Pin with Page as Home"] + asHome)
+        XCTAssertEqual(titles(viewModel("b", windows: [(1, chromeId)])), ["Pin with Page as Home"] + asHome,
+            "A browser can show a file: Pin with Document stays")
+        XCTAssertEqual(titles(viewModel("c", windows: [(1, mailId)])), ["Pin with Message as Home"] + asHome)
+        XCTAssertEqual(titles(viewModel("d", windows: [(1, "com.example.editor")])), asHome)
+        XCTAssertEqual(titles(viewModel("e", windows: [(1, safariId), (2, safariId)])), asHome)
         var pinned = WorkspaceSidebarItemAppearance()
         pinned.setFavorite(true)
         pinned.link = safariLink
         XCTAssertEqual(titles(viewModel("f", windows: [(1, safariId)], appearance: pinned)),
-            ["Update Page from Window", "Edit Link…", "Forget Link"])
-        XCTAssertEqual(titles(viewModel("g", windows: [], appearance: pinned)), ["Edit Link…", "Forget Link"])
+            ["Return to “Report”", "Set Current Page as Home", "Edit Home Link…", "Forget Home", "Add Shortcut"])
+        XCTAssertEqual(titles(viewModel("g", windows: [], appearance: pinned)),
+            ["Return to “Report”", "Edit Home Link…", "Forget Home", "Add Shortcut"])
         var split = WorkspaceSidebarItemAppearance()
         split.setFavorite(true)
         split.composition = .init(layout: .split(.h, weight: 1, children: []))
         let splitEntries = workspaceSidebarPinResourceMenuEntries(viewModel("h", windows: [(1, safariId), (2, chromeId)], appearance: split),
             send: { _ in })
-        XCTAssertEqual(splitEntries.last?.title, "Pin Link…")
-        XCTAssertEqual(splitEntries.last?.enabled, false, "A pinned split brings back its own windows")
+        let typed = splitEntries.first { $0.title == "Set Home Link…" }
+        XCTAssertEqual(typed?.enabled, false, "A pinned split brings back its own windows")
+        XCTAssertEqual(splitEntries.last?.title, "Add Shortcut", "A shortcut is still offered: it takes no window from the split")
+        XCTAssertEqual(splitEntries.last?.children.map(\.title), ["Document in Window", "Link…"])
+        XCTAssertEqual(splitEntries.last?.children.map(\.enabled), [false, true])
     }
 
     func testAnAdapterAddedToTheRegistryIsOfferedAndUsedWithoutAnythingElseChanging() async throws {
@@ -748,7 +753,7 @@ final class WorkspaceSidebarPinLinkTest: XCTestCase {
             capture: { _ in .captured(url: "x-example-tasks://task/42", title: "Ship it") }))
         let tasks = TestApp(pid: 18801, bundleId: "com.example.tasks", name: "Tasks")
         XCTAssertEqual(workspaceSidebarPinResourceMenuEntries(viewModel("t", windows: [(1, "com.example.tasks")]), send: { _ in })
-            .map(\.title), ["Pin Task", "Pin Document", "Pin Link…"])
+            .map(\.title), ["Pin with Task as Home", "Pin with Document as Home", "Pin with Link as Home…", "Add Shortcut"])
         let (tab, _) = makeTab("t", windowId: 91, app: tasks)
 
         pinLinkFromWindowFromSidebar(tab.name, updating: false)

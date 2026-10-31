@@ -9,6 +9,7 @@ func clearWorkspaceSidebarModelState() {
     TrayMenuModel.shared.setIfChanged(\.workspaceSidebarWorkspaces, [])
     TrayMenuModel.shared.setIfChanged(\.workspaceSidebarMonitorScopes, [])
     TrayMenuModel.shared.setIfChanged(\.workspaceSidebarProjects, [])
+    TrayMenuModel.shared.setIfChanged(\.workspaceSidebarResourceShortcuts, [])
     TrayMenuModel.shared.setIfChanged(\.workspaceSidebarShowsMonitorSelector, false)
     WorkspaceSidebarPanel.refreshAll()
 }
@@ -21,7 +22,8 @@ func applyWorkspaceSidebarModelState(_ state: WorkspaceSidebarModelState, previo
         TrayMenuModel.shared.workspaceSidebarShowsMonitorSelector != state.showsMonitorSelector
     let didProjectChange =
         TrayMenuModel.shared.workspaceSidebarProjects != state.projects ||
-        TrayMenuModel.shared.workspaceSidebarActiveProjectId != state.activeProjectId
+        TrayMenuModel.shared.workspaceSidebarActiveProjectId != state.activeProjectId ||
+        TrayMenuModel.shared.workspaceSidebarResourceShortcuts != state.resourceShortcuts
 
     updateWorkspaceSidebarTrayModel(with: state)
     WorkspaceSidebarPanel.syncVisiblePanelModelsFromShared()
@@ -46,6 +48,7 @@ private func updateWorkspaceSidebarTrayModel(with state: WorkspaceSidebarModelSt
     TrayMenuModel.shared.setIfChanged(\.workspaceSidebarHoveredWorkspaceName, state.hoveredWorkspaceName)
     TrayMenuModel.shared.setIfChanged(\.workspaceSidebarProjects, state.projects)
     TrayMenuModel.shared.setIfChanged(\.workspaceSidebarActiveProjectId, state.activeProjectId)
+    TrayMenuModel.shared.setIfChanged(\.workspaceSidebarResourceShortcuts, state.resourceShortcuts)
     TrayMenuModel.shared.setIfChanged(\.workspaceSidebarMonitorScopes, state.monitorScopes)
     TrayMenuModel.shared.setIfChanged(\.workspaceSidebarFocusedMonitorScopeId, state.focusedMonitorScopeId)
     TrayMenuModel.shared.setIfChanged(\.workspaceSidebarShowsMonitorSelector, state.showsMonitorSelector)

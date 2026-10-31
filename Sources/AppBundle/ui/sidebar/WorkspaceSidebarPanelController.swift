@@ -187,6 +187,7 @@ final class WorkspaceSidebarPanel: NSPanelHud, WorkspaceSidebarInputOwner {
         viewModel.setIfChanged(\.workspaceSidebarWorkspaces, TrayMenuModel.shared.workspaceSidebarWorkspaces)
         viewModel.setIfChanged(\.workspaceSidebarProjects, TrayMenuModel.shared.workspaceSidebarProjects)
         viewModel.setIfChanged(\.workspaceSidebarActiveProjectId, resolvedLocalActiveProjectId())
+        viewModel.setIfChanged(\.workspaceSidebarResourceShortcuts, TrayMenuModel.shared.workspaceSidebarResourceShortcuts)
         viewModel.setIfChanged(\.workspaceSidebarMonitorScopes, TrayMenuModel.shared.workspaceSidebarMonitorScopes)
         viewModel.setIfChanged(\.workspaceSidebarTargetMonitorScopeId, monitorScopeId)
         viewModel.refreshWorkspaceSidebarMonitorScope()

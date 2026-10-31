@@ -68,15 +68,17 @@ enum PinDocumentResolution {
 
     var url: URL? { if case .found(let url, _) = self { url } else { nil } }
 
-    func message(_ name: String) -> String {
-        switch self {
+    /// Why it isn't opened, and what to do: for a pin, set its home again or forget it; for a shortcut,
+    /// make it again.
+    func message(_ name: String, forShortcut: Bool = false) -> String {
+        let fix = forShortcut ? "Remove this shortcut, and add it again from a window that shows the file."
+            : "Open it in this tab and choose Set Current Document as Home, or choose Forget Home."
+        return switch self {
             case .found: ""
             case .missing:
-                "Can't find “\(name)”: it was deleted, replaced, or moved to another disk. "
-                    + "Open it in this tab and choose Update Document from Window, or choose Forget Document."
+                "Can't find “\(name)”: it was deleted, replaced, or moved to another disk. " + fix
             case .unverifiable:
-                "WinMux can't check that “\(name)” is still the same file, so it doesn't open it. "
-                    + "Open it in this tab and choose Update Document from Window, or choose Forget Document."
+                "WinMux can't check that “\(name)” is still the same file, so it doesn't open it. " + fix
         }
     }
 }
@@ -235,7 +237,7 @@ enum PinDocumentRefusal: Error, Equatable {
     var message: String {
         switch self {
             case .noWindow: "Open the document in this tab first."
-            case .severalWindows: "Pin Document works on a tab with one window."
+            case .severalWindows: "Works on a tab with one window."
             case .split: "A pinned split can't be a pinned document."
         }
     }
@@ -246,26 +248,6 @@ enum PinDocumentRefusal: Error, Equatable {
 func pinDocumentReadOnlyReason() -> String? {
     if serverArgs.isReadOnly { return "WinMux is running with --read-only." }
     return workspaceSidebarOrganizationStore.readOnlyReason ?? savedWorkspaceStore.readOnlyReason
-}
-
-/// Tabs mode: the identity menu's document items for a tab. Pin Document for a tab, or a pin, that
-/// has none; Update Document from Window and Forget Document for a pinned document.
-@MainActor
-func workspaceSidebarPinDocumentMenuEntries(_ workspace: WorkspaceSidebarWorkspaceViewModel,
-                                            send: @escaping @MainActor (WorkspaceSidebarAction) -> Void) -> [WorkspaceSidebarAppMenuEntry] {
-    let name = workspace.name
-    let windows = workspaceSidebarPinnedTabWindows(workspace)
-    let refusal: PinDocumentRefusal? = workspace.appearance.composition != nil ? .split
-        : windows.isEmpty ? .noWindow : windows.count > 1 ? .severalWindows : nil
-    guard workspace.appearance.isFavorite, let document = workspace.appearance.document else {
-        return [.init(title: "Pin Document", enabled: refusal == nil, perform: { send(.pinDocument(name)) },
-            help: refusal?.message ?? "Pins this tab to the file its window shows")]
-    }
-    return [
-        .init(title: "Update Document from Window", enabled: refusal == nil, perform: { send(.updatePinDocument(name)) },
-            help: refusal?.message ?? "Pins this tab to the file its window shows now, instead of “\(document.name)”"),
-        .init(title: "Forget Document", perform: { send(.forgetPinDocument(name)) }),
-    ]
 }
 
 // MARK: - Pin, update, forget
@@ -331,7 +313,7 @@ private func endPinDocumentOperation(_ name: String, _ operation: UInt64) {
 /// written. The last check is made in the session that writes, right before the write.
 @MainActor
 func pinDocumentFromSidebar(_ name: String, updating: Bool) {
-    let title = updating ? "Update Document" : "Pin Document"
+    let title = updating ? "Set Current Document as Home" : "Pin with Document as Home"
     guard let tab = Workspace.existing(byName: name) else { return }
     if let reason = pinDocumentReadOnlyReason() { return showPinDocumentNotice(title, reason) }
     if updating, !workspaceIsPinnedDocument(tab) { return }
@@ -463,9 +445,11 @@ func commitWorkspaceSidebarPinResource(_ tab: Workspace, _ resource: WorkspaceSi
 /// its file opens again in its app, and only the window proven to show that file comes to the pin.
 /// A window that already shows it is focused where it is, and the notice says where; nothing moves.
 /// Nothing else opens instead: a file gone, replaced, unverifiable or on another disk, or an app gone,
-/// only says so. A change to the pin while this waits, Undo included, withdraws it.
+/// only says so. A change to the pin while this waits, Undo included, withdraws it. With
+/// `returningHome`, asked for by Return to the pin's home while the pin still has windows, its window
+/// comes to the pin beside them; they stay as they are.
 @MainActor
-func openPinnedDocument(_ tab: Workspace, _ document: WorkspaceSidebarPinDocument) {
+func openPinnedDocument(_ tab: Workspace, _ document: WorkspaceSidebarPinDocument, returningHome: Bool = false) {
     guard !serverArgs.isReadOnly else { return showPinDocumentNotice("Pinned Document", "WinMux is running with --read-only.") }
     let resolution = resolvePinDocument(document)
     guard let url = resolution.url, let identity = PinDocumentIdentity(fileURL: url) else {
@@ -481,7 +465,7 @@ func openPinnedDocument(_ tab: Workspace, _ document: WorkspaceSidebarPinDocumen
             guard target.isCurrent else { return }
             return revealOpenPinDocument(open, for: tab, target: target, document: document, focusGeneration: focusGeneration)
         }
-        guard target.isCurrent, !workspaceHasLifecycleWindows(tab) else { return }
+        guard target.isCurrent, returningHome || !workspaceHasLifecycleWindows(tab) else { return }
         // The file may have changed while the app's windows were read: found again, right before the
         // app is asked, and only that same file, wherever it is now.
         let fresh = resolvePinDocument(document)

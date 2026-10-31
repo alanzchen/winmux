@@ -142,8 +142,8 @@ enum WorkspaceSidebarPinResource: Hashable {
 
     var pinHelp: String {
         switch self {
-            case .file(let document): "Pinned document: \(document.name)"
-            case .link(let link): "Pinned link: \(link.title)"
+            case .file(let document): "Home: \(document.name)"
+            case .link(let link): "Home: \(link.title)"
         }
     }
 }
@@ -226,6 +226,8 @@ struct WorkspaceSidebarOrganization: Codable, Equatable {
     /// Tabs mode: pinned splits from before they were recorded (`composition`) have been recorded,
     /// once. After that, only a split tab's menu Pin makes one.
     var pinnedSplitsRecorded: Bool? = nil
+    /// Tabs mode: shortcuts to resources, among the pins. Optional, so files without any don't change.
+    var resourceShortcuts: [WorkspaceSidebarResourceShortcut]? = nil
 }
 
 /// Atomic, explicit user edits. A failed or newer file stays untouched, and a failed
@@ -263,6 +265,8 @@ final class WorkspaceSidebarOrganizationStore {
             var ids: Set<String> = []
             var members: Set<String> = []
             state.collections = state.collections.filter { ids.insert($0.id).inserted }
+            var shortcutIds: Set<String> = []
+            state.resourceShortcuts = state.resourceShortcuts?.filter { shortcutIds.insert($0.id).inserted }
             for index in state.collections.indices {
                 state.collections[index].workspaceNames = state.collections[index].workspaceNames.filter { members.insert($0).inserted }
             }

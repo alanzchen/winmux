@@ -13,6 +13,8 @@ public final class TrayMenuModel: ObservableObject {
     @Published var workspaceSidebarWorkspaces: [WorkspaceSidebarWorkspaceViewModel] = []
     @Published var workspaceSidebarProjects: [WorkspaceSidebarProjectViewModel] = []
     @Published var workspaceSidebarActiveProjectId: WorkspaceProjectId = workspaceProjectDefaultId
+    /// Tabs mode: every project's shortcuts among the pins; each sidebar shows its project's.
+    @Published var workspaceSidebarResourceShortcuts: [WorkspaceSidebarResourceShortcutViewModel] = []
     @Published var workspaceSidebarMonitorScopes: [WorkspaceSidebarMonitorScopeViewModel] = []
     /// Panel-local UI state. The shared model keeps this only as a compatibility default for legacy callers.
     @Published var workspaceSidebarSelectedMonitorScopeId: String = workspaceSidebarDefaultScopeId

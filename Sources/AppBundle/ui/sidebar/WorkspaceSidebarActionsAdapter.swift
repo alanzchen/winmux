@@ -122,6 +122,27 @@ func handleWorkspaceSidebarAction(
             pinLinkWithIntegrationFromSidebar(name, integrationId: integrationId, updating: updating)
         case .newLinkPin(let projectId, let monitorScopeId):
             DispatchQueue.main.async { newLinkPinFromSidebar(projectId: projectId, monitorScopeId: monitorScopeId) }
+        case .returnPinToHome(let name):
+            returnPinToHomeFromSidebar(name)
+        case .addResourceShortcut(let name, let source):
+            // After the menu closes: a link is asked for in a modal prompt.
+            DispatchQueue.main.async {
+                addResourceShortcutFromSidebar(name, source: source,
+                    projectId: Workspace.existing(byName: name).map {
+                        workspaceSidebarContextProjectId(for: $0, targetMonitorScopeId: targetMonitorScopeId)
+                    })
+            }
+        case .addResourceShortcutToPinHome(let name):
+            addResourceShortcutToPinHomeFromSidebar(name)
+        case .goToResourceShortcut(let id, let bringHere):
+            goToResourceShortcutFromSidebar(id, bringHere: bringHere,
+                targetMonitorScopeId: targetMonitorScopeId ?? viewModel.workspaceSidebarTargetMonitorScopeId)
+        case .removeResourceShortcut(let id):
+            removeResourceShortcutFromSidebar(id)
+        case .editResourceShortcutLink(let id):
+            DispatchQueue.main.async { editResourceShortcutLinkFromSidebar(id) }
+        case .setResourceShortcutScope(let id, let allProjects, let projectId):
+            setResourceShortcutScopeFromSidebar(id, allProjects: allProjects, projectId: projectId)
         case .bringPinnedTabHere(let name, let windowId, let recalls):
             bringPinnedTabHereFromSidebar(name, windowId: windowId, recalls: recalls, targetMonitorScopeId: targetMonitorScopeId)
         case .moveTabsToDisplay(let projectId, let source, let target):

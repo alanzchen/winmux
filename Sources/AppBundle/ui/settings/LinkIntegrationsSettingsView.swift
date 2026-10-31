@@ -18,8 +18,8 @@ struct LinkIntegrationsSettingsView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 Text("An integration is one app's scripts, as Hookmark has them. Its Get Address script takes a link to what "
-                    + "that app's window shows, when you choose Pin with Integration in a tab's menu; its Open Item script "
-                    + "opens such a link again when you click the pin.")
+                    + "that app's window shows, when you choose Pin with Item as Home or Add Shortcut in a tab's menu; its Open Item "
+                    + "script opens such a link again when you click the pin or the shortcut.")
                     .fixedSize(horizontal: false, vertical: true)
                 Label {
                     Text("Integrations are scripts that run as you, with WinMux's permissions: they can control apps, press keys, "
@@ -82,7 +82,7 @@ struct LinkIntegrationsSettingsView: View {
             }
         } message: { _ in
             Text("Pins it took keep their links, but it won't open them: clicked, they say why. Adding it again doesn't bring "
-                + "them back to it; Update from Window does.")
+                + "them back to it; Set Current Item as Home does.")
         }
         .alert("Integrations", isPresented: Binding(get: { problem != nil }, set: { if !$0 { problem = nil } })) {
             Button("OK", role: .cancel) { problem = nil }

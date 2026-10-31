@@ -187,7 +187,7 @@ final class WorkspaceSidebarPinIntegrationTest: XCTestCase {
         XCTAssertEqual(appearance("note")?.link, .init(url: "x-notebook://note/7?q=Case", title: "Plan B", adapter: "integration",
             bundleId: notebookId, source: .window, integration: integration.id))
         XCTAssertTrue(window.nodeWorkspace === tab, "Nothing moves")
-        XCTAssertEqual(WorkspaceSidebarTabUndo.shared.title, "Undo Pin with Notebook Integration")
+        XCTAssertEqual(WorkspaceSidebarTabUndo.shared.title, "Undo Pin with Item as Home")
         XCTAssertEqual(notices, [])
     }
 
@@ -444,7 +444,7 @@ final class WorkspaceSidebarPinIntegrationTest: XCTestCase {
         await pin(tab.name, integration, updating: true)
 
         XCTAssertEqual(appearance("note")?.link?.url, "x-notebook://note/2")
-        XCTAssertEqual(WorkspaceSidebarTabUndo.shared.title, "Undo Update from Window")
+        XCTAssertEqual(WorkspaceSidebarTabUndo.shared.title, "Undo Set Current Item as Home")
         try WorkspaceSidebarTabUndo.shared.undo()
         XCTAssertEqual(appearance("note")?.link, first)
     }
@@ -559,21 +559,23 @@ final class WorkspaceSidebarPinIntegrationTest: XCTestCase {
         func entries(_ model: WorkspaceSidebarWorkspaceViewModel) -> [WorkspaceSidebarAppMenuEntry] {
             workspaceSidebarPinResourceMenuEntries(model, send: { _ in })
         }
-        XCTAssertEqual(entries(viewModel("a", windows: [(1, notebookId)])).map(\.title), ["Pin Document", "Pin Link…"],
-            "No integration, nothing new")
+        XCTAssertEqual(entries(viewModel("a", windows: [(1, notebookId)])).map(\.title),
+            ["Pin with Document as Home", "Pin with Link as Home…", "Add Shortcut"], "No integration, nothing new")
         let integration = install()
         let safariIntegration = install(safariId, appName: "Safari", scheme: nil)
         XCTAssertEqual(entries(viewModel("a", windows: [(1, notebookId)])).map(\.title),
-            ["Pin with Notebook Integration", "Pin Document", "Pin Link…"])
+            ["Pin with Item as Home (Notebook Integration)", "Pin with Document as Home", "Pin with Link as Home…", "Add Shortcut"])
         XCTAssertEqual(entries(viewModel("b", windows: [(1, safariId)])).map(\.title),
-            ["Pin Page", "Pin with Safari Integration", "Pin Document", "Pin Link…"], "Beside the built-in, never instead")
-        XCTAssertEqual(entries(viewModel("c", windows: [(1, notebookId), (2, notebookId)])).map(\.title), ["Pin Document", "Pin Link…"])
+            ["Pin with Page as Home", "Pin with Item as Home (Safari Integration)", "Pin with Document as Home",
+             "Pin with Link as Home…", "Add Shortcut"], "Beside the built-in, never instead")
+        XCTAssertEqual(entries(viewModel("c", windows: [(1, notebookId), (2, notebookId)])).map(\.title),
+            ["Pin with Document as Home", "Pin with Link as Home…", "Add Shortcut"])
         var pinned = WorkspaceSidebarItemAppearance()
         pinned.setFavorite(true)
         pinned.link = .init(url: "x-notebook://note/1", title: "One", adapter: "integration", bundleId: notebookId, source: .window,
             integration: integration.id)
         XCTAssertEqual(entries(viewModel("d", windows: [(1, notebookId)], appearance: pinned)).map(\.title),
-            ["Update from Window (Notebook Integration)", "Edit Link…", "Forget Link"])
+            ["Return to “One”", "Set Current Item as Home (Notebook Integration)", "Edit Home Link…", "Forget Home", "Add Shortcut"])
 
         var sent: [WorkspaceSidebarAction] = []
         workspaceSidebarPinResourceMenuEntries(viewModel("a", windows: [(1, notebookId)]), send: { sent.append($0) }).first?.perform?()
@@ -583,7 +585,7 @@ final class WorkspaceSidebarPinIntegrationTest: XCTestCase {
         linkIntegrationStore = LinkIntegrationStore()
         install(on: false)
         let offEntry = entries(viewModel("a", windows: [(1, notebookId)])).first
-        XCTAssertEqual(offEntry?.title, "Pin with Notebook Integration")
+        XCTAssertEqual(offEntry?.title, "Pin with Item as Home (Notebook Integration)")
         XCTAssertEqual(offEntry?.enabled, false)
         XCTAssertTrue(offEntry?.help?.contains("Settings → Integrations") == true)
     }

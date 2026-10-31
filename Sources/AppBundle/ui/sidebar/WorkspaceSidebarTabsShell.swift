@@ -121,11 +121,17 @@ extension WorkspaceSidebarView {
                 .frame(maxHeight: .infinity, alignment: .topLeading)
                 .opacity(reveal)
             } else {
+                let railTabs = visible[snapshot.activeProjectId] ?? []
+                // The pins come first; the shortcuts follow them, before the other tabs.
+                let railPinCount = railTabs.prefix { $0.appearance.isFavorite }.count
+                let railShortcuts = snapshot.resourceShortcuts.shown(in: snapshot.activeProjectId)
+                let railShortcutList = railShortcuts.allProjects + railShortcuts.project
                 ScrollView {
                     VStack(spacing: 5) {
-                        ForEach(Array((visible[snapshot.activeProjectId] ?? []).enumerated()), id: \.element.id) { index, workspace in
-                            let tabs = visible[snapshot.activeProjectId] ?? []
-                            if index > 0, tabs[index - 1].appearance.isFavorite, !workspace.appearance.isFavorite {
+                        ForEach(Array(railTabs.enumerated()), id: \.element.id) { index, workspace in
+                            let tabs = railTabs
+                            if index == railPinCount { railShortcutTiles(railShortcutList) }
+                            if index == railPinCount, index > 0 || !railShortcutList.isEmpty {
                                 Divider().padding(.horizontal, 8).padding(.vertical, 3)
                             } else if index > 0, tabs[index - 1].appearance.isPinnedInAllProjects, !workspace.appearance.isPinnedInAllProjects {
                                 // Pins in All Projects, then the project's own.
@@ -135,7 +141,8 @@ extension WorkspaceSidebarView {
                                 targetMonitorScopeId: snapshot.targetMonitorScopeId,
                                 onOpenSavedApps: { selectTabWorkspace(workspace, action: .openSavedTab(workspace.name)) },
                                 sharedPinLocation: snapshot.sharedPinLocation(of: workspace),
-                                onRecall: pinRecall(workspace), onBringHere: pinBringHere(workspace)) { windowId in
+                                onRecall: pinRecall(workspace), onBringHere: pinBringHere(workspace),
+                                onReturnHome: pinReturnHome(workspace)) { windowId in
                                 selectTabWorkspace(workspace, windowId: windowId)
                             }
                             .frame(width: 34, height: 34)
@@ -148,6 +155,7 @@ extension WorkspaceSidebarView {
                             .help(snapshot.sharedPinLocation(of: workspace).map { "\(workspace.displayName)\n\($0.help())" }
                                 ?? workspace.displayName)
                         }
+                        if railPinCount == railTabs.count { railShortcutTiles(railShortcutList) }
                     }.frame(maxWidth: .infinity)
                 }
                 .opacity(railOpacity)
@@ -207,19 +215,22 @@ extension WorkspaceSidebarView {
     }
 
     /// Pins in All Projects above the project's own, with a divider between them when both have some.
-    /// Each section wraps on its own; an empty one takes no room.
+    /// Each section wraps on its own, its shortcuts after its pins; an empty one takes no room.
     private func tabsFavorites(_ workspaces: [WorkspaceSidebarWorkspaceViewModel]) -> some View {
         let favorites = workspaces.filter { $0.appearance.isFavorite }
         let everywhere = favorites.filter(\.appearance.isPinnedInAllProjects)
         let own = favorites.filter { !$0.appearance.isPinnedInAllProjects }
+        let shortcuts = snapshot.resourceShortcuts.shown(in: snapshot.activeProjectId)
         let width = snapshot.visibleWidth - 20
         return VStack(alignment: .leading, spacing: 0) {
-            tabsFavoriteGrid(everywhere, grid: .init(workspaces: everywhere, sizedLike: favorites, width: width),
+            tabsFavoriteGrid(everywhere, shortcuts: shortcuts.allProjects,
+                grid: .init(workspaces: everywhere, shortcuts: shortcuts.allProjects.count, sizedLike: favorites, width: width),
                 section: .allProjects)
-            if !everywhere.isEmpty, !own.isEmpty {
+            if !everywhere.isEmpty || !shortcuts.allProjects.isEmpty, !own.isEmpty || !shortcuts.project.isEmpty {
                 Divider().opacity(0.6).padding(.horizontal, 16).padding(.bottom, 8).accessibilityHidden(true)
             }
-            tabsFavoriteGrid(own, grid: .init(workspaces: own, sizedLike: favorites, width: width), section: .project)
+            tabsFavoriteGrid(own, shortcuts: shortcuts.project,
+                grid: .init(workspaces: own, shortcuts: shortcuts.project.count, sizedLike: favorites, width: width), section: .project)
         }
     }
 
@@ -227,6 +238,7 @@ extension WorkspaceSidebarView {
     /// after a pause over a tile's middle, a window joins that pin's split instead. Dropped among the other
     /// section's pins, a pin moves there, which the section's caption says while it's over them.
     private func tabsFavoriteGrid(_ favorites: [WorkspaceSidebarWorkspaceViewModel],
+                                  shortcuts: [WorkspaceSidebarResourceShortcutViewModel],
                                   grid: WorkspaceSidebarPinnedGridLayout, section: WorkspaceSidebarPinSection) -> some View {
         let projectName = snapshot.projects.first { $0.id == snapshot.activeProjectId }?.displayName ?? "This Project"
         // The scroll view reaches past the tiles so it doesn't clip the insertion line beside the outer ones.
@@ -248,13 +260,20 @@ extension WorkspaceSidebarView {
                             dropLabelSlot: snapshot.dropPreview?.targetLabelSlot,
                             onOpenSavedApps: { selectTabWorkspace(workspace, action: .openSavedTab(workspace.name)) },
                             sharedPinLocation: snapshot.sharedPinLocation(of: workspace),
-                            onRecall: pinRecall(workspace), onBringHere: pinBringHere(workspace)) { windowId in
+                            onRecall: pinRecall(workspace), onBringHere: pinBringHere(workspace),
+                                onReturnHome: pinReturnHome(workspace)) { windowId in
                             selectTabWorkspace(workspace, windowId: windowId)
                         }
+                    }
+                    // After the pins, so the places a tab is dropped among them stay theirs: a shortcut takes no drop.
+                    ForEach(shortcuts) { shortcut in
+                        WorkspaceSidebarResourceShortcutTile(shortcut: shortcut, contextProjectId: snapshot.activeProjectId,
+                            contextProjectName: projectName, send: actions.send)
                     }
                 }
                 .animation(reduceDockMotion ? nil : .easeInOut(duration: 0.18),
                     value: favorites.map(WorkspaceSidebarPinnedTabIdentity.init))
+                .animation(reduceDockMotion ? nil : .easeInOut(duration: 0.18), value: shortcuts.map(\.id))
                 .background {
                     GeometryReader { content in
                         Color.clear.preference(key: WorkspaceSidebarDropTargetPreferenceKey.self,
@@ -283,7 +302,7 @@ extension WorkspaceSidebarView {
                     .offset(y: -9)
             }
         }
-        .padding(.horizontal, 10).padding(.bottom, favorites.isEmpty ? 0 : 8)
+        .padding(.horizontal, 10).padding(.bottom, favorites.isEmpty && shortcuts.isEmpty ? 0 : 8)
         .overlay {
             if let workspace = favorites.first(where: { $0.name == activeInUseOverrideWorkspaceName }) {
                 WorkspaceSidebarInUseOverrideOverlay(
@@ -293,6 +312,16 @@ extension WorkspaceSidebarView {
                         actions.send(.overrideWorkspaceInUse(workspace.name))
                     }, onCancel: { activeInUseOverrideWorkspaceName = nil })
             }
+        }
+    }
+
+    /// The compact rail's shortcuts, the size of its pins.
+    private func railShortcutTiles(_ shortcuts: [WorkspaceSidebarResourceShortcutViewModel]) -> some View {
+        let projectName = snapshot.projects.first { $0.id == snapshot.activeProjectId }?.displayName ?? "This Project"
+        return ForEach(shortcuts) { shortcut in
+            WorkspaceSidebarResourceShortcutTile(shortcut: shortcut, compact: true, contextProjectId: snapshot.activeProjectId,
+                contextProjectName: projectName, send: actions.send)
+                .frame(width: 34, height: 34)
         }
     }
 
@@ -311,6 +340,15 @@ extension WorkspaceSidebarView {
     private func pinRecall(_ workspace: WorkspaceSidebarWorkspaceViewModel) -> ((UInt32?) -> Void)? {
         guard workspace.lentWindow != nil || workspace.recallsWindows else { return nil }
         return { windowId in selectTabWorkspace(workspace, action: .recallPinWindows(workspace.name, focusing: windowId)) }
+    }
+
+    /// A pin with a home: Return to it.
+    private func pinReturnHome(_ workspace: WorkspaceSidebarWorkspaceViewModel) -> (() -> Void)? {
+        guard workspace.pinHome != nil else { return nil }
+        return { [actions] in
+            guard !isWorkspaceSidebarDragInProgress() else { return }
+            actions.send(.returnPinToHome(workspace.name))
+        }
     }
 
     /// A shared pin on another display that may come here: brought, as ⌘-click brings it.

@@ -27,5 +27,6 @@ func buildWorkspaceSidebarModelState() async -> WorkspaceSidebarModelState {
         showsMonitorSelector: availableMonitors.count > 1,
         topPadding: CGFloat(gaps.outer.top),
         hoveredWorkspaceName: TrayMenuModel.shared.workspaceSidebarHoveredWorkspaceName,
+        resourceShortcuts: config.usesBrowserTabs ? workspaceSidebarResourceShortcutViewModels() : [],
     )
 }

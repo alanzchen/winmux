@@ -163,7 +163,7 @@ let pinPagePrivateMessage = "Pages in a private window aren't pinned: WinMux kee
 /// A Chromium browser with an Incognito window open: WinMux can't tell that window from this one.
 func pinPageIncognitoOpenMessage(_ appName: String) -> String {
     "\(appName) has an Incognito window open, and WinMux can't tell it apart from this one, so it pins nothing: "
-        + "it keeps nothing of private browsing. Close the Incognito windows and try again, or use Pin Link…"
+        + "it keeps nothing of private browsing. Close the Incognito windows and try again, or type or paste the link with Pin with Link as Home…"
 }
 
 /// Only web pages are pinned from a browser's window, and opened in one.
@@ -188,7 +188,7 @@ func capturePinPage(_ window: Window, browser: BrowserTabAdapter) async -> PinLi
     if read.showsSeveralPages { return .refused("This window shows more than one page, so WinMux can't tell which to pin.") }
     guard let url = read.url else { return .refused("This \(appName) window shows no web page. Open the page in it first.") }
     guard pinLinkIsWebAddress(url) else {
-        return .refused("Pin Page pins web pages, whose address starts with http or https. Use Pin Link… for another address.")
+        return .refused("Only web pages, whose address starts with http or https, are taken from a browser's window. Type or paste another address with Pin with Link as Home…")
     }
     switch browser {
         case .safari:
@@ -303,9 +303,9 @@ func pinLinkFromWindowFromSidebar(_ name: String, updating: Bool) {
         case .failure(let refusal): return showPinDocumentNotice(updating ? "Update Link" : "Pin Page", refusal.message)
     }
     guard let adapter = pinLinkAdapter(forBundleId: window.app.rawAppBundleId), let bundleId = window.app.rawAppBundleId else {
-        return showPinDocumentNotice("Pin Link", "WinMux can't take a link from this window. Use Pin Link… to type or paste one.")
+        return showPinDocumentNotice("Pin Link", "WinMux can't take a link from this window. Use Pin with Link as Home… to type or paste one.")
     }
-    let title = updating ? "Update \(adapter.itemName) from Window" : "Pin \(adapter.itemName)"
+    let title = updating ? "Set Current \(adapter.itemName) as Home" : "Pin with \(adapter.itemName) as Home"
     if let reason = pinDocumentReadOnlyReason() { return showPinDocumentNotice(title, reason) }
     let appearance = workspaceSidebarOrganizationStore.state.workspaces[name]
     if updating, appearance?.isFavorite != true || appearance?.link == nil { return }
@@ -354,7 +354,8 @@ func pinLinkFromEntry(_ entry: PinLinkEntry, editing previous: WorkspaceSidebarP
     var opener: LinkIntegration?
     switch scheme {
         case "file":
-            return .failure(.init("To pin a file, open it in this tab and choose Pin Document: it keeps the file even when it's renamed or moved."))
+            return .failure(.init("To keep a file, open it in a tab and choose Pin with Document as Home, or Add Shortcut → Document in Window: "
+                + "it keeps the file even when it's renamed or moved."))
         case "javascript", "data", "about", "blob", "vbscript":
             return .failure(.init("WinMux doesn't pin “\(scheme):” addresses."))
         case "http", "https":
@@ -399,7 +400,7 @@ struct PinLinkEntryRefusal: Error, Equatable {
 
 /// Asks for a link until it's one WinMux can pin, or the user cancels.
 @MainActor
-private func askForPinLink(_ heading: String, confirm: String, previous: WorkspaceSidebarPinLink?) -> WorkspaceSidebarPinLink? {
+func askForPinLink(_ heading: String, confirm: String, previous: WorkspaceSidebarPinLink?) -> WorkspaceSidebarPinLink? {
     var entry = PinLinkEntry(address: previous?.url ?? "", name: previous?.title ?? "")
     var problem: String?
     while let answer = pinLinkPrompt(heading, entry, confirm, problem) {
@@ -485,14 +486,15 @@ private func pinLinkBrowserOpening(bundleId: String, appURL: URL, browser: Brows
 /// How `link` opens now, or why it can't. The app it was taken in, while installed; otherwise the app
 /// the system opens such links with.
 @MainActor
-func pinLinkOpening(_ link: WorkspaceSidebarPinLink) -> Result<PinLinkOpening, PinLinkEntryRefusal> {
+func pinLinkOpening(_ link: WorkspaceSidebarPinLink, forShortcut: Bool = false) -> Result<PinLinkOpening, PinLinkEntryRefusal> {
+    let subject = forShortcut ? "this shortcut" : "this pin"
     guard link.version <= WorkspaceSidebarPinLink.currentVersion else {
-        return .failure(.init("A newer WinMux made this pin's link. Update WinMux to open it."))
+        return .failure(.init("A newer WinMux made \(subject)'s link. Update WinMux to open it."))
     }
     guard link.isReadable, let url = URL(string: link.url), let scheme = url.scheme else {
-        return .failure(.init("This pin's link is empty or damaged. Choose Edit Link… to set it again."))
+        return .failure(.init("This \(forShortcut ? "shortcut" : "pin")'s link is empty or damaged. Choose \(forShortcut ? "Edit Link…" : "Edit Home Link…") to set it again."))
     }
-    switch linkIntegrationOpening(link) {
+    switch linkIntegrationOpening(link, forShortcut: forShortcut) {
         case .success(let integration)?: return .success(.integration(integration))
         case .failure(let refusal)?: return .failure(refusal)
         case nil: break
@@ -514,9 +516,11 @@ func pinLinkOpening(_ link: WorkspaceSidebarPinLink) -> Result<PinLinkOpening, P
 
 /// A pinned link whose window is gone, clicked once the pin is shown. A web page opens in a fresh window
 /// of its browser, which comes to the pin only when the browser's answer names it; any other link opens
-/// as a launcher opens it. A change to the pin meanwhile, Undo included, withdraws it.
+/// as a launcher opens it. A change to the pin meanwhile, Undo included, withdraws it. With
+/// `returningHome`, asked for by Return to the pin's home while the pin still has windows, a page's
+/// window comes to the pin beside them; they stay as they are.
 @MainActor
-func openPinnedLink(_ tab: Workspace, _ link: WorkspaceSidebarPinLink) {
+func openPinnedLink(_ tab: Workspace, _ link: WorkspaceSidebarPinLink, returningHome: Bool = false) {
     guard !serverArgs.isReadOnly else { return showPinDocumentNotice("Pinned Link", "WinMux is running with --read-only.") }
     let opening: PinLinkOpening
     switch pinLinkOpening(link) {
@@ -539,7 +543,7 @@ func openPinnedLink(_ tab: Workspace, _ link: WorkspaceSidebarPinLink) {
         case .managedWindow(let bundleId, let appURL):
             _ = Task { @MainActor in
                 await requestPinnedPageWindow(tab, target: target, link: link, bundleId: bundleId, appURL: appURL,
-                    focusGeneration: focusGeneration)
+                    focusGeneration: focusGeneration, returningHome: returningHome)
             }
         case .newBrowserWindow(let bundleId, let appURL):
             _ = Task { @MainActor in await openPinnedPageInNewWindow(target: target, link: link, bundleId: bundleId, appURL: appURL) }
@@ -554,7 +558,7 @@ func openPinnedLink(_ tab: Workspace, _ link: WorkspaceSidebarPinLink) {
 /// the same page, is taken for it. A window that can't be told goes where any new window goes.
 @MainActor
 private func requestPinnedPageWindow(_ tab: Workspace, target: PinDocumentTarget, link: WorkspaceSidebarPinLink,
-                                     bundleId: String, appURL: URL, focusGeneration: UInt64) async {
+                                     bundleId: String, appURL: URL, focusGeneration: UInt64, returningHome: Bool = false) async {
     let appName = NSRunningApplication.runningApplications(withBundleIdentifier: bundleId).first?.localizedName
         ?? appURL.deletingPathExtension().lastPathComponent
     var pid = pinPageRunningPid(bundleId)
@@ -563,7 +567,7 @@ private func requestPinnedPageWindow(_ tab: Workspace, target: PinDocumentTarget
         pid = await pinPageLaunchBrowser(bundleId, appURL)
     }
     guard let pid else { return showPinDocumentNotice("Pinned Page", "\(appName) couldn't be opened.") }
-    guard target.isCurrent, !workspaceHasLifecycleWindows(tab) else { return }
+    guard target.isCurrent, returningHome || !workspaceHasLifecycleWindows(tab) else { return }
     let page = PinPageExpectation()
     let registry = NewWindowIntentRegistry.shared
     guard let intent = registry.register(bundleId: bundleId, pid: pid, targetWorkspace: tab,
@@ -637,44 +641,111 @@ private func finishPinnedPageRequest(_ outcome: NewWindowRequestOutcome, target:
 
 // MARK: - Menu and display
 
-/// Tabs mode: the identity menu's resource items for a tab. A pinned document's own; for a pinned link,
-/// Update … from Window when an adapter or an integration reads its one window, Edit Link… and Forget
-/// Link; otherwise Pin Page or Pin Message for a window an adapter reads, Pin with an integration for one
-/// whose app has one, then Pin Document and Pin Link….
+/// Tabs mode: the identity menu's resource items for a tab. For a pin with a home, Return to it first. Then
+/// the first way to keep what the tab's one window shows: as the tab's home, pinning it, by a page or
+/// message an adapter reads, an item the window's app's integration reads, the file it shows, or a link
+/// typed; a pin's home is set only so, by Set Current … as Home. Then the second, Add Shortcut: a
+/// shortcut among the pins to the same, or to the pin's home, which leaves the tab as it is.
 @MainActor
 func workspaceSidebarPinResourceMenuEntries(_ workspace: WorkspaceSidebarWorkspaceViewModel,
                                             send: @escaping @MainActor (WorkspaceSidebarAction) -> Void) -> [WorkspaceSidebarAppMenuEntry] {
     let name = workspace.name
     let appearance = workspace.appearance
-    if appearance.isFavorite, appearance.document != nil { return workspaceSidebarPinDocumentMenuEntries(workspace, send: send) }
     let windows = workspaceSidebarPinnedTabWindows(workspace)
     let isSplitPin = appearance.composition != nil
     let refusal: PinDocumentRefusal? = isSplitPin ? .split : windows.isEmpty ? .noWindow : windows.count > 1 ? .severalWindows : nil
-    let adapter = windows.count == 1 ? pinLinkAdapter(forBundleId: windows[0].appBundleId) : nil
-    let integration = workspaceSidebarPinIntegrationMenuEntries(workspace, windowBundleId: windows.count == 1 ? windows[0].appBundleId : nil,
-        refusal: refusal, send: send)
+    let windowBundleId = windows.count == 1 ? windows[0].appBundleId : nil
+    let adapter = refusal == .split ? nil : pinLinkAdapter(forBundleId: windowBundleId)
+    let integration = linkIntegrationStore.integration(forBundleId: windowBundleId)
+    let integrationState = integration.map(linkIntegrationMenuState)
+    let isPinned = appearance.isFavorite
+    let home = isPinned ? appearance.resource : nil
     let splitHelp = "A pinned split brings back its own windows."
-    if appearance.isFavorite, let link = appearance.link {
-        var entries: [WorkspaceSidebarAppMenuEntry] = []
-        if let adapter {
-            entries.append(.init(title: "Update \(adapter.itemName) from Window", enabled: refusal == nil,
-                perform: { send(.updatePinLinkFromWindow(name)) },
-                help: refusal.map { _ in splitHelp } ?? "Pins this tab to the \(adapter.itemName.lowercased()) its window shows now, instead of “\(link.title)”"))
+    func windowHelp(_ ready: String) -> String {
+        switch refusal {
+            case .split: splitHelp
+            case .noWindow: "Open it in this tab first."
+            case .severalWindows: "Works on a tab with one window."
+            case nil: ready
         }
-        return entries + integration + [
-            .init(title: "Edit Link…", perform: { send(.editPinLink(name)) }, help: "Changes the address this pin opens"),
-            .init(title: "Forget Link", perform: { send(.forgetPinLink(name)) }),
-        ]
+    }
+    func asHome(_ item: String, suffix: String = "") -> String {
+        isPinned ? "Set Current \(item) as Home\(suffix)" : "Pin with \(item) as Home\(suffix)"
+    }
+    var entries: [WorkspaceSidebarAppMenuEntry] = []
+    var homeName: String?
+    if let home {
+        let homeTitle = switch home {
+            case .file(let document): document.name
+            case .link(let link): link.title
+        }
+        homeName = homeTitle
+        var entry = WorkspaceSidebarAppMenuEntry.named(homeTitle, { "Return to “\($0)”" }, perform: { send(.returnPinToHome(name)) })
+        entry.help = "Shows this pin's home again, and keeps it as it is. WinMux closes nothing, but an app may open it "
+            + "in the window that shows something else now."
+        entries.append(entry)
+    }
+    // As the tab's home. A pinned document's home is only ever a document again.
+    let homeIsDocument = if case .file = home { true } else { false }
+    if let adapter, !homeIsDocument {
+        let item = adapter.itemName.lowercased()
+        entries.append(.init(title: asHome(adapter.itemName), enabled: refusal == nil,
+            perform: { send(isPinned && home != nil ? .updatePinLinkFromWindow(name) : .pinLinkFromWindow(name)) },
+            help: windowHelp(isPinned ? "Makes the \(item) this tab's window shows now its home, in place of the one it has"
+                : "Pins this tab, with the \(item) its window shows as its home")))
+    }
+    if let integration, let integrationState, !homeIsDocument {
+        let updating = isPinned && home != nil
+        entries.append(.init(title: asHome("Item", suffix: " (\(integration.appName) Integration)"),
+            enabled: integrationState.enabled && refusal == nil,
+            perform: { send(.pinLinkWithIntegration(name, integrationId: integration.id, updating: updating)) },
+            help: refusal == nil ? integrationState.help : windowHelp("")))
     }
     // Pin Document stays for every window: a browser can show a file too.
-    let capture: [WorkspaceSidebarAppMenuEntry] = adapter.map { adapter in
-        [.init(title: "Pin \(adapter.itemName)", enabled: refusal == nil, perform: { send(.pinLinkFromWindow(name)) },
-            help: refusal.map { _ in splitHelp } ?? "Pins this tab to the \(adapter.itemName.lowercased()) its window shows")]
-    } ?? []
-    return capture + integration + workspaceSidebarPinDocumentMenuEntries(workspace, send: send) + [
-        .init(title: "Pin Link…", enabled: !isSplitPin, perform: { send(.editPinLink(name)) },
-            help: isSplitPin ? splitHelp : "Pins this tab to a web page or an app's link you type or paste"),
+    if home == nil || homeIsDocument {
+        entries.append(.init(title: asHome("Document"), enabled: refusal == nil,
+            perform: { send(homeIsDocument ? .updatePinDocument(name) : .pinDocument(name)) },
+            help: refusal?.message ?? (isPinned ? "Makes the file this tab's window shows now its home, in place of the one it has"
+                : "Pins this tab, with the file its window shows as its home")))
+    }
+    if !homeIsDocument {
+        let title = home != nil ? "Edit Home Link…" : isPinned ? "Set Home Link…" : "Pin with Link as Home…"
+        entries.append(.init(title: title, enabled: !isSplitPin, perform: { send(.editPinLink(name)) },
+            help: isSplitPin ? splitHelp : home != nil ? "Changes the address this pin opens"
+                : "Pins this tab, with a web page or an app's link you type or paste as its home"))
+    }
+    if home != nil {
+        entries.append(.init(title: "Forget Home", perform: { send(homeIsDocument ? .forgetPinDocument(name) : .forgetPinLink(name)) },
+            help: "Keeps the pin and its windows, without a home to return to"))
+    }
+    // As a shortcut, the tab left as it is.
+    var shortcuts: [WorkspaceSidebarAppMenuEntry] = []
+    if let homeName {
+        var entry = WorkspaceSidebarAppMenuEntry.named(homeName, { "This Pin's Home, “\($0)”" },
+            perform: { send(.addResourceShortcutToPinHome(name)) })
+        entry.help = "Adds a shortcut to this pin's home among the pins. The pin stays as it is."
+        shortcuts += [entry, .separator]
+    }
+    let shortcutHelp = "Adds a shortcut among the pins. This tab and its window stay as they are."
+    if let adapter, refusal != .split {
+        shortcuts.append(.init(title: "\(adapter.itemName) in Window", enabled: refusal == nil,
+            perform: { send(.addResourceShortcut(name, source: .window)) }, help: windowHelp(shortcutHelp)))
+    }
+    if let integration, let integrationState {
+        shortcuts.append(.init(title: "Item in Window (\(integration.appName) Integration)",
+            enabled: integrationState.enabled && refusal == nil,
+            perform: { send(.addResourceShortcut(name, source: .integration(integration.id))) },
+            help: refusal == nil ? integrationState.help : windowHelp("")))
+    }
+    shortcuts += [
+        .init(title: "Document in Window", enabled: refusal == nil, perform: { send(.addResourceShortcut(name, source: .document)) },
+            help: windowHelp(shortcutHelp)),
+        .init(title: "Link…", perform: { send(.addResourceShortcut(name, source: .link)) },
+            help: "Adds a shortcut among the pins to a web page or an app's link you type or paste"),
     ]
+    entries.append(.init(title: "Add Shortcut", children: shortcuts,
+        help: "A shortcut among the pins goes to what it was made for. It holds no window: this tab stays as it is."))
+    return entries
 }
 
 /// The app a pinned link opens in, for its tile while it has no window: the one it was taken in, or the

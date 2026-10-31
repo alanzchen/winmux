@@ -9,4 +9,6 @@ struct WorkspaceSidebarModelState {
     let showsMonitorSelector: Bool
     let topPadding: CGFloat
     let hoveredWorkspaceName: String?
+    /// Tabs mode: every project's shortcuts among the pins.
+    var resourceShortcuts: [WorkspaceSidebarResourceShortcutViewModel] = []
 }

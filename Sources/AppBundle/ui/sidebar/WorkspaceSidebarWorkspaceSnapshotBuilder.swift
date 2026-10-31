@@ -80,6 +80,7 @@ private func makeWorkspaceSidebarWorkspaceViewModel(
         offscreenMembers: workspaceSidebarOffscreenMembers(workspace),
     )
     viewModel.associatedWindows = associated
+    if isPinned, config.usesBrowserTabs { viewModel.pinHome = workspaceSidebarPinHome(for: workspace) }
     return viewModel
 }
 

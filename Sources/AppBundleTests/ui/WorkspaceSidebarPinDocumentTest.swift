@@ -250,7 +250,7 @@ final class WorkspaceSidebarPinDocumentTest: XCTestCase {
         XCTAssertEqual(appearance("doc")?.document?.name, "report.txt")
         XCTAssertEqual(appearance("doc")?.document?.bundleId, appId)
         XCTAssertTrue(workspaceIsPinnedDocument(tab))
-        XCTAssertEqual(WorkspaceSidebarTabUndo.shared.title, "Undo Pin Document")
+        XCTAssertEqual(WorkspaceSidebarTabUndo.shared.title, "Undo Pin with Document as Home")
         XCTAssertEqual(notices, [])
     }
 
@@ -375,7 +375,7 @@ final class WorkspaceSidebarPinDocumentTest: XCTestCase {
 
         let told = await eventually { !self.notices.isEmpty }
         XCTAssertTrue(told)
-        XCTAssertTrue(notices.first?.body.hasPrefix("Couldn't pin document") == true)
+        XCTAssertTrue(notices.first?.body.hasPrefix("Couldn't pin with document as home") == true)
         XCTAssertNil(appearance("fresh"))
         XCTAssertNil(savedWorkspaceStore.record(named: "fresh"))
         XCTAssertNil(WorkspaceSidebarTabUndo.shared.title)

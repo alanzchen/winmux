@@ -15,11 +15,14 @@ struct WorkspaceSidebarPinnedGridLayout {
 
     /// `sizedLike` are every tile shown with these, whose widest split sets the tiles' width for all,
     /// so the pin sections' columns line up.
-    init(workspaces: [WorkspaceSidebarWorkspaceViewModel], sizedLike all: [WorkspaceSidebarWorkspaceViewModel]? = nil, width: CGFloat) {
+    /// `shortcuts` is how many shortcut tiles follow the pins, one window's width each.
+    init(workspaces: [WorkspaceSidebarWorkspaceViewModel], shortcuts: Int = 0, sizedLike all: [WorkspaceSidebarWorkspaceViewModel]? = nil,
+         width: CGFloat) {
         let widestSplit = (all ?? workspaces).map { workspaceSidebarPinnedTabWindows($0).count }.max() ?? 1
         let minimumTileWidth = max(72, CGFloat(widestSplit) * 46)
         columns = max(1, Int((max(width, 0) + 8) / (minimumTileWidth + 8)))
-        height = workspaces.isEmpty ? 0 : CGFloat(min(3, (workspaces.count + columns - 1) / columns) * 62 - 8)
+        let tiles = workspaces.count + shortcuts
+        height = tiles == 0 ? 0 : CGFloat(min(3, (tiles + columns - 1) / columns) * 62 - 8)
     }
 }
 
@@ -91,6 +94,9 @@ struct WorkspaceSidebarPinnedTab: View {
     /// A shared pin on another display that may come to this one: an accessibility action brings
     /// it, as ⌘-click does.
     var onBringHere: (() -> Void)? = nil
+    /// A pin with a home: Return to it, from its corner while it has windows, its menu, or an
+    /// accessibility action.
+    var onReturnHome: (() -> Void)? = nil
     let onSelect: (UInt32?) -> Void
     @State private var isHovered = false
     @Environment(\.workspaceSidebarReducesMotion) private var reducesMotion
@@ -208,15 +214,13 @@ struct WorkspaceSidebarPinnedTab: View {
         .overlay {
             WorkspaceSidebarTabSelectionHighlight(isSelected: selection.contains(workspace.name), cornerRadius: compact ? 8 : 13)
         }
-        // A pinned document or link: a small page or link in the corner nothing else takes.
+        // A pin's home, a document or a link: a small page or link in the corner nothing else takes. While
+        // the pin has windows, the mark is the Return button; it turns to a return arrow only when the
+        // pin's window was read lately to show something else.
         .overlay(alignment: .topLeading) {
             if workspace.appearance.isFavorite, let resource = workspace.appearance.resource {
-                Image(systemName: resource.symbolName)
-                    .font(.system(size: compact ? 7 : 9, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .padding(compact ? 2 : 5)
-                    .help(resource.pinHelp)
-                    .accessibilityHidden(true)
+                WorkspaceSidebarPinHomeMark(resource: resource, home: workspace.pinHome, compact: compact,
+                    onReturn: windows.isEmpty ? nil : onReturnHome)
             }
         }
         // The corner no window's badge or sound takes, below the centered icons: in a compact
@@ -268,9 +272,12 @@ struct WorkspaceSidebarPinnedTab: View {
         .accessibilityElement(children: .contain)
         .accessibilityLabel(workspace.displayName)
         .accessibilityValue([workspace.appearance.isPinnedInAllProjects ? "Pinned in all projects" : nil,
+            workspace.pinHome.map { home in home.showsInstead.map { "Shows “\($0)”, not its home “\(home.homeName)”" }
+                ?? "Home: \(home.homeName)" },
             workspace.associatedWindows.isEmpty ? nil
                 : "\(workspaceSidebarAssociatedWindowsCountText(workspace.associatedWindows.count)) opened from it"]
             .compactMap { $0 }.joined(separator: ", "))
+        .workspaceSidebarReturnHomeAction(workspace.pinHome?.homeName, onReturnHome)
         .modifier(WorkspaceSidebarAssociatedWindowActions(windows: workspace.associatedWindows, select: { onSelect($0) }))
     }
 
@@ -300,7 +307,59 @@ struct WorkspaceSidebarPinnedTab: View {
     }
 }
 
+/// A pin's home mark. With no window, only a mark: clicking the pin opens its home. With windows, and a
+/// way to return, it's also the Return to Home button, the mark itself unless the pin's window was read
+/// lately to show something else, when it's a return arrow. Compact, it's too small to click: it only
+/// marks, and the menu and the accessibility action return.
+struct WorkspaceSidebarPinHomeMark: View {
+    let resource: WorkspaceSidebarPinResource
+    let home: WorkspaceSidebarPinHomeViewModel?
+    let compact: Bool
+    let onReturn: (() -> Void)?
+    @State private var isHovered = false
+
+    var body: some View {
+        let drifted = home?.showsInstead != nil
+        let mark = Image(systemName: drifted ? "arrow.uturn.backward.circle.fill" : resource.symbolName)
+            .font(.system(size: drifted ? (compact ? 8 : 11) : (compact ? 7 : 9), weight: .semibold))
+            .foregroundStyle(drifted ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.secondary))
+        if let onReturn, !compact, let home {
+            Button(action: onReturn) {
+                mark
+                    .frame(width: 18, height: 18)
+                    .background(Circle().fill(Color.primary.opacity(isHovered ? 0.14 : 0)))
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .padding(1)
+            .onHover { isHovered = $0 }
+            .help(workspaceSidebarPinHomeHelp(home, returns: true))
+            .accessibilityLabel("Return to “\(home.homeName)”")
+            .accessibilityHint(home.showsInstead.map { "Its window shows “\($0)” now, which stays." } ?? "")
+        } else {
+            mark
+                .padding(compact ? 2 : (drifted ? 4 : 5))
+                .help(home.map { workspaceSidebarPinHomeHelp($0, returns: false) } ?? resource.pinHelp)
+                .accessibilityHidden(true)
+        }
+    }
+}
+
+/// What a pin's home mark says: its home and, on a fresh reading, what its window shows instead.
+func workspaceSidebarPinHomeHelp(_ home: WorkspaceSidebarPinHomeViewModel, returns: Bool) -> String {
+    var lines = ["Home: \(home.homeName)"]
+    if let other = home.showsInstead { lines.append("Showing: \(other)") }
+    if returns { lines.append("Click to return to “\(home.homeName)”") }
+    return lines.joined(separator: "\n")
+}
+
 extension View {
+    /// “Return to …”, for a pin with a home, as its corner button and its menu.
+    @ViewBuilder
+    func workspaceSidebarReturnHomeAction(_ homeName: String?, _ action: (() -> Void)?) -> some View {
+        if let homeName, let action { accessibilityAction(named: "Return to “\(homeName)”", action) } else { self }
+    }
+
     /// “Move to This Display”, for a shared pin from another display, as ⌘-click.
     @ViewBuilder
     func workspaceSidebarBringHereAction(_ action: (() -> Void)?) -> some View {

@@ -79,7 +79,7 @@ func pinLinkWithIntegrationFromSidebar(_ name: String, integrationId: String, up
     guard let integration = linkIntegrationStore.integration(id: integrationId) else {
         return showPinDocumentNotice("Pin with Integration", "That integration is gone.")
     }
-    let title = updating ? "Update from Window" : "Pin with \(integration.appName) Integration"
+    let title = updating ? "Set Current Item as Home" : "Pin with Item as Home"
     if let reason = pinDocumentReadOnlyReason() { return showPinDocumentNotice(title, reason) }
     let state = linkIntegrationMenuState(integration)
     guard state.enabled else { return showPinDocumentNotice(title, state.help) }
@@ -306,16 +306,17 @@ func openPinnedLinkWithIntegration(_ integration: LinkIntegration, link: Workspa
 /// while it's on; nil when it has none it can run, so macOS opens the link, as Hookmark leaves it to. One
 /// that's off, changed or removed says so, and nothing else is chosen in its place.
 @MainActor
-func linkIntegrationOpening(_ link: WorkspaceSidebarPinLink) -> Result<LinkIntegration, PinLinkEntryRefusal>? {
+func linkIntegrationOpening(_ link: WorkspaceSidebarPinLink, forShortcut: Bool = false) -> Result<LinkIntegration, PinLinkEntryRefusal>? {
     guard let id = link.integration else { return nil }
+    let subject = forShortcut ? "This shortcut" : "This pin"
     guard let integration = linkIntegrationStore.integration(id: id) else {
-        return .failure(.init("This pin opens with an integration that's since been removed. Add it again in Settings → "
-            + "Integrations, then choose Update from Window, or choose Edit Link…"))
+        return .failure(.init("\(subject) opens with an integration that's since been removed. Add it again in Settings → "
+            + (forShortcut ? "Integrations, then add the shortcut again." : "Integrations, then choose Set Current Item as Home, or choose Edit Home Link…")))
     }
     // Off or changed, it stands for nothing, not even macOS's own way of opening the link.
     if !integration.isEnabled {
-        return .failure(.init("This pin opens with the \(integration.appName) integration, which is off. "
-            + "Turn it on in Settings → Integrations, or choose Edit Link…"))
+        return .failure(.init("\(subject) opens with the \(integration.appName) integration, which is off. "
+            + (forShortcut ? "Turn it on in Settings → Integrations." : "Turn it on in Settings → Integrations, or choose Edit Home Link…")))
     }
     if !integration.isActive {
         return .failure(.init("The \(integration.appName) integration's scripts changed since you turned it on, so it runs "
@@ -323,27 +324,4 @@ func linkIntegrationOpening(_ link: WorkspaceSidebarPinLink) -> Result<LinkInteg
     }
     guard integration.openItem?.isEmpty == false else { return nil }
     return integration.analysis.canOpen ? .success(integration) : nil
-}
-
-// MARK: - Menu
-
-/// The tab menu's integration item for a tab whose one window's app has an integration: Pin with it, or
-/// Update from Window with it for a pinned link.
-@MainActor
-func workspaceSidebarPinIntegrationMenuEntries(_ workspace: WorkspaceSidebarWorkspaceViewModel, windowBundleId: String?,
-                                               refusal: PinDocumentRefusal?,
-                                               send: @escaping @MainActor (WorkspaceSidebarAction) -> Void) -> [WorkspaceSidebarAppMenuEntry] {
-    guard let integration = linkIntegrationStore.integration(forBundleId: windowBundleId) else { return [] }
-    let name = workspace.name
-    let state = linkIntegrationMenuState(integration)
-    let help = switch refusal {
-        case .split: "A pinned split brings back its own windows."
-        case .noWindow: "Open the item in this tab first."
-        case .severalWindows: "Works on a tab with one window."
-        case nil: state.help
-    }
-    let updating = workspace.appearance.isFavorite && workspace.appearance.link != nil
-    return [.init(title: updating ? "Update from Window (\(integration.appName) Integration)" : "Pin with \(integration.appName) Integration",
-        enabled: state.enabled && refusal == nil,
-        perform: { send(.pinLinkWithIntegration(name, integrationId: integration.id, updating: updating)) }, help: help)]
 }
