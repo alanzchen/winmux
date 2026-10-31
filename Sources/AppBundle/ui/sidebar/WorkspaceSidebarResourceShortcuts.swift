@@ -290,7 +290,17 @@ func removeResourceShortcutFromSidebar(_ id: String) {
 func setResourceShortcutScopeFromSidebar(_ id: String, allProjects: Bool, projectId: WorkspaceProjectId) {
     if let reason = pinDocumentReadOnlyReason() { return showPinDocumentNotice("Shortcut", reason) }
     runPinDocumentWrite("Move Shortcut") {
-        commitWorkspaceSidebarResourceShortcuts(title: allProjects ? "Show Shortcut in All Projects" : "Show Shortcut in One Project") {
+        let shortcuts = workspaceSidebarOrganizationStore.state.resourceShortcuts ?? []
+        guard let moving = shortcuts.first(where: { $0.id == id }), let resource = moving.resource else { return nil }
+        // One shortcut to a resource in a place: none moves where there's one already.
+        let scope: WorkspaceSidebarPinScope? = allProjects ? .allProjects : nil
+        if shortcuts.contains(where: {
+            $0.id != id && $0.resource.map { resourceShortcutSameResource($0, resource) } == true && $0.pinScope == scope
+                && (allProjects || $0.projectId == projectId)
+        }) {
+            return "There's already a shortcut to “\(moving.name)” there."
+        }
+        return commitWorkspaceSidebarResourceShortcuts(title: allProjects ? "Show Shortcut in All Projects" : "Show Shortcut in One Project") {
             guard let index = $0.firstIndex(where: { $0.id == id }) else { return }
             $0[index].pinScope = allProjects ? .allProjects : nil
             if !allProjects { $0[index].projectId = projectId }

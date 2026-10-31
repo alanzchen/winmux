@@ -370,6 +370,28 @@ final class WorkspaceSidebarResourceEntriesTest: XCTestCase {
         XCTAssertEqual(launched.map(\.url.absoluteString), [note.url])
     }
 
+    func testReturnToHomeWithNothingReadLatelyReadsThePinsWindowBeforeOpeningAnything() async throws {
+        let (tab, window) = makeTab("page", windowId: 21, app: safari)
+        _ = makeTab("other", windowId: 22, app: safari).1.focusWindow()
+        pin(tab, .link(safariLink))
+        reads[21] = .init(url: page, title: "Report", privacy: .normal)
+        XCTAssertNil(workspaceSidebarPinHomeFreshEvidence(tab, home: .link(safariLink)), "Nothing read yet")
+
+        returnPinToHomeFromSidebar("page")
+
+        let shown = await eventually { focus.windowOrNil?.windowId == window.windowId }
+        XCTAssertTrue(shown, "Its window already shows the home: shown, not doubled")
+        XCTAssertTrue(scripts.isEmpty)
+
+        // Read now to show something else: the home opens beside it.
+        now += workspaceSidebarPinHomeReadingFreshness + 1
+        reads[21] = .init(url: "https://example.com/elsewhere", title: "Elsewhere", privacy: .normal)
+        returnPinToHomeFromSidebar("page")
+        let asked = await eventually { !self.scripts.isEmpty }
+        XCTAssertTrue(asked)
+        XCTAssertEqual(workspaceSidebarPinHome(for: tab)?.showsInstead, "Elsewhere", "And the tile says so")
+    }
+
     func testReturnToHomeOpensNothingForAPinWhoseWindowIsLentToASplit() async throws {
         let (tab, window) = makeTab("page", windowId: 21, app: safari)
         pin(tab, .link(safariLink))
@@ -525,6 +547,19 @@ final class WorkspaceSidebarResourceEntriesTest: XCTestCase {
         let back = await eventually { workspaceSidebarOrganizationStore.state.resourceShortcuts(projectId: other).project.map(\.id) == [id] }
         XCTAssertTrue(back, "Back among the pins of the project the sidebar shows")
         XCTAssertTrue(workspaceSidebarOrganizationStore.state.resourceShortcuts(projectId: workspaceProjectDefaultId).project.isEmpty)
+    }
+
+    func testAShortcutDoesntMoveWhereThereIsOneToTheSameResource() async {
+        let everywhere = await shortcut(.link(safariLink), pinScope: .allProjects)
+        let own = await shortcut(.link(safariLink))
+        XCTAssertEqual(shortcuts.count, 2, "One in All Projects, one in the project")
+
+        setResourceShortcutScopeFromSidebar(own, allProjects: true, projectId: workspaceProjectDefaultId)
+        let told = await eventually { !self.notices.isEmpty }
+        XCTAssertTrue(told)
+        XCTAssertTrue(notices.last?.body.contains("already a shortcut") == true)
+        XCTAssertEqual(shortcuts.first { $0.id == own }?.pinScope, nil, "It stays where it was")
+        XCTAssertEqual(shortcuts.first { $0.id == everywhere }?.pinScope, .allProjects)
     }
 
     // MARK: - Shortcuts: going to them

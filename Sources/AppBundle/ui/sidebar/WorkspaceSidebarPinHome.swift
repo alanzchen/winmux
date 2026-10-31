@@ -182,8 +182,8 @@ func refreshWorkspaceSidebarPinHomeReadings() async -> Bool {
 // MARK: - Return to Home
 
 /// Return to Home: the pin's home, again, without changing it or what the pin's window shows. A window
-/// known to show it, the pin's own on a fresh reading or, for a file, any window found showing that
-/// very file, is shown where it is. Otherwise the pin is shown and its home opened as clicking the pin
+/// known to show it, the pin's own on a fresh reading (read now if there's none) or, for a file, any
+/// window found showing that very file, is shown where it is. Otherwise the pin is shown and its home opened as clicking the pin
 /// with no window would: a file or a page in a window that comes to the pin beside its others, which
 /// stay; any other link by its app or its integration, in a window of the app's choosing. WinMux
 /// closes and discards nothing; whatever the app does with what the window showed is the app's.
@@ -193,20 +193,42 @@ func returnPinToHomeFromSidebar(_ name: String) {
           let appearance = workspaceSidebarOrganizationStore.state.workspaces[name], appearance.isFavorite,
           let home = appearance.resource
     else { return }
-    if workspaceSidebarPinHomeFreshEvidence(tab, home: home) == .showsHome, let window = workspaceSidebarPinHomeWindow(tab) {
-        return focusWindowFromSidebar(window.windowId)
-    }
     // Its window is in another tab's split: a second one isn't opened for the pin meanwhile.
     if appearance.lentWindow != nil {
         return showPinDocumentNotice("Return to Home", "This pin's window is in another tab's split. Click the pin to bring it back first.")
     }
+    let window = workspaceSidebarPinHomeWindow(tab)
+    switch workspaceSidebarPinHomeFreshEvidence(tab, home: home) {
+        case .showsHome?:
+            if let window { return focusWindowFromSidebar(window.windowId) }
+        case .showsOther?:
+            break
+        case nil:
+            // Nothing read lately: a page pin's one window is read now, so a window already showing the home is
+            // shown, not doubled. A file's window is found by the file's identity as it opens.
+            if case .link = home, let window {
+                _ = Task { @MainActor in
+                    let evidence = await readWorkspaceSidebarPinHomeEvidence(window, home: home)
+                    // The pin, its home and its window, as they were when Return was chosen.
+                    guard Workspace.existing(byName: name) === tab, workspaceSidebarPinHomeWindow(tab) === window,
+                          workspaceSidebarOrganizationStore.state.workspaces[name]?.resource == home else { return }
+                    workspaceSidebarPinHomeReadings[name] = .init(windowId: window.windowId, home: home, evidence: evidence,
+                        at: workspaceSidebarPinHomeNow())
+                    if evidence == .showsHome { return focusWindowFromSidebar(window.windowId) }
+                    openWorkspaceSidebarPinHome(tab, home)
+                }
+                return
+            }
+    }
+    openWorkspaceSidebarPinHome(tab, home)
+}
+
+/// The pin is shown and its home opened beside what its windows show, which stay.
+@MainActor
+private func openWorkspaceSidebarPinHome(_ tab: Workspace, _ home: WorkspaceSidebarPinResource) {
+    if !tab.isVisible { focusWorkspaceFromSidebar(tab.name) }
     switch home {
-        case .file(let document):
-            // A window showing the very file is found and shown wherever it is; otherwise it opens here.
-            if !tab.isVisible { focusWorkspaceFromSidebar(name) }
-            openPinnedDocument(tab, document, returningHome: true)
-        case .link(let link):
-            if !tab.isVisible { focusWorkspaceFromSidebar(name) }
-            openPinnedLink(tab, link, returningHome: true)
+        case .file(let document): openPinnedDocument(tab, document, returningHome: true)
+        case .link(let link): openPinnedLink(tab, link, returningHome: true)
     }
 }
