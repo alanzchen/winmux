@@ -156,22 +156,38 @@ final class WindowRulesTest: XCTestCase {
         defer { windowRulesUserFileUrl = saved }
         windowRulesUserFileUrl = { url }
 
-        XCTAssertEqual(loadWindowRules().rules, [], "No user file: WinMux's rules alone")
-        XCTAssertEqual(loadWindowRules().problems, [])
+        let shippedIds = loadWindowRules().rules.map(\.id)
+        XCTAssertEqual(loadWindowRules().problems, [], "No user file: WinMux's rules alone")
         try viewer.write(to: url, atomically: true, encoding: .utf8)
-        XCTAssertEqual(loadWindowRules().rules.map(\.id), ["viewer"])
+        XCTAssertEqual(loadWindowRules().rules.map(\.id), shippedIds + ["viewer"], "The user's own rules after WinMux's")
         try "version = 1\n[[rule]]\nid = \"x\"\nrun = \"open -a Calculator\"".write(to: url, atomically: true, encoding: .utf8)
         let broken = loadWindowRules()
-        XCTAssertEqual(broken.rules, [])
+        XCTAssertEqual(broken.rules.map(\.id), shippedIds, "A user file that can't be used changes nothing shipped")
         XCTAssertEqual(broken.problems.count, 1)
         XCTAssertTrue(broken.problems[0].contains(url.path), "Says which file")
     }
 
-    func testWinMuxShipsNoActiveRule() throws {
-        let text = try String(contentsOf: bundledWindowRulesUrl, encoding: .utf8)
-        let shipped = parse(text)
+    func testWinMuxShipsTheWeChatImageViewerRuleAndAUserFileCanTurnItOffOrReplaceIt() throws {
+        let shipped = parse(try String(contentsOf: bundledWindowRulesUrl, encoding: .utf8))
         XCTAssertEqual(shipped.problems, [], "The shipped file is valid")
-        XCTAssertEqual(shipped.rules, [], "No rule is on by default: none is proven yet")
+        XCTAssertEqual(shipped.rules, [WindowRule(id: "wechat-image-viewer", appId: "com.tencent.xinWeChat",
+            windowTitles: ["Photos and Videos"], subrole: "AXStandardWindow")],
+            "One rule on by default: WeChat's image viewer, by its English title, as observed")
+        let off = parse("version = 1\n[[rule]]\nid = \"wechat-image-viewer\"\nenabled = false")
+        XCTAssertEqual(off.problems, [])
+        XCTAssertEqual(mergeWindowRules(shipped: shipped, user: off), [], "Turned off by its id")
+        let replaced = parse("""
+            version = 1
+            [[rule]]
+            id = "wechat-image-viewer"
+            app-id = "com.tencent.xinWeChat"
+            window-title = ["Photos and Videos", "图片和视频"]
+            subrole = "AXStandardWindow"
+            opened-from = "focused-window"
+            action = "float-under-opener"
+            """)
+        XCTAssertEqual(mergeWindowRules(shipped: shipped, user: replaced).map(\.windowTitles), [["Photos and Videos", "图片和视频"]],
+            "Replaced whole by the user's rule of the same id")
     }
 
     // MARK: - Matching
