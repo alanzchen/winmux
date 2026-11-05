@@ -137,12 +137,19 @@ enum AuxiliaryWindowStacking: Equatable, Sendable {
     case front(below: UInt32?)
 }
 
+/// The window server's floating level, where an app keeps a window above its others while it's open: a
+/// viewer or panel opened from one of them, for one.
+let auxiliaryFloatingWindowLayer = 3
+
 /// The new window's place among its app's normal-level windows, front to back. Any window of the app
 /// above it makes it not the front one. Below it, windows WinMux doesn't know (sheets, popovers,
-/// windows not registered yet) are passed over to find the next one it does.
+/// windows not registered yet) are passed over to find the next one it does. A new window on the floating
+/// level is placed among the app's floating windows too, which are all above its normal ones. No other
+/// level counts: menus, popups and overlays are never a window the user opened from another.
 func auxiliaryWindowStacking(_ windows: [AuxiliaryOrderedWindow], newWindowId: UInt32, pid: Int32,
                              isRegistered: (UInt32) -> Bool) -> AuxiliaryWindowStacking {
-    let own = windows.filter { $0.pid == pid && $0.layer == 0 }
+    let isFloating = windows.contains { $0.id == newWindowId && $0.pid == pid && $0.layer == auxiliaryFloatingWindowLayer }
+    let own = windows.filter { $0.pid == pid && ($0.layer == 0 || isFloating && $0.layer == auxiliaryFloatingWindowLayer) }
     guard let index = own.firstIndex(where: { $0.id == newWindowId }) else { return .absent }
     guard index == own.startIndex else { return .notFront }
     return .front(below: own[(index + 1)...].first { isRegistered($0.id) }?.id)
