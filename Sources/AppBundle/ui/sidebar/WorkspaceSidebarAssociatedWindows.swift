@@ -28,6 +28,7 @@ func workspaceSidebarAuxiliaryWindowKind(_ role: AuxiliaryWindowRole, appName: S
         case .mailCompose: "\(appName) compose window"
         case .mailMessage: "\(appName) message window"
         case .dialog: "\(appName) dialog"
+        case .windowRule: "\(appName) window"
     }
 }
 

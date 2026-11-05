@@ -10,6 +10,8 @@ enum AuxiliaryWindowRole: String, Codable, Equatable, Sendable {
     case mailCompose
     /// A window WinMux floats as a dialog.
     case dialog
+    /// A window a window rule names, opened from a window of its app: floated under it at its own size.
+    case windowRule
 
     /// A draft or a message opened to read: gone once it's done, so a saved tab or pin never records it.
     var isEphemeral: Bool { self != .dialog }
