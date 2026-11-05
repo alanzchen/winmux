@@ -428,8 +428,9 @@ takes precedence over `auto-add-new-windows-to-tab-group`.
 ## Float an app's viewer over the window it came from
 
 In Tabs mode, a window rule names a window, such as an app's image viewer, that should float over the
-window it was opened from instead of taking a tab of its own. Rules live in a separate file,
-`~/.config/winmux/window-rules.toml`. See [Window rules](window-rules.md).
+window it was opened from instead of taking a tab of its own. WinMux's own rule does this for WeChat's
+`Photos and Videos` image viewer (English title only). Your rules, which can turn WinMux's off or replace
+them, live in a separate file, `~/.config/winmux/window-rules.toml`. See [Window rules](window-rules.md).
 
 ## Open a new window from New Workspace
 

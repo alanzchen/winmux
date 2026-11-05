@@ -16,8 +16,40 @@ never moved by a rule, and a rule never closes, hides or resizes a window to ful
 ## Files
 
 - WinMux's own rules ship with the app (`default-window-rules.toml`). Updates replace them; don't edit them.
-  They have no rule turned on yet.
 - Your rules go in `~/.config/winmux/window-rules.toml`. Run **Reload Config** after editing it.
+
+## WinMux's rule: WeChat's image viewer
+
+One rule is on by default, with the id `wechat-image-viewer`. A WeChat window titled exactly
+`Photos and Videos`, a standard window, opened from a WeChat window in use just after a click or key press,
+floats at its own size over that window.
+
+- Only the English title is covered. With WeChat in another language, add your title by replacing the rule
+  in your own file, keeping its id:
+
+  ```toml
+  version = 1
+
+  [[rule]]
+  id = "wechat-image-viewer"
+  app-id = "com.tencent.xinWeChat"
+  window-title = ["Photos and Videos", "your title"]
+  subrole = "AXStandardWindow"
+  opened-from = "focused-window"
+  action = "float-under-opener"
+  ```
+
+- The rule names windows by their title. Another WeChat window with that same title, opened the same way,
+  would float over its window too.
+- To turn the rule off, put this in your own file:
+
+  ```toml
+  version = 1
+
+  [[rule]]
+  id = "wechat-image-viewer"
+  enabled = false
+  ```
 
 ## A rule
 

@@ -9,15 +9,18 @@
 # A rule is only a description of windows; nothing in it runs. See docs/window-rules.md.
 version = 1
 
-# No rule is on by default: WinMux ships one only once the windows it names can be told apart reliably,
-# by more than a title that may be shared with another window of the app or translated.
-#
-# Example, for your own file: an app's image viewer, by its title in each language you use.
+# WeChat's image viewer, by the English title it was seen with. Other languages' titles aren't covered: add
+# yours by replacing this rule in your own file with the same id. Another WeChat window with this same title,
+# opened from a WeChat window in use just after a press, would float over that window too. To turn this rule
+# off, put this in your own file:
 #
 # [[rule]]
-# id = "example-image-viewer"
-# app-id = "com.example.app"
-# window-title = ["Photos and Videos"]
-# subrole = "AXStandardWindow"
-# opened-from = "focused-window"
-# action = "float-under-opener"
+# id = "wechat-image-viewer"
+# enabled = false
+[[rule]]
+id = "wechat-image-viewer"
+app-id = "com.tencent.xinWeChat"
+window-title = ["Photos and Videos"]
+subrole = "AXStandardWindow"
+opened-from = "focused-window"
+action = "float-under-opener"
