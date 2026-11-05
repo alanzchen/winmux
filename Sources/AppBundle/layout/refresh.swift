@@ -513,6 +513,8 @@ private func refresh() async throws {
         }
     }
     finalizePersistedFrozenWorldAfterRefresh(aliveWindowIds: aliveWindowIds)
+    // Links kept by WinMux's last run, once their windows are registered.
+    recoverAuxiliaryWindowLinks()
 
     // Garbage collect workspaces after apps, because workspaces contain apps.
     Workspace.reconcileWorkspaceState()

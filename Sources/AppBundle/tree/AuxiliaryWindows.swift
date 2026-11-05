@@ -32,6 +32,12 @@ final class AuxiliaryWindowRegistry {
 
     func record(_ windowId: UInt32, pid: Int32, role: AuxiliaryWindowRole, parentWindowId: UInt32) {
         entries[windowId] = Entry(pid: pid, role: role, parentWindowId: parentWindowId)
+        persistAuxiliaryWindowLinks()
+    }
+
+    /// A link kept by WinMux's last run, for that same window. Written once recovery has gone through all.
+    func restore(_ windowId: UInt32, pid: Int32, role: AuxiliaryWindowRole, parentWindowId: UInt32?) {
+        entries[windowId] = Entry(pid: pid, role: role, parentWindowId: parentWindowId)
     }
 
     func role(of window: Window) -> AuxiliaryWindowRole? { entry(of: window)?.role }
@@ -41,14 +47,22 @@ final class AuxiliaryWindowRegistry {
     /// The user made it a window of its own on purpose, by moving it to a tab of its own: from then on
     /// it's an ordinary window, never listed under its parent again, and saved as any other.
     func detach(_ window: Window) {
-        guard entry(of: window) != nil else { return }
+        let wasPending = discardPendingAuxiliaryWindowLink(windowId: window.windowId, pid: window.app.pid, asParent: false)
+        guard entry(of: window) != nil else {
+            if wasPending { persistAuxiliaryWindowLinks() }
+            return
+        }
         entries.removeValue(forKey: window.windowId)
+        persistAuxiliaryWindowLinks()
     }
 
     /// A window closed. Windows opened from it stay open and keep their role, with no parent.
     func forget(windowId: UInt32, pid: Int32) {
+        let before = entries
         if entries[windowId]?.pid == pid { entries.removeValue(forKey: windowId) }
         for (id, entry) in entries where entry.parentWindowId == windowId { entries[id]?.parentWindowId = nil }
+        let wasPending = discardPendingAuxiliaryWindowLink(windowId: windowId, pid: pid, asParent: true)
+        if entries != before || wasPending { persistAuxiliaryWindowLinks() }
     }
 
     func removeAll() { entries.removeAll() }

@@ -24,6 +24,8 @@ import Foundation
         defer { finishSavedWorkspaceStartup() }
         loadSavedWorkspaceStoreForStartup()
         loadWorkspaceSidebarOrganization()
+        // Before the startup refresh registers the windows they're about.
+        loadAuxiliaryWindowLinksForStartup()
         loadLinkIntegrations()
         materializeSavedWorkspaceNames()
         do {

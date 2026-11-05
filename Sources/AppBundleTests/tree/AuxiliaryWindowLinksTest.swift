@@ -117,9 +117,17 @@ final class AuxiliaryWindowLinksTest: XCTestCase {
         running[other.pid] = (other.rawAppBundleId, launch)
         _ = dialog.unbindFromParent()
         let stranger = TestWindow.new(id: 11, parent: pin, app: other, title: "")
+        var now: TimeInterval = 1000
+        let savedNow = auxiliaryWindowLinksNow
+        defer { auxiliaryWindowLinksNow = savedNow }
+        auxiliaryWindowLinksNow = { now }
         restart()
         XCTAssertNil(AuxiliaryWindowRegistry.shared.role(of: stranger))
         XCTAssertNil(auxiliaryWindowParent(of: stranger))
+        now += auxiliaryWindowLinksRecoveryWindow
+        recoverAuxiliaryWindowLinks()
+        XCTAssertNil(AuxiliaryWindowRegistry.shared.role(of: stranger), "Nor once the wait is over: it's another window")
+        XCTAssertEqual(pendingAuxiliaryWindowLinks, [])
         _ = main
     }
 
@@ -140,6 +148,40 @@ final class AuxiliaryWindowLinksTest: XCTestCase {
         XCTAssertNil(auxiliaryWindowParent(of: dialog), "Its parent closed before WinMux quit: no parent after")
         let tile = try await pinCells(pin)
         XCTAssertEqual(tile.cells, [11])
+    }
+
+    func testAWindowMovedToATabOfItsOwnWhileWinMuxStartsIsNotLinkedAgain() async throws {
+        let (_, _, dialog) = try await pinWithLinkedDialog()
+        AuxiliaryWindowRegistry.shared.removeAll()
+        loadAuxiliaryWindowLinksForStartup()
+        // Moved to a tab of its own before the refresh that would recover its link.
+        AuxiliaryWindowRegistry.shared.detach(dialog)
+        recoverAuxiliaryWindowLinks()
+        XCTAssertNil(AuxiliaryWindowRegistry.shared.role(of: dialog))
+        restart()
+        XCTAssertNil(AuxiliaryWindowRegistry.shared.role(of: dialog), "Nor at the start after")
+    }
+
+    func testAParentClosedWhileWinMuxWasOffLeavesTheWindowItsOwnOnceItsWaitIsOver() async throws {
+        let (pin, main, dialog) = try await pinWithLinkedDialog()
+        var now: TimeInterval = 1000
+        let savedNow = auxiliaryWindowLinksNow
+        defer { auxiliaryWindowLinksNow = savedNow }
+        auxiliaryWindowLinksNow = { now }
+        // WinMux quits; the parent closes meanwhile. Its link was kept with that parent.
+        _ = main.unbindFromParent()
+        AuxiliaryWindowRegistry.shared.removeAll()
+        loadAuxiliaryWindowLinksForStartup()
+        recoverAuxiliaryWindowLinks()
+        XCTAssertNil(AuxiliaryWindowRegistry.shared.role(of: dialog), "Waiting for its parent to be registered")
+        XCTAssertEqual(pendingAuxiliaryWindowLinks.map(\.window.windowId), [11])
+        now += auxiliaryWindowLinksRecoveryWindow
+        recoverAuxiliaryWindowLinks()
+        XCTAssertEqual(AuxiliaryWindowRegistry.shared.role(of: dialog), .dialog, "Its own role, as when a parent closes")
+        XCTAssertNil(auxiliaryWindowParent(of: dialog))
+        XCTAssertEqual(pendingAuxiliaryWindowLinks, [])
+        let tile = try await pinCells(pin)
+        XCTAssertEqual(tile.cells, [11], "A window of its own")
     }
 
     func testNoSameAppWindowGetsALinkItNeverHad() async throws {
