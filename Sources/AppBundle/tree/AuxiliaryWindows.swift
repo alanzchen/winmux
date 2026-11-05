@@ -3,7 +3,7 @@ import Common
 
 /// What an auxiliary window is. Tabs mode keeps one floating in the tab of the window it was
 /// opened from, listed under that window, instead of giving it a tab of its own.
-enum AuxiliaryWindowRole: String, Equatable, Sendable {
+enum AuxiliaryWindowRole: String, Codable, Equatable, Sendable {
     /// Mail's standalone message window: File > Open Message, or a double-click.
     case mailMessage
     /// Mail's New Message, Reply or Forward window.
