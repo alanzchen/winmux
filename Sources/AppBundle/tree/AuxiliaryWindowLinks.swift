@@ -74,6 +74,7 @@ func recoverAuxiliaryWindowLinks() {
     let isDue = auxiliaryWindowLinksNow() >= pendingAuxiliaryWindowLinksDeadline
     let registry = AuxiliaryWindowRegistry.shared
     var waiting: [AuxiliaryWindowLinkRecord] = []
+    var restored = false
     for link in pendingAuxiliaryWindowLinks where link.window.mayStillBeOpen {
         guard let window = link.window.live else {
             if !isDue { waiting.append(link) }
@@ -87,7 +88,10 @@ func recoverAuxiliaryWindowLinks() {
             continue
         }
         registry.restore(window.windowId, pid: window.app.pid, role: link.role, parentWindowId: parent?.windowId)
+        restored = true
     }
+    // Written only when something changed: this runs after every refresh while links wait.
+    guard restored || waiting != pendingAuxiliaryWindowLinks else { return }
     pendingAuxiliaryWindowLinks = waiting
     persistAuxiliaryWindowLinks()
 }

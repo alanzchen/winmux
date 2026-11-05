@@ -162,8 +162,8 @@ let auxiliaryFloatingWindowLayer = 3
 /// level counts: menus, popups and overlays are never a window the user opened from another.
 func auxiliaryWindowStacking(_ windows: [AuxiliaryOrderedWindow], newWindowId: UInt32, pid: Int32,
                              isRegistered: (UInt32) -> Bool) -> AuxiliaryWindowStacking {
-    let isFloating = windows.contains { $0.id == newWindowId && $0.pid == pid && $0.layer == auxiliaryFloatingWindowLayer }
-    let own = windows.filter { $0.pid == pid && ($0.layer == 0 || isFloating && $0.layer == auxiliaryFloatingWindowLayer) }
+    let isOnFloatingLevel = windows.contains { $0.id == newWindowId && $0.pid == pid && $0.layer == auxiliaryFloatingWindowLayer }
+    let own = windows.filter { $0.pid == pid && ($0.layer == 0 || isOnFloatingLevel && $0.layer == auxiliaryFloatingWindowLayer) }
     guard let index = own.firstIndex(where: { $0.id == newWindowId }) else { return .absent }
     guard index == own.startIndex else { return .notFront }
     return .front(below: own[(index + 1)...].first { isRegistered($0.id) }?.id)

@@ -82,6 +82,9 @@ final class AuxiliaryWindowLinksTest: XCTestCase {
 
     func testALinkMadeBeforeARestartIsTheSameAfterIt() async throws {
         let (pin, main, dialog) = try await pinWithLinkedDialog()
+        let kept = try String(decoding: Data(contentsOf: XCTUnwrap(auxiliaryWindowLinksURL())), as: UTF8.self)
+        XCTAssertTrue(kept.contains("\"parentWindowId\" : 10") || kept.contains("\"parentWindowId\":10"), kept)
+        XCTAssertFalse(kept.contains("Moments") || kept.contains("Messenger\""), "No title or name is kept, only the window's identity")
         restart()
         XCTAssertEqual(AuxiliaryWindowRegistry.shared.role(of: dialog), .dialog)
         XCTAssertTrue(auxiliaryWindowParent(of: dialog) === main, "Under the window it was opened from, as before")
