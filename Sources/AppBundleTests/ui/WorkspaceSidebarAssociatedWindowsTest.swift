@@ -211,6 +211,59 @@ final class WorkspaceSidebarAssociatedWindowsTest: XCTestCase {
         XCTAssertEqual(compose.nativeFocusCount, 1)
     }
 
+    // MARK: - A window the app keeps above its others
+
+    /// A messenger's pin: its window tiled and in use, and a press just now in it.
+    private func messengerPin() throws -> (pin: Workspace, main: TestWindow, app: TestApp, pressedAt: TimeInterval) {
+        let app = TestApp(pid: 61, bundleId: "com.example.messenger", name: "Messenger")
+        let pin = focus.workspace
+        let main = TestWindow.new(id: 10, parent: pin.rootTilingContainer, app: app, title: "Messenger")
+        try setWorkspaceSidebarTabFavorite(pin, true)
+        XCTAssertTrue(main.focusWindow())
+        let since = auxiliaryFocusSpan.since
+        noteAppActivatedForAuxiliaryWindows(pid: app.pid, at: since - 1)
+        return (pin, main, app, since + 0.1)
+    }
+
+    /// A dialog of `app` first seen with the window server listing `order` (id, layer), front to back, placed as
+    /// registration places it: under the window its context points to, or floating where it appeared.
+    private func appear(_ id: UInt32, app: TestApp, in pin: Workspace, order: [(UInt32, Int)], input: TimeInterval?) async throws -> TestWindow {
+        let environment = AuxiliaryWindowOriginEnvironment(
+            orderedWindows: { order.map { AuxiliaryOrderedWindow(id: $0.0, pid: app.pid, layer: $0.1) } },
+            lastUserInput: { input }, appIsActive: { _ in true })
+        let evidence = captureAuxiliaryWindowOriginEvidence(newWindowId: id, pid: app.pid, observedAt: auxiliaryFocusSpan.since + 0.2,
+            environment: environment)
+        let placement = await auxiliaryWindowPlacement(evidence, type: .dialog, role: { nil })
+        let window = TestWindow.new(id: id, parent: placement?.workspace ?? pin, app: app, title: "")
+        if let placement { recordAuxiliaryWindow(window, placement: placement, initialRect: nil) }
+        _ = try await restoreOrDetectNewWindow(window, isRegularWindow: false)
+        return window
+    }
+
+    func testAnAlwaysOnTopWindowOpenedFromAPinsWindowIsCountedNotACell() async throws {
+        let (pin, main, app, pressed) = try messengerPin()
+        let overlay = try await appear(11, app: app, in: pin, order: [(11, 3), (10, 0)], input: pressed)
+        XCTAssertTrue(auxiliaryWindowParent(of: overlay) === main, "Opened from the pin's window, which was right below it")
+        XCTAssertEqual(AuxiliaryWindowRegistry.shared.role(of: overlay), .dialog)
+        let model = try await viewModel(pin)
+        XCTAssertEqual(workspaceSidebarPinnedTabWindows(model).map(\.windowId), [10], "The pin's one cell is its window")
+        XCTAssertEqual(model.associatedWindows.map(\.id), [11], "The overlay is counted, as opened from it")
+        XCTAssertTrue(overlay.isFloating && overlay.nodeWorkspace === pin, "It stays where it is, floating in the pin")
+    }
+
+    func testAFloatingWindowWithNoSoundOriginStaysTheirOwnCell() async throws {
+        let (pin, _, app, pressed) = try messengerPin()
+        // Raised by the app itself, with no press in the last seconds; and one at a menu's level.
+        let unprompted = try await appear(11, app: app, in: pin, order: [(11, 3), (10, 0)], input: pressed - 30)
+        let menuLevel = try await appear(12, app: app, in: pin, order: [(12, 24), (10, 0)], input: pressed)
+        XCTAssertNil(AuxiliaryWindowRegistry.shared.role(of: unprompted))
+        XCTAssertNil(AuxiliaryWindowRegistry.shared.role(of: menuLevel))
+        let model = try await viewModel(pin)
+        XCTAssertEqual(workspaceSidebarPinnedTabWindows(model).map(\.windowId), [10, 11, 12],
+            "No parent is made up for them: they stay windows of the pin's own, as before")
+        XCTAssertEqual(model.associatedWindows, [])
+    }
+
     // MARK: - A pin's own window, with a draft opened from it
 
     func testAPinnedViewerWithADraftIsStillAPinWithOneWindow() async throws {

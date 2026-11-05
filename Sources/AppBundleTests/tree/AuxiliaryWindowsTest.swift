@@ -94,6 +94,27 @@ final class AuxiliaryWindowsTest: XCTestCase {
         XCTAssertEqual(stacking([mail(c)]), .front(below: nil))
     }
 
+    func testAnAlwaysOnTopWindowCountsOnlyAsTheAppsFrontWindowRightAboveTheOneItCameFrom() {
+        let (c, v, sheet, raised) = (UInt32(11), UInt32(10), UInt32(90), UInt32(80))
+        func stacking(_ windows: [AuxiliaryOrderedWindow]) -> AuxiliaryWindowStacking {
+            auxiliaryWindowStacking(windows, newWindowId: c, pid: 41, isRegistered: { [v, raised].contains($0) })
+        }
+        func mail(_ id: UInt32, layer: Int = 0) -> AuxiliaryOrderedWindow { .init(id: id, pid: 41, layer: layer) }
+        XCTAssertEqual(stacking([mail(c, layer: 3), mail(v)]), .front(below: v),
+            "A window the app keeps above its others, on the floating level, right above the viewer")
+        XCTAssertEqual(stacking([mail(c, layer: 3), mail(sheet), mail(v)]), .front(below: v), "A sheet it doesn't know is passed over")
+        XCTAssertEqual(stacking([mail(raised, layer: 3), mail(c, layer: 3), mail(v)]), .notFront,
+            "Another of the app's floating windows in front of it")
+        XCTAssertEqual(stacking([mail(c, layer: 3), mail(raised, layer: 3), mail(v)]), .front(below: raised),
+            "Right above another floating window of the app, not the viewer")
+        for level in [1, 8, 24, 25, 101, 1000] {
+            XCTAssertEqual(stacking([mail(c, layer: level), mail(v)]), .absent, "Level \(level): menus, popups, overlays never count")
+        }
+        XCTAssertEqual(stacking([.init(id: c, pid: 42, layer: 3), mail(v)]), .absent, "Only the app's own window")
+        // A normal new window is decided as before: the app's floating windows above it don't count.
+        XCTAssertEqual(stacking([mail(raised, layer: 3), mail(c), mail(v)]), .front(below: v))
+    }
+
     func testTheWindowServersListIsReadInItsOwnOrder() {
         let infos: [[String: Any]] = [
             [kCGWindowNumber as String: NSNumber(value: 11), kCGWindowOwnerPID as String: NSNumber(value: 41),
