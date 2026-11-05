@@ -52,7 +52,19 @@ struct ReloadConfigCommand: Command {
             }
             result = false
     }
+    // Window rules are their own file: one that can't be used never stops the config, nor the config them.
+    let windowRules = loadWindowRules()
+    if !windowRules.problems.isEmpty {
+        stdout.append((stdout.isEmpty ? "" : "\n") + windowRules.problems.joined(separator: "\n"))
+    }
     if !args.dryRun {
+        activeWindowRules = windowRules.rules
+        if result, !windowRules.problems.isEmpty, !args.noGui {
+            let body = windowRules.problems.joined(separator: "\n")
+            Task { @MainActor in
+                MessageModel.shared.message = Message(type: .config, description: "Window Rules", body: body)
+            }
+        }
         syncConfigFileWatcher()
     }
     return result

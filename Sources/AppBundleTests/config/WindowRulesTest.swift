@@ -147,6 +147,26 @@ final class WindowRulesTest: XCTestCase {
             "A user file that can't be read changes nothing shipped")
     }
 
+    func testTheUsersFileIsReadBesideWinMuxsAndAFileThatCantBeUsedChangesNothing() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("winmux-window-rules-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let url = folder.appendingPathComponent("window-rules.toml")
+        let saved = windowRulesUserFileUrl
+        defer { windowRulesUserFileUrl = saved }
+        windowRulesUserFileUrl = { url }
+
+        XCTAssertEqual(loadWindowRules().rules, [], "No user file: WinMux's rules alone")
+        XCTAssertEqual(loadWindowRules().problems, [])
+        try viewer.write(to: url, atomically: true, encoding: .utf8)
+        XCTAssertEqual(loadWindowRules().rules.map(\.id), ["viewer"])
+        try "version = 1\n[[rule]]\nid = \"x\"\nrun = \"open -a Calculator\"".write(to: url, atomically: true, encoding: .utf8)
+        let broken = loadWindowRules()
+        XCTAssertEqual(broken.rules, [])
+        XCTAssertEqual(broken.problems.count, 1)
+        XCTAssertTrue(broken.problems[0].contains(url.path), "Says which file")
+    }
+
     func testWinMuxShipsNoActiveRule() throws {
         let text = try String(contentsOf: bundledWindowRulesUrl, encoding: .utf8)
         let shipped = parse(text)

@@ -608,6 +608,13 @@ final class MacApp: AbstractApp {
         } ?? [:]
     }
 
+    /// A new window's title and subrole, for the window rules, in one call.
+    func getWindowRuleFacts(_ windowId: UInt32) async throws -> WindowRuleFacts? {
+        try await withWindow(windowId) { window, job in
+            WindowRuleFacts(title: window.get(Ax.titleAttr), subrole: window.get(Ax.subroleAttr))
+        }
+    }
+
     func getAxTitle(_ windowId: UInt32) async throws -> String? {
         try await withWindow(windowId) { window, job in
             window.get(Ax.titleAttr)

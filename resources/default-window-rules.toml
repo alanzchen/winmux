@@ -1,0 +1,23 @@
+# WinMux's window rules. Tabs mode: a window a rule names, opened from a window of its app in use just after
+# a click or key press, floats at its own size over that window, in its tab, listed under it, instead of
+# taking a tab of its own. Every other window is placed as before.
+#
+# This file ships with WinMux and is replaced by each update: don't edit it. Your own rules go in
+# ~/.config/winmux/window-rules.toml, in the same form. A rule there with the id of one here replaces it, and
+# `enabled = false` with only its id turns it off. Run Reload Config after editing it.
+#
+# A rule is only a description of windows; nothing in it runs. See docs/window-rules.md.
+version = 1
+
+# No rule is on by default: WinMux ships one only once the windows it names can be told apart reliably,
+# by more than a title that may be shared with another window of the app or translated.
+#
+# Example, for your own file: an app's image viewer, by its title in each language you use.
+#
+# [[rule]]
+# id = "example-image-viewer"
+# app-id = "com.example.app"
+# window-title = ["Photos and Videos"]
+# subrole = "AXStandardWindow"
+# opened-from = "focused-window"
+# action = "float-under-opener"
