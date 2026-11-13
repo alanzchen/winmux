@@ -651,12 +651,90 @@ final class BrowserTabIconCacheTest: XCTestCase {
         XCTAssertEqual(p.shown, [key(blue)])
     }
 
-    /// Review V3/V4, B: the extension's page reloads, even after Safari refused to save or remove
-    /// anything, with the tab back at the address whose icon it had. Nothing comes back from
-    /// storage: the app icon until the page names its icon again, which then needs no new fetch.
-    func testAReloadedSafariExtensionPageShowsTheAppIconUntilThePageNamesItsIconAgain() throws {
+    /// Review V3/V4, B: the extension's page reloads with the tab back at the address whose icon it
+    /// had, after Safari refused to save that the tab left. When it refused only the save, what it
+    /// kept is removed; when it refused the removal too, the heartbeat saves again once it can.
+    /// Nothing comes back from storage: the app icon until the page names its icon again, which
+    /// then needs no new fetch.
+    func testAReloadedSafariExtensionPageRestoresNoIconForATabThatLeftItsAddressWhenSafariRefusedToSaveThat() throws {
+        let red = try png(.red)
+        for failure in ["failSets = true;", "failWrites = true;"] {
+            let c = try safariPage(at: 10, address: "https://a.test/")
+            let p = Pipeline(cache: nil, profile: profileA, titles: ["Synthetic 1"])
+            try take(c, into: p)
+            try step(c, """
+                iconMade = async () => ({ key: '\(key(red))', png: '\(red.base64EncodedString())' });
+                names('a', 'https://a.test/a.png');
+                """)
+            let before = try tab10(c)
+            XCTAssertEqual(before["icon"] as? String, key(red), failure)
+            try take(c, into: p)
+            try p.send(icons: [key(red): red])
+            XCTAssertEqual(p.shown, [key(red)], failure)
+
+            // Storage stops taking writes (or removals too); the tab goes to b.test and back to a.test.
+            try step(c, "\(failure) go('https://b.test/'); go('https://a.test/');")
+            if failure == "failWrites = true;" {
+                // Storage works again before Safari unloads the page.
+                try step(c, "failWrites = false; browser.alarms.onAlarm.fire({ name: heartbeat });")
+            }
+            let reloaded = try silentlyReloaded(c, at: 30)
+            reloaded.evaluateScript("var fetched = []; iconMade = async (address) => { fetched.push(address); return null; };")
+            var after = try tab10(reloaded)
+            XCTAssertNotEqual(after["rev"] as? String, before["rev"] as? String, "A revision no load made before")
+            XCTAssertNil(after["icon"], failure)
+            try take(reloaded, into: p)
+            XCTAssertEqual(p.shown, [nil], "The app icon: \(failure)")
+
+            // The page names its icon again: the image made from that address before is reused.
+            try step(reloaded, "names('again', 'https://a.test/a.png');")
+            after = try tab10(reloaded)
+            XCTAssertEqual(after["icon"] as? String, key(red), failure)
+            XCTAssertEqual(reloaded.evaluateScript("JSON.stringify(fetched)")?.toString(), "[]", "Not fetched again")
+            try take(reloaded, into: p)
+            XCTAssertEqual(p.shown, [key(red)], failure)
+        }
+    }
+
+    /// The disclosed limit of the above: Safari refuses both the save and the removal until it
+    /// unloads the page, so nothing the reloaded page can read says the tab left. Back at that very
+    /// address, the tab gets the address's icon from before, until its page names its icons: then
+    /// only that page's own report counts.
+    func testWhenSafariRefusesEverySaveUntilItUnloadsThePageTheAddresssIconComesBackUntilThePageReports() throws {
         let red = try png(.red)
         let c = try safariPage(at: 10, address: "https://a.test/")
+        try step(c, """
+            iconMade = async () => ({ key: '\(key(red))', png: '\(red.base64EncodedString())' });
+            names('a', 'https://a.test/a.png');
+            """)
+        try step(c, "failWrites = true; go('https://b.test/'); go('https://a.test/');")
+        let reloaded = try silentlyReloaded(c, at: 30)
+        XCTAssertEqual(try tab10(reloaded)["icon"] as? String, key(red), "Disclosed: the same address's icon from before")
+        try step(reloaded, "iconMade = () => new Promise(() => {}); names('another', 'https://a.test/b.png');")
+        XCTAssertNil(try tab10(reloaded)["icon"], "Another page there names its icons: none until its own is made")
+    }
+
+    /// The page Safari loads after unloading `c`: what `c` left in session storage, the tab where `c`
+    /// left it unless `address` says it went elsewhere meanwhile, and a page there that never answers
+    /// a request to name its icons again (Safari 27.0 didn't deliver those pages' reports).
+    private func silentlyReloaded(_ c: JSContext, at time: Double, address: String? = nil) throws -> JSContext {
+        let stored = try XCTUnwrap(c.evaluateScript("JSON.stringify(storage)")?.toString())
+        let url = try XCTUnwrap(address ?? c.evaluateScript("windows[0].tabs[0].url")?.toString())
+        return try safariPage(at: time, address: url, then: """
+            storage = \(stored);
+            var asked = [];
+            browser.tabs.query = async () => windows.flatMap(w => w.tabs).map(copy);
+            browser.tabs.sendMessage = async (id, message) => { asked.push([id, message.type]); };
+            """)
+    }
+
+    /// Safari unloads the extension's page and loads it again while the tab stays on its page, which
+    /// doesn't answer the reloaded page's request to name its icons again: the tab keeps the icon its
+    /// page made at that very address, and WinMux shows it once it pairs the new stream. A tab that
+    /// left the address, even to come back, keeps none.
+    func testAReloadedSafariExtensionPageKeepsATabsIconOnlyForTheAddressItsPageMadeItAt() throws {
+        let red = try png(.red)
+        let c = try safariPage(at: 10, address: "https://a.test/inbox?id=1")
         let p = Pipeline(cache: nil, profile: profileA, titles: ["Synthetic 1"])
         try take(c, into: p)
         try step(c, """
@@ -669,24 +747,123 @@ final class BrowserTabIconCacheTest: XCTestCase {
         try p.send(icons: [key(red): red])
         XCTAssertEqual(p.shown, [key(red)])
 
-        // Storage stops taking writes or removals; the tab goes to b.test and back to a.test.
-        try step(c, "failWrites = true; go('https://b.test/'); go('https://a.test/');")
-        let stored = try XCTUnwrap(c.evaluateScript("JSON.stringify(storage)")?.toString())
-        let reloaded = try safariPage(at: 30, address: "https://a.test/", then: "storage = \(stored);")
-        reloaded.evaluateScript("var fetched = []; iconMade = async (address) => { fetched.push(address); return null; };")
-        var after = try tab10(reloaded)
+        let reloaded = try silentlyReloaded(c, at: 70)
+        XCTAssertEqual(reloaded.evaluateScript("JSON.stringify(asked)")?.toString(), #"[[10,"winmux-icon-request"]]"#,
+                       "The page was asked to name its icons again, and didn't")
+        let after = try tab10(reloaded)
         XCTAssertNotEqual(after["rev"] as? String, before["rev"] as? String, "A revision no load made before")
-        XCTAssertNil(after["icon"])
+        XCTAssertEqual(after["icon"] as? String, key(red), "The icon its page made at that very address")
         try take(reloaded, into: p)
-        XCTAssertEqual(p.shown, [nil], "The app icon")
+        if p.wanted.contains(key(red)) { try p.send(icons: [key(red): red]) }
+        XCTAssertEqual(p.shown, [key(red)], "Shown once WinMux pairs the new stream")
 
-        // The page names its icon again: the image made from that address before is reused.
-        try step(reloaded, "names('again', 'https://a.test/a.png');")
-        after = try tab10(reloaded)
-        XCTAssertEqual(after["icon"] as? String, key(red))
-        XCTAssertEqual(reloaded.evaluateScript("JSON.stringify(fetched)")?.toString(), "[]", "Not fetched again")
+        // The tab leaves the address and comes back: its icon goes, and doesn't come back with another reload.
+        try step(reloaded, "go('https://a.test/inbox?id=2'); go('https://a.test/inbox?id=1');")
+        XCTAssertNil(try tab10(reloaded)["icon"])
         try take(reloaded, into: p)
+        XCTAssertEqual(p.shown, [nil])
+        let again = try silentlyReloaded(reloaded, at: 130)
+        XCTAssertNil(try tab10(again)["icon"], "Back at the address is another page")
+        try take(again, into: p)
+        XCTAssertEqual(p.shown, [nil])
+
+        // Nor when the tab went elsewhere while the extension's page was unloaded, and nothing said so.
+        let d = try safariPage(at: 200, address: "https://a.test/inbox?id=1")
+        try step(d, """
+            iconMade = async () => ({ key: '\(key(red))', png: '\(red.base64EncodedString())' });
+            names('d', 'https://a.test/a.png');
+            """)
+        XCTAssertEqual(try tab10(d)["icon"] as? String, key(red))
+        let moved = try silentlyReloaded(d, at: 260, address: "https://a.test/inbox?id=3")
+        XCTAssertNil(try tab10(moved)["icon"])
+        XCTAssertEqual(moved.evaluateScript("JSON.stringify(Object.keys(storage.pageIcons?.tabs ?? {}))")?.toString(), "[]",
+                       "and what was kept for it is forgotten")
+    }
+
+    /// Astra: confirming the restored document once must not let a later document at
+    /// the identical URL inherit that document's icon, even if neither new fetch works.
+    func testAstraRestoredIconIsRevokedWhenALaterDifferentDocumentReportsAtTheSameURL() throws {
+        let red = try png(.red)
+        let original = try safariPage(at: 10, address: "https://a.test/account")
+        try step(original, """
+            iconMade = async () => ({ key: '\(key(red))', png: '\(red.base64EncodedString())' });
+            names('document-A', 'https://a.test/red.png');
+            """)
+        let current = try silentlyReloaded(original, at: 30)
+        XCTAssertEqual(try tab10(current)["icon"] as? String, key(red), "Control: the saved icon was restored")
+        let pipeline = Pipeline(cache: nil, profile: profileA, titles: ["Synthetic 1"])
+        try take(current, into: pipeline)
+        try pipeline.send(icons: [key(red): red])
+        XCTAssertEqual(pipeline.shown, [key(red)])
+        // A removes its custom icon link. Its fallback /favicon.ico is unavailable; A still confirms its page ID.
+        try step(current, "iconMade = async () => null; names('document-A', 'https://a.test/favicon.ico');")
+        XCTAssertEqual(try tab10(current)["icon"] as? String, key(red), "Still the same document")
+        // A same-URL document reload emits status and the unchanged URL. Its content script has a new ID.
+        try step(current, """
+            browser.tabs.onUpdated.fire(10, { status: 'loading' }, copy(windows[0].tabs[0]));
+            go('https://a.test/account');
+            names('document-B', 'https://a.test/favicon.ico');
+            browser.alarms.onAlarm.fire({ name: heartbeat });
+            """)
+        XCTAssertNil(try tab10(current)["icon"], "B must not report A's restored icon after B identified itself")
+        XCTAssertEqual(current.evaluateScript("JSON.stringify(Object.keys(storage.pageIcons?.tabs ?? {}))")?.toString(), "[]",
+                       "A's binding must also be revoked from session storage")
+        try take(current, into: pipeline)
+        XCTAssertEqual(pipeline.shown, [nil], "Native icon pipeline must show Safari's icon for B until B's own icon is made")
+    }
+
+    /// Astra: replacement and numeric tab-ID reuse must erase the persisted page association.
+    func testAstraReplacementAndClosedIDReuseDoNotRestoreTheRemovedPage() throws {
+        let red = try png(.red)
+        for action in ["browser.tabs.onReplaced.fire(11, 10); windows[0].tabs[0].id = 11;",
+                       "browser.tabs.onRemoved.fire(10, {windowId: 1}); browser.tabs.onCreated.fire(copy(windows[0].tabs[0]));"] {
+            let c = try safariPage(at: 10, address: "https://a.test/")
+            try step(c, """
+                iconMade = async () => ({ key: '\(key(red))', png: '\(red.base64EncodedString())' });
+                names('old-document', 'https://a.test/red.png');
+                """)
+            XCTAssertEqual(try tab10(c)["icon"] as? String, key(red))
+            try step(c, action)
+            XCTAssertEqual(c.evaluateScript("JSON.stringify(Object.keys(storage.pageIcons?.tabs ?? {}))")?.toString(), "[]", action)
+            let reloaded = try silentlyReloaded(c, at: 30)
+            XCTAssertNil(try tab10(reloaded)["icon"], action)
+        }
+    }
+
+    /// The same as Astra's sequence without the extension's page reloading: a tab's icon belongs to the
+    /// page that made it, so another page at the very same address (the tab reloaded it) has none once
+    /// it names its icons, until its own is made, even when the first page confirmed it in between.
+    func testAnIconGoesOnceAnotherPageAtTheSameAddressNamesItsIconsEvenWithoutAReload() throws {
+        let red = try png(.red)
+        let c = try safariPage(at: 10, address: "https://a.test/account")
+        let p = Pipeline(cache: nil, profile: profileA, titles: ["Synthetic 1"])
+        try take(c, into: p)
+        try step(c, """
+            iconMade = async () => ({ key: '\(key(red))', png: '\(red.base64EncodedString())' });
+            names('document-A', 'https://a.test/red.png');
+            """)
+        try take(c, into: p)
+        try p.send(icons: [key(red): red])
         XCTAssertEqual(p.shown, [key(red)])
+        try step(c, "iconMade = async () => null; names('document-A', 'https://a.test/favicon.ico');")
+        XCTAssertEqual(try tab10(c)["icon"] as? String, key(red), "The page that made it keeps it")
+        try step(c, """
+            browser.tabs.onUpdated.fire(10, { status: 'loading' }, copy(windows[0].tabs[0]));
+            go('https://a.test/account');
+            names('document-B', 'https://a.test/favicon.ico');
+            """)
+        XCTAssertNil(try tab10(c)["icon"], "Another page at the address: none until its own is made")
+        XCTAssertEqual(c.evaluateScript("JSON.stringify(Object.keys(storage.pageIcons?.tabs ?? {}))")?.toString(), "[]")
+        try take(c, into: p)
+        XCTAssertEqual(p.shown, [nil])
+
+        // Its own icon, once made, shows.
+        try step(c, """
+            iconMade = async () => ({ key: '\(key(red))', png: '\(red.base64EncodedString())' });
+            names('document-B', 'https://a.test/red.png');
+            """)
+        XCTAssertEqual(try tab10(c)["icon"] as? String, key(red))
+        XCTAssertEqual(c.evaluateScript("storage.pageIcons.tabs[10].page")?.toString(), "document-B")
     }
 
     // MARK: - Bounded memory

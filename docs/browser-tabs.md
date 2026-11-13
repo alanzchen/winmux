@@ -218,7 +218,11 @@ refused before they're decoded, and at most three fetches run at once. While Win
 running it fetches nothing; pages' icon links wait, and their icons are made once WinMux
 answers again. Safari performs these requests itself, not WinMux, but they come from the extension
 rather than the page, so they may not follow every setting Safari applies to browsing. The
-icons stay in Safari's session storage, which it clears when it quits. A tab that hasn't
+icons stay in Safari's session storage, which it clears when it quits, together with each tab's
+icon key and the full address of the page that made it (for at most 500 tabs, the latest
+first), so a tab keeps its icon when Safari reloads the extension's page
+([below](#which-page-shows-which-icon-and-icon-images-kept-across-launches)). Those addresses
+never leave Safari, and nothing from Private Browsing is kept. A tab that hasn't
 loaded since the extension started, such as one restored when Safari reopened, shows Safari's
 icon until its page loads and names its icon; no other page's icon stands in
 ([below](#which-page-shows-which-icon-and-icon-images-kept-across-launches)).
@@ -250,28 +254,49 @@ plus a count, so no revision is ever made twice. WinMux shows a Safari tab's web
 while the live report for the tab's current page instance (the same tab in the same Safari
 profile, extension session and stream, at the same origin and revision) names that icon. Never by
 a title, host or origin alone, and nothing stands in for a page that hasn't named an icon of its
-own:
+own, except the icon a tab's page named at that very address before Safari reloaded the
+extension's page (below):
 
-- The extension gives a tab only the icon its current page made, bound to that page's revision.
-  When the tab commits another address, it drops that icon and asks the page to name its icons
+- The extension gives a tab only the icon its current page made, bound to that page's revision
+  and owned by that page: once another page reports from the tab, even at the same address (the tab
+  reloaded it), the icon goes until that page's own is made, however often the first page named it
+  before. When the tab commits another address, it drops that icon and asks the page to name its icons
   again (a page that changed its address by script stays); such a page also names them again by
   itself a second after its history or fragment changes. An icon finished for a page the tab has
   since left, even if it came back to the same address, is discarded.
-- Nothing about a page (its address, revision or icon) is kept when Safari unloads and reloads the
-  extension's page: every tab's page is new, with a new revision and no icon, until it names its
-  icons again. The reloaded page asks each open page to do so, and an image it already made from
-  the same icon address in this browsing session isn't fetched again.
+- When Safari unloads the extension's page and loads it again in the same browsing session, every
+  tab's page gets a new revision, and a tab keeps its icon only if it's still open, outside
+  Private Browsing, at the very address (path and query included) of the page that made the icon,
+  and the extension still has the image. The extension keeps that icon and address for each tab in
+  Safari's session storage, and forgets them the moment it hears that the tab committed another
+  address (even one it later returns to), finds another address in a report, or the tab closes.
+  When Safari won't save that change, the extension removes everything it kept, so a reload
+  restores no icon; when Safari won't remove it either, the extension saves again with its next
+  change or its once-a-minute check-in. A browsing session that changed (Safari restarted, or the
+  extension was turned on or updated) restores nothing.
+- The reloaded page also asks each open page to name its icons again; an image it already made
+  from the same icon address in this browsing session isn't fetched again. A kept icon is owned
+  like any other: it stays only while the reports from the tab come from the very page that made
+  it. Another page at the same address (one reloaded meanwhile, or one the tab left and came back
+  to without the extension hearing of it) shows none once it reports, until its own icon is made. A
+  page that doesn't answer, as pages open in the background didn't in testing, keeps the icon kept
+  for its address.
+- **Limit:** if Safari refuses both to save and to remove what the extension kept until it unloads
+  the extension's page, the reloaded page can't learn that the tab left. A tab back at the very
+  same address then gets that address's earlier icon, until its page names its icons. Safari
+  quitting clears what's kept.
 - **Keeping an icon through report gaps and disconnects isn't part of this release**; it's a
   tracked follow-up. While no live report has the tab (a report gap, or the extension
   disconnected), while the tab isn't paired with the extension (as right after the extension's
-  page reloads, until WinMux pairs it again), or once the extension starts a new stream, the tab
-  shows Safari's icon.
+  page reloads, until WinMux reads the window and pairs it again), or once the extension starts a
+  new stream, the tab shows Safari's icon. WinMux doesn't carry an icon from one stream to the
+  next: the extension, which hears address changes, says which icons still hold.
 - An extension from before page revisions shows no website icons.
 
-So Safari's icon shows more often than before: after report gaps, after WinMux or the extension
-restarts, and each time Safari reloads the extension's page, until each page names its icon again;
-and on pages that never do (one already open whose page doesn't answer, or one Safari restored
-without loading).
+So Safari's icon shows after report gaps, after WinMux or the extension restarts, briefly each
+time Safari reloads the extension's page (until WinMux pairs the new stream), and on pages that
+never name an icon (one open when the extension was turned on or updated, whose page doesn't
+answer, or one Safari restored without loading).
 
 WinMux also keeps icon images on disk, by the key the extension gives each icon (the SHA-256 of
 its image), so a page that names an icon WinMux has had before, even before WinMux restarted,
@@ -551,11 +576,23 @@ needs a read that started after the latest page change (a same-origin revision c
 and the revocation survives the report or pairing going) and that an older extension's same host
 on another port shows the app icon in the background. JavaScriptCore runs the shipped Safari
 extension page with stale icons seeded in its session storage, and its actual reports go through
-that native path: a reloaded page restores no page, revision, icon or kept report from storage;
-after a same-origin address change the tab shows the app icon, a late icon for a page the tab left
-is discarded, and the new page's own icon shows; and after a reload, even one following refused
-writes, the tab shows the app icon until its page names its icon again, whose image isn't fetched
-again.
+that native path: a reloaded page restores no revision, kept report or binding from earlier
+versions' storage; after a same-origin address change the tab shows the app icon, a late icon for
+a page the tab left is discarded, and the new page's own icon shows; after a reload whose page
+doesn't answer, the tab keeps its icon for the same address, and WinMux shows it once it pairs the
+new stream, but not after the tab left the address, even to come back, or moved while the
+extension's page was unloaded; and after a reload following refused saves (or refused saves and
+removals, then a check-in once storage works again), the tab shows the app icon until its page
+names its icon again, whose image isn't fetched again. The disclosed limit (saves and removals
+refused until the reload) is pinned by a test too. Other tests check that only the same session,
+an open tab outside Private Browsing at the same address, and an image still kept restore an
+icon; that what's kept holds the full address and icon key but no revision, at most 500 tabs, the
+latest first; that a fragment change, a report-time address change and a closed tab forget it; and
+that a restored icon goes at once when another page at the address names its icons, while the
+page that made it keeps it, and each page's fresh icon then wins. A page that confirms its icon,
+followed by another page at the same address whose icon can't be made, leaves that page with none,
+with or without the extension's page reloading first; and a replaced tab, or a closed tab whose id
+comes back, restores nothing.
 JavaScriptCore also runs the Safari content script, which names its icons again with its new
 address after a history or fragment change, and when the extension asks, and checks both
 extensions' revisions: they change with each committed address (from a tab's first, even before

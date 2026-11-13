@@ -20,8 +20,9 @@ final class BrowserPushBackgroundTest: XCTestCase {
     const loadMark = load() + '-4' + load().slice(1);
     var crypto = { randomUUID: () => 'aaaaaaaa-' + loadMark + '-8aaa-' + String(++uuid).padStart(12,'0'), subtle: {} };
     var storage = {}, sent = [], listings = 0, updates = 0, connections = 0, emitActivation = true, throwAfterUpdate = false;
-    // While set, session storage refuses every write and removal, as an unavailable storage service would.
-    var failWrites = false;
+    // While set, session storage refuses every write and removal, as an unavailable storage service would;
+    // `failSets` refuses only writes, as a full one would.
+    var failWrites = false, failSets = false;
     var reply = {v:2, ok:true, events:1, want:[]}, oldApp = false;
     function answer(message) { return oldApp ? (message.type === 'events' ? {v:2,ok:false,reason:'invalid'} : {v:2,ok:true,want:[]}) : copy(reply); }
     var windows = [1,2,3].map(id => ({id, type:'normal', incognito:id===3, left:id*100, top:25, width:900, height:700,
@@ -32,7 +33,7 @@ final class BrowserPushBackgroundTest: XCTestCase {
     }, disconnect: () => fakePort.onDisconnect.fire()};
     var browser = {
         storage:{session:{get:async keys => Object.fromEntries(keys.filter(k=>k in storage).map(k=>[k,copy(storage[k])])),
-            set:async values => { if (failWrites) throw Error('unavailable'); Object.assign(storage,copy(values)); },
+            set:async values => { if (failWrites || failSets) throw Error('unavailable'); Object.assign(storage,copy(values)); },
             remove:async keys => { if (failWrites) throw Error('unavailable'); [].concat(keys).forEach(k => delete storage[k]); }}},
         tabs:Object.assign({query:async()=>[], get:async id=>copy(windows.flatMap(w=>w.tabs).find(t=>t.id===id)),
             update:async(id,change)=>{ updates++; const tab=windows.flatMap(w=>w.tabs).find(t=>t.id===id); Object.assign(tab,change);
@@ -245,8 +246,157 @@ final class BrowserPushBackgroundTest: XCTestCase {
                        #"[[10,"winmux-icon-request"],[20,"winmux-icon-request"]]"#,
                        "Each open page of a normal window is asked to name its icons again")
         XCTAssertEqual(reloaded.evaluateScript("""
-            JSON.stringify(Object.keys(storage).filter(k => !['session', 'order', 'unavailableUntil', 'icons', 'iconAddresses'].includes(k)))
-            """)?.toString(), "[]", "No page, revision, pending report or icon binding is kept")
+            JSON.stringify(Object.keys(storage).filter(k => !['session', 'order', 'unavailableUntil', 'icons', 'iconAddresses', 'pageIcons'].includes(k)))
+            """)?.toString(), "[]", "No page revision or pending report is kept")
+    }
+
+    /// Safari's page, with helpers: `names(id, page)` has tab `id`'s page name its icon, `go(id, url)`
+    /// moves the tab, `shown(id)` is the icon the latest report gives the tab, and `kept()` the tabs
+    /// whose icons session storage holds. Icons are made at once, keyed by their address.
+    private func safariIcons(before: String = "") throws -> JSContext {
+        let c = try Self.page("safari", before: """
+            browser.tabs.query = async () => windows.flatMap(w => w.tabs).map(copy);
+            function tabOf(id) { return windows.flatMap(w => w.tabs).find(t => t.id === id); }
+            function names(id, page, candidate = 'https://example.test/icon.png') {
+                const tab = tabOf(id);
+                browser.runtime.onMessage.fire({ type: 'winmux-icon-candidates', page, report: 1, address: tab.url, candidates: [candidate] },
+                    { tab: copy(tab), url: tab.url, frameId: 0 });
+            }
+            function go(id, url) { const tab = tabOf(id); tab.url = url; browser.tabs.onUpdated.fire(id, { url }, copy(tab)); }
+            function shown(id) {
+                for (const m of sent.filter(m => m.type === 'state' || m.type === 'events').reverse()) {
+                    for (const w of m.windows) { const t = w.tabs.find(t => t.id === id); if (t) return t.icon ?? null; }
+                }
+                return undefined;
+            }
+            function kept() { return Object.keys(storage.pageIcons?.tabs ?? {}).map(Number).sort((a, b) => a - b); }
+            \(before)
+            """)
+        c.evaluateScript("""
+            var key = (address) => Array.from(address).reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7).toString(16).padStart(8, '0').repeat(8);
+            iconMade = async (address) => ({ key: key(address), png: 'cG5n' });
+            """)
+        return c
+    }
+
+    private func json(_ c: JSContext, _ js: String) -> String? { c.evaluateScript("JSON.stringify(\(js))")?.toString() }
+
+    func testSafariKeepsEachTabsIconWithItsExactAddressAndForgetsItWhenTheTabLeavesOrCloses() throws {
+        let c = try safariIcons()
+        c.evaluateScript("""
+            windows[0].tabs.push({id: 11, windowId: 1, index: 1, title: 'Other', url: 'https://example.test/other?x=1', active: false, incognito: false});
+            browser.tabs.onCreated.fire(copy(windows[0].tabs[1]));
+            names(10, 'p10'); names(11, 'p11', 'https://example.test/other.png'); names(20, 'p20'); names(30, 'p30');
+            """)
+        try advance(c, 1)
+        XCTAssertEqual(json(c, "kept()"), "[10,11,20]", "Never a Private Browsing tab's")
+        XCTAssertEqual(json(c, "storage.pageIcons.session === sent.at(-1).session"), "true")
+        XCTAssertEqual(json(c, "Object.keys(storage.pageIcons.tabs[11]).sort()"), #"["address","icon","page","used"]"#,
+                       "Its page's exact address and icon, never its revision")
+        XCTAssertEqual(json(c, "storage.pageIcons.tabs[11].address"), #""https://example.test/other?x=1""#)
+        XCTAssertEqual(json(c, "storage.pageIcons.tabs[11].icon === key('https://example.test/other.png')"), "true")
+
+        // Safari repeats an unchanged address as a page loads: nothing changes.
+        c.evaluateScript("go(10, 'https://example.test/');")
+        try advance(c)
+        XCTAssertEqual(json(c, "kept()"), "[10,11,20]")
+        // Another address, even one only a fragment apart, and closing the tab: forgotten at once.
+        c.evaluateScript("go(20, 'https://example.test/#next');")
+        try advance(c)
+        XCTAssertEqual(json(c, "kept()"), "[10,11]")
+        c.evaluateScript("windows[0].tabs.pop(); browser.tabs.onRemoved.fire(11, {windowId: 1});")
+        try advance(c)
+        XCTAssertEqual(json(c, "kept()"), "[10]")
+        XCTAssertEqual(json(c, "shown(20)"), "null")
+        XCTAssertEqual(json(c, "shown(10)"), json(c, "key('https://example.test/icon.png')"))
+        // An address a report finds before any event says so is another page too.
+        c.evaluateScript("tabOf(10).url = 'https://example.test/unheard'; browser.alarms.onAlarm.fire({ name: heartbeat });")
+        try advance(c)
+        XCTAssertEqual(json(c, "[shown(10), kept()]"), "[null,[]]")
+    }
+
+    func testSafarisReloadedPageRestoresAnIconOnlyForTheSameSessionTabAndAddressWhileItHasTheImage() throws {
+        let c = try safariIcons(before: "windows[1].tabs[0].url = 'https://example.test/b';")
+        c.evaluateScript("names(10, 'p10'); names(20, 'p20');")
+        try advance(c, 1)
+        XCTAssertEqual(json(c, "kept()"), "[10,20]")
+        let stored = try XCTUnwrap(json(c, "storage"))
+        let icon = try XCTUnwrap(json(c, "key('https://example.test/icon.png')"))
+
+        // Tab 20 went elsewhere while the page was unloaded, and nothing said so; a closed tab's and a
+        // Private Browsing tab's entries, and one whose image is gone, are never restored.
+        let reloaded = try safariIcons(before: """
+            storage = \(stored);
+            storage.pageIcons.tabs[30] = Object.assign({}, storage.pageIcons.tabs[10], { address: windows[2].tabs[0].url });
+            storage.pageIcons.tabs[40] = storage.pageIcons.tabs[10];
+            windows[0].tabs.push({id: 50, windowId: 1, index: 1, title: 'Gone', url: 'https://example.test/c', active: false, incognito: false});
+            storage.pageIcons.tabs[50] = Object.assign({}, storage.pageIcons.tabs[10], { address: 'https://example.test/c', icon: 'f'.repeat(64) });
+            windows[1].tabs[0].url = 'https://example.test/elsewhere';
+            """)
+        XCTAssertEqual(json(reloaded, "shown(10)"), icon, "Same session, tab and address")
+        XCTAssertEqual(json(reloaded, "shown(20)"), "null")
+        XCTAssertEqual(json(reloaded, "shown(50)"), "null")
+        XCTAssertEqual(reloaded.evaluateScript("var restored; loaded.then(d => { restored = [...d.tabs.keys()].filter(id => d.tabs.get(id).icon); }); 0")?.toInt32(), 0)
+        try advance(reloaded)
+        XCTAssertEqual(json(reloaded, "restored"), "[10]")
+        XCTAssertEqual(json(reloaded, "kept()"), "[10]", "Only what came back stays kept")
+
+        // Another session's (Safari restarted, or the extension was updated) or no session at all: nothing.
+        for change in ["storage.session = 'another';", "delete storage.session;", "storage.pageIcons.session = 'another';"] {
+            let other = try safariIcons(before: "storage = \(stored); \(change)")
+            XCTAssertEqual(json(other, "shown(10)"), "null", change)
+            XCTAssertEqual(json(other, "kept()"), "[]", change)
+        }
+        // Nor while Safari can't say which tabs are open, or doesn't soon: then the page reports anyway.
+        let unknown = try safariIcons(before: "storage = \(stored); browser.tabs.query = async () => { throw Error('unavailable'); };")
+        XCTAssertEqual(json(unknown, "shown(10)"), "null")
+        let silent = try safariIcons(before: "storage = \(stored); browser.tabs.query = () => new Promise(() => {});")
+        try advance(silent, 3)
+        XCTAssertEqual(json(silent, "shown(10)"), "null")
+    }
+
+    /// Review V4, B's remedy: a fresh check of the page itself. A restored icon was made by the page
+    /// that was at the address before the extension's page reloaded; once the tab's page names its
+    /// icons, it stays only if that page is the very one that made it.
+    func testARestoredIconGoesOnceAnotherPageAtTheAddressNamesItsIconsOrTheTabNavigates() throws {
+        let c = try safariIcons()
+        c.evaluateScript("names(10, 'p10'); names(20, 'p20');")
+        try advance(c, 1)
+        let stored = try XCTUnwrap(json(c, "storage"))
+        let icon = try XCTUnwrap(json(c, "key('https://example.test/icon.png')"))
+        let reloaded = try safariIcons(before: "storage = \(stored);")
+        XCTAssertEqual(json(reloaded, "[shown(10), shown(20)]"), "[\(icon),\(icon)]")
+
+        // Both pages name their icons; making the new ones takes a while.
+        reloaded.evaluateScript("""
+            var release = [];
+            iconMade = (address) => new Promise(done => release.push(() => done({ key: key(address), png: 'cG5n' })));
+            names(10, 'p10', 'https://example.test/new.png'); names(20, 'p20-reloaded', 'https://example.test/new.png');
+            """)
+        try advance(reloaded)
+        XCTAssertEqual(json(reloaded, "[shown(10), shown(20)]"), "[\(icon),null]",
+                       "The page that made it keeps it; another page at the same address has none until its own is made")
+        XCTAssertEqual(json(reloaded, "kept()"), "[10]")
+        reloaded.evaluateScript("release.forEach(f => f());")
+        try advance(reloaded)
+        let fresh = try XCTUnwrap(json(reloaded, "key('https://example.test/new.png')"))
+        XCTAssertEqual(json(reloaded, "[shown(10), shown(20)]"), "[\(fresh),\(fresh)]", "Each page's fresh report wins")
+        XCTAssertEqual(json(reloaded, "kept()"), "[10,20]")
+    }
+
+    func testSafariKeepsAtMostFiveHundredTabsIconsTheLatestFirst() throws {
+        let c = try safariIcons(before: """
+            windows[0].tabs = Array.from({length: 520}, (_, index) => ({id: 1000 + index, windowId: 1, index, title: 'Tab ' + index,
+                url: 'https://example.test/' + index + '?' + 'q'.repeat(100), active: index === 0, incognito: false}));
+            """)
+        for index in stride(from: 0, to: 520, by: 1) {
+            c.evaluateScript("now += 10; names(\(1000 + index), 'p\(index)');")
+            if index % 100 == 99 { try advance(c, 0.1) }
+        }
+        try advance(c, 1)
+        XCTAssertEqual(json(c, "kept().length"), "500")
+        XCTAssertEqual(json(c, "kept()[0]"), "1020", "The 20 named longest ago go first")
+        XCTAssertEqual(json(c, "kept().at(-1)"), "1519")
     }
 
     func testAnAddressHeardBeforeAnyReportIsANewPageToo() throws {
