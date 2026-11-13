@@ -40,7 +40,8 @@ let workspaceSidebarPinHomeReadInterval: TimeInterval = 2
 @MainActor private var workspaceSidebarPinHomePassAgain = false
 @MainActor private var workspaceSidebarPinHomeLastPass: TimeInterval = -.infinity
 
-/// Pins whose window Return is reading: another Return meanwhile does nothing.
+/// Pins whose window Return is reading, or whose Return is to show what it read: another Return meanwhile
+/// does nothing.
 @MainActor private var workspaceSidebarPinHomeReturning: Set<String> = []
 
 /// Awaited at the start of the session that shows or opens what a Return read, before its last check.
@@ -200,7 +201,8 @@ func refreshWorkspaceSidebarPinHomeReadings() async -> Bool {
 func returnPinToHomeFromSidebar(_ name: String) {
     guard let tab = Workspace.existing(byName: name),
           let appearance = workspaceSidebarOrganizationStore.state.workspaces[name], appearance.isFavorite,
-          let home = appearance.resource
+          let home = appearance.resource,
+          !workspaceSidebarPinHomeReturning.contains(name)
     else { return }
     // Its window is in another tab's split: a second one isn't opened for the pin meanwhile.
     if appearance.lentWindow != nil {
@@ -215,19 +217,34 @@ func returnPinToHomeFromSidebar(_ name: String) {
         case nil:
             // Nothing read lately: a page pin's one window is read now, so a window already showing the home is
             // shown, not doubled. A file's window is found by the file's identity as it opens.
-            if case .link = home, let window {
-                guard workspaceSidebarPinHomeReturning.insert(name).inserted else { return }
+            if case .link(let link) = home, let window {
+                workspaceSidebarPinHomeReturning.insert(name)
+                let focusGeneration = focusChangeGeneration
+                // The pin, its home and its window, as they were when Return was chosen.
+                let pinIsAsItWas: @MainActor () -> Bool = {
+                    guard Workspace.existing(byName: name) === tab, workspaceSidebarPinHomeWindow(tab) === window,
+                          let now = workspaceSidebarOrganizationStore.state.workspaces[name] else { return false }
+                    return now.isFavorite && now.resource == home
+                }
                 _ = Task { @MainActor in
                     defer { workspaceSidebarPinHomeReturning.remove(name) }
                     let evidence = await readWorkspaceSidebarPinHomeEvidence(window, home: home)
-                    // The pin, its home and its window, as they were when Return was chosen.
-                    guard Workspace.existing(byName: name) === tab, workspaceSidebarPinHomeWindow(tab) === window,
-                          let now = workspaceSidebarOrganizationStore.state.workspaces[name], now.isFavorite, now.resource == home
-                    else { return }
+                    guard pinIsAsItWas() else { return }
                     workspaceSidebarPinHomeReadings[name] = .init(windowId: window.windowId, home: home, evidence: evidence,
                         at: workspaceSidebarPinHomeNow())
-                    if evidence == .showsHome { return focusWindowFromSidebar(window.windowId) }
-                    openWorkspaceSidebarPinHome(tab, home)
+                    // Shown or opened in a session of its own, only if then the pin is still as it was and the user
+                    // hasn't moved on since choosing Return: a Return left behind takes no focus back and opens
+                    // nothing. Until then, another Return does nothing.
+                    WorkspaceSidebarPanel.suppressEdgeTrapForWorkspaceActivation()
+                    await runWorkspaceSidebarSession {
+                        await workspaceSidebarPinHomeReturnWillShow()
+                        guard pinIsAsItWas(), focusChangeGeneration == focusGeneration else { return }
+                        if evidence == .showsHome {
+                            return focusWindowFromSidebarNow(window.windowId, targetMonitorScopeId: nil, keepsPointer: false)
+                        }
+                        if !tab.isVisible { _ = focusWorkspaceFromSidebar(tab) }
+                        openPinnedLink(tab, link, returningHome: true)
+                    }?.value
                 }
                 return
             }

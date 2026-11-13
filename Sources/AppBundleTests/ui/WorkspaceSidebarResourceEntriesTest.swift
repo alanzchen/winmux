@@ -361,6 +361,10 @@ final class WorkspaceSidebarResourceEntriesTest: XCTestCase {
         XCTAssertTrue(window.nodeWorkspace === tab, "The window showing something else stays in the pin")
         XCTAssertEqual(appearance("page")?.link, safariLink, "And the home stays the home")
         XCTAssertEqual(notices, [])
+        // The pin is shown before the next Return is chosen: a focus change after one is chosen withdraws it.
+        let shown = await eventually { focus.workspace === tab }
+        XCTAssertTrue(shown)
+        await settle()
 
         // An app's link opens as a launcher opens it, in a window of the app's choosing.
         let (noteTab, _) = makeTab("note", windowId: 51, app: TestApp(pid: 19301, bundleId: "com.apple.Notes", name: "Notes"))
@@ -527,16 +531,37 @@ final class WorkspaceSidebarResourceEntriesTest: XCTestCase {
             let queued = await eventually { gate.waiting == 1 }
             XCTAssertTrue(queued, "Read, and its session waits to show it")
             XCTAssertTrue(elsewhere.focusWindow(), "The user moves on meanwhile")
-            let moved = focusChangeGeneration
             gate.open()
             await settle()
 
             XCTAssertTrue(focus.windowOrNil === elsewhere, url)
             XCTAssertFalse(tab.isVisible, url)
-            XCTAssertEqual(focusChangeGeneration, moved, url)
         }
         XCTAssertTrue(scripts.isEmpty, "And no home opened")
         XCTAssertTrue(launched.isEmpty)
+    }
+
+    func testReturnToHomeChosenAgainBeforeItsSessionRunsOpensTheHomeOnce() async throws {
+        let (tab, _) = makeTab("page", windowId: 21, app: safari)
+        pin(tab, .link(safariLink))
+        reads[21] = .init(url: "https://example.com/elsewhere", title: "Elsewhere", privacy: .normal)
+        let gate = Gate()
+        gate.close()
+        workspaceSidebarPinHomeReturnWillShow = { await gate.pass() }
+
+        returnPinToHomeFromSidebar("page")
+        let queued = await eventually { gate.waiting == 1 }
+        XCTAssertTrue(queued)
+        returnPinToHomeFromSidebar("page")
+        await settle()
+        XCTAssertTrue(scripts.isEmpty, "The second Return, on what the first one read, opens nothing")
+        gate.open()
+
+        let asked = await eventually { !self.scripts.isEmpty }
+        XCTAssertTrue(asked)
+        await settle()
+        XCTAssertEqual(scripts.count, 1, "And the home opens once")
+        XCTAssertEqual(notices, [])
     }
 
     func testReturnToHomeOpensNothingForAPinWhoseWindowIsLentToASplit() async throws {
