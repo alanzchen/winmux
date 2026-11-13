@@ -18,6 +18,13 @@ final class SimulatedAppWindow: AxFrameAccess {
     /// Displays, as AppKit fits a window resized over AX to the screen from where the window is (seen in
     /// a macOS 27 guest): no wider or taller than the room left on the display from its top-left corner.
     var displays: [Rect] = []
+    /// Where the app lets the window go when asked to move it, and what the move does to its size. By
+    /// default it goes where it's asked, in whole points.
+    var takesPosition: (CGPoint, Rect) -> Rect = { topLeft, frame in
+        Rect(topLeftX: topLeft.x.rounded(), topLeftY: topLeft.y.rounded(), width: frame.width, height: frame.height)
+    }
+    /// Whether the app answers reads of the window's position.
+    var positionReadable = true
     private(set) var sizeWrites = 0
     private(set) var positionWrites = 0
     /// Every position written, in order: a stop on the way shows as a jump on screen.
@@ -32,14 +39,16 @@ final class SimulatedAppWindow: AxFrameAccess {
         self.laterAspect = laterAspect
     }
 
-    var axTopLeft: CGPoint? { frame.topLeftCorner }
+    var axTopLeft: CGPoint? { positionReadable ? frame.topLeftCorner : nil }
     var axSize: CGSize? { frame.size }
 
     func setAxTopLeft(_ topLeft: CGPoint) {
         positionWrites += 1
         positions.append(topLeft)
-        frame.topLeftX = topLeft.x.rounded()
-        frame.topLeftY = topLeft.y.rounded()
+        let moved = takesPosition(topLeft, frame)
+        frame.topLeftX = moved.topLeftX
+        frame.topLeftY = moved.topLeftY
+        resize(to: moved.size)
     }
 
     func setAxSize(_ size: CGSize) -> Bool {
@@ -223,6 +232,65 @@ final class WindowFrameFitTest: XCTestCase {
         XCTAssertEqual(app.sizeWrites, sizes)
     }
 
+    /// Independent review (2026-11-12), as it was reproduced: an app that keeps 800 × 600 and doesn't let
+    /// its window left of x = 200. Its position setter says nothing about where the window went.
+    func testCachedConstrainedPlacementReportsActualClampedPosition() throws {
+        let window = PositionClampedWindow()
+        var fit = WindowFrameFit()
+        let cell = Rect(topLeftX: 0, topLeftY: 0, width: 1000, height: 600)
+        let first = try setFrame(window, cell.topLeftCorner, cell.size, fit: &fit, RunLoopJob())
+        XCTAssertEqual(first, window.frame)
+        XCTAssertEqual(fit.heldSize, CGSize(width: 800, height: 600))
+        let second = try setFrame(window, cell.topLeftCorner, cell.size, fit: &fit, RunLoopJob())
+        if let second { XCTAssertEqual(second, window.frame, "A repeated placement must report the actual frame, or return nil when unchanged") }
+    }
+
+    func testAPlacementTheAppClampsOrResizesReportsTheFrameItHas() throws {
+        // Keeps 800 × 600; a move right of x = 640 costs it width (the room left of 1440).
+        let app = SimulatedAppWindow(Rect(topLeftX: 0, topLeftY: 0, width: 640, height: 480), aspect: 4.0 / 3.0)
+        app.takesPosition = { topLeft, frame in
+            Rect(topLeftX: max(200, topLeft.x), topLeftY: topLeft.y, width: min(frame.width, 1440 - max(200, topLeft.x)), height: frame.height)
+        }
+        var fit = WindowFrameFit()
+        XCTAssertEqual(try lay(app, in: Rect(topLeftX: 0, topLeftY: 0, width: 1000, height: 600), &fit), app.frame)
+        XCTAssertEqual(app.frame, Rect(topLeftX: 200, topLeftY: 0, width: 800, height: 600), "Clamped right of its centered place")
+
+        // The cell moves, not its size: the window is only placed, and the app keeps it at x = 200.
+        XCTAssertEqual(try lay(app, in: Rect(topLeftX: 50, topLeftY: 0, width: 1000, height: 600), &fit), app.frame)
+        XCTAssertEqual(app.frame.topLeftX, 200)
+        // Moved far right, it loses width on the way: the report says so.
+        XCTAssertEqual(try lay(app, in: Rect(topLeftX: 700, topLeftY: 0, width: 1000, height: 600), &fit), app.frame)
+        XCTAssertEqual(app.frame, Rect(topLeftX: 800, topLeftY: 0, width: 640, height: 600))
+        // And when the move to its centered place after an ask costs it width, the ask reports the width it has.
+        XCTAssertEqual(try lay(app, in: Rect(topLeftX: 600, topLeftY: 0, width: 900, height: 600), &fit), app.frame)
+        XCTAssertEqual(app.frame, Rect(topLeftX: 650, topLeftY: 0, width: 790, height: 600))
+    }
+
+    func testAPlacementTheAppTakesReportsItsNewPlace() throws {
+        let app = SimulatedAppWindow(Rect(topLeftX: 0, topLeftY: 0, width: 640, height: 480), aspect: 4.0 / 3.0)
+        var fit = WindowFrameFit()
+        try lay(app, in: Rect(topLeftX: 0, topLeftY: 0, width: 1000, height: 600), &fit)
+        let sizes = app.sizeWrites
+        XCTAssertEqual(try lay(app, in: Rect(topLeftX: 300, topLeftY: 50, width: 1000, height: 600), &fit),
+            Rect(topLeftX: 400, topLeftY: 50, width: 800, height: 600))
+        XCTAssertEqual(app.frame, Rect(topLeftX: 400, topLeftY: 50, width: 800, height: 600))
+        XCTAssertEqual(app.sizeWrites, sizes, "Placed, not asked again")
+    }
+
+    func testAPlacementWhoseResultCantBeReadReportsNothing() throws {
+        let app = SimulatedAppWindow(Rect(topLeftX: 0, topLeftY: 0, width: 640, height: 480), aspect: 4.0 / 3.0)
+        var fit = WindowFrameFit()
+        try lay(app, in: Rect(topLeftX: 0, topLeftY: 0, width: 1000, height: 600), &fit)
+        app.positionReadable = false
+        XCTAssertNil(try lay(app, in: Rect(topLeftX: 300, topLeftY: 50, width: 1000, height: 600), &fit),
+            "No frame is made up from where the window was asked to go")
+        let sizes = app.sizeWrites
+        app.positionReadable = true
+        // Once it can be read, the window is reported where it is.
+        XCTAssertEqual(try lay(app, in: Rect(topLeftX: 300, topLeftY: 50, width: 1000, height: 600), &fit), app.frame)
+        XCTAssertEqual(app.sizeWrites, sizes)
+    }
+
     func testAnAppThatDropsItsConstraintIsAskedAgainAndFillsTheCell() throws {
         let app = SimulatedAppWindow(Rect(topLeftX: 0, topLeftY: 0, width: 640, height: 480), aspect: 4.0 / 3.0)
         var fit = WindowFrameFit()
@@ -270,6 +338,23 @@ final class WindowFrameFitTest: XCTestCase {
         XCTAssertFalse(fit.asked, "A newer layout took over: this one's answer isn't recorded")
         try lay(app, in: Rect(topLeftX: 0, topLeftY: 0, width: 1000, height: 600), &fit)
         XCTAssertEqual(app.frame, Rect(topLeftX: 100, topLeftY: 0, width: 800, height: 600))
+    }
+}
+
+/// The independent reviewer's stand-in (2026-11-12): an app that keeps at most 800 × 600 and clamps
+/// position writes to x ≥ 200, with no success signal.
+private final class PositionClampedWindow: AxFrameAccess {
+    var frame = Rect(topLeftX: 200, topLeftY: 100, width: 800, height: 600)
+    var axTopLeft: CGPoint? { frame.topLeftCorner }
+    var axSize: CGSize? { frame.size }
+    func setAxTopLeft(_ point: CGPoint) {
+        frame.topLeftX = max(200, point.x)
+        frame.topLeftY = point.y
+    }
+    func setAxSize(_ size: CGSize) -> Bool {
+        frame.width = min(800, size.width)
+        frame.height = min(600, size.height)
+        return true
     }
 }
 

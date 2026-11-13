@@ -116,8 +116,9 @@ func frameFitTopLeft(cell: Rect, size: CGSize, bounds: Rect?) -> CGPoint {
 /// that size goes in the cell (`frameFitTopLeft`). When the app keeps a size of its own (`fit`), later
 /// calls for the same request leave the size alone and only place the window, so repeated layouts
 /// don't fight the app. Returns the window's frame when a size was asked for, or it's at a size the
-/// app keeps, or it just got the size it was asked for after keeping another: as read back, except a
-/// position just written. Nil when nothing about its fit is new, or the frame couldn't be read.
+/// app keeps, or it just got the size it was asked for after keeping another: always as read back after
+/// the last write, never where it was asked to be, since a position write says nothing about where the
+/// window went. Nil when nothing about its fit is new, or the frame couldn't be read.
 @discardableResult
 func setFrame<W: AxFrameAccess>(
     _ window: W, _ topLeft: CGPoint?, _ size: CGSize?, fit: inout WindowFrameFit, within bounds: Rect? = nil, _ job: RunLoopJob,
@@ -139,13 +140,20 @@ func setFrame<W: AxFrameAccess>(
             size: kept, bounds: bounds)
     }
 
-    // The app keeps a size of its own for this request: place the window, don't ask again.
+    // The app keeps a size of its own for this request: place the window, don't ask again. The app may
+    // clamp or refuse the move, and a move may change the size (a display's edge): what's reported is
+    // read back after it, and nothing when it can't be read.
     func place(_ held: CGSize) throws -> Rect? {
-        guard let topLeft, let currentSize else { return nil }
+        guard let topLeft else { return nil }
         let placed = target(topLeft, held)
-        if currentTopLeft?.isClose(to: placed) != true { try writing { window.setAxTopLeft(placed) } }
-        let at = currentTopLeft.flatMap { $0.isClose(to: placed) ? $0 : nil } ?? placed
-        return fit.news(Rect(topLeftX: at.x, topLeftY: at.y, width: currentSize.width, height: currentSize.height), in: topLeft)
+        var frame = currentTopLeft.flatMap { at in currentSize.map { Rect(topLeftX: at.x, topLeftY: at.y, width: $0.width, height: $0.height) } }
+        if currentTopLeft?.isClose(to: placed) != true {
+            try writing {
+                window.setAxTopLeft(placed)
+                frame = window.axTopLeft.flatMap { at in window.axSize.map { Rect(topLeftX: at.x, topLeftY: at.y, width: $0.width, height: $0.height) } }
+            }
+        }
+        return frame.flatMap { fit.news($0, in: topLeft) }
     }
     if fit.holds(currentSize), let held = fit.heldSize { return try place(held) }
     let sizeMatches = currentSize?.isClose(to: size) == true
@@ -183,9 +191,10 @@ func setFrame<W: AxFrameAccess>(
             if !placed.isClose(to: topLeft) { window.setAxTopLeft(placed) }
         }
         fit.record(answered: answered, readBack: readBack)
-        // Where the window is, as the app says, not where it was asked to be.
-        guard let readBack, let at = window.axTopLeft else { return }
-        let frame = Rect(topLeftX: at.x, topLeftY: at.y, width: readBack.width, height: readBack.height)
+        // Where the window is and its size, as the app says after the last write, not as asked: the move
+        // to its place may have been clamped, or have changed its size.
+        guard readBack != nil, let at = window.axTopLeft, let now = window.axSize else { return }
+        let frame = Rect(topLeftX: at.x, topLeftY: at.y, width: now.width, height: now.height)
         observed = topLeft.map { fit.news(frame, in: $0) ?? frame } ?? frame
     }
     return observed
