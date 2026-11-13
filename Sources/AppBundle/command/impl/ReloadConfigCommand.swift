@@ -78,6 +78,7 @@ struct ReloadConfigCommand: Command {
     WindowTabStripPanelController.shared.refresh()
     SecureInputPanel.shared.refresh()
     NotificationCenter.default.post(name: settingsConfigurationDidReload, object: nil)
+    MCPServer.shared.apply(config.mcpServer)
 
     guard isWinMuxRuntimeReady else { return }
     scheduleRefreshSession(.configAutoReload)

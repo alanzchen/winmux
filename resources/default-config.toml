@@ -167,6 +167,15 @@ on-mode-changed = []
     # "default" = "🏠"
     # "project-1" = "💻"
 
+# WinMux's MCP server over HTTP, for MCP clients such as Claude, Codex or Hermes: it reads windows,
+# tabs, pins and displays, and runs winmux commands with the command line's effects. Off by default.
+# On, it listens on 127.0.0.1 only, so only this Mac reaches it. require-token = true makes clients
+# send the token Settings shows. See docs/mcp-server.md.
+[mcp-server]
+    enabled = false
+    port = 41740
+    require-token = false
+
 [mode.main.binding]
     ctrl-f = 'open-sidebar'
     alt-space = 'layout horizontal vertical'

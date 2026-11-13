@@ -77,6 +77,7 @@ struct Config: ConvenienceCopyable {
     var modes: [String: Mode] = [:]
     var onWindowDetected: [WindowDetectedCallback] = []
     var onModeChanged: [any Command] = []
+    var mcpServer = MCPServerConfig()
 }
 
 enum DefaultContainerOrientation: String {

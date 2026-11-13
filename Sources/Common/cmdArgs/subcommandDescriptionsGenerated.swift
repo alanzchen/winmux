@@ -1,7 +1,7 @@
 // CLI SUBCOMMAND DESCRIPTION TABLE. The legacy generated filename is retained for source compatibility.
 // Keep this list in sync with the public command manifest.
 
-let subcommandDescriptions = [
+public let subcommandDescriptions = [
     ["  agent", "Query, validate, and apply agent-oriented window layout JSON"],
     ["  balance-sizes", "Balance sizes of all windows in the current workspace"],
     ["  close-all-windows-but-current", "On the focused workspace, close all windows but current"],

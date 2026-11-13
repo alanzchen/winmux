@@ -3,14 +3,7 @@ import Darwin
 import Foundation
 import Network
 
-let usage =
-    """
-    USAGE: \(CommandLine.arguments.first ?? "winmux") [-h|--help] [-v|--version] <subcommand> [<args>...]
-
-    SUBCOMMANDS:
-    chrome-extension install   Register the installed app as Chrome’s native host
-    \(subcommandDescriptions.sortedBy { $0[0] }.toPaddingTable(columnSeparator: "   ").joined(separator: "\n"))
-    """
+let usage = winmuxUsage(program: CommandLine.arguments.first ?? "winmux")
 private let cliUsageOrParseErrorExitCode: Int32 = 2
 
 @main
@@ -38,12 +31,7 @@ struct Main {
                 case .customError(let error):
                     exit(1, err: error)
             }
-            print(
-                """
-                winmux CLI client version: \(cliClientVersionAndHash)
-                WinMux.app server version: \(serverVersionAndHash ?? "Unknown. The server is not running")
-                """,
-            )
+            print(winmuxVersionText(clientVersionAndHash: cliClientVersionAndHash, serverVersionAndHash: serverVersionAndHash))
             if serverVersionAndHash != nil && cliClientVersionAndHash != serverVersionAndHash {
                 eprint(
                     """

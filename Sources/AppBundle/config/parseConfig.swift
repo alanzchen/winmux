@@ -88,6 +88,7 @@ private let configParser: [String: any ParserProtocol<Config>] = [
     "window-tabs": Parser(\.windowTabs, parseWindowTabs),
     "workspace-to-monitor-force-assignment": Parser(\.workspaceToMonitorForceAssignment, parseWorkspaceToMonitorAssignment),
     "on-window-detected": Parser(\.onWindowDetected, parseOnWindowDetectedArray),
+    "mcp-server": Parser(\.mcpServer, parseMCPServer),
 
     // Deprecated
     "non-empty-workspaces-root-containers-layout-on-startup": Parser(\._nonEmptyWorkspacesRootContainersLayoutOnStartup, parseStartupRootContainerLayout),

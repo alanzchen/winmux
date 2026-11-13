@@ -3,7 +3,7 @@ import Common
 
 enum SettingsGroup: String, CaseIterable, Identifiable {
     case startup, menuBar, dockMode, placement, dockAppearance, sidebarAppearance, dockContent
-    case newWindows, interaction, defaultLayout, windowChrome, windowTabs, gaps, projects, automation
+    case newWindows, interaction, defaultLayout, windowChrome, windowTabs, gaps, projects, automation, mcpServer
     var id: String { rawValue }
     var title: String {
         switch self {
@@ -22,11 +22,12 @@ enum SettingsGroup: String, CaseIterable, Identifiable {
             case .gaps: "Tiling gaps"
             case .projects: "Projects & workspaces"
             case .automation: "Event actions"
+            case .mcpServer: "MCP server"
         }
     }
     var page: SettingsSidebarItem {
         switch self {
-            case .startup, .menuBar: .general
+            case .startup, .menuBar, .mcpServer: .general
             case .dockMode, .placement, .dockAppearance, .sidebarAppearance, .dockContent: .appearance
             case .projects: .workspaces
             case .automation: .configuration
@@ -198,6 +199,8 @@ enum SettingsCatalog {
         let collapsibleRails: Set<WorkspaceSidebarMode> = [.dock, .sidebar]
         let dockStyle = { (configuration: Config) in configuration.workspaceSidebar.dockChromeStyle }
         let chromeStyle = { (configuration: Config) in configuration.workspaceSidebar.chromeStyle }
+        let mcp = "mcp-server"
+        let serverOn = SettingsRequirement.disables("Turn on the MCP server to use this setting.") { $0.mcpServer.enabled }
         var result: [SettingsField] = [
             bool(.startup, "start-at-login", "Start at login", "Launch WinMux after you sign in.", path: \.startAtLogin),
             bool(.startup, "auto-reload-config", "Reload TOML automatically", "Apply valid configuration edits saved from another editor.", path: \.autoReloadConfig),
@@ -359,6 +362,11 @@ enum SettingsCatalog {
             SettingsField(group: .projects, section: nil, key: "persistent-workspaces", title: "Persistent workspaces", help: "Comma-separated names of workspaces to keep when empty. Press Return to save.", control: .text,
                 read: { .text($0.persistentWorkspaces.joined(separator: ", ")) }, render: { "[" + $0.text.split(separator: ",").map { SettingsValue.text($0.trimmingCharacters(in: .whitespaces)).toml }.joined(separator: ", ") + "]" })
                 .requiring(.disables("Requires config-version = 2. Update the configuration in the TOML Editor to use persistent workspaces.") { $0.configVersion >= 2 }),
+            bool(.mcpServer, "enabled", "Turn on MCP server", "Lets MCP clients such as Claude, Codex or Hermes read WinMux's windows, tabs, pins and displays, and run winmux commands with the same effects as the command line. Listens on 127.0.0.1, this Mac only.", section: mcp, path: \.mcpServer.enabled),
+            int(.mcpServer, "port", "Port", "The port the server listens on, from 1024 to 65535.", section: mcp, range: mcpServerPortRange, path: \.mcpServer.port)
+                .requiring(serverOn),
+            bool(.mcpServer, "require-token", "Require access token", "Clients must send the token below as Authorization: Bearer <token>. Without it, any app on this Mac can use the server.", section: mcp, path: \.mcpServer.requireToken)
+                .requiring(serverOn),
         ]
         for (key, title, path) in gapPaths {
             result.append(SettingsField(group: .gaps, section: "gaps", key: key, title: title, help: "Spacing in points. Editing replaces any per-monitor values for this gap.", control: .integer(key.hasPrefix("inner") ? 0...80 : 0...120),

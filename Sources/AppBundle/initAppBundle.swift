@@ -55,6 +55,7 @@ import Foundation
         // Screen Recording is optional. Request it only from the explicit Settings action,
         // never on launch, config reload, or restoration after an update.
         startUnixSocketServer()
+        MCPServer.shared.appDidStart()
         GlobalObserver.initObserver()
         MonitorConfigurationObserver.shared.startObserving()
         installSavedWorkspaceObservers()

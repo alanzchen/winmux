@@ -146,6 +146,7 @@ public enum FormatVar: Equatable {
         case workspaceFocused = "workspace-is-focused"
         case workspaceVisible = "workspace-is-visible"
         case workspaceIsSaved = "workspace-is-saved"
+        case workspaceIsPinned = "workspace-is-pinned"
         case workspaceRootContainerLayout = "workspace-root-container-layout"
     }
 

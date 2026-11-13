@@ -21,6 +21,7 @@ struct SettingsForm: View {
                                 ForEach(SettingsGroup.allCases.filter { $0.page == page }) { group in
                                     groupView(group)
                                         .id(group.rawValue)
+                                    if group == .mcpServer { MCPServerSettingsDetails(editor: editor) }
                                 }
                                 if page == .general { SettingsPermissionsView().id("permissions") }
                                 if page == .workspaces { ShortcutSettingsWorkspacePane(model: model) }
@@ -92,6 +93,7 @@ struct SettingsFieldRow: View {
     /// Says which other modes a shared setting also changes.
     var note: String? = nil
     @State private var isDragging = false
+    @State private var portText: String?
     @State private var colorSave: Task<Void, Never>?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
@@ -173,6 +175,8 @@ struct SettingsFieldRow: View {
                         }
                         .labelsHidden().frame(maxWidth: 185, alignment: .trailing).accessibilityLabel(title)
                     }
+                case .integer(let range) where field.id == "mcp-server.port":
+                    portControl(range: range)
                 case .integer(let range):
                     let range = field.range(in: editor.projection) ?? range
                     numberControl(range: Double(range.lowerBound)...Double(range.upperBound), integer: true)
@@ -248,6 +252,35 @@ struct SettingsFieldRow: View {
                     .accessibilityValue(accessibleNumber(integer: integer))
             }
         }
+    }
+
+    /// A port is a number to type, not an amount to slide: applied only once it's one in `range`.
+    private func portControl(range: ClosedRange<Int>) -> some View {
+        let typed = portText.map { $0.trimmingCharacters(in: .whitespaces) }
+        let valid = typed.flatMap(Int.init).flatMap { range.contains($0) ? $0 : nil }
+        return VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(title)
+                Spacer()
+                TextField(title, text: Binding(get: { portText ?? String(current.integer) }, set: { portText = $0 }))
+                    .labelsHidden().textFieldStyle(.roundedBorder).frame(width: 90).multilineTextAlignment(.trailing)
+                    .onSubmit { applyPort(valid) }
+                Button("Apply") { applyPort(valid) }.disabled(valid == nil || valid == current.integer)
+            }
+            if typed != nil, valid == nil {
+                Text("Enter a port from \(range.lowerBound) to \(range.upperBound).").font(.caption).foregroundStyle(.red)
+            }
+        }
+        // A typed draft gives way when the port changes otherwise, as Restore Defaults or a reload does, or when
+        // the row can't be used.
+        .onChange(of: current.integer) { _ in portText = nil }
+        .onChange(of: availability.isAvailable) { _ in portText = nil }
+    }
+
+    private func applyPort(_ port: Int?) {
+        guard let port else { return }
+        portText = nil
+        if port != current.integer { change(.integer(port), commit: true) }
     }
 
     private var magnificationLabel: String { (1 + current.number).formatted(.number.precision(.fractionLength(0...2))) + "×" }

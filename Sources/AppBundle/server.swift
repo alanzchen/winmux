@@ -90,59 +90,63 @@ private func newConnection(_ connection: NWConnection) async { // todo add exit 
             }
             continue
         }
-        let (command, help, err) = parseCommand(request.args).unwrap()
-        guard let token: RunSessionGuard = await .isServerEnabled(orIsEnableCommand: command) else {
-            await answerToClient(
-                exitCode: 1,
-                stderr: "\(winMuxAppName) server is disabled and doesn't accept commands. " +
-                    "You can use 'winmux enable on' to enable the server",
-            )
-            continue
-        }
-        if let help {
-            await answerToClient(exitCode: 0, stdout: help)
-            continue
-        }
-        if let err {
-            await answerToClient(exitCode: 1, stderr: err)
-            continue
-        }
-        if command?.isExec == true {
-            await answerToClient(exitCode: 1, stderr: "exec-and-forget is prohibited in CLI")
-            continue
-        }
-        if let command {
-            let _answer: Result<ServerAnswer, Error> = await Result {
-                try await runLightSession(
-                    .socketServer(command.args),
-                    token,
-                    shouldSchedulePostRefresh: !command.canSkipPostCommandRefresh
-                ) { () throws in
-                    let env = CmdEnv.init(
-                        windowId: request.windowId.flatMap { $0 },
-                        workspaceName: request.workspace.flatMap { $0 },
-                    )
-                    let cmdResult = try await command.run(env, CmdStdin(request.stdin))
-                    return ServerAnswer(
-                        exitCode: cmdResult.exitCode,
-                        stdout: cmdResult.stdout.joined(separator: "\n"),
-                        stderr: cmdResult.stderr.joined(separator: "\n"),
-                        serverVersionAndHash: serverVersionAndHash,
-                    )
-                }
-            }
-            var answer = _answer.getOrNil() ??
-                ServerAnswer(
-                    exitCode: 1,
-                    stderr: "Fail to await main thread. \(_answer.failureOrNil?.localizedDescription ?? "")",
-                    serverVersionAndHash: serverVersionAndHash,
-                )
-            if request.windowId == nil || request.workspace == nil {
-                answer.stderr += "\n\nWinMux client has sent incomplete JSON request. 'windowId' or/and 'workspace' fields are missing. Please forward WINMUX_WINDOW_ID and WINMUX_WORKSPACE to these JSON fields. If the appropriate environment variables are empty, pass explicit 'null' in the JSON."
-            }
-            await answerToClient(answer)
-            continue
-        }
-        die("Unreachable")
+        await answerToClient(await runCliRequest(request))
     }
+}
+
+/// One CLI request, run as the CLI's socket runs it: parsed as the CLI's, refused while WinMux is disabled
+/// (unless it's `enable`), help and errors answered, `exec-and-forget` refused, and the command run in a light
+/// session. The MCP server's tools run commands through here too, so a command does the same either way.
+/// `subscribe` streams events instead of answering once, so it never comes here.
+func runCliRequest(_ request: ClientRequest) async -> ServerAnswer {
+    func answer(exitCode: Int32, stdout: String = "", stderr: String = "") -> ServerAnswer {
+        ServerAnswer(exitCode: exitCode, stdout: stdout, stderr: stderr, serverVersionAndHash: serverVersionAndHash)
+    }
+    let (command, help, err) = parseCommand(request.args).unwrap()
+    guard let token: RunSessionGuard = await .isServerEnabled(orIsEnableCommand: command) else {
+        return answer(
+            exitCode: 1,
+            stderr: "\(winMuxAppName) server is disabled and doesn't accept commands. " +
+                "You can use 'winmux enable on' to enable the server",
+        )
+    }
+    if let help {
+        return answer(exitCode: 0, stdout: help)
+    }
+    if let err {
+        return answer(exitCode: 1, stderr: err)
+    }
+    if command?.isExec == true {
+        return answer(exitCode: 1, stderr: "exec-and-forget is prohibited in CLI")
+    }
+    guard let command else { die("Unreachable") }
+    let _answer: Result<ServerAnswer, Error> = await Result {
+        try await runLightSession(
+            .socketServer(command.args),
+            token,
+            shouldSchedulePostRefresh: !command.canSkipPostCommandRefresh
+        ) { () throws in
+            let env = CmdEnv.init(
+                windowId: request.windowId.flatMap { $0 },
+                workspaceName: request.workspace.flatMap { $0 },
+            )
+            let cmdResult = try await command.run(env, CmdStdin(request.stdin))
+            return ServerAnswer(
+                exitCode: cmdResult.exitCode,
+                stdout: cmdResult.stdout.joined(separator: "\n"),
+                stderr: cmdResult.stderr.joined(separator: "\n"),
+                serverVersionAndHash: serverVersionAndHash,
+            )
+        }
+    }
+    var result = _answer.getOrNil() ??
+        ServerAnswer(
+            exitCode: 1,
+            stderr: "Fail to await main thread. \(_answer.failureOrNil?.localizedDescription ?? "")",
+            serverVersionAndHash: serverVersionAndHash,
+        )
+    if request.windowId == nil || request.workspace == nil {
+        result.stderr += "\n\nWinMux client has sent incomplete JSON request. 'windowId' or/and 'workspace' fields are missing. Please forward WINMUX_WINDOW_ID and WINMUX_WORKSPACE to these JSON fields. If the appropriate environment variables are empty, pass explicit 'null' in the JSON."
+    }
+    return result
 }

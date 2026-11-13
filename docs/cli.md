@@ -204,10 +204,10 @@ The accepted interpolation field families are:
   monitor, and app fields.
 
 - Workspace: `workspace`, `workspace-display-name`, `workspace-is-focused`,
-  `workspace-is-visible`, `workspace-is-saved`, and
+  `workspace-is-visible`, `workspace-is-saved`, `workspace-is-pinned`, and
   `workspace-root-container-layout`, plus monitor fields. `workspace` is the
   internal name that commands accept; `workspace-display-name` is the name shown
-  in the Dock and Sidebar.
+  in the Dock and Sidebar. `workspace-is-pinned` is true for a pinned tab.
 
 - Project: `project-index`, `project-id`, `project-name`, `project-color`,
   `project-is-focused`, `project-is-visible`, `project-workspace-count`, and

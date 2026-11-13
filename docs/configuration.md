@@ -432,6 +432,21 @@ window it was opened from instead of taking a tab of its own. WinMux's own rule 
 `Photos and Videos` image viewer (English title only). Your rules, which can turn WinMux's off or replace
 them, live in a separate file, `~/.config/winmux/window-rules.toml`. See [Window rules](window-rules.md).
 
+## Let MCP clients use WinMux
+
+WinMux can run an MCP server over HTTP, so assistants such as Claude, Codex or Hermes can read its
+windows, tabs, pins and displays and run winmux commands. It's off by default. Turn it on in
+Settings → General → MCP server, or:
+
+```toml
+[mcp-server]
+enabled = true          # listens on 127.0.0.1 only
+port = 41740
+require-token = false   # true: clients send the token Settings shows
+```
+
+See [MCP server](mcp-server.md) for client setup and security notes.
+
 ## Open a new window from New Workspace
 
 ```toml
