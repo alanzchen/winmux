@@ -43,6 +43,11 @@ let workspaceSidebarPinHomeReadInterval: TimeInterval = 2
 /// Pins whose window Return is reading: another Return meanwhile does nothing.
 @MainActor private var workspaceSidebarPinHomeReturning: Set<String> = []
 
+/// Awaited at the start of the session that shows or opens what a Return read, before its last check.
+/// Tests hold it there.
+@MainActor
+var workspaceSidebarPinHomeReturnWillShow: @MainActor () async -> Void = {}
+
 @MainActor
 func resetWorkspaceSidebarPinHomeReadingsForTests() {
     workspaceSidebarPinHomeReturning = []

@@ -54,6 +54,7 @@ final class WorkspaceSidebarResourceEntriesTest: XCTestCase {
         let notice: @MainActor (WinMuxToastNotice) -> Void
         let decision: @MainActor (PinPageExpectation) async -> Void
         let homeNow: @MainActor () -> TimeInterval
+        let returnWillShow: @MainActor () async -> Void
         let savedStore: SavedWorkspaceStore
     }
 
@@ -78,7 +79,7 @@ final class WorkspaceSidebarResourceEntriesTest: XCTestCase {
             script: pinLinkScript, running: pinPageRunningPid, handler: pinLinkHandlerApp, open: openPinLinkURL,
             prompt: pinLinkPrompt, hookmark: runHookmarkScript, integrations: linkIntegrationStore,
             notice: showWorkspaceSidebarNotice, decision: waitForPinPageDecision, homeNow: workspaceSidebarPinHomeNow,
-            savedStore: savedWorkspaceStore)
+            returnWillShow: workspaceSidebarPinHomeReturnWillShow, savedStore: savedWorkspaceStore)
         pinDocumentAXDocument = { [unowned self] window in axDocuments[window.windowId] }
         pinDocumentCandidateWindows = { [unowned self] bundleId in candidates.filter { $0.app.rawAppBundleId == bundleId } }
         pinDocumentAppURL = { URL(fileURLWithPath: "/Applications/\($0).app") }
@@ -132,6 +133,7 @@ final class WorkspaceSidebarResourceEntriesTest: XCTestCase {
             showWorkspaceSidebarNotice = saved.notice
             waitForPinPageDecision = saved.decision
             workspaceSidebarPinHomeNow = saved.homeNow
+            workspaceSidebarPinHomeReturnWillShow = saved.returnWillShow
             savedWorkspaceStore = saved.savedStore
         }
         WorkspaceSidebarTabUndo.shared.clear()
@@ -438,6 +440,102 @@ final class WorkspaceSidebarResourceEntriesTest: XCTestCase {
         await settle()
 
         XCTAssertTrue(scripts.isEmpty)
+        XCTAssertTrue(launched.isEmpty)
+    }
+
+    func testReturnToHomeTakesNoFocusBackWhenTheUserMovesOnWhileItsWindowIsRead() async throws {
+        let (tab, window) = makeTab("page", windowId: 21, app: safari)
+        let other = makeTab("other", windowId: 22, app: safari).1
+        pin(tab, .link(safariLink))
+        XCTAssertTrue(window.focusWindow())
+        reads[21] = .init(url: page, title: "Report", privacy: .normal)
+        let gate = Gate()
+        gate.close()
+        let read = pinPageWindowRead
+        pinPageWindowRead = { window in
+            await gate.pass()
+            return await read(window)
+        }
+
+        returnPinToHomeFromSidebar("page")
+        let reading = await eventually { gate.waiting == 1 }
+        XCTAssertTrue(reading)
+        XCTAssertTrue(other.focusWindow(), "The user moves on while the pin's window is read")
+        let moved = focusChangeGeneration
+        gate.open()
+        await settle()
+
+        XCTAssertTrue(focus.windowOrNil === other, "A Return the user has left behind takes no focus back")
+        XCTAssertEqual(focusChangeGeneration, moved)
+        XCTAssertEqual(workspaceSidebarPinHomeFreshEvidence(tab, home: .link(safariLink)), .showsHome, "What it read still counts")
+    }
+
+    func testReturnToHomeShowsAndOpensNothingWhenTheUserMovesOnWhileItsWindowIsRead() async throws {
+        let (tab, _) = makeTab("page", windowId: 21, app: safari)
+        XCTAssertTrue(makeTab("other", windowId: 22, app: safari).1.focusWindow())
+        let elsewhere = makeTab("third", windowId: 23, app: safari).1
+        pin(tab, .link(safariLink))
+        reads[21] = .init(url: "https://example.com/elsewhere", title: "Elsewhere", privacy: .normal)
+        let gate = Gate()
+        gate.close()
+        let read = pinPageWindowRead
+        pinPageWindowRead = { window in
+            await gate.pass()
+            return await read(window)
+        }
+
+        returnPinToHomeFromSidebar("page")
+        let reading = await eventually { gate.waiting == 1 }
+        XCTAssertTrue(reading)
+        XCTAssertTrue(elsewhere.focusWindow(), "The user moves on while the pin's window is read")
+        let moved = focusChangeGeneration
+        gate.open()
+        await settle()
+
+        XCTAssertTrue(focus.windowOrNil === elsewhere, "The pin isn't shown for a Return the user has left behind")
+        XCTAssertFalse(tab.isVisible)
+        XCTAssertEqual(focusChangeGeneration, moved)
+        XCTAssertTrue(scripts.isEmpty, "Nor is its home opened")
+        XCTAssertTrue(launched.isEmpty)
+
+        // Chosen again, and the user stays: the pin is shown, then its home opened beside its window.
+        now += workspaceSidebarPinHomeReadingFreshness + 1
+        returnPinToHomeFromSidebar("page")
+        let asked = await eventually { !self.scripts.isEmpty }
+        XCTAssertTrue(asked)
+        XCTAssertTrue(focus.workspace === tab)
+        await settle()
+        XCTAssertEqual(scripts.count, 1)
+    }
+
+    func testReturnToHomeShowsAndOpensNothingWhenTheUserMovesOnBeforeItsSessionRuns() async throws {
+        let (tab, _) = makeTab("page", windowId: 21, app: safari)
+        let other = makeTab("other", windowId: 22, app: safari).1
+        let elsewhere = makeTab("third", windowId: 23, app: safari).1
+        pin(tab, .link(safariLink))
+        let gate = Gate()
+        workspaceSidebarPinHomeReturnWillShow = { await gate.pass() }
+
+        // Its window read to show the home, then to show something else.
+        for url in [page, "https://example.com/elsewhere"] {
+            XCTAssertTrue(other.focusWindow())
+            now += workspaceSidebarPinHomeReadingFreshness + 1
+            reads[21] = .init(url: url, title: "Read", privacy: .normal)
+            gate.close()
+
+            returnPinToHomeFromSidebar("page")
+            let queued = await eventually { gate.waiting == 1 }
+            XCTAssertTrue(queued, "Read, and its session waits to show it")
+            XCTAssertTrue(elsewhere.focusWindow(), "The user moves on meanwhile")
+            let moved = focusChangeGeneration
+            gate.open()
+            await settle()
+
+            XCTAssertTrue(focus.windowOrNil === elsewhere, url)
+            XCTAssertFalse(tab.isVisible, url)
+            XCTAssertEqual(focusChangeGeneration, moved, url)
+        }
+        XCTAssertTrue(scripts.isEmpty, "And no home opened")
         XCTAssertTrue(launched.isEmpty)
     }
 
