@@ -1,6 +1,6 @@
 # Local development
 
-Use macOS, an Apple Silicon Mac, Xcode 27, and **Swift 6.4.0**, pinned in `.swift-version`.
+Use macOS, an Apple Silicon Mac, Xcode 27.2, and **Swift 6.4.2**, pinned in `.swift-version`.
 Xcode is required: the tests use XCTest, and SwiftUI builds need the macro plugins in
 Xcode's macOS platform.
 Verify `swift --version` before building. If you use Swiftly, run commands through

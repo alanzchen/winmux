@@ -1,8 +1,9 @@
 # Native macOS testing with Tart
 
 The local `winmux-tests` VM provides a separate desktop for tests and screenshots.
-It uses macOS 27 (Golden Gate) with Xcode 27, whose bundled Swift is the pinned 6.4.0,
-8 virtual CPUs, and 24 GB memory. Source is shared read-only; generated screenshots
+It uses macOS 27 (Golden Gate) with Xcode 27.0, 8 virtual CPUs, and 24 GB memory. Xcode 27.0
+bundles Swift 6.4.0, older than the pinned 6.4.2: move the guest to an Xcode 27.2 image before
+the next VM run. Source is shared read-only; generated screenshots
 and logs use a separate writable results directory. No host signing keys or Apple
 Account are needed in the guest.
 

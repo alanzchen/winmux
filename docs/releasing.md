@@ -54,7 +54,7 @@ make prerelease-local \
   NOTARYTOOL_KEYCHAIN="$HOME/Library/Keychains/login.keychain-db"
 ```
 
-Xcode 27 bundles the pinned Swift 6.4.0, so no toolchain override is needed:
+Xcode 27.2 bundles the pinned Swift 6.4.2, so no toolchain override is needed:
 `script/setup.sh` then builds the tests and CLI with Xcode's compiler too, the same one
 that builds the app. Remove any `TOOLCHAINS` line left in
 `~/Library/Application Support/WinMux/ship.env` from the Xcode 26 setup. When the
@@ -179,7 +179,8 @@ continues while new triggers remain disabled.
 
 Hosted build workflows use the [Apple Silicon `macos-26` runner](https://docs.github.com/en/actions/reference/runners/github-hosted-runners),
 pin Xcode 27.0, and check its compiler against
-`.swift-version` (6.4.0; `swift --version` prints it as 6.4). A missing Xcode version or compiler mismatch fails the run;
+`.swift-version` (6.4.2). Xcode 27.0 bundles Swift 6.4.0, so they fail that check until they move to
+Xcode 27.2. A missing Xcode version or compiler mismatch fails the run;
 the workflow never silently switches toolchains.
 
 ## One-time account setup
