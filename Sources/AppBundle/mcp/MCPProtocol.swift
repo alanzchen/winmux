@@ -23,12 +23,26 @@ struct MCPRequestContext: Sendable {
     var access: MCPAccess = .local
     /// This Mac's machine name in the tailnet, which a tailnet request's Host must name.
     var tailnetName: String = ""
+    /// Allow debug screenshots is on: the screenshot and recording tools are offered.
+    var debugCapture: Bool = false
 }
 
 /// What a request may not do, set for the commands it runs however they're reached, a binding included.
 enum MCPRequestRestrictions {
     /// `list-exec-env-vars` refuses: see `mcpRestrictsEnvironmentListing`.
     @TaskLocal static var refusesEnvironmentListing = false
+    /// No screen image is captured or sent: see `mcpRestrictsScreenImages`.
+    @TaskLocal static var refusesScreenImages = false
+}
+
+let mcpScreenImagesRefusal = "Screen images aren't captured or sent for a request from the tailnet while the server requires no "
+    + "access token: they show whatever is on screen and can't be redacted. To allow them, turn on Require access token in "
+    + "Settings → General → MCP server."
+
+/// Screenshots and recorded frames show whatever is on screen and can't be redacted. A request from the tailnet gets
+/// none while the server requires no token; structured snapshots and recordings still work.
+func mcpRestrictsScreenImages(_ context: MCPRequestContext) -> Bool {
+    context.access == .tailnet && context.token == nil
 }
 
 let mcpEnvironmentListingRefusal = "list-exec-env-vars prints the environment WinMux's commands inherit, which may hold "
@@ -54,6 +68,10 @@ struct MCPTool: Sendable {
     let inputSchema: MCPJSON
     var outputSchema: MCPJSON? = nil
     let readOnly: Bool
+    /// Offered only while Allow debug screenshots is on.
+    var needsDebugCapture = false
+    /// Whether it may destroy anything; by default, whether it isn't read-only.
+    var destructive: Bool? = nil
     let run: @Sendable ([String: MCPJSON]) async -> Result<MCPJSON, MCPToolArgumentError>
 
     /// The arguments its schema declares; any other is refused.
@@ -68,7 +86,7 @@ struct MCPTool: Sendable {
             "annotations": .object([
                 "title": .string(title),
                 "readOnlyHint": .bool(readOnly),
-                "destructiveHint": .bool(!readOnly),
+                "destructiveHint": .bool(destructive ?? !readOnly),
                 "idempotentHint": .bool(readOnly),
                 "openWorldHint": .bool(false),
             ]),
@@ -182,10 +200,12 @@ private func mcpAnswer(_ message: MCPJSON, _ context: MCPRequestContext) async -
         case "ping":
             return mcpRPCResult(id: id, .object([:]))
         case "tools/list":
-            return mcpRPCResult(id: id, .object(["tools": .array(mcpTools.map(\.json))]))
+            return mcpRPCResult(id: id, .object(["tools": .array(mcpOfferedTools(context).map(\.json))]))
         case "tools/call":
             guard let name = params["name"]?.string else { return mcpRPCError(id: id, code: -32602, "Invalid params: name a tool") }
-            guard let tool = mcpTools.first(where: { $0.name == name }) else { return mcpRPCError(id: id, code: -32602, "Unknown tool") }
+            guard let tool = mcpOfferedTools(context).first(where: { $0.name == name }) else {
+                return mcpRPCError(id: id, code: -32602, "Unknown tool")
+            }
             var arguments: [String: MCPJSON] = [:]
             if let raw = params["arguments"] {
                 guard let given = raw.object else {
@@ -198,7 +218,9 @@ private func mcpAnswer(_ message: MCPJSON, _ context: MCPRequestContext) async -
             }
             // Set for whatever the tool runs, in this request's task only.
             let outcome = await MCPRequestRestrictions.$refusesEnvironmentListing.withValue(mcpRestrictsEnvironmentListing(context)) {
-                await tool.run(arguments)
+                await MCPRequestRestrictions.$refusesScreenImages.withValue(mcpRestrictsScreenImages(context)) {
+                    await tool.run(arguments)
+                }
             }
             switch outcome {
                 case .success(let result): return mcpRPCResult(id: id, result)
@@ -235,6 +257,11 @@ private func mcpInitializeResult(_ params: [String: MCPJSON]) -> MCPJSON {
 }
 
 // MARK: - Tools
+
+/// The tools this request is offered: the debug capture tools only while Allow debug screenshots is on.
+func mcpOfferedTools(_ context: MCPRequestContext) -> [MCPTool] {
+    mcpTools.filter { !$0.needsDebugCapture || context.debugCapture }
+}
 
 private let mcpWindowFields = "%{window-id} %{window-title} %{window-layout} %{window-is-fullscreen} %{app-name} %{app-bundle-id} "
     + "%{app-pid} %{workspace} %{workspace-display-name} %{workspace-is-pinned} %{monitor-id} %{monitor-name}"
@@ -348,6 +375,70 @@ let mcpTools: [MCPTool] = [
                     return .failure(error)
             }
         }),
+    MCPTool(name: "winmux_debug_screenshot", title: "Debug screenshot",
+        description: "An image of each display, or of one, as it is now, WinMux's own sidebar and panels included, with each "
+            + "display's id and frame in the coordinates winmux_debug_snapshot uses, so the two line up. Images can't be "
+            + "redacted: they show whatever is on screen, titles and private content included. Downscaled to max_long_edge "
+            + "(default 1600 px, at most the display's own size). Kept in memory only. Offered while Allow debug screenshots "
+            + "is on; needs macOS's Screen Recording permission. From the tailnet, only while the server requires a token.",
+        inputSchema: .object([
+            "type": .string("object"),
+            "properties": .object([
+                "display": .object(["type": .string("integer"), "minimum": .int(1),
+                                    "description": .string("Only this display: its id in winmux_debug_snapshot's monitors.")]),
+                "max_long_edge": .object(["type": .string("integer"), "minimum": .int(debugCaptureLongEdgeRange.lowerBound),
+                                          "maximum": .int(debugCaptureLongEdgeRange.upperBound),
+                                          "description": .string("The longest side of each image, in pixels. Default 1600; never more than native.")]),
+                "format": .object(["type": .string("string"), "enum": .array([.string("jpeg"), .string("png")]),
+                                   "description": .string("jpeg (default) or png.")]),
+            ]),
+            "additionalProperties": .bool(false),
+        ]),
+        readOnly: true,
+        needsDebugCapture: true,
+        run: { arguments in
+            switch mcpDebugScreenshotOptions(arguments) {
+                case .success(let options): .success(await mcpDebugScreenshot(options))
+                case .failure(let error): .failure(error)
+            }
+        }),
+    MCPTool(name: "winmux_debug_recording", title: "Debug recording",
+        description: "Records WinMux for up to 120 seconds: every interval_ms, a winmux_debug_snapshot and, if allowed, a "
+            + "downscaled frame of each display, plus every window event between them. action start begins one (one at a "
+            + "time); status reports it; fetch returns it a page at a time from cursor (pass the nextCursor it gave); stop "
+            + "ends it and discards everything. It's kept in memory only, at most 64 MB (the oldest frames go first, and it "
+            + "says so), and discarded once its last page is fetched or 10 minutes after it ends. The menu bar shows a running "
+            + "recording. Frames can't be redacted: they show whatever is on screen. Without Screen Recording permission, or "
+            + "from the tailnet while no token is required, it records snapshots and events only.",
+        inputSchema: .object([
+            "type": .string("object"),
+            "properties": .object([
+                "action": .object(["type": .string("string"), "enum": .array(["start", "status", "fetch", "stop"].map(MCPJSON.string))]),
+                "duration_seconds": .object(["type": .string("integer"), "minimum": .int(debugRecordingDurationRange.lowerBound),
+                                             "maximum": .int(debugRecordingDurationRange.upperBound),
+                                             "description": .string("start: how long, default 60.")]),
+                "interval_ms": .object(["type": .string("integer"), "minimum": .int(debugRecordingIntervalRange.lowerBound),
+                                        "maximum": .int(debugRecordingIntervalRange.upperBound),
+                                        "description": .string("start: time between captures, default 1000.")]),
+                "frames": .object(["type": .string("boolean"), "description": .string("start: capture frames too, if allowed. Default true.")]),
+                "display": .object(["type": .string("integer"), "minimum": .int(1), "description": .string("start: frames of this display only.")]),
+                "max_long_edge": .object(["type": .string("integer"), "minimum": .int(debugCaptureLongEdgeRange.lowerBound),
+                                          "maximum": .int(debugCaptureLongEdgeRange.upperBound),
+                                          "description": .string("start: the longest side of a frame, default 1024.")]),
+                "format": .object(["type": .string("string"), "enum": .array([.string("jpeg"), .string("png")])]),
+                "window_ids": .object(["type": .string("array"), "items": .object(["type": .string("integer"), "minimum": .int(0)]),
+                                       "description": .string("start: snapshots of the rows with these windows only.")]),
+                "include_titles": .object(["type": .string("boolean"), "description": .string("start: titles in the snapshots. Default false.")]),
+                "cursor": .object(["type": .string("integer"), "minimum": .int(-1), "description": .string("fetch: the nextCursor of the page before.")]),
+                "id": .object(["type": .string("string"), "description": .string("fetch, stop: the recording's id, to be sure it's that one.")]),
+            ]),
+            "required": .array([.string("action")]),
+            "additionalProperties": .bool(false),
+        ]),
+        readOnly: false,
+        needsDebugCapture: true,
+        destructive: false,
+        run: { arguments in await mcpDebugRecording(arguments) }),
     MCPTool(name: "winmux", title: "Run a winmux command",
         description: "Runs one winmux command-line command, with exactly the CLI's effects and limits: give its arguments without "
             + "the leading \"winmux\", such as [\"workspace\", \"mail\"] or [\"focus\", \"--window-id\", \"123\"]. "
@@ -407,6 +498,97 @@ let mcpTools: [MCPTool] = [
             return .success(mcpCommandResult(await mcpRunCli(args, stdin: stdin)))
         }),
 ]
+
+private func mcpIntArgument(_ arguments: [String: MCPJSON], _ name: String, _ range: ClosedRange<Int>) -> Result<Int?, MCPToolArgumentError> {
+    switch arguments[name] {
+        case nil, .null?: return .success(nil)
+        case .int(let value)? where range.contains(value): return .success(value)
+        default: return .failure(MCPToolArgumentError(message: "\(name) must be an integer from \(range.lowerBound) to \(range.upperBound)"))
+    }
+}
+
+private func mcpBoolArgument(_ arguments: [String: MCPJSON], _ name: String) -> Result<Bool?, MCPToolArgumentError> {
+    switch arguments[name] {
+        case nil, .null?: .success(nil)
+        case .bool(let value)?: .success(value)
+        default: .failure(MCPToolArgumentError(message: "\(name) must be true or false"))
+    }
+}
+
+private func mcpFormatArgument(_ arguments: [String: MCPJSON]) -> Result<DebugImageFormat?, MCPToolArgumentError> {
+    switch arguments["format"] {
+        case nil, .null?: .success(nil)
+        case .string(let text)? where DebugImageFormat(rawValue: text) != nil: .success(DebugImageFormat(rawValue: text))
+        default: .failure(MCPToolArgumentError(message: "format must be jpeg or png"))
+    }
+}
+
+private func mcpDebugScreenshotOptions(_ arguments: [String: MCPJSON]) -> Result<MCPDebugScreenshotOptions, MCPToolArgumentError> {
+    var options = MCPDebugScreenshotOptions()
+    do {
+        options.monitorId = try mcpIntArgument(arguments, "display", 1 ... 64).get()
+        options.maxLongEdge = try mcpIntArgument(arguments, "max_long_edge", debugCaptureLongEdgeRange).get() ?? options.maxLongEdge
+        options.format = try mcpFormatArgument(arguments).get() ?? options.format
+    } catch {
+        return .failure(error)
+    }
+    return .success(options)
+}
+
+private let mcpRecordingStartArguments: Set<String> = ["duration_seconds", "interval_ms", "frames", "display", "max_long_edge", "format",
+                                                       "window_ids", "include_titles"]
+
+/// The recording tool's actions. Each takes only its own arguments.
+@MainActor
+private func mcpDebugRecording(_ arguments: [String: MCPJSON]) async -> Result<MCPJSON, MCPToolArgumentError> {
+    guard let action = arguments["action"]?.string else {
+        return .failure(MCPToolArgumentError(message: "action must be start, status, fetch or stop"))
+    }
+    let allowed: Set<String> = switch action {
+        case "start": mcpRecordingStartArguments
+        case "fetch": ["cursor", "id"]
+        case "stop": ["id"]
+        default: []
+    }
+    guard ["start", "status", "fetch", "stop"].contains(action) else {
+        return .failure(MCPToolArgumentError(message: "action must be start, status, fetch or stop"))
+    }
+    if let other = arguments.keys.sorted().first(where: { $0 != "action" && !allowed.contains($0) }) {
+        return .failure(MCPToolArgumentError(message: "\(other) isn't an argument of \(action)"))
+    }
+    let recorder = DebugRecorder.shared
+    let refusesImages = MCPRequestRestrictions.refusesScreenImages
+    let id = arguments["id"]?.string
+    if arguments["id"] != nil, id == nil { return .failure(MCPToolArgumentError(message: "id must be a string")) }
+    func result(_ document: MCPJSON) -> MCPJSON {
+        .object(["content": .array([debugTextContent(document)]), "isError": .bool(false)])
+    }
+    switch action {
+        case "start":
+            var settings = DebugRecordingSettings()
+            do {
+                settings.durationSeconds = try mcpIntArgument(arguments, "duration_seconds", debugRecordingDurationRange).get() ?? settings.durationSeconds
+                settings.intervalMs = try mcpIntArgument(arguments, "interval_ms", debugRecordingIntervalRange).get() ?? settings.intervalMs
+                settings.frames = try mcpBoolArgument(arguments, "frames").get() ?? settings.frames
+                settings.monitorId = try mcpIntArgument(arguments, "display", 1 ... 64).get()
+                settings.maxLongEdge = try mcpIntArgument(arguments, "max_long_edge", debugCaptureLongEdgeRange).get() ?? settings.maxLongEdge
+                settings.format = try mcpFormatArgument(arguments).get() ?? settings.format
+                settings.snapshot = try mcpDebugSnapshotOptions(arguments.filter { ["window_ids", "include_titles"].contains($0.key) }).get()
+            } catch {
+                return .failure(error)
+            }
+            return recorder.start(settings, refusesImages: refusesImages).map(result)
+        case "fetch":
+            switch mcpIntArgument(arguments, "cursor", -1 ... Int.max) {
+                case .success(let cursor): return recorder.fetch(after: cursor, id: id, refusesImages: refusesImages)
+                case .failure(let error): return .failure(error)
+            }
+        case "stop":
+            return recorder.stop(reason: "a client stopped it", id: id).map(result)
+        default:
+            return .success(result(recorder.status()))
+    }
+}
 
 private func mcpDebugSnapshotOptions(_ arguments: [String: MCPJSON]) -> Result<MCPDebugSnapshotOptions, MCPToolArgumentError> {
     var options = MCPDebugSnapshotOptions()

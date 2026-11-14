@@ -204,6 +204,15 @@ final class SettingsEditor: ObservableObject {
         enqueue(Request(title: field.title, fields: [field], values: [field.id: value]))
     }
 
+    /// The user flipped a toggle in Settings: saved like any change, and its own action runs when they turn it on.
+    /// Only the Settings form calls this; a config file or a reload never does.
+    func toggle(_ field: SettingsField, to isOn: Bool) {
+        let wasOn = value(field).bool
+        setDraft(.bool(isOn), for: field)
+        commit(field)
+        if isOn, !wasOn { field.onTurnedOn?() }
+    }
+
     private func fileEdits(for request: Request) -> [SettingsFileEdit] {
         request.fields.compactMap { field in
             guard field.writePreference == nil, let value = request.values[field.id] else { return nil }

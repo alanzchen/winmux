@@ -34,11 +34,15 @@ final class MCPServer: ObservableObject {
     @Published private(set) var tailnetPort: Int?
     /// The machine name a tailnet request's Host must name.
     @Published private(set) var tailnetMachineName = ""
+    /// While Allow debug screenshots is on: whether macOS lets WinMux record the screen. Nil while it's off.
+    @Published private(set) var screenCaptureAllowed: Bool?
 
     /// This Mac's local host name, as Tailscale names a Mac by default. Replaced in tests.
     var localHostName: @MainActor () -> String? = { SCDynamicStoreCopyLocalHostName(nil) as String? }
 
     private var config = MCPServerConfig()
+    /// Whether the debug capture tools were offered at the last apply: turning them on asks macOS for the permission.
+    private var offersDebugCapture = false
     private let local = MCPListenerSlot(.local)
     private let tailnet = MCPListenerSlot(.tailnet)
     /// WinMux's own server listens only once the app has started, as the CLI's socket does.
@@ -70,6 +74,7 @@ final class MCPServer: ObservableObject {
         guard !waitsForAppStart else { return }
         hasToken = readMCPServerToken() != nil
         guard config.enabled else {
+            applyDebugCapture(offers: false)
             for slot in [local, tailnet] {
                 stopListener(slot)
                 slot.reportedFailure = nil
@@ -83,6 +88,7 @@ final class MCPServer: ObservableObject {
             if token == nil, !serverArgs.isReadOnly { token = try? generateMCPServerToken() }
             guard let token else {
                 // Never serve without the token it requires.
+                applyDebugCapture(offers: false)
                 stopListener(local)
                 stopListener(tailnet)
                 setState(.off, tailnet)
@@ -95,6 +101,7 @@ final class MCPServer: ObservableObject {
             local.shared.token = nil
             tailnet.shared.token = nil
         }
+        applyDebugCapture(offers: config.debugScreenshots)
         // A tailnet listener going away or moving lets go of its port first: the local one may be moving onto it.
         if !tailnetKeepsItsListener(config) { stopListener(tailnet) }
         keepOrStart(local, port: config.port)
@@ -103,6 +110,24 @@ final class MCPServer: ObservableObject {
 
     private func tailnetKeepsItsListener(_ config: MCPServerConfig) -> Bool {
         config.tailnet && tailnet.listener != nil && tailnet.listenerPort == config.tailnetPort && tailnetState != .off && !tailnetState.isFailed
+    }
+
+    /// Offers the debug capture tools while the server runs with Allow debug screenshots on. It never asks macOS for
+    /// Screen Recording, at launch, on a reload from any client or ever: only the Settings action does. Turning the tools
+    /// off revokes them: a recording is dropped, and a capture under way sends nothing.
+    private func applyDebugCapture(offers: Bool) {
+        local.shared.debugCapture = offers
+        tailnet.shared.debugCapture = offers
+        if !offers, offersDebugCapture || DebugRecorder.shared.recording != nil {
+            revokeDebugCapture(reason: "Allow debug screenshots or the MCP server was turned off")
+        }
+        offersDebugCapture = offers
+        screenCaptureAllowed = offers ? debugScreenCapture.hasPermission() : nil
+    }
+
+    /// Settings looks again, as the permission can change in System Settings at any time.
+    func refreshScreenCapturePermission() {
+        screenCaptureAllowed = offersDebugCapture ? debugScreenCapture.hasPermission() : nil
     }
 
     private func applyTailnet(_ config: MCPServerConfig) {
@@ -271,6 +296,7 @@ final class MCPServerSharedState: @unchecked Sendable {
     private let lock = NSLock()
     private var _token: String?
     private var _tailnetName = ""
+    private var _debugCapture = false
     private var _isListening = false
     private var connections: [ObjectIdentifier: NWConnection] = [:]
 
@@ -286,6 +312,11 @@ final class MCPServerSharedState: @unchecked Sendable {
     var tailnetName: String {
         get { lock.withLock { _tailnetName } }
         set { lock.withLock { _tailnetName = newValue } }
+    }
+
+    var debugCapture: Bool {
+        get { lock.withLock { _debugCapture } }
+        set { lock.withLock { _debugCapture = newValue } }
     }
 
     var isListening: Bool {
@@ -377,7 +408,8 @@ private final class MCPConnectionSession: @unchecked Sendable {
                 buffer.removeFirst(consumed)
                 // The token as it is now, not as it was when the connection was accepted; where it came from is the
                 // listener's alone.
-                let context = MCPRequestContext(peer: peer, token: shared.token, access: shared.access, tailnetName: shared.tailnetName)
+                let context = MCPRequestContext(peer: peer, token: shared.token, access: shared.access, tailnetName: shared.tailnetName,
+                                                debugCapture: shared.debugCapture)
                 Task {
                     let response = await handleMCPHTTPRequest(request, context)
                     send(response, keepAlive: request.keepsAlive)

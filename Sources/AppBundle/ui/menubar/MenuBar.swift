@@ -16,6 +16,12 @@ private let winmuxRepositoryURL = "https://github.com/alanzchen/winmux"
         Button("Copy to clipboard") { identification.copyToClipboard() }
             .keyboardShortcut("C", modifiers: .command)
         Divider()
+        if viewModel.debugRecording != nil {
+            Button("Debug recording… Stop") {
+                _ = DebugRecorder.shared.stop(reason: "it was stopped from the menu bar")
+            }
+            Divider()
+        }
         if viewModel.accessibilityPermissionStatus == .granted {
             Button(viewModel.isEnabled ? "Disable" : "Enable") {
                 _ = Task {
@@ -52,18 +58,39 @@ private let winmuxRepositoryURL = "https://github.com/alanzchen/winmux"
             }
         }.keyboardShortcut("Q", modifiers: .command)
     } label: {
-        if viewModel.accessibilityPermissionStatus != .granted {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .resizable()
-                .aspectRatio(contentMode: .fit)
-        } else if viewModel.isEnabled {
-            MenuBarAppIcon().environmentObject(viewModel)
-        } else {
-            Image(systemName: "pause.circle.fill")
-                .resizable()
-                .aspectRatio(contentMode: .fit)
+        switch menuBarIconKind(viewModel) {
+            case .debugRecording:
+                Image(systemName: "record.circle.fill")
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .accessibilityLabel("WinMux: debug recording")
+            case .accessibilityMissing:
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+            case .appIcon:
+                MenuBarAppIcon().environmentObject(viewModel)
+            case .disabled:
+                Image(systemName: "pause.circle.fill")
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
         }
     }
+}
+
+enum MenuBarIconKind: Equatable {
+    /// A debug recording is running: shown over anything else.
+    case debugRecording
+    case accessibilityMissing
+    case appIcon
+    case disabled
+}
+
+@MainActor
+func menuBarIconKind(_ model: TrayMenuModel) -> MenuBarIconKind {
+    if model.debugRecording != nil { return .debugRecording }
+    if model.accessibilityPermissionStatus != .granted { return .accessibilityMissing }
+    return model.isEnabled ? .appIcon : .disabled
 }
 
 @MainActor @ViewBuilder

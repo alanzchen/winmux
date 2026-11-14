@@ -19,6 +19,7 @@ require-token = false   # true: clients must send the access token
 tailnet = false         # true: a second port, for tailscale serve to forward your tailnet to
 tailnet-port = 41741    # 1024–65535, not the same as port
 tailnet-name = ''       # this Mac's name in your tailnet; empty: its local host name
+debug-screenshots = false  # true: offer the screenshot and recording tools (needs Screen Recording)
 ```
 
 Settings saves these keys to your config file. Reload Config, or editing the file with auto-reload on, applies them.
@@ -83,6 +84,8 @@ curl -s http://127.0.0.1:41740/mcp \
 | `list_apps` | Running apps with a user interface. |
 | `query_desktop` | `winmux agent query`: one structured snapshot of every workspace's windows, tab groups and layout. |
 | `winmux_debug_snapshot` | One JSON document for diagnosing window and sidebar problems; see below. Optional `window_ids`, `include_titles`. |
+| `winmux_debug_screenshot` | With **Allow debug screenshots**: an image of each display, and where it lies. Optional `display`, `max_long_edge`, `format`. |
+| `winmux_debug_recording` | With **Allow debug screenshots**: records snapshots, frames and window events for up to 120 seconds. `action`: `start`, `status`, `fetch`, `stop`. |
 | `winmux` | Runs one command, given its arguments without the leading `winmux`, such as `["workspace", "mail"]`. Optional `stdin`. Returns its output and exit code. |
 
 The read tools run the CLI's own queries (`list-windows --json` and so on). With the `winmux` tool, `["--help"]` (or
@@ -116,6 +119,53 @@ Titles, tab labels and app paths are left out unless you pass `"include_titles":
 workspace names, display names, frames and states are always in. `"window_ids": [123]` keeps only the rows with those
 windows, and their events. The document is at most 64 KiB: over that, it leaves out the oldest events first, then
 windows no row lists, then the last rows, and says how many of each in `truncated`.
+
+### Debug screenshots and recordings
+
+With **Allow debug screenshots** (`debug-screenshots = true`, off by default), the server also offers
+`winmux_debug_screenshot` and `winmux_debug_recording`. Off, they aren't listed at all. Turning it on in Settings asks
+macOS for Screen Recording permission, once; Settings shows whether macOS allows it, with **Allow Screen Recording…**
+and **Open Privacy Settings…** if it doesn't. Nothing else asks: not launching WinMux, not editing or reloading the
+config (from any client), and not the tools, which fail until macOS allows it.
+
+**Images can't be redacted.** A screenshot or frame shows whatever is on screen, window titles and private content
+included, even though `winmux_debug_snapshot` leaves titles out. They're kept in memory only and never written to
+disk. WinMux's own sidebar and panels are in them: they're what's being debugged.
+
+`winmux_debug_screenshot` returns one image per display (or the one `display` names, numbered as the snapshot's
+`monitors[].id`), downscaled so its long edge is at most `max_long_edge` pixels (1600 by default, never more than the
+display's own), as JPEG or PNG. With them, a JSON part gives each display's `frame` and `visibleFrame` in the
+snapshot's coordinates and the image's `pixelsPerPoint`, so a window's frame from the snapshot can be found in the
+image: `(x − frame.x) × pixelsPerPoint`.
+
+`winmux_debug_recording`:
+
+- `start` records for `duration_seconds` (default 60, at most 120), every `interval_ms` (default 1000, at least 250):
+  a `winmux_debug_snapshot` (`window_ids` and `include_titles` apply), and, if frames are allowed, a frame of each
+  display (`display`, `max_long_edge` default 1024, `format`). It keeps every window event in between, not just the
+  newest the snapshot's log keeps. One recording at a time; starting another replaces a finished one.
+- `status` says what it holds; `fetch` returns its entries — each tick's state, its events, its frames — in order, a
+  page at a time: pass the `nextCursor` of one page to get the next. A page holds at most 8 images, 6 MB of them and
+  96 KB of text, without exception: every entry fits a page alone. A frame larger than 6 MB isn't kept, and the
+  recording says so; use JPEG or a smaller `max_long_edge`. Events come in pieces. A state the same as the one before
+  it is sent as `"unchanged"`.
+- It's kept in memory only, at most 64 MB, counting what it holds as `fetch` sends it, events included; an event's
+  detail values are cut at 200 characters. Room is made before anything is kept: the oldest frames go first, then the
+  oldest states, then the oldest events, and `truncated` says how many of each.
+- It ends at its deadline, on a clock that changing the Mac's time doesn't move: no capture starts after it, and one
+  still under way then is dropped.
+- It's discarded on `stop`, once its last page is fetched, ten minutes after it ends, when another replaces it, or
+  when **Allow debug screenshots** or the server is turned off. Discarding drops everything it holds at once, and a
+  capture still under way keeps nothing; a screenshot under way when the tools are turned off sends nothing.
+- Without Screen Recording permission, it records snapshots and events only.
+
+While a recording runs, WinMux's menu bar icon is a recording symbol and its menu has **Debug recording… Stop**, which
+ends and discards it. macOS shows its own screen recording indicator too.
+
+From the tailnet, while the server requires no token, no image is captured or sent: a screenshot is refused, a
+recording started from there records snapshots and events only, and a recording fetched from there comes without its
+frames, and isn't discarded when that fetch reaches its end, so a request that may see the frames still can. Each
+says to turn on **Require access token**. The local port is unaffected.
 
 ## Access from your tailnet
 
@@ -178,7 +228,8 @@ compared in constant time and never logged.
 ## Security
 
 - Anything that can reach the server can do what the `winmux` command line can, including focusing, moving and
-  closing windows. Read tools and `agent query` return window titles and app names, which can be private.
+  closing windows. Read tools and `agent query` return window titles and app names, which can be private. With
+  **Allow debug screenshots**, it can see your screen: images can't be redacted.
   `list-exec-env-vars` prints the environment WinMux's commands inherit, which may hold secrets.
 - Off, nothing listens. On, only 127.0.0.1, on one port, or two with tailnet access. A connection from any other
   address is closed before anything is read.

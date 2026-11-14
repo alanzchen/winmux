@@ -21,13 +21,17 @@ final class WindowLifecycleLog {
     static let capacity = 256
 
     private var ring = DockPerformanceRing<WindowLifecycleEvent>(capacity: capacity)
+    /// Sees every event as it's recorded: a running debug recording keeps them all.
+    var observer: (@MainActor (WindowLifecycleEvent) -> Void)?
 
     var events: [WindowLifecycleEvent] { ring.elements }
     /// How many older events made room for newer ones.
     var overwritten: Int { ring.overwritten }
 
     func record(_ kind: WindowLifecycleEvent.Kind, windowId: UInt32?, _ detail: [String: String] = [:]) {
-        ring.append(WindowLifecycleEvent(at: Date(), kind: kind, windowId: windowId, detail: detail))
+        let event = WindowLifecycleEvent(at: Date(), kind: kind, windowId: windowId, detail: detail)
+        ring.append(event)
+        observer?(event)
     }
 
     func reset() {

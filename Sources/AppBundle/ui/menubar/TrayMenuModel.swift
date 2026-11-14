@@ -9,6 +9,8 @@ public final class TrayMenuModel: ObservableObject {
     /// Is "layouting" enabled
     @Published var isEnabled: Bool = true
     @Published var accessibilityPermissionStatus: AccessibilityPermissionStatus = .waitingWithPrompt
+    /// A debug recording is running: the menu bar shows it and offers to stop it.
+    @Published var debugRecording: DebugRecordingIndicator? = nil
     @Published var workspaces: [WorkspaceViewModel] = []
     @Published var workspaceSidebarWorkspaces: [WorkspaceSidebarWorkspaceViewModel] = []
     @Published var workspaceSidebarProjects: [WorkspaceSidebarProjectViewModel] = []

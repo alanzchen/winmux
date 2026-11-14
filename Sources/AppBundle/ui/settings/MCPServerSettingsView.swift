@@ -37,6 +37,7 @@ func mcpExampleClientConfig(url: String, requiresToken: Bool) -> String {
 struct MCPServerSettingsDetails: View {
     @ObservedObject var editor: SettingsEditor
     @ObservedObject var server: MCPServer = .shared
+    @ObservedObject private var screenRecording = debugScreenRecordingPermission
     @State private var problem: String?
     @State private var confirmsNewToken = false
 
@@ -67,6 +68,7 @@ struct MCPServerSettingsDetails: View {
                 }
                 if settings.requireToken { token }
                 if settings.tailnet { tailnet }
+                if settings.debugScreenshots { debugScreenshots }
                 if let problem {
                     Text(problem).font(.caption).foregroundStyle(.red).fixedSize(horizontal: false, vertical: true)
                 }
@@ -122,6 +124,47 @@ struct MCPServerSettingsDetails: View {
             }
         }
         .accessibilityIdentifier("settings.mcp-server.tailnet")
+    }
+
+    /// Allow debug screenshots: whether macOS allows them, the way to allow them, and what an image shows.
+    private var debugScreenshots: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Debug screenshots").font(.callout.weight(.medium))
+            if server.screenCaptureAllowed == true {
+                Label("macOS allows WinMux to record the screen", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+            } else {
+                Label("macOS hasn't allowed WinMux to record the screen", systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                HStack {
+                    if !screenRecording.didRequest {
+                        Button("Allow Screen Recording…") {
+                            screenRecording.requestFromSettings()
+                            server.refreshScreenCapturePermission()
+                        }
+                    }
+                    Button("Open Privacy Settings…") {
+                        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
+                            NSWorkspace.shared.open(url)
+                        }
+                    }
+                    Button("Check Again") { server.refreshScreenCapturePermission() }
+                }
+                Text("Until it does, recordings keep WinMux's state and events only. You may need to quit and reopen WinMux after allowing it.")
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+            Text("Screenshots and recorded frames show whatever is on screen, WinMux's own panels and private content included, "
+                + "and can't be redacted. They're kept in memory only, never written to disk. While a recording runs, the menu "
+                + "bar shows it and its menu can stop it; macOS shows its own screen recording indicator too.")
+                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            if settings.tailnet, !settings.requireToken {
+                Label("Requests from your tailnet get no images until Require access token is on.", systemImage: "lock")
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .onAppear { server.refreshScreenCapturePermission() }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            server.refreshScreenCapturePermission()
+        }
+        .accessibilityIdentifier("settings.mcp-server.debug-screenshots")
     }
 
     private func copyableLine(_ text: String, button: String) -> some View {

@@ -9,10 +9,14 @@ import Common
 /// Apps whose last snapshot read hasn't finished.
 @MainActor private var debugSnapshotAppsReading: Set<Int32> = []
 
-struct MCPDebugSnapshotOptions: Sendable {
+struct MCPDebugSnapshotOptions: Equatable, Sendable {
     /// Only these windows: the rows they're in, whole, and their events.
     var windowIds: Set<UInt32>? = nil
     var includeTitles = false
+    /// A recording keeps events of its own, so its snapshots leave the log out.
+    var includesEvents = true
+    /// Below `mcpDebugSnapshotByteLimit`, for a recording's states, which must fit its fetch pages.
+    var byteLimit: Int? = nil
 }
 
 /// What a snapshot reads from macOS for a window, live. Nothing read is kept.
@@ -72,7 +76,7 @@ func mcpDebugSnapshot(_ options: MCPDebugSnapshotOptions) async -> MCPJSON {
         guard let wanted else { return true }
         return event.windowId.map(wanted.contains) ?? false
     }
-    let document: [String: MCPJSON] = [
+    var document: [String: MCPJSON] = [
         "schema": .string("winmux-debug-snapshot/1"),
         "generatedAt": .string(debugSnapshotTime(Date())),
         "winmux": .object(["version": .string(winMuxAppVersion), "commit": .string(gitHash)]),
@@ -92,10 +96,12 @@ func mcpDebugSnapshot(_ options: MCPDebugSnapshotOptions) async -> MCPJSON {
             "rows": .array(rows.map { snapshot.row($0, inPanel: inPanel.contains($0.name)) }),
         ]),
         "unlistedWindows": .array(unlisted.map { snapshot.member(of: $0) }),
-        "events": .array(events.map(debugSnapshotEvent)),
-        "eventsOverwritten": .int(WindowLifecycleLog.shared.overwritten),
     ]
-    return mcpDebugSnapshotFitted(document, limit: mcpDebugSnapshotByteLimit)
+    if options.includesEvents {
+        document["events"] = .array(events.map(debugSnapshotEvent))
+        document["eventsOverwritten"] = .int(WindowLifecycleLog.shared.overwritten)
+    }
+    return mcpDebugSnapshotFitted(document, limit: min(mcpDebugSnapshotByteLimit, options.byteLimit ?? .max))
 }
 
 /// Within `limit` bytes, encoded: what matters least goes first, the oldest events, then windows no row lists,
@@ -261,7 +267,7 @@ private func debugSnapshotMonitor(_ monitor: Monitor, focused: Bool) -> MCPJSON 
     ])
 }
 
-private func debugSnapshotEvent(_ event: WindowLifecycleEvent) -> MCPJSON {
+func debugSnapshotEvent(_ event: WindowLifecycleEvent) -> MCPJSON {
     var object: [String: MCPJSON] = [
         "at": .string(debugSnapshotTime(event.at)),
         "kind": .string(event.kind.rawValue),
@@ -283,7 +289,7 @@ private func debugSnapshotNumber(_ value: CGFloat) -> MCPJSON {
     return .double((Double(value) * 100).rounded() / 100)
 }
 
-private func debugSnapshotRect(_ rect: Rect?) -> MCPJSON {
+func debugSnapshotRect(_ rect: Rect?) -> MCPJSON {
     guard let rect else { return .null }
     return .object(["x": debugSnapshotNumber(rect.topLeftX), "y": debugSnapshotNumber(rect.topLeftY),
                     "width": debugSnapshotNumber(rect.width), "height": debugSnapshotNumber(rect.height)])

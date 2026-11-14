@@ -21,6 +21,8 @@ struct MCPServerConfig: ConvenienceCopyable, Equatable, Sendable {
     /// This Mac's machine name in the tailnet, the first label of its MagicDNS name. Empty: this Mac's local
     /// hostname, lowercased.
     var tailnetName = ""
+    /// Offers the debug screenshot and recording tools, which need macOS's Screen Recording permission.
+    var debugScreenshots = false
 }
 
 func parseMCPServer(_ raw: TOMLValueConvertible, _ backtrace: TomlBacktrace, _ errors: inout [TomlParseError]) -> MCPServerConfig {
@@ -30,6 +32,7 @@ func parseMCPServer(_ raw: TOMLValueConvertible, _ backtrace: TomlBacktrace, _ e
         "require-token": Parser(\.requireToken, parseBool),
         "tailnet": Parser(\.tailnet, parseBool),
         "tailnet-port": Parser(\.tailnetPort, parseMCPPort),
+        "debug-screenshots": Parser(\.debugScreenshots, parseBool),
         "tailnet-name": Parser(\.tailnetName) { raw, backtrace in
             parseString(raw, backtrace).flatMap { name in
                 let label = name.trimmingCharacters(in: .whitespaces).lowercased()

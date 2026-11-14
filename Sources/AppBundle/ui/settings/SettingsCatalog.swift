@@ -80,6 +80,8 @@ struct SettingsField: Identifiable {
     var searchAliases: [String] = []
     /// An integer setting whose allowed values depend on other settings.
     var contextualRange: ((Config) -> ClosedRange<Int>)?
+    /// A toggle's own action when the user turns it on in Settings: never run by a config file or a reload.
+    var onTurnedOn: (@MainActor () -> Void)?
     nonisolated var id: String { [section, key].compactMap { $0 }.joined(separator: ".") }
     var defaultValue: SettingsValue { preferenceDefault ?? read(defaultConfig) }
     func defaultValue(for configuration: Config) -> SettingsValue { unsetValue?(configuration) ?? defaultValue }
@@ -97,6 +99,12 @@ struct SettingsField: Identifiable {
 }
 
 extension SettingsField {
+    func onTurningOn(_ action: @escaping @MainActor () -> Void) -> SettingsField {
+        var field = self
+        field.onTurnedOn = action
+        return field
+    }
+
     func withUnsetValue(_ value: @escaping (Config) -> SettingsValue, isSet: @escaping (Config) -> Bool,
                         clear: @escaping (inout Config) -> Void) -> SettingsField {
         var field = self
@@ -375,6 +383,12 @@ enum SettingsCatalog {
             SettingsField(group: .mcpServer, section: mcp, key: "tailnet-name", title: "Name in your tailnet", help: "This Mac's machine name in your tailnet, the first part of its MagicDNS name. Leave it empty to use this Mac's local hostname. Press Return to save.", control: .text,
                 read: { .text($0.mcpServer.tailnetName) }, project: SettingsProjection.text(\.mcpServer.tailnetName))
                 .requiring(serverOn, tailnetOn),
+            bool(.mcpServer, "debug-screenshots", "Allow debug screenshots", "Lets MCP clients take screenshots of your displays, WinMux's own panels included, and record them with WinMux's state for up to two minutes, to debug WinMux. Screenshots can't be redacted: they show whatever is on screen, private content included. Kept in memory only. Needs macOS's Screen Recording permission, asked for when you turn this on here.", section: mcp, path: \.mcpServer.debugScreenshots)
+                .requiring(serverOn)
+                .onTurningOn {
+                    debugScreenRecordingPermission.requestFromSettings()
+                    MCPServer.shared.refreshScreenCapturePermission()
+                },
         ]
         for (key, title, path) in gapPaths {
             result.append(SettingsField(group: .gaps, section: "gaps", key: key, title: title, help: "Spacing in points. Editing replaces any per-monitor values for this gap.", control: .integer(key.hasPrefix("inner") ? 0...80 : 0...120),

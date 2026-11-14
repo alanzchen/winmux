@@ -36,6 +36,16 @@ final class MCPServerConfigTest: XCTestCase {
         XCTAssertEqual(mcpTailnetURL(machineName: ""), "https://<name>.<tailnet>.ts.net/mcp")
     }
 
+    func testDebugScreenshotsAreReadAndOffByDefault() {
+        XCTAssertFalse(defaultConfig.mcpServer.debugScreenshots)
+        let parsed = parseConfig("[mcp-server]\nenabled = true\ndebug-screenshots = true\n")
+        XCTAssertEqual(parsed.errors.descriptions, [])
+        XCTAssertTrue(parsed.config.mcpServer.debugScreenshots)
+        XCTAssertFalse(parseConfig("[mcp-server]\ndebug-screenshots = 'yes'\n").errors.isEmpty)
+        let row = SettingsCatalog.fields.first { $0.id == "mcp-server.debug-screenshots" }
+        XCTAssertTrue(row?.help.contains("can't be redacted") == true, row?.help ?? "")
+    }
+
     func testTheTailnetSettingsAreReadAndOffByDefault() {
         XCTAssertEqual(defaultConfig.mcpServer.tailnet, false)
         XCTAssertEqual(defaultConfig.mcpServer.tailnetPort, 41741)
@@ -55,18 +65,16 @@ final class MCPServerConfigTest: XCTestCase {
     func testSettingsOffersTheServersRowsOnTheGeneralPageUsableOnlyWhileItsOn() throws {
         let fields = SettingsCatalog.fields.filter { $0.section == "mcp-server" }
         XCTAssertEqual(fields.map(\.id), ["mcp-server.enabled", "mcp-server.port", "mcp-server.require-token", "mcp-server.tailnet",
-                                          "mcp-server.tailnet-port", "mcp-server.tailnet-name"])
+                                          "mcp-server.tailnet-port", "mcp-server.tailnet-name", "mcp-server.debug-screenshots"])
         XCTAssertTrue(fields.allSatisfy { $0.group.page == .general })
         var configuration = defaultConfig
         for field in fields.dropFirst() {
             XCTAssertFalse(field.availability(in: configuration).isAvailable, field.id)
         }
         configuration.mcpServer.enabled = true
-        for field in fields.prefix(4) {
-            XCTAssertTrue(field.availability(in: configuration).isAvailable, field.id)
-        }
-        for field in fields.suffix(2) {
-            XCTAssertFalse(field.availability(in: configuration).isAvailable, "\(field.id) needs tailnet access on")
+        let needTailnet: Set<String> = ["tailnet-port", "tailnet-name"]
+        for field in fields {
+            XCTAssertEqual(field.availability(in: configuration).isAvailable, !needTailnet.contains(field.key), field.id)
         }
         configuration.mcpServer.tailnet = true
         for field in fields {

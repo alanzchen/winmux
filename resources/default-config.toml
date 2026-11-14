@@ -180,6 +180,9 @@ on-mode-changed = []
     tailnet = false
     tailnet-port = 41741
     tailnet-name = ''
+    # Offers MCP tools that take screenshots of your displays and record them with WinMux's state,
+    # to debug WinMux. Images can't be redacted. Needs macOS's Screen Recording permission.
+    debug-screenshots = false
 
 [mode.main.binding]
     ctrl-f = 'open-sidebar'

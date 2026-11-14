@@ -151,10 +151,10 @@ struct SettingsFieldRow: View {
                     HStack {
                         Text(title).fixedSize(horizontal: false, vertical: true)
                             .contentShape(Rectangle())
-                            .onTapGesture { change(.bool(!current.bool), commit: true) }
+                            .onTapGesture { toggle(to: !current.bool) }
                             .accessibilityHidden(true)
                         Spacer(minLength: 8)
-                        Toggle(title, isOn: Binding(get: { current.bool }, set: { change(.bool($0), commit: true) }))
+                        Toggle(title, isOn: Binding(get: { current.bool }, set: { toggle(to: $0) }))
                             .labelsHidden().toggleStyle(.switch).controlSize(.small)
                             .fixedSize().accessibilityLabel(title)
                     }
@@ -294,6 +294,8 @@ struct SettingsFieldRow: View {
         let value = min(max(current.number + delta, range.lowerBound), range.upperBound)
         change(integer ? .integer(Int(value.rounded())) : .number(value), commit: true)
     }
+
+    private func toggle(to isOn: Bool) { editor.toggle(field, to: isOn) }
 
     private func change(_ value: SettingsValue, commit: Bool) {
         if case .number(let number) = value { editor.setDraft(.number((number * 100).rounded() / 100), for: field) }
