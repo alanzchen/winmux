@@ -170,11 +170,16 @@ on-mode-changed = []
 # WinMux's MCP server over HTTP, for MCP clients such as Claude, Codex or Hermes: it reads windows,
 # tabs, pins and displays, and runs winmux commands with the command line's effects. Off by default.
 # On, it listens on 127.0.0.1 only, so only this Mac reaches it. require-token = true makes clients
-# send the token Settings shows. See docs/mcp-server.md.
+# send the token Settings shows. tailnet = true opens tailnet-port, also on 127.0.0.1, for
+# `tailscale serve` to forward your tailnet to; WinMux never runs Tailscale. tailnet-name is this
+# Mac's name in your tailnet, empty for its local host name. See docs/mcp-server.md.
 [mcp-server]
     enabled = false
     port = 41740
     require-token = false
+    tailnet = false
+    tailnet-port = 41741
+    tailnet-name = ''
 
 [mode.main.binding]
     ctrl-f = 'open-sidebar'

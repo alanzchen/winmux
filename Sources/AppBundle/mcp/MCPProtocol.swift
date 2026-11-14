@@ -8,10 +8,38 @@ let mcpSupportedProtocolVersions = ["2025-06-18", "2025-03-26", "2024-11-05"]
 /// How long a tool waits for its command. The command isn't stopped then, as the CLI's never is.
 let mcpToolTimeout: Duration = .seconds(60)
 
-/// Who asked, where the server listens, and the token a request must carry, if one's required.
+/// Where a request arrived: the server's own port, which only this Mac reaches, or its tailnet port, which
+/// `tailscale serve` forwards requests from the tailnet to. Told by the listener that accepted the connection alone,
+/// never by anything the request says.
+enum MCPAccess: String, Sendable {
+    case local
+    case tailnet
+}
+
+/// Who asked, on which port, and the token a request must carry, if one's required.
 struct MCPRequestContext: Sendable {
     var peer: String
     var token: String?
+    var access: MCPAccess = .local
+    /// This Mac's machine name in the tailnet, which a tailnet request's Host must name.
+    var tailnetName: String = ""
+}
+
+/// What a request may not do, set for the commands it runs however they're reached, a binding included.
+enum MCPRequestRestrictions {
+    /// `list-exec-env-vars` refuses: see `mcpRestrictsEnvironmentListing`.
+    @TaskLocal static var refusesEnvironmentListing = false
+}
+
+let mcpEnvironmentListingRefusal = "list-exec-env-vars prints the environment WinMux's commands inherit, which may hold "
+    + "secrets, so it isn't run for a request from the tailnet while the server requires no access token. To allow it, "
+    + "turn on Require access token in Settings → General → MCP server."
+
+/// `list-exec-env-vars` prints the environment WinMux's commands inherit, which may hold secrets. A request from the
+/// tailnet gets it only while the server requires a token; one on this Mac's own port runs it as from the CLI. The
+/// command itself refuses, so running it through `trigger-binding` is refused too; its help isn't.
+func mcpRestrictsEnvironmentListing(_ context: MCPRequestContext) -> Bool {
+    context.access == .tailnet && context.token == nil
 }
 
 struct MCPToolArgumentError: Error, Sendable {
@@ -58,11 +86,34 @@ func handleMCPHTTPRequest(_ request: MCPHTTPRequest, _ context: MCPRequestContex
     guard mcpPeerIsAllowed(context.peer) else {
         return .refusal(403, "WinMux's MCP server answers only this Mac.")
     }
-    guard mcpHostIsAllowed(request.header("Host")) else {
-        return .refusal(403, "The Host header doesn't name this server.")
+    // tailscaled marks what `tailscale funnel` brings from the internet, and drops a mark a client sent. Neither port
+    // is for the internet. The mark is only ever a reason to refuse.
+    guard request.header("Tailscale-Funnel-Request") == nil else {
+        return .refusal(403, "WinMux's MCP server doesn't answer requests from Tailscale Funnel.")
     }
-    guard mcpOriginIsAllowed(request.header("Origin")) else {
-        return .refusal(403, "Requests from this web page's origin aren't allowed.")
+    switch context.access {
+        case .local:
+            // The local port is this Mac's. A request a proxy forwarded isn't, whatever Host its client chose: the
+            // proxy's own HTTPS name decides where it goes, and the Host it passes on is the client's. So
+            // `tailscale serve` pointed here, or at a port this one later takes, gets nothing.
+            guard !mcpRequestWasForwarded(request) else {
+                return .refusal(403, "WinMux's local MCP port doesn't answer requests a proxy forwarded. Point tailscale serve at "
+                    + "the tailnet port: Settings → General → MCP server → Allow access from my tailnet.")
+            }
+            guard mcpHostIsAllowed(request.header("Host")) else {
+                return .refusal(403, "The Host header doesn't name this server.")
+            }
+            guard mcpOriginIsAllowed(request.header("Origin")) else {
+                return .refusal(403, "Requests from this web page's origin aren't allowed.")
+            }
+        case .tailnet:
+            // Whatever the request says, it's from the tailnet: its headers are never taken as who sent it.
+            guard mcpTailnetHostIsAllowed(request.header("Host"), machineName: context.tailnetName) else {
+                return .refusal(403, "The Host header doesn't name this Mac in your tailnet.")
+            }
+            guard mcpTailnetOriginIsAllowed(request.header("Origin"), host: request.header("Host")) else {
+                return .refusal(403, "Requests from this web page's origin aren't allowed.")
+            }
     }
     let path = request.target.split(separator: "?", maxSplits: 1, omittingEmptySubsequences: false).first.map(String.init) ?? ""
     guard path == mcpServerPath else {
@@ -91,7 +142,7 @@ func handleMCPHTTPRequest(_ request: MCPHTTPRequest, _ context: MCPRequestContex
     if case .array = message {
         return .json(mcpRPCError(id: .null, code: -32600, "Batches aren't supported: send one JSON-RPC message per request."), status: 400)
     }
-    guard let answer = await mcpAnswer(message) else { return MCPHTTPResponse(status: 202) }
+    guard let answer = await mcpAnswer(message, context) else { return MCPHTTPResponse(status: 202) }
     return .json(answer)
 }
 
@@ -107,7 +158,7 @@ private func mcpRequestId(_ id: MCPJSON?) -> MCPJSON? {
 
 /// The answer to one JSON-RPC message, or nil for a notification or a client's response, which get none. The
 /// message is checked whole before anything runs.
-private func mcpAnswer(_ message: MCPJSON) async -> MCPJSON? {
+private func mcpAnswer(_ message: MCPJSON, _ context: MCPRequestContext) async -> MCPJSON? {
     guard let object = message.object else { return mcpRPCError(id: .null, code: -32600, "Invalid Request") }
     let validId = mcpRequestId(object["id"])
     guard object["jsonrpc"] == .string("2.0") else { return mcpRPCError(id: validId ?? .null, code: -32600, "Invalid Request") }
@@ -145,7 +196,11 @@ private func mcpAnswer(_ message: MCPJSON) async -> MCPJSON? {
             if let unknown = arguments.keys.sorted().first(where: { !tool.argumentNames.contains($0) }) {
                 return mcpRPCError(id: id, code: -32602, "Invalid params: \(name) has no argument \(unknown)")
             }
-            switch await tool.run(arguments) {
+            // Set for whatever the tool runs, in this request's task only.
+            let outcome = await MCPRequestRestrictions.$refusesEnvironmentListing.withValue(mcpRestrictsEnvironmentListing(context)) {
+                await tool.run(arguments)
+            }
+            switch outcome {
                 case .success(let result): return mcpRPCResult(id: id, result)
                 case .failure(let error): return mcpRPCError(id: id, code: -32602, error.message)
             }
@@ -261,6 +316,38 @@ let mcpTools: [MCPTool] = [
             + "`winmux agent skill` (through the winmux tool) explains it and how to apply edits.",
         inputSchema: mcpNoArguments, readOnly: true,
         run: { _ in .success(mcpReadResult(await mcpRunCli(["agent", "query"]))) }),
+    MCPTool(name: "winmux_debug_snapshot", title: "Debug snapshot",
+        description: "One JSON document for diagnosing window and sidebar problems: WinMux and macOS versions, every display "
+            + "(frame, visible frame, the workspace it shows, focus), the sidebar's rows as drawn with each member window's "
+            + "state (workspace, container, floating or tiled, auxiliary parent, hidden, minimized, full screen, parked in "
+            + "a corner, the frame WinMux last placed it at and the one macOS reports, whether its app still lists it, its "
+            + "last Accessibility error) and recent window events. Reads only: nothing is run, moved or refreshed. Titles, "
+            + "tab labels and app paths are left out unless include_titles is true.",
+        inputSchema: .object([
+            "type": .string("object"),
+            "properties": .object([
+                "window_ids": .object([
+                    "type": .string("array"),
+                    "items": .object(["type": .string("integer"), "minimum": .int(0)]),
+                    "description": .string("Only these windows: the rows they're in, whole, and their events. Displays are always described."),
+                ]),
+                "include_titles": .object([
+                    "type": .string("boolean"),
+                    "description": .string("Include window titles, tab labels and app paths. Default false."),
+                ]),
+            ]),
+            "additionalProperties": .bool(false),
+        ]),
+        readOnly: true,
+        run: { arguments in
+            switch mcpDebugSnapshotOptions(arguments) {
+                case .success(let options):
+                    let document = await mcpDebugSnapshot(options)
+                    return .success(mcpTextResult(String(decoding: document.encoded(), as: UTF8.self), isError: false))
+                case .failure(let error):
+                    return .failure(error)
+            }
+        }),
     MCPTool(name: "winmux", title: "Run a winmux command",
         description: "Runs one winmux command-line command, with exactly the CLI's effects and limits: give its arguments without "
             + "the leading \"winmux\", such as [\"workspace\", \"mail\"] or [\"focus\", \"--window-id\", \"123\"]. "
@@ -321,6 +408,30 @@ let mcpTools: [MCPTool] = [
         }),
 ]
 
+private func mcpDebugSnapshotOptions(_ arguments: [String: MCPJSON]) -> Result<MCPDebugSnapshotOptions, MCPToolArgumentError> {
+    var options = MCPDebugSnapshotOptions()
+    switch arguments["window_ids"] {
+        case nil, .null?: break
+        case .array(let list)?:
+            var ids: Set<UInt32> = []
+            for item in list {
+                guard case .int(let value) = item, let id = UInt32(exactly: value) else {
+                    return .failure(MCPToolArgumentError(message: "window_ids must be window ids: integers, 0 or more"))
+                }
+                ids.insert(id)
+            }
+            options.windowIds = ids
+        default:
+            return .failure(MCPToolArgumentError(message: "window_ids must be an array of window ids"))
+    }
+    switch arguments["include_titles"] {
+        case nil, .null?: break
+        case .bool(let value)?: options.includeTitles = value
+        default: return .failure(MCPToolArgumentError(message: "include_titles must be true or false"))
+    }
+    return .success(options)
+}
+
 private func mcpLocalAnswer(_ stdout: String) -> ServerAnswer {
     ServerAnswer(exitCode: 0, stdout: stdout, stderr: "", serverVersionAndHash: "\(winMuxAppVersion) \(gitHash)")
 }
@@ -362,7 +473,7 @@ private func mcpCommandResult(_ answer: ServerAnswer?) -> MCPJSON {
 }
 
 /// `work`'s value, or nil if it takes longer than `timeout`. `work` isn't cancelled: it finishes either way.
-private func mcpFirst<T: Sendable>(orAfter timeout: Duration, _ work: @escaping @Sendable () async -> T) async -> T? {
+func mcpFirst<T: Sendable>(orAfter timeout: Duration, _ work: @escaping @Sendable () async -> T) async -> T? {
     let once = MCPOnce()
     return await withCheckedContinuation { (continuation: CheckedContinuation<T?, Never>) in
         let timer = Task {

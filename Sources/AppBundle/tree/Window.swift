@@ -149,6 +149,8 @@ open class Window: TreeNode, Hashable {
     var isMacosFullscreen: Bool { get async throws { false } }
     var isMacosMinimized: Bool { get async throws { false } } // todo replace with enum MacOsWindowNativeState { normal, fullscreen, invisible }
     var isHiddenInCorner: Bool { die("Not implemented") }
+    /// Where it's parked, for a debug snapshot: nil for a window WinMux doesn't park.
+    var cornerParkingForDebug: CornerParkingState? { nil }
     @MainActor
     func nativeFocus() { die("Not implemented") }
     func getAxRect() async throws -> Rect? { die("Not implemented") }

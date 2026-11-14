@@ -48,6 +48,7 @@ enum MCPJSON: Codable, Equatable, Sendable {
 
     var string: String? { if case .string(let value) = self { value } else { nil } }
     var bool: Bool? { if case .bool(let value) = self { value } else { nil } }
+    var int: Int? { if case .int(let value) = self { value } else { nil } }
     var array: [MCPJSON]? { if case .array(let value) = self { value } else { nil } }
     var object: [String: MCPJSON]? { if case .object(let value) = self { value } else { nil } }
 

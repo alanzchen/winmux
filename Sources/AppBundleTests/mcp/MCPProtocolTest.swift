@@ -119,7 +119,8 @@ final class MCPProtocolTest: XCTestCase {
         let listed = await call("tools/list")
         let tools = try XCTUnwrap(listed?["result"]?["tools"]?.array)
         XCTAssertEqual(tools.compactMap { $0["name"]?.string }, ["list_windows", "get_focused_window", "list_workspaces", "list_pins",
-                                                                  "list_monitors", "list_projects", "list_apps", "query_desktop", "winmux"])
+                                                                  "list_monitors", "list_projects", "list_apps", "query_desktop",
+                                                                  "winmux_debug_snapshot", "winmux"])
         for tool in tools {
             XCTAssertEqual(tool["inputSchema"]?["type"], .string("object"), "\(tool)")
             XCTAssertNotNil(tool["description"]?.string)
@@ -306,6 +307,195 @@ final class MCPProtocolTest: XCTestCase {
         let result = await tool("get_focused_window")
         XCTAssertEqual(result?["isError"], .bool(false), text(result))
         XCTAssertEqual(MCPJSON.decode(Data(text(result).utf8)), .array([]))
+    }
+
+    // MARK: - The tailnet port
+
+    private let tailnetHost = "alans-macbook-pro.tail1234.ts.net"
+
+    private func tailnet(token: String? = nil, name: String = "alans-macbook-pro") -> MCPRequestContext {
+        MCPRequestContext(peer: "127.0.0.1", token: token, access: .tailnet, tailnetName: name)
+    }
+
+    private func local(token: String? = nil) -> MCPRequestContext {
+        MCPRequestContext(peer: "127.0.0.1", token: token)
+    }
+
+    private func command(_ args: [String]) -> MCPJSON {
+        .object(["jsonrpc": .string("2.0"), "id": .int(1), "method": .string("tools/call"),
+            "params": .object(["name": .string("winmux"), "arguments": .object(["args": .array(args.map(MCPJSON.string))])])])
+    }
+
+    private func run(_ args: [String], _ context: MCPRequestContext, host: String? = nil, extra: [MCPHTTPHeader] = []) async -> MCPJSON? {
+        var headers = [MCPHTTPHeader(name: "Host", value: host ?? (context.access == .tailnet ? tailnetHost : "127.0.0.1:41740")),
+                       MCPHTTPHeader(name: "Content-Type", value: "application/json")] + extra
+        if let token = context.token { headers.append(MCPHTTPHeader(name: "Authorization", value: "Bearer \(token)")) }
+        let response = await handleMCPHTTPRequest(MCPHTTPRequest(method: "POST", target: "/mcp", version: "HTTP/1.1", headers: headers,
+            body: command(args).encoded()), context)
+        XCTAssertEqual(response.status, 200, String(decoding: response.body, as: UTF8.self))
+        return MCPJSON.decode(response.body)?["result"]
+    }
+
+    /// The tailnet port answers only a request naming this Mac under ts.net, as `tailscale serve` passes it on:
+    /// localhost, an address, another machine or another domain is refused there, and nothing runs.
+    func testATailnetRequestMustNameThisMacUnderTsNet() async {
+        startOnA()
+        for host in ["localhost:41741", "127.0.0.1:41741", "[::1]:41741", "100.101.102.103", "other-mac.tail1234.ts.net",
+                     "alans-macbook-pro.tail1234.ts.net.evil.example", "evil.example"] {
+            let response = await post(switchToB(), tailnet(), host: host)
+            XCTAssertEqual(response.status, 403, host)
+            XCTAssertEqual(focus.workspace.name, "a", host)
+        }
+        let unnamed = await post(switchToB(), tailnet(name: ""), host: tailnetHost)
+        XCTAssertEqual(unnamed.status, 403, "Without a machine name nothing is served on the tailnet port")
+        let page = await handleMCPHTTPRequest(MCPHTTPRequest(method: "POST", target: "/mcp", version: "HTTP/1.1",
+            headers: [MCPHTTPHeader(name: "Host", value: tailnetHost), MCPHTTPHeader(name: "Origin", value: "http://localhost:6274"),
+                      MCPHTTPHeader(name: "Content-Type", value: "application/json")], body: switchToB().encoded()), tailnet())
+        XCTAssertEqual(page.status, 403, "A page on this Mac can't reach the tailnet port")
+        let batch = await post(.array([switchToB()]), tailnet(), host: tailnetHost)
+        XCTAssertEqual(batch.status, 400, "Batches are refused on the tailnet port too")
+        XCTAssertEqual(focus.workspace.name, "a")
+
+        let served = await post(switchToB(), tailnet(), host: tailnetHost)
+        XCTAssertEqual(served.status, 200, String(decoding: served.body, as: UTF8.self))
+        XCTAssertEqual(focus.workspace.name, "b")
+    }
+
+    /// `tailscale funnel` would put a port on the internet: tailscaled marks its requests, and neither port answers them.
+    /// The mark is only ever a reason to refuse, never to allow.
+    func testAFunnelRequestIsRefusedOnEitherPort() async {
+        startOnA()
+        for (context, host) in [(tailnet(), tailnetHost), (local(), "localhost")] {
+            for value in ["?1", "?0", ""] {
+                let response = await handleMCPHTTPRequest(MCPHTTPRequest(method: "POST", target: "/mcp", version: "HTTP/1.1",
+                    headers: [MCPHTTPHeader(name: "Host", value: host), MCPHTTPHeader(name: "Tailscale-Funnel-Request", value: value),
+                              MCPHTTPHeader(name: "Content-Type", value: "application/json")], body: switchToB().encoded()), context)
+                XCTAssertEqual(response.status, 403, "\(context.access) \(value)")
+                XCTAssertTrue(String(decoding: response.body, as: UTF8.self).contains("Funnel"))
+                XCTAssertEqual(focus.workspace.name, "a", value)
+            }
+        }
+    }
+
+    /// The local port keeps its rule: it isn't what `tailscale serve` forwards to, so a request naming the tailnet
+    /// name there is refused.
+    func testTheLocalPortStillAnswersOnlyLocalhost() async {
+        startOnA()
+        let response = await post(switchToB(), local(), host: tailnetHost)
+        XCTAssertEqual(response.status, 403)
+        XCTAssertEqual(focus.workspace.name, "a")
+    }
+
+    /// `list-exec-env-vars` prints the environment WinMux's commands inherit, which may hold secrets: from the
+    /// tailnet it runs only while a token is required. On the local port it runs as from the CLI.
+    func testTheEnvironmentListingIsRefusedForTheTailnetUnlessATokenIsRequired() async {
+        config.execConfig.envVariables = ["MCP_TEST_SYNTHETIC_SECRET": "fixture-only"]
+        let refused = await run(["list-exec-env-vars"], tailnet())
+        XCTAssertEqual(refused?["isError"], .bool(true))
+        XCTAssertFalse(text(refused).contains("fixture-only"), text(refused))
+        XCTAssertTrue(text(refused).contains("Require access token"), text(refused))
+        for args in [["list-exec-env-vars", "--"], ["--", "list-exec-env-vars"], ["list-exec-env-vars", "--window-id", "1"]] {
+            let other = await run(args, tailnet())
+            XCTAssertFalse(text(other).contains("fixture-only"), "\(args): \(text(other))")
+        }
+        let help = await run(["list-exec-env-vars", "--help"], tailnet())
+        XCTAssertEqual(help?["isError"], .bool(false), "Its help is fine: \(text(help))")
+        let other = await run(["list-workspaces", "--all"], tailnet())
+        XCTAssertEqual(other?["isError"], .bool(false), "Other commands run: \(text(other))")
+        for context in [tailnet(token: "the-token"), local(), local(token: "the-token")] {
+            let allowed = await run(["list-exec-env-vars"], context)
+            XCTAssertEqual(allowed?["isError"], .bool(false), "\(context.access) \(context.token != nil)")
+            XCTAssertTrue(text(allowed).contains("MCP_TEST_SYNTHETIC_SECRET=fixture-only"), text(allowed))
+        }
+    }
+
+    /// A binding can run list-exec-env-vars too: through trigger-binding it's refused the same way.
+    func testTriggerBindingCantListTheEnvironmentForTheTailnetWithoutAToken() async throws {
+        let parsed = parseConfig("""
+            [exec]
+            inherit-env-vars = false
+            [exec.env-vars]
+            SECRET_FOR_TEST = 'hunter2'
+            [mode.main.binding]
+            alt-e = 'list-exec-env-vars'
+            """)
+        XCTAssertEqual(parsed.errors.descriptions, [])
+        config.modes = parsed.config.modes
+        config.execConfig = parsed.config.execConfig
+        let viaBinding = ["trigger-binding", "--mode", "main", "alt-e"]
+        let refused = await run(viaBinding, tailnet())
+        XCTAssertEqual(refused?["isError"], .bool(true))
+        XCTAssertFalse(text(refused).contains("hunter2"), text(refused))
+        XCTAssertTrue(text(refused).contains("Require access token"), text(refused))
+        let withToken = await run(viaBinding, tailnet(token: "the-token"))
+        XCTAssertTrue(text(withToken).contains("SECRET_FOR_TEST=hunter2"), text(withToken))
+        let here = await run(viaBinding, local())
+        XCTAssertTrue(text(here).contains("SECRET_FOR_TEST=hunter2"), text(here))
+    }
+
+    /// The port alone says where a request came from: headers claiming otherwise change nothing either way.
+    func testHeadersDontChangeWhereARequestCameFrom() async {
+        config.execConfig.envVariables = ["MCP_TEST_SYNTHETIC_SECRET": "fixture-only"]
+        let claimsLocal = [MCPHTTPHeader(name: "X-Forwarded-For", value: "127.0.0.1"), MCPHTTPHeader(name: "X-Forwarded-Host", value: "localhost"),
+                           MCPHTTPHeader(name: "Tailscale-User-Login", value: "owner@example.com")]
+        let fromTailnet = await run(["list-exec-env-vars"], tailnet(), extra: claimsLocal)
+        XCTAssertEqual(fromTailnet?["isError"], .bool(true), text(fromTailnet))
+        let fromHere = await run(["list-exec-env-vars"], local())
+        XCTAssertEqual(fromHere?["isError"], .bool(false), text(fromHere))
+    }
+
+    /// The local port is this Mac's: a request a proxy forwarded is refused there, whatever Host its client chose. tailscale
+    /// serve adds X-Forwarded-Host and X-Forwarded-For to everything it forwards; any proxy's header refuses, never admits.
+    func testTheLocalPortRefusesWhatAProxyForwarded() async {
+        startOnA()
+        for header in [("X-Forwarded-Host", "localhost"), ("X-Forwarded-For", "100.101.102.104"), ("X-Forwarded-Proto", "https"),
+                       ("x-forwarded-port", "443"), ("Forwarded", "for=100.101.102.104"), ("X-Real-IP", "100.101.102.104"),
+                       ("Via", "1.1 proxy"), ("Tailscale-User-Login", "someone@example.com"), ("Tailscale-Headers-Info", "x"),
+                       ("tailscale_user_login", "someone@example.com"), ("X-Forwarded-Host", "")] {
+            let response = await handleMCPHTTPRequest(MCPHTTPRequest(method: "POST", target: "/mcp", version: "HTTP/1.1",
+                headers: [MCPHTTPHeader(name: "Host", value: "localhost"), MCPHTTPHeader(name: header.0, value: header.1),
+                          MCPHTTPHeader(name: "Content-Type", value: "application/json")], body: switchToB().encoded()), local())
+            XCTAssertEqual(response.status, 403, "\(header)")
+            XCTAssertTrue(String(decoding: response.body, as: UTF8.self).contains("tailnet port"), "Says where serve should point")
+        }
+        XCTAssertEqual(focus.workspace.name, "a")
+        let plain = await post(switchToB(), local(), host: "localhost")
+        XCTAssertEqual(plain.status, 200)
+        XCTAssertEqual(focus.workspace.name, "b", "This Mac's own requests are answered as before")
+    }
+
+    /// Requests in flight at once each keep their own restriction: a tailnet request's never reaches a local one,
+    /// and a local one's lifting never reaches a tailnet one.
+    func testConcurrentRequestsKeepTheirOwnRestriction() async {
+        let parsed = parseConfig("[mode.main.binding]\nalt-e = 'list-exec-env-vars'\n")
+        config.modes = parsed.config.modes
+        config.execConfig.envVariables = ["MCP_TEST_SYNTHETIC_SECRET": "fixture-only"]
+        let host = tailnetHost
+        let outcomes = await withTaskGroup(of: (Bool, Bool).self) { group in
+            for index in 0 ..< 24 {
+                let fromTailnet = index % 2 == 0
+                let args = index % 4 < 2 ? ["list-exec-env-vars"] : ["trigger-binding", "--mode", "main", "alt-e"]
+                let context = fromTailnet ? MCPRequestContext(peer: "127.0.0.1", token: nil, access: .tailnet, tailnetName: "alans-macbook-pro")
+                    : MCPRequestContext(peer: "127.0.0.1", token: nil)
+                let body = MCPJSON.object(["jsonrpc": .string("2.0"), "id": .int(index), "method": .string("tools/call"),
+                    "params": .object(["name": .string("winmux"), "arguments": .object(["args": .array(args.map(MCPJSON.string))])])])
+                let request = MCPHTTPRequest(method: "POST", target: "/mcp", version: "HTTP/1.1",
+                    headers: [MCPHTTPHeader(name: "Host", value: fromTailnet ? host : "127.0.0.1:41740"),
+                              MCPHTTPHeader(name: "Content-Type", value: "application/json")], body: body.encoded())
+                group.addTask {
+                    let response = await handleMCPHTTPRequest(request, context)
+                    return (fromTailnet, String(decoding: response.body, as: UTF8.self).contains("fixture-only"))
+                }
+            }
+            var all: [(Bool, Bool)] = []
+            for await outcome in group { all.append(outcome) }
+            return all
+        }
+        XCTAssertEqual(outcomes.count, 24)
+        for (fromTailnet, listed) in outcomes {
+            XCTAssertEqual(listed, !fromTailnet, fromTailnet ? "A tailnet request listed it" : "A local request was refused")
+        }
+        XCTAssertFalse(MCPRequestRestrictions.refusesEnvironmentListing, "Nothing left set afterwards")
     }
 
     func testTheCLINamesPinnedWorkspaces() async throws {

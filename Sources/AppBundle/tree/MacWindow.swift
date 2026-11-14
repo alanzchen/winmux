@@ -54,6 +54,11 @@ final class MacWindow: Window {
         let window = MacWindow(windowId, macApp, lastFloatingSize: rect?.size, parent: data.parent, adaptiveWeight: data.adaptiveWeight, index: data.index, firstSeenInActiveApp: firstSeenInActiveApp)
         window.recordAuthoritativeActualRect(rect)
         allWindowsMap[windowId] = window
+        AxWindowErrorLog.shared.forget(windowId: windowId)
+        WindowLifecycleLog.shared.record(.registered, windowId: windowId, [
+            "pid": "\(macApp.pid)", "bundleId": macApp.rawAppBundleId ?? "", "workspace": window.nodeWorkspace?.name ?? "",
+            "type": "\(windowType)", "auxiliary": auxiliary == nil ? "false" : "true",
+        ])
         NewWindowIntentRegistry.shared.windowsBeingDetected.insert(windowId)
         defer { NewWindowIntentRegistry.shared.windowsBeingDetected.remove(windowId) }
 
@@ -107,6 +112,9 @@ final class MacWindow: Window {
         // A pinned split it was in knows it as its own before it goes, while it's still found.
         syncWorkspaceSidebarPinCompositions()
         MacWindow.allWindowsMap.removeValue(forKey: windowId)
+        WindowLifecycleLog.shared.record(.unregistered, windowId: windowId, [
+            "pid": "\(macApp.pid)", "bundleId": macApp.rawAppBundleId ?? "", "workspace": nodeWorkspace?.name ?? "",
+        ])
         if !skipClosedWindowsCache { cacheClosedWindowIfNeeded() }
         removeClosedWindowFromTree()
         // Closed: no pin lends it, and no pinned split brings it back, any more.
@@ -156,6 +164,8 @@ final class MacWindow: Window {
     func unhideFromCorner() {
         restoreFromCorner(cornerParking)
     }
+
+    override var cornerParkingForDebug: CornerParkingState? { cornerParking }
 
     override var isHiddenInCorner: Bool {
         cornerParking.isHiddenInCorner

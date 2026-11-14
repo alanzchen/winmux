@@ -192,21 +192,28 @@ final class MCPServerTest: XCTestCase {
 
     // MARK: - Loopback only
 
-    /// Whatever the config says, the server listens on 127.0.0.1 and nowhere else: no key names another address.
+    /// Whatever the config says, both listeners are on 127.0.0.1 and nowhere else: no key names another address.
     func testItNeverListensAnywhereButLoopback() async throws {
-        for config in [MCPServerConfig(enabled: true, port: 0), MCPServerConfig(enabled: true, port: 0, requireToken: true)] {
+        server.localHostName = { "Alans-MacBook-Pro" }
+        for config in [MCPServerConfig(enabled: true, port: 0), MCPServerConfig(enabled: true, port: 0, requireToken: true),
+                       bothOn(), bothOn(requireToken: true)] {
             server.apply(config)
-            let listening = await eventually { server.state == .listening }
-            XCTAssertTrue(listening, "\(server.state)")
+            let listening = await eventually {
+                server.state == .listening && (!config.tailnet || server.tailnetState == .listening)
+            }
+            XCTAssertTrue(listening, "\(server.state) \(server.tailnetState)")
             XCTAssertEqual(server.listeningAddresses, ["127.0.0.1"])
             XCTAssertEqual(server.listenerHost, "127.0.0.1")
+            XCTAssertEqual(server.tailnetListenerHost, config.tailnet ? "127.0.0.1" : nil)
             server.stop()
             XCTAssertEqual(server.listeningAddresses, [])
+            XCTAssertNil(server.tailnetListenerHost)
         }
-        let parsed = parseConfig("[mcp-server]\nenabled = true\ntailscale = true\nlisten = '0.0.0.0'\n")
-        XCTAssertEqual(parsed.errors.count, 2, "\(parsed.errors.descriptions)")
+        let parsed = parseConfig("[mcp-server]\nenabled = true\ntailscale = true\nlisten = '0.0.0.0'\ntailnet = true\ntailnet-listen = '0.0.0.0'\n")
+        XCTAssertEqual(parsed.errors.count, 3, "\(parsed.errors.descriptions)")
         server.apply(parsed.config.mcpServer)
         XCTAssertEqual(server.listenerHost ?? "127.0.0.1", "127.0.0.1")
+        XCTAssertEqual(server.tailnetListenerHost ?? "127.0.0.1", "127.0.0.1")
         XCTAssertTrue(server.listeningAddresses.allSatisfy { $0 == "127.0.0.1" })
     }
 
@@ -224,6 +231,267 @@ final class MCPServerTest: XCTestCase {
         XCTAssertEqual(shared.connectionCount, 0)
         shared.isListening = false
         XCTAssertFalse(shared.admit(connection()))
+    }
+
+    // MARK: - The tailnet port
+
+    private let tailnetHost = "alans-macbook-pro.tail1234.ts.net"
+
+    private func bothOn(requireToken: Bool = false, tailnetPort: Int = 0, tailnetName: String = "") -> MCPServerConfig {
+        MCPServerConfig(enabled: true, port: 0, requireToken: requireToken, tailnet: true, tailnetPort: tailnetPort, tailnetName: tailnetName)
+    }
+
+    private func bothListening() async -> Bool {
+        await eventually { server.state == .listening && server.tailnetState == .listening && server.port != nil && server.tailnetPort != nil }
+    }
+
+    /// A port nothing listens on now.
+    private func freePort() async throws -> Int {
+        let parameters = NWParameters.tcp
+        parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: .any)
+        let probe = try NWListener(using: parameters)
+        probe.newConnectionHandler = { $0.cancel() }
+        probe.start(queue: .global())
+        let ready = await eventually { probe.port.map { $0.rawValue != 0 } == true }
+        XCTAssertTrue(ready)
+        let port = Int(try XCTUnwrap(probe.port).rawValue)
+        probe.cancel()
+        _ = await eventually { probe.state == .cancelled }
+        return port
+    }
+
+    func testAstraAnOldServeTargetCannotGainLocalPrivilegesAfterPortReuse() async throws {
+        server.localHostName = { "Alans-MacBook-Pro" }
+        config.execConfig.envVariables = ["ASTRA_SYNTHETIC_ENV": "fixture-only-never-a-real-secret"]
+        server.apply(bothOn())
+        let started = await bothListening()
+        XCTAssertTrue(started)
+        let oldTailnetPort = try XCTUnwrap(server.tailnetPort)
+        let listing = #"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"winmux","arguments":{"args":["list-exec-env-vars"]}}}"#
+        let before = try await MCPRawClient.connect(host: "127.0.0.1", port: oldTailnetPort)
+        let denied = await before.exchange(listing, host: tailnetHost)
+        XCTAssertFalse(String(decoding: denied?.body ?? Data(), as: UTF8.self).contains("fixture-only-never-a-real-secret"))
+        before.close()
+
+        // The user turns remote access off, then later chooses its old port for local MCP.
+        // An existing Serve rule still targets that number. No Tailscale process is used here.
+        server.stop()
+        let closed = await isRefused(oldTailnetPort)
+        XCTAssertTrue(closed)
+        server.apply(MCPServerConfig(enabled: true, port: oldTailnetPort))
+        let restarted = await eventually { server.state == .listening && server.port == oldTailnetPort }
+        XCTAssertTrue(restarted)
+        let client = try await MCPRawClient.connect(host: "127.0.0.1", port: oldTailnetPort)
+        defer { client.close() }
+        // Serve selects the HTTPS handler by SNI, but preserves the client's independently set Host.
+        // These are the actual proxy headers produced for Host: localhost and a tailnet source.
+        let forwarded = await client.exchange(listing, host: "localhost", headers: [
+            ("X-Forwarded-Host", "localhost"), ("X-Forwarded-Proto", "https"),
+            ("X-Forwarded-For", "100.101.102.104"), ("Tailscale-User-Login", "fixture@example.com"),
+        ])
+        XCTAssertEqual(forwarded?.status, 403, "The local port must reject a forwarded request even when its client chooses Host: localhost")
+        XCTAssertFalse(String(decoding: forwarded?.body ?? Data(), as: UTF8.self).contains("fixture-only-never-a-real-secret"),
+            "Reusing an old Serve target must not bypass the tailnet environment restriction")
+    }
+
+    // Carbon's review, 2026-11-13: a port moving onto the one the tailnet listener held must not find it still held.
+    func testCarbonMovingLocalPortOntoOldTailnetPortOrSwappingPorts() async throws {
+        server.localHostName = { "Alans-MacBook-Pro" }
+        let p1 = try await freePort()
+        let p2 = try await freePort()
+        server.apply(MCPServerConfig(enabled: true, port: p1, tailnet: true, tailnetPort: p2))
+        let bothReady = await eventually {
+            server.state == .listening && server.tailnetState == .listening && server.port == p1 && server.tailnetPort == p2
+        }
+        XCTAssertTrue(bothReady)
+
+        // Moving the local port onto p2 while turning tailnet access off: valid config.
+        let off = parseConfig("[mcp-server]\nenabled = true\nport = \(p2)\ntailnet = false\n")
+        XCTAssertEqual(off.errors.descriptions, [])
+        server.apply(off.config.mcpServer)
+        let moved = await eventually { (server.state == .listening && server.port == p2) || server.state.isFailed }
+        XCTAssertTrue(moved)
+        XCTAssertEqual(server.state, .listening)
+        XCTAssertEqual(server.port, p2)
+
+        // Swapping the two ports: valid config.
+        server.apply(MCPServerConfig(enabled: true, port: p1, tailnet: true, tailnetPort: p2))
+        _ = await eventually { server.state == .listening && server.tailnetState == .listening && server.port == p1 }
+        let swap = parseConfig("[mcp-server]\nenabled = true\nport = \(p2)\ntailnet = true\ntailnet-port = \(p1)\n")
+        XCTAssertEqual(swap.errors.descriptions, [])
+        server.apply(swap.config.mcpServer)
+        let swapped = await eventually {
+            ((server.state == .listening && server.port == p2) || server.state.isFailed)
+                && ((server.tailnetState == .listening && server.tailnetPort == p1) || server.tailnetState.isFailed)
+        }
+        XCTAssertTrue(swapped)
+        XCTAssertEqual(server.state, .listening)
+        XCTAssertEqual(server.tailnetState, .listening)
+        XCTAssertTrue(notices.isEmpty, "No port was ever in use but by WinMux itself: \(notices)")
+    }
+
+    func testTheTailnetPortListensOnlyWhileAskedForWithTheMachineNameItAnswersTo() async throws {
+        server.localHostName = { "Alans-MacBook-Pro" }
+        server.apply(MCPServerConfig(enabled: true, port: 0))
+        let localOnly = await eventually { server.state == .listening }
+        XCTAssertTrue(localOnly)
+        XCTAssertEqual(server.tailnetState, .off)
+        XCTAssertNil(server.tailnetPort)
+        XCTAssertNil(server.tailnetListenerHost)
+
+        server.apply(MCPServerConfig(enabled: false, port: 0, tailnet: true, tailnetPort: 0))
+        XCTAssertEqual(server.state, .off)
+        XCTAssertEqual(server.tailnetState, .off, "Only while the server is on")
+
+        server.apply(bothOn())
+        let listening = await bothListening()
+        XCTAssertTrue(listening, "\(server.state) \(server.tailnetState)")
+        XCTAssertNotEqual(server.port, server.tailnetPort)
+        XCTAssertEqual(server.tailnetMachineName, "alans-macbook-pro")
+        server.apply(bothOn(tailnetName: "studio"))
+        XCTAssertEqual(server.tailnetMachineName, "studio")
+    }
+
+    /// No name to answer to: the tailnet port isn't opened, and says why; the local port is unaffected.
+    func testWithNoMachineNameTheTailnetPortFailsAndTheLocalOneListens() async {
+        server.localHostName = { nil }
+        server.apply(bothOn())
+        let settled = await eventually { server.state == .listening && server.tailnetState.isFailed }
+        XCTAssertTrue(settled, "\(server.state) \(server.tailnetState)")
+        XCTAssertNil(server.tailnetListenerHost)
+        XCTAssertEqual(notices.count, 1, "\(notices)")
+    }
+
+    /// Which port a request arrived on alone says whether it's from the tailnet: each port has its Host rule, and
+    /// headers claiming otherwise change nothing.
+    func testARequestIsTreatedByThePortItArrivedOn() async throws {
+        server.localHostName = { "Alans-MacBook-Pro" }
+        config.execConfig.envVariables = ["MCP_TEST_SYNTHETIC_SECRET": "fixture-only"]
+        server.apply(bothOn())
+        let listening = await bothListening()
+        XCTAssertTrue(listening, "\(server.state) \(server.tailnetState)")
+        let port = try XCTUnwrap(server.port)
+        let tailnetPort = try XCTUnwrap(server.tailnetPort)
+        let here = try await MCPRawClient.connect(host: "127.0.0.1", port: port)
+        let forwarded = try await MCPRawClient.connect(host: "127.0.0.1", port: tailnetPort)
+        defer { here.close(); forwarded.close() }
+
+        let localByName = await ping(here, host: "127.0.0.1:\(port)")
+        XCTAssertEqual(localByName, 200)
+        let localByTailnetName = await ping(here, host: tailnetHost)
+        XCTAssertEqual(localByTailnetName, 403)
+        for host in ["127.0.0.1:\(tailnetPort)", "localhost:\(tailnetPort)", "localhost", "other-mac.tail1234.ts.net"] {
+            let refused = await ping(forwarded, host: host)
+            XCTAssertEqual(refused, 403, host)
+        }
+        let served = await ping(forwarded, host: tailnetHost)
+        XCTAssertEqual(served, 200)
+
+        let listing = #"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"winmux","arguments":{"args":["list-exec-env-vars"]}}}"#
+        let fromTailnet = await forwarded.exchange(listing, host: tailnetHost,
+            headers: [("X-Forwarded-For", "127.0.0.1"), ("X-Forwarded-Host", "localhost"), ("Tailscale-User-Login", "owner@example.com")])
+        XCTAssertEqual(fromTailnet?.status, 200)
+        XCTAssertFalse(String(decoding: fromTailnet?.body ?? Data(), as: UTF8.self).contains("fixture-only"))
+        let proxied = await here.exchange(listing, host: "127.0.0.1:\(port)", headers: [("Tailscale-User-Login", "someone@example.com")])
+        XCTAssertEqual(proxied?.status, 403, "On the local port, a proxy's header refuses: it never admits")
+        XCTAssertFalse(String(decoding: proxied?.body ?? Data(), as: UTF8.self).contains("fixture-only"))
+        let fromHere = await here.exchange(listing, host: "127.0.0.1:\(port)")
+        XCTAssertTrue(String(decoding: fromHere?.body ?? Data(), as: UTF8.self).contains("MCP_TEST_SYNTHETIC_SECRET=fixture-only"))
+    }
+
+    /// Turning tailnet access off closes the tailnet port and every connection it let in, even with a
+    /// `tailscale serve` rule still forwarding to it; the local port and its connections stay.
+    func testTurningTheTailnetOffClosesItsConnectionsAndLeavesTheLocalOnes() async throws {
+        server.localHostName = { "Alans-MacBook-Pro" }
+        server.apply(bothOn())
+        let listening = await bothListening()
+        XCTAssertTrue(listening)
+        let port = try XCTUnwrap(server.port)
+        let tailnetPort = try XCTUnwrap(server.tailnetPort)
+        let here = try await MCPRawClient.connect(host: "127.0.0.1", port: port)
+        let forwarded = try await MCPRawClient.connect(host: "127.0.0.1", port: tailnetPort)
+        defer { here.close(); forwarded.close() }
+        let before = await ping(forwarded, host: tailnetHost)
+        XCTAssertEqual(before, 200)
+        let localBefore = await ping(here, host: "127.0.0.1:\(port)")
+        XCTAssertEqual(localBefore, 200)
+
+        server.apply(MCPServerConfig(enabled: true, port: 0))
+        XCTAssertEqual(server.tailnetState, .off)
+        XCTAssertNil(server.tailnetPort)
+        XCTAssertEqual(server.port, port, "The local listener stays")
+        let after = await ping(forwarded, host: tailnetHost)
+        XCTAssertNil(after, "The open tailnet connection is closed")
+        let refused = await isRefused(tailnetPort)
+        XCTAssertTrue(refused, "Nothing listens on the tailnet port")
+        let localAfter = await ping(here, host: "127.0.0.1:\(port)")
+        XCTAssertEqual(localAfter, 200, "Local connections stay")
+
+        server.apply(MCPServerConfig(enabled: false, port: 0, tailnet: true))
+        let localOff = await ping(here, host: "127.0.0.1:\(port)")
+        XCTAssertNil(localOff, "Turning the server off closes the local ones")
+    }
+
+    func testMovingTheTailnetPortClosesTheOldPortsConnections() async throws {
+        server.localHostName = { "Alans-MacBook-Pro" }
+        server.apply(bothOn())
+        let listening = await bothListening()
+        XCTAssertTrue(listening)
+        let oldPort = try XCTUnwrap(server.tailnetPort)
+        let forwarded = try await MCPRawClient.connect(host: "127.0.0.1", port: oldPort)
+        defer { forwarded.close() }
+        let before = await ping(forwarded, host: tailnetHost)
+        XCTAssertEqual(before, 200)
+        let newPort = try await freePort()
+        server.apply(bothOn(tailnetPort: newPort))
+        let moved = await eventually { server.tailnetPort == newPort && server.tailnetState == .listening }
+        XCTAssertTrue(moved, "\(server.tailnetState) \(String(describing: server.tailnetPort))")
+        let after = await ping(forwarded, host: tailnetHost)
+        XCTAssertNil(after)
+        let refused = await isRefused(oldPort)
+        XCTAssertTrue(refused)
+    }
+
+    /// A tailnet port that can't be opened is reported once; the local port keeps listening.
+    func testATailnetPortInUseIsReportedOnceAndLeavesTheLocalPortListening() async throws {
+        server.localHostName = { "Alans-MacBook-Pro" }
+        let parameters = NWParameters.tcp
+        parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: .any)
+        let occupied = try NWListener(using: parameters)
+        occupied.newConnectionHandler = { $0.cancel() }
+        occupied.start(queue: .global())
+        let ready = await eventually { occupied.port.map { $0.rawValue != 0 } == true }
+        XCTAssertTrue(ready)
+        defer { occupied.cancel() }
+        let port = Int(try XCTUnwrap(occupied.port).rawValue)
+
+        server.apply(bothOn(tailnetPort: port))
+        let failed = await eventually { server.state == .listening && server.tailnetState.isFailed }
+        XCTAssertTrue(failed, "\(server.state) \(server.tailnetState)")
+        if case .failed(let message) = server.tailnetState { XCTAssertTrue(message.contains("\(port)"), message) }
+        server.apply(bothOn(tailnetPort: port))
+        _ = await eventually { server.tailnetState.isFailed }
+        XCTAssertEqual(notices.count, 1, "\(notices)")
+    }
+
+    func testARequiredTokenIsRequiredOnTheTailnetPortToo() async throws {
+        server.localHostName = { "Alans-MacBook-Pro" }
+        server.apply(bothOn(requireToken: true))
+        let listening = await bothListening()
+        XCTAssertTrue(listening)
+        let token = try XCTUnwrap(readMCPServerToken())
+        let forwarded = try await MCPRawClient.connect(host: "127.0.0.1", port: try XCTUnwrap(server.tailnetPort))
+        defer { forwarded.close() }
+        let anonymous = await ping(forwarded, host: tailnetHost)
+        XCTAssertEqual(anonymous, 401)
+        let allowed = await ping(forwarded, host: tailnetHost, token: token)
+        XCTAssertEqual(allowed, 200)
+        let next = try generateMCPServerToken()
+        server.tokenDidChange()
+        let old = await ping(forwarded, host: tailnetHost, token: token)
+        XCTAssertEqual(old, 401)
+        let fresh = await ping(forwarded, host: tailnetHost, token: next)
+        XCTAssertEqual(fresh, 200)
     }
 
     func testARequiredTokenThatCantBeMadeStartsNoListener() throws {
@@ -263,8 +531,14 @@ final class MCPRawClient: @unchecked Sendable {
 
     /// The status of the response to one POST to /mcp, or nil if the connection closed first.
     func request(_ body: String, host: String, token: String? = nil) async -> Int? {
+        await exchange(body, host: host, token: token)?.status
+    }
+
+    /// The status and body of the response to one POST to /mcp, or nil if the connection closed first.
+    func exchange(_ body: String, host: String, token: String? = nil, headers: [(String, String)] = []) async -> (status: Int, body: Data)? {
         var head = "POST /mcp HTTP/1.1\r\nHost: \(host)\r\nContent-Type: application/json\r\nContent-Length: \(body.utf8.count)\r\n"
         if let token { head += "Authorization: Bearer \(token)\r\n" }
+        for (name, value) in headers { head += "\(name): \(value)\r\n" }
         send(Data((head + "\r\n" + body).utf8))
         let watchdog = Task { [connection] in
             try? await Task.sleep(for: .seconds(5))
@@ -272,21 +546,21 @@ final class MCPRawClient: @unchecked Sendable {
         }
         defer { watchdog.cancel() }
         while true {
-            if let status = takeResponse() { return status }
+            if let response = takeResponse() { return response }
             let (data, closed) = await withCheckedContinuation { (continuation: CheckedContinuation<(Data?, Bool), Never>) in
                 connection.receive(minimumIncompleteLength: 1, maximumLength: 65536) { data, _, complete, error in
                     continuation.resume(returning: (data, complete || error != nil))
                 }
             }
             if let data, !data.isEmpty { lock.withLock { buffer.append(data) } }
-            if let status = takeResponse() { return status }
+            if let response = takeResponse() { return response }
             if closed { return nil }
         }
     }
 
     func close() { connection.cancel() }
 
-    private func takeResponse() -> Int? {
+    private func takeResponse() -> (status: Int, body: Data)? {
         lock.withLock {
             guard let end = buffer.range(of: Data("\r\n\r\n".utf8)),
                   let head = String(data: buffer[buffer.startIndex ..< end.lowerBound], encoding: .utf8) else { return nil }
@@ -296,8 +570,10 @@ final class MCPRawClient: @unchecked Sendable {
                 return parts.count == 2 && parts[0].lowercased() == "content-length" ? Int(parts[1].trimmingCharacters(in: .whitespaces)) : nil
             }.first ?? 0
             guard buffer.endIndex - end.upperBound >= length else { return nil }
+            let body = Data(buffer[end.upperBound ..< end.upperBound + length])
             buffer.removeSubrange(buffer.startIndex ..< end.upperBound + length)
-            return lines.first.flatMap { Int($0.split(separator: " ").dropFirst().first ?? "") }
+            guard let status = lines.first.flatMap({ Int($0.split(separator: " ").dropFirst().first ?? "") }) else { return nil }
+            return (status, body)
         }
     }
 }

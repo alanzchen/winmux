@@ -201,6 +201,7 @@ enum SettingsCatalog {
         let chromeStyle = { (configuration: Config) in configuration.workspaceSidebar.chromeStyle }
         let mcp = "mcp-server"
         let serverOn = SettingsRequirement.disables("Turn on the MCP server to use this setting.") { $0.mcpServer.enabled }
+        let tailnetOn = SettingsRequirement.disables("Turn on Allow access from my tailnet to use this setting.") { $0.mcpServer.tailnet }
         var result: [SettingsField] = [
             bool(.startup, "start-at-login", "Start at login", "Launch WinMux after you sign in.", path: \.startAtLogin),
             bool(.startup, "auto-reload-config", "Reload TOML automatically", "Apply valid configuration edits saved from another editor.", path: \.autoReloadConfig),
@@ -362,11 +363,18 @@ enum SettingsCatalog {
             SettingsField(group: .projects, section: nil, key: "persistent-workspaces", title: "Persistent workspaces", help: "Comma-separated names of workspaces to keep when empty. Press Return to save.", control: .text,
                 read: { .text($0.persistentWorkspaces.joined(separator: ", ")) }, render: { "[" + $0.text.split(separator: ",").map { SettingsValue.text($0.trimmingCharacters(in: .whitespaces)).toml }.joined(separator: ", ") + "]" })
                 .requiring(.disables("Requires config-version = 2. Update the configuration in the TOML Editor to use persistent workspaces.") { $0.configVersion >= 2 }),
-            bool(.mcpServer, "enabled", "Turn on MCP server", "Lets MCP clients such as Claude, Codex or Hermes read WinMux's windows, tabs, pins and displays, and run winmux commands with the same effects as the command line. Listens on 127.0.0.1, this Mac only.", section: mcp, path: \.mcpServer.enabled),
+            bool(.mcpServer, "enabled", "Turn on MCP server", "Lets MCP clients such as Claude, Codex or Hermes read WinMux's windows, tabs, pins and displays, and run winmux commands with the same effects as the command line. Listens on 127.0.0.1 only: this Mac, and your tailnet only if you allow it below.", section: mcp, path: \.mcpServer.enabled),
             int(.mcpServer, "port", "Port", "The port the server listens on, from 1024 to 65535.", section: mcp, range: mcpServerPortRange, path: \.mcpServer.port)
                 .requiring(serverOn),
-            bool(.mcpServer, "require-token", "Require access token", "Clients must send the token below as Authorization: Bearer <token>. Without it, any app on this Mac can use the server.", section: mcp, path: \.mcpServer.requireToken)
+            bool(.mcpServer, "require-token", "Require access token", "Clients must send the token below as Authorization: Bearer <token>. Without it, any app on this Mac, and with tailnet access anything on your tailnet, can use the server.", section: mcp, path: \.mcpServer.requireToken)
                 .requiring(serverOn),
+            bool(.mcpServer, "tailnet", "Allow access from my tailnet", "Opens a second port on 127.0.0.1 for requests that Tailscale forwards from your tailnet, once you run the tailscale serve command below. WinMux never runs Tailscale itself.", section: mcp, path: \.mcpServer.tailnet)
+                .requiring(serverOn),
+            int(.mcpServer, "tailnet-port", "Tailnet port", "The port on 127.0.0.1 that tailscale serve forwards to, from 1024 to 65535, other than the server's own.", section: mcp, range: mcpServerPortRange, path: \.mcpServer.tailnetPort)
+                .requiring(serverOn, tailnetOn),
+            SettingsField(group: .mcpServer, section: mcp, key: "tailnet-name", title: "Name in your tailnet", help: "This Mac's machine name in your tailnet, the first part of its MagicDNS name. Leave it empty to use this Mac's local hostname. Press Return to save.", control: .text,
+                read: { .text($0.mcpServer.tailnetName) }, project: SettingsProjection.text(\.mcpServer.tailnetName))
+                .requiring(serverOn, tailnetOn),
         ]
         for (key, title, path) in gapPaths {
             result.append(SettingsField(group: .gaps, section: "gaps", key: key, title: title, help: "Spacing in points. Editing replaces any per-monitor values for this gap.", control: .integer(key.hasPrefix("inner") ? 0...80 : 0...120),

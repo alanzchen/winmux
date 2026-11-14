@@ -105,7 +105,7 @@ private let kindSpecificIgnore: [AxKind: Set<String>] = [
 ]
 
 extension AXError {
-    fileprivate var repr: String {
+    var repr: String {
         switch self {
             case .actionUnsupported: "actionUnsupported"
             case .apiDisabled: "apiDisabled"

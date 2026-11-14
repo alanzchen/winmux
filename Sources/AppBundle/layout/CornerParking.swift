@@ -167,10 +167,10 @@ extension Window {
         }
         // The write is only queued: it may fail, or macOS may move the window back. Unless the
         // window was just observed at the target, look again on the next pass.
-        switch state.parking.park(corner: appliedCorner, monitorVisibleRect: nodeMonitor.visibleRect, target: p,
-                                  observed: lastKnownActualRect, reasserting: reassert,
-                                  nativeGeneration: nativeStateObservationToken())
-        {
+        let outcome = state.parking.park(corner: appliedCorner, monitorVisibleRect: nodeMonitor.visibleRect, target: p,
+                                         observed: lastKnownActualRect, reasserting: reassert,
+                                         nativeGeneration: nativeStateObservationToken())
+        switch outcome {
             // In place, as just observed. Even a no-op frame submission would hold off the
             // app's browser-tab reads.
             case .confirmed where observedJustNow: return
@@ -178,6 +178,9 @@ extension Window {
             case .unconfirmed: invalidateLastKnownActualRect()
             case .confirmed, .retriesExhausted: break
         }
+        WindowLifecycleLog.shared.record(.parked, windowId: windowId, [
+            "corner": "\(appliedCorner)", "outcome": "\(outcome)", "reassert": "\(reassert)", "workspace": nodeWorkspace?.name ?? "",
+        ])
         setAxFrame(p, nil)
     }
 
@@ -214,5 +217,6 @@ extension Window {
 
         state.prevUnhiddenProportionalPositionInsideWorkspaceRect = nil
         state.parking = HiddenWindowParking()
+        WindowLifecycleLog.shared.record(.unparked, windowId: windowId, ["workspace": nodeWorkspace.name])
     }
 }

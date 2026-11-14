@@ -37,6 +37,43 @@ final class MCPNetworkPolicyTest: XCTestCase {
         }
     }
 
+    /// The tailnet port answers only a request naming this Mac as `tailscale serve` passes it on: rebinding a name
+    /// an attacker controls to this Mac names the attacker's name, not this Mac's under ts.net.
+    func testATailnetRequestMustNameThisMachineUnderTsNet() {
+        let name = "alans-macbook-pro"
+        for host in ["alans-macbook-pro.tail1234.ts.net", "Alans-MacBook-Pro.tail1234.ts.net", "alans-macbook-pro.tail1234.ts.net.",
+                     "alans-macbook-pro.tail1234.ts.net:443", "alans-macbook-pro.yak-bebop.ts.net"] {
+            XCTAssertTrue(mcpTailnetHostIsAllowed(host, machineName: name), host)
+        }
+        for host: String? in [nil, "", "localhost", "localhost:41741", "127.0.0.1:41741", "[::1]:41741", "100.101.102.103",
+                              "other-mac.tail1234.ts.net", "alans-macbook-pro.ts.net", "alans-macbook-pro.tail1234.ts.net.evil.example",
+                              "alans-macbook-pro.tail1234.evil.net", "evil.alans-macbook-pro.tail1234.ts.net",
+                              "alans-macbook-pro.tail1234.ts.net:8443", "alans-macbook-pro.tail_1234.ts.net", "alans-macbook-pro"] {
+            XCTAssertFalse(mcpTailnetHostIsAllowed(host, machineName: name), host ?? "nil")
+        }
+        XCTAssertFalse(mcpTailnetHostIsAllowed("x.tail1234.ts.net", machineName: ""), "Without a machine name, nothing passes")
+    }
+
+    func testATailnetBrowserMayAskOnlyFromThisSameHTTPSHost() {
+        let host = "alans-macbook-pro.tail1234.ts.net"
+        XCTAssertTrue(mcpTailnetOriginIsAllowed(nil, host: host), "Not a browser")
+        XCTAssertTrue(mcpTailnetOriginIsAllowed("https://alans-macbook-pro.tail1234.ts.net", host: host))
+        XCTAssertTrue(mcpTailnetOriginIsAllowed("https://Alans-MacBook-Pro.tail1234.ts.net", host: host + ":443"))
+        for origin in ["http://alans-macbook-pro.tail1234.ts.net", "https://other-mac.tail1234.ts.net", "http://localhost:6274",
+                       "null", "", "https://evil.example"] {
+            XCTAssertFalse(mcpTailnetOriginIsAllowed(origin, host: host), origin)
+        }
+    }
+
+    func testTheMachineNameIsTheConfiguredOneOrTheLocalHostNameLowercased() {
+        XCTAssertEqual(mcpTailnetMachineName(configured: "", localHostName: "Alans-MacBook-Pro"), "alans-macbook-pro")
+        XCTAssertEqual(mcpTailnetMachineName(configured: "studio", localHostName: "Alans-MacBook-Pro"), "studio")
+        XCTAssertEqual(mcpTailnetMachineName(configured: "", localHostName: nil), "")
+        XCTAssertEqual(mcpTailnetMachineName(configured: "", localHostName: "Not a label!"), "", "Then a name must be configured")
+        XCTAssertEqual(mcpTailnetMachineName(configured: " Studio ", localHostName: nil), "studio", "However it's given")
+        XCTAssertEqual(mcpTailnetMachineName(configured: "not a label", localHostName: "Alans-MacBook-Pro"), "", "Fails closed")
+    }
+
     func testABrowsersOriginMustBeThisMacsLoopback() {
         XCTAssertTrue(mcpOriginIsAllowed(nil), "Not a browser")
         for origin in ["http://localhost:6274", "http://127.0.0.1:41740", "http://[::1]:3000", "https://localhost"] {

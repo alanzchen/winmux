@@ -519,6 +519,47 @@ final class MacApp: AbstractApp {
         }
     }
 
+    /// For a debug snapshot: each window's frame, and title if asked, and whether the app still lists it, read now
+    /// in one job and kept nowhere, with the AX errors the reads got. The app's list is read once. Nil while the app
+    /// has no AX thread.
+    func debugSnapshotRead(_ windowIds: [UInt32], includeTitles: Bool) async throws -> [UInt32: DebugSnapshotNativeRead]? {
+        try await thread?.runInLoop { [axApp, windows] job -> [UInt32: DebugSnapshotNativeRead] in
+            var raw: CFTypeRef?
+            let listError = AXUIElementCopyAttributeValue(axApp.threadGuarded, kAXWindowsAttribute as CFString, &raw)
+            let listed = listError == .success ? raw.flatMap { Ax.windowsAttr.getter($0) }.map { Set($0.map(\.windowId)) } : nil
+            func error(_ window: AXUIElement, _ attribute: String) -> String {
+                var value: CFTypeRef?
+                let error = AXUIElementCopyAttributeValue(window, attribute as CFString, &value)
+                return error == .success ? "noValue" : error.repr
+            }
+            var reads: [UInt32: DebugSnapshotNativeRead] = [:]
+            for windowId in windowIds {
+                var read = DebugSnapshotNativeRead()
+                if let listed {
+                    read.appListsWindow = listed.contains(windowId)
+                } else {
+                    read.appWindowListError = listError == .success ? "noValue" : listError.repr
+                }
+                if let window = windows.threadGuarded[windowId]?.ax {
+                    if let topLeft = window.get(Ax.topLeftCornerAttr) {
+                        if let size = window.get(Ax.sizeAttr) {
+                            read.axFrame = Rect(topLeftX: topLeft.x, topLeftY: topLeft.y, width: size.width, height: size.height)
+                        } else {
+                            read.axFrameError = error(window, kAXSizeAttribute)
+                        }
+                    } else {
+                        read.axFrameError = error(window, kAXPositionAttribute)
+                    }
+                    if includeTitles { read.title = window.get(Ax.titleAttr) }
+                } else {
+                    read.axFrameError = "notRegistered"
+                }
+                reads[windowId] = read
+            }
+            return reads
+        }
+    }
+
     func getAxWindowsCount() async throws -> Int? {
         try await thread?.runInLoop { [axApp] job in
             axApp.threadGuarded.get(Ax.windowsAttr)?.count
@@ -753,6 +794,7 @@ final class MacApp: AbstractApp {
                 (alive, dead) = try alive.partition {
                     try job.checkCancellation()
                     let (windowId, error) = $0.value.ax.containingWindowIdWithError()
+                    if error != .success { AxWindowErrorLog.shared.record(windowId: $0.key, error: error) }
                     return shouldKeepRegisteredAxWindow(windowId: windowId, error: error)
                 }
             }

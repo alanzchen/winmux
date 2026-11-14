@@ -175,7 +175,7 @@ struct SettingsFieldRow: View {
                         }
                         .labelsHidden().frame(maxWidth: 185, alignment: .trailing).accessibilityLabel(title)
                     }
-                case .integer(let range) where field.id == "mcp-server.port":
+                case .integer(let range) where field.id == "mcp-server.port" || field.id == "mcp-server.tailnet-port":
                     portControl(range: range)
                 case .integer(let range):
                     let range = field.range(in: editor.projection) ?? range

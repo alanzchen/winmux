@@ -4,7 +4,8 @@ WinMux can run a [Model Context Protocol](https://modelcontextprotocol.io) serve
 Claude, Codex or Hermes-style agents can read WinMux's windows, tabs, pins and displays, and run `winmux`
 commands. A command run this way has exactly the effects it has from the `winmux` command line: it goes through
 the same dispatch as the CLI. It's off by default, and it listens on 127.0.0.1 only, so only apps on this Mac can
-reach it.
+reach it, unless you let your tailnet reach it through `tailscale serve` (see [Access from your
+tailnet](#access-from-your-tailnet)).
 
 ## Turn it on
 
@@ -15,6 +16,9 @@ In **Settings → General → MCP server**, turn on **Turn on MCP server**, or i
 enabled = true          # listens on 127.0.0.1, this Mac only
 port = 41740            # 1024–65535
 require-token = false   # true: clients must send the access token
+tailnet = false         # true: a second port, for tailscale serve to forward your tailnet to
+tailnet-port = 41741    # 1024–65535, not the same as port
+tailnet-name = ''       # this Mac's name in your tailnet; empty: its local host name
 ```
 
 Settings saves these keys to your config file. Reload Config, or editing the file with auto-reload on, applies them.
@@ -78,6 +82,7 @@ curl -s http://127.0.0.1:41740/mcp \
 | `list_projects` | Projects with their workspace and window counts. |
 | `list_apps` | Running apps with a user interface. |
 | `query_desktop` | `winmux agent query`: one structured snapshot of every workspace's windows, tab groups and layout. |
+| `winmux_debug_snapshot` | One JSON document for diagnosing window and sidebar problems; see below. Optional `window_ids`, `include_titles`. |
 | `winmux` | Runs one command, given its arguments without the leading `winmux`, such as `["workspace", "mail"]`. Optional `stdin`. Returns its output and exit code. |
 
 The read tools run the CLI's own queries (`list-windows --json` and so on). With the `winmux` tool, `["--help"]` (or
@@ -87,10 +92,78 @@ prints WinMux.app's version. The CLI prints these itself; the server answers the
 the one CLI command not offered over MCP: it streams events, and this server answers each request once. Poll the list
 tools instead.
 
-## Other devices
+### Debug snapshot
 
-The server can't be reached from another device: it listens on 127.0.0.1 only, and refuses any peer that isn't this
-Mac's loopback. Access over Tailscale isn't available yet; it's planned as a separate feature.
+`winmux_debug_snapshot` returns one JSON document (`"schema": "winmux-debug-snapshot/1"`) with what's needed to
+diagnose a window or sidebar problem without sending logs:
+
+- WinMux's version and commit, and the macOS version.
+- Every display: id, name, frame, visible frame, the workspace it shows, and whether it has focus.
+- The sidebar's rows as the panel draws them, ordinary and pinned, with their windows and tab groups, auxiliary
+  windows, windows not shown in their tab, a pin's lent window, empty pins, and a saved tab's placeholders.
+- For each member window: its app's bundle id and kind of bundle (app, app inside another app, helper, XPC service);
+  its workspace, container, and whether it's tiled or floating; its auxiliary parent and children; whether it's
+  hidden with its app, minimized, in full screen or parked in a corner (and where); the frame WinMux last placed it at,
+  the one it last saw and the one macOS reports now; whether its app's own list of windows still has it; and the last
+  Accessibility error WinMux got for it. A member whose window is gone says `"live": false`.
+- Windows WinMux has that no row lists, and the last 256 window events (registered, gone, parked, back from a
+  corner, moved to another workspace, a display showing another workspace).
+
+It only reads. It doesn't go through the command line's dispatch, which lays windows out first, so nothing runs,
+moves or refreshes. It waits at most 2 seconds for an app to answer.
+
+Titles, tab labels and app paths are left out unless you pass `"include_titles": true`. Ids, bundle ids, app names,
+workspace names, display names, frames and states are always in. `"window_ids": [123]` keeps only the rows with those
+windows, and their events. The document is at most 64 KiB: over that, it leaves out the oldest events first, then
+windows no row lists, then the last rows, and says how many of each in `truncated`.
+
+## Access from your tailnet
+
+With **Allow access from my tailnet** (`tailnet = true`), WinMux opens a second port on 127.0.0.1, 41741 by default,
+for [`tailscale serve`](https://tailscale.com/kb/1312/serve) to forward requests from your tailnet to. WinMux never
+runs Tailscale. Run this yourself; Settings shows it to copy:
+
+```sh
+tailscale serve --bg --https=443 http://127.0.0.1:41741
+```
+
+Other devices in your tailnet then reach the server at `https://<this Mac's name>.<your tailnet>.ts.net/mcp`. To stop
+forwarding:
+
+```sh
+tailscale serve --https=443 off
+```
+
+Turning **Allow access from my tailnet** off closes the port and every connection it let in, even if the serve rule
+is still there; Tailscale then answers with an error. Never use `tailscale funnel` for it: that would put the server on
+the internet, and neither port answers requests that come through Funnel.
+
+Which port a request arrived on is all that says it came from the tailnet; WinMux never takes a request's headers,
+Tailscale's identity headers included, as who sent it. On the tailnet port:
+
+- The `Host` must be this Mac's name in your tailnet, `<name>.<tailnet>.ts.net`, on 443. `<name>` is **Name in your
+  tailnet** (`tailnet-name`), or this Mac's local host name, lowercased, which is how Tailscale names a Mac unless you
+  renamed it in Tailscale or it added a suffix such as `-1` because another machine had the name; then set **Name in
+  your tailnet**. WinMux reads the local host name when the settings are applied: after renaming the Mac, reload the
+  config or turn tailnet access off and on. Requests naming `localhost`, an address, another machine or another
+  domain are refused, so a web page can't reach the port through DNS rebinding.
+- A browser's request must come from that same `https://` origin.
+- `list-exec-env-vars` is refused while the server requires no token, however it's reached, `trigger-binding`
+  included.
+
+Anyone your tailnet lets reach this Mac can use the server as an app on this Mac can, including closing windows. Use
+your tailnet's access controls to choose who that is, and turn on **Require access token** to ask for the token too.
+
+The local port is this Mac's only. It refuses any request a proxy forwarded, whatever `Host` its client chose:
+`tailscale serve` picks where an HTTPS request goes by the name the client connected to, passes on the client's own
+`Host`, and adds `X-Forwarded-Host` and `X-Forwarded-For` to everything it forwards. So a request carrying any
+`X-Forwarded-*`, `Forwarded`, `X-Real-IP`, `Via` or `Tailscale-*` header is refused there. A serve rule pointed at the
+local port, or left pointing at a port number the local port takes later, gets nothing. These headers only ever
+refuse; leaving them out gets a client nothing it couldn't get as an app on this Mac.
+
+Forwarding a port at the TCP level instead (`tailscale serve --tcp` or `--tls-terminated-tcp`, `ssh -L`, `socat`)
+copies bytes and adds no header: WinMux can't tell such a request from an app on this Mac. Don't forward the local
+port that way.
 
 ## Access token
 
@@ -107,12 +180,14 @@ compared in constant time and never logged.
 - Anything that can reach the server can do what the `winmux` command line can, including focusing, moving and
   closing windows. Read tools and `agent query` return window titles and app names, which can be private.
   `list-exec-env-vars` prints the environment WinMux's commands inherit, which may hold secrets.
-- Off, nothing listens. On, only 127.0.0.1. A connection from any other address is closed before anything is read.
-- Without a token, any app on this Mac can use the server. Turning the server off, or changing its port, closes the
-  connections it had.
+- Off, nothing listens. On, only 127.0.0.1, on one port, or two with tailnet access. A connection from any other
+  address is closed before anything is read.
+- Without a token, any app on this Mac can use the server, and, with tailnet access, anyone your tailnet lets reach
+  this Mac. Turning the server or tailnet access off, or changing a port, closes the connections that port had.
 - Requests whose `Host` isn't `localhost` or a loopback address, or whose `Origin` is a web page from anywhere but this
   Mac's loopback, are refused. That stops a web page from reaching the server through DNS rebinding. There's no CORS,
-  so other web pages can't read its answers.
+  so other web pages can't read its answers. Requests a proxy forwarded are refused on the local port, and Funnel's on
+  both. The tailnet port has its own rule: see [Access from your tailnet](#access-from-your-tailnet).
 - Limits: 16 KiB of headers and 16 MiB of body per request. A request must arrive within 60 seconds. At most 16
   connections at once. A tool waits up to 60 seconds for its command; the command isn't stopped then, as the CLI
   never stops one. Chunked request bodies aren't accepted: send a `Content-Length`.

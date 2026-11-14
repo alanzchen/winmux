@@ -123,8 +123,12 @@ extension CGPoint {
         guard !winMuxWorkspaceState.isWorkspaceActive(workspace.id, outside: viewportId) else {
             return false
         }
+        let previous = winMuxWorkspaceState.monitorViewportsById[viewportId]?.activeWorkspaceId
         _ = winMuxWorkspaceState.setActiveWorkspace(workspace, on: viewportId, contextProjectId: contextProjectId, isChosen: isChosen)
         checkWorkspaceHierarchyInvariants()
+        if previous != workspace.id {
+            WindowLifecycleLog.shared.record(.workspaceShown, windowId: nil, ["workspace": workspace.name, "display": monitorApproximation.name])
+        }
         return true
     }
 }

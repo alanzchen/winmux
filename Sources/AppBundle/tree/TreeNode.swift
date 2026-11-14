@@ -87,6 +87,7 @@ open class TreeNode: Equatable, WinMuxAny {
         newParent._children.insert(self, at: index != INDEX_BIND_LAST ? index : newParent._children.count)
         _parent = newParent
         unboundStacktrace = nil
+        if let result { recordWindowMovesIfWorkspaceChanged(from: result.parent) }
         // todo consider disabling automatic mru propogation
         // 1. "floating windows" in FocusCommand break the MRU because of that :(
         // 2. Misbehaved apps that abuse real window as popups https://github.com/nikitabobko/AeroSpace/issues/106 (the
@@ -96,6 +97,18 @@ open class TreeNode: Equatable, WinMuxAny {
             nodeWorkspace?.refreshEmptyLifecycle()
         }
         return result
+    }
+
+    /// For a debug snapshot's event log: its windows went to another workspace, or out of one.
+    @MainActor
+    private func recordWindowMovesIfWorkspaceChanged(from oldParent: NonLeafTreeNodeObject) {
+        let from = oldParent.nodeWorkspace
+        let to = nodeWorkspace
+        guard from !== to, let parent else { return }
+        for window in allLeafWindowsRecursive {
+            WindowLifecycleLog.shared.record(.moved, windowId: window.windowId,
+                ["from": from?.name ?? "", "to": to?.name ?? "", "toParent": parent.kind.rawValue])
+        }
     }
 
     private func unbindIfBound() -> BindingData? {
