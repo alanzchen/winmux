@@ -87,7 +87,7 @@ private final class ParkingTestWindow: Window {
     }
 
     /// Like MacApp.setFrame: read the frame, write only what differs.
-    override func setAxFrame(_ topLeft: CGPoint?, _ size: CGSize?) {
+    override func writeAxFrame(_ topLeft: CGPoint?, _ size: CGSize?) {
         frameSubmissions += 1
         axReads += 1
         let current = nativeRect

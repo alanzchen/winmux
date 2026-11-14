@@ -156,14 +156,102 @@ open class Window: TreeNode, Hashable {
     func getAxRect() async throws -> Rect? { die("Not implemented") }
     func getCenter() async throws -> CGPoint? { try await getAxRect()?.center }
 
-    func setAxFrame(_ topLeft: CGPoint?, _ size: CGSize?) { die("Not implemented") }
-
-    /// Lays the window out in `cell`. An app that keeps a size of its own there isn't asked again for
-    /// the same cell: its window is centered in it, or kept inside `bounds` where it's larger
-    /// (`layoutPlacedRect`).
+    /// Every frame write that isn't a layout's own (a move alone or a park, a frame put back, a tab strip or drag
+    /// action): layout no longer owns where the window goes, so a follow-up pending for its last cell, which would undo
+    /// this, is dropped first, here on the main actor before the write reaches the app (`relinquishFrameFit`).
     @MainActor
-    func setAxLayoutFrame(_ cell: Rect, within bounds: Rect) {
-        setAxFrame(cell.topLeftCorner, cell.size)
+    final func setAxFrame(_ topLeft: CGPoint?, _ size: CGSize?) {
+        relinquishFrameFit()
+        writeAxFrame(topLeft, size)
+    }
+
+    /// The write itself: a real window's on its app's AX thread.
+    func writeAxFrame(_ topLeft: CGPoint?, _ size: CGSize?) { die("Not implemented") }
+
+    /// The cell layout last wrote the window into, the area around it, and where: what a follow-up continues.
+    @MainActor private(set) var frameFitLayout: (cell: Rect, bounds: Rect, target: FrameFitTarget)? = nil
+    /// Moves on when the user resizes the window or it leaves tiling: what its app made of a cell before is asked again.
+    @MainActor private(set) var frameFitArming: UInt64 = 0
+    /// Laid out in a cell since it was last rearmed: leaving tiling then starts its fit over. A park or a frame write drops
+    /// `frameFitLayout` with its follow-up, but not this, so a window parked before it's minimized is asked anew when
+    /// it's back. Until it's laid out again, layout doesn't reuse a frame it wrote before (`canReuseLastAppliedWindowFrame`).
+    @MainActor private(set) var frameFitLaidOut = false
+
+    /// Lays the window out in `cell`, on the display `monitor`, in frame-fit epoch `epoch`. An app that keeps a size of
+    /// its own there isn't asked again for a cell that size: its window is centered in it, or kept inside `bounds` where
+    /// it's larger (`layoutPlacedRect`). How often a size is asked for is bounded (`WindowFrameFit`).
+    @MainActor
+    final func setAxLayoutFrame(_ cell: Rect, within bounds: Rect, monitor: Int, epoch: UInt64) {
+        let target = FrameFitTarget(monitor: monitor, epoch: epoch, arming: frameFitArming)
+        frameFitLayout = (cell, bounds, target)
+        frameFitLaidOut = true
+        FrameFitFollowUps.shared.cancel(windowId)
+        writeLayoutFrame(cell, within: bounds, target: target, continuing: false)
+    }
+
+    /// The write itself: a real window's on its app's AX thread, which hands back what it read
+    /// (`didWriteLayoutFrame`). `continuing`: a follow-up.
+    @MainActor
+    func writeLayoutFrame(_ cell: Rect, within bounds: Rect, target: FrameFitTarget, continuing: Bool) {
+        if !continuing { writeAxFrame(cell.topLeftCorner, cell.size) }
+    }
+
+    /// A layout write into `cell` with `target` left the window at `frame` (when that's news), and wants another look at
+    /// `followUpAt`: scheduled, unless layout has written the window elsewhere since.
+    @MainActor
+    func didWriteLayoutFrame(_ frame: Rect?, in cell: Rect, target: FrameFitTarget, token: UInt64, followUpAt: TimeInterval?) {
+        if let frame { recordLayoutFrame(frame, in: cell, token: token) }
+        guard let followUpAt, let layout = frameFitLayout, layout.cell == cell, layout.target == target else { return }
+        FrameFitFollowUps.shared.schedule(windowId, at: followUpAt, cell: cell, target: target)
+    }
+
+    /// A follow-up: the same write again, as long as layout still has the window in that cell on that display, in that
+    /// epoch, shown, and not in the user's hands. Whatever layout passes reuse, and whatever AX events are suppressed.
+    /// Checked right before the write: layout hiding the window (an inactive tab, a window behind a full-screen one)
+    /// takes its cell away first.
+    @MainActor
+    func continueLayoutFrame(_ cell: Rect, target: FrameFitTarget) {
+        let inCell = lastAppliedLayoutPhysicalRect.map { $0 == cell } ?? isFullscreen
+        guard inCell, let layout = frameFitLayout, layout.cell == cell, layout.target == target,
+              target.epoch == MonitorConfigurationObserver.shared.frameFitEpoch, target.arming == frameFitArming,
+              let workspace = nodeWorkspace, workspace.isVisible,
+              workspace.workspaceMonitor.monitorAppKitNsScreenScreensId == target.monitor,
+              !isHiddenInCorner, currentlyManipulatedWithMouseWindowId != windowId
+        else { return }
+        writeLayoutFrame(cell, within: layout.bounds, target: target, continuing: true)
+    }
+
+    /// The user resized the window, or it left tiling: its app is asked anew about the next cell it's laid out in,
+    /// whatever it kept before. A raw kAXResized never does this: it can't tell the user from the app.
+    @MainActor
+    func rearmFrameFit() {
+        frameFitArming &+= 1
+        frameFitLaidOut = false
+        relinquishFrameFit()
+    }
+
+    /// Something other than this layout's own follow-up now decides where the window goes: a frame write, a park, the
+    /// window closing. Its pending follow-up is dropped, and none can be scheduled for the cell it had until layout
+    /// writes it into one again. What its app was found to keep stays: that's per cell size, on the app's thread.
+    @MainActor
+    func relinquishFrameFit() {
+        frameFitLayout = nil
+        FrameFitFollowUps.shared.cancel(windowId)
+    }
+
+    /// Bound with `relation` to its new parent: floating, minimized, full screen or hidden, it has left tiling. The cell
+    /// it had is no longer where layout puts it: a return to a cell of the same place is written anew, not taken for one
+    /// written already. (Not on a rearm itself: a mouse resize reads the cell after rearming.)
+    @MainActor
+    func noteFrameFitRelation(_ relation: ChildParentRelation) {
+        switch relation {
+            case .tiling, .rootTilingContainer, .shimContainerRelation: break
+            case .floatingWindow, .macosNativeFullscreenWindow, .macosNativeHiddenAppWindow, .macosNativeMinimizedWindow, .macosPopupWindow:
+                lastAppliedLayoutPhysicalRect = nil
+                lastAppliedLayoutVirtualRect = nil
+                layoutFrameFit = nil
+                if frameFitLaidOut { rearmFrameFit() }
+        }
     }
 }
 

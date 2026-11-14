@@ -86,6 +86,7 @@ open class TreeNode: Equatable, WinMuxAny {
         }
         newParent._children.insert(self, at: index != INDEX_BIND_LAST ? index : newParent._children.count)
         _parent = newParent
+        (self as? Window)?.noteFrameFitRelation(relation)
         unboundStacktrace = nil
         if let result { recordWindowMovesIfWorkspaceChanged(from: result.parent) }
         // todo consider disabling automatic mru propogation

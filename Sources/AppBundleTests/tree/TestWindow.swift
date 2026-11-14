@@ -107,7 +107,7 @@ final class TestWindow: Window, CustomStringConvertible {
 
     private(set) var setAxFrameCount = 0
 
-    override func setAxFrame(_ topLeft: CGPoint?, _ size: CGSize?) {
+    override func writeAxFrame(_ topLeft: CGPoint?, _ size: CGSize?) {
         setAxFrameCount += 1
         let currentRect = _rect ?? Rect(topLeftX: topLeft?.x ?? 0, topLeftY: topLeft?.y ?? 0, width: size?.width ?? 0, height: size?.height ?? 0)
         _rect = Rect(

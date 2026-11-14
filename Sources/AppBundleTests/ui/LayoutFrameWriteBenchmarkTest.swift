@@ -107,7 +107,7 @@ private final class BenchmarkFrameWindow: Window {
     @MainActor override var isMacosMinimized: Bool { get async throws { false } }
     override var isHiddenInCorner: Bool { false }
 
-    override func setAxFrame(_ topLeft: CGPoint?, _ size: CGSize?) {
+    override func writeAxFrame(_ topLeft: CGPoint?, _ size: CGSize?) {
         Self.frameWriteCount += 1
         if Self.frameDelayNanoseconds > 0 {
             usleep(useconds_t(Self.frameDelayNanoseconds / 1_000))

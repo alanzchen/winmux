@@ -84,6 +84,8 @@ func updateCompositedResizePreview(_ window: Window, rect: Rect) {
 
 @MainActor
 func applyResizeWithMouse(_ window: Window, rect: Rect) {
+    // The user let go of a resize: whatever size the window's app was taken to keep is asked about again.
+    window.rearmFrameFit()
     syncClosedWindowsCacheToCurrentWorld()
     guard let weightMap = proposedResizeWeightMap(window, rect: rect) else { return }
     for change in weightMap.changes {

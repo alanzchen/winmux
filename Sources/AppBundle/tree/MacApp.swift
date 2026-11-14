@@ -473,30 +473,33 @@ final class MacApp: AbstractApp {
     }
 
     func setAxFrame(_ windowId: UInt32, _ topLeft: CGPoint?, _ size: CGSize?) {
-        setAxFrame(windowId, topLeft, size, within: nil, layoutToken: nil)
+        setAxFrame(windowId, topLeft, size, within: nil, target: nil, continuing: false, done: nil)
     }
 
-    /// Lays a window out in `cell`. `bounds` keeps a window the app won't shrink to its cell on its
-    /// display. The frame the window is left at goes back to the main actor (`recordLayoutFrame`); as
-    /// an observation only while `layoutToken`, taken before submitting, is still current.
-    func setAxLayoutFrame(_ windowId: UInt32, _ cell: Rect, within bounds: Rect, layoutToken: UInt64) {
-        setAxFrame(windowId, cell.topLeftCorner, cell.size, within: bounds, layoutToken: layoutToken)
+    /// Lays a window out in `cell`. `bounds` keeps a window the app won't shrink to its cell on its display; `target`
+    /// is what a size its app keeps is learned for. What the write read back, and when the window wants another look,
+    /// go back to the main actor (`done`).
+    func setAxLayoutFrame(_ windowId: UInt32, _ cell: Rect, within bounds: Rect, target: FrameFitTarget, continuing: Bool,
+                          done: @escaping @MainActor @Sendable (Rect?, TimeInterval?) -> Void)
+    {
+        setAxFrame(windowId, cell.topLeftCorner, cell.size, within: bounds, target: target, continuing: continuing, done: done)
     }
 
-    private func setAxFrame(_ windowId: UInt32, _ topLeft: CGPoint?, _ size: CGSize?, within bounds: Rect?, layoutToken: UInt64?) {
+    private func setAxFrame(_ windowId: UInt32, _ topLeft: CGPoint?, _ size: CGSize?, within bounds: Rect?, target: FrameFitTarget?,
+                            continuing: Bool, done: (@MainActor @Sendable (Rect?, TimeInterval?) -> Void)?)
+    {
         lastFrameSubmission = ProcessInfo.processInfo.systemUptime
         frameWriteBarrier.recordWrite()
         setFrameJobs.removeValue(forKey: windowId)?.cancel()
         setFrameJobs[windowId] = withAxWindowAsync(windowId) { [axApp, frameWriteLedger] window, job in
-            let frame = try setFrame(window.ax, topLeft, size, fit: &window.frameFit, within: bounds, job) { writes in
+            let frame = try setFrame(window.ax, topLeft, size, fit: &window.frameFit, within: bounds, target: target, continuing: continuing,
+                now: ProcessInfo.processInfo.systemUptime, job) { writes in
                 try frameWriteLedger.record(windowId) { try disableAnimations(app: axApp.threadGuarded, job, writes) }
             }
             // Read back after every write had run: still the frame, even if a newer write was queued since.
-            guard let frame, let layoutToken, let topLeft, let size else { return }
-            let cell = Rect(topLeftX: topLeft.x, topLeftY: topLeft.y, width: size.width, height: size.height)
-            _ = Task { @MainActor in
-                Window.get(byId: windowId)?.recordLayoutFrame(frame, in: cell, token: layoutToken)
-            }
+            let followUpAt = window.frameFit.followUpAt
+            guard let done, frame != nil || followUpAt != nil else { return }
+            _ = Task { @MainActor in done(frame, followUpAt) }
         }
     }
 

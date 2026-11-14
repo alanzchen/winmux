@@ -95,14 +95,15 @@ extension TreeNode {
                         if !isFullscreenTab {
                             window.isFullscreen = false
                         }
-                        if !canReuseLastAppliedWindowFrame(previousPhysicalRect: previousPhysicalRect, nextPhysicalRect: physicalRect) {
+                        if !canReuseLastAppliedWindowFrame(window, previousPhysicalRect: previousPhysicalRect, nextPhysicalRect: physicalRect) {
                             // Layout doesn't learn the frame it sets, and right after a drag the move's
                             // AX events are suppressed, so a move drops the cached rect itself. Re-sending
                             // an unchanged frame keeps it: an app that clamps the frame doesn't move.
                             if previousPhysicalRect.map({ !$0.isApproximatelyEqual(to: physicalRect, tolerance: 0.5) }) ?? true {
                                 window.invalidateLastKnownActualRect()
                             }
-                            window.setAxLayoutFrame(physicalRect, within: context.bounds)
+                            window.setAxLayoutFrame(physicalRect, within: context.bounds, monitor: context.monitor,
+                                epoch: context.frameFitEpoch)
                         }
                     }
                 }
@@ -125,8 +126,11 @@ extension TreeNode {
     }
 }
 
-private func canReuseLastAppliedWindowFrame(previousPhysicalRect: Rect?, nextPhysicalRect: Rect) -> Bool {
-    guard refreshSessionRequirements?.canReuseLastAppliedWindowFrames == true else { return false }
+/// Whether layout may skip writing `window` because it wrote this very cell before. Not for a window not laid out since it
+/// was rearmed (it left tiling, or the user resized it): what its app keeps there is asked anew.
+@MainActor
+private func canReuseLastAppliedWindowFrame(_ window: Window, previousPhysicalRect: Rect?, nextPhysicalRect: Rect) -> Bool {
+    guard refreshSessionRequirements?.canReuseLastAppliedWindowFrames == true, window.frameFitLaidOut else { return false }
     guard let previousPhysicalRect else { return false }
     return previousPhysicalRect.topLeftX == nextPhysicalRect.topLeftX &&
         previousPhysicalRect.topLeftY == nextPhysicalRect.topLeftY &&
@@ -141,6 +145,9 @@ private struct LayoutContext {
     let hideCorner: OptimalHideCorner
     /// The workspace's area on its display: a window the app won't shrink to its cell stays inside it.
     let bounds: Rect
+    /// The display, by id, and the frame-fit epoch: what a size an app keeps in a cell is learned for.
+    let monitor: Int
+    let frameFitEpoch: UInt64
     /// Whether this session re-parks hidden windows WinMux believes parked (see layoutWorkspaces).
     let reassertHiddenWindows: Bool
     private let topologyGeneration: UInt64
@@ -154,6 +161,8 @@ private struct LayoutContext {
         self.resolvedGaps = ResolvedGaps(gaps: config.gaps, monitor: workspace.workspaceMonitor)
         self.hideCorner = optimalHideCorner(for: workspace.workspaceMonitor)
         self.bounds = workspace.workspaceMonitor.standardTilingRect
+        self.monitor = workspace.workspaceMonitor.monitorAppKitNsScreenScreensId
+        self.frameFitEpoch = MonitorConfigurationObserver.shared.frameFitEpoch
         self.reassertHiddenWindows = sessionRequiresHiddenWindowsReassertion()
         self.topologyGeneration = MonitorConfigurationObserver.shared.topologyGeneration
         self.layoutPassGeneration = workspaceLayoutPassGeneration
@@ -232,7 +241,7 @@ extension Window {
         let monitorRect = noOuterGapsInFullscreen
             ? context.workspace.workspaceMonitor.visibleRect
             : context.workspace.workspaceMonitor.visibleRectPaddedByOuterGaps
-        setAxLayoutFrame(monitorRect, within: monitorRect)
+        setAxLayoutFrame(monitorRect, within: monitorRect, monitor: context.monitor, epoch: context.frameFitEpoch)
     }
 }
 

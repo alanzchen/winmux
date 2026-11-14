@@ -21,6 +21,10 @@ enum GlobalObserver {
         if activatedAppPid != nil { nativeFocusEvents.note() }
         // At once, on the main queue it's delivered on: a window that app opens next is judged by it.
         if let activatedAppPid { MainActor.assumeIsolated { noteAppActivatedForAuxiliaryWindows(pid: activatedAppPid) } }
+        if notifName == NSWorkspace.didWakeNotification.rawValue || notifName == NSWorkspace.screensDidWakeNotification.rawValue {
+            // Before the refresh this schedules lays windows out.
+            MainActor.assumeIsolated { MonitorConfigurationObserver.shared.noteScreensWoke() }
+        }
         Task { @MainActor in
             if !TrayMenuModel.shared.isEnabled { return }
             if notifName == NSWorkspace.didActivateApplicationNotification.rawValue {

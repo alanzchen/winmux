@@ -939,7 +939,7 @@ private final class ParkedTestWindow: Window, WorkspaceWindowVisibility {
     @MainActor override func getAxSize() async throws -> CGSize? { CGSize(width: frame.width, height: frame.height) }
     @MainActor override func closeAxWindow() { _ = unbindFromParent() }
 
-    override func setAxFrame(_ topLeft: CGPoint?, _ size: CGSize?) {
+    override func writeAxFrame(_ topLeft: CGPoint?, _ size: CGSize?) {
         // Tests run on the main actor, as WinMux's frame writes are queued from it.
         nonisolated(unsafe) let window = self
         MainActor.assumeIsolated {

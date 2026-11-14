@@ -108,6 +108,8 @@ extension Window {
         ifStillValid: () -> Bool,
     ) async throws {
         guard ifStillValid() else { return }
+        // Hidden now: before any AX read below can suspend, a follow-up for the cell it had mustn't write it back there.
+        relinquishFrameFit()
         // No parking against a placeholder display: the position would be arbitrary.
         guard let nodeMonitor, !nodeMonitor.isFallbackMonitor else { return }
         var observedJustNow = false

@@ -175,16 +175,22 @@ final class MacWindow: Window {
         try await macApp.getAxSize(windowId)
     }
 
-    override func setAxFrame(_ topLeft: CGPoint?, _ size: CGSize?) {
+    override func writeAxFrame(_ topLeft: CGPoint?, _ size: CGSize?) {
         macApp.setAxFrame(windowId, topLeft, size)
     }
 
     @MainActor
-    override func setAxLayoutFrame(_ cell: Rect, within bounds: Rect) {
-        macApp.setAxLayoutFrame(windowId, cell, within: bounds, layoutToken: nativeStateObservationToken())
+    override func writeLayoutFrame(_ cell: Rect, within bounds: Rect, target: FrameFitTarget, continuing: Bool) {
+        let token = nativeStateObservationToken()
+        macApp.setAxLayoutFrame(windowId, cell, within: bounds, target: target, continuing: continuing) { [windowId] frame, followUpAt in
+            Window.get(byId: windowId)?.didWriteLayoutFrame(frame, in: cell, target: target, token: token, followUpAt: followUpAt)
+        }
     }
 
+    /// A frame write that isn't a layout's, as `setAxFrame`, awaited.
+    @MainActor
     func setAxFrameBlocking(_ topLeft: CGPoint?, _ size: CGSize?) async throws {
+        relinquishFrameFit()
         try await macApp.setAxFrameBlocking(windowId, topLeft, size)
     }
 

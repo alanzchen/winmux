@@ -361,7 +361,7 @@ private final class PresentationWindow: Window {
     @MainActor override var title: String { get async { "Window \(windowId)" } }
     override var isHiddenInCorner: Bool { hidden }
     @MainActor override func getAxRect() async throws -> Rect? { rect }
-    override func setAxFrame(_ topLeft: CGPoint?, _ size: CGSize?) {
+    override func writeAxFrame(_ topLeft: CGPoint?, _ size: CGSize?) {
         owner.enqueue { [self] in
             rect = Rect(topLeftX: topLeft?.x ?? rect.minX, topLeftY: topLeft?.y ?? rect.minY,
                 width: size?.width ?? rect.width, height: size?.height ?? rect.height)

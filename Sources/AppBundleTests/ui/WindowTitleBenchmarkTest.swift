@@ -135,7 +135,7 @@ private final class BenchmarkTitleWindow: Window {
     @MainActor override var isMacosMinimized: Bool { get async throws { false } }
     override var isHiddenInCorner: Bool { false }
 
-    override func setAxFrame(_ topLeft: CGPoint?, _ size: CGSize?) {
+    override func writeAxFrame(_ topLeft: CGPoint?, _ size: CGSize?) {
         let currentRect = rect ?? Rect(topLeftX: topLeft?.x ?? 0, topLeftY: topLeft?.y ?? 0, width: size?.width ?? 0, height: size?.height ?? 0)
         rect = Rect(
             topLeftX: topLeft?.x ?? currentRect.topLeftX,

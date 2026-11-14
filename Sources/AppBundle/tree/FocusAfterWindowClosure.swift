@@ -5,6 +5,7 @@ extension Window {
     /// its tab closes with it if it was the last: see `noteWindowClosed`.
     @MainActor
     func removeClosedWindowFromTree() {
+        relinquishFrameFit()
         let parent = unbindFromParent().parent
         // First, so focus leaves a tab that closes, as it leaves one that isn't saved.
         noteWindowClosed(self, from: parent)
