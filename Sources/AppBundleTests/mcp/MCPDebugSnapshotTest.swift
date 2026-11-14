@@ -428,7 +428,7 @@ final class SnapshotTestWindow: Window {
 
     @MainActor override func getAxSize() async throws -> CGSize? { CGSize(width: frame.width, height: frame.height) }
 
-    override func setAxFrame(_ topLeft: CGPoint?, _ size: CGSize?) {
+    override func writeAxFrame(_ topLeft: CGPoint?, _ size: CGSize?) {
         // Layout runs on the main actor, as MacWindow's writes are queued from it.
         nonisolated(unsafe) let window = self
         MainActor.assumeIsolated {
