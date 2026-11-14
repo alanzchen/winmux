@@ -39,6 +39,104 @@ final class NewWindowIntentTest: XCTestCase {
             focusGeneration: focusChangeGeneration, timeout: timeout, completion: outcomes)
     }
 
+    func testColdLaunchReservesModeBeforeSettleAndKeepsItPastOrdinaryExpiry() throws {
+        let target = Workspace.get(byName: "cold-launch")
+        registry.setNextWindowLayout(.floating, in: target)
+        let armedAt = clock
+        let handle = NewWindowRequestHandle()
+        handle.reserveLayout(for: .launchThenScript("make new window"), bundleId: appId, workspace: target)
+        XCTAssertNil(registry.consumeNextWindowLayout(in: target, firstSeenUptime: clock),
+            "An unrelated ordinary window arriving during launch cannot steal the captured mode")
+        clock += newWindowIntentTimeout + 10
+        registry.expireOverdueIntents()
+        let reservation = try XCTUnwrap(handle.takeLayoutReservation())
+        let intent = try XCTUnwrap(registry.register(bundleId: appId, pid: 7, targetWorkspace: target,
+            preexistingWindowIds: [10], focusGeneration: focusChangeGeneration, layoutReservation: reservation))
+        XCTAssertEqual(intent.requestedLayout, .floating)
+        XCTAssertEqual(intent.requestedLayoutFirstSeenUptime, armedAt)
+        XCTAssertEqual(intent.createdUptime, clock,
+            "Only the explicitly scripted window after settlement is new for the request")
+        XCTAssertNil(registry.claim(windowId: 10, pid: 7, bundleId: appId, firstSeenUptime: clock))
+        XCTAssertNil(registry.claim(windowId: 11, pid: 8, bundleId: appId, firstSeenUptime: clock))
+        XCTAssertNil(registry.claim(windowId: 11, pid: 7, bundleId: appId, firstSeenUptime: armedAt + 1),
+            "A startup/session window observed before the fresh script request cannot be claimed")
+        XCTAssertTrue(registry.claim(windowId: 11, pid: 7, bundleId: appId, firstSeenUptime: clock) === target)
+        let claim = try XCTUnwrap(registry.consumeClaim(windowId: 11))
+        let window = TestWindow.new(id: 11, parent: target.rootTilingContainer)
+        finishNewWindowIntentPlacement(window, claim: claim)
+        XCTAssertTrue(window.isFloating)
+    }
+
+    func testColdLaunchWithoutModeAtChoiceDoesNotCapturePreferenceArmedDuringLaunch() throws {
+        let target = Workspace.get(byName: "cold-launch")
+        let handle = NewWindowRequestHandle()
+        handle.reserveLayout(for: .launchThenScript("make new window"), bundleId: appId, workspace: target)
+        clock += 1
+        registry.setNextWindowLayout(.floating, in: target)
+        let reservation = try XCTUnwrap(handle.takeLayoutReservation())
+        let intent = try XCTUnwrap(registry.register(bundleId: appId, pid: 7, targetWorkspace: target,
+            preexistingWindowIds: [], focusGeneration: focusChangeGeneration, layoutReservation: reservation))
+        XCTAssertNil(intent.requestedLayout)
+        XCTAssertEqual(registry.consumeNextWindowLayout(in: target, firstSeenUptime: clock), .floating)
+    }
+
+    func testColdLaunchCancellationAndFailureDiscardCapturedMode() {
+        let target = Workspace.get(byName: "cold-launch")
+        for isCancellation in [true, false] {
+            registry.setNextWindowLayout(.floating, in: target)
+            let handle = NewWindowRequestHandle()
+            handle.reserveLayout(for: .launchThenScript("make new window"), bundleId: appId, workspace: target)
+            if isCancellation { handle.cancel() } else { handle.discardLayoutReservation() }
+            XCTAssertNil(handle.takeLayoutReservation())
+            XCTAssertNil(registry.consumeNextWindowLayout(in: target, firstSeenUptime: clock),
+                "A failed or cancelled app-specific choice must not leak its mode to another app")
+        }
+    }
+
+    func testRejectedIntentDiscardsReservationWithoutCapturingALaterMode() throws {
+        let target = Workspace.get(byName: "cold-launch")
+        let existing = try XCTUnwrap(register(target: target))
+        registry.setNextWindowLayout(.floating, in: target)
+        let reservation = registry.reserveNextWindowLayout(bundleId: appId, in: target)
+        XCTAssertNil(registry.register(bundleId: appId, pid: 7, targetWorkspace: target,
+            preexistingWindowIds: [], focusGeneration: focusChangeGeneration, layoutReservation: reservation))
+        registry.cancel(intentId: existing.id)
+        registry.setNextWindowLayout(.tiling, in: target)
+        let next = try XCTUnwrap(registry.register(bundleId: appId, pid: 7, targetWorkspace: target,
+            preexistingWindowIds: [], focusGeneration: focusChangeGeneration, layoutReservation: reservation))
+        XCTAssertNil(next.requestedLayout, "A discarded reservation is one-use and suppresses late capture")
+        XCTAssertEqual(registry.consumeNextWindowLayout(in: target, firstSeenUptime: clock), .tiling)
+    }
+
+    func testOnlyAcceptedColdScriptedLaunchesReserveModes() {
+        let target = Workspace.get(byName: "cold-launch")
+        let methods: [NewWindowMethod] = [.open, .unsupported, .script("make new window"), .menuItem, .reopen]
+        for method in methods {
+            registry.setNextWindowLayout(.floating, in: target)
+            let handle = NewWindowRequestHandle()
+            handle.reserveLayout(for: method, bundleId: appId, workspace: target)
+            XCTAssertNil(handle.takeLayoutReservation())
+            XCTAssertEqual(registry.consumeNextWindowLayout(in: target, firstSeenUptime: clock), .floating)
+        }
+        registry.setNextWindowLayout(.floating, in: target)
+        let cancelled = NewWindowRequestHandle()
+        cancelled.cancel()
+        cancelled.reserveLayout(for: .launchThenScript("make new window"), bundleId: appId, workspace: target)
+        XCTAssertNil(cancelled.takeLayoutReservation())
+        XCTAssertEqual(registry.consumeNextWindowLayout(in: target, firstSeenUptime: clock), .floating)
+    }
+
+    func testReservedModeCannotBeTransferredToAnotherAppOrWorkspace() throws {
+        let target = Workspace.get(byName: "cold-launch")
+        let other = Workspace.get(byName: "other")
+        registry.setNextWindowLayout(.floating, in: target)
+        let reservation = registry.reserveNextWindowLayout(bundleId: appId, in: target)
+        let intent = try XCTUnwrap(registry.register(bundleId: "other-app", pid: 7, targetWorkspace: other,
+            preexistingWindowIds: [], focusGeneration: focusChangeGeneration, layoutReservation: reservation))
+        XCTAssertNil(intent.requestedLayout)
+        XCTAssertNil(registry.consumeNextWindowLayout(in: target, firstSeenUptime: clock))
+    }
+
     func testNextWindowLayoutIsScopedExpiresAndSkipsOlderWindows() {
         let target = Workspace.get(byName: "a")
         let other = Workspace.get(byName: "b")

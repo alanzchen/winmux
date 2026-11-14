@@ -177,6 +177,156 @@ final class PinReopenRestoreRaceTest: XCTestCase {
         XCTAssertFalse(reopened.isFloating)
     }
 
+    func testANativeFullscreenReopenWaitsForRestoresWithoutMovingOrFocusingIt() async throws {
+        for sameDestination in [true, false] {
+            setUpWorkspacesForTests()
+            resetRegistry()
+            let (_, pin, _, held, reopened, _, other) = closedWorld()
+            let actualWorkspace = sameDestination ? pin : Workspace.get(byName: "native-elsewhere")
+            let (restore, release) = await restoreWaitingOnAX(other, held: held)
+            var outcomes: [NewWindowRequestOutcome] = []
+            clickPin(pin) { outcomes.append($0) }
+            await letTasksRun()
+            XCTAssertTrue(registry.claim(windowId: 2, pid: pid, bundleId: appId, firstSeenUptime: clock) === pin)
+            let claim = try XCTUnwrap(registry.consumeClaim(windowId: 2))
+            reopened.bind(to: actualWorkspace.rootTilingContainer, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
+            reopened.rememberMacOsLayoutOrigin()
+            reopened.nativeIsMacosFullscreen = true
+            let nativeContainer = actualWorkspace.macOsNativeFullscreenWindowsContainer
+            reopened.bind(to: nativeContainer, adaptiveWeight: WEIGHT_DOESNT_MATTER, index: INDEX_BIND_LAST)
+            let nativeReason = reopened.layoutReason
+
+            finishNewWindowIntentPlacement(reopened, claim: claim)
+
+            XCTAssertTrue(reopened.parent === nativeContainer)
+            XCTAssertTrue(registry.holdsReopenClaim(on: reopened), "The older restore must still leave it alone")
+            XCTAssertEqual(outcomes, [])
+            XCTAssertEqual(reopened.nativeFocusCount, 0)
+            release()
+            _ = try await restore.value
+
+            XCTAssertEqual(activeFrozenRestoreCount, 0)
+            XCTAssertTrue(reopened.parent === nativeContainer)
+            XCTAssertEqual(reopened.layoutReason, nativeReason)
+            XCTAssertFalse(registry.holdsReopenClaim(on: reopened))
+            XCTAssertEqual(outcomes, sameDestination ? [.placed(windowId: 2)] : [.failed("The new window went to another workspace")])
+            XCTAssertEqual(reopened.nativeFocusCount, 0)
+
+            // Its actual native place supersedes the old tiled place for later restores too.
+            _ = try await restoreClosedWindowsCacheIfNeeded(newlyDetectedWindow: other)
+            XCTAssertTrue(reopened.parent === nativeContainer)
+            XCTAssertEqual(reopened.layoutReason, nativeReason)
+            XCTAssertEqual(reopened.nativeFocusCount, 0)
+            XCTAssertEqual(outcomes.count, 1)
+        }
+    }
+
+    func testADetachedMinimizedReopenWaitsForRestoresAndForgetsItsOldSnapshotPlace() async throws {
+        let (_, pin, _, held, reopened, _, other) = closedWorld()
+        let (restore, release) = await restoreWaitingOnAX(other, held: held)
+        var outcomes: [NewWindowRequestOutcome] = []
+        clickPin(pin) { outcomes.append($0) }
+        await letTasksRun()
+        XCTAssertTrue(registry.claim(windowId: 2, pid: pid, bundleId: appId, firstSeenUptime: clock) === pin)
+        let claim = try XCTUnwrap(registry.consumeClaim(windowId: 2))
+        reopened.bind(to: pin.rootTilingContainer, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
+        reopened.rememberMacOsLayoutOrigin(detachFromWorkspace: true)
+        reopened.nativeIsMacosMinimized = true
+        reopened.bind(to: macosMinimizedWindowsContainer, adaptiveWeight: 1, index: INDEX_BIND_LAST)
+        let nativeReason = reopened.layoutReason
+
+        finishNewWindowIntentPlacement(reopened, claim: claim)
+
+        XCTAssertTrue(registry.holdsReopenClaim(on: reopened))
+        XCTAssertEqual(outcomes, [])
+        release()
+        _ = try await restore.value
+
+        XCTAssertTrue(reopened.parent === macosMinimizedWindowsContainer)
+        XCTAssertEqual(reopened.layoutReason, nativeReason)
+        XCTAssertFalse(registry.holdsReopenClaim(on: reopened))
+        XCTAssertEqual(outcomes, [.failed("The new window went to another workspace")])
+        XCTAssertEqual(reopened.nativeFocusCount, 0)
+        XCTAssertFalse(closedWindowsCacheContains(windowId: 2), "Detached: no old workspace can take it back")
+        _ = try await restoreClosedWindowsCacheIfNeeded(newlyDetectedWindow: other)
+        XCTAssertTrue(reopened.parent === macosMinimizedWindowsContainer)
+        XCTAssertEqual(reopened.layoutReason, nativeReason)
+        XCTAssertEqual(outcomes.count, 1)
+    }
+
+    func testAReopenEnteringNativeFullscreenWhileDeferredIsNotFocusedWhenRestoresEnd() async throws {
+        let (_, pin, _, _, reopened, _, other) = closedWorld()
+        var outcomes: [NewWindowRequestOutcome] = []
+        beginFrozenRestore()
+        clickPin(pin) { outcomes.append($0) }
+        await letTasksRun()
+        try await appShows(reopened)
+        reopened.rememberMacOsLayoutOrigin()
+        reopened.nativeIsMacosFullscreen = true
+        let nativeContainer = pin.macOsNativeFullscreenWindowsContainer
+        reopened.bind(to: nativeContainer, adaptiveWeight: WEIGHT_DOESNT_MATTER, index: INDEX_BIND_LAST)
+
+        endFrozenRestore()
+
+        XCTAssertTrue(reopened.parent === nativeContainer)
+        XCTAssertEqual(reopened.nativeFocusCount, 0)
+        XCTAssertEqual(outcomes, [.placed(windowId: 2)])
+        _ = try await restoreClosedWindowsCacheIfNeeded(newlyDetectedWindow: other)
+        XCTAssertTrue(reopened.parent === nativeContainer)
+        XCTAssertEqual(reopened.nativeFocusCount, 0)
+    }
+
+    func testSupersedingSnapshotKeepsNativeWindowsOutOfTheTilingTree() {
+        for state in ["fullscreen", "hidden", "minimized"] {
+            setUpWorkspacesForTests()
+            let workspace = Workspace.get(byName: "native")
+            let window = TestWindow.new(id: 2, parent: workspace.rootTilingContainer)
+            let snapshot = snapshotCurrentFrozenWorld()
+            window.rememberMacOsLayoutOrigin()
+            let nativeParent: NonLeafTreeNodeObject
+            switch state {
+                case "fullscreen": nativeParent = workspace.macOsNativeFullscreenWindowsContainer
+                case "hidden": nativeParent = workspace.macOsNativeHiddenAppsWindowsContainer
+                default: nativeParent = macosMinimizedWindowsContainer
+            }
+            window.bind(to: nativeParent, adaptiveWeight: 1, index: INDEX_BIND_LAST)
+
+            let updated = snapshot.superseding(placementOf: window, in: workspace)
+            let stored = updated.workspaces.first { $0.name == workspace.name }
+
+            XCTAssertTrue(updated.windowIds.contains(2))
+            XCTAssertEqual(stored?.rootTilingNode.children.count, 0)
+            XCTAssertEqual(stored?.floatingWindows.count, 0)
+            XCTAssertEqual(stored?.macosUnconventionalWindows.map(\.id), [2])
+            XCTAssertEqual(stored?.macosUnconventionalWindows.first?.layoutReason, window.layoutReason)
+        }
+    }
+
+    func testSupersedingSnapshotAddsOnlyTheNativeWindowToANewHiddenDestination() {
+        let old = Workspace.get(byName: "old")
+        let window = TestWindow.new(id: 2, parent: old.rootTilingContainer)
+        let other = TestWindow.new(id: 3, parent: old.rootTilingContainer)
+        let snapshot = snapshotCurrentFrozenWorld()
+        let destination = Workspace.get(byName: "native-elsewhere")
+        other.bind(to: destination.rootTilingContainer, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
+        window.bind(to: destination.rootTilingContainer, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
+        window.rememberMacOsLayoutOrigin()
+        window.bind(to: destination.macOsNativeFullscreenWindowsContainer, adaptiveWeight: WEIGHT_DOESNT_MATTER, index: INDEX_BIND_LAST)
+
+        let updated = snapshot.superseding(placementOf: window, in: destination)
+        let stored = updated.workspaces.first { $0.name == destination.name }
+        let storedOld = updated.workspaces.first { $0.name == old.name }
+
+        XCTAssertFalse(destination.isVisible)
+        XCTAssertEqual(stored?.rootTilingNode.children.count, 0, "Only this reopen changes its remembered place")
+        XCTAssertEqual(stored?.floatingWindows.count, 0)
+        XCTAssertEqual(stored?.macosUnconventionalWindows.map(\.id), [2])
+        XCTAssertEqual(storedOld?.rootTilingNode.children.compactMap { child -> UInt32? in
+            if case .window(let saved) = child { return saved.id }
+            return nil
+        }, [3])
+    }
+
     func testARestoreLeavesAClaimedWindowItRemembersFloatingOrHiddenAloneWithoutReadingIt() async throws {
         for remembered in ["floating", "hidden"] {
             setUpWorkspacesForTests()

@@ -95,3 +95,13 @@ The issue explicitly permits recording a decision instead of creating a follow-u
 - Required cross-provider Paseo/Opus 5.5 skill/profile and `agy gemini-3.8-flash-high` CLI are unavailable in this environment. Supplemental agents do not replace those reviews or establish approval; #3 tracks them.
 
 No GitHub CI was dispatched and no release was built or published. Native display/hardware scenarios, queued AX app termination, project/launcher/browser-tab flows, live settings and CLI/agent compatibility remain explicitly unverified under #3.
+
+## Review corrections
+
+The subsequent review found three interactions in the next-window integration:
+
+- Saved-title routing may return without placement while waiting for a title. Those windows now leave the next-window preference untouched; a regression follows the saved placement and checks that the next fresh window receives the mode.
+- Native-state reopens now retain their restore exclusion until active frozen restores finish, under the existing claim timeout/cancellation policy. Completion preserves their actual native location without focus, and stale snapshots retain the native state rather than putting them back into the tiling tree. Regressions cover a suspended AX restore, different actual destinations, minimized windows, deferred native transitions, and subsequent restores.
+- Cold scripted launches reserve their mode when the launcher accepts the choice, before launch/session settling. The one-use reservation keeps its app/workspace identity and original observation cutoff; cancellation/failure discards it. An empty reservation also prevents capturing a newer preference armed during the wait. Regressions cover slow launch, expiry, unrelated windows, preexisting windows, PID checks and cancellation.
+
+Targeted independent source rechecks and `git diff --check` were performed for these fixes. Swift grammar checks do not replace compilation. Focused `SavedWorkspaceRoutingTest`, `PinReopenRestoreRaceTest` and `NewWindowIntentTest`, the complete arm64 suite/build, native smoke checks, and required external reviewers remain pending under #3 because the implementation environment is still Linux without Swift/macOS or those reviewers.

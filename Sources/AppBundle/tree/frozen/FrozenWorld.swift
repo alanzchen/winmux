@@ -67,6 +67,9 @@ extension FrozenWorld {
     @MainActor
     func superseding(placementOf window: Window, in workspace: Workspace) -> FrozenWorld {
         guard windowIds.contains(window.windowId) else { return self }
+        let belongsToWorkspace = window.nodeWorkspace === workspace || workspaceOwnedMinimizedWindows(workspace).contains(window)
+        let isNative = window.parent is MacosFullscreenWindowsContainer || window.parent is MacosHiddenAppsWindowsContainer ||
+            window.parent is MacosMinimizedWindowsContainer
         var ids = windowIds.subtracting([window.windowId])
         var frozenWorkspaces: [FrozenWorkspace] = []
         for frozen in workspaces {
@@ -76,12 +79,22 @@ extension FrozenWorld {
                 continue
             }
             let display = FrozenMonitor(live.workspaceMonitor)
-            if live === workspace {
+            if live === workspace, belongsToWorkspace {
                 frozenWorkspaces.append(rest.appending(window, on: display))
                 ids.insert(window.windowId)
             } else {
                 frozenWorkspaces.append(rest.on(display))
             }
+        }
+        // A native window need not show or focus its workspace when its request completes.
+        if belongsToWorkspace, isNative, !workspace.isVisible, !frozenWorkspaces.contains(where: { $0.name == workspace.name }) {
+            let monitor = FrozenMonitor(workspace.workspaceMonitor)
+            let root = workspace.rootTilingContainer
+            let destination = FrozenWorkspace(name: workspace.name, projectId: workspace.projectId, namingStyle: workspace.namingStyle,
+                monitor: monitor, rootTilingNode: FrozenContainer(children: [], layout: root.layout, orientation: root.orientation, weight: 1),
+                floatingWindows: [], macosUnconventionalWindows: [])
+            frozenWorkspaces.append(destination.appending(window, on: monitor))
+            ids.insert(window.windowId)
         }
         // A restore shows each remembered display's workspace, and only remembered workspaces.
         let displays = liveDisplays()
@@ -105,15 +118,18 @@ extension FrozenWorkspace {
         self.macosUnconventionalWindows = macosUnconventionalWindows
     }
 
-    /// With the window last, floating or in the root, as it is now, on the display it's on now.
+    /// With the window last in its current tiling, floating or native state, on its display now.
     @MainActor
     func appending(_ window: Window, on monitor: FrozenMonitor) -> FrozenWorkspace {
         let frozenWindow = FrozenWindow(window)
+        let isTiling = window.parent is TilingContainer
+        let isNative = window.parent is MacosFullscreenWindowsContainer || window.parent is MacosHiddenAppsWindowsContainer ||
+            window.parent is MacosMinimizedWindowsContainer
         return FrozenWorkspace(name: name, projectId: projectId, namingStyle: namingStyle, monitor: monitor,
-            rootTilingNode: window.isFloating ? rootTilingNode : FrozenContainer(children: rootTilingNode.children + [.window(frozenWindow)],
-                layout: rootTilingNode.layout, orientation: rootTilingNode.orientation, weight: rootTilingNode.weight),
+            rootTilingNode: isTiling ? FrozenContainer(children: rootTilingNode.children + [.window(frozenWindow)],
+                layout: rootTilingNode.layout, orientation: rootTilingNode.orientation, weight: rootTilingNode.weight) : rootTilingNode,
             floatingWindows: window.isFloating ? floatingWindows + [frozenWindow] : floatingWindows,
-            macosUnconventionalWindows: macosUnconventionalWindows)
+            macosUnconventionalWindows: isNative ? macosUnconventionalWindows + [frozenWindow] : macosUnconventionalWindows)
     }
 
     /// On another display.

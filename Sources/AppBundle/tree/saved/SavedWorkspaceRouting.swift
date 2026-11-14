@@ -39,7 +39,10 @@ func restoreOrDetectNewWindow(_ window: Window, isRegularWindow: Bool, firstSeen
         return true
     }
     let detectedIn = window.nodeWorkspace
-    let requestedLayout = !isStartup && isRegularWindow ? detectedIn.flatMap {
+    // A titleless window may still belong to a saved slot even when routing returned false.
+    // Let that placement settle without consuming a mode intended for a fresh window.
+    let isAwaitingSavedTitle = savedWorkspaceRuntime.windowsAwaitingTitle[window.windowId] != nil
+    let requestedLayout = !isStartup && isRegularWindow && !isAwaitingSavedTitle ? detectedIn.flatMap {
         NewWindowIntentRegistry.shared.consumeNextWindowLayout(in: $0,
             firstSeenUptime: firstSeenUptime ?? NewWindowIntentRegistry.shared.now())
     } : nil
