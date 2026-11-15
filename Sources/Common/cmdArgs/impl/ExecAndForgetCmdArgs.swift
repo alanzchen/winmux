@@ -13,6 +13,7 @@ public struct ExecAndForgetCmdArgs: CmdArgs {
         self.bashScript = bashScript
     }
 
+    // WINMUX-HOOK-BEGIN(execAndForgetConfig)
     /// Config keeps the Bash suffix verbatim, after an exact WinMux command name.
     public init?(configCommand: String) {
         let name = "exec-and-forget"
@@ -22,5 +23,6 @@ public struct ExecAndForgetCmdArgs: CmdArgs {
         self.init(bashScript: String(script))
     }
 
+    // WINMUX-HOOK-END(execAndForgetConfig)
     public let bashScript: String
 }

@@ -6,7 +6,7 @@ enum KnownBundleId: String, Equatable {
     case braveBrowser = "com.brave.Browser"
     case chrome = "com.google.Chrome"
     case cleanshotx = "pl.maketheweb.cleanshotx"
-    case codex = "com.openai.codex"
+    case codex = "com.openai.codex" // WINMUX-HOOK(knownBundleIds)
     case emacs = "org.gnu.Emacs"
     case finder = "com.apple.finder"
     case ghostty = "com.mitchellh.ghostty"
@@ -14,18 +14,20 @@ enum KnownBundleId: String, Equatable {
     case iphonesimulator = "com.apple.iphonesimulator"
     case iterm2 = "com.googlecode.iterm2"
     case kitty = "net.kovidgoyal.kitty"
+    // WINMUX-HOOK-BEGIN(knownBundleIds)
     case mail = "com.apple.mail"
     case outlook = "com.microsoft.Outlook"
+    // WINMUX-HOOK-END(knownBundleIds)
     case photoBooth = "com.apple.PhotoBooth"
     case qutebrowser = "org.qutebrowser.qutebrowser"
     case screenstudio = "com.timpler.screenstudio"
     case slack = "com.tinyspeck.slackmacgap"
     case steam = "com.valvesoftware.steam.helper"
     case wezterm = "com.github.wez.wezterm"
-    case wisprFlow = "com.electron.wispr-flow"
+    case wisprFlow = "com.electron.wispr-flow" // WINMUX-HOOK(knownBundleIds)
     case xcode = "com.apple.dt.Xcode"
     case zenBrowser = "app.zen-browser.zen"
-    case openAndSavePanelService = "com.apple.appkit.xpc.openAndSavePanelService"
+    case openAndSavePanelService = "com.apple.appkit.xpc.openAndSavePanelService" // WINMUX-HOOK(knownBundleIds)
     case zoom = "us.zoom.xos"
 
     case mozillaFirefox = "org.mozilla.firefox"

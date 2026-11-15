@@ -10,8 +10,10 @@ struct TriggerBindingCommand: Command {
             if let binding = mode.bindings.values.first(where: { $0.descriptionWithKeyNotation == args.binding.val }) {
                 // refreshSession is not needed since commands are already run in refreshSession
                 try await binding.commands.runCmdSeq(env, io)
+            // WINMUX-HOOK-BEGIN(sequenceBindings)
             } else if let seqBinding = mode.sequenceBindings.values.first(where: { $0.descriptionWithKeyNotation == args.binding.val }) {
                 try await seqBinding.commands.runCmdSeq(env, io)
+            // WINMUX-HOOK-END(sequenceBindings)
             } else {
                 io.err("Binding '\(args.binding.val)' is not presented in mode '\(args.mode)'")
             }

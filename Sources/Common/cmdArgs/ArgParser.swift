@@ -46,6 +46,7 @@ struct PosArgParserContext {
     let argPlaceholderIfMandatory: String?
 }
 
+// WINMUX-HOOK-BEGIN(dashDashArgs)
 func dashDashArg<Root: AeroAny>(mandatory: Bool) -> PosArgParser<Root, ()> {
     ArgParser(
         \.noopKeyPath,
@@ -60,6 +61,7 @@ func dashDashArg<Root: AeroAny>(mandatory: Bool) -> PosArgParser<Root, ()> {
     )
 }
 
+// WINMUX-HOOK-END(dashDashArgs)
 public struct ParsedCliArgs<T> {
     var value: Parsed<T>
     var advanceBy: Int

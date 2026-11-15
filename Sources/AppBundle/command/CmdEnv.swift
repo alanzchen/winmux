@@ -3,9 +3,11 @@ import Common
 struct CmdEnv: ConvenienceCopyable {
     var windowId: UInt32?
     var workspaceName: String?
+    // WINMUX-HOOK-BEGIN(tabsListedAtSequenceStart)
     /// Tabs mode: the tabs listed when the command sequence began. Numbers name these too until it
     /// ends, so a command that empties a tab doesn't renumber the tabs for the next one.
     var tabsListedAtSequenceStart: Set<WorkspaceId> = []
+    // WINMUX-HOOK-END(tabsListedAtSequenceStart)
 
     static let defaultEnv: CmdEnv = .init()
     func withFocus(_ focus: LiveFocus) -> CmdEnv {

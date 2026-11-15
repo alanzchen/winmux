@@ -16,6 +16,7 @@ extension TreeNode {
         return result
     }
 
+    // WINMUX-HOOK-BEGIN(treeQueries)
     func containsLeafWindow(withId windowId: UInt32) -> Bool {
         if let window = self as? Window {
             return window.windowId == windowId
@@ -26,6 +27,7 @@ extension TreeNode {
         return false
     }
 
+    // WINMUX-HOOK-END(treeQueries)
     var ownIndex: Int? {
         guard let parent else { return nil }
         return parent.children.firstIndex(of: self).orDie()
@@ -59,6 +61,7 @@ extension TreeNode {
         self as? Window ?? mostRecentChild?.mostRecentWindowRecursive
     }
 
+    // WINMUX-HOOK-BEGIN(treeQueries)
     var mostRecentWorkspaceFocusableWindowRecursive: Window? {
         mostRecentWorkspaceFocusableWindowRecursive(excluding: nil)
     }
@@ -75,6 +78,7 @@ extension TreeNode {
         }
     }
 
+    // WINMUX-HOOK-END(treeQueries)
     var anyLeafWindowRecursive: Window? {
         if let window = self as? Window {
             return window
@@ -131,6 +135,7 @@ extension TreeNode {
                 return nil
         }
     }
+// WINMUX-HOOK-BEGIN(treeQueries)
 
     func directChild(in ancestor: TilingContainer) -> TreeNode? {
         parentsWithSelf.first(where: { $0.parent === ancestor })
@@ -163,4 +168,5 @@ extension TilingContainer {
     var isWindowTabGroup: Bool {
         layout == .tabGroup && children.count > 1
     }
+// WINMUX-HOOK-END(treeQueries)
 }

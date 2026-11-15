@@ -86,20 +86,23 @@ open class TreeNode: Equatable, AeroAny {
         }
         newParent._children.insert(self, at: index != INDEX_BIND_LAST ? index : newParent._children.count)
         _parent = newParent
-        (self as? Window)?.noteFrameFitRelation(relation)
+        (self as? Window)?.noteFrameFitRelation(relation) // WINMUX-HOOK(treeNodeObservers)
         unboundStacktrace = nil
-        if let result { recordWindowMovesIfWorkspaceChanged(from: result.parent) }
+        if let result { recordWindowMovesIfWorkspaceChanged(from: result.parent) } // WINMUX-HOOK(treeNodeObservers)
         // todo consider disabling automatic mru propogation
         // 1. "floating windows" in FocusCommand break the MRU because of that :(
         // 2. Misbehaved apps that abuse real window as popups https://github.com/nikitabobko/AeroSpace/issues/106 (the
         //    last appeared window, is not necessarily the one that has the focus)
         markAsMostRecentChild()
+        // WINMUX-HOOK-BEGIN(treeNodeObservers)
         if anyLeafWindowRecursive != nil {
             nodeWorkspace?.refreshEmptyLifecycle()
         }
+        // WINMUX-HOOK-END(treeNodeObservers)
         return result
     }
 
+    // WINMUX-HOOK-BEGIN(treeNodeObservers)
     /// For a debug snapshot's event log: its windows went to another workspace, or out of one.
     @MainActor
     private func recordWindowMovesIfWorkspaceChanged(from oldParent: NonLeafTreeNodeObject) {
@@ -112,10 +115,13 @@ open class TreeNode: Equatable, AeroAny {
         }
     }
 
+    // WINMUX-HOOK-END(treeNodeObservers)
     private func unbindIfBound() -> BindingData? {
         guard let _parent else { return nil }
+        // WINMUX-HOOK-BEGIN(treeNodeObservers)
         // Every window under it changes place, whichever node moves: the window, or a container of it.
         for window in allLeafWindowsRecursive { window.placementStamp.bump() }
+        // WINMUX-HOOK-END(treeNodeObservers)
 
         let index = _parent._children.remove(element: self) ?? dieT("Can't find child in its parent")
         check(_parent._mruChildren.remove(self))
@@ -133,6 +139,7 @@ open class TreeNode: Equatable, AeroAny {
 
     var mostRecentChild: TreeNode? { _mruChildren.mostRecent ?? children.last }
 
+    // WINMUX-HOOK-BEGIN(treeNodeObservers)
     var childrenByMostRecentUse: [TreeNode] {
         var result = Array(_mruChildren)
         for child in _children.reversed() where !result.contains(child) {
@@ -141,6 +148,7 @@ open class TreeNode: Equatable, AeroAny {
         return result
     }
 
+    // WINMUX-HOOK-END(treeNodeObservers)
     @discardableResult
     func unbindFromParent() -> BindingData {
         unbindIfBound() ?? dieT("\(self) is already unbound. The stacktrace where it was unbound:\n\(unboundStacktrace ?? "nil")")

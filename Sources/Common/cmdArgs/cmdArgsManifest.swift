@@ -1,22 +1,22 @@
 public enum CmdKind: String, CaseIterable, Equatable, Sendable {
     // Sorted
 
-    case agent
+    case agent // WINMUX-HOOK(commands)
     case balanceSizes = "balance-sizes"
     case close
     case closeAllWindowsButCurrent = "close-all-windows-but-current"
     case config
-    case createProject = "create-project"
+    case createProject = "create-project" // WINMUX-HOOK(commands)
     case debugWindows = "debug-windows"
-    case deleteProject = "delete-project"
-    case doctor
+    case deleteProject = "delete-project" // WINMUX-HOOK(commands)
+    case doctor // WINMUX-HOOK(commands)
     case enable
     case execAndForget = "exec-and-forget"
     case flattenWorkspaceTree = "flatten-workspace-tree"
     case focus
     case focusBackAndForth = "focus-back-and-forth"
     case focusMonitor = "focus-monitor"
-    case forgetWorkspace = "forget-workspace"
+    case forgetWorkspace = "forget-workspace" // WINMUX-HOOK(commands)
     case fullscreen
     case joinWith = "join-with"
     case layout
@@ -24,7 +24,7 @@ public enum CmdKind: String, CaseIterable, Equatable, Sendable {
     case listExecEnvVars = "list-exec-env-vars"
     case listModes = "list-modes"
     case listMonitors = "list-monitors"
-    case listProjects = "list-projects"
+    case listProjects = "list-projects" // WINMUX-HOOK(commands)
     case listWindows = "list-windows"
     case listWorkspaces = "list-workspaces"
     case macosNativeFullscreen = "macos-native-fullscreen"
@@ -33,20 +33,20 @@ public enum CmdKind: String, CaseIterable, Equatable, Sendable {
     case move = "move"
     case moveMouse = "move-mouse"
     case moveNodeToMonitor = "move-node-to-monitor"
-    case moveNodeToProject = "move-node-to-project"
+    case moveNodeToProject = "move-node-to-project" // WINMUX-HOOK(commands)
     case moveNodeToWorkspace = "move-node-to-workspace"
     case moveWorkspaceToMonitor = "move-workspace-to-monitor"
-    case openLauncher = "open-launcher"
-    case openSidebar = "open-sidebar"
-    case palette
-    case project
+    case openLauncher = "open-launcher" // WINMUX-HOOK(commands)
+    case openSidebar = "open-sidebar" // WINMUX-HOOK(commands)
+    case palette // WINMUX-HOOK(commands)
+    case project // WINMUX-HOOK(commands)
     case reloadConfig = "reload-config"
-    case renameProject = "rename-project"
+    case renameProject = "rename-project" // WINMUX-HOOK(commands)
     case resize
-    case saveWorkspace = "save-workspace"
-    case setProjectColor = "set-project-color"
+    case saveWorkspace = "save-workspace" // WINMUX-HOOK(commands)
+    case setProjectColor = "set-project-color" // WINMUX-HOOK(commands)
     case split
-    case stackWith = "stack-with"
+    case stackWith = "stack-with" // WINMUX-HOOK(commands)
     case subscribe
     case summonWorkspace = "summon-workspace"
     case swap
@@ -60,8 +60,11 @@ func initSubcommands() -> [String: any SubCommandParserProtocol] {
     var result: [String: any SubCommandParserProtocol] = [:]
     for kind in CmdKind.allCases {
         switch kind {
-            case .agent:
-                result[kind.rawValue] = SubCommandParser(parseAgentCmdArgs)
+            // WINMUX-HOOK-BEGIN(commands)
+            case .agent, .createProject, .deleteProject, .doctor, .forgetWorkspace, .listProjects, .moveNodeToProject,
+                 .openLauncher, .openSidebar, .palette, .project, .renameProject, .saveWorkspace, .setProjectColor, .stackWith:
+                result[kind.rawValue] = winMuxSubcommandParser(kind)
+            // WINMUX-HOOK-END(commands)
             case .balanceSizes:
                 result[kind.rawValue] = SubCommandParser(BalanceSizesCmdArgs.init)
             case .close:
@@ -70,14 +73,8 @@ func initSubcommands() -> [String: any SubCommandParserProtocol] {
                 result[kind.rawValue] = SubCommandParser(CloseAllWindowsButCurrentCmdArgs.init)
             case .config:
                 result[kind.rawValue] = SubCommandParser(parseConfigCmdArgs)
-            case .createProject:
-                result[kind.rawValue] = SubCommandParser(parseCreateProjectCmdArgs)
             case .debugWindows:
                 result[kind.rawValue] = SubCommandParser(DebugWindowsCmdArgs.init)
-            case .deleteProject:
-                result[kind.rawValue] = SubCommandParser(parseDeleteProjectCmdArgs)
-            case .doctor:
-                result[kind.rawValue] = SubCommandParser(DoctorCmdArgs.init)
             case .enable:
                 result[kind.rawValue] = SubCommandParser(parseEnableCmdArgs)
             case .execAndForget:
@@ -90,8 +87,6 @@ func initSubcommands() -> [String: any SubCommandParserProtocol] {
                 result[kind.rawValue] = SubCommandParser(FocusBackAndForthCmdArgs.init)
             case .focusMonitor:
                 result[kind.rawValue] = SubCommandParser(parseFocusMonitorCmdArgs)
-            case .forgetWorkspace:
-                result[kind.rawValue] = SubCommandParser(ForgetWorkspaceCmdArgs.init)
             case .fullscreen:
                 result[kind.rawValue] = SubCommandParser(parseFullscreenCmdArgs)
             case .joinWith:
@@ -106,8 +101,6 @@ func initSubcommands() -> [String: any SubCommandParserProtocol] {
                 result[kind.rawValue] = SubCommandParser(parseListModesCmdArgs)
             case .listMonitors:
                 result[kind.rawValue] = SubCommandParser(parseListMonitorsCmdArgs)
-            case .listProjects:
-                result[kind.rawValue] = SubCommandParser(parseListProjectsCmdArgs)
             case .listWindows:
                 result[kind.rawValue] = SubCommandParser(parseListWindowsCmdArgs)
             case .listWorkspaces:
@@ -126,36 +119,18 @@ func initSubcommands() -> [String: any SubCommandParserProtocol] {
                 result[kind.rawValue] = SubCommandParser(parseMoveMouseCmdArgs)
             case .moveNodeToMonitor:
                 result[kind.rawValue] = SubCommandParser(parseMoveNodeToMonitorCmdArgs)
-            case .moveNodeToProject:
-                result[kind.rawValue] = SubCommandParser(parseMoveNodeToProjectCmdArgs)
             case .moveNodeToWorkspace:
                 result[kind.rawValue] = SubCommandParser(parseMoveNodeToWorkspaceCmdArgs)
             case .moveWorkspaceToMonitor:
                 result[kind.rawValue] = SubCommandParser(parseWorkspaceToMonitorCmdArgs)
                 // deprecated
                 result["move-workspace-to-display"] = SubCommandParser(MoveWorkspaceToMonitorCmdArgs.init)
-            case .openLauncher:
-                result[kind.rawValue] = SubCommandParser(OpenLauncherCmdArgs.init)
-            case .openSidebar:
-                result[kind.rawValue] = SubCommandParser(OpenSidebarCmdArgs.init)
-            case .palette:
-                result[kind.rawValue] = SubCommandParser(PaletteCmdArgs.init)
-            case .project:
-                result[kind.rawValue] = SubCommandParser(parseProjectCmdArgs)
             case .reloadConfig:
                 result[kind.rawValue] = SubCommandParser(ReloadConfigCmdArgs.init)
-            case .renameProject:
-                result[kind.rawValue] = SubCommandParser(parseRenameProjectCmdArgs)
             case .resize:
                 result[kind.rawValue] = SubCommandParser(parseResizeCmdArgs)
-            case .saveWorkspace:
-                result[kind.rawValue] = SubCommandParser(SaveWorkspaceCmdArgs.init)
-            case .setProjectColor:
-                result[kind.rawValue] = SubCommandParser(parseSetProjectColorCmdArgs)
             case .split:
                 result[kind.rawValue] = SubCommandParser(parseSplitCmdArgs)
-            case .stackWith:
-                result[kind.rawValue] = SubCommandParser(StackWithCmdArgs.init)
             case .subscribe:
                 result[kind.rawValue] = SubCommandParser(parseSubscribeCmdArgs)
             case .summonWorkspace:
