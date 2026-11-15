@@ -17,7 +17,7 @@ struct CloseCommand: Command {
                 if app.nsApp.terminate() {
                     for workspace in Workspace.all {
                         for window in workspace.allLeafWindowsRecursive where window.app.pid == app.pid {
-                            window.asMacWindow().garbageCollect(skipClosedWindowsCache: true)
+                            (window as! MacWindow).garbageCollect(skipClosedWindowsCache: true)
                         }
                     }
                     return true

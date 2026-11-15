@@ -6,6 +6,13 @@ public protocol AeroAny {}
 extension AeroAny {
     @discardableResult
     @inlinable
+    public func apply(_ block: (Self) -> Void) -> Self {
+        block(self)
+        return self
+    }
+
+    @discardableResult
+    @inlinable
     public func also(_ block: (Self) -> Void) -> Self {
         block(self)
         return self
@@ -13,11 +20,13 @@ extension AeroAny {
 
     @inlinable public func takeIf(_ predicate: (Self) -> Bool) -> Self? { predicate(self) ? self : nil }
     @inlinable public func then<R>(_ body: (Self) -> R) -> R { body(self) }
+    // WINMUX-HOOK-BEGIN(dashDashArgs)
 
     var noopKeyPath: () {
         get { () }
         set {} // swiftlint:disable:this unused_setter_value
     }
+    // WINMUX-HOOK-END(dashDashArgs)
 }
 
 extension Int: AeroAny {}

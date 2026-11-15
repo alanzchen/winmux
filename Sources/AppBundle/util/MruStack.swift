@@ -59,4 +59,8 @@ private final class Node<T: Equatable> {
         self.value = value
         self.next = next
     }
+
+    init(_ value: T) {
+        self.value = value
+    }
 }
