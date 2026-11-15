@@ -346,7 +346,7 @@ final class WorkspaceSidebarMultidisplayActionsTest: XCTestCase {
             [mode.main.binding]
             [mode.probe.binding]
             """)
-        XCTAssertEqual(parsed.errors.descriptions, [])
+        XCTAssertEqual(parsed.errors, [])
         config.onFocusedMonitorChanged = parsed.config.onFocusedMonitorChanged
         config.modes["probe"] = parsed.config.modes["probe"]
         config.workspaceSidebar.enabled = false
@@ -669,7 +669,7 @@ final class WorkspaceSidebarMultidisplayActionsTest: XCTestCase {
     func testTheSettingParsesDefaultsAndIsATabsSetting() {
         for value in WorkspaceSidebarRemotePinClick.allCases {
             let (parsed, errors) = parseConfig("[workspace-sidebar]\nmode = 'tabs'\nremote-pin-click = '\(value.rawValue)'\n")
-            XCTAssertEqual(errors.descriptions, [])
+            XCTAssertEqual(errors, [])
             XCTAssertEqual(parsed.workspaceSidebar.remotePinClick, value)
             XCTAssertEqual(workspaceSidebarConfiguration(parsed).remotePinClick, value)
         }

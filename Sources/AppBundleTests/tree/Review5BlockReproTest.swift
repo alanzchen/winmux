@@ -62,7 +62,7 @@ final class Review5BlockReproTest: XCTestCase {
         _ = telegram.focusWindow()
         appForTests = telegramApp
         telegramApp.focusedWindow = telegram
-        try await runRefreshSessionBlocking(.ax(kAXFocusedWindowChangedNotification as String))
+        try await runHeavyCompleteRefreshSession(.ax(kAXFocusedWindowChangedNotification as String))
         XCTAssertEqual(focus.windowOrNil?.windowId, 200)
         XCTAssertTrue(chat.isVisible)
 
@@ -72,7 +72,7 @@ final class Review5BlockReproTest: XCTestCase {
         setBlockingRefreshOverridesForTests(refresh: {
             noteWindowPresentability([100: true, 200: false])
         })
-        try await runRefreshSessionBlocking(.globalObserverLeftMouseUp)
+        try await runHeavyCompleteRefreshSession(.globalObserverLeftMouseUp)
         XCTAssertTrue(telegram.parent === macosNotPresentableWindowsContainer)
         XCTAssertTrue(main.isVisible)
         XCTAssertEqual(focus.windowOrNil?.windowId, 100)
@@ -84,7 +84,7 @@ final class Review5BlockReproTest: XCTestCase {
         })
         appForTests = telegramApp
         telegramApp.focusedWindow = telegram
-        try await runRefreshSessionBlocking(
+        try await runHeavyCompleteRefreshSession(
             .globalObserver(NSWorkspace.didActivateApplicationNotification.rawValue),
             activatedAppPid: telegramApp.pid,
         )

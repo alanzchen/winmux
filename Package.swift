@@ -3,6 +3,12 @@
 
 import PackageDescription
 
+// Upstream applies these to every target. WinMux keeps them on AppBundle only until a slice reviews strict memory
+// safety and nonisolated(nonsending) for its own Common/Cli code (docs/upstream-sync.md, S2).
+let swiftSettings: [SwiftSetting] = [
+    .enableUpcomingFeature("NonisolatedNonsendingByDefault"),
+]
+
 let package = Package(
     name: "WinMuxPackage",
     // Runtime support for parameterized protocol types is only available in macOS 13.0.0 or newer
@@ -23,6 +29,7 @@ let package = Package(
         .package(url: "https://github.com/InerziaSoft/ISSoundAdditions.git", exact: "2.0.1"),
         .package(url: "https://github.com/LebJe/TOMLKit.git", exact: "0.5.5"),
         .package(url: "https://github.com/rxhanson/MASShortcut", revision: "2f9fbb3f959b7a683c6faaf9638d22afad37a235"),
+        .package(url: "https://github.com/dduan/TOMLDecoder", exact: "0.4.4"),
         .package(url: "https://github.com/apple/swift-collections.git", exact: "1.3.0"),
         .package(url: "https://github.com/soffes/HotKey.git", exact: "0.2.1"),
         .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.9.6"),
@@ -50,12 +57,11 @@ let package = Package(
                 .product(name: "ISSoundAdditions", package: "ISSoundAdditions"),
                 .product(name: "MASShortcut", package: "MASShortcut"),
                 .product(name: "TOMLKit", package: "TOMLKit"),
+                .product(name: "TOMLDecoder", package: "TOMLDecoder"),
                 .target(name: "Common"),
                 .target(name: "PrivateApi"),
             ],
-            swiftSettings: [
-                .enableUpcomingFeature("NonisolatedNonsendingByDefault"),
-            ],
+            swiftSettings: swiftSettings,
         ),
         .executableTarget(
             name: "WinMuxApp",

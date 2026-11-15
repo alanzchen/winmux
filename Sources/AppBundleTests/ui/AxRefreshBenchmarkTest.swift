@@ -54,7 +54,7 @@ final class AxRefreshBenchmarkTest: XCTestCase {
         for iteration in 0 ..< iterations {
             let target = iteration.isMultiple(of: 2) ? first : second
             TestApp.shared.focusedWindow = target
-            try await runRefreshSessionBlocking(event)
+            try await runHeavyCompleteRefreshSession(event)
         }
         let elapsedNanoseconds = DispatchTime.now().uptimeNanoseconds - start
 

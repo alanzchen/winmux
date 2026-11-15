@@ -445,7 +445,7 @@ final class NewWindowIntentTest: XCTestCase {
         if.app-id = 'bobko.WinMux.test-app'
         run = ['move-node-to-workspace mail']
         """)
-        XCTAssertEqual(errors.descriptions, [])
+        XCTAssertEqual(errors, [])
         config.onWindowDetected = parsed.onWindowDetected
         let origin = focus.workspace
         let target = Workspace.get(byName: "launched")
@@ -473,7 +473,7 @@ final class NewWindowIntentTest: XCTestCase {
         if.app-id = 'bobko.WinMux.test-app'
         run = ['move-node-to-workspace mail']
         """)
-        XCTAssertEqual(errors.descriptions, [])
+        XCTAssertEqual(errors, [])
         config.onWindowDetected = parsed.onWindowDetected
         let target = Workspace.get(byName: "launched")
         _ = TestWindow.new(id: 50, parent: target.rootTilingContainer) // Keeps it from being pruned.
@@ -552,7 +552,7 @@ final class NewWindowIntentTest: XCTestCase {
         if.app-id = 'bobko.WinMux.test-app'
         run = ['move-node-to-workspace mail']
         """)
-        XCTAssertEqual(errors.descriptions, [])
+        XCTAssertEqual(errors, [])
         config.onWindowDetected = parsed.onWindowDetected
         config.openNewWindowsInNewWorkspace = true
         let origin = focus.workspace

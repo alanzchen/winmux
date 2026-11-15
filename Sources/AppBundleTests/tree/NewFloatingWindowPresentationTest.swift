@@ -191,13 +191,13 @@ final class NewFloatingWindowPresentationTest: XCTestCase {
 
         TestApp.shared.focusedWindow = nil
         TestApp.shared.hasActiveTransientNativeFocus = true
-        try await runRefreshSessionBlocking(.ax(kAXFocusedWindowChangedNotification as String))
+        try await runHeavyCompleteRefreshSession(.ax(kAXFocusedWindowChangedNotification as String))
         try await runLightSession(.ax(kAXFocusedWindowChangedNotification as String), .forceRun, shouldSchedulePostRefresh: false) {}
         XCTAssertTrue(focus.windowOrNil === existing)
         XCTAssertNil(TestApp.shared.focusedWindow)
         TestApp.shared.hasActiveTransientNativeFocus = false
         TestApp.shared.focusedWindow = existing
-        try await runRefreshSessionBlocking(.ax(kAXFocusedWindowChangedNotification as String))
+        try await runHeavyCompleteRefreshSession(.ax(kAXFocusedWindowChangedNotification as String))
         XCTAssertTrue(focus.windowOrNil === existing)
         XCTAssertTrue(TestApp.shared.focusedWindow === existing)
     }
@@ -234,7 +234,7 @@ final class NewFloatingWindowPresentationTest: XCTestCase {
             if isLight {
                 try await runLightSession(.ax(kAXFocusedWindowChangedNotification as String), .forceRun, shouldSchedulePostRefresh: false) {}
             } else {
-                try await runRefreshSessionBlocking(.ax(kAXFocusedWindowChangedNotification as String))
+                try await runHeavyCompleteRefreshSession(.ax(kAXFocusedWindowChangedNotification as String))
             }
             XCTAssertTrue(focus.windowOrNil === existing)
             XCTAssertTrue(TestApp.shared.focusedWindow === existing, "The callback's native focus choice must be applied")

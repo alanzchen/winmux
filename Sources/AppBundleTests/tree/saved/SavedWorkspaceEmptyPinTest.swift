@@ -308,7 +308,7 @@ final class SavedWorkspaceEmptyPinTest: XCTestCase {
             if.app-id = 'ru.keepcoder.Telegram'
             run = ['move-node-to-workspace mail']
             """)
-        XCTAssertEqual(errors.descriptions, [])
+        XCTAssertEqual(errors, [])
         config.onWindowDetected = parsed.onWindowDetected
         let pin = try emptyTab("22")
         _ = workOnAnotherTab()

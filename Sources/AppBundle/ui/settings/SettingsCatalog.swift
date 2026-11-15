@@ -421,7 +421,7 @@ enum SettingsCatalog {
         pairs.preferenceDefault = .bool(false)
         pairs.writePreference = { value in
             var settings = ExperimentalUISettings(); settings.doubleSidedWindows = value.bool
-            scheduleRefreshSession(.menuBarButton)
+            scheduleCancellableCompleteRefreshSession(.menuBarButton)
         }
         return [icon, pairs]
     }

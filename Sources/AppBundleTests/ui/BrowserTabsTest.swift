@@ -489,7 +489,7 @@ final class BrowserTabsTest: XCTestCase {
             browser-tabs = false
             browser-tab-icons = true
             """)
-        XCTAssertEqual(errors.descriptions, [])
+        XCTAssertEqual(errors, [])
         XCTAssertFalse(parsed.workspaceSidebar.browserTabs)
         XCTAssertTrue(parsed.workspaceSidebar.browserTabIcons)
         XCTAssertTrue(defaultConfig.workspaceSidebar.browserTabs)

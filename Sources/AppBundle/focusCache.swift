@@ -28,7 +28,7 @@ func resetFocusCacheForTests() {
         return
     }
     // Set aside as not presentable, it can't take focus yet: it's brought back first, then this runs again for it
-    // (`runRefreshSessionBlocking`). Recorded now, it would never take focus.
+    // (`runHeavyCompleteRefreshSession`). Recorded now, it would never take focus.
     if nativeFocused?.isSetAsideAsNotPresentable == true {
         return
     }

@@ -38,7 +38,7 @@ final class WorkspaceSidebarSharedPinsTest: XCTestCase {
             mode = 'tabs'
             share-pinned-tabs = true
             """)
-        XCTAssertEqual(errors.descriptions, [])
+        XCTAssertEqual(errors, [])
         XCTAssertTrue(parsed.workspaceSidebar.sharePinnedTabs)
         XCTAssertTrue(workspaceSidebarConfiguration(parsed).sharesPinnedTabs)
         var dock = parsed

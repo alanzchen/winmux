@@ -355,7 +355,7 @@ final class WorkspaceSidebarPinTilingTest: XCTestCase {
         let title = try XCTUnwrap(WorkspaceSidebarTabUndo.shared.title)
         let weights = tab.rootTilingContainer.children.map { $0.getWeight(.h) }
         XCTAssertEqual(weights.reduce(0, +), 784, accuracy: 0.001, "\(weights)")
-        for _ in 0 ..< 3 { try await runRefreshSessionBlocking(.globalObserver("test")) }
+        for _ in 0 ..< 3 { try await runHeavyCompleteRefreshSession(.globalObserver("test")) }
         let laidOut = tab.rootTilingContainer.children.map { $0.getWeight(.h) }
         XCTAssertNotEqual(laidOut, weights, "The layouts after it moved the weights, if only by float noise")
         XCTAssertEqual(laidOut.count, weights.count)
@@ -389,7 +389,7 @@ final class WorkspaceSidebarPinTilingTest: XCTestCase {
         XCTAssertEqual(workspaceSidebarLentWindow(of: pin)?.windowId, 1)
         let title = try XCTUnwrap(WorkspaceSidebarTabUndo.shared.title)
         let weights = tab.rootTilingContainer.children.map { $0.getWeight(.h) }
-        for _ in 0 ..< 3 { try await runRefreshSessionBlocking(.globalObserver("test")) }
+        for _ in 0 ..< 3 { try await runHeavyCompleteRefreshSession(.globalObserver("test")) }
         XCTAssertEqual(weights.reduce(0, +), 784, accuracy: 0.001, "\(weights)")
         let laidOut = tab.rootTilingContainer.children.map { $0.getWeight(.h) }
         XCTAssertEqual(laidOut.count, weights.count)

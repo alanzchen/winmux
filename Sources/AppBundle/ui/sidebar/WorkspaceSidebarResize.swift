@@ -165,7 +165,7 @@ extension WorkspaceSidebarPanel {
         // Either the restored width or the dropped refresh still has to reach panels and tiles.
         DispatchQueue.main.async {
             WorkspaceSidebarPanel.refreshAll()
-            if isWinMuxRuntimeReady { scheduleRefreshSession(.onSidebarResized) }
+            if isWinMuxRuntimeReady { scheduleCancellableCompleteRefreshSession(.onSidebarResized) }
         }
     }
 
@@ -281,7 +281,7 @@ func applyLiveWorkspaceSidebarWidth(_ width: Int?, for target: WorkspaceSidebarW
     config.workspaceSidebar.setSavedWidth(width, for: target)
     workspaceSidebarLiveResizeRefresh.run {
         WorkspaceSidebarPanel.refreshAll()
-        if isWinMuxRuntimeReady { scheduleRefreshSession(.onSidebarResized) }
+        if isWinMuxRuntimeReady { scheduleCancellableCompleteRefreshSession(.onSidebarResized) }
     }
 }
 

@@ -7,9 +7,9 @@ public struct FocusCmdArgs: CmdArgs {
         help: focus_help_generated,
         flags: [
             "--ignore-floating": falseBoolFlag(\.floatingAsTiling),
-            "--window-id": ArgParser(\.windowId, upcastArgParserFun(parseUInt32SubArg)),
-            "--dfs-index": ArgParser(\.dfsIndex, upcastArgParserFun(parseUInt32SubArg)),
-            "--tab-index": ArgParser(\.tabIndex, upcastArgParserFun(parseTabIndexSubArg)),
+            "--window-id": windowIdSubArgParser(),
+            "--dfs-index": singleValueSubArgParser(\.dfsIndex, "<dfs-index>", parseUInt32),
+            "--tab-index": singleValueSubArgParser(\.tabIndex, "<tab-index>", parseTabIndex),
 
             "--boundaries": ArgParser(\.rawBoundaries, upcastArgParserFun(parseBoundaries)),
             "--boundaries-action": ArgParser(\.rawBoundariesAction, upcastArgParserFun(parseBoundariesAction)),
@@ -160,10 +160,6 @@ private func parseFocusTargetArg(i: PosArgParserInput) -> ParsedCliArgs<FocusTar
     .init(parseEnum(i.arg, FocusTargetArg.self), advanceBy: 1)
 }
 
-private func parseTabIndexSubArg(i: SubArgParserInput) -> ParsedCliArgs<UInt32> {
-    parseUInt32SubArg(i: i).flatMap { rawIndex in
-        rawIndex > 0
-            ? .succ(rawIndex, advanceBy: 1)
-            : .fail("'\(i.superArg)' must be followed by UInt32 greater than zero", advanceBy: 1)
-    }
+private func parseTabIndex(_ raw: String) -> Parsed<UInt32> {
+    parseUInt32(raw).flatMap { $0 > 0 ? .success($0) : .failure("It must be greater than zero") }
 }

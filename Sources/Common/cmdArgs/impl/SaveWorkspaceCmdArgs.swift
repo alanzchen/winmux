@@ -6,8 +6,8 @@ public struct SaveWorkspaceCmdArgs: CmdArgs {
         allowInConfig: true,
         help: save_workspace_help_generated,
         flags: [
-            "--workspace": optionalWorkspaceFlag(),
-            "--name": singleValueSubArgParser(\.displayName, "<name>") { $0 },
+            "--workspace": workspaceSubArgParser(),
+            "--name": singleValueSubArgParser(\.displayName, "<name>", Result.success),
             "--pin-to-display": optionalTrueBoolFlag(\.pinToDisplay),
             "--unpin-display": optionalFalseBoolFlag(\.pinToDisplay),
             "--fail-if-noop": trueBoolFlag(\.failIfNoop),

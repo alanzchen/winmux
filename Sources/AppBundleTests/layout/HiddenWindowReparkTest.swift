@@ -227,11 +227,11 @@ final class HiddenWindowReparkTest: XCTestCase {
             setScheduledRefreshOverrideForTests { event, _, _ in
                 sessions.append((event, refreshSessionRequirements))
                 if sessions.count == 1 {
-                    for e in followUps { scheduleRefreshSession(e) }
+                    for e in followUps { scheduleCancellableCompleteRefreshSession(e) }
                     started.resume()
                 }
             }
-            scheduleRefreshSession(.ax(kAXWindowCreatedNotification as String))
+            scheduleCancellableCompleteRefreshSession(.ax(kAXWindowCreatedNotification as String))
         }
         try await waitForScheduledRefreshForTests()
         return sessions
@@ -293,7 +293,7 @@ final class HiddenWindowReparkTest: XCTestCase {
                     }
                 }
             }
-            scheduleRefreshSession(settled)
+            scheduleCancellableCompleteRefreshSession(settled)
         }
         try await runLightSession(.hotkeyBinding, .forceRun) {}
         paused?.resume()
@@ -343,9 +343,9 @@ final class HiddenWindowReparkTest: XCTestCase {
                     }
                 }
             }
-            scheduleRefreshSession(.globalObserver(screenParams))
+            scheduleCancellableCompleteRefreshSession(.globalObserver(screenParams))
         }
-        scheduleRefreshSession(settled)
+        scheduleCancellableCompleteRefreshSession(settled)
         MonitorConfigurationObserver.shared.noteDisplayChangeForTests() // A newer change arrives first
         paused?.resume()
         try await waitForScheduledRefreshForTests()
@@ -806,7 +806,7 @@ final class HiddenWindowReparkTest: XCTestCase {
                     }
                 }
             }
-            scheduleRefreshSession(settled)
+            scheduleCancellableCompleteRefreshSession(settled)
         }
         try? await lightSession()
         paused?.resume()

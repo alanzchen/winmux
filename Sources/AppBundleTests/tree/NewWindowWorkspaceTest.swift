@@ -26,7 +26,7 @@ final class NewWindowWorkspaceTest: XCTestCase {
         XCTAssertNil(defaultConfig.openNewWindowsInNewWorkspace, "Unset, so Tabs mode can turn it on")
         XCTAssertFalse(defaultConfig.opensNewWindowsInNewWorkspace)
         let (parsed, errors) = parseConfig("open-new-windows-in-new-workspace = true")
-        XCTAssertEqual(errors.descriptions, [])
+        XCTAssertEqual(errors, [])
         XCTAssertTrue(parsed.opensNewWindowsInNewWorkspace)
     }
 
@@ -85,7 +85,7 @@ final class NewWindowWorkspaceTest: XCTestCase {
         if.app-id = 'bobko.WinMux.test-app'
         run = ['move-node-to-workspace mail']
         """)
-        XCTAssertEqual(errors.descriptions, [])
+        XCTAssertEqual(errors, [])
         config.onWindowDetected = parsed.onWindowDetected
         config.openNewWindowsInNewWorkspace = true
         let workspace = focus.workspace

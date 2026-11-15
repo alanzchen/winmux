@@ -419,7 +419,7 @@ final class MCPProtocolTest: XCTestCase {
             [mode.main.binding]
             alt-e = 'list-exec-env-vars'
             """)
-        XCTAssertEqual(parsed.errors.descriptions, [])
+        XCTAssertEqual(parsed.errors, [])
         config.modes = parsed.config.modes
         config.execConfig = parsed.config.execConfig
         let viaBinding = ["trigger-binding", "--mode", "main", "alt-e"]

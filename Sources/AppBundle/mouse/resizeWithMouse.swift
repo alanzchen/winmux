@@ -18,16 +18,16 @@ func resizedObs(_: AXObserver, ax: AXUIElement, notif: CFString, _: UnsafeMutabl
         }
         guard RunSessionGuard.isServerEnabled != nil else { return }
         guard let windowId, let window = Window.get(byId: windowId) else {
-            scheduleRefreshSession(.ax(notif))
+            scheduleCancellableCompleteRefreshSession(.ax(notif))
             return
         }
         if isContinuingManagedDragSessionForResizedEvent(windowId) { return }
         guard try await isManipulatedWithMouse(window) else {
-            scheduleRefreshSession(.ax(notif))
+            scheduleCancellableCompleteRefreshSession(.ax(notif))
             return
         }
         guard window.parent is TilingContainer else {
-            scheduleRefreshSession(.ax(notif))
+            scheduleCancellableCompleteRefreshSession(.ax(notif))
             return
         }
         WindowMouseInteractionDriver.shared.startResize(windowId: window.windowId)
@@ -42,7 +42,7 @@ func resetManipulatedWithMouseIfPossible() async throws {
     if currentlyManipulatedWithMouseWindowId != nil || didApplyPendingDragIntent {
         armGlobalPostDragAxObserverSuppression()
         cancelManipulatedWithMouseState()
-        scheduleRefreshSession(.resetManipulatedWithMouse, optimisticallyPreLayoutWorkspaces: true)
+        scheduleCancellableCompleteRefreshSession(.resetManipulatedWithMouse, optimisticallyPreLayoutWorkspaces: true)
     }
     WindowMouseInteractionDriver.shared.stop()
 }

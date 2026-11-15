@@ -36,6 +36,14 @@ final class UpstreamSyncGoldenTest: XCTestCase {
             "fullscreen on off", "macos-native-fullscreen sometimes", "enable maybe", "agent", "agent apply", "project", "create-project",
             "rename-project", "set-project-color", "move-node-to-project", "stack-with", "save-workspace --name", "palette extra",
             "open-sidebar extra", "doctor --verbose", "exec-and-forget", "subscribe", "subscribe nothing",
+            // Value flags: a missing value and a value that doesn't parse (wording from upstream S2).
+            "focus --window-id", "focus --window-id abc", "focus --dfs-index x", "focus --tab-index", "focus --tab-index 0",
+            "close --window-id", "debug-windows --window-id x", "balance-sizes --workspace", "layout tiles --workspace",
+            "list-windows --all --pid", "list-windows --all --pid x", "list-windows --all --app-bundle-id",
+            "trigger-binding a --mode", "stack-with --window-id", "move-node-to-project --window-id x",
+            "save-workspace --workspace", "forget-workspace --workspace",
+            "delete-project --action move-windows-to-fallback --if-window-count x", "create-project --name", "create-project --color",
+            "agent --path",
         ]
         let out = commands.map { "$ \($0)\n" + describe(parseCommand($0)) }.joined(separator: "\n")
         assertGolden("cli-parse-errors.txt", out + "\n")

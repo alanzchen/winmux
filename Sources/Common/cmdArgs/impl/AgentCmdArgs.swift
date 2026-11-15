@@ -13,7 +13,7 @@ public struct AgentCmdArgs: CmdArgs {
         allowInConfig: false,
         help: agent_help,
         flags: [
-            "--path": singleValueSubArgParser(\.path, "<path>") { $0 },
+            "--path": singleValueSubArgParser(\.path, "<path>", Result.success),
             "--stdin": trueBoolFlag(\.useStdin),
         ],
         posArgs: [newMandatoryPosArgParser(\.subcommand, parseAgentSubcommand, placeholder: AgentSubcommand.unionLiteral)],

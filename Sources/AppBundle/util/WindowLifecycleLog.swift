@@ -55,7 +55,7 @@ final class AxWindowErrorLog: @unchecked Sendable {
         let at = Date()
         lock.withLock {
             sequence &+= 1
-            entries[windowId] = (error.repr, at, sequence)
+            entries[windowId] = (error.winMuxRepr, at, sequence)
             if entries.count > Self.capacity, let oldest = entries.min(by: { $0.value.sequence < $1.value.sequence })?.key {
                 entries.removeValue(forKey: oldest)
             }

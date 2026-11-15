@@ -3,7 +3,7 @@
 ### accordion-padding = 10
 - accordion-padding: Unknown top-level key
 ### tab-group-padding = 'wide'
-- tab-group-padding: Expected type is 'integer'. But actual type is 'string'
+- tab-group-padding: Expected type is 'int'. But actual type is 'string'
 ### default-root-container-layout = 'accordion'
 - default-root-container-layout: Can't parse layout 'accordion'
 ### [workspace-sidebar] ⏎ mode = 'nowhere'
@@ -20,4 +20,4 @@
 ### config-version = 99
 - config-version: Must be in [1, 2] range
 ### not toml at all = = =
-- Error while parsing key-value pair: expected '=', saw 't' (at line 1, column 5)
+- (Line 1) Syntax error: missing =.

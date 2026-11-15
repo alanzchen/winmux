@@ -18,7 +18,7 @@ final class WorkspaceSidebarDisplayWidthTest: XCTestCase {
             "DELL U3224KB 2" = 320
             "Display v2.0 \\"Pro\\"" = 300
             """)
-        XCTAssertEqual(errors.descriptions, [])
+        XCTAssertEqual(errors, [])
         XCTAssertFalse(parsed.workspaceSidebar.widthPerDisplay)
         XCTAssertEqual(parsed.workspaceSidebar.displayWidths,
             ["Built-in Retina Display": 220, "DELL U3224KB 2": 320, "Display v2.0 \"Pro\"": 300])
@@ -34,18 +34,18 @@ final class WorkspaceSidebarDisplayWidthTest: XCTestCase {
             collapsed-width = 60
             display-widths = { "Wide" = 300, "Narrow" = 60, "Zero" = 0, "Text" = "wide" }
             """)
-        XCTAssertEqual(Set(errors.descriptions), [
+        XCTAssertEqual(Set(errors), [
             "workspace-sidebar.display-widths.Zero: Must be greater than 0",
-            "workspace-sidebar.display-widths.Text: Expected type is 'integer'. But actual type is 'string'",
+            "workspace-sidebar.display-widths.Text: Expected type is 'int'. But actual type is 'string'",
             "workspace-sidebar.display-widths.Narrow: Must be greater than collapsed-width while the panel is kept expanded",
         ])
         let tabs = "[workspace-sidebar]\nmode = 'tabs'\ncollapsed-width = 60\ndisplay-widths = { \"Narrow\" = 50 }"
-        XCTAssertEqual(parseConfig(tabs).errors.descriptions,
+        XCTAssertEqual(parseConfig(tabs).errors,
             ["workspace-sidebar.display-widths.Narrow: Must be greater than collapsed-width while the panel is kept expanded"],
             "Tabs mode keeps its sidebar open by default")
-        XCTAssertEqual(parseConfig(tabs + "\ntabs-always-expanded = false").errors.descriptions, [])
-        XCTAssertEqual(parseConfig("[workspace-sidebar]\ndisplay-widths = 300").errors.descriptions,
-            ["workspace-sidebar.display-widths: Expected type is 'table'. But actual type is 'integer'"])
+        XCTAssertEqual(parseConfig(tabs + "\ntabs-always-expanded = false").errors, [])
+        XCTAssertEqual(parseConfig("[workspace-sidebar]\ndisplay-widths = 300").errors,
+            ["workspace-sidebar.display-widths: Expected type is 'table'. But actual type is 'int'"])
     }
 
     func testWidthsNarrowerThanTheModeFitsAreWidenedAtLoad() {
@@ -56,7 +56,7 @@ final class WorkspaceSidebarDisplayWidthTest: XCTestCase {
             "Wide" = 300
             """
         let tabs = parseConfig("[workspace-sidebar]\nmode = 'tabs'\n" + table)
-        XCTAssertEqual(tabs.errors.descriptions, [], "A narrow width still loads")
+        XCTAssertEqual(tabs.errors, [], "A narrow width still loads")
         XCTAssertEqual(tabs.config.workspaceSidebar.width, 160)
         XCTAssertEqual(tabs.config.workspaceSidebar.displayWidths, ["Narrow": 160, "Wide": 300])
         XCTAssertEqual(tabs.config.workspaceSidebar.width(onDisplayNamed: "Narrow"), 160)
@@ -72,7 +72,7 @@ final class WorkspaceSidebarDisplayWidthTest: XCTestCase {
 
         // Checks still read the file as written.
         let rejected = parseConfig("[workspace-sidebar]\nmode = 'sidebar'\nalways-expanded = true\ncollapsed-width = 110\nwidth = 100")
-        XCTAssertEqual(rejected.errors.descriptions,
+        XCTAssertEqual(rejected.errors,
             ["workspace-sidebar.width: Must be greater than collapsed-width when always-expanded is true"])
     }
 
@@ -162,7 +162,7 @@ final class WorkspaceSidebarDisplayWidthTest: XCTestCase {
         let second = updateWorkspaceSidebarDisplayWidthConfig(in: added, display: "DELL U3224KB 2", width: 320)
         let changed = updateWorkspaceSidebarDisplayWidthConfig(in: second, display: "Display v2.0 \"Pro\"", width: 280)
         let parsed = parseConfig(changed)
-        XCTAssertEqual(parsed.errors.descriptions, [])
+        XCTAssertEqual(parsed.errors, [])
         XCTAssertEqual(parsed.config.workspaceSidebar.displayWidths, ["Display v2.0 \"Pro\"": 280, "DELL U3224KB 2": 320])
         XCTAssertEqual(parsed.config.workspaceSidebar.width, 240)
 
@@ -170,7 +170,7 @@ final class WorkspaceSidebarDisplayWidthTest: XCTestCase {
         XCTAssertEqual(parseConfig(oneLeft).config.workspaceSidebar.displayWidths, ["DELL U3224KB 2": 320])
         let none = updateWorkspaceSidebarDisplayWidthConfig(in: oneLeft, display: "DELL U3224KB 2", width: nil)
         XCTAssertFalse(none.contains("display-widths"), "The last removal drops the table: \(none)")
-        XCTAssertEqual(parseConfig(none).errors.descriptions, [])
+        XCTAssertEqual(parseConfig(none).errors, [])
         XCTAssertEqual(updateWorkspaceSidebarDisplayWidthConfig(in: start, display: "Missing", width: nil), start)
     }
 
@@ -184,7 +184,7 @@ final class WorkspaceSidebarDisplayWidthTest: XCTestCase {
             """
         let resized = updateWorkspaceSidebarDisplayWidthConfig(in: text, display: "Studio Display", width: 320)
         let parsed = parseConfig(resized)
-        XCTAssertEqual(parsed.errors.descriptions, [], resized)
+        XCTAssertEqual(parsed.errors, [], resized)
         XCTAssertEqual(parsed.config.workspaceSidebar.displayWidths, ["Studio Display": 320])
         XCTAssertEqual(parsed.config.workspaceSidebar.workspaceLabels, ["Studio Display": "Work"],
             "The next table's matching key must survive: \(resized)")
@@ -219,14 +219,14 @@ final class WorkspaceSidebarDisplayWidthTest: XCTestCase {
             """
         let renamed = updateWorkspaceSidebarLabelConfig(in: text, workspaceName: "2", label: "Web")
         let parsed = parseConfig(renamed)
-        XCTAssertEqual(parsed.errors.descriptions, [], renamed)
+        XCTAssertEqual(parsed.errors, [], renamed)
         XCTAssertEqual(parsed.config.workspaceSidebar.workspaceLabels,
             ["1": "[example] # label text\n\"2\" = \"not a key\"\n", "2": "Web", "3": "one line"], renamed)
         XCTAssertEqual(parsed.config.workspaceSidebar.projectLabels, ["2": "Client"], renamed)
 
         let replaced = updateWorkspaceSidebarLabelConfig(in: text, workspaceName: "1", label: "Code")
         let replacedConfig = parseConfig(replaced)
-        XCTAssertEqual(replacedConfig.errors.descriptions, [], "The whole multi-line value goes: \(replaced)")
+        XCTAssertEqual(replacedConfig.errors, [], "The whole multi-line value goes: \(replaced)")
         XCTAssertEqual(replacedConfig.config.workspaceSidebar.workspaceLabels, ["1": "Code", "2": "Old", "3": "one line"])
 
         let widths = "[workspace-sidebar.display-widths]\n\"Left\" = 300\n" + text
@@ -249,7 +249,7 @@ final class WorkspaceSidebarDisplayWidthTest: XCTestCase {
             """
         let renamed = updateWorkspaceSidebarLabelConfig(in: escaped, workspaceName: "2", label: "Web")
         let labels = parseConfig(renamed)
-        XCTAssertEqual(labels.errors.descriptions, [], renamed)
+        XCTAssertEqual(labels.errors, [], renamed)
         XCTAssertEqual(labels.config.workspaceSidebar.workspaceLabels,
             ["1": "a \(quote) still inside\n\"2\" = \"text\"\n", "2": "Web", "3": "one\"", "4": "two'"], renamed)
 
@@ -259,9 +259,9 @@ final class WorkspaceSidebarDisplayWidthTest: XCTestCase {
             "exec-on-workspace-change = [\(quote)one\(quote)\", \(quote)two\n\(quote), '''three\n'''', 'four']",
         ] {
             let text = array + "\n\n[workspace-sidebar.display-widths]\n\"Left\" = 300\n"
-            XCTAssertEqual(parseConfig(text).errors.descriptions, [], text)
+            XCTAssertEqual(parseConfig(text).errors, [], text)
             let resized = updateWorkspaceSidebarDisplayWidthConfig(in: text, display: "Left", width: 320)
-            XCTAssertEqual(parseConfig(resized).errors.descriptions, [], resized)
+            XCTAssertEqual(parseConfig(resized).errors, [], resized)
             XCTAssertEqual(parseConfig(resized).config.workspaceSidebar.displayWidths, ["Left": 320], resized)
             XCTAssertEqual(parseConfig(resized).config.execOnWorkspaceChange, parseConfig(text).config.execOnWorkspaceChange)
             let reset = updateWorkspaceSidebarDisplayWidthConfig(in: text, display: "Left", width: nil)

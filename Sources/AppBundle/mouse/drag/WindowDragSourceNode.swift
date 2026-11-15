@@ -120,7 +120,7 @@ func updateSidebarDragFeedback(sourceWindow: Window, subject: WindowDragSubject,
             WindowDragCursorProxyPanel.shared.hide()
         }
         if hadPinnedWindow {
-            scheduleRefreshSession(.globalObserver("sidebarGhostExit"), optimisticallyPreLayoutWorkspaces: true)
+            scheduleCancellableCompleteRefreshSession(.globalObserver("sidebarGhostExit"), optimisticallyPreLayoutWorkspaces: true)
         }
         return
     }

@@ -13,16 +13,18 @@ enum GlobalObserver {
         Task { @MainActor in
             if !TrayMenuModel.shared.isEnabled { return }
             if notifName == NSWorkspace.didActivateApplicationNotification.rawValue {
-                scheduleRefreshSession(.globalObserver(notifName), optimisticallyPreLayoutWorkspaces: true, activatedAppPid: activatedAppPid)
+                // WINMUX-HOOK-REPLACES(activatedAppPid)
+                if true { scheduleCancellableCompleteRefreshSession(.globalObserver(notifName), optimisticallyPreLayoutWorkspaces: true, activatedAppPid: activatedAppPid); return } // WINMUX-HOOK(activatedAppPid)
+                scheduleCancellableCompleteRefreshSession(.globalObserver(notifName), optimisticallyPreLayoutWorkspaces: true)
             } else {
-                scheduleRefreshSession(.globalObserver(notifName))
+                scheduleCancellableCompleteRefreshSession(.globalObserver(notifName))
             }
         }
     }
 
     private static func onHideApp(_ notification: Notification) {
         let notifName = notification.name.rawValue
-        _ = Task { @MainActor in
+        Task { @MainActor in
             guard let token: RunSessionGuard = .isServerEnabled else { return }
             try await runLightSession(.globalObserver(notifName), token) {
                 if config.automaticallyUnhideMacosHiddenApps {
@@ -59,35 +61,29 @@ enum GlobalObserver {
         // WINMUX-HOOK-END(globalObserverWake)
         nc.addObserver(forName: NSWorkspace.didTerminateApplicationNotification, object: nil, queue: .main, using: onNotif)
 
-        retainEventMonitor(NSEvent.addGlobalMonitorForEvents(matching: .leftMouseUp) { _ in
+        // WINMUX-HOOK-REPLACES(installGlobalObserverMonitors)
+        if true { return WinMuxHooks.installGlobalObserverMonitors() } // WINMUX-HOOK(installGlobalObserverMonitors)
+        NSEvent.addGlobalMonitorForEvents(matching: .leftMouseUp) { _ in
             // todo reduce number of refreshSession in the callback
             //  resetManipulatedWithMouseIfPossible might call its own refreshSession
             //  The end of the callback calls refreshSession
-            _ = Task { @MainActor in
-                noteLeftMousePressBoundaryForDragRefresh()
-                finishWorkspaceSidebarDragAfterMouseUp()
+            Task { @MainActor in
                 guard let token: RunSessionGuard = .isServerEnabled else { return }
                 try await resetManipulatedWithMouseIfPossible()
-                // Drag-end releases the sidebar expansion locks without any pointer movement;
-                // hover must be re-evaluated for a stationary cursor.
-                WorkspaceSidebarPanel.scheduleHoverRecheckForVisiblePanels()
                 let mouseLocation = mouseLocation
                 let clickedMonitor = mouseLocation.monitorApproximation
-                // A sidebar drop already decided where focus goes, whichever display the pointer is on.
-                let wasSidebarDrop = takeWorkspaceSidebarConsumedRelease()
                 switch true {
-                    // Detect desktop clicks on other monitors, excluding menu bars (AeroSpace cfd4eab2).
-                    case !wasSidebarDrop && clickedMonitor.visibleRect.contains(mouseLocation) && clickedMonitor.activeWorkspace != focus.workspace:
+                    // Detect clicks on desktop of different monitors
+                    case clickedMonitor.activeWorkspace != focus.workspace:
                         _ = try await runLightSession(.globalObserverLeftMouseUp, token) {
                             clickedMonitor.activeWorkspace.focusWorkspace()
                         }
                     // Detect close button clicks for unfocused windows. Yes, kAXUIElementDestroyedNotification is that unreliable
                     //  And trigger new window detection that could be delayed due to mouseDown event
                     default:
-                        scheduleRefreshSession(.globalObserverLeftMouseUp)
+                        scheduleCancellableCompleteRefreshSession(.globalObserverLeftMouseUp)
                 }
             }
-        })
-        WinMuxHooks.installGlobalObserverMonitors() // WINMUX-HOOK(installGlobalObserverMonitors)
+        }
     }
 }

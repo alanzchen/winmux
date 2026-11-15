@@ -260,7 +260,7 @@ final class WorkspaceTabsCloseWithLastWindowTest: XCTestCase {
             }
             Workspace.reconcileWorkspaceState()
         }, normalizeLayoutReason: {})
-        try await runRefreshSessionBlocking(.ax(kAXUIElementDestroyedNotification as String), layoutWorkspaces: false)
+        try await runHeavyCompleteRefreshSession(.ax(kAXUIElementDestroyedNotification as String), layoutWorkspaces: false)
     }
 
     func testAWindowFoundAgainByALaterRefreshSessionGoesBackToItsTab() async throws {

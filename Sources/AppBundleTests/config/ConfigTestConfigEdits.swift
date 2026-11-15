@@ -195,7 +195,7 @@ extension ConfigTest {
 
         let persisted = try String(contentsOf: targetUrl, encoding: .utf8)
         let (parsed, errors) = parseConfig(persisted)
-        XCTAssertEqual(errors.descriptions, [])
+        XCTAssertEqual(errors, [])
         XCTAssertEqual(parsed.workspaceSidebar.projectLabels["project-test"], "Research")
         XCTAssertEqual(parsed.workspaceSidebar.projectColors["project-test"], "#60A5FA")
     }
@@ -257,7 +257,7 @@ extension ConfigTest {
         XCTAssertTrue(persisted.contains("\"project-keep\" = \"#F87171\""))
         XCTAssertTrue(persisted.contains("alt-h = 'focus left' # preserve me"))
         let (parsed, errors) = parseConfig(persisted)
-        XCTAssertEqual(errors.descriptions, [])
+        XCTAssertEqual(errors, [])
         XCTAssertNil(parsed.workspaceSidebar.projectLabels["project-test"])
         XCTAssertNil(parsed.workspaceSidebar.projectColors["project-test"])
     }
@@ -282,7 +282,7 @@ extension ConfigTest {
             label: raw,
         )
         let (parsed, errors) = parseConfig(updated)
-        XCTAssertEqual(errors.descriptions, [])
+        XCTAssertEqual(errors, [])
         XCTAssertEqual(parsed.workspaceSidebar.projectLabels["project-safe"], raw)
     }
 

@@ -65,7 +65,7 @@ final class MonitorConfigurationObserver {
         WorkspaceSidebarPanel.refreshAll()
         WindowTabStripPanelController.shared.refresh()
         if TrayMenuModel.shared.isEnabled {
-            scheduleRefreshSession(event)
+            scheduleCancellableCompleteRefreshSession(event)
         }
     }
 

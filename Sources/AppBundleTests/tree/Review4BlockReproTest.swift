@@ -120,7 +120,7 @@ final class Review4BlockReproTest: XCTestCase {
     /// Spotlight, app hotkey, Cmd-Tab, or menu bar (`makeKeyAndOrderFront` at its existing frame), macOS emits
     /// `NSWorkspace.didActivateApplicationNotification` and `kAXFocusedWindowChangedNotification` — neither of
     /// which sets `windowRefreshBarrier` or `layoutReasonNormalization`. Even though `nativeFocused` in
-    /// `runRefreshSessionBlocking` is a window currently set aside in `macosNotPresentableWindowsContainer`,
+    /// `runHeavyCompleteRefreshSession` is a window currently set aside in `macosNotPresentableWindowsContainer`,
     /// WinMux skips refresh and normalization, leaving the focused window trapped set aside and poisoning
     /// `lastKnownNativeFocusedWindowId`.
     func testActivatingAndFocusingReopenedSetAsideWindowRestoresAndFocusesIt() async throws {
@@ -141,7 +141,7 @@ final class Review4BlockReproTest: XCTestCase {
         _ = other.focusWindow()
         appForTests = TestApp.shared
         TestApp.shared.focusedWindow = other
-        try await runRefreshSessionBlocking(.ax(kAXFocusedWindowChangedNotification as String), layoutWorkspaces: false)
+        try await runHeavyCompleteRefreshSession(.ax(kAXFocusedWindowChangedNotification as String), layoutWorkspaces: false)
         XCTAssertEqual(focus.windowOrNil?.windowId, 100)
 
         // Telegram closes window 200 via hide-on-close (ordered out, stale AX element) -> set aside.
@@ -167,11 +167,11 @@ final class Review4BlockReproTest: XCTestCase {
         // User reopens Telegram via hotkey / Spotlight: Telegram activates and focuses existing window 200.
         appForTests = telegramApp
         telegramApp.focusedWindow = telegram
-        try await runRefreshSessionBlocking(
+        try await runHeavyCompleteRefreshSession(
             .globalObserver(NSWorkspace.didActivateApplicationNotification.rawValue),
             activatedAppPid: telegramApp.pid,
         )
-        try await runRefreshSessionBlocking(.ax(kAXFocusedWindowChangedNotification as String))
+        try await runHeavyCompleteRefreshSession(.ax(kAXFocusedWindowChangedNotification as String))
 
         XCTAssertFalse(
             telegram.parent === macosNotPresentableWindowsContainer,
@@ -184,7 +184,7 @@ final class Review4BlockReproTest: XCTestCase {
     // MARK: R4-2b — Barrier refresh restoring a focused set-aside window fails to focus it and steals native focus back
 
     /// Even when a full barrier refresh runs while a reopened set-aside window is natively focused (for example
-    /// `.globalObserverLeftMouseUp` on a Dock click), `runRefreshSessionBlocking` runs `updateFocusCache(nativeFocused)`
+    /// `.globalObserverLeftMouseUp` on a Dock click), `runHeavyCompleteRefreshSession` runs `updateFocusCache(nativeFocused)`
     /// at line 223 BEFORE `refresh()` (line 235) and `normalizeLayoutReason()` (line 245). At line 223 `telegram` is
     /// still in `macosNotPresentableWindowsContainer` (`visualWorkspace == nil`), so `focusWindow()` fails while
     /// `lastKnownNativeFocusedWindowId` is set to `200`. Then `bringBackPresentableWindows` restores `telegram` into
@@ -210,7 +210,7 @@ final class Review4BlockReproTest: XCTestCase {
         _ = other.focusWindow()
         appForTests = TestApp.shared
         TestApp.shared.focusedWindow = other
-        try await runRefreshSessionBlocking(.ax(kAXFocusedWindowChangedNotification as String), layoutWorkspaces: false)
+        try await runHeavyCompleteRefreshSession(.ax(kAXFocusedWindowChangedNotification as String), layoutWorkspaces: false)
         XCTAssertEqual(focus.windowOrNil?.windowId, 100)
 
         var liveness: [UInt32: FakeLivenessWindow] = [
@@ -236,7 +236,7 @@ final class Review4BlockReproTest: XCTestCase {
         // Telegram orders 200 back on screen and focuses it; a full barrier refresh runs.
         appForTests = telegramApp
         telegramApp.focusedWindow = telegram
-        try await runRefreshSessionBlocking(.globalObserverLeftMouseUp)
+        try await runHeavyCompleteRefreshSession(.globalObserverLeftMouseUp)
 
         XCTAssertTrue(telegram.parent === chat.rootTilingContainer)
         XCTAssertEqual(

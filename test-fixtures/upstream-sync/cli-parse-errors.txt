@@ -121,7 +121,7 @@ $ mode
 failure: ERROR: Argument '<binding-mode>' is mandatory
 
 $ config --get
-failure: ERROR: '<name>' is mandatory
+failure: ERROR: '--get' must be followed by '<name>'
 
 $ trigger-binding
 failure: ERROR: Argument '<binding>' is mandatory
@@ -172,7 +172,7 @@ $ stack-with
 failure: ERROR: Argument '(left|down|up|right)' is mandatory
 
 $ save-workspace --name
-failure: ERROR: '<name>' is mandatory
+failure: ERROR: '--name' must be followed by '<name>'
 
 $ palette extra
 failure: ERROR: Unknown argument 'extra'
@@ -192,4 +192,70 @@ failure: Either --all or at least one <event> must be specified
 $ subscribe nothing
 failure: ERROR: Can't parse 'nothing'.
        Possible values: (focus-changed|focused-monitor-changed|focused-workspace-changed|mode-changed|window-detected|binding-triggered)
+
+$ focus --window-id
+failure: ERROR: '--window-id' must be followed by '<window-id>'
+
+$ focus --window-id abc
+failure: ERROR: Failed to parse 'abc' CLI argument: Can't convert 'abc' to UInt32
+
+$ focus --dfs-index x
+failure: ERROR: Failed to parse 'x' CLI argument: Can't convert 'x' to UInt32
+
+$ focus --tab-index
+failure: ERROR: '--tab-index' must be followed by '<tab-index>'
+
+$ focus --tab-index 0
+failure: ERROR: Failed to parse '0' CLI argument: It must be greater than zero
+
+$ close --window-id
+failure: ERROR: '--window-id' must be followed by '<window-id>'
+
+$ debug-windows --window-id x
+failure: ERROR: Failed to parse 'x' CLI argument: Can't convert 'x' to UInt32
+
+$ balance-sizes --workspace
+failure: ERROR: '--workspace' must be followed by '<workspace>'
+
+$ layout tiles --workspace
+failure: ERROR: '--workspace' must be followed by '<workspace>'
+
+$ list-windows --all --pid
+failure: ERROR: '--pid' must be followed by '<pid>'
+
+$ list-windows --all --pid x
+failure: ERROR: Failed to parse 'x' CLI argument: Can't convert to Int32
+
+$ list-windows --all --app-bundle-id
+failure: ERROR: '--app-bundle-id' must be followed by '<app-bundle-id>'
+
+$ trigger-binding a --mode
+failure: ERROR: '--mode' must be followed by '<mode-id>'
+
+$ stack-with --window-id
+failure: ERROR: '--window-id' must be followed by '<window-id>'
+ERROR: Argument '(left|down|up|right)' is mandatory
+
+$ move-node-to-project --window-id x
+failure: ERROR: Failed to parse 'x' CLI argument: Can't convert 'x' to UInt32
+
+$ save-workspace --workspace
+failure: ERROR: '--workspace' must be followed by '<workspace>'
+
+$ forget-workspace --workspace
+failure: ERROR: '--workspace' must be followed by '<workspace>'
+
+$ delete-project --action move-windows-to-fallback --if-window-count x
+failure: ERROR: Failed to parse 'x' CLI argument: Can't convert 'x' to UInt32
+ERROR: Argument '<project-id>' is mandatory
+
+$ create-project --name
+failure: ERROR: '--name' must be followed by '<project-name>'
+
+$ create-project --color
+failure: ERROR: '--color' must be followed by '<#RRGGBB>'
+
+$ agent --path
+failure: ERROR: '--path' must be followed by '<path>'
+ERROR: Argument '(query|check|apply|skill)' is mandatory
 

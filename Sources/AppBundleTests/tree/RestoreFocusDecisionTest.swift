@@ -59,7 +59,7 @@ final class RestoreFocusDecisionTest: XCTestCase {
             noteWindowPresentability([200: true])
             TestApp.shared.hasActiveTransientNativeFocus = false
         })
-        try await runRefreshSessionBlocking(.globalObserverLeftMouseUp)
+        try await runHeavyCompleteRefreshSession(.globalObserverLeftMouseUp)
         XCTAssertTrue(returning.nodeWorkspace === anchor.nodeWorkspace, "Placed where asked")
         XCTAssertEqual(returning.nativeFocusCount, 0)
     }
@@ -70,7 +70,7 @@ final class RestoreFocusDecisionTest: XCTestCase {
         let (anchor, returning) = try await setAsideAndAskToReopen(nativeAnchor: true)
         beginFrozenRestore()
         setBlockingRefreshOverridesForTests(refresh: { noteWindowPresentability([200: true]) })
-        try await runRefreshSessionBlocking(.globalObserverLeftMouseUp)
+        try await runHeavyCompleteRefreshSession(.globalObserverLeftMouseUp)
         XCTAssertTrue(returning.nodeWorkspace === anchor.nodeWorkspace)
         XCTAssertEqual(returning.nativeFocusCount, 1, "The refresh decided")
         endFrozenRestore()

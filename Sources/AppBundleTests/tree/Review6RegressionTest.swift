@@ -143,7 +143,7 @@ final class Review6RegressionTest: XCTestCase {
             noteWindowPresentability([200: true])
             TestApp.shared.focusedWindow = later // Native focus changes during the refresh.
         })
-        try await runRefreshSessionBlocking(.ax(kAXFocusedWindowChangedNotification as String))
+        try await runHeavyCompleteRefreshSession(.ax(kAXFocusedWindowChangedNotification as String))
         XCTAssertEqual(focus.windowOrNil?.windowId, 300)
         XCTAssertTrue(laterTab.isVisible)
         XCTAssertEqual(old.nativeFocusCount, 0)
@@ -203,7 +203,7 @@ final class Review6RegressionTest: XCTestCase {
             noteWindowPresentability([200: true])
             TestApp.shared.focusedWindow = later
         })
-        try await runRefreshSessionBlocking(.ax(kAXFocusedWindowChangedNotification as String))
+        try await runHeavyCompleteRefreshSession(.ax(kAXFocusedWindowChangedNotification as String))
         XCTAssertTrue(returning.nodeWorkspace === target, "Keep the requested placement")
         XCTAssertFalse(registry.hasPendingIntents)
         XCTAssertEqual(returning.nativeFocusCount, 0, "Restoration must not steal focus before the reread can observe the newer native selection")

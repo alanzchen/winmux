@@ -115,7 +115,7 @@ final class WindowMiddleClickCloseTest: XCTestCase {
     func testMiddleClickSettingDefaultsOnAndParses() {
         XCTAssertTrue(defaultConfig.middleClickClosesWindows)
         let (parsed, errors) = parseConfig("middle-click-closes-windows = false")
-        XCTAssertEqual(errors.descriptions, [])
+        XCTAssertEqual(errors, [])
         XCTAssertFalse(parsed.middleClickClosesWindows)
     }
 

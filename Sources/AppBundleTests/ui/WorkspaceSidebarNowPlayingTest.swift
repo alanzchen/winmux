@@ -99,7 +99,7 @@ final class WorkspaceSidebarNowPlayingTest: XCTestCase {
             mode = 'tabs'
             music-player-at-bottom = true
             """)
-        XCTAssertEqual(errors.descriptions, [])
+        XCTAssertEqual(errors, [])
         XCTAssertTrue(parsed.workspaceSidebar.musicPlayerAtBottom)
         XCTAssertTrue(workspaceSidebarConfiguration(parsed).musicPlayerAtBottom)
         XCTAssertFalse(defaultConfig.workspaceSidebar.musicPlayerAtBottom)

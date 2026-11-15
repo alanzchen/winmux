@@ -1147,7 +1147,7 @@ func finishSidebarWindowDrag(pointer: CGPoint? = nil) {
     if didCommitSidebarDrop || releasedWithoutSidebarDrop {
         clearPendingWindowDragIntent()
         cancelManipulatedWithMouseState()
-        scheduleRefreshSession(.resetManipulatedWithMouse, optimisticallyPreLayoutWorkspaces: true)
+        scheduleCancellableCompleteRefreshSession(.resetManipulatedWithMouse, optimisticallyPreLayoutWorkspaces: true)
         if releasedWithoutSidebarDrop {
             clearWorkspaceSidebarDropPreview()
             WindowDragCursorProxyPanel.shared.hide()

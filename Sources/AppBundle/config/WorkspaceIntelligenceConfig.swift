@@ -1,6 +1,5 @@
 import Common
 import Foundation
-import TOMLKit
 
 /// Tabs mode: whether WinMux may suggest topic groups for a project's tabs with the on-device
 /// model. `manual` only ever runs when Suggest Topic Groups… is chosen; `off` never touches the
@@ -25,9 +24,9 @@ extension Config {
 }
 
 func parseWorkspaceIntelligence(
-    _ raw: TOMLValueConvertible,
-    _ backtrace: TomlBacktrace,
-    _ errors: inout [TomlParseError],
+    _ raw: Json,
+    _ backtrace: ConfigBacktrace,
+    _ errors: inout [ConfigParseError],
 ) -> WorkspaceIntelligenceConfig {
     parseTable(raw, WorkspaceIntelligenceConfig(), [
         "mode": Parser(\.mode) { raw, backtrace in

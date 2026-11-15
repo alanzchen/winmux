@@ -123,14 +123,14 @@ final class ActivatedFloatingWindowPresentationTest: XCTestCase {
                 events.append(event)
                 activationPids.append(activatedAppPid)
                 if events.count == 1 {
-                    scheduleRefreshSession(.globalObserver(NSWorkspace.didActivateApplicationNotification.rawValue), activatedAppPid: 7)
-                    scheduleRefreshSession(.ax(kAXWindowCreatedNotification as String))
-                    scheduleRefreshSession(.globalObserver(NSWorkspace.didActivateApplicationNotification.rawValue), activatedAppPid: 9)
-                    scheduleRefreshSession(.ax(kAXWindowCreatedNotification as String))
+                    scheduleCancellableCompleteRefreshSession(.globalObserver(NSWorkspace.didActivateApplicationNotification.rawValue), activatedAppPid: 7)
+                    scheduleCancellableCompleteRefreshSession(.ax(kAXWindowCreatedNotification as String))
+                    scheduleCancellableCompleteRefreshSession(.globalObserver(NSWorkspace.didActivateApplicationNotification.rawValue), activatedAppPid: 9)
+                    scheduleCancellableCompleteRefreshSession(.ax(kAXWindowCreatedNotification as String))
                     started.resume()
                 }
             }
-            scheduleRefreshSession(.ax(kAXWindowCreatedNotification as String))
+            scheduleCancellableCompleteRefreshSession(.ax(kAXWindowCreatedNotification as String))
         }
         try await waitForScheduledRefreshForTests()
         XCTAssertEqual(events.count, 2)
@@ -149,14 +149,14 @@ final class ActivatedFloatingWindowPresentationTest: XCTestCase {
             setScheduledRefreshOverrideForTests { _, _, activatedAppPid in
                 activationPids.append(activatedAppPid)
                 if activationPids.count == 1 {
-                    scheduleRefreshSession(.globalObserver(NSWorkspace.didActivateApplicationNotification.rawValue), activatedAppPid: 7)
+                    scheduleCancellableCompleteRefreshSession(.globalObserver(NSWorkspace.didActivateApplicationNotification.rawValue), activatedAppPid: 7)
                     await withCheckedContinuation {
                         paused = $0
                         started.resume()
                     }
                 }
             }
-            scheduleRefreshSession(.ax(kAXWindowCreatedNotification as String))
+            scheduleCancellableCompleteRefreshSession(.ax(kAXWindowCreatedNotification as String))
         }
         try await runLightSession(.hotkeyBinding, .forceRun) {}
         paused?.resume()

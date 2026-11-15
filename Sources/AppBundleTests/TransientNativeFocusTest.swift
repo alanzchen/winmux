@@ -16,13 +16,13 @@ final class TransientNativeFocusTest: XCTestCase {
         let browser = TestWindow.new(id: 1, parent: workspace, rect: Rect(topLeftX: 80, topLeftY: 80, width: 800, height: 600))
         _ = browser.focusWindow()
         TestApp.shared.focusedWindow = browser
-        try await runRefreshSessionBlocking(.ax(kAXFocusedWindowChangedNotification as String))
+        try await runHeavyCompleteRefreshSession(.ax(kAXFocusedWindowChangedNotification as String))
 
         TestApp.shared.focusedWindow = nil
         TestApp.shared.hasActiveTransientNativeFocus = true
         let initialRect = try await browser.getAxRect()
         for _ in 0 ..< 3 {
-            try await runRefreshSessionBlocking(.ax(kAXFocusedWindowChangedNotification as String))
+            try await runHeavyCompleteRefreshSession(.ax(kAXFocusedWindowChangedNotification as String))
             XCTAssertTrue(focus.windowOrNil === browser)
             XCTAssertTrue(focus.workspace === workspace)
             XCTAssertNil(TestApp.shared.focusedWindow, "WinMux must not replace native modal focus")
@@ -32,7 +32,7 @@ final class TransientNativeFocusTest: XCTestCase {
 
         TestApp.shared.hasActiveTransientNativeFocus = false
         TestApp.shared.focusedWindow = browser
-        try await runRefreshSessionBlocking(.ax(kAXFocusedWindowChangedNotification as String))
+        try await runHeavyCompleteRefreshSession(.ax(kAXFocusedWindowChangedNotification as String))
         XCTAssertTrue(focus.windowOrNil === browser)
     }
 

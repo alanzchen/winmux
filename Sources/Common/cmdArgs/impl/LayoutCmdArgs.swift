@@ -6,8 +6,8 @@ public struct LayoutCmdArgs: CmdArgs {
         allowInConfig: true,
         help: layout_help_generated,
         flags: [
-            "--window-id": optionalWindowIdFlag(),
-            "--workspace": optionalWorkspaceFlag(),
+            "--window-id": windowIdSubArgParser(),
+            "--workspace": workspaceSubArgParser(),
             "--root": trueBoolFlag(\.root),
             "--fail-if-noop": trueBoolFlag(\.failIfNoop),
             "--for-next-detected-window": trueBoolFlag(\.forNextDetectedWindow),

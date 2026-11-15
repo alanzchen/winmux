@@ -6,7 +6,7 @@ public struct StackWithCmdArgs: CmdArgs {
         allowInConfig: true,
         help: stack_with_help_generated,
         flags: [
-            "--window-id": optionalWindowIdFlag(),
+            "--window-id": windowIdSubArgParser(),
         ],
         posArgs: [newMandatoryPosArgParser(\.direction, parseCardinalDirectionArg, placeholder: CardinalDirection.unionLiteral)],
     )

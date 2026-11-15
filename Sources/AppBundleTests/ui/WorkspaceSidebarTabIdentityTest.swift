@@ -90,7 +90,7 @@ final class WorkspaceSidebarTabIdentityTest: XCTestCase {
         if.app-id = 'bobko.WinMux.test-app'
         run = ['move-node-to-workspace destination']
         """)
-        XCTAssertEqual(errors.descriptions, [])
+        XCTAssertEqual(errors, [])
         config.onWindowDetected = parsed.onWindowDetected
         let window = TestWindow.new(id: 202, parent: origin.rootTilingContainer)
         _ = try await restoreOrDetectNewWindow(window, isRegularWindow: true)

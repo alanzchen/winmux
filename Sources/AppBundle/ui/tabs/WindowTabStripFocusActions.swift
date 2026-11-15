@@ -7,7 +7,7 @@ func focusWindowFromTabStrip(_ windowId: UInt32, fallbackWorkspace: String) {
           let liveFocus = window.toLiveFocusOrNil()
     else {
         _ = Workspace.existing(byName: fallbackWorkspace)?.focusWorkspace()
-        scheduleRefreshSession(.menuBarButton)
+        scheduleCancellableCompleteRefreshSession(.menuBarButton)
         return
     }
     // Make the switch feel instant: place the newly active tab into the spot the currently
@@ -64,7 +64,7 @@ func focusWindowFromTabStrip(_ windowId: UInt32, fallbackWorkspace: String) {
         await updateWindowTabModel()
     }
     // Within a tab group no new windows can appear, so skip the heavy refresh barrier.
-    scheduleRefreshSession(isTabSwitch ? .onTabSwitched : .menuBarButton)
+    scheduleCancellableCompleteRefreshSession(isTabSwitch ? .onTabSwitched : .menuBarButton)
 }
 
 @MainActor

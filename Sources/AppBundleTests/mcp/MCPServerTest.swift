@@ -210,7 +210,7 @@ final class MCPServerTest: XCTestCase {
             XCTAssertNil(server.tailnetListenerHost)
         }
         let parsed = parseConfig("[mcp-server]\nenabled = true\ntailscale = true\nlisten = '0.0.0.0'\ntailnet = true\ntailnet-listen = '0.0.0.0'\n")
-        XCTAssertEqual(parsed.errors.count, 3, "\(parsed.errors.descriptions)")
+        XCTAssertEqual(parsed.errors.count, 3, "\(parsed.errors)")
         server.apply(parsed.config.mcpServer)
         XCTAssertEqual(server.listenerHost ?? "127.0.0.1", "127.0.0.1")
         XCTAssertEqual(server.tailnetListenerHost ?? "127.0.0.1", "127.0.0.1")
@@ -307,7 +307,7 @@ final class MCPServerTest: XCTestCase {
 
         // Moving the local port onto p2 while turning tailnet access off: valid config.
         let off = parseConfig("[mcp-server]\nenabled = true\nport = \(p2)\ntailnet = false\n")
-        XCTAssertEqual(off.errors.descriptions, [])
+        XCTAssertEqual(off.errors, [])
         server.apply(off.config.mcpServer)
         let moved = await eventually { (server.state == .listening && server.port == p2) || server.state.isFailed }
         XCTAssertTrue(moved)
@@ -318,7 +318,7 @@ final class MCPServerTest: XCTestCase {
         server.apply(MCPServerConfig(enabled: true, port: p1, tailnet: true, tailnetPort: p2))
         _ = await eventually { server.state == .listening && server.tailnetState == .listening && server.port == p1 }
         let swap = parseConfig("[mcp-server]\nenabled = true\nport = \(p2)\ntailnet = true\ntailnet-port = \(p1)\n")
-        XCTAssertEqual(swap.errors.descriptions, [])
+        XCTAssertEqual(swap.errors, [])
         server.apply(swap.config.mcpServer)
         let swapped = await eventually {
             ((server.state == .listening && server.port == p2) || server.state.isFailed)

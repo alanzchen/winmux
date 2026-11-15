@@ -97,17 +97,17 @@ private func mergeRefreshEvents(_ old: RefreshSessionEvent, _ new: RefreshSessio
 }
 
 @MainActor
-func scheduleRefreshSession(
+func scheduleCancellableCompleteRefreshSession(
     _ event: RefreshSessionEvent,
     optimisticallyPreLayoutWorkspaces: Bool = false,
     activatedAppPid activationPid: Int32? = nil,
 ) {
-    scheduleRefreshSession(event, requirements: event.requirements,
+    scheduleCancellableCompleteRefreshSession(event, requirements: event.requirements,
                            optimisticallyPreLayoutWorkspaces: optimisticallyPreLayoutWorkspaces, activatedAppPid: activationPid)
 }
 
 @MainActor
-private func scheduleRefreshSession(
+private func scheduleCancellableCompleteRefreshSession(
     _ event: RefreshSessionEvent,
     requirements: RefreshSessionRequirements,
     optimisticallyPreLayoutWorkspaces: Bool,
@@ -119,7 +119,7 @@ private func scheduleRefreshSession(
         shouldDropScheduledRefresh(event, activeEvent: pendingRefreshRequest?.event) &&
         pendingRefreshRequest.map({ $0.requirements.union(requirements) == $0.requirements }) == true
     {
-        debugFocusLog("scheduleRefreshSession dropped event=\(event) active=\(activeScheduledRefreshEvent?.description ?? "nil") pending=\(pendingRefreshRequest?.event.description ?? "nil")")
+        debugFocusLog("scheduleCancellableCompleteRefreshSession dropped event=\(event) active=\(activeScheduledRefreshEvent?.description ?? "nil") pending=\(pendingRefreshRequest?.event.description ?? "nil")")
         return
     }
     // Coalesce instead of cancel-and-restart: cancelling the in-flight session on every event
@@ -145,7 +145,7 @@ private func scheduleRefreshSession(
                 activeScheduledRefreshRequirements = nil
                 if let pending = pendingRefreshRequest {
                     pendingRefreshRequest = nil
-                    scheduleRefreshSession(pending.event, requirements: pending.requirements,
+                    scheduleCancellableCompleteRefreshSession(pending.event, requirements: pending.requirements,
                                            optimisticallyPreLayoutWorkspaces: pending.optimisticallyPreLayoutWorkspaces,
                                            activatedAppPid: pending.activatedAppPid)
                 }
@@ -158,7 +158,7 @@ private func scheduleRefreshSession(
                     try await override(event, optimisticallyPreLayoutWorkspaces, activationPid)
                 }
             } else {
-                try await runRefreshSessionBlocking(event, requirements: requirements,
+                try await runHeavyCompleteRefreshSession(event, requirements: requirements,
                                                     optimisticallyPreLayoutWorkspaces: optimisticallyPreLayoutWorkspaces,
                                                     activatedAppPid: activationPid)
             }
@@ -186,7 +186,7 @@ private func queuePendingRefresh(
 }
 
 @MainActor
-func runRefreshSessionBlocking(
+func runHeavyCompleteRefreshSession(
     _ event: RefreshSessionEvent,
     requirements: RefreshSessionRequirements? = nil,
     layoutWorkspaces shouldLayoutWorkspaces: Bool = true,
@@ -201,7 +201,7 @@ func runRefreshSessionBlocking(
     defer { DockPerformanceRecorder.shared.endRefresh(performanceRefresh) }
     if !TrayMenuModel.shared.isEnabled { return }
     let focusSnapshot = captureRefreshSessionFocusSnapshot()
-    debugFocusLog("runRefreshSessionBlocking begin event=\(event) snapshot=\(debugDescribe(focusSnapshot))")
+    debugFocusLog("runHeavyCompleteRefreshSession begin event=\(event) snapshot=\(debugDescribe(focusSnapshot))")
     let presentation = NewFloatingWindowPresentation(
         isStartup: event.isStartup,
         frontmostAppPid: NSWorkspace.shared.frontmostApplication?.processIdentifier,
@@ -293,19 +293,19 @@ func runRefreshSessionBlocking(
                             let logicalFocused = focus.windowOrNil
                             if logicalFocused?.windowId != nativeFocused?.windowId {
                                 debugFocusLog(
-                                    "runRefreshSessionBlocking syncFocus event=\(event) nativeFocused=\(nativeFocused?.windowId.description ?? "nil") logicalFocused=\(logicalFocused?.windowId.description ?? "nil")"
+                                    "runHeavyCompleteRefreshSession syncFocus event=\(event) nativeFocused=\(nativeFocused?.windowId.description ?? "nil") logicalFocused=\(logicalFocused?.windowId.description ?? "nil")"
                                 )
                                 logicalFocused?.nativeFocus()
                             } else {
                                 debugFocusLog(
-                                    "runRefreshSessionBlocking skipSyncFocus event=\(event) nativeFocused=\(nativeFocused?.windowId.description ?? "nil") logicalFocused=\(logicalFocused?.windowId.description ?? "nil")"
+                                    "runHeavyCompleteRefreshSession skipSyncFocus event=\(event) nativeFocused=\(nativeFocused?.windowId.description ?? "nil") logicalFocused=\(logicalFocused?.windowId.description ?? "nil")"
                                 )
                             }
                         }
                     }
                     await updateWindowTabModel()
                     updateSystemFrontWindows()
-                    debugFocusLog("runRefreshSessionBlocking end event=\(event) nativeFocused=\(nativeFocused?.windowId.description ?? "nil") focus=\(debugDescribe(focus))")
+                    debugFocusLog("runHeavyCompleteRefreshSession end event=\(event) nativeFocused=\(nativeFocused?.windowId.description ?? "nil") focus=\(debugDescribe(focus))")
                 }
             }
             }
@@ -338,7 +338,7 @@ func runLightSession<T>(
         // Without a post-refresh (this session threw), no running session would drain it.
         if activeRefreshTask == nil, let pending = pendingRefreshRequest {
             pendingRefreshRequest = nil
-            scheduleRefreshSession(pending.event, requirements: pending.requirements,
+            scheduleCancellableCompleteRefreshSession(pending.event, requirements: pending.requirements,
                                    optimisticallyPreLayoutWorkspaces: pending.optimisticallyPreLayoutWorkspaces,
                                    activatedAppPid: pending.activatedAppPid)
         }
@@ -400,7 +400,7 @@ func runLightSession<T>(
                         focusAfter?.nativeFocus() // syncFocusToMacOs
                     }
                     if shouldSchedulePostRefresh {
-                        scheduleRefreshSession(event, requirements: cancelledSession.map { event.requirements.union($0.requirements) } ?? event.requirements,
+                        scheduleCancellableCompleteRefreshSession(event, requirements: cancelledSession.map { event.requirements.union($0.requirements) } ?? event.requirements,
                                                optimisticallyPreLayoutWorkspaces: false, activatedAppPid: nil)
                         cancelledSession = nil
                     }
@@ -584,7 +584,7 @@ private func scheduleWindowLivenessRefresh(after delay: Duration) {
     guard TrayMenuModel.shared.isEnabled else { return }
     _ = Task { @MainActor in
         try? await Task.sleep(for: delay)
-        scheduleRefreshSession(.ax(kAXUIElementDestroyedNotification as String))
+        scheduleCancellableCompleteRefreshSession(.ax(kAXUIElementDestroyedNotification as String))
     }
 }
 
@@ -614,7 +614,7 @@ func refreshObs(_: AXObserver, _ ax: AXUIElement, notif: CFString, _: UnsafeMuta
             }
         }
         if !TrayMenuModel.shared.isEnabled { return }
-        scheduleRefreshSession(.ax(notif))
+        scheduleCancellableCompleteRefreshSession(.ax(notif))
     }
 }
 

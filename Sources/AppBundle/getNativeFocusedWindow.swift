@@ -11,8 +11,9 @@ private var focusedApp: (any AbstractApp)? {
             return appForTests
         } else {
             check(appForTests == nil)
-            return try await NSWorkspace.shared.frontmostApplication.flatMapAsync { @MainActor @Sendable in
-                try await MacApp.getOrRegister($0)
+            return switch NSWorkspace.shared.frontmostApplication {
+                case let frontmostApplication?: try await MacApp.getOrRegister(frontmostApplication)
+                case nil: nil
             }
         }
     }
@@ -20,9 +21,9 @@ private var focusedApp: (any AbstractApp)? {
 
 @MainActor
 func getNativeFocusedWindow() async throws -> Window? {
-    try await getNativeFocusObservation().window
+    try await focusedApp?.getFocusedWindow()
 }
-
+// WINMUX-HOOK-BEGIN(nativeFocusObservation)
 struct NativeFocusObservation {
     let window: Window?
     let isTransient: Bool
@@ -34,3 +35,4 @@ func getNativeFocusObservation() async throws -> NativeFocusObservation {
     let window = try await app?.getFocusedWindow()
     return NativeFocusObservation(window: window, isTransient: app?.hasActiveTransientNativeFocus == true)
 }
+// WINMUX-HOOK-END(nativeFocusObservation)

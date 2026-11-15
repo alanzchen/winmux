@@ -1,5 +1,6 @@
 @testable import AppBundle
 import Common
+import Foundation
 import XCTest
 
 /// The WinMux policies behind hooks in upstream files (docs/upstream-sync.md, phase 2). Each test fails when its hook
@@ -41,6 +42,24 @@ final class WinMuxHooksTest: XCTestCase {
         XCTAssertEqual(result.exitCode, 0)
         XCTAssertFalse(TrayMenuModel.shared.isWorkspaceSidebarExpanded)
         _ = try await parseCommand("enable on").cmdOrDie.run(.defaultEnv, .emptyStdin)
+    }
+
+    func testLaunchAgentCleanupRemovesOnlyWinMuxPlists() throws {
+        let dir = FileManager.default.temporaryDirectory.appending(path: "winmux-launch-agents-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let names = ["bobko.aerospace.plist", "com.zxzimeng.winmux.plist", "com.zimengxiong.winmux.plist"]
+        for name in names { try Data().write(to: dir.appending(path: name)) }
+        WinMuxHooks.cleanupLaunchAgentPlists(in: dir)
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: dir.path).sorted(), ["bobko.aerospace.plist"])
+    }
+
+    func testAxDumpKeepsWinMuxKeyNames() {
+        var dump: [String: Json] = ["AXRole": .string("AXWindow"), "Aero.AxWritable": .string("AXPosition"),
+                                    "Aero.AxFailed": .string("get.AXTitle"), "Aero.AxIgnored": .string("AXChildren")]
+        WinMuxHooks.renameAxDumpKeys(&dump)
+        XCTAssertEqual(dump.keys.sorted(), ["AXRole", "WinMux.AxFailed", "WinMux.AxIgnored", "WinMux.AxWritable"])
+        XCTAssertEqual(WinMuxHooks.axDumpRecursionLimit.keys.sorted(), ["WinMux.synthetic", "dumpAxRecursive infinite recursion"])
     }
 }
 

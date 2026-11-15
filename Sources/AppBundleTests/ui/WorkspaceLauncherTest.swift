@@ -104,7 +104,7 @@ final class WorkspaceLauncherTest: XCTestCase {
             new-workspace-launcher = true
             launcher-menu-fallback = true
             """)
-        XCTAssertEqual(errors.descriptions, [])
+        XCTAssertEqual(errors, [])
         XCTAssertTrue(parsed.workspaceSidebar.newWorkspaceLauncher)
         XCTAssertTrue(parsed.workspaceSidebar.launcherMenuFallback)
     }

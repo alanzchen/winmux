@@ -5,7 +5,7 @@ import Foundation
 @MainActor public func initAppBundle() {
     _ = Task {
         initTerminationHandler()
-        isCli = false
+        unsafe _isCli = false
         initServerArgs()
         var bootstrappedConfigUrl: URL? = nil
         if isDebug {
@@ -64,7 +64,7 @@ import Foundation
         // pull it onto a display in place of the one restored there.
         _ = mainMonitor.activeWorkspace.focusWorkspace()
         let didLoadPersistedFrozenWorld = loadPersistedFrozenWorldForStartupIfPresent()
-        try await runRefreshSessionBlocking(.startup, layoutWorkspaces: false)
+        try await runHeavyCompleteRefreshSession(.startup, layoutWorkspaces: false)
         try await runLightSession(.startup, .forceRun) {
             if shouldApplySmartLayoutAtStartup(didLoadPersistedFrozenWorld: didLoadPersistedFrozenWorld) {
                 smartLayoutAtStartup()
@@ -150,14 +150,13 @@ private func initServerArgs() {
             case "--version", "-v":
                 exit(0, out: "\(aeroSpaceAppVersion) \(gitHash)")
             case "--config-path":
-                if let arg = args.getOrNil(atIndex: index) {
-                    _serverArgs.configLocation = arg
-                } else {
-                    exit(1, err: "Missing <path> in --config-path flag")
+                switch args.getOrNil(atIndex: index) {
+                    case let arg?: unsafe _serverArgs.configLocation = arg
+                    case nil: exit(1, err: "Missing <path> in --config-path flag")
                 }
                 index += 1
             case "--read-only": // todo rename to '--disabled' and unite with disabled feature
-                _serverArgs.isReadOnly = true
+                unsafe _serverArgs.isReadOnly = true
             case "-NSDocumentRevisionsDebugMode" where isDebug:
                 // Skip Xcode CLI args.
                 // Usually it's '-NSDocumentRevisionsDebugMode NO'/'-NSDocumentRevisionsDebugMode YES'

@@ -96,7 +96,7 @@ final class Review7RegressionTest: XCTestCase {
             TestApp.shared.focusedWindow = nil
             TestApp.shared.hasActiveTransientNativeFocus = true
         })
-        try await runRefreshSessionBlocking(.globalObserverLeftMouseUp)
+        try await runHeavyCompleteRefreshSession(.globalObserverLeftMouseUp)
         XCTAssertTrue(returning.nodeWorkspace === anchor.nodeWorkspace, "Placement still succeeds")
         XCTAssertEqual(returning.nativeFocusCount, 0, "The post-restore read says a native panel has focus")
         XCTAssertNil(TestApp.shared.focusedWindow, "Do not replace modal focus with the reopened window")
@@ -113,7 +113,7 @@ final class Review7RegressionTest: XCTestCase {
             noteWindowPresentability([200: true])
             TestApp.shared.focusedWindow = nil // The user clicked the desktop while AX was awaited.
         })
-        try await runRefreshSessionBlocking(.globalObserverLeftMouseUp)
+        try await runHeavyCompleteRefreshSession(.globalObserverLeftMouseUp)
         XCTAssertTrue(returning.nodeWorkspace === anchor.nodeWorkspace)
         XCTAssertEqual(returning.nativeFocusCount, 0, "The reread vetoes focus correctly at first")
         XCTAssertNil(TestApp.shared.focusedWindow)
@@ -134,7 +134,7 @@ final class Review7RegressionTest: XCTestCase {
         }
         let (_, returning) = try await prepareReopen(nativeAnchor: false)
         setBlockingRefreshOverridesForTests(refresh: { noteWindowPresentability([200: true]) })
-        try await runRefreshSessionBlocking(.globalObserverLeftMouseUp)
+        try await runHeavyCompleteRefreshSession(.globalObserverLeftMouseUp)
         XCTAssertEqual(returning.nativeFocusCount, 1, "No newer native or transient focus: the pin reopen can activate")
     }
 }

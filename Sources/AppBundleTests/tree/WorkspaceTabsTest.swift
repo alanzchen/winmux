@@ -52,7 +52,7 @@ final class WorkspaceTabsTest: XCTestCase {
             enabled = true
             mode = 'tabs'
             """)
-        XCTAssertEqual(errors.descriptions, [])
+        XCTAssertEqual(errors, [])
         XCTAssertTrue(parsed.opensNewWindowsInNewWorkspace)
     }
 
@@ -134,7 +134,7 @@ final class WorkspaceTabsTest: XCTestCase {
             _ = try await restoreOrDetectNewWindow(another, isRegularWindow: true)
         }, normalizeLayoutReason: {})
 
-        try await runRefreshSessionBlocking(.startup, layoutWorkspaces: false)
+        try await runHeavyCompleteRefreshSession(.startup, layoutWorkspaces: false)
 
         XCTAssertTrue(focus.windowOrNil === nativeFocused)
         XCTAssertTrue(mainMonitor.activeWorkspace === nativeFocused.nodeWorkspace,
@@ -170,7 +170,7 @@ final class WorkspaceTabsTest: XCTestCase {
         TestApp.shared.focusedWindow = windows[2]
         setBlockingRefreshOverridesForTests(refresh: {}, normalizeLayoutReason: {})
 
-        try await runRefreshSessionBlocking(.startup, layoutWorkspaces: false)
+        try await runHeavyCompleteRefreshSession(.startup, layoutWorkspaces: false)
 
         for window in windows {
             XCTAssertEqual(window.nodeWorkspace?.allLeafWindowsRecursive.map(\.windowId), [window.windowId])

@@ -27,7 +27,7 @@ forked	Package.resolved	forked	WinMux build/branding/docs (28 changed lines)
 forked	Package.swift	forked	WinMux products and targets (33 changed lines)
 forked	README.md	forked	WinMux build/branding/docs (348 changed lines)
 forked	Sources/AeroSpaceApp/AeroSpaceApp.swift	forked	WinMux app entry point (Sparkle, shortcut settings); restored at the upstream path in phase 2
-forked	Sources/AppBundle/GlobalObserver.swift	hooked	192 changed lines
+hooked	Sources/AppBundle/GlobalObserver.swift		hooks + replacement hooks activatedAppPid, installGlobalObserverMonitors (S2)
 hooked	Sources/AppBundle/command/CmdEnv.swift		marked additive lines (phase 1)
 pristine	Sources/AppBundle/command/CmdIo.swift
 hooked	Sources/AppBundle/command/Command.swift		marked additions only (phase 2)
@@ -49,12 +49,12 @@ pristine	Sources/AppBundle/command/impl/FocusMonitorCommand.swift
 pristine	Sources/AppBundle/command/impl/FullscreenCommand.swift
 pristine	Sources/AppBundle/command/impl/JoinWithCommand.swift
 forked	Sources/AppBundle/command/impl/LayoutCommand.swift	hooked	117 changed lines
-forked	Sources/AppBundle/command/impl/ListAppsCommand.swift	hooked	18 changed lines
+pristine	Sources/AppBundle/command/impl/ListAppsCommand.swift
 hooked	Sources/AppBundle/command/impl/ListExecEnvVarsCommand.swift		marked additive lines (phase 1)
 pristine	Sources/AppBundle/command/impl/ListModesCommand.swift
-forked	Sources/AppBundle/command/impl/ListMonitorsCommand.swift	hooked	18 changed lines
+pristine	Sources/AppBundle/command/impl/ListMonitorsCommand.swift
 forked	Sources/AppBundle/command/impl/ListWindowsCommand.swift	hooked	41 changed lines
-forked	Sources/AppBundle/command/impl/ListWorkspacesCommand.swift	hooked	22 changed lines
+hooked	Sources/AppBundle/command/impl/ListWorkspacesCommand.swift		replacement hook listWorkspaces (S2)
 forked	Sources/AppBundle/command/impl/MacosNativeFullscreenCommand.swift	hooked	14 changed lines
 hooked	Sources/AppBundle/command/impl/MacosNativeMinimizeCommand.swift		marked additions only (phase 2)
 pristine	Sources/AppBundle/command/impl/ModeCommand.swift
@@ -86,15 +86,15 @@ pristine	Sources/AppBundle/config/parseGaps.swift
 pristine	Sources/AppBundle/config/parseKeyMapping.swift
 forked	Sources/AppBundle/config/parseOnWindowDetected.swift	hooked	9 changed lines
 pristine	Sources/AppBundle/config/parseWorkspaceToMonitorAssignment.swift
-forked	Sources/AppBundle/config/startAtLogin.swift	hooked	6 changed lines
+hooked	Sources/AppBundle/config/startAtLogin.swift		replacement hook cleanupLaunchAgentPlists (S2)
 forked	Sources/AppBundle/focus.swift	hooked	169 changed lines
 forked	Sources/AppBundle/focusCache.swift	hooked	18 changed lines
-forked	Sources/AppBundle/getNativeFocusedWindow.swift	hooked	14 changed lines
+hooked	Sources/AppBundle/getNativeFocusedWindow.swift		marked additions nativeFocusObservation (S2)
 forked	Sources/AppBundle/initAppBundle.swift	hooked	91 changed lines
 forked	Sources/AppBundle/layout/layoutRecursive.swift	forked	layout pass with parking/staleness; tab groups move behind the layout delegate (268 changed lines)
 forked	Sources/AppBundle/layout/refresh.swift	forked	coalescing scheduler + requirement-gated session; propose coalescing upstream (697 changed lines)
 forked	Sources/AppBundle/model/AxUiElementWindowType.swift	hooked	12 changed lines
-pristine	Sources/AppBundle/model/Json.swift
+hooked	Sources/AppBundle/model/Json.swift		marked additions jsonDouble (S2)
 hooked	Sources/AppBundle/model/KnownBundleId.swift		marked additive lines (phase 1)
 forked	Sources/AppBundle/model/Monitor.swift	hooked	122 changed lines
 pristine	Sources/AppBundle/model/MonitorDescriptionEx.swift
@@ -147,7 +147,7 @@ pristine	Sources/AppBundle/util/UniqueToken.swift
 forked	Sources/AppBundle/util/accessibility.swift	hooked	73 changed lines
 forked	Sources/AppBundle/util/appBundleUtil.swift	hooked	62 changed lines
 pristine	Sources/AppBundle/util/axTrustedCheckOptionPrompt.swift
-forked	Sources/AppBundle/util/dumpAxRecursive.swift	hooked	10 changed lines
+hooked	Sources/AppBundle/util/dumpAxRecursive.swift		hooks axDumpKeys, axErrorRepr (S2)
 forked	Sources/AppBundle/windowLevelCache.swift	hooked	31 changed lines
 deleted	Sources/AppBundleTests/AxUiElementWindowTypeTest.swift
 forked	Sources/AppBundleTests/assert.swift		test (19 changed lines); reconcile per slice
@@ -176,7 +176,6 @@ forked	Sources/AppBundleTests/config/ParseEnvVariablesTest.swift		test (4 change
 pristine	Sources/AppBundleTests/config/SplitArgsTest.swift
 forked	Sources/AppBundleTests/model/ClientServerTest.swift		test (12 changed lines); reconcile per slice
 deleted	Sources/AppBundleTests/shell/ShellTest.swift		dead WIP at the fork; upstream's live shell arrives in slice 2
-pristine	Sources/AppBundleTests/testExtensions.swift
 forked	Sources/AppBundleTests/testUtil.swift		test (44 changed lines); reconcile per slice
 forked	Sources/AppBundleTests/tree/TestApp.swift		test (19 changed lines); reconcile per slice
 forked	Sources/AppBundleTests/tree/TestWindow.swift		test (106 changed lines); reconcile per slice
@@ -250,6 +249,7 @@ hooked	Sources/Common/util/AeroAny.swift		marked additions only (phase 2)
 pristine	Sources/Common/util/ArrSlice.swift
 pristine	Sources/Common/util/ArrayEx.swift
 pristine	Sources/Common/util/BoolEx.swift
+pristine	Sources/Common/util/CaseInsensitiveRegex.swift
 pristine	Sources/Common/util/CollectionEx.swift
 pristine	Sources/Common/util/ComparableEx.swift
 pristine	Sources/Common/util/ConvenienceCopyable.swift
@@ -263,7 +263,7 @@ pristine	Sources/Common/util/Nullable.swift
 pristine	Sources/Common/util/OptionalEx.swift
 pristine	Sources/Common/util/ResultEx.swift
 pristine	Sources/Common/util/SequenceEx.swift
-forked	Sources/Common/util/StringEx.swift	hooked	43 changed lines
+hooked	Sources/Common/util/StringEx.swift		hook appName (S2)
 pristine	Sources/Common/util/StringLogicalSegments.swift
 forked	Sources/Common/util/commonUtil.swift	forked	refresh events and requirements (109 changed lines)
 deleted	Sources/Common/util/showMessageInGui.swift
@@ -276,14 +276,13 @@ deleted	build-docs.sh
 deleted	build-release.sh
 deleted	build-shell-completion.sh
 deleted	format.sh
-deleted	generate-shell-parser.sh
 deleted	generate.sh
 deleted	install-from-sources.sh
 pristine	legal/LICENSE.txt
 forked	legal/README.md	forked	WinMux build/branding/docs (10 changed lines)
 pristine	legal/third-party-license/LICENSE-HotKey.txt
 pristine	legal/third-party-license/LICENSE-ISSoundAdditions.txt
-pristine	legal/third-party-license/LICENSE-TOMLKIT.txt
+pristine	legal/third-party-license/LICENSE-TOMLDecoder.txt
 deleted	legal/third-party-license/LICENSE-antlr.txt
 pristine	legal/third-party-license/LICENSE-swift-collections.txt
 pristine	legal/third-party-license/LICENSE-tomlplusplus.txt
@@ -304,6 +303,7 @@ deleted	script/check-uncommitted-files.sh
 deleted	script/clean-project.sh
 deleted	script/clean-xcode.sh
 deleted	script/generate-cmd-help.sh
+deleted	script/generate-shell-parser.sh
 forked	script/install-dep.sh	forked	WinMux build/branding/docs (46 changed lines)
 forked	script/publish-release.sh	forked	WinMux build/branding/docs (57 changed lines)
 deleted	script/reset-accessibility-permission-for-debug.sh

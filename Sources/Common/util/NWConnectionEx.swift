@@ -9,10 +9,9 @@ extension NWConnection {
         data.append(payload)
         return await withCheckedContinuation { cont in
             send(content: data, completion: .contentProcessed { error in
-                if let error {
-                    cont.resume(returning: ((), error))
-                } else {
-                    cont.resume(returning: ((), nil))
+                switch error {
+                    case let error?: cont.resume(returning: ((), error))
+                    case nil: cont.resume(returning: ((), nil))
                 }
             })
         }

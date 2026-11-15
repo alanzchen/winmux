@@ -139,7 +139,7 @@ extension ConfigTest {
                 chrome-style = 'blurred'
             """,
         )
-        assertEquals(chromeStyleErrors.descriptions, [
+        assertEquals(chromeStyleErrors, [
             "workspace-sidebar.chrome-style: Possible values: liquid-glass, solid",
         ])
 
@@ -149,7 +149,7 @@ extension ConfigTest {
                 solid-chrome-color = 'gray'
             """,
         )
-        assertEquals(solidColorErrors.descriptions, [
+        assertEquals(solidColorErrors, [
             "workspace-sidebar.solid-chrome-color: Possible values: black, onyx, charcoal, midnight, graphite, slate, steel, silver, fog, blue, indigo, lavender, ocean, teal, mint, green, sage, gold, cocoa, rose, mauve, plum, violet, apricot, custom",
         ])
 
@@ -161,7 +161,7 @@ extension ConfigTest {
                 width = 44
             """,
         )
-        assertEquals(alwaysExpandedWidthErrors.descriptions, [
+        assertEquals(alwaysExpandedWidthErrors, [
             "workspace-sidebar.width: Must be greater than collapsed-width when always-expanded is true",
         ])
 
@@ -173,7 +173,7 @@ extension ConfigTest {
                 menu-bar-reserve-height = -1
             """,
         )
-        assertEquals(widthErrors.descriptions, [
+        assertEquals(widthErrors, [
             "workspace-sidebar.collapsed-width: Must be greater than 0",
             "workspace-sidebar.menu-bar-reserve-height: Must be greater than or equal to 0",
             "workspace-sidebar.width: Must be greater than 0",
@@ -185,7 +185,7 @@ extension ConfigTest {
                 default = 'not-a-color'
             """,
         )
-        assertEquals(colorErrors.descriptions, [
+        assertEquals(colorErrors, [
             "workspace-sidebar.project-colors.default: Must be a hex color like '#RRGGBB'",
         ])
 
@@ -195,7 +195,7 @@ extension ConfigTest {
                 project-deletion-action = 'explode'
             """,
         )
-        assertEquals(actionErrors.descriptions, [
+        assertEquals(actionErrors, [
             "workspace-sidebar.project-deletion-action: Possible values: close-windows, move-windows-to-fallback",
         ])
     }
@@ -224,8 +224,8 @@ extension ConfigTest {
                 save-named-workspaces = 'false'
                 open-saved-workspace-apps-at-startup = 1
             """)
-        assertEquals(invalidErrors.descriptions, [
-            "workspace-sidebar.open-saved-workspace-apps-at-startup: Expected type is 'bool'. But actual type is 'integer'",
+        assertEquals(invalidErrors, [
+            "workspace-sidebar.open-saved-workspace-apps-at-startup: Expected type is 'bool'. But actual type is 'int'",
             "workspace-sidebar.save-named-workspaces: Expected type is 'bool'. But actual type is 'string'",
         ])
         // A rejected value leaves the default in place.
@@ -300,7 +300,7 @@ extension ConfigTest {
                     glass-opacity = \(rawValue)
                 """)
 
-            assertEquals(errors.descriptions, [
+            assertEquals(errors, [
                 "workspace-sidebar.glass-opacity: Must be a finite number from 0 to 1",
             ])
         }
@@ -313,7 +313,7 @@ extension ConfigTest {
                     glass-opacity = \(rawValue)
                 """)
 
-            assertEquals(errors.descriptions, [
+            assertEquals(errors, [
                 "workspace-sidebar.glass-opacity: Must be a number from 0 to 1",
             ])
         }
@@ -385,7 +385,7 @@ extension ConfigTest {
                 height = 20
             """,
         )
-        assertEquals(heightErrors.descriptions, [
+        assertEquals(heightErrors, [
             "window-tabs.height: Must be greater than 20",
         ])
     }
@@ -398,7 +398,7 @@ extension ConfigTest {
                 alt-h = 'focus left'
             """,
         )
-        assertEquals(errors.descriptions, [
+        assertEquals(errors, [
             "shortcuts-preset: The 'rectangle' shortcuts preset has been removed",
         ])
         XCTAssertEqual(parsed.shortcutsPreset, .rectangle)
@@ -413,7 +413,7 @@ extension ConfigTest {
                 ctrl-alt-left = 'focus left'
             """,
         )
-        assertEquals(errors.descriptions, [
+        assertEquals(errors, [
             "shortcuts-preset: The 'rectangle' shortcuts preset has been removed",
         ])
 
@@ -422,7 +422,7 @@ extension ConfigTest {
     }
 
     func testRemovedRectangleShortcutsPresetWithoutModesReportsOnlyTheRemoval() {
-        assertEquals(parseConfig("shortcuts-preset = 'rectangle'\n").errors.descriptions, [
+        assertEquals(parseConfig("shortcuts-preset = 'rectangle'\n").errors, [
             "shortcuts-preset: The 'rectangle' shortcuts preset has been removed",
         ])
     }
@@ -486,7 +486,7 @@ extension ConfigTest {
             ),
         ])
 
-        assertEquals(errors.descriptions, [
+        assertEquals(errors, [
             "on-window-detected[2]: \'run\' is mandatory key",
         ])
     }
@@ -505,8 +505,8 @@ extension ConfigTest {
 
     func testRegex() {
         var devNull: [String] = []
-        XCTAssertTrue("System Settings".contains(parseCaseInsensitiveRegex("settings").getOrNil(appendErrorTo: &devNull)!))
-        XCTAssertTrue(!"System Settings".contains(parseCaseInsensitiveRegex("^settings^").getOrNil(appendErrorTo: &devNull)!))
+        XCTAssertTrue("System Settings".contains(caseInsensitiveRegex: CaseInsensitiveRegex.new("settings").getOrNil(appendErrorTo: &devNull)!))
+        XCTAssertTrue(!"System Settings".contains(caseInsensitiveRegex: CaseInsensitiveRegex.new("^settings^").getOrNil(appendErrorTo: &devNull)!))
     }
 
     func testParseGaps() {
@@ -537,7 +537,7 @@ extension ConfigTest {
                     bottom: .constant(13),
                     top: .perMonitor(
                         [
-                            PerMonitorValue(description: .caseSensitivePattern("built-in")!, value: 3),
+                            PerMonitorValue(description: .pattern("built-in")!, value: 3),
                             PerMonitorValue(description: .secondary, value: 4),
                         ],
                         default: 6,
@@ -554,7 +554,7 @@ extension ConfigTest {
                 inner.vertical = [{ foo.main = 1 }, { monitor = { foo = 2, bar = 3 } }, 1]
             """,
         )
-        assertEquals(errors2.descriptions, [
+        assertEquals(errors2, [
             "gaps.inner.horizontal: The last item in the array must be of type Int",
             "gaps.inner.vertical[0]: The table is expected to have a single key \'monitor\'",
             "gaps.inner.vertical[1].monitor: The table is expected to have a single key",
@@ -589,7 +589,7 @@ extension ConfigTest {
                 alt-unicorn = 'workspace wonderland'
             """,
         )
-        assertEquals(errors.descriptions, [])
+        assertEquals(errors, [])
         assertEquals(config.keyMapping, KeyMapping(preset: .qwerty, rawKeyNotationToKeyCode: [
             "q": .q,
             "unicorn": .u,
@@ -604,9 +604,9 @@ extension ConfigTest {
                 ' f' = 'f'
             """,
         )
-        assertEquals(errors1.descriptions, [
-            "key-mapping.key-notation-to-key-code: ' f' is invalid key notation",
+        assertEquals(errors1, [
             "key-mapping.key-notation-to-key-code.q: 'qw' is invalid key code",
+            "key-mapping.key-notation-to-key-code: ' f' is invalid key notation",
         ])
 
         let (dvorakConfig, dvorakErrors) = parseConfig(

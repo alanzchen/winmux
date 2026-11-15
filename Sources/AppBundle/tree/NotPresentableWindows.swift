@@ -84,7 +84,7 @@ func setAsideNotPresentableWindow(_ window: Window) {
 }
 
 /// How many windows set aside have been brought back, ever: a refresh that brings one back reads macOS's focus again
-/// (`runRefreshSessionBlocking`).
+/// (`runHeavyCompleteRefreshSession`).
 @MainActor private(set) var notPresentableWindowsBroughtBack: UInt64 = 0
 
 /// Windows set aside, brought back where a reopen asked, whose focus waits for macOS's focus read after the restore; each
@@ -132,7 +132,7 @@ func bringBackPresentableWindows(fallback workspace: Workspace) async throws {
             window.layoutReason = .standard
             let binding = newWindowIntentBinding(targetWorkspace: target)
             window.bind(to: binding.parent, adaptiveWeight: binding.adaptiveWeight, index: binding.index)
-            // Placed now; focus waits for macOS's focus read after the restore (`runRefreshSessionBlocking`).
+            // Placed now; focus waits for macOS's focus read after the restore (`runHeavyCompleteRefreshSession`).
             finishNewWindowIntentPlacement(window, claim: claim, takesFocus: false)
             reopenedSetAsideFocusRequests.append((window, claim.intent, notPresentableWindowsBroughtBack))
             continue

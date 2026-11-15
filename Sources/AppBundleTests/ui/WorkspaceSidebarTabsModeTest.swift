@@ -15,7 +15,7 @@ final class WorkspaceSidebarTabsModeTest: XCTestCase {
             [workspace-sidebar]
             mode = 'tabs'
             """)
-        XCTAssertEqual(errors.descriptions, [])
+        XCTAssertEqual(errors, [])
         XCTAssertEqual(parsed.workspaceSidebar.mode, .tabs)
         XCTAssertTrue(parsed.workspaceSidebar.usesTabsList)
         XCTAssertFalse(parsed.workspaceSidebar.showAppIcons, "Tabs mode is not Dock mode")
@@ -27,7 +27,7 @@ final class WorkspaceSidebarTabsModeTest: XCTestCase {
             [workspace-sidebar]
             mode = 'list'
             """)
-        XCTAssertEqual(invalid.descriptions, ["workspace-sidebar.mode: Possible values: sidebar, dock, tabs"])
+        XCTAssertEqual(invalid, ["workspace-sidebar.mode: Possible values: sidebar, dock, tabs"])
     }
 
     func testSnapshotCarriesTabsModeAndSettingsOffersIt() {
@@ -125,7 +125,7 @@ final class WorkspaceSidebarTabsModeTest: XCTestCase {
     func testTabsModeWinsOverLegacyShowAppIconsInEitherOrder() {
         for toml in ["mode = 'tabs'\nshow-app-icons = false", "show-app-icons = true\nmode = 'tabs'"] {
             let (parsed, errors) = parseConfig("[workspace-sidebar]\n\(toml)")
-            XCTAssertEqual(errors.descriptions, [])
+            XCTAssertEqual(errors, [])
             XCTAssertEqual(parsed.workspaceSidebar.mode, .tabs, toml)
             XCTAssertTrue(parsed.workspaceSidebar.usesTabsList, toml)
             XCTAssertFalse(parsed.workspaceSidebar.showAppIcons, toml)

@@ -99,11 +99,11 @@ final class MacApp: AbstractApp {
                     AXUIElementSetMessagingTimeout(axApp, 1.0)
                     let axAppFastTimeout = AXUIElementCreateApplication(nsApp.processIdentifier)
                     AXUIElementSetMessagingTimeout(axAppFastTimeout, MacApp.focusedWindowQueryTimeout)
-                    let handlers: HandlerToNotifKeyMapping = [
+                    let handlers: HandlerToNotifKeyMapping = unsafe [
                         (refreshObs, [kAXWindowCreatedNotification, kAXFocusedWindowChangedNotification]),
                     ]
                     let job = RunLoopJob()
-                    let subscriptions = (try? AxSubscription.bulkSubscribe(nsApp, axApp, job, handlers)) ?? []
+                    let subscriptions = (try? unsafe AxSubscription.bulkSubscribe(nsApp, axApp, job, handlers)) ?? []
                     let isGood = !subscriptions.isEmpty
                     let app = isGood ? MacApp(nsApp, axApp, axAppFastTimeout, subscriptions, AxAppWorker()) : nil
                     let appAxSubscriptionsThreadGuarded = app?.appAxSubscriptions
@@ -539,7 +539,7 @@ final class MacApp: AbstractApp {
             func error(_ window: AXUIElement, _ attribute: String) -> String {
                 var value: CFTypeRef?
                 let error = AXUIElementCopyAttributeValue(window, attribute as CFString, &value)
-                return error == .success ? "noValue" : error.repr
+                return error == .success ? "noValue" : error.winMuxRepr
             }
             var reads: [UInt32: DebugSnapshotNativeRead] = [:]
             for windowId in windowIds {
@@ -547,7 +547,7 @@ final class MacApp: AbstractApp {
                 if let listed {
                     read.appListsWindow = listed.contains(windowId)
                 } else {
-                    read.appWindowListError = listError == .success ? "noValue" : listError.repr
+                    read.appWindowListError = listError == .success ? "noValue" : listError.winMuxRepr
                 }
                 if let window = windows.threadGuarded[windowId]?.ax {
                     if let topLeft = window.get(Ax.topLeftCornerAttr) {
@@ -1009,12 +1009,12 @@ final class AxWindow {
         // elements — they'd use the 6s global default, so one CPU-starved app with N windows
         // could stall its AX thread for 6×N seconds per refresh.
         AXUIElementSetMessagingTimeout(ax, 1.0)
-        let handlers: HandlerToNotifKeyMapping = [
+        let handlers: HandlerToNotifKeyMapping = unsafe [
             (refreshObs, [kAXUIElementDestroyedNotification, kAXWindowDeminiaturizedNotification, kAXWindowMiniaturizedNotification]),
             (movedObs, [kAXMovedNotification]),
             (resizedObs, [kAXResizedNotification]),
         ]
-        let subscriptions = try AxSubscription.bulkSubscribe(nsApp, ax, job, handlers)
+        let subscriptions = try unsafe AxSubscription.bulkSubscribe(nsApp, ax, job, handlers)
         return !subscriptions.isEmpty ? AxWindow(windowId: windowId, ax, subscriptions) : nil
     }
 }

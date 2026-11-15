@@ -1,6 +1,5 @@
 import Common
 import Foundation
-import TOMLKit
 
 /// The port WinMux's MCP server listens on unless the config names another.
 let mcpServerDefaultPort = 41740
@@ -25,7 +24,7 @@ struct MCPServerConfig: ConvenienceCopyable, Equatable, Sendable {
     var debugScreenshots = false
 }
 
-func parseMCPServer(_ raw: TOMLValueConvertible, _ backtrace: TomlBacktrace, _ errors: inout [TomlParseError]) -> MCPServerConfig {
+func parseMCPServer(_ raw: Json, _ backtrace: ConfigBacktrace, _ errors: inout [ConfigParseError]) -> MCPServerConfig {
     var config = parseTable(raw, MCPServerConfig(), [
         "enabled": Parser(\.enabled, parseBool),
         "port": Parser(\.port, parseMCPPort),
@@ -49,7 +48,7 @@ func parseMCPServer(_ raw: TOMLValueConvertible, _ backtrace: TomlBacktrace, _ e
     return config
 }
 
-private func parseMCPPort(_ raw: TOMLValueConvertible, _ backtrace: TomlBacktrace) -> ParsedToml<Int> {
+private func parseMCPPort(_ raw: Json, _ backtrace: ConfigBacktrace) -> ParsedConfig<Int> {
     parseInt(raw, backtrace).flatMap { port in
         mcpServerPortRange.contains(port)
             ? .success(port)

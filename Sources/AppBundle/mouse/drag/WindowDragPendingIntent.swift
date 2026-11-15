@@ -25,7 +25,7 @@ func updatePendingWindowDragIntent(
         clearPendingWindowDragIntent()
         showWorkspaceSidebarDragCursorPreview(sourceWindow: sourceWindow, subject: subject, point: mouseLocation)
         if hadPinnedWindow {
-            scheduleRefreshSession(.globalObserver("sidebarGhostExit"), optimisticallyPreLayoutWorkspaces: true)
+            scheduleCancellableCompleteRefreshSession(.globalObserver("sidebarGhostExit"), optimisticallyPreLayoutWorkspaces: true)
         }
         return false
     }

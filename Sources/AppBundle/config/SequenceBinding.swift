@@ -1,7 +1,6 @@
 import AppKit
 import Common
 import HotKey
-import TOMLKit
 
 struct SequenceBinding: Equatable, Sendable {
     let prefix: Key
@@ -23,9 +22,9 @@ struct SequenceBinding: Equatable, Sendable {
 /// but IS a known key name (like `esc`).
 func tryParseSequenceBinding(
     _ raw: String,
-    _ backtrace: TomlBacktrace,
+    _ backtrace: ConfigBacktrace,
     _ mapping: [String: Key]
-) -> ParsedToml<(prefix: Key, key: Key)> {
+) -> ParsedConfig<(prefix: Key, key: Key)> {
     let rawKeys = raw.split(separator: "-")
     guard rawKeys.count == 2 else {
         return .failure(.semantic(backtrace, "Sequence bindings require exactly two keys separated by '-'"))

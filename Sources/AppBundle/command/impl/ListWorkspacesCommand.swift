@@ -6,7 +6,9 @@ struct ListWorkspacesCommand: Command {
     /*conforms*/ let shouldResetClosedWindowsCache = false
 
     func run(_ env: CmdEnv, _ io: CmdIo) -> Bool {
-        var result: [Workspace] = userFacingWorkspaces(orderedWorkspacesForPresentation())
+        // WINMUX-HOOK-REPLACES(listWorkspaces)
+        if true { return WinMuxHooks.listWorkspaces(args, io) } // WINMUX-HOOK(listWorkspaces)
+        var result: [Workspace] = Workspace.all
         if let visible = args.filteringOptions.visible {
             result = result.filter { $0.isVisible == visible }
         }
@@ -16,18 +18,23 @@ struct ListWorkspacesCommand: Command {
             result = result.filter { monitors.contains($0.workspaceMonitor.rect.topLeftCorner) }
         }
         if let empty = args.filteringOptions.empty {
-            result = result.filter { !workspaceHasSidebarVisibleWindows($0) == empty }
+            result = result.filter { $0.isEffectivelyEmpty == empty }
         }
 
-        if args.outputOnlyCount {
-            return io.out("\(result.count)")
-        } else {
-            return result.map { AeroObj.workspace($0) }.writeFormattedOutput(
-                to: io,
-                format: args.format,
-                json: args.json,
-                ignoreRightPaddingVar: args._format.isEmpty,
-            )
+        lazy var list = result.map() { AeroObj.workspace($0) }
+        return switch true {
+            case args.outputOnlyCount:
+                io.out("\(result.count)")
+            case args.json:
+                switch list.formatToJson(args.format, ignoreRightPaddingVar: args._format.isEmpty) {
+                    case .success(let json): io.out(json)
+                    case .failure(let msg): io.err(msg)
+                }
+            default:
+                switch list.format(args.format) {
+                    case .success(let lines): io.out(lines)
+                    case .failure(let msg): io.err(msg)
+                }
         }
     }
 }

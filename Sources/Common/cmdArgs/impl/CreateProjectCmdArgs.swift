@@ -6,8 +6,8 @@ public struct CreateProjectCmdArgs: CmdArgs {
         allowInConfig: false,
         help: create_project_help_generated,
         flags: [
-            "--name": singleValueSubArgParser(\.name, "<project-name>") { $0 },
-            "--color": singleValueSubArgParser(\.color, "<#RRGGBB>") { $0 },
+            "--name": singleValueSubArgParser(\.name, "<project-name>", Result.success),
+            "--color": singleValueSubArgParser(\.color, "<#RRGGBB>", Result.success),
             "--json": trueBoolFlag(\.json),
         ],
         posArgs: [],

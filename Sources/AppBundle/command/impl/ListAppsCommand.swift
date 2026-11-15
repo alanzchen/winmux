@@ -11,15 +11,20 @@ struct ListAppsCommand: Command {
             result = result.filter { $0.nsApp.isHidden == hidden }
         }
 
-        if args.outputOnlyCount {
-            return io.out("\(result.count)")
-        } else {
-            return result.map { AeroObj.app($0) }.writeFormattedOutput(
-                to: io,
-                format: args.format,
-                json: args.json,
-                ignoreRightPaddingVar: args._format.isEmpty,
-            )
+        lazy var list = result.map(AeroObj.app)
+        return switch true {
+            case args.outputOnlyCount:
+                io.out("\(result.count)")
+            case args.json:
+                switch list.formatToJson(args.format, ignoreRightPaddingVar: args._format.isEmpty) {
+                    case .success(let json): io.out(json)
+                    case .failure(let msg): io.err(msg)
+                }
+            default:
+                switch list.format(args.format) {
+                    case .success(let lines): io.out(lines)
+                    case .failure(let msg): io.err(msg)
+                }
         }
     }
 }

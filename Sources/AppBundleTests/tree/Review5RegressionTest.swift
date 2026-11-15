@@ -109,19 +109,19 @@ final class Review5RegressionTest: XCTestCase {
             rect: Rect(topLeftX: 800, topLeftY: 0, width: 800, height: 600))
         _ = returning.focusWindow()
         TestApp.shared.focusedWindow = returning
-        try await runRefreshSessionBlocking(.ax(kAXFocusedWindowChangedNotification as String), layoutWorkspaces: false)
+        try await runHeavyCompleteRefreshSession(.ax(kAXFocusedWindowChangedNotification as String), layoutWorkspaces: false)
         XCTAssertEqual(focus.windowOrNil?.windowId, 200)
 
         // Native focus is sampled before the full refresh learns that W is ordered out.
         setBlockingRefreshOverridesForTests(refresh: { noteWindowPresentability([100: true, 200: false]) })
-        try await runRefreshSessionBlocking(.globalObserverLeftMouseUp, layoutWorkspaces: false)
+        try await runHeavyCompleteRefreshSession(.globalObserverLeftMouseUp, layoutWorkspaces: false)
         XCTAssertTrue(returning.isSetAsideAsNotPresentable)
         XCTAssertEqual(focus.windowOrNil?.windowId, 100, "The remaining sibling becomes logical focus")
 
         let before = other.nativeFocusCount
         setBlockingRefreshOverridesForTests(refresh: { noteWindowPresentability([100: true, 200: true]) })
         // macOS reopens and focuses the same retained W. No reset of the focus cache.
-        try await runRefreshSessionBlocking(.ax(kAXFocusedWindowChangedNotification as String))
+        try await runHeavyCompleteRefreshSession(.ax(kAXFocusedWindowChangedNotification as String))
         XCTAssertFalse(returning.isSetAsideAsNotPresentable)
         XCTAssertEqual(focus.windowOrNil?.windowId, 200, "Restoring the natively focused window must adopt it even when the cached ID matches")
         XCTAssertEqual(other.nativeFocusCount, before, "Must not steal native focus back to the sibling")
@@ -138,19 +138,19 @@ final class Review5RegressionTest: XCTestCase {
             rect: Rect(topLeftX: 100, topLeftY: 100, width: 800, height: 600))
         _ = returning.focusWindow()
         TestApp.shared.focusedWindow = returning
-        try await runRefreshSessionBlocking(.ax(kAXFocusedWindowChangedNotification as String), layoutWorkspaces: false)
+        try await runHeavyCompleteRefreshSession(.ax(kAXFocusedWindowChangedNotification as String), layoutWorkspaces: false)
         XCTAssertEqual(focus.windowOrNil?.windowId, 200)
         XCTAssertTrue(chat.isVisible)
 
         setBlockingRefreshOverridesForTests(refresh: { noteWindowPresentability([100: true, 200: false]) })
-        try await runRefreshSessionBlocking(.globalObserverLeftMouseUp, layoutWorkspaces: false)
+        try await runHeavyCompleteRefreshSession(.globalObserverLeftMouseUp, layoutWorkspaces: false)
         XCTAssertTrue(returning.isSetAsideAsNotPresentable)
         XCTAssertEqual(focus.windowOrNil?.windowId, 100, "C4 hands the empty chat tab's display to main")
         XCTAssertTrue(main.isVisible)
 
         let before = other.nativeFocusCount
         setBlockingRefreshOverridesForTests(refresh: { noteWindowPresentability([100: true, 200: true]) })
-        try await runRefreshSessionBlocking(.ax(kAXFocusedWindowChangedNotification as String))
+        try await runHeavyCompleteRefreshSession(.ax(kAXFocusedWindowChangedNotification as String))
         XCTAssertFalse(returning.isSetAsideAsNotPresentable)
         XCTAssertEqual(focus.windowOrNil?.windowId, 200, "Restoration must focus chat despite the unchanged cached native ID")
         XCTAssertEqual(other.nativeFocusCount, before, "Must not steal native focus back to main")

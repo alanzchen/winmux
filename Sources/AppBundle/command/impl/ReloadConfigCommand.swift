@@ -81,5 +81,5 @@ struct ReloadConfigCommand: Command {
     MCPServer.shared.apply(config.mcpServer)
 
     guard isWinMuxRuntimeReady else { return }
-    scheduleRefreshSession(.configAutoReload)
+    scheduleCancellableCompleteRefreshSession(.configAutoReload)
 }

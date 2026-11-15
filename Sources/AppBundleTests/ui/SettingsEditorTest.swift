@@ -107,7 +107,7 @@ final class SettingsEditorTest: XCTestCase {
                     values: [field.key: field.render(.text(option.value))],
                     preservingDockAppearance: field.preservingDockAppearance)
                 let parsed = parseConfig(text)
-                XCTAssertTrue(parsed.errors.isEmpty, "\(field.id) = \(option.value): \(parsed.errors.descriptions)")
+                XCTAssertTrue(parsed.errors.isEmpty, "\(field.id) = \(option.value): \(parsed.errors)")
             }
         }
     }

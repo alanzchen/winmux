@@ -2,7 +2,6 @@ import AppKit
 import Common
 import Foundation
 import HotKey
-import TOMLKit
 
 @MainActor private var hotkeys: [String: HotKey] = [:]
 @MainActor private var activeTapBindings: [TapModifierKey: TapBinding] = [:]

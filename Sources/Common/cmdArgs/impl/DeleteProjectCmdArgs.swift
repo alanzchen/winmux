@@ -11,7 +11,7 @@ public struct DeleteProjectCmdArgs: CmdArgs {
         help: delete_project_help_generated,
         flags: [
             "--action": ArgParser(\.action, parseDeleteProjectAction),
-            "--if-window-count": ArgParser(\.ifWindowCount, upcastArgParserFun(parseUInt32SubArg)),
+            "--if-window-count": singleValueSubArgParser(\.ifWindowCount, "<count>", parseUInt32),
             "--json": trueBoolFlag(\.json),
         ],
         posArgs: [newMandatoryPosArgParser(\.projectId, consumeStrCliArg, placeholder: "<project-id>")],

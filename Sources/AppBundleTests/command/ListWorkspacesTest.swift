@@ -35,4 +35,23 @@ final class ListWorkspacesTest: XCTestCase {
         XCTAssertTrue(succeeded)
         XCTAssertEqual(io.stdout.filter { $0 != "setUpWorkspacesForTests" }, ["10", "2"])
     }
+
+    /// WinMux's `--empty` goes by what the sidebar shows: a workspace whose only window is in native full screen is
+    /// empty (upstream counts every leaf window).
+    @MainActor
+    func testEmptyIgnoresNativeFullscreenWindows() async throws {
+        setUpWorkspacesForTests()
+        let workspace = focus.workspace
+        _ = TestWindow.new(id: 1, parent: workspace.macOsNativeFullscreenWindowsContainer)
+
+        let empty = CmdIo(stdin: .emptyStdin)
+        let listedEmpty = try await parseCommand("list-workspaces --monitor all --empty --format %{workspace}").cmdOrDie.run(.defaultEnv, empty)
+        XCTAssertTrue(listedEmpty)
+        XCTAssertTrue(empty.stdout.contains(workspace.name))
+
+        let nonEmpty = CmdIo(stdin: .emptyStdin)
+        let listedNonEmpty = try await parseCommand("list-workspaces --monitor all --empty no --format %{workspace}").cmdOrDie.run(.defaultEnv, nonEmpty)
+        XCTAssertTrue(listedNonEmpty)
+        XCTAssertFalse(nonEmpty.stdout.contains(workspace.name))
+    }
 }

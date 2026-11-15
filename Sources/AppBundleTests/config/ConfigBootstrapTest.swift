@@ -170,7 +170,7 @@ final class ConfigBootstrapTest: XCTestCase {
         XCTAssertFalse(migratedText.contains("AEROSPACE_"))
 
         let (parsedConfig, errors) = parseConfig(migratedText)
-        XCTAssertEqual(errors.descriptions, [])
+        XCTAssertEqual(errors, [])
         XCTAssertTrue(parsedConfig.workspaceSidebar.enabled)
         XCTAssertTrue(parsedConfig.windowTabs.enabled)
         XCTAssertEqual(parsedConfig.configVersion, 2)

@@ -83,7 +83,7 @@ func cancelWorkspaceSidebarDragSession() -> Bool {
     clearPendingWindowDragIntent()
     if getCurrentMouseDragStartedInSidebar() {
         cancelManipulatedWithMouseState()
-        scheduleRefreshSession(.resetManipulatedWithMouse, optimisticallyPreLayoutWorkspaces: true)
+        scheduleCancellableCompleteRefreshSession(.resetManipulatedWithMouse, optimisticallyPreLayoutWorkspaces: true)
     }
     clearWorkspaceSidebarDropPreview()
     WindowDragCursorProxyPanel.shared.hide()

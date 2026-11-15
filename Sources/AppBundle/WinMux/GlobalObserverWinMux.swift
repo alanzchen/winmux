@@ -107,10 +107,41 @@ extension WinMuxHooks {
         return activatedAppPid
     }
 
-    /// Last in `GlobalObserver.initObserver`: the local mouse-up, drag, pointer, modifier and key monitors.
+    /// Replaces the end of `GlobalObserver.initObserver`, after the workspace notification observers: WinMux's global
+    /// mouse-up monitor (upstream's, plus drag end, sidebar drops and the menu-bar exclusion), then the local mouse-up,
+    /// drag, pointer, modifier and key monitors.
     @MainActor
     static func installGlobalObserverMonitors() {
         typealias G = GlobalObserver
+        G.retainEventMonitor(NSEvent.addGlobalMonitorForEvents(matching: .leftMouseUp) { _ in
+            // todo reduce number of refreshSession in the callback
+            //  resetManipulatedWithMouseIfPossible might call its own refreshSession
+            //  The end of the callback calls refreshSession
+            _ = Task { @MainActor in
+                noteLeftMousePressBoundaryForDragRefresh()
+                finishWorkspaceSidebarDragAfterMouseUp()
+                guard let token: RunSessionGuard = .isServerEnabled else { return }
+                try await resetManipulatedWithMouseIfPossible()
+                // Drag-end releases the sidebar expansion locks without any pointer movement;
+                // hover must be re-evaluated for a stationary cursor.
+                WorkspaceSidebarPanel.scheduleHoverRecheckForVisiblePanels()
+                let mouseLocation = mouseLocation
+                let clickedMonitor = mouseLocation.monitorApproximation
+                // A sidebar drop already decided where focus goes, whichever display the pointer is on.
+                let wasSidebarDrop = takeWorkspaceSidebarConsumedRelease()
+                switch true {
+                    // Detect desktop clicks on other monitors, excluding menu bars (AeroSpace cfd4eab2).
+                    case !wasSidebarDrop && clickedMonitor.visibleRect.contains(mouseLocation) && clickedMonitor.activeWorkspace != focus.workspace:
+                        _ = try await runLightSession(.globalObserverLeftMouseUp, token) {
+                            clickedMonitor.activeWorkspace.focusWorkspace()
+                        }
+                    // Detect close button clicks for unfocused windows. Yes, kAXUIElementDestroyedNotification is that unreliable
+                    //  And trigger new window detection that could be delayed due to mouseDown event
+                    default:
+                        scheduleCancellableCompleteRefreshSession(.globalObserverLeftMouseUp)
+                }
+            }
+        })
         G.retainEventMonitor(NSEvent.addLocalMonitorForEvents(matching: .leftMouseUp) { event in
             // Local drops are not observed by the global monitor. Dispatch after
             // SwiftUI handles the event; cleanup is idempotent if onEnded ran first.

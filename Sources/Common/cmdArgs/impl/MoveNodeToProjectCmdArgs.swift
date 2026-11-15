@@ -9,7 +9,7 @@ public struct MoveNodeToProjectCmdArgs: CmdArgs {
             "--project-id": explicitProjectIdFlag(\.explicitProjectId),
             "--wrap-around": optionalTrueBoolFlag(\._wrapAround),
             "--fail-if-noop": trueBoolFlag(\.failIfNoop),
-            "--window-id": optionalWindowIdFlag(),
+            "--window-id": windowIdSubArgParser(),
             "--focus-follows-window": trueBoolFlag(\.focusFollowsWindow),
         ],
         posArgs: [optionalProjectTargetParser(\.target)],

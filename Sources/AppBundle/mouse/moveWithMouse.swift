@@ -32,7 +32,7 @@ private func handleMovedEvent(windowId: UInt32?, notif: String) async {
     }
     guard let token: RunSessionGuard = .isServerEnabled else { return }
     guard let windowId, let window = Window.get(byId: windowId) else {
-        scheduleRefreshSession(.ax(notif))
+        scheduleCancellableCompleteRefreshSession(.ax(notif))
         return
     }
     if isContinuingManagedDragSessionForMovedEvent(window) { return }
@@ -52,7 +52,7 @@ private func handleMovedEvent(windowId: UInt32?, notif: String) async {
     guard (try? await isManipulatedWithMouse(window)) == true else {
         moveWithMouseSessionWindowIdsInFlight.remove(windowId)
         moveWithMouseTrailingRerunWindowIds.remove(windowId)
-        scheduleRefreshSession(.ax(notif))
+        scheduleCancellableCompleteRefreshSession(.ax(notif))
         return
     }
     Task {

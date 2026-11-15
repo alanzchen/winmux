@@ -1,5 +1,4 @@
 import Foundation
-import TOMLKit
 
 private let workspaceSidebarParser: [String: any ParserProtocol<WorkspaceSidebarConfig>] = [
     "enabled": Parser(\.enabled, parseBool),
@@ -91,18 +90,18 @@ private let workspaceSidebarParser: [String: any ParserProtocol<WorkspaceSidebar
 ]
 
 func parseWorkspaceSidebar(
-    _ raw: TOMLValueConvertible,
-    _ backtrace: TomlBacktrace,
-    _ errors: inout [TomlParseError],
+    _ raw: Json,
+    _ backtrace: ConfigBacktrace,
+    _ errors: inout [ConfigParseError],
 ) -> WorkspaceSidebarConfig {
     var parsed = parseTable(raw, WorkspaceSidebarConfig(), workspaceSidebarParser, backtrace, &errors)
     // Explicit mode wins over the old show-app-icons alias, regardless of table order.
-    if let value = raw.table?["mode"]?.string, let mode = WorkspaceSidebarMode(rawValue: value) {
+    if let value = raw.asDictOrNil?["mode"]?.asStringOrNil, let mode = WorkspaceSidebarMode(rawValue: value) {
         parsed.mode = mode
     }
     // Preserve the legacy key only when the modern setting is absent. This makes the
     // Appearance setting authoritative for configs that contain both keys.
-    if let modernRawValue = raw.table?["chrome-style"]?.string,
+    if let modernRawValue = raw.asDictOrNil?["chrome-style"]?.asStringOrNil,
        let modernStyle = ChromeStyle(rawValue: modernRawValue)
     {
         parsed.chromeStyle = modernStyle
@@ -127,19 +126,19 @@ func parseWorkspaceSidebar(
     return parsed
 }
 
-private func parseWorkspaceSidebarMode(_ raw: TOMLValueConvertible, _ backtrace: TomlBacktrace) -> ParsedToml<WorkspaceSidebarMode> {
+private func parseWorkspaceSidebarMode(_ raw: Json, _ backtrace: ConfigBacktrace) -> ParsedConfig<WorkspaceSidebarMode> {
     parseString(raw, backtrace).flatMap { value in
         WorkspaceSidebarMode(rawValue: value).orFailure(.semantic(backtrace, "Possible values: sidebar, dock, tabs"))
     }
 }
 
-private func parseChromeSolidCustomColor(_ raw: TOMLValueConvertible, _ backtrace: TomlBacktrace) -> ParsedToml<String> {
+private func parseChromeSolidCustomColor(_ raw: Json, _ backtrace: ConfigBacktrace) -> ParsedConfig<String> {
     parseString(raw, backtrace).flatMap { rawValue in
         normalizedWorkspaceSidebarColorHex(rawValue).orFailure(.semantic(backtrace, "Use a six-digit hex color, such as #1A2B3C"))
     }
 }
 
-private func parseChromeStyle(_ raw: TOMLValueConvertible, _ backtrace: TomlBacktrace) -> ParsedToml<ChromeStyle> {
+private func parseChromeStyle(_ raw: Json, _ backtrace: ConfigBacktrace) -> ParsedConfig<ChromeStyle> {
     parseString(raw, backtrace).flatMap { rawValue in
         ChromeStyle(rawValue: rawValue).orFailure(.semantic(
             backtrace,
@@ -148,14 +147,14 @@ private func parseChromeStyle(_ raw: TOMLValueConvertible, _ backtrace: TomlBack
     }
 }
 
-private func parseWorkspaceSidebarUnitInterval(_ raw: TOMLValueConvertible, _ backtrace: TomlBacktrace) -> ParsedToml<Double> {
-    let value = raw.double ?? raw.int.map(Double.init)
+private func parseWorkspaceSidebarUnitInterval(_ raw: Json, _ backtrace: ConfigBacktrace) -> ParsedConfig<Double> {
+    let value = raw.asDoubleOrNil ?? raw.asIntOrNil.map(Double.init)
     return value
         .orFailure(.semantic(backtrace, "Must be a number from 0 to 1"))
         .filter(.semantic(backtrace, "Must be a finite number from 0 to 1")) { $0.isFinite && (0...1).contains($0) }
 }
 
-private func parseChromeSolidColor(_ raw: TOMLValueConvertible, _ backtrace: TomlBacktrace) -> ParsedToml<ChromeSolidColor> {
+private func parseChromeSolidColor(_ raw: Json, _ backtrace: ConfigBacktrace) -> ParsedConfig<ChromeSolidColor> {
     parseString(raw, backtrace).flatMap { rawValue in
         ChromeSolidColor(rawValue: rawValue).orFailure(.semantic(
             backtrace,
@@ -164,18 +163,18 @@ private func parseChromeSolidColor(_ raw: TOMLValueConvertible, _ backtrace: Tom
     }
 }
 
-private func parseWorkspaceSidebarWidth(_ raw: TOMLValueConvertible, _ backtrace: TomlBacktrace) -> ParsedToml<Int> {
+private func parseWorkspaceSidebarWidth(_ raw: Json, _ backtrace: ConfigBacktrace) -> ParsedConfig<Int> {
     parseInt(raw, backtrace)
         .filter(.semantic(backtrace, "Must be greater than 0")) { $0 > 0 }
 }
 
 private func parseWorkspaceSidebarDisplayWidths(
-    _ raw: TOMLValueConvertible,
-    _ backtrace: TomlBacktrace,
-    _ errors: inout [TomlParseError],
+    _ raw: Json,
+    _ backtrace: ConfigBacktrace,
+    _ errors: inout [ConfigParseError],
 ) -> [String: Int] {
-    guard let rawTable = raw.table else {
-        errors += [expectedActualTypeError(expected: .table, actual: raw.type, backtrace)]
+    guard let rawTable = raw.asDictOrNil else {
+        errors += [expectedActualTypeError(expected: .table, actual: raw.tomlType, backtrace)]
         return [:]
     }
     var result: [String: Int] = [:]
@@ -187,15 +186,15 @@ private func parseWorkspaceSidebarDisplayWidths(
     return result
 }
 
-private func parseWorkspaceSidebarMenuBarReserveHeight(_ raw: TOMLValueConvertible, _ backtrace: TomlBacktrace) -> ParsedToml<Int> {
+private func parseWorkspaceSidebarMenuBarReserveHeight(_ raw: Json, _ backtrace: ConfigBacktrace) -> ParsedConfig<Int> {
     parseInt(raw, backtrace)
         .filter(.semantic(backtrace, "Must be greater than or equal to 0")) { $0 >= 0 }
 }
 
 private func parseWorkspaceSidebarRemotePinClick(
-    _ raw: TOMLValueConvertible,
-    _ backtrace: TomlBacktrace,
-) -> ParsedToml<WorkspaceSidebarRemotePinClick> {
+    _ raw: Json,
+    _ backtrace: ConfigBacktrace,
+) -> ParsedConfig<WorkspaceSidebarRemotePinClick> {
     parseString(raw, backtrace).flatMap { rawValue in
         WorkspaceSidebarRemotePinClick(rawValue: rawValue)
             .orFailure(.semantic(
@@ -206,9 +205,9 @@ private func parseWorkspaceSidebarRemotePinClick(
 }
 
 private func parseWorkspaceProjectDeletionAction(
-    _ raw: TOMLValueConvertible,
-    _ backtrace: TomlBacktrace,
-) -> ParsedToml<WorkspaceProjectDeletionAction> {
+    _ raw: Json,
+    _ backtrace: ConfigBacktrace,
+) -> ParsedConfig<WorkspaceProjectDeletionAction> {
     parseString(raw, backtrace).flatMap { rawValue in
         WorkspaceProjectDeletionAction(rawValue: rawValue)
             .orFailure(.semantic(
@@ -219,12 +218,12 @@ private func parseWorkspaceProjectDeletionAction(
 }
 
 private func parseWorkspaceSidebarLabels(
-    _ raw: TOMLValueConvertible,
-    _ backtrace: TomlBacktrace,
-    _ errors: inout [TomlParseError],
+    _ raw: Json,
+    _ backtrace: ConfigBacktrace,
+    _ errors: inout [ConfigParseError],
 ) -> [String: String] {
-    guard let rawTable = raw.table else {
-        errors += [expectedActualTypeError(expected: .table, actual: raw.type, backtrace)]
+    guard let rawTable = raw.asDictOrNil else {
+        errors += [expectedActualTypeError(expected: .table, actual: raw.tomlType, backtrace)]
         return [:]
     }
     var result: [String: String] = [:]
@@ -249,12 +248,12 @@ func normalizedWorkspaceSidebarColorHex(_ raw: String) -> String? {
 }
 
 private func parseWorkspaceSidebarProjectColors(
-    _ raw: TOMLValueConvertible,
-    _ backtrace: TomlBacktrace,
-    _ errors: inout [TomlParseError],
+    _ raw: Json,
+    _ backtrace: ConfigBacktrace,
+    _ errors: inout [ConfigParseError],
 ) -> [String: String] {
-    guard let rawTable = raw.table else {
-        errors += [expectedActualTypeError(expected: .table, actual: raw.type, backtrace)]
+    guard let rawTable = raw.asDictOrNil else {
+        errors += [expectedActualTypeError(expected: .table, actual: raw.tomlType, backtrace)]
         return [:]
     }
     var result: [String: String] = [:]
@@ -271,12 +270,12 @@ private func parseWorkspaceSidebarProjectColors(
 }
 
 private func parseWorkspaceSidebarProjectEmojis(
-    _ raw: TOMLValueConvertible,
-    _ backtrace: TomlBacktrace,
-    _ errors: inout [TomlParseError],
+    _ raw: Json,
+    _ backtrace: ConfigBacktrace,
+    _ errors: inout [ConfigParseError],
 ) -> [String: String] {
-    guard let rawTable = raw.table else {
-        errors += [expectedActualTypeError(expected: .table, actual: raw.type, backtrace)]
+    guard let rawTable = raw.asDictOrNil else {
+        errors += [expectedActualTypeError(expected: .table, actual: raw.tomlType, backtrace)]
         return [:]
     }
     var result: [String: String] = [:]

@@ -6,22 +6,18 @@ import ServiceManagement
 func syncStartAtLogin() {
     cleanupPlistFromPrevVersions()
     let service = SMAppService.mainApp
-    if config.startAtLogin {
-        if isDebug {
-            print("'start-at-login = true' has no effect in debug builds")
-        } else {
-            _ = try? service.register()
-        }
-    } else {
-        _ = try? service.unregister()
+    switch true {
+        case !config.startAtLogin: _ = try? service.unregister()
+        case isDebug: print("'start-at-login = true' has no effect in debug builds")
+        default: _ = try? service.register()
     }
 }
 
 private func cleanupPlistFromPrevVersions() { // todo Drop after a couple of versions
     let launchAgentsDir = FileManager.default.homeDirectoryForCurrentUser.appending(component: "Library/LaunchAgents/")
     Result { try FileManager.default.createDirectory(at: launchAgentsDir, withIntermediateDirectories: true) }.getOrDie()
-    let legacyUrl: URL = launchAgentsDir.appending(path: "com.zxzimeng.winmux.plist")
-    let currentUrl: URL = launchAgentsDir.appending(path: "com.zimengxiong.winmux.plist")
-    try? FileManager.default.removeItem(at: legacyUrl)
-    try? FileManager.default.removeItem(at: currentUrl)
+    // WINMUX-HOOK-REPLACES(cleanupLaunchAgentPlists)
+    if true { return WinMuxHooks.cleanupLaunchAgentPlists(in: launchAgentsDir) } // WINMUX-HOOK(cleanupLaunchAgentPlists)
+    let url: URL = launchAgentsDir.appending(path: "bobko.aerospace.plist")
+    try? FileManager.default.removeItem(at: url)
 }

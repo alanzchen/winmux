@@ -160,7 +160,7 @@ final class SupersededReviewerReplacementTest: XCTestCase {
         XCTAssertNotNil(registry.register(bundleId: try XCTUnwrap(returning.app.rawAppBundleId), pid: returning.app.pid,
             targetWorkspace: target, preexistingWindowIds: [], focusGeneration: focusChangeGeneration, reopens: true))
         setBlockingRefreshOverridesForTests(refresh: { noteWindowPresentability([200: true]) })
-        try await runRefreshSessionBlocking(.globalObserverLeftMouseUp) // The pin click's refresh
+        try await runHeavyCompleteRefreshSession(.globalObserverLeftMouseUp) // The pin click's refresh
         XCTAssertTrue(returning.nodeWorkspace === target)
         XCTAssertEqual(returning.nativeFocusCount, 1, "Focused after the read, once")
         XCTAssertEqual(focus.windowOrNil?.windowId, 200)
@@ -184,7 +184,7 @@ final class SupersededReviewerReplacementTest: XCTestCase {
             targetWorkspace: target, preexistingWindowIds: [], focusGeneration: focusChangeGeneration, reopens: true))
         TestApp.shared.focusedWindow = returning
         setBlockingRefreshOverridesForTests(refresh: { noteWindowPresentability([200: true]) })
-        try await runRefreshSessionBlocking(.ax(kAXFocusedWindowChangedNotification as String))
+        try await runHeavyCompleteRefreshSession(.ax(kAXFocusedWindowChangedNotification as String))
         XCTAssertTrue(returning.nodeWorkspace === target)
         XCTAssertEqual(focus.windowOrNil?.windowId, 200)
         XCTAssertEqual(returning.nativeFocusCount, 0, "macOS focused it already")
@@ -209,7 +209,7 @@ final class SupersededReviewerReplacementTest: XCTestCase {
         registry.recordFocusWhenSent(forIntent: intent.id, .init(generation: focusChangeGeneration, workspace: target, window: nil))
         TestApp.shared.focusedWindow = returning
         setBlockingRefreshOverridesForTests(refresh: { noteWindowPresentability([200: true]) })
-        try await runRefreshSessionBlocking(.ax(kAXFocusedWindowChangedNotification as String))
+        try await runHeavyCompleteRefreshSession(.ax(kAXFocusedWindowChangedNotification as String))
         XCTAssertTrue(returning.nodeWorkspace === target)
         XCTAssertEqual(focus.windowOrNil?.windowId, 200)
         XCTAssertEqual(returning.nativeFocusCount, 0, "macOS focused it already")
@@ -235,7 +235,7 @@ final class SupersededReviewerReplacementTest: XCTestCase {
             noteWindowPresentability([200: true])
             TestApp.shared.focusedWindow = nil
         })
-        try await runRefreshSessionBlocking(.globalObserverLeftMouseUp)
+        try await runHeavyCompleteRefreshSession(.globalObserverLeftMouseUp)
         XCTAssertTrue(returning.nodeWorkspace === target, "Placed where asked")
         XCTAssertEqual(returning.nativeFocusCount, 0, "macOS's newer focus stands")
     }
@@ -263,7 +263,7 @@ final class SupersededReviewerReplacementTest: XCTestCase {
         XCTAssertTrue(returning.nodeWorkspace === target)
         XCTAssertFalse(registry.hasPendingIntents)
         setBlockingRefreshOverridesForTests(refresh: { noteWindowPresentability([200: true, 300: true]) })
-        try await runRefreshSessionBlocking(.globalObserverLeftMouseUp)
+        try await runHeavyCompleteRefreshSession(.globalObserverLeftMouseUp)
         XCTAssertFalse(other.isSetAsideAsNotPresentable)
         XCTAssertEqual(returning.nativeFocusCount, 0, "Left behind: not applied later")
     }

@@ -43,7 +43,7 @@ final class WorkspaceSidebarResizeTest: XCTestCase {
             collapsed-width = 120
             width = \(workspaceSidebarResizeWidthBounds(sidebar).lowerBound)
             """)
-        XCTAssertEqual(errors.descriptions, [])
+        XCTAssertEqual(errors, [])
     }
 
     func testTheEdgeStopsAtTheModesMinimumWidth() {
@@ -372,7 +372,7 @@ final class WorkspaceSidebarResizeTest: XCTestCase {
             await save.value
             XCTAssertEqual(written.count, 1)
             let saved = parseConfig(written[0])
-            XCTAssertEqual(saved.errors.descriptions, [])
+            XCTAssertEqual(saved.errors, [])
             XCTAssertEqual(saved.config.workspaceSidebar.displayWidths, ["Right": 300], written[0])
             XCTAssertEqual(saved.config.workspaceSidebar.width, 240, written[0])
 

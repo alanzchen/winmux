@@ -1,6 +1,5 @@
 import AppKit
 import Common
-import TOMLKit
 
 enum TapModifierKey: String, CaseIterable, Equatable, Sendable {
     case leftAlt = "left-alt"
@@ -76,21 +75,21 @@ struct TapBinding: Equatable, Sendable {
     }
 }
 
-func parseTapBindings(_ raw: TOMLValueConvertible, _ backtrace: TomlBacktrace, _ errors: inout [TomlParseError]) -> [String: TapBinding] {
-    guard let rawTable = raw.table else {
-        errors += [expectedActualTypeError(expected: .table, actual: raw.type, backtrace)]
+func parseTapBindings(_ raw: Json, _ backtrace: ConfigBacktrace, _ errors: inout [ConfigParseError]) -> [String: TapBinding] {
+    guard let rawTable = raw.asDictOrNil else {
+        errors += [expectedActualTypeError(expected: .table, actual: raw.tomlType, backtrace)]
         return [:]
     }
     var result: [String: TapBinding] = [:]
-    for (binding, rawCommand): (String, TOMLValueConvertible) in rawTable {
+    for (binding, rawCommand): (String, Json) in rawTable {
         let backtrace = backtrace + .key(binding)
         let tapKey = TapModifierKey(rawValue: binding)
             .orFailure(.semantic(
                 backtrace,
                 "Unsupported tap binding key '\(binding)'. Supported keys: \(TapModifierKey.allCases.map(\.rawValue).joined(separator: ", "))",
             ))
-            .flatMap { tapKey -> ParsedToml<TapBinding> in
-                parseCommandOrCommands(rawCommand).toParsedToml(backtrace).map {
+            .flatMap { tapKey -> ParsedConfig<TapBinding> in
+                parseCommandOrCommands(rawCommand).toParsedConfig(backtrace).map {
                     TapBinding(tapKey, $0, descriptionWithKeyNotation: binding)
                 }
             }

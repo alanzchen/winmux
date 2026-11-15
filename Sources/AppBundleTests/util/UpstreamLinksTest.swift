@@ -30,12 +30,12 @@ final class UpstreamLinksTest: XCTestCase {
 
     func testDeprecatedConfigKeyErrorsLinkToUpstreamAeroSpaceIssues() {
         let (_, afterLoginErrors) = parseConfig("after-login-command = ['workspace 1']")
-        assertEquals(afterLoginErrors.descriptions, [
+        assertEquals(afterLoginErrors, [
             "after-login-command: after-login-command is deprecated since AeroSpace 0.19.0. https://github.com/nikitabobko/AeroSpace/issues/1482",
         ])
 
         let (_, indentErrors) = parseConfig("indent-for-nested-containers-with-the-same-orientation = 'auto'")
-        assertEquals(indentErrors.descriptions, [
+        assertEquals(indentErrors, [
             "indent-for-nested-containers-with-the-same-orientation: Deprecated. Please drop it from the config. See https://github.com/nikitabobko/AeroSpace/issues/96",
         ])
     }

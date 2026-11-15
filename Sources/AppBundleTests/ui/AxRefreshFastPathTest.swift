@@ -17,7 +17,7 @@ final class AxRefreshFastPathTest: XCTestCase {
         _ = first.focusWindow()
         TestApp.shared.focusedWindow = second
 
-        try await runRefreshSessionBlocking(.ax(kAXFocusedWindowChangedNotification as String))
+        try await runHeavyCompleteRefreshSession(.ax(kAXFocusedWindowChangedNotification as String))
 
         XCTAssertEqual(focus.windowOrNil?.windowId, second.windowId)
         XCTAssertEqual(refreshCount, 0)
@@ -37,7 +37,7 @@ final class AxRefreshFastPathTest: XCTestCase {
         _ = first.focusWindow()
         TestApp.shared.focusedWindow = second
 
-        try await runRefreshSessionBlocking(.globalObserver(NSWorkspace.didActivateApplicationNotification.rawValue))
+        try await runHeavyCompleteRefreshSession(.globalObserver(NSWorkspace.didActivateApplicationNotification.rawValue))
 
         XCTAssertEqual(focus.windowOrNil?.windowId, second.windowId)
         XCTAssertEqual(refreshCount, 0)
@@ -60,7 +60,7 @@ final class AxRefreshFastPathTest: XCTestCase {
             normalizeLayoutReason: { normalizeCount += 1 }
         )
 
-        try await runRefreshSessionBlocking(.ax(kAXWindowCreatedNotification as String))
+        try await runHeavyCompleteRefreshSession(.ax(kAXWindowCreatedNotification as String))
 
         XCTAssertEqual(refreshCount, 1)
         XCTAssertEqual(normalizeCount, 1)
@@ -85,7 +85,7 @@ final class AxRefreshFastPathTest: XCTestCase {
         TestApp.shared.focusedWindow = minimizedWindow
         minimizedWindow.nativeIsMacosMinimized = true
 
-        try await runRefreshSessionBlocking(.ax("native-minimize"), layoutWorkspaces: false)
+        try await runHeavyCompleteRefreshSession(.ax("native-minimize"), layoutWorkspaces: false)
 
         XCTAssertNotNil(Workspace.existing(byName: minimizedWorkspace.name))
         XCTAssertEqual(workspaceDefaultDisplayName(minimizedWorkspace.name), "Workspace 2")

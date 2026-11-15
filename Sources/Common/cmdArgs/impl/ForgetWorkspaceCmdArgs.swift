@@ -6,7 +6,7 @@ public struct ForgetWorkspaceCmdArgs: CmdArgs {
         allowInConfig: false,
         help: forget_workspace_help_generated,
         flags: [
-            "--workspace": optionalWorkspaceFlag(),
+            "--workspace": workspaceSubArgParser(),
             "--fail-if-noop": trueBoolFlag(\.failIfNoop),
             "--json": trueBoolFlag(\.json),
         ],

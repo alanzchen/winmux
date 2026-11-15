@@ -91,10 +91,10 @@ final class CliCompatibilityTest: XCTestCase {
     ) {
         switch target {
             case .patterns(let patterns):
-                guard case .pattern(let raw, _) = patterns.singleOrNil() else {
+                guard case .pattern(let regex) = patterns.singleOrNil() else {
                     return XCTFail("Expected one monitor pattern", file: file, line: line)
                 }
-                XCTAssertEqual(raw, expected, file: file, line: line)
+                XCTAssertEqual(regex.origin, expected, file: file, line: line)
             default:
                 XCTFail("The sentinel must make \(expected.singleQuoted) a monitor pattern", file: file, line: line)
         }

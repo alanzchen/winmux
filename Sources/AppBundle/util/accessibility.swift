@@ -232,24 +232,24 @@ enum Ax {
         key: kAXSizeAttribute,
         getter: {
             var raw: CGSize = .zero
-            check(AXValueGetValue($0 as! AXValue, .cgSize, &raw))
+            check(unsafe AXValueGetValue($0 as! AXValue, .cgSize, &raw))
             return raw
         },
         setter: {
             var size = $0
-            return AXValueCreate(.cgSize, &size) as CFTypeRef
+            return unsafe AXValueCreate(.cgSize, &size) as CFTypeRef
         },
     )
     static let topLeftCornerAttr = WritableAttrImpl<CGPoint>(
         key: kAXPositionAttribute,
         getter: {
             var raw: CGPoint = .zero
-            AXValueGetValue($0 as! AXValue, .cgPoint, &raw)
+            check(unsafe AXValueGetValue($0 as! AXValue, .cgPoint, &raw))
             return raw
         },
         setter: {
             var size = $0
-            return AXValueCreate(.cgPoint, &size) as CFTypeRef
+            return unsafe AXValueCreate(.cgPoint, &size) as CFTypeRef
         },
     )
     /// Returns windows visible on all monitors
@@ -315,6 +315,7 @@ enum Ax {
     //)
 }
 
+let kAXAeroSynthetic = "Aero.synthetic"
 let kAXWinMuxSynthetic = "WinMux.synthetic"
 
 private func castToAxUiElementMock(_ a: AnyObject) -> AxUiElementMock {
@@ -323,7 +324,7 @@ private func castToAxUiElementMock(_ a: AnyObject) -> AxUiElementMock {
             let windowId = UInt32.init(String(str.prefix(upTo: commaIndex)).removePrefix("AXUIElement(AxWindowId="))
             if let windowId {
                 return castToAxUiElementMock([
-                    "WinMux.axWindowId": Json.uint32(windowId),
+                    "WinMux.axWindowId": Json.int(windowId),
                     kAXWinMuxSynthetic: Json.bool(true),
                 ] as AnyObject)
             }
@@ -360,11 +361,9 @@ private func windowOrNil(_ any: Any?) -> WindowIdAndAxUiElementMock? {
     guard let any else { return nil }
     let potentialWindow = castToAxUiElementMock(any as AnyObject)
     // Filter out non-window objects (e.g. Finder's desktop)
-    let windowId = potentialWindow.containingWindowId()
-    if let windowId {
-        return (windowId, potentialWindow)
-    } else {
-        return nil
+    return switch potentialWindow.containingWindowId() {
+        case let windowId?: (windowId, potentialWindow)
+        case nil: nil
     }
 }
 
@@ -373,7 +372,7 @@ extension AXUIElement: AxUiElementMock {
         let state = signposter.beginInterval(#function, "attr: \(attr.key) axTaskLocalAppThreadToken: \(axTaskLocalAppThreadToken?.idForDebug)")
         defer { signposter.endInterval(#function, state) }
         var raw: AnyObject?
-        return AXUIElementCopyAttributeValue(self, attr.key as CFString, &raw) == .success
+        return unsafe AXUIElementCopyAttributeValue(self, attr.key as CFString, &raw) == .success
             ? raw.flatMap(attr.getter)
             : nil
     }
@@ -408,7 +407,7 @@ extension AXUIElement: AxUiElementMock {
 extension AXObserver {
     static func new(_ pid: pid_t, _ handler: AXObserverCallback) -> AXObserver? {
         var observer: AXObserver? = nil
-        return AXObserverCreate(pid, handler, &observer) == .success ? observer : nil
+        return unsafe AXObserverCreate(pid, handler, &observer) == .success ? observer : nil
     }
 }
 

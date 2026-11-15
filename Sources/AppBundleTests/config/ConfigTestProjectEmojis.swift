@@ -10,7 +10,7 @@ extension ConfigTest {
                 default = ' \(emoji) '
                 "project-1" = '💻'
                 """)
-            XCTAssertEqual(errors.descriptions, [])
+            XCTAssertEqual(errors, [])
             XCTAssertEqual(parsed.workspaceSidebar.projectEmojis["default"], emoji)
             XCTAssertEqual(parsed.workspaceSidebar.projectEmojis["project-1"], "💻")
         }
@@ -19,7 +19,7 @@ extension ConfigTest {
                 [workspace-sidebar.project-emojis]
                 default = '\(invalid)'
                 """)
-            XCTAssertEqual(errors.descriptions, ["workspace-sidebar.project-emojis.default: Must be a single emoji"])
+            XCTAssertEqual(errors, ["workspace-sidebar.project-emojis.default: Must be a single emoji"])
         }
         for invalidType in ["42", "false", "[]"] {
             let (_, errors) = parseConfig("[workspace-sidebar.project-emojis]\ndefault = \(invalidType)")
@@ -37,7 +37,7 @@ extension ConfigTest {
         for emoji in ["🏠", "👩🏽‍💻"] {
             try persistWorkspaceSidebarProjectEmoji(projectId: "project-1", emoji: emoji, targetUrl: target)
             let (parsed, errors) = parseConfig(try String(contentsOf: target, encoding: .utf8))
-            XCTAssertEqual(errors.descriptions, [])
+            XCTAssertEqual(errors, [])
             XCTAssertEqual(parsed.workspaceSidebar.projectEmojis, ["project-1": emoji])
             XCTAssertEqual(parsed.workspaceSidebar.projectLabels["project-1"], "Work")
             XCTAssertEqual(parsed.workspaceSidebar.projectColors["project-1"], "#60A5FA")
@@ -48,7 +48,7 @@ extension ConfigTest {
         try persistWorkspaceSidebarProjectEmoji(projectId: "default", emoji: "🏠", targetUrl: target)
         try persistWorkspaceSidebarProjectMetadata(projectId: "project-1", label: nil, colorHex: nil, emoji: nil, targetUrl: target)
         let (deleted, errors) = parseConfig(try String(contentsOf: target, encoding: .utf8))
-        XCTAssertEqual(errors.descriptions, [])
+        XCTAssertEqual(errors, [])
         XCTAssertEqual(deleted.workspaceSidebar.projectEmojis, ["default": "🏠"])
         XCTAssertNil(deleted.workspaceSidebar.projectLabels["project-1"])
         XCTAssertNil(deleted.workspaceSidebar.projectColors["project-1"])
@@ -73,7 +73,7 @@ extension ConfigTest {
         let reset = updateWorkspaceSidebarProjectEmojiConfig(in: added, projectId: "default", emoji: nil)
         XCTAssertEqual(reset, original)
         let (parsed, errors) = parseConfig(reset)
-        XCTAssertEqual(errors.descriptions, [])
+        XCTAssertEqual(errors, [])
         XCTAssertTrue(parsed.workspaceSidebar.projectEmojis.isEmpty)
     }
 
@@ -82,11 +82,11 @@ extension ConfigTest {
             let original = "[workspace-sidebar.project-emojis]\n\(key) = '💻'"
             let updated = updateWorkspaceSidebarProjectEmojiConfig(in: original, projectId: "project-1", emoji: "🏠")
             let (parsed, errors) = parseConfig(updated)
-            XCTAssertEqual(errors.descriptions, [], "Must replace rather than duplicate \(key)")
+            XCTAssertEqual(errors, [], "Must replace rather than duplicate \(key)")
             XCTAssertEqual(parsed.workspaceSidebar.projectEmojis["project-1"], "🏠")
             let reset = updateWorkspaceSidebarProjectEmojiConfig(in: original, projectId: "project-1", emoji: nil)
             let (cleared, resetErrors) = parseConfig(reset)
-            XCTAssertEqual(resetErrors.descriptions, [])
+            XCTAssertEqual(resetErrors, [])
             XCTAssertNil(cleared.workspaceSidebar.projectEmojis["project-1"], "Must remove \(key)")
         }
     }

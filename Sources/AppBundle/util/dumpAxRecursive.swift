@@ -2,10 +2,11 @@ import AppKit
 import Common
 
 func dumpAxRecursive(_ ax: AXUIElement, _ kind: AxKind, recursionDepth: Int = 0) -> [String: Json] {
+    if recursionDepth > 5 { return WinMuxHooks.axDumpRecursionLimit } // WINMUX-HOOK(axDumpKeys)
     if recursionDepth > 5 {
         return [
             "dumpAxRecursive infinite recursion": .bool(true),
-            kAXWinMuxSynthetic: .bool(true),
+            kAXAeroSynthetic: .bool(true),
         ]
     }
     let recursionDepth = recursionDepth + 1
@@ -18,21 +19,22 @@ func dumpAxRecursive(_ ax: AXUIElement, _ kind: AxKind, recursionDepth: Int = 0)
             ignored.append(key)
         } else {
             var raw: AnyObject?
-            if let status = .some(AXUIElementCopyAttributeValue(ax, key as CFString, &raw)), status != .success {
+            if let status = .some(unsafe AXUIElementCopyAttributeValue(ax, key as CFString, &raw)), status != .success {
                 failedAxRequest.append("get.\(key)(\(status.repr))")
             }
             result[key] = prettyValue(raw as Any?, recursionDepth: recursionDepth)
 
             var isWritable: DarwinBoolean = false
-            if let status = .some(AXUIElementIsAttributeSettable(ax, key as CFString, &isWritable)), status != .success {
+            if let status = .some(unsafe AXUIElementIsAttributeSettable(ax, key as CFString, &isWritable)), status != .success {
                 failedAxRequest.append("isWritable.\(key)(\(status.repr))")
             }
             if isWritable.boolValue { writable.append(key) }
         }
     }
-    if !writable.isEmpty { result["WinMux.AxWritable"] = .string(writable.joined(separator: ", ")) }
-    if !failedAxRequest.isEmpty { result["WinMux.AxFailed"] = .string(failedAxRequest.joined(separator: ", ")) }
-    if !ignored.isEmpty { result["WinMux.AxIgnored"] = .string(ignored.joined(separator: ", ")) }
+    if !writable.isEmpty { result["Aero.AxWritable"] = .string(writable.joined(separator: ", ")) }
+    if !failedAxRequest.isEmpty { result["Aero.AxFailed"] = .string(failedAxRequest.joined(separator: ", ")) }
+    if !ignored.isEmpty { result["Aero.AxIgnored"] = .string(ignored.joined(separator: ", ")) }
+    WinMuxHooks.renameAxDumpKeys(&result) // WINMUX-HOOK(axDumpKeys)
     return result
 }
 
@@ -50,7 +52,7 @@ private func prettyValue(_ value: Any?, recursionDepth: Int) -> Json {
         return .int(value)
     }
     if let value = value as? UInt32 {
-        return .uint32(value)
+        return .int(value)
     }
     if let value = value as? Bool {
         return .bool(value)
@@ -74,7 +76,7 @@ private func prettyValue(_ value: Any?, recursionDepth: Int) -> Json {
 extension AXUIElement {
     fileprivate func attrs(failedAxRequest: inout [String]) -> [String] {
         var rawArray: CFArray?
-        if let status = .some(AXUIElementCopyAttributeNames(self, &rawArray)), status != .success {
+        if let status = .some(unsafe AXUIElementCopyAttributeNames(self, &rawArray)), status != .success {
             failedAxRequest.append("AXUIElementCopyAttributeNames(\(status.repr))")
         }
         return rawArray as? [String] ?? []
@@ -105,7 +107,8 @@ private let kindSpecificIgnore: [AxKind: Set<String>] = [
 ]
 
 extension AXError {
-    var repr: String {
+    var winMuxRepr: String { repr } // WINMUX-HOOK(axErrorRepr)
+    fileprivate var repr: String {
         switch self {
             case .actionUnsupported: "actionUnsupported"
             case .apiDisabled: "apiDisabled"

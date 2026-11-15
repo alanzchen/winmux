@@ -111,6 +111,8 @@ public func parseEnum<T: RawRepresentable>(_ raw: String, _ _: T.Type) -> Parsed
     T(rawValue: raw).orFailure("Can't parse '\(raw)'.\nPossible values: \(T.unionLiteral)")
 }
 
+public func parseUInt32(_ str: String) -> Parsed<UInt32> { UInt32(str).orFailure("Can't convert '\(str)' to UInt32") }
+
 func parseCardinalDirectionArg(i: PosArgParserInput) -> ParsedCliArgs<CardinalDirection> {
     .init(parseEnum(i.arg, CardinalDirection.self), advanceBy: 1)
 }
@@ -119,4 +121,6 @@ func parseCardinalOrDfsDirection(i: PosArgParserInput) -> ParsedCliArgs<Cardinal
     .init(parseEnum(i.arg, CardinalOrDfsDirection.self), advanceBy: 1)
 }
 
-func upcastArgParserFun<Input, T>(_ fun: @escaping ArgParserFun<Input, T>) -> ArgParserFun<Input, T?> { { fun($0).map { $0 } } }
+func upcastArgParserFun<Input, T>(_ fun: @escaping ArgParserFun<Input, T>) -> ArgParserFun<Input, T?> {
+    { fun($0).map(Optional.init) }
+}

@@ -333,7 +333,7 @@ slice with the most upstream lines in each file (computed from `git diff --numst
 | Slice | Files | Forked files converted with it |
 |---|---|---|
 | S1 | 1 | `config/ConfigFile.swift` |
-| S2 | 9 | `Common/util/StringEx.swift`, `GlobalObserver.swift`, `ListApps/ListMonitors/ListWorkspacesCommand.swift`, `config/startAtLogin.swift`, `getNativeFocusedWindow.swift`, `ui/TrayMenuModel.swift`, `util/dumpAxRecursive.swift` |
+| S2 | 8 | `Common/util/StringEx.swift`, `GlobalObserver.swift`, `ListApps/ListMonitors/ListWorkspacesCommand.swift`, `config/startAtLogin.swift`, `getNativeFocusedWindow.swift`, `util/dumpAxRecursive.swift` (`ui/TrayMenuModel.swift` was listed here in error: its manifest target is `forked`, WinMux's tray model replaces upstream's) |
 | S3 | 24 | `Cli/_main.swift`, `server.swift`, `initAppBundle.swift`, `config/parseConfig.swift`, `command/format.swift`, `ReloadConfig/Focus/Move/MoveMouse/MoveNodeToMonitor/MoveNodeToWorkspace/MoveWorkspaceToMonitor/Resize/SummonWorkspace/WorkspaceBackAndForth/Config/ListWindowsCommand.swift`, the `Focus/ListApps/ListMonitors/ListWindows` arguments and `parseCmdArgs.swift`, `ui/MessageView.swift`, `util/appBundleUtil.swift` |
 | S4 | 4 | `LayoutCmdArgs.swift`, `LayoutCommand.swift`, `tree/WorkspaceEx.swift`, `tree/frozen/FrozenWorld.swift` |
 | S5 | 22 | `focus.swift`, `config/Config.swift`, `HotkeyBinding.swift`, `Mode.swift`, `parseOnWindowDetected.swift`, `parseExecEnvVariables.swift`, `parseCommand.swift`, `WorkspaceCommand.swift`, `cmdHelpGenerated.swift`, `NWConnectionEx.swift`, `clientServer.swift`, `AeroSpaceEnvVars.swift`, `AxUiElementWindowType.swift`, `ArgParserInput.swift`, `parseSpecificCmdArgs.swift` and the remaining command arguments |
@@ -397,6 +397,86 @@ rejected command now leaves both displays as they were (it already exited 1). Al
 The earlier "intentionally different" TOMLDecoder decision in `docs/upstream-backports.md` is superseded for S2. S2 must
 keep the Settings GUI's TOML edit round trips, which today use TOMLKit; it may keep TOMLKit for editing while parsing
 through upstream.
+
+### S2 outcome (candidate on `upstream/s2-20261115`)
+
+Merged upstream `aca3200e` (#7–32) with `script/upstream-sync.py merge`. 38 conflicts:
+- 8 deletions auto-resolved (the Xcode project, `MenuBarLabel.swift`, `AxUiElementWindowTypeTest.swift`, `docs/goodies.adoc`, `generate.sh`, the two shell grammar files and their generator script).
+- 30 resolved by hand. Dispositions are in `docs/upstream-backports.md` (Merge train).
+
+**Scope: the shell and D3 are not in S2.** The request named S2 as "the TOMLDecoder parser and shell, plus D3". Upstream's handwritten shell (`f4be7288`) and its breaking binding change (`790e1222`) are commits #115–164, which is S5's range. The train merges upstream in order. A merge of the shell commits brings every earlier commit with it, so taking them now would fold S3 (`ExitCode`, the `Command.run` signature) and S4 (`FloatingWindowsContainer`) into this candidate. That breaks "each slice ships separately". S2 therefore stops at `aca3200e`, the end of the TOMLDecoder series. D3 is decided (adopt upstream's shell, warn on bindings whose meaning changes) and ships with S5, together with the binding corpus. **S2 adds no config warnings, and no binding or config key changes meaning.**
+
+**Parser.** Config files are parsed by TOMLDecoder 0.4.4 (TOML 1.1), as upstream does.
+- `parseConfig` returns `[String]`, sorted.
+- WinMux's section parsers read `Json`:
+  - `workspace-sidebar`, `window-tabs`, bindings, tap and sequence bindings, workspace intelligence, MCP;
+  - the shortcuts preset.
+- `Json` gains one marked case, `.double` (hook `jsonDouble`), because WinMux settings take fractional numbers (for example `workspace-sidebar.glass-opacity`).
+- TOMLKit stays a dependency for files and fragments that never go through `parseConfig`:
+  - `window-rules.toml`;
+  - import validation in `ConfigBootstrap`;
+  - the Settings window, which validates and writes TOML fragments with TOMLKit.
+
+**Settings window.**
+- It still edits TOML with TOMLKit.
+- Every save, form edit or TOML Editor save, is still checked by `parseConfig` before it is written, now through TOMLDecoder.
+- An edit TOMLKit produces but TOMLDecoder rejects is therefore refused with the error, never written.
+- Covered by `SettingsEditorTest`, `ShortcutSettingsConfigEditsTest`, the `ConfigTestConfigEdits` round trips and the sidebar resize edit tests, all green.
+
+**User-visible changes, all wording or syntax; exact texts:**
+
+Config files (errors appear in the load-failure message and in the Settings window; any error still rejects the whole file, as before):
+
+| What | Before (TOMLKit) | Now (TOMLDecoder) |
+|---|---|---|
+| TOML syntax error | `Error while parsing key-value pair: expected '=', saw 't' (at line 1, column 5)` (TOMLKit's text, with line and column) | `(Line 1) Syntax error: missing =.` The form is `(Line N) Syntax error: <reason>.`, and the reason comes from TOMLDecoder, for example `invalid or missing key`. |
+| Type names in `<key>: Expected type is '<expected>'. But actual type is '<actual>'` | `integer`, `floating-point number`, `date`, `time`, `date-time` | `int`, `double`. Dates and times never reach this message (next row). `string`, `bool`, `array` and `table` are unchanged. Example: `workspace-sidebar.open-saved-workspace-apps-at-startup: Expected type is 'bool'. But actual type is 'int'` |
+| A TOML date or time anywhere in the file | an error at that key (`Unknown key`, or `... But actual type is 'date'`), next to the file's other errors | `<key path>: Unsupported TOML type: <type>`, for example `foo.bar: Unsupported TOML type: LocalDate`. It is reported alone, because conversion stops at the first such value. The file was rejected before too. No WinMux setting takes a date. |
+| Order of several errors | parse order | sorted by text. For example `key-mapping.key-notation-to-key-code.q: …` now comes before `key-mapping.key-notation-to-key-code: …` |
+| Invalid regex (`on-window-detected` `if.app-name-regex-substring` / `if.window-title-regex-substring`, monitor patterns in `gaps` and `workspace-to-monitor-force-assignment`) | `Can't parse 'X' regex. <reason>` | `Can't parse 'X' regex: <reason>`. Matching is still case-insensitive. |
+| TOML 1.1 syntax | rejected | accepted. For example, inline tables spanning lines with a trailing comma (upstream's `testParseInlineTables`). |
+| Malformed headers TOMLKit tolerated (AeroSpace issue 1064, for example `[[[on-window-detected]]`) | accepted | rejected: `(Line 1) Syntax error: invalid or missing key.` |
+
+The effective default config and the WinMux test config (`config-default.txt`, `config-winmux.txt` golden files) parse to the same values as on v0.6.421.
+
+CLI argument errors (exit codes unchanged). Upstream reworded value flags. WinMux's own commands now use the same helpers, so a flag's message is the same in every command:
+
+| Case | Before | Now |
+|---|---|---|
+| `--window-id` with no value (all commands, including `stack-with`, `move-node-to-project`) | `'--window-id' must be followed by mandatory UInt32` | `'--window-id' must be followed by '<window-id>'` |
+| `--window-id abc` | `Can't parse 'abc'. It must be a positive number` | `Failed to parse 'abc' CLI argument: Can't convert 'abc' to UInt32` |
+| `focus --dfs-index` | same two messages as `--window-id` | `'--dfs-index' must be followed by '<dfs-index>'` / `Failed to parse 'x' CLI argument: Can't convert 'x' to UInt32` |
+| `focus --tab-index` / `focus --tab-index 0` | `'--tab-index' must be followed by mandatory UInt32` / `'--tab-index' must be followed by UInt32 greater than zero` | `'--tab-index' must be followed by '<tab-index>'` / `Failed to parse '0' CLI argument: It must be greater than zero` |
+| `delete-project … --if-window-count` with no value / `x` | `'--if-window-count' must be followed by mandatory UInt32` / `Can't parse 'x'. It must be a positive number` | `'--if-window-count' must be followed by '<count>'` / `Failed to parse 'x' CLI argument: Can't convert 'x' to UInt32` |
+| `--workspace` with no value (`balance-sizes`, `flatten-workspace-tree`, `layout`, `move-workspace-to-monitor`, `save-workspace`, `forget-workspace`) | `'--workspace' must be followed by mandatory workspace name` | `'--workspace' must be followed by '<workspace>'` |
+| `--workspace <invalid name>` | the name error alone | `Failed to parse '<name>' CLI argument: <the name error>` |
+| `config --get`, `trigger-binding --mode`, `list-windows --pid` / `--app-bundle-id`, `save-workspace --name`, `create-project --name` / `--color`, `agent --path` with no value | `'<name>' is mandatory` (the placeholder) | `'--get' must be followed by '<name>'` (the flag, then the placeholder; likewise `<mode-id>`, `<pid>`, `<app-bundle-id>`, `<name>`, `<project-name>`, `<#RRGGBB>`, `<path>`) |
+| `list-windows --pid x` | `Failed to convert 'x' to 'Int32'` | `Failed to parse 'x' CLI argument: Can't convert to Int32` |
+
+`cli-parse-errors.txt` now pins all of these.
+
+**Conversions** (schedule above): `StringEx`, `GlobalObserver`, `ListWorkspacesCommand`, `startAtLogin`, `getNativeFocusedWindow`, `dumpAxRecursive` and `Json` are hooked. `ListAppsCommand` and `ListMonitorsCommand` are pristine: WinMux's `writeFormattedOutput` is the same switch upstream inlines. `TrayMenuModel` stays forked (see the schedule row). Forked non-test sources: 95 → 87.
+
+| Hook | Call site | Kind | Why behavior is unchanged | Check |
+|---|---|---|---|---|
+| `listWorkspaces` | `ListWorkspacesCommand.run` | replacement | The hook body is the previous WinMux `run`, moved verbatim (sidebar order, user-facing workspaces only, `--empty` = no window the sidebar shows). WinMux's `--empty` differs from upstream's `isEffectivelyEmpty` for a workspace whose only window is in native full screen. The replacement line returns on every call. | Mutations: hook line removed fails the order and the new `testEmptyIgnoresNativeFullscreenWindows`; `--empty` swapped to upstream's test fails the latter |
+| `cleanupLaunchAgentPlists` | `startAtLogin.swift` `cleanupPlistFromPrevVersions` | replacement | Removes the same two WinMux plists as before. Upstream's body would delete AeroSpace's own `bobko.aerospace.plist`, which WinMux must not touch. | `testLaunchAgentCleanupRemovesOnlyWinMuxPlists` on a temp directory; mutation (list includes AeroSpace's plist) fails. The call site is wired by inspection: it reads the real `~/Library/LaunchAgents`, which tests must not touch. |
+| `activatedAppPid` | `GlobalObserver.onNotif`, activation branch | replacement | The same call WinMux made, passing `activatedAppPid`, then `return`. Nothing follows the `if`/`else` in that task. | By construction |
+| `installGlobalObserverMonitors` | `GlobalObserver.initObserver`, after the notification observers | replacement (was: event, last line) | It now also installs WinMux's global mouse-up monitor, moved verbatim (drag end, sidebar drop, menu-bar exclusion, retained), first, then the monitors it installed before. That is the same order as before. | By construction; phase 2 native smoke covers these monitors |
+| `appName` | `String.interpolate`, missing env variable | rewrite of the failure | The message is WinMux's text (`… isn't presented in WinMux.app env vars, …`), as before. | Mutation (hook removed): `ParseEnvVariablesTest.testCyclicDep` fails |
+| `axDumpKeys` | `dumpAxRecursive`, recursion limit and before `return` | replacement and rename | `debug-windows` keeps `WinMux.synthetic`, `WinMux.AxWritable`, `WinMux.AxFailed`, `WinMux.AxIgnored`. AX attribute names never start with `Aero.`, so the rename can't hit a real attribute. | `testAxDumpKeepsWinMuxKeyNames`; mutation (rename skipped) fails |
+| `axErrorRepr` | `extension AXError` | addition | `winMuxRepr` forwards to the file-private `repr`, for the two WinMux callers. | — |
+| `nativeFocusObservation` | end of `getNativeFocusedWindow.swift` | addition | Upstream's `getNativeFocusedWindow` body is back. It reads the same `focusedApp?.getFocusedWindow()` WinMux's version did, minus a stored-property read. | — |
+| `jsonDouble` | `Json`, `tomlAnyToParsedConfigRecursive` | addition | TOMLKit gave WinMux floats; this keeps them. | Mutation (case removed): `ConfigTest.testConfigParseError` fails (the test process traps) |
+
+**Build settings.**
+- Upstream enables strict memory safety and `NonisolatedNonsendingByDefault` in every module.
+- WinMux keeps `NonisolatedNonsendingByDefault` on AppBundle only, as before, and strict memory safety nowhere.
+- Upstream's `unsafe` markers compile without strict mode. The one marker in Common that the Cli release build's `-warnings-as-errors` rejected (`NWConnectionEx.swift`, a forked file until S5) keeps WinMux's line.
+- Enabling both settings for Common and Cli means annotating about 20 WinMux sites there. It stays deferred to S5, which converts `NWConnectionEx`.
+- `.swift-version` stays 6.4.2; upstream's is 6.3.0.
+
+**Toolchain warnings.** Upstream's unassigned `Task { … }` in `GlobalObserver` (two lines, one of them in the replaced, never-run monitor body) warns on Swift 6.4. AppBundle warnings don't fail the release build: `-warnings-as-errors` applies to the Cli product and the app target's own sources. S3 replaces both lines with upstream's `Task.startUnstructured`.
 
 ### Side tables: projects, pins and workspace identity on upstream's model
 
