@@ -1,23 +1,6 @@
 import Common
 
-@MainActor
-func resolvedForceAssignedMonitor(forWorkspaceName name: String) -> Monitor? {
-    config.workspaceToMonitorForceAssignment[name]?
-        .lazy
-        .compactMap { $0.resolveMonitor(sortedMonitors: sortedMonitors) }
-        .first
-}
-
 extension Workspace {
-    private func existingContainer<T: TreeNode>(_ type: T.Type) -> T? {
-        let containers = children.filterIsInstance(of: T.self)
-        return switch containers.count {
-            case 0: nil
-            case 1: containers.singleOrNil().orDie()
-            default: dieT("Workspace must contain zero or one \(T.self)")
-        }
-    }
-
     @MainActor var rootTilingContainer: TilingContainer {
         let containers = children.filterIsInstance(of: TilingContainer.self)
         switch containers.count {
@@ -40,23 +23,29 @@ extension Workspace {
         children.filterIsInstance(of: Window.self)
     }
 
-    var existingMacOsNativeFullscreenWindowsContainer: MacosFullscreenWindowsContainer? {
-        existingContainer(MacosFullscreenWindowsContainer.self)
-    }
-
     @MainActor var macOsNativeFullscreenWindowsContainer: MacosFullscreenWindowsContainer {
-        existingMacOsNativeFullscreenWindowsContainer ?? MacosFullscreenWindowsContainer(parent: self)
-    }
-
-    var existingMacOsNativeHiddenAppsWindowsContainer: MacosHiddenAppsWindowsContainer? {
-        existingContainer(MacosHiddenAppsWindowsContainer.self)
+        let containers = children.filterIsInstance(of: MacosFullscreenWindowsContainer.self)
+        return switch containers.count {
+            case 0: MacosFullscreenWindowsContainer(parent: self)
+            case 1: containers.singleOrNil().orDie()
+            default: dieT("Workspace must contain zero or one MacosFullscreenWindowsContainer")
+        }
     }
 
     @MainActor var macOsNativeHiddenAppsWindowsContainer: MacosHiddenAppsWindowsContainer {
-        existingMacOsNativeHiddenAppsWindowsContainer ?? MacosHiddenAppsWindowsContainer(parent: self)
+        let containers = children.filterIsInstance(of: MacosHiddenAppsWindowsContainer.self)
+        return switch containers.count {
+            case 0: MacosHiddenAppsWindowsContainer(parent: self)
+            case 1: containers.singleOrNil().orDie()
+            default: dieT("Workspace must contain zero or one MacosHiddenAppsWindowsContainer")
+        }
     }
 
     @MainActor var forceAssignedMonitor: Monitor? {
-        resolvedForceAssignedMonitor(forWorkspaceName: name)
+        guard let monitorDescriptions = config.workspaceToMonitorForceAssignment[name] else { return nil }
+        let sortedMonitors = sortedMonitors
+        return monitorDescriptions.lazy
+            .compactMap { $0.resolveMonitor(sortedMonitors: sortedMonitors) }
+            .first
     }
 }
