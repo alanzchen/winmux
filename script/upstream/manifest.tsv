@@ -26,37 +26,37 @@ forked	LICENSE.txt	forked	WinMux build/branding/docs (2 changed lines)
 forked	Package.resolved	forked	WinMux build/branding/docs (28 changed lines)
 forked	Package.swift	forked	WinMux products and targets (33 changed lines)
 forked	README.md	forked	WinMux build/branding/docs (348 changed lines)
-deleted	Sources/AeroSpaceApp/AeroSpaceApp.swift	hooked	moved-to=Sources/WinMuxApp/WinMuxApp.swift
+forked	Sources/AeroSpaceApp/AeroSpaceApp.swift	forked	WinMux app entry point (Sparkle, shortcut settings); restored at the upstream path in phase 2
 forked	Sources/AppBundle/GlobalObserver.swift	hooked	192 changed lines
 hooked	Sources/AppBundle/command/CmdEnv.swift		marked additive lines (phase 1)
-forked	Sources/AppBundle/command/CmdIo.swift	hooked	2 changed lines
-forked	Sources/AppBundle/command/Command.swift	hooked	71 changed lines
+pristine	Sources/AppBundle/command/CmdIo.swift
+hooked	Sources/AppBundle/command/Command.swift		marked additions only (phase 2)
 hooked	Sources/AppBundle/command/cmdManifest.swift		marked additive lines (phase 1)
 forked	Sources/AppBundle/command/cmdResolveTargetOrReportError.swift	hooked	23 changed lines
 forked	Sources/AppBundle/command/format.swift	forked	project/workspace format variables (67 changed lines)
 pristine	Sources/AppBundle/command/formatToJson.swift
 forked	Sources/AppBundle/command/impl/BalanceSizesCommand.swift	hooked	4 changed lines
 pristine	Sources/AppBundle/command/impl/CloseAllWindowsButCurrentCommand.swift
-forked	Sources/AppBundle/command/impl/CloseCommand.swift	hooked	2 changed lines
+pristine	Sources/AppBundle/command/impl/CloseCommand.swift
 forked	Sources/AppBundle/command/impl/ConfigCommand.swift	hooked	15 changed lines
 forked	Sources/AppBundle/command/impl/DebugWindowsCommand.swift	hooked	40 changed lines
-forked	Sources/AppBundle/command/impl/EnableCommand.swift	hooked	8 changed lines
+hooked	Sources/AppBundle/command/impl/EnableCommand.swift		marked additions only (phase 2)
 pristine	Sources/AppBundle/command/impl/ExecAndForgetCommand.swift
 pristine	Sources/AppBundle/command/impl/FlattenWorkspaceTreeCommand.swift
-forked	Sources/AppBundle/command/impl/FocusBackAndForthCommand.swift	hooked	2 changed lines
+pristine	Sources/AppBundle/command/impl/FocusBackAndForthCommand.swift
 forked	Sources/AppBundle/command/impl/FocusCommand.swift	hooked	82 changed lines
 pristine	Sources/AppBundle/command/impl/FocusMonitorCommand.swift
-forked	Sources/AppBundle/command/impl/FullscreenCommand.swift	hooked	2 changed lines
+pristine	Sources/AppBundle/command/impl/FullscreenCommand.swift
 pristine	Sources/AppBundle/command/impl/JoinWithCommand.swift
 forked	Sources/AppBundle/command/impl/LayoutCommand.swift	hooked	117 changed lines
 forked	Sources/AppBundle/command/impl/ListAppsCommand.swift	hooked	18 changed lines
 hooked	Sources/AppBundle/command/impl/ListExecEnvVarsCommand.swift		marked additive lines (phase 1)
-pristine	Sources/AppBundle/command/impl/ListModesCommand.swift		brand-only diff (2 lines); phase 1 restores upstream identifiers
+pristine	Sources/AppBundle/command/impl/ListModesCommand.swift
 forked	Sources/AppBundle/command/impl/ListMonitorsCommand.swift	hooked	18 changed lines
 forked	Sources/AppBundle/command/impl/ListWindowsCommand.swift	hooked	41 changed lines
 forked	Sources/AppBundle/command/impl/ListWorkspacesCommand.swift	hooked	22 changed lines
 forked	Sources/AppBundle/command/impl/MacosNativeFullscreenCommand.swift	hooked	14 changed lines
-forked	Sources/AppBundle/command/impl/MacosNativeMinimizeCommand.swift	hooked	3 changed lines
+hooked	Sources/AppBundle/command/impl/MacosNativeMinimizeCommand.swift		marked additions only (phase 2)
 pristine	Sources/AppBundle/command/impl/ModeCommand.swift
 forked	Sources/AppBundle/command/impl/MoveCommand.swift	hooked	100 changed lines
 forked	Sources/AppBundle/command/impl/MoveMouseCommand.swift	hooked	20 changed lines
@@ -94,11 +94,11 @@ forked	Sources/AppBundle/initAppBundle.swift	hooked	91 changed lines
 forked	Sources/AppBundle/layout/layoutRecursive.swift	forked	layout pass with parking/staleness; tab groups move behind the layout delegate (268 changed lines)
 forked	Sources/AppBundle/layout/refresh.swift	forked	coalescing scheduler + requirement-gated session; propose coalescing upstream (697 changed lines)
 forked	Sources/AppBundle/model/AxUiElementWindowType.swift	hooked	12 changed lines
-forked	Sources/AppBundle/model/Json.swift	hooked	42 changed lines
+pristine	Sources/AppBundle/model/Json.swift
 hooked	Sources/AppBundle/model/KnownBundleId.swift		marked additive lines (phase 1)
 forked	Sources/AppBundle/model/Monitor.swift	hooked	122 changed lines
 pristine	Sources/AppBundle/model/MonitorDescriptionEx.swift
-forked	Sources/AppBundle/model/MonitorEx.swift	hooked	39 changed lines
+hooked	Sources/AppBundle/model/MonitorEx.swift		marked additions only (phase 2)
 forked	Sources/AppBundle/model/Rect.swift	pristine	brand-only diff (2 lines); phase 1 restores upstream identifiers
 pristine	Sources/AppBundle/model/ServerEvent.swift
 forked	Sources/AppBundle/mouse/mouse.swift	hooked	397 changed lines
@@ -132,13 +132,13 @@ forked	Sources/AppBundle/ui/MessageView.swift	hooked	restored at the upstream pa
 forked	Sources/AppBundle/ui/NSPanelHud.swift	hooked	restored at the upstream path in phase 1
 forked	Sources/AppBundle/ui/SecureInputView.swift	pristine	restored at the upstream path in phase 1
 forked	Sources/AppBundle/ui/TrayMenuModel.swift		restored at the upstream path in phase 1 (tray redesign)
-forked	Sources/AppBundle/ui/VolumeView.swift	pristine	restored at the upstream path in phase 1
+pristine	Sources/AppBundle/ui/VolumeView.swift
 pristine	Sources/AppBundle/util/ArrayEx.swift
 pristine	Sources/AppBundle/util/AwaitableOneTimeBroadcastLatch.swift
 pristine	Sources/AppBundle/util/AxSubscription.swift
 pristine	Sources/AppBundle/util/AxUiElementMock.swift
 deleted	Sources/AppBundle/util/LazySequenceProtocolEx.swift
-forked	Sources/AppBundle/util/MruStack.swift	hooked	4 changed lines
+pristine	Sources/AppBundle/util/MruStack.swift
 pristine	Sources/AppBundle/util/NSRunningApplicationEx.swift
 pristine	Sources/AppBundle/util/NsApplicationEx.swift
 deleted	Sources/AppBundle/util/SetEx.swift
@@ -188,7 +188,7 @@ deleted	Sources/Cli/subcommandDescriptionsGenerated.swift	forked	moved-to=Source
 forked	Sources/Common/appMetadata.swift	hooked	13 changed lines
 hooked	Sources/Common/cmdArgs/ArgParser.swift		marked additive lines (phase 1)
 forked	Sources/Common/cmdArgs/ArgParserInput.swift	hooked	11 changed lines
-forked	Sources/Common/cmdArgs/SubArgParser.swift	hooked	4 changed lines
+pristine	Sources/Common/cmdArgs/SubArgParser.swift
 hooked	Sources/Common/cmdArgs/cmdArgsManifest.swift		marked additive lines (phase 1)
 pristine	Sources/Common/cmdArgs/impl/BalanceSizesCmdArgs.swift
 pristine	Sources/Common/cmdArgs/impl/CloseAllWindowsButCurrentCmdArgs.swift
@@ -240,28 +240,28 @@ pristine	Sources/Common/model/CardinalDirection.swift
 pristine	Sources/Common/model/CardinalOrDfsDirection.swift
 pristine	Sources/Common/model/DfsNextPrev.swift
 pristine	Sources/Common/model/Init.swift
-forked	Sources/Common/model/MonitorDescription.swift	hooked	11 changed lines
+pristine	Sources/Common/model/MonitorDescription.swift
 pristine	Sources/Common/model/NextPrev.swift
 forked	Sources/Common/model/Orientation.swift	hooked	2 changed lines
 pristine	Sources/Common/model/WorkspaceName.swift
 forked	Sources/Common/model/clientServer.swift	hooked	27 changed lines
 deleted	Sources/Common/model/sponsorshipPrompts.swift		sponsorship prompts removed
-forked	Sources/Common/util/AeroAny.swift	pristine	restored at the upstream path in phase 1
-forked	Sources/Common/util/ArrSlice.swift	hooked	4 changed lines
-forked	Sources/Common/util/BoolEx.swift	hooked	9 changed lines
+hooked	Sources/Common/util/AeroAny.swift		marked additions only (phase 2)
+pristine	Sources/Common/util/ArrSlice.swift
+pristine	Sources/Common/util/BoolEx.swift
 pristine	Sources/Common/util/CollectionEx.swift
 pristine	Sources/Common/util/ComparableEx.swift
 pristine	Sources/Common/util/ConvenienceCopyable.swift
 pristine	Sources/Common/util/DictionaryEx.swift
 pristine	Sources/Common/util/EquatableNoop.swift
-pristine	Sources/Common/util/JsonEncoderEx.swift		brand-only diff (2 lines); phase 1 restores upstream identifiers
+pristine	Sources/Common/util/JsonEncoderEx.swift
 pristine	Sources/Common/util/Lateinit.swift
 pristine	Sources/Common/util/MainActorEx.swift
 forked	Sources/Common/util/NWConnectionEx.swift	forked	socket timeouts and frame cap; propose upstream (127 changed lines)
 pristine	Sources/Common/util/Nullable.swift
 pristine	Sources/Common/util/OptionalEx.swift
 pristine	Sources/Common/util/ResultEx.swift
-forked	Sources/Common/util/SequenceEx.swift	hooked	12 changed lines
+pristine	Sources/Common/util/SequenceEx.swift
 forked	Sources/Common/util/StringEx.swift	hooked	43 changed lines
 pristine	Sources/Common/util/StringLogicalSegments.swift
 forked	Sources/Common/util/commonUtil.swift	forked	refresh events and requirements (109 changed lines)
