@@ -1,0 +1,303 @@
+import Common
+import Foundation
+import TOMLKit
+
+// WinMux's config locations, starter config and one-time import of an AeroSpace config. Upstream's
+// ConfigFile.swift keeps `findCustomConfigUrl` (which WinMux points at `generatedConfigUrl()`) and `ConfigFile`.
+
+let legacyConfigDotfileName = ".winmux.toml"
+let generatedConfigDirectoryName = "winmux"
+let generatedConfigFileName = "winmux.toml"
+let aerospaceLegacyConfigDotfileName = ".aerospace.toml"
+let aerospaceConfigDirectoryName = "aerospace"
+let aerospaceConfigFileName = "aerospace.toml"
+
+func xdgConfigHomeUrl() -> URL {
+    ProcessInfo.processInfo.environment["XDG_CONFIG_HOME"].map { URL(filePath: $0) }
+        ?? FileManager.default.homeDirectoryForCurrentUser.appending(path: ".config/")
+}
+
+func generatedConfigUrl() -> URL {
+    xdgConfigHomeUrl()
+        .appending(path: generatedConfigDirectoryName)
+        .appending(path: generatedConfigFileName)
+}
+
+func legacyConfigCandidateUrls() -> [URL] {
+    [
+        xdgConfigHomeUrl().appending(path: "winmux").appending(path: "winmux.toml"),
+        FileManager.default.homeDirectoryForCurrentUser.appending(path: legacyConfigDotfileName),
+    ]
+}
+
+func preferredLegacyConfigImportUrl() -> URL? {
+    legacyConfigCandidateUrls().first { FileManager.default.fileExists(atPath: $0.path) }
+}
+
+func aerospaceConfigCandidateUrls() -> [URL] {
+    [
+        xdgConfigHomeUrl().appending(path: aerospaceConfigDirectoryName).appending(path: aerospaceConfigFileName),
+        FileManager.default.homeDirectoryForCurrentUser.appending(path: aerospaceLegacyConfigDotfileName),
+    ]
+}
+
+func preferredAerospaceConfigImportUrl() -> URL? {
+    aerospaceConfigCandidateUrls().first { FileManager.default.fileExists(atPath: $0.path) }
+}
+
+@MainActor
+func preferredEditableConfigUrl() -> URL {
+    if let configLocation = serverArgs.configLocation {
+        return URL(filePath: configLocation)
+    }
+    if let customConfigUrl = findCustomConfigUrl().urlOrNil {
+        return customConfigUrl
+    }
+    return generatedConfigUrl()
+}
+
+func starterConfigText() -> String {
+    let starterBindings: [String: String] = [
+        ("alt-space", "layout horizontal vertical"),
+        ("ctrl-f", "open-sidebar"),
+        ("alt-h", "focus left"),
+        ("alt-j", "focus down"),
+        ("alt-k", "focus up"),
+        ("alt-l", "focus right"),
+        ("alt-n", "focus dfs-next"),
+        ("alt-p", "focus dfs-prev"),
+        ("alt-tab", "focus tab-next"),
+        ("alt-shift-tab", "focus tab-prev"),
+        ("alt-0", "focus --tab-index 10"),
+        ("alt-1", "focus --tab-index 1"),
+        ("alt-2", "focus --tab-index 2"),
+        ("alt-3", "focus --tab-index 3"),
+        ("alt-4", "focus --tab-index 4"),
+        ("alt-5", "focus --tab-index 5"),
+        ("alt-6", "focus --tab-index 6"),
+        ("alt-7", "focus --tab-index 7"),
+        ("alt-8", "focus --tab-index 8"),
+        ("alt-9", "focus --tab-index 9"),
+        ("alt-shift-h", "move left"),
+        ("alt-shift-j", "move down"),
+        ("alt-shift-k", "move up"),
+        ("alt-shift-l", "move right"),
+        ("cmd-shift-h", "join-with left"),
+        ("cmd-shift-j", "join-with down"),
+        ("cmd-shift-k", "join-with up"),
+        ("cmd-shift-l", "join-with right"),
+        ("ctrl-cmd-shift-h", "stack-with left"),
+        ("ctrl-cmd-shift-j", "stack-with down"),
+        ("ctrl-cmd-shift-k", "stack-with up"),
+        ("ctrl-cmd-shift-l", "stack-with right"),
+        ("cmd-shift-i", "balance-sizes"),
+        ("alt-cmd-h", "project prev"),
+        ("alt-cmd-j", "swap down"),
+        ("alt-cmd-k", "swap up"),
+        ("alt-cmd-l", "project next"),
+        ("alt-shift-t", "layout floating tiling"),
+        ("alt-shift-m", "fullscreen"),
+        ("ctrl-0", "workspace 10"),
+        ("ctrl-1", "workspace 1"),
+        ("ctrl-2", "workspace 2"),
+        ("ctrl-3", "workspace 3"),
+        ("ctrl-4", "workspace 4"),
+        ("ctrl-5", "workspace 5"),
+        ("ctrl-6", "workspace 6"),
+        ("ctrl-7", "workspace 7"),
+        ("ctrl-8", "workspace 8"),
+        ("ctrl-9", "workspace 9"),
+        ("ctrl-q", "workspace 11"),
+        ("ctrl-w", "workspace 12"),
+        ("ctrl-e", "workspace 13"),
+        ("ctrl-r", "workspace 14"),
+        ("ctrl-t", "workspace 15"),
+        ("ctrl-h", "workspace prev"),
+        ("ctrl-l", "workspace next"),
+        ("cmd-ctrl-h", "workspace prev"),
+        ("cmd-ctrl-l", "workspace next"),
+        ("alt-cmd-1", "project 1"),
+        ("alt-cmd-2", "project 2"),
+        ("alt-cmd-3", "project 3"),
+        ("alt-cmd-4", "project 4"),
+        ("alt-cmd-5", "project 5"),
+        ("alt-cmd-6", "project 6"),
+        ("alt-cmd-7", "project 7"),
+        ("alt-cmd-8", "project 8"),
+        ("alt-cmd-9", "project 9"),
+        ("alt-cmd-shift-h", "move-node-to-project prev"),
+        ("alt-cmd-shift-l", "move-node-to-project next"),
+        ("alt-shift-1", "move-node-to-workspace 1"),
+        ("alt-shift-2", "move-node-to-workspace 2"),
+        ("alt-shift-3", "move-node-to-workspace 3"),
+        ("alt-shift-4", "move-node-to-workspace 4"),
+        ("alt-shift-5", "move-node-to-workspace 5"),
+        ("alt-shift-6", "move-node-to-workspace 6"),
+        ("alt-shift-7", "move-node-to-workspace 7"),
+        ("alt-shift-8", "move-node-to-workspace 8"),
+        ("alt-shift-9", "move-node-to-workspace 9"),
+        ("ctrl-shift-0", "move-node-to-workspace 10"),
+        ("ctrl-shift-h", "move-node-to-workspace --focus-follows-window prev"),
+        ("ctrl-shift-l", "move-node-to-workspace --focus-follows-window next"),
+        ("alt-cmd-shift-1", "move-node-to-project 1"),
+        ("alt-cmd-shift-2", "move-node-to-project 2"),
+        ("alt-cmd-shift-3", "move-node-to-project 3"),
+        ("alt-cmd-shift-4", "move-node-to-project 4"),
+        ("alt-cmd-shift-5", "move-node-to-project 5"),
+        ("alt-cmd-shift-6", "move-node-to-project 6"),
+        ("alt-cmd-shift-7", "move-node-to-project 7"),
+        ("alt-cmd-shift-8", "move-node-to-project 8"),
+        ("alt-cmd-shift-9", "move-node-to-project 9"),
+    ].reduce(into: [:]) { result, pair in
+        result[pair.0] = pair.1
+    }
+    let defaultText = (try? String(contentsOf: defaultConfigUrl, encoding: .utf8)) ?? """
+        config-version = 2
+
+        [mode.main.binding]
+        """
+    return updateModeBindingConfig(
+        in: defaultText,
+        modeName: mainModeId,
+        tableKey: "binding",
+        managedCommands: [],
+        assignments: starterBindings,
+    )
+}
+
+@MainActor
+func ensureBootstrapConfigExistsIfNeeded() throws -> URL? {
+    guard serverArgs.configLocation == nil else { return nil }
+    let targetUrl = generatedConfigUrl()
+    let existingLegacyUrls = preferredLegacyConfigImportUrl().map { [$0] } ?? []
+    let aerospaceImportUrl = preferredAerospaceConfigImportUrl()
+    if try materializeBootstrapConfigIfNeeded(
+        targetUrl: targetUrl,
+        existingLegacyUrls: existingLegacyUrls,
+        aerospaceImportUrl: aerospaceImportUrl,
+    ) {
+        return targetUrl
+    } else {
+        return nil
+    }
+}
+
+func materializeBootstrapConfigIfNeeded(
+    targetUrl: URL,
+    existingLegacyUrls: [URL],
+    aerospaceImportUrl: URL? = nil,
+) throws -> Bool {
+    guard !FileManager.default.fileExists(atPath: targetUrl.path) else { return false }
+    let parentUrl = targetUrl.deletingLastPathComponent()
+    if parentUrl.path != targetUrl.path {
+        try FileManager.default.createDirectory(at: parentUrl, withIntermediateDirectories: true)
+    }
+    if let legacyUrl = existingLegacyUrls.first {
+        try FileManager.default.copyItem(at: legacyUrl, to: targetUrl)
+    } else if let aerospaceImportUrl {
+        let migratedConfig = try migrateAerospaceConfigForWinMux(
+            try String(contentsOf: aerospaceImportUrl, encoding: .utf8),
+        )
+        try migratedConfig.write(to: targetUrl, atomically: true, encoding: .utf8)
+    } else {
+        try starterConfigText().write(to: targetUrl, atomically: true, encoding: .utf8)
+    }
+    return true
+}
+
+func migrateAerospaceConfigForWinMux(_ rawToml: String) throws -> String {
+    _ = try TOMLTable(string: rawToml)
+
+    var migrated = aerospaceKeyboardConfigSections(from: rawToml)
+    let literalReplacements = [
+        ("AEROSPACE_FOCUSED_WORKSPACE", "WINMUX_FOCUSED_WORKSPACE"),
+        ("AEROSPACE_PREV_WORKSPACE", "WINMUX_PREV_WORKSPACE"),
+        ("AEROSPACE_WINDOW_ID", "WINMUX_WINDOW_ID"),
+        ("AEROSPACE_WORKSPACE", "WINMUX_WORKSPACE"),
+        ("accordion-padding", "tab-group-padding"),
+        ("h_accordion", "h_tab_group"),
+        ("v_accordion", "v_tab_group"),
+    ]
+    for (old, new) in literalReplacements {
+        migrated = migrated.replacingOccurrences(of: old, with: new)
+    }
+    migrated = migrated.replacingRegex(
+        #"(?<![A-Za-z0-9_-])accordion(?![A-Za-z0-9_-])"#,
+        with: "tab-group",
+    )
+    let baseConfig = migrated.isEmpty
+        ? starterConfigText()
+        : removingAerospaceKeyboardConfigSections(from: starterConfigText())
+
+    return """
+        # Migrated from AeroSpace config by WinMux.
+        # WinMux owns this file after import; the AeroSpace source is not read again.
+        # Current WinMux defaults are used for WinMux-specific behavior; AeroSpace keyboard sections are preserved below.
+
+        \(baseConfig)
+        \(migrated.isEmpty ? "" : "\n# Keyboard configuration imported from AeroSpace.\n\(migrated)")
+        """
+}
+
+private extension String {
+    func replacingRegex(_ pattern: String, with replacement: String) -> String {
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return self }
+        let range = NSRange(startIndex ..< endIndex, in: self)
+        return regex.stringByReplacingMatches(in: self, range: range, withTemplate: replacement)
+    }
+}
+
+private func aerospaceKeyboardConfigSections(from rawToml: String) -> String {
+    keyboardConfigSections(from: rawToml, keepMatchingSections: true)
+}
+
+private func removingAerospaceKeyboardConfigSections(from rawToml: String) -> String {
+    keyboardConfigSections(from: rawToml, keepMatchingSections: false)
+}
+
+private func keyboardConfigSections(from rawToml: String, keepMatchingSections: Bool) -> String {
+    let lines = rawToml.components(separatedBy: "\n")
+    var sections: [[String]] = []
+    var current: [String] = []
+    var shouldKeepCurrent = !keepMatchingSections
+
+    func flushCurrentSection() {
+        if shouldKeepCurrent {
+            sections.append(current)
+        }
+        current = []
+        shouldKeepCurrent = false
+    }
+
+    for line in lines {
+        if isTomlSectionHeader(line) {
+            flushCurrentSection()
+            current = [line]
+            shouldKeepCurrent = isAerospaceKeyboardSectionHeader(line) == keepMatchingSections
+        } else {
+            current.append(line)
+        }
+    }
+    flushCurrentSection()
+
+    return sections
+        .map { sectionLines in
+            sectionLines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        .filter { !$0.isEmpty }
+        .joined(separator: "\n\n")
+}
+
+private func isAerospaceKeyboardSectionHeader(_ line: String) -> Bool {
+    let trimmed = line.trimmingCharacters(in: .whitespaces)
+    return trimmed == "[key-mapping]" ||
+        trimmed == "[mode]" ||
+        trimmed.hasPrefix("[mode.") ||
+        trimmed.hasPrefix("[[mode.")
+}
+
+private func isTomlSectionHeader(_ line: String) -> Bool {
+    let trimmed = line.trimmingCharacters(in: .whitespaces)
+    return (trimmed.hasPrefix("[[") && trimmed.hasSuffix("]]")) ||
+        (trimmed.hasPrefix("[") && trimmed.hasSuffix("]"))
+}
