@@ -5,7 +5,7 @@ merging upstream losslessly: real `git merge`s of upstream history, with WinMux'
 through a small set of marked hooks instead of edits spread through upstream files.
 
 Status (2026-11-15): phase 0 is on `main`, including the history join (`e9012cc0`, merge base `13b35332`). Phase 1 shipped as
-v0.6.419 Preview (`8ef3e860`). Phase 2 is in review on `upstream/phase2-20261115`. Background analysis (module map, coupling inventory, merge-cost measurements) lives in
+v0.6.419 Preview (`8ef3e860`), phase 2 as v0.6.420 Preview (`3d18b9be`, native smoke of the GlobalObserver hooks passed). S1 is in review on `upstream/s1-20261115`. Background analysis (module map, coupling inventory, merge-cost measurements) lives in
 `.winmux-diagnostics/upstream-integration-20261115/REPORT.md` outside the repository.
 
 ## The model
@@ -371,6 +371,25 @@ first.
 | S10 | `6ed6af62` (HEAD) | #331–366 | **XCTest → swift-testing** for upstream tests. Concurrent native-state and floating-rect queries (`846f1a22`). `CGPoint` → `Point`. `getWindowLevel` follow-ups (`0d498deb`, `7a3f2e34`). | Keep WinMux tests on XCTest (both frameworks run in one target). Keep the native-state cache on top of upstream's query primitive. |
 
 After S10, sync continues at upstream's pace (§Steady state).
+
+### S1 outcome (candidate on `upstream/s1-20261115`)
+
+Merged upstream `ff4d9c1d` (#1–6) with `script/upstream-sync.py merge`. 9 dry-run conflicts:
+- 3 deletions auto-resolved;
+- 6 forked files resolved by hand, all six recorded by rerere; dispositions are in `docs/upstream-backports.md` (Merge train).
+- The S1-scheduled conversion, `config/ConfigFile.swift`, is now hooked (replacement hook `findCustomConfigUrl`).
+
+Folded in Carbon's phase 2 nits:
+- `VolumeView`'s `[self]`, which makes that file forked by one line until upstream's `[weak self]` arrives;
+- `setUpWorkspacesForTests` focus-history reset;
+- a non-vacuous format case. Fixtures were regenerated on v0.6.420.
+
+User-visible change: none intended. Upstream's distance fix affects only which display a point outside every display is
+attributed to.
+
+The earlier "intentionally different" TOMLDecoder decision in `docs/upstream-backports.md` is superseded for S2. S2 must
+keep the Settings GUI's TOML edit round trips, which today use TOMLKit; it may keep TOMLKit for editing while parsing
+through upstream.
 
 ### Side tables: projects, pins and workspace identity on upstream's model
 

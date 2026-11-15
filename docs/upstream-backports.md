@@ -80,6 +80,20 @@ The issue explicitly permits recording a decision instead of creating a follow-u
 - **TOML 1.1 / TOMLDecoder (`16a0b634`): intentionally different.** Keep TOMLKit for parsing and GUI config editing. A parser-only replacement would not supply GUI edit round trips or preserve all current configurations; a future migration must include both parsers and editors with fixtures for comments, inline tables, arrays and GUI saves.
 - **Nonfatal warnings / partially invalid config (`890ec336`, `61f0eac9`): intentionally different.** Keep config reload atomic: errors reject the new configuration and retain the live one. Introducing warnings must not silently adopt upstream's separate partial-invalid-config behavior. Do not add a no-op `--warnings-as-errors` flag without a warning diagnostic model.
 
+## Merge train (docs/upstream-sync.md)
+
+From 2026-11-15, upstream arrives by real merges in slices; each slice's resolutions are recorded here.
+
+| Slice | Upstream commit | Disposition |
+|---|---|---|
+| S1 (`ff4d9c1d`) | `6021c13c` rect/point distance | Merged. Upstream's `distance(toOuterFrame:)` taken; `monitorApproximation` keeps WinMux's contained-monitor-first lookup (same answer inside a display; deterministic at fractional edges). |
+| S1 | `a8241641` summon a visible workspace | Already covered by `activateWorkspaceOnMonitorPreservingSourceViewport`; WinMux body kept. |
+| S1 | `fe039317` workspace assignment on adding monitors | Intentionally different (display-identity matching); WinMux `Workspace.swift` kept. |
+| S1 | `ff4d9c1d` pattern-matching cleanup | Merged, including `transposed()` in upstream's `ArrayEx.swift` and `MacOsWindowLevel.fromJson`. |
+| S1 | `85f80bda`, `6f37ad0f` docs/collaborators | Docs and CI stay deleted; README stays WinMux's. |
+
+Earlier "intentionally different" entries above (TOMLDecoder, the shell language) are superseded by the merge-train plan approved on 2026-11-15: the slices that bring them (S2, S5) adopt upstream's parser and shell, keeping WinMux's GUI config edits and config compatibility as stated there.
+
 ## Validation
 
 `git diff --check` passes for the shared working tree at this audit. Native tests were not run: this executor is Linux and has no Swift, Xcode, AppKit, macOS window server, or Accessibility services. The new tests are source-level regressions pending `swift test --arch arm64 --filter 'HiddenWindowReparkTest|FocusCommandTest|SwapCommandTest'`, then the full arm64 suite and build. [#3](https://github.com/alanzchen/winmux/issues/3) tracks native validation, external review availability, and hardware smoke checks. This source audit does not claim native reproduction or cross-provider reviewer approval.
