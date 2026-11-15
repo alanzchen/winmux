@@ -30,6 +30,7 @@ TARGETS = ("", "pristine", "hooked", "forked", "deleted")
 HOOK_MARK = "WINMUX-HOOK"
 HOOK_BEGIN = "WINMUX-HOOK-BEGIN"
 HOOK_END = "WINMUX-HOOK-END"
+HOOK_REPLACES = "WINMUX-HOOK-REPLACES"
 MOVED_PREFIX = "moved-to="
 RERERE = ("-c", "rerere.enabled=true", "-c", "rerere.autoUpdate=true")
 MANIFEST_HEADER = """\
@@ -364,6 +365,15 @@ def upstream_changes(repo, base_rev, target):
     return changes
 
 
+def replacement_hooks(repo, rev, path):
+    """Names of WINMUX-HOOK-REPLACES markers in path at rev."""
+    try:
+        text = git(repo, "show", f"{rev}:{path}", strip=False)
+    except UsageError:
+        return []
+    return re.findall(HOOK_REPLACES + r"\(([^)]*)\)", text)
+
+
 def conflict_classifier(repo, manifest, base_rev, target, head="HEAD"):
     """Return a function path -> class label for merge conflicts between head and target."""
     head_paths = set(tree_blobs(repo, head))
@@ -415,6 +425,10 @@ def report(repo, target, head="HEAD", with_conflicts=True):
         else:
             cls = manifest.cls(old)
             action = ACTIONS.get(cls, ACTIONS[None])
+            replaced = replacement_hooks(repo, head, old) if cls == "hooked" else []
+            if replaced:
+                action = ("REVIEW: upstream body under replacement hook(s) " + ", ".join(replaced)
+                          + " is not executed; port changes into WinMuxHooks")
             moved = manifest.moved_to(old)
             if cls == "deleted" and moved:
                 action = f"PORT BY HAND to `{moved}` (WinMux moved this file)"

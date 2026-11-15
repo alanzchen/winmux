@@ -1,7 +1,7 @@
-name: Upstream guard (advisory)
+name: Upstream guard
 
-# Manual-only like every hosted workflow in this fork. Advisory until phase 2 of docs/upstream-sync.md:
-# it reports upstream-file drift but never fails the run.
+# Manual-only like every hosted workflow in this fork. Fails when a pristine or hooked upstream file carries an
+# unmarked WinMux change (docs/upstream-sync.md).
 on:
   workflow_dispatch:
 
@@ -12,7 +12,6 @@ jobs:
   guard:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    continue-on-error: true
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -22,5 +21,5 @@ jobs:
         run: python3 -B script/upstream-sync.py fetch
       - name: Test the sync tooling
         run: python3 -B script/test_upstream_sync.py
-      - name: Guard upstream files (advisory)
-        run: python3 -B script/upstream-sync.py guard --advisory
+      - name: Guard upstream files
+        run: python3 -B script/upstream-sync.py guard

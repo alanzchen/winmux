@@ -30,6 +30,7 @@ UPSTREAM_FILES = {
     "Sources/hooked.swift": "func f() {\n    one()\n    two()\n}\n\nfunc g() {\n    three()\n}\n",
     "Sources/forked.swift": "let mode = \"upstream\"\n",
     "Sources/moved.swift": "struct Moved {}\n",
+    "Sources/replaced.swift": "func r() -> Int {\n    return 1\n}\n",
     "docs/guide.adoc": "= Guide\n",
     "old.sh": "echo old\n",
 }
@@ -63,6 +64,7 @@ def manifest_text(extra=""):
     return sync.MANIFEST_HEADER + (
         "pristine\tSources/core.swift\n"
         "hooked\tSources/hooked.swift\n"
+        "hooked\tSources/replaced.swift\n"
         "forked\tSources/forked.swift\n"
         "deleted\tSources/moved.swift\t\tmoved-to=Sources/ui/moved.swift\n"
         "deleted\told.sh\n"
@@ -94,6 +96,9 @@ class ForkFixture(unittest.TestCase):
         self.repo.write("Sources/hooked.swift", UPSTREAM_FILES["Sources/hooked.swift"].replace(
             "    one()\n", "    one()\n    WinMux.hooks.afterOne() // WINMUX-HOOK(afterOne)\n"))
         self.repo.write("Sources/forked.swift", "let mode = \"winmux\"\n")
+        self.repo.write("Sources/replaced.swift", UPSTREAM_FILES["Sources/replaced.swift"].replace(
+            "func r() -> Int {\n", "func r() -> Int {\n    // WINMUX-HOOK-REPLACES(r)\n"
+            "    if true { return WinMuxHooks.r() } // WINMUX-HOOK(r)\n"))
         self.repo.remove("docs/guide.adoc")
         self.repo.remove("old.sh")
         self.repo.remove("Sources/moved.swift")
@@ -118,6 +123,7 @@ class ForkFixture(unittest.TestCase):
         self.repo.write("docs/guide.adoc", "= Guide v2\n")
         self.repo.write("docs/new.adoc", "= New\n")
         self.repo.write("Sources/new.swift", "struct New {}\n")
+        self.repo.write("Sources/replaced.swift", "func r() -> Int {\n    return 2\n}\n")
         self.u1 = self.repo.commit("upstream changes")
         self.repo.git("checkout", "-q", "work")
 
@@ -135,7 +141,7 @@ class GuardTest(ForkFixture):
         errors, warnings, summary = self.guard_messages()
         self.assertEqual(errors, [])
         self.assertEqual(summary["counts"]["pristine"], 1)
-        self.assertEqual(summary["counts"]["hooked"], 1)
+        self.assertEqual(summary["counts"]["hooked"], 2)
         self.assertEqual(summary["winmux_only_files"], 5)
 
     def test_modified_pristine_file_is_an_error(self):
@@ -270,6 +276,7 @@ class ReportAndMergeTest(ForkFixture):
         self.assertIn("| A | `docs/new.adoc` | +1/-0 | auto-resolved: new file under a deleted pattern is dropped |", text)
         self.assertIn("| A | `Sources/new.swift` | +1/-0 | new upstream file: becomes pristine |", text)
         self.assertIn("- **forked**: `Sources/forked.swift`", text)
+        self.assertIn("REVIEW: upstream body under replacement hook(s) r is not executed", text)
         self.assertIn("| deleted | 1 | modify/delete 1 |", text)
         self.assertIn("- **deleted, moved: port by hand**: `Sources/moved.swift` (modify/delete)", text)
 
@@ -287,7 +294,9 @@ class ReportAndMergeTest(ForkFixture):
         self.assertIn("WINMUX-HOOK(afterOne)", (self.repo.path / "Sources/hooked.swift").read_text())
         self.repo.write("Sources/forked.swift", "let mode = \"winmux\"\n")
         self.repo.write("Sources/ui/moved.swift", "struct Moved { let winmux = true; let upstream = 2 }\n")
-        self.repo.git("add", "Sources/forked.swift", "Sources/ui/moved.swift")
+        self.repo.write("Sources/replaced.swift", "func r() -> Int {\n    // WINMUX-HOOK-REPLACES(r)\n"
+                        "    if true { return WinMuxHooks.r() } // WINMUX-HOOK(r)\n    return 2\n}\n")
+        self.repo.git("add", "Sources/forked.swift", "Sources/ui/moved.swift", "Sources/replaced.swift")
         self.repo.git("rm", "-q", "Sources/moved.swift")
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(sync.main(["-C", str(self.repo.path), "finish"]), 0)

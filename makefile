@@ -154,13 +154,14 @@ ship-wait:
 ship-status:
 	python3 -B script/ship.py status $(if $(RUN),"$(RUN)")
 
-# Upstream AeroSpace sync (docs/upstream-sync.md). The guard is advisory until phase 2 ends.
+# Upstream AeroSpace sync (docs/upstream-sync.md). The guard fails on any pristine or hooked upstream file
+# that carries an unmarked WinMux change.
 .PHONY: upstream-fetch upstream-guard upstream-report
 upstream-fetch:
 	python3 -B script/upstream-sync.py fetch
 
 upstream-guard:
-	python3 -B script/upstream-sync.py guard --advisory $(if $(LIMIT),--limit "$(LIMIT)",--limit 40)
+	python3 -B script/upstream-sync.py guard $(if $(LIMIT),--limit "$(LIMIT)",--limit 40)
 
 upstream-report:
 	mkdir -p .local/upstream-sync
