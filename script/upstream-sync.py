@@ -416,12 +416,36 @@ def report(repo, target, head="HEAD", with_conflicts=True):
         lines.append("")
     if with_conflicts:
         found = conflicts(repo, base_rev, head, target)
+        renamed_from = {new: old for status, old, new, _ in upstream_changes(repo, base_rev, target) if status == "R"}
+        moved_into = {manifest.moved_to(row["path"]): row["path"] for row in manifest.rows if manifest.moved_to(row["path"])}
         lines.append(f"## Dry-run merge conflicts ({len(found)})\n")
         by_class = {}
         for kind, path in found:
-            by_class.setdefault(manifest.cls(path) or "new/unclassified", []).append((kind, path))
+            if manifest.row(path) and not (path in head_paths and manifest.cls(path) == "winmux-only"):
+                cls = manifest.cls(path)
+            elif path in moved_into:
+                cls = "moved (WinMux copy of an upstream file)"
+            elif path in renamed_from:
+                cls = manifest.cls(renamed_from[path]) or "new"
+            elif path in head_paths:
+                cls = "winmux-only"
+            else:
+                cls = "new"
+            if cls == "deleted" and manifest.moved_to(renamed_from.get(path, path)):
+                cls = "deleted, moved: port by hand"
+            by_class.setdefault(cls, []).append((kind, path))
+        lines.append("| class | conflicts | kinds |")
+        lines.append("|---|---|---|")
         for cls, items in sorted(by_class.items()):
-            lines.append(f"- **{cls}** ({len(items)}): " + ", ".join(f"`{p}` ({k})" for k, p in items))
+            kinds = {}
+            for kind, _ in items:
+                kinds[kind] = kinds.get(kind, 0) + 1
+            lines.append(f"| {cls} | {len(items)} | " + ", ".join(f"{k} {n}" for k, n in sorted(kinds.items())) + " |")
+        lines.append("")
+        for cls, items in sorted(by_class.items()):
+            if cls == "deleted":
+                continue
+            lines.append(f"- **{cls}**: " + ", ".join(f"`{p}`" + ("" if k == "content" else f" ({k})") for k, p in items))
         lines.append("")
     lines.append("## Upstream commits\n")
     lines += [f"- `{c.split(chr(9))[0]}` {c.split(chr(9))[1]} {c.split(chr(9), 2)[2]}" for c in commits]

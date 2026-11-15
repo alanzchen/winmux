@@ -10,7 +10,12 @@ deleted	.github/FUNDING.yml
 deleted	.github/gh-actions-runner-xcode-select.sh
 deleted	.github/pull_request_template.md
 deleted	.github/workflows/build.yml
+winmux-only	.github/workflows/ci.yml		WinMux workflow (manual-only)
 deleted	.github/workflows/close-third-party-issues.yml
+winmux-only	.github/workflows/prerelease.yml		WinMux workflow (manual-only)
+winmux-only	.github/workflows/release.yml		WinMux workflow (manual-only)
+winmux-only	.github/workflows/update-homebrew-cask.yml		WinMux workflow (manual-only)
+winmux-only	.github/workflows/upstream-guard.yml		WinMux workflow (manual-only)
 forked	.gitignore	forked	WinMux build/branding/docs (2 changed lines)
 forked	.swift-version	forked	WinMux build/branding/docs (2 changed lines)
 deleted	.swiftformat
@@ -303,11 +308,13 @@ forked	script/publish-release.sh	forked	WinMux build/branding/docs (57 changed l
 deleted	script/reset-accessibility-permission-for-debug.sh
 forked	script/setup.sh	forked	WinMux build/branding/docs (54 changed lines)
 deleted	.bundle/*		upstream Ruby/asciidoctor tooling
+deleted	.github/*		upstream CI and repository automation; the fork's own workflows are listed as winmux-only
 deleted	.github/DISCUSSION_TEMPLATE/*		upstream GitHub templates
 deleted	.github/ISSUE_TEMPLATE/*		upstream GitHub templates
 deleted	.idea/*		IDE settings
 deleted	AeroSpace.xcodeproj/*		upstream Xcode project; WinMux generates from project.yml
 deleted	ShellParserGenerated/*		ANTLR shell parser (dead at the fork)
+winmux-only	Sources/AppBundle/WinMux/*		hook registry and WinMux core (phase 2)
 winmux-only	Sources/AppBundle/browser/*		browser tabs
 winmux-only	Sources/AppBundle/command/impl/agent/*		agent command
 winmux-only	Sources/AppBundle/mcp/*		MCP server
@@ -316,7 +323,6 @@ winmux-only	Sources/AppBundle/ui/sidebar/*		sidebar
 winmux-only	Sources/AppBundle/ui/tabs/*		tab strip
 winmux-only	Sources/ChromeExtension/*		Chrome extension
 winmux-only	Sources/SafariExtension/*		Safari extension
-winmux-only	Sources/AppBundle/WinMux/*		hook registry and WinMux core (phase 2)
 deleted	axDumps/*		upstream AX fixture dumps; WinMux keeps anonymized fixtures in test-fixtures/
 deleted	dev-docs/*		upstream developer docs
 deleted	docs/*.adoc		upstream docs site; WinMux docs are Markdown

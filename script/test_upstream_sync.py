@@ -269,7 +269,9 @@ class ReportAndMergeTest(ForkFixture):
         self.assertIn("PORT BY HAND to `Sources/ui/moved.swift`", text)
         self.assertIn("| A | `docs/new.adoc` | +1/-0 | auto-resolved: new file under a deleted pattern is dropped |", text)
         self.assertIn("| A | `Sources/new.swift` | +1/-0 | new upstream file: becomes pristine |", text)
-        self.assertIn("**forked** (1): `Sources/forked.swift` (content)", text)
+        self.assertIn("- **forked**: `Sources/forked.swift`", text)
+        self.assertIn("| deleted | 1 | modify/delete 1 |", text)
+        self.assertIn("- **deleted, moved: port by hand**: `Sources/moved.swift` (modify/delete)", text)
 
     def test_merge_auto_resolves_deletions_and_finish_records_base(self):
         with contextlib.redirect_stdout(io.StringIO()) as out:
