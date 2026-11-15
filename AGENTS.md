@@ -60,7 +60,7 @@ reviewers. Review completion does not authorize a release or GitHub CI run.
 
 ## Fork Compatibility
 
-Preserve fork features when integrating upstream: sidebar layer settings, settings scroll retention, and CLI automation. Keep TOML and command behavior compatible, and distribute matching app/CLI versions. Check both fork branches and upstream before choosing a base; fork features may live outside `main`.
+Integrate upstream AeroSpace only through [docs/upstream-sync.md](docs/upstream-sync.md): real merges via `script/upstream-sync.py`, never in-place edits of `pristine` or `hooked` upstream files (see `script/upstream/manifest.tsv`; `make upstream-guard`). Preserve fork features when integrating upstream: sidebar layer settings, settings scroll retention, and CLI automation. Keep TOML and command behavior compatible, and distribute matching app/CLI versions. Check both fork branches and upstream before choosing a base; fork features may live outside `main`.
 
 ## Feature Delivery
 

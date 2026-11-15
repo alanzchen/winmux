@@ -1,0 +1,400 @@
+# Upstream AeroSpace sync
+
+WinMux is a fork of [AeroSpace](https://github.com/nikitabobko/AeroSpace). This document is the procedure and the plan for
+merging upstream losslessly: real `git merge`s of upstream history, with WinMux's features coupled to the upstream core
+through a small set of marked hooks instead of edits spread through upstream files.
+
+Status (2026-11-15): phase 0 tooling is in review on `upstream/phase0-20261115`. The history join on `main` waits for the
+current liveness release. Background analysis (module map, coupling inventory, merge-cost measurements) lives in
+`.winmux-diagnostics/upstream-integration-20261115/REPORT.md` outside the repository.
+
+## The model
+
+Every path in the last merged upstream tree has exactly one class in [`script/upstream/manifest.tsv`](../script/upstream/manifest.tsv):
+
+| Class | Meaning | What a merge does |
+|---|---|---|
+| `pristine` | Byte-identical to upstream. | Merges as is. Any WinMux edit is a guard error. |
+| `hooked` | Upstream lines untouched. The only additions are lines marked `// WINMUX-HOOK(name)`, or blocks between `// WINMUX-HOOK-BEGIN(name)` and `// WINMUX-HOOK-END(name)`. | Merges as is unless upstream edits the lines next to a hook. The hook line is then re-applied. |
+| `forked` | WinMux owns the file. Budget: at most 10 non-test `Sources/` files at the end of phase 3. | Conflicts are expected. Port the upstream diff by hand and log the decision. |
+| `deleted` | WinMux removed it. Globs are allowed, so new upstream files under a dropped tree (docs site, `axDumps/`, `.github/`) are dropped too. A `moved-to=` note means the content lives on elsewhere and must be ported by hand. | Auto-resolved by `resolve-deleted`. |
+| `winmux-only` | Not an upstream path. This is the default for anything absent from upstream. | A report entry if upstream ever adds the same path. |
+
+The manifest's `target` column records the class each file should reach by the end of phase 3. The guard prints the
+pending transitions as a progress count.
+
+`script/upstream/state.json` records the upstream URL, the fork point, and `upstream_base`: the last upstream commit merged
+into WinMux, against which the guard compares.
+
+## Tooling
+
+`script/upstream-sync.py`. Tests: `python3 -B script/test_upstream_sync.py`. These run with the release's
+`unittest discover`, use synthetic repositories only, and need no network.
+
+| Command | What it does |
+|---|---|
+| `fetch` (`make upstream-fetch`) | Fetches upstream `main` into `refs/remotes/aerospace/main`, plus the recorded base, without adding a remote or changing git config. Note that this repository's remote named `upstream` is ZimengXiong's fork, not AeroSpace. |
+| `guard [--advisory] [--rev R]` (`make upstream-guard`) | Checks every upstream path against its class at `R` (default `HEAD`; the manifest is read from the same revision). Exits 1 on errors unless `--advisory`. |
+| `report [--upstream REF] [--out F]` (`make upstream-report`) | Covers what upstream changed since `upstream_base`: per-file action by class, a dry-run merge (`git merge-tree` with the recorded base), conflicts by class, and the commit list. |
+| `merge [TARGET] [--allow-main]` | Writes the report to `.local/upstream-sync/`, then runs `git merge --no-ff --no-commit TARGET` with `rerere.enabled` and `rerere.autoUpdate` on. Auto-resolves deletions and prints the remaining conflicts by class. |
+| `resolve-deleted [--dry-run]` | Run during a merge. Drops upstream edits to deleted paths (following upstream renames) and new upstream files under deleted globs. Leaves `moved-to` paths with a `PORT` line. |
+| `finish [--no-commit]` | After resolving: records `MERGE_HEAD` as `upstream_base`, adds manifest rows for new upstream files, reclassifies rows whose state changed, then commits with rerere. |
+| `manifest [--base REV]` | Adds rows for unclassified upstream paths and refreshes pristine/forked/deleted classes from the tree. |
+| `history-join [--execute --allow-main --trailer T]` | Prints, or runs with checks, the one-time history join below. |
+
+**Rerere.** It is enabled per command (`git -c rerere.enabled=true -c rerere.autoUpdate=true`) inside `merge` and `finish`,
+not in the shared repository config. Turning it on repo-wide would change merges in every agent's worktree. The resolution
+cache lives in the common `.git/rr-cache`, so every worktree that syncs through the tool reuses it.
+
+**CI.** `.github/workflows/upstream-guard.yml` is manual-only, like every hosted workflow here, and advisory
+(`continue-on-error`). Locally, `make upstream-guard` is the check. It becomes blocking (drop `--advisory`) at the end of
+phase 2, once no forked file is waiting for its hooked transition.
+
+## Phase 0: history join (one time, on `main`)
+
+WinMux's import rewrote upstream's first 1,508 commits. WinMux `bf8c7a95` has the same tree as upstream `13b35332` (tree
+`5148fad7`) under a different id, so git computes a 2023 merge base, and a plain merge shows 207 add/add conflicts. A no-op
+merge records the true ancestry and changes no files.
+
+Run in the main checkout once the liveness Preview has shipped and the coordinator says go:
+
+```sh
+git switch main && git pull --ff-only origin main
+python3 -B script/upstream-sync.py fetch
+python3 -B script/upstream-sync.py history-join --execute --allow-main \
+  --trailer "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+# The script checks: both fork commits present, identical trees, HEAD descends from bf8c7a95,
+# clean tree, tree unchanged after the merge, merge base with upstream = 13b35332.
+git diff --name-only HEAD^1 HEAD            # must print nothing
+git merge-base HEAD refs/remotes/aerospace/main   # 13b35332c9d4dab571e3ceec38c6905cd1a0bb39
+git push origin HEAD:main
+```
+
+Effects:
+- No file and no build output changes. Nothing derives versions from commit counts (`makefile` uses the hash only).
+- `git rev-list --count HEAD` grows by 1,509.
+- The push uploads upstream's history objects to the fork.
+- `git log` and `git blame` on `main` start showing upstream commits.
+- GitHub's generated release notes list pull requests, so they are unaffected. A "Full Changelog" compare link spanning the join lists the upstream commits once.
+
+The join does not need its own Preview. The next phase candidate carries it.
+
+Rehearsal in a scratch clone (2026-11-15, WinMux `c676ddac` + AeroSpace `6ed6af62`):
+- The join left the tree unchanged, and the merge base became `13b35332`.
+- `merge --allow-main` of upstream HEAD hit 316 conflicts and auto-resolved 208 deleted paths: 181 conflicts plus 27 new upstream files under deleted globs.
+- 135 conflicts remained: 121 forked, 2 forked files that upstream renamed, 7 deleted-but-moved ports, 3 WinMux copies of moved upstream files, and 2 add/add collisions (`AppBundleTests/command/LayoutCommandTest.swift`, `Common/util/ArrayEx.swift`).
+- Rerere recorded 124 preimages. The merge was then aborted.
+
+## Phase 1: noise reduction (behavior-neutral)
+
+Goal: shrink WinMux's diff in upstream files without changing behavior, so later merges and hook extraction work on real
+differences. Every item ships only if the full suite stays green, `make upstream-guard` reports no new errors, and the
+CLI golden outputs (below) are byte-identical.
+
+1. **Branding by value, not by identifier.** Restore upstream identifiers: `AeroAny`, `AeroObj`,
+   `JSONEncoder.aeroSpaceDefault`, `aeroSpaceAppId`/`aeroSpaceAppName`, the `AEROSPACE_*` Swift constant names,
+   `duringAeroSpaceStartup`. Keep WinMux values in `Common/appMetadata.swift` plus a new winmux-only `Common/branding.swift`
+   (`cliName`, `appDisplayName`, `envPrefix`, `configDirName`, socket path).
+   - Restore `Sources/AeroSpaceApp/` as the directory name, with the `WinMuxApp` product name set in `Package.swift`/`project.yml`.
+   - Export both `WINMUX_*` and `AEROSPACE_*` to `exec-*` children. This is additive: new environment variables only.
+   - Keep `during-winmux-startup` and accept `during-aerospace-startup` as an alias.
+2. **Never move upstream code.** Move these back into their upstream files: `relayoutWindow`, `onWindowDetected`/`tryOnWindowDetected`,
+   `unbindAndGetBindingData…`, focus-after-close, `hideInCorner`/`unhideFromCorner`, `AxWindow`/`getOrRegisterAxWindow`,
+   `MacApp.setFrame`, `keysMap.swift`, the `parseConfig.swift` → `Toml*.swift` split, and the `HotkeyBinding` split. WinMux
+   additions stay in WinMux files and are reached through the call sites phase 2 turns into hooks. Restore
+   `ui/{MessageView,NSPanelHud,VolumeView,SecureInputView}.swift`, `mouse/resizeWithMouse.swift` and
+   `Cli/subcommandDescriptionsGenerated.swift` at their upstream paths. WinMux variants become extensions in winmux-only files.
+3. **Registries instead of shared switches.**
+   - Revert `cmdManifest.swift` to upstream's kind switch, with WinMux commands added as marked lines.
+   - Replace the `canSkipPostCommandRefresh` switch in `Command.swift` with a per-command property (WinMux commands set it in their own files).
+   - Move WinMux help strings next to each command's arguments, out of `cmdHelpGenerated.swift`.
+4. **One field per config.** Move the WinMux `Config` fields behind `var winmux = WinMuxConfig()`, with parsers in one
+   `winmuxConfigParsers` dictionary merged into `configParser` on one marked line.
+5. **Hotspot files last.** `tree/MacApp.swift`, `tree/MacWindow.swift`, `layout/refresh.swift` and
+   `tree/frozen/closedWindowsCache.swift` are touched only after the liveness fix is on `main`, and only with rebased,
+   behavior-neutral moves.
+
+New tests:
+- **CLI golden outputs.** Add `Sources/AppBundleTests/upstream/CliGoldenTest.swift`, a deterministic test world (existing
+  `TestWindow` fixtures). It records `list-windows/workspaces/monitors/apps/projects --format/--json`, `config`, `--help`
+  and error texts and exit codes, and compares them against checked-in golden files.
+- **Persisted-state round trips.** Add tests over the frozen world, saved workspaces, sidebar pins and window rules,
+  loaded from fixtures written by the current release.
+- **Config corpus.** Parse `resources/default-config.toml`, `resources/default-window-rules.toml` and new synthetic
+  configs in `test-fixtures/config/` with the same diagnostics.
+
+User-visible risk: none intended. Possible regressions are a wrong brand string (caught by golden outputs) or the new
+`AEROSPACE_*` variables appearing in `list-exec-env-vars` (documented).
+
+Exit: one reviewed candidate, approved by both Astra and Carbon, shipped as a Preview.
+
+## Phase 2: hooks
+
+Goal: every WinMux insertion in an upstream file becomes a named hook call, and every upstream file reaches its target
+class. The guard becomes blocking at the end.
+
+### Layout
+
+WinMux's hook code lives in `Sources/AppBundle/WinMux/` (winmux-only, same module). The module boundary is not the unit of
+isolation: moving WinMux into its own target would need `package`/`public` on hundreds of upstream declarations, which is
+far more diff in upstream files than hooks. Each hook call site in an upstream file is one marked line, or a marked block
+when it has to return early:
+
+```swift
+WinMux.hooks.windowWillUnregister(self) // WINMUX-HOOK(windowWillUnregister)
+// WINMUX-HOOK-BEGIN(frameWrite)
+if case .skip = WinMux.hooks.frameWrite(self, rect: rect, kind: .layout) { return }
+// WINMUX-HOOK-END(frameWrite)
+```
+
+Defaults reproduce upstream behavior exactly. `WinMux.hooks` is replaced in tests, so upstream's own tests keep testing
+upstream behavior, and WinMux's tests install the WinMux implementation.
+
+### Per-object extension state
+
+Instead of more stored properties on upstream classes, each core class gets one marked field:
+
+```swift
+var winmux = WindowMeta() // WINMUX-HOOK(windowMeta)        in Window
+var winmux = WorkspaceMeta() // WINMUX-HOOK(workspaceMeta)  in Workspace
+var winmux = MonitorMeta() // WINMUX-HOOK(monitorMeta)      in Monitor (tree node, after slice 7)
+var winmux = AppMeta() // WINMUX-HOOK(appMeta)              in MacApp
+var winmux = AxWindowMeta() // WINMUX-HOOK(axWindowMeta)    in AxWindow (AX-thread confined)
+```
+
+The structs live in winmux-only files and hold:
+
+| Struct | Contents |
+|---|---|
+| `WindowMeta` | frame-fit state, native-state cache and its token, placement stamp, first-seen time, liveness absences |
+| `WorkspaceMeta` | §Side tables below |
+| `MonitorMeta` | §Side tables below |
+| `AppMeta` | frame-write barrier and ledger, fast-timeout handle, transient-focus flag |
+| `AxWindowMeta` | browser tab scanner and observation, `WindowFrameFit` |
+
+### Hook list
+
+All hooks are `@MainActor` unless noted. "Policy" hooks return a decision and are mutation-checked: each one gets a test
+that fails when the WinMux implementation is replaced by the default.
+
+Lifecycle events (fire-and-forget):
+
+| Hook | Call site (upstream file: function) | Replaces WinMux code at |
+|---|---|---|
+| `startup(_ phase: StartupPhase)` (`.beforeConfig`, `.afterConfig`, `.beforeFirstRefresh`, `.didFinish`) | `initAppBundle.swift: initAppBundle` | saved store/sidebar/link loaders, `MonitorConfigurationObserver`, `MCPServer.appDidStart`, saved app relaunch |
+| `configDidReload(_ config: Config)` | `ReloadConfigCommand.swift: reloadConfig` | sidebar/tab strip/MCP/window rules fan-out |
+| `appActivated(pid: pid_t)` | `GlobalObserver.swift: onNotif` | aux-window activation, wake re-park |
+| `installEventMonitors()` | `GlobalObserver.swift: initObserver` | drag/key/wake monitors, sequence bindings |
+| `appWillDestroy(_ app: MacApp)` | `MacApp.swift: destroy` | saved runtime and pin cleanup |
+| `workspaceWillGarbageCollect(_ workspace: Workspace)` | upstream's unused-workspace GC | drop `WorkspaceMeta` indexes; empty-tab and project retention rules via `keepsWorkspace` below |
+| `windowDidRegister(_ window: Window)` | `MacWindow.swift: getOrRegister` | lifecycle log, aux recording, floating presentation |
+| `windowWillUnregister(_ window: Window)` | `MacWindow.swift: garbageCollect` | pin sync/forget, aux registry, lifecycle log |
+| `nodeDidBind(_ node: TreeNode, oldParent: NonLeafTreeNodeObject?)` / `nodeDidUnbind(_ node: TreeNode, from: NonLeafTreeNodeObject)` | `TreeNode.swift: bind`, `unbindIfBound` | frame-fit relation, placement stamp, empty-tab lifecycle, move log |
+| `focusDidChange(_ focus: LiveFocus)` | `focus.swift: setFocus` | focus generation, aux focus note |
+| `workspaceDidActivate(_ workspace: Workspace)` | `focus.swift: focusWorkspace` | sidebar edge-trap suppression |
+| `sessionWillBegin(_ event: RefreshSessionEvent) -> RefreshSessionScope` / `sessionDidEnd(_ event: RefreshSessionEvent)` | `refresh.swift`: session entry/exit | perf recorder, focus snapshot, floating presentation task-locals |
+| `modelDidNormalize()` | `refresh.swift: refreshModel` | stack→tab migration, pin compositions, workspace reconciliation |
+| `windowsDidEnumerate()` | `refresh.swift: refresh` | saved listing end, persisted frozen world, aux link recovery |
+| `layoutWillBegin()` / `layoutDidEnd()` | `refresh.swift`: around `layoutWorkspaces` | sidebar/tray/launcher/tab strip model updates (post-layout snapshot bus) |
+| `axNotification(_ name: String, app: MacApp, windowId: UInt32?)` | `refresh.swift: refreshObs` | native-state cache invalidation, focus-event counter |
+
+Policy hooks:
+
+| Hook | Call site | Default | WinMux policy |
+|---|---|---|---|
+| `newWindowBinding(_ window: MacWindow, default: BindingData) async -> BindingData` | `MacWindow.swift: getOrRegister` | `default` | intents, pin-page wait, aux float, open in new workspace, tab-group MRU |
+| `windowDetected(_ window: Window) async -> WindowDetection` (`.runCallbacks` / `.handled`) | before `onWindowDetected` | `.runCallbacks` | persisted world restore, saved-workspace routing, empty pin |
+| `liveness(_ evidence: WindowLivenessEvidence) -> WindowLifeStatusDecision` | `MacApp.swift: refreshAndGetAliveWindowIds` | upstream's status | the liveness evidence table (§Liveness) |
+| `isWindow(app: MacApp, windowId: UInt32, subrole: String?) -> Bool?` | `AxUiElementWindowType.swift: isWindowHeuristic` | `nil` (upstream heuristic) | open/save panel, attached transient, Mail aux role |
+| `reservedInsets(_ monitor: MonitorInfo) -> EdgeInsets` | `MonitorEx.swift: visibleRectPaddedByOuterGaps` | `.zero` | sidebar width per display side |
+| `layoutContainer(_ container: TilingContainer, _ rect: Rect, _ context: inout LayoutContext) async -> Bool` | `layoutRecursive.swift`: `.accordion` case | `false` (upstream accordion) | tab groups: tab-bar inset, active child, park the rest |
+| `layoutWorkspace(_ workspace: Workspace, _ context: inout LayoutContext) async -> Bool` | `layoutRecursive.swift: layoutWorkspace` | `false` | fullscreen tab |
+| `rootLayout(_ workspace: Workspace) -> Layout?` | `WorkspaceEx.swift: rootTilingContainer` | `nil` | Tabs mode → `.tiles` |
+| `frameWrite(_ window: Window, rect: Rect, kind: FrameWriteKind) -> FrameWriteDecision` (`.write(Rect)` / `.skip`) | `Window.setAxFrame`, `layoutRecursive` window case | `.write(rect)` | frame-fit target, reuse skip, drag gate, ledger |
+| `didWriteFrame(_ window: Window, requested: Rect, kind: FrameWriteKind)` | after the AX write | none | frame-fit follow-ups |
+| `hide(_ window: MacWindow, corner: OptimalHideCorner) async -> Bool` / `unhide(_ window: MacWindow) async -> Bool` | `MacWindow.swift: hideInCorner/unhideFromCorner` | `false` | confirmed-park state machine |
+| `keepsWorkspace(_ workspace: Workspace) -> Bool` | upstream's unused-workspace GC | `false` | durable, saved, pinned, and retained-after-project-move workspaces |
+| `focusAfterClose(_ window: Window, parent: NonLeafTreeNodeObject) -> LiveFocus?` | `MacWindow.swift: garbageCollect` | `nil` | multi-candidate focus, close tab with last window |
+| `workspaceForMonitor(_ monitor: Monitor, candidates: [Workspace]) -> Workspace?` | `Monitor.swift`/`WorkspacesContainerEx.swift`: visible workspace choice and stub creation | `nil` | project-preserving per-display choice |
+| `matchMonitors(old: [Monitor], new: [MonitorInfo]) -> [Int: Int]?` | `Monitor.swift: rearrangeMonitors` | `nil` (closest point) | display identity keys |
+| `mouseMoved(_ window: Window) -> Bool` / `mouseResized(_ window: Window) -> Bool` / `mouseUp() -> Bool` | `moveWithMouse.swift: movedObs`, `resizeWithMouse.swift: resizedObs`, `resetManipulatedWithMouseIfPossible` | `false` | drag/resize engine |
+
+Registries (one marked line each in upstream files):
+- **Commands:** `cmdArgsManifest.swift` and `cmdManifest.swift`, one line per WinMux command.
+- **Config sections:** `winmuxConfigParsers`.
+- **Format variables:** `format.swift` stays forked until upstream's format refactors settle.
+- **`ServerEventType` additions:** project and tab events for `subscribe`.
+- **AX jobs:** `runAxJob(_ app: MacApp, windowId: UInt32, _ body: @Sendable (AXUIElement, inout AxWindowMeta) -> T) async -> T?` covers browser tabs, close button, New Window menu, pin-page reads and the MCP debug read.
+
+Expected forked set after phase 2 (non-test `Sources/`; listed in the manifest `target` column):
+
+| File | Why it stays forked |
+|---|---|
+| `layout/refresh.swift` | coalescing scheduler and requirement-gated session |
+| `layout/layoutRecursive.swift` | parking and staleness inside the layout pass |
+| `normalizeLayoutReason.swift` | native-state cache |
+| `config/HotkeyBinding.swift`, `config/Mode.swift` | tap and sequence bindings |
+| `Common/cmdHelpGenerated.swift` | help for WinMux flags |
+| `Common/util/NWConnectionEx.swift` | socket timeouts and frame cap |
+| `Common/util/commonUtil.swift` | refresh events and requirements |
+| `command/format.swift` | project and workspace format variables |
+
+Coalescing and the socket timeouts are candidates to propose upstream; if accepted, those files drop out of the forked set.
+
+Tests: the full suite stays green after every step. Each policy hook gets a mutation check. The guard runs strictly
+(`guard` without `--advisory`) and must pass. The CLI golden outputs stay identical.
+
+User-visible risk: low to medium. Hooks change call order in a few places: sidebar model updates, focus side effects, and
+startup phase boundaries. Timing-sensitive behavior (sidebar flicker, focus after close, parking) gets a Golden Gate VM
+smoke pass with synthetic windows, and the VM is stopped afterwards.
+
+Exit: guard strict and green, one reviewed candidate (Astra and Carbon approve), Preview.
+
+## Phase 3: merge train
+
+Upstream `main` is linear (`git log --first-parent` and the full log both count 366 commits from `13b35332` to
+`6ed6af62`). The train merges it at chronological cut points chosen at series boundaries. Each slice is `merge <cut>`,
+then resolve, `finish`, test, review, and its own Preview. Positions (#) count upstream commits after the fork, oldest
+first.
+
+| Slice | Cut (last commit) | Upstream range | What arrives | WinMux work |
+|---|---|---|---|---|
+| S1 | `ff4d9c1d` | #1–6 | Small fixes and cleanups. Proves the train mechanics and deletion resolution. | trivial |
+| S2 | `aca3200e` | #7–32 | **TOMLKit → TOMLDecoder** (`16a0b634`), `ConfigParseError` renames, session renames (`scheduleCancellableCompleteRefreshSession`, `runHeavyCompleteRefreshSession`), cancellation made explicit | Port the WinMux config parsers to `OrderedJson` behind a thin adapter. Rename session call sites (27 lines in 13 files). |
+| S3 | `90347dbb` | #33–97 | **`ExitCode`** and the `Command.run` signature, `test` command, generic errors exit 2, command-valued `on-window-detected.if`, config diagnostics, `Task.startUnstructured`, `TilingContainerParentCases` | Port 15 WinMux commands to `ExitCodeType`. Re-check the WinMux exit-code contract (WinMux already uses 2 for usage errors). |
+| S4 | `43dff5a3` | #98–114 | **`FloatingWindowsContainer`** (`5e37ec0a`). `layout --fail-if-noop` (already ported). | WinMux code that binds floating windows to the workspace: new-window binding, frozen restore, aux windows, `.workspace` switches. |
+| S5 | `4e5a4351` | #115–164 | **Handwritten shell** (`f4be7288`). Bindings and callbacks run through it (`790e1222`, breaking). `eval`, `echo`, `true`/`false`. Callbacks run inline (`fdb27c59`). Socket handshake (`8413641c`, already ported). | Drop `runCmdSeq` users. Port `tabsListedAtSequenceStart` and the pointer-keeping task-local onto inline callbacks. Run the binding corpus. |
+| S6 | `ae2aa7aa` | #165–194 | Commands and callbacks non-cancellable (`ecfc745c`). **Focus-follows-mouse** (off by default). `_isStartup` removed. `getOrRegister` fixes and kCGNullWindowID (already ported). | Fold `AxAppWorker` guarantees into upstream's run loop with `CancellationMode`. Merge the FFM branch into the light session. |
+| S7a | `44444a02` (#224) | #195–224 | `Monitor` → `MonitorInfo` rename, TOML follow-ups, nested config tables | Mechanical renames across WinMux code (about 95 `activeWorkspace`, 135 `workspaceMonitor`, 104 `focus.` lines over S7a–S7b). |
+| S7b | `c736e8e3` | #225–251 | **Monitor TreeNode** (`8ba2e4c1`…`c419f4b2`). Frozen world nested under monitors (`b7175354`). Focus on every monitor at startup (`58238ba5`). Idempotent `refreshAndGetAliveWindowIds` (`9fce49a3`). `getWindowLevel` off the main thread (`be3e58df`, `.optionAll` `b686e0f2`). | **The model migration** (§Side tables): remove `winMuxWorkspaceState`'s monitor ownership; viewport state moves to `MonitorMeta`; project-preserving assignment goes through `workspaceForMonitor`/`matchMonitors`. Frozen and saved schema migration. |
+| S8 | `80b3ebeb` | #252–280 | **`WindowLifeStatus`** tombstones and native tabs 1–19 (`inhabitedChildren`, accordion and command rewrites). `#myFileId` macro target. `Withable`. | Liveness mapping (§Liveness). Tab groups over `inhabitedChildren`. The new `Macros` target in `Package.swift`/`project.yml`. |
+| S9 | `c6a10d5a` | #281–330 | **`OpaqueWindowId`** (`afbac18e`). Native-tab swap heuristic (`9c16cb96`). `kAXMainWindowChangedNotification`. `window-id-native` format variable. | Migrate the `UInt32`-keyed side tables to `OpaqueWindowId`. Persisted state stays keyed by native ids (decision D1). Gate the swap heuristic (decision D2). |
+| S10 | `6ed6af62` (HEAD) | #331–366 | **XCTest → swift-testing** for upstream tests. Concurrent native-state and floating-rect queries (`846f1a22`). `CGPoint` → `Point`. `getWindowLevel` follow-ups (`0d498deb`, `7a3f2e34`). | Keep WinMux tests on XCTest (both frameworks run in one target). Keep the native-state cache on top of upstream's query primitive. |
+
+After S10, sync continues at upstream's pace (§Steady state).
+
+### Side tables: projects, pins and workspace identity on upstream's model
+
+Upstream (after S7b and S9):
+- `Monitor` is a tree node, with children `WorkspacesContainer` (holding `Workspace` nodes, `visibleWorkspaceNameOrStale`, `prevVisibleWorkspaceName`) and `FloatingWindowsContainer`.
+- Workspaces are keyed by name.
+- Windows are keyed by `OpaqueWindowId`, mapped per app to native `UInt32` ids through a `BiDictionary`.
+
+WinMux keeps the upstream structure and attaches its semantics:
+
+| WinMux concept | Today | On upstream's model |
+|---|---|---|
+| Workspace identity | `Workspace.id: WorkspaceId`, equality by object, `name` unique and immutable (renames create new workspaces) | Upstream `Workspace` with its unique name. `WorkspaceMeta.id` keeps WinMux's `WorkspaceId` for side-table keys and persisted references. Equality and hashing stay upstream's (by name). Because WinMux never reuses a live name for a different workspace, name equality and object identity agree. `workspaceWillGarbageCollect` drops the meta and any index entries. |
+| Workspace attributes | stored properties: `projectId`, `namingStyle`, `lifecycle`, `hasHadWindows`, `lastWindowClosed`, `retainsEmptyAfterProjectMove`, `preferredMonitorPoint` | `WorkspaceMeta` fields. `preferredMonitorPoint` maps to upstream's force-assigned monitor where configured, otherwise to the `workspaceForMonitor` policy. |
+| Workspace registry | `winMuxWorkspaceState.workspaceById` / `workspaceIdByName` | upstream's `Workspace.all`, plus a WinMux index `[WorkspaceId: Workspace]` rebuilt from `WorkspaceMeta` |
+| Projects | `projectsById`, workspace `projectId` | Unchanged WinMux registry (`WorkspaceProjects.swift`). Membership via `WorkspaceMeta.projectId`. |
+| Per-display state | `MonitorViewport`: active workspace, previous workspace, last active per project, display key, context project | Active → upstream `WorkspacesContainer.visibleWorkspaceNameOrStale` (`setVisibleWorkspace`). Previous → `prevVisibleWorkspaceName`. The other three → `MonitorMeta`. A viewport id becomes the `Monitor` node identity, re-associated by `matchMonitors` using display keys. |
+| Workspace ↔ display ownership | side registry; workspaces are tree roots | Upstream ownership: a workspace is a child of one monitor's `WorkspacesContainer`. Moving a project's workspace to another display is a `bindWorkspace` on that monitor. WinMux's project-preserving swaps become `workspaceForMonitor`. |
+| Tab members, pins, saved slots, aux links, intents | side tables keyed by `UInt32` window id (+ pid) | Live tables keyed by `OpaqueWindowId`. **Persisted** tables (saved workspaces, frozen world on disk, pin records) stay keyed by native id + pid + app identity, because opaque ids are a per-session counter (`OpaqueWindowId.nextUniqId`). Conversion at load/save via `MacApp.opaqueWindowId(of:)` / `nativeWindowId(of:)`. |
+| Tab groups | `Layout.tabGroup = "tab-group"` | Upstream's `.accordion` case, rendered by the `layoutContainer` hook. Config and CLI accept `tab-group`, `h_tab_group`, `v_tab_group` (WinMux) and `accordion`, `h_accordion`, `v_accordion` (upstream). Output keeps printing `tab-group` (format hook), so scripts see no change. Persisted `"tab-group"` decodes to `.accordion`. |
+| Floating windows | children of `Workspace` | children of `workspace.floatingWindowsContainer` (S4) |
+| Frozen world | top-level workspaces, Codable, project fields | Upstream's monitor-nested `FrozenWorld`, plus an optional Codable WinMux payload per workspace and window (`projectId`, `namingStyle`, `layoutReason` extras), versioned. The on-disk file gets a one-time migration with a fixture test. |
+
+### Liveness: the evidence model on upstream's alive/invisible/dead
+
+The liveness fix now finishing on `main` decides each registered window per refresh from three sources of evidence:
+- its own AX answer: alive, busy (timeout) or gone;
+- its app's `AXWindows`: names, omits or unread;
+- the window server's `.optionAll` list: unusable, absent, or listed with or without `onShownSpace`.
+
+It returns `keep`, `keepUnbound`, `rebind` or `drop`, and nothing is decided behind the lock screen. Upstream (S8) gives each
+window a `WindowLifeStatus`:
+- `alive`: laid out;
+- `invisible`: other Space or background tab; keeps its tree slot, not laid out;
+- `dead`: closed, or the locked screen.
+
+The `liveness` hook maps verdicts onto that status:
+
+| Liveness verdict | Window server / app context | Upstream status | Notes |
+|---|---|---|---|
+| `keep` | listed on the shown Space, or named by `AXWindows` | `.alive` | as upstream |
+| `keep` | listed off the shown Space (other Space, minimized, hidden app), or busy and listed | `.invisible` | matches upstream's "invisible macOS Spaces" meaning. Layout skips it and the slot is kept. |
+| `keepUnbound` | element stale, no fresh element yet | `.invisible` | no frame writes (upstream doesn't lay out invisible windows). Rebinding is retried every refresh. |
+| `rebind` | app lists the id afresh | `.alive`, after the hook swaps the `AxWindow` element under the same native id and keeps the `OpaqueWindowId` | upstream has no rebind. The swap happens in `AxWindowRegistry` before the status is returned. |
+| `drop` | positive evidence of closure (rows 4, 5, 7) | `.dead` | upstream then tombstones and garbage-collects as usual |
+| no decision | lock screen or suspended session | previous status | **differs from upstream**, which marks windows dead when the screen locks. WinMux never drops on a locked screen. |
+
+Busy absences (`windowServerAbsencesToLetGo = 2`) live in `WindowMeta`. Upstream's idempotent `refreshAndGetAliveWindowIds`
+(`9fce49a3`, S7b) is adopted: it cancels `setFrameJobs` for every non-alive id, and `.invisible` counts as non-alive there.
+That is consistent with `keepUnbound` doing no writes. Tests: the liveness fix's evidence-table tests run unchanged against
+the hook, plus one test per mapping row asserting the upstream status, plus a mutation check of each row.
+
+### Decisions for Alan before the slices that need them
+
+- **D1 (before S9): what `window-id` means in CLI, MCP and `agent` output.**
+  - Today it is the native CGWindowID, which is stable while the window lives, survives a WinMux restart, and matches CG tools and screenshots.
+  - Upstream changes it to a per-session opaque counter.
+  - Recommendation: keep printing the native id as `window-id` in WinMux output (the format hook) and add `window-id-opaque`, so scripts and agents keep working. Internally use `OpaqueWindowId`.
+- **D2 (before S9): upstream's native-tab swap heuristic.**
+  - Upstream may now treat a background macOS native tab (Finder, Terminal, Safari windows merged into tabs) as the same window as its front tab.
+  - Recommendation: keep WinMux's current behavior (each native tab window tracked on its own) by gating the heuristic off, and revisit once upstream's native tabs series is finished.
+- **D3 (S5): upstream's shell changes how binding and callback commands parse.** This is upstream's breaking change `790e1222`; it affects quoting, `&&`/`||`, and comments.
+  - Recommendation: adopt it (it is what mergeability requires), with a config check that warns on bindings whose meaning changes, and release notes.
+  - This is listed here because it changes user configs; no choice is needed unless Alan wants the old parser kept.
+
+### Test strategy per slice
+
+Every slice:
+- the full suite with `swift test --arch arm64`;
+- the script tests;
+- `make upstream-guard` in strict mode, with no pristine or hooked errors;
+- a build of the exact candidate commit (`make build`, then the release build through `make ship`);
+- the CLI golden outputs, where differences are allowed only where the slice intends them and are listed in the candidate notes;
+- the config corpus;
+- persisted-state fixtures loading from the previous Preview's formats.
+
+Before every build or test, check `pgrep -fl 'make ship|xctest|swift-test|swift-build'` and wait while another run is active.
+
+| Slice | Extra tests |
+|---|---|
+| S1 | none beyond the standard set |
+| S2 | The config corpus parses identically, including error positions and wording (allowed: upstream's diagnostic wording, listed). Round-trip of WinMux sections. TOML 1.1 syntax cases. |
+| S3 | A CLI exit-code table for every command (WinMux and upstream) against the golden file. `on-window-detected` with table and command `if`. |
+| S4 | Floating window bind, restore and drag tests over the new container. Golden Gate VM smoke: open, float, unfloat and move synthetic windows across workspaces. |
+| S5 | A binding/callback corpus through the new shell, with each parse result compared to the old one (differences reviewed one by one for D3). `exec-and-forget` limits. Sidebar pointer-keeping on callbacks. |
+| S6 | Cancellation tests for the AX worker under app termination (existing `AxAppWorkerTest`). FFM off by default: no focus changes on mouse move. |
+| S7a | Mechanical: suite plus golden outputs. |
+| S7b | Display-model tests: connect and disconnect, display key re-association, project per display, saved-workspace display affinity, stub workspaces, startup focus. Frozen and saved schema migration fixtures. Golden Gate VM with two virtual displays where available, otherwise a recorded hardware check by Alan. Highest-risk slice. |
+| S8 | The liveness evidence-table tests through the hook, with status mapping and mutation checks per row. Tab groups over tombstones. Lock-screen no-decision test. |
+| S9 | Side-table migration tests (`UInt32` → `OpaqueWindowId`). Persisted native-id tables round trip across restart. Golden output for D1. Heuristic gate for D2. |
+| S10 | Both test frameworks run. Concurrent native-state queries with the WinMux cache: cache invalidation tests. `Point` conversions in drag geometry tests. |
+
+User-visible risk per slice:
+
+| Slice | Risk |
+|---|---|
+| S1 | None. |
+| S2 | Config error messages change wording. A config that parsed under TOMLKit might be rejected or accepted differently (corpus test). |
+| S3 | Some CLI exit codes change for scripts. `on-window-detected` gains command-valued `if`. |
+| S4 | Floating windows: restore position and drag behavior. |
+| S5 | Binding and callback parsing (D3). |
+| S6 | Callbacks finish even when a refresh is superseded. FFM becomes available (off). |
+| S7a | None intended. |
+| S7b | Which workspace each display shows after connect/disconnect/wake, project per display, saved workspaces' displays. The most visible slice. Ship it alone with a longer Preview soak. |
+| S8 | Windows on other Spaces, minimized, or with stale AX elements: when they are laid out, kept or dropped. Close detection timing. |
+| S9 | Window ids in output (D1). Native tabs (D2). |
+| S10 | Mostly internal. Native-state query concurrency could change timing of fullscreen and minimize detection. |
+
+## Review and release rules (every phase and slice)
+
+- Behavior-neutral refactors (phases 1 and 2) keep the full suite green at every commit.
+- Each phase ends in one candidate commit. Astra and Carbon both review it, and fixes continue until both say SHIP. Build that exact commit, then `make ship` (Preview only, never stable). Phase 3 slices each ship separately.
+- Policy hooks carry mutation checks.
+- No live apps or personal windows. The Golden Gate VM is used only for explicit hardware-behavior checks, with synthetic data, and is stopped afterwards.
+
+## Steady state
+
+1. Run `make upstream-report` every 2–4 weeks or at each upstream release.
+2. Run `script/upstream-sync.py merge` on a branch. Resolve:
+   - hooked: re-apply hook lines;
+   - forked: port deliberately and log the decision in `docs/upstream-backports.md`;
+   - moved: port.
+3. Run `script/upstream-sync.py finish`, then the standard tests, then the strict guard.
+4. Review, then Preview.
+5. Never rebase upstream. Cherry-pick only urgent fixes, with `-x`; the next merge reconciles them.
+6. A new WinMux need in an upstream file means a new hook or registry entry, never an in-place edit of upstream logic. The strict guard enforces this from the end of phase 2.
