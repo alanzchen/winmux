@@ -3,13 +3,13 @@
     <channel>
         <title>WinMux</title>
         <item>
-            <title>0.6.420</title>
-            <pubDate>Sun, 15 Nov 2026 14:21:22 -0600</pubDate>
-            <sparkle:version>0.6.420</sparkle:version>
-            <sparkle:shortVersionString>0.6.420</sparkle:shortVersionString>
+            <title>0.6.421</title>
+            <pubDate>Sun, 15 Nov 2026 15:44:34 -0600</pubDate>
+            <sparkle:version>0.6.421</sparkle:version>
+            <sparkle:shortVersionString>0.6.421</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
             <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <enclosure url="https://github.com/alanzchen/winmux/releases/download/v0.6.420/WinMux-0.6.420.zip" length="9650019" type="application/octet-stream" sparkle:edSignature="dsSZyNdB3eBSz9emxxZPldMlD/yMCSvsnCqX3frOI74TZ+O6gmGz3XNj6AVlieWIYSM7kyFMc7bgcC15ywgGDQ=="/>
+            <enclosure url="https://github.com/alanzchen/winmux/releases/download/v0.6.421/WinMux-0.6.421.zip" length="9649720" type="application/octet-stream" sparkle:edSignature="6HGdQh1dxMCoJaPye02QbenOecNZy6djwwnhQ2nY/vb8qfVM3QXlzpoW/IJiJXU/A6du9uj/ejRNzcy0/bk3Cw=="/>
         </item>
     </channel>
 </rss>
