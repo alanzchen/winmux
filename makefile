@@ -154,6 +154,18 @@ ship-wait:
 ship-status:
 	python3 -B script/ship.py status $(if $(RUN),"$(RUN)")
 
+# Upstream AeroSpace sync (docs/upstream-sync.md). The guard is advisory until phase 2 ends.
+.PHONY: upstream-fetch upstream-guard upstream-report
+upstream-fetch:
+	python3 -B script/upstream-sync.py fetch
+
+upstream-guard:
+	python3 -B script/upstream-sync.py guard --advisory $(if $(LIMIT),--limit "$(LIMIT)",--limit 40)
+
+upstream-report:
+	mkdir -p .local/upstream-sync
+	python3 -B script/upstream-sync.py report --out .local/upstream-sync/report.md
+
 install:
 	/bin/bash -lc 'cd "$(CURDIR)" && \
 	set -euo pipefail && \

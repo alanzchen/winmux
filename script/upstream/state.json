@@ -1,0 +1,8 @@
+{
+  "upstream_url": "https://github.com/nikitabobko/AeroSpace.git",
+  "upstream_ref": "refs/remotes/aerospace/main",
+  "fork_point": "13b35332c9d4dab571e3ceec38c6905cd1a0bb39",
+  "winmux_fork_commit": "bf8c7a95472b1d4c96bd0bbd1f93281dda5bf808",
+  "upstream_base": "13b35332c9d4dab571e3ceec38c6905cd1a0bb39",
+  "forked_budget": 10
+}
