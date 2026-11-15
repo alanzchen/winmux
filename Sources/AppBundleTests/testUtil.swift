@@ -69,9 +69,8 @@ func setUpWorkspacesForTests() {
     check(focus.workspace.isEffectivelyEmpty)
     check(focus.workspace === Workspace.all.singleOrNil(), Workspace.all.map(\.description).joined(separator: ", "))
     check(mainMonitor.setActiveWorkspace(focus.workspace))
-    // Start every test from the same focus history: no earlier test's workspace stays the previous one.
-    checkOnFocusChangedCallbacks()
-    _prevFocusedWorkspaceName = nil
+    // Start every test from the same focus history: no earlier test's focus or workspace stays the previous one.
+    resetFocusHistoryForTests()
 
     resetFocusCacheForTests()
     nativeFullscreenChromeSuppression = NativeFullscreenChromeSuppression()

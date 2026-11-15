@@ -205,6 +205,16 @@ extension Workspace {
 /// with the pointer kept where it is. Any other change, or a later one, runs it as always.
 @MainActor private var pointerKeepingFocus: FrozenFocus? = nil
 
+/// Tests start from the current focus with no history: no previous focus or workspace, no pointer-keeping focus.
+@MainActor func resetFocusHistoryForTests() {
+    _lastKnownFocus = focus.frozen
+    _prevFocus = nil
+    _prevPrevFocus = nil
+    _prevFocusedWorkspaceName = nil
+    prevFocusedWorkspaceDate = .distantPast // after the name: its didSet stamps the date
+    pointerKeepingFocus = nil
+}
+
 /// Notes that focus is now where a sidebar action meant to put it, keeping the pointer where it is.
 /// Called only once the action has focused it: a refused, failed or stale one notes nothing.
 @MainActor func noteFocusKeepsPointer() {

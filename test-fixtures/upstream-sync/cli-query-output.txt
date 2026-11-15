@@ -157,6 +157,24 @@ out: true
 out: true
 out: true
 
+$ list-workspaces --all --format '%{window-id}'
+exit: 1
+err: ERROR: Unknown interpolation variable 'window-id'. Possible values:
+         workspace
+         workspace-display-name
+         workspace-is-focused
+         workspace-is-visible
+         workspace-is-saved
+         workspace-is-pinned
+         workspace-root-container-layout
+         monitor-id
+         monitor-appkit-nsscreen-screens-id
+         monitor-name
+         monitor-is-main
+         right-padding
+         newline
+         tab
+
 $ focus left
 exit: 0
 

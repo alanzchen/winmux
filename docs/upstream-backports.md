@@ -87,8 +87,8 @@ From 2026-11-15, upstream arrives by real merges in slices; each slice's resolut
 | Slice | Upstream commit | Disposition |
 |---|---|---|
 | S1 (`ff4d9c1d`) | `6021c13c` rect/point distance | Merged. Upstream's `distance(toOuterFrame:)` taken; `monitorApproximation` keeps WinMux's contained-monitor-first lookup (same answer inside a display; deterministic at fractional edges). |
-| S1 | `a8241641` summon a visible workspace | Already covered by `activateWorkspaceOnMonitorPreservingSourceViewport`; WinMux body kept. |
-| S1 | `fe039317` workspace assignment on adding monitors | Intentionally different (display-identity matching); WinMux `Workspace.swift` kept. |
+| S1 | `a8241641` summon a visible workspace | Covered after the S1-C1 fix. WinMux's `activateWorkspaceOnMonitorPreservingSourceViewport` vacates the source display for a project-aware fallback, but had done so before checking `workspace-to-monitor-force-assignment`, so a rejected `summon-workspace` or `move-workspace-to-monitor` exited 1 having already evicted the workspace. It now validates the target first, as upstream's order does. `S1ForceAssignmentRejectionTest`, mutation-checked. WinMux body kept otherwise. |
+| S1 | `fe039317` workspace assignment on adding monitors | Intentionally different (display-identity matching); WinMux `Workspace.swift` kept. Deferred to S7b: for displays without a hardware identity (virtual or test monitors) whose position shifts as another appears, WinMux's nearest-point pass matches new-to-old where upstream matches old-to-new (Carbon S1 Nit 1). |
 | S1 | `ff4d9c1d` pattern-matching cleanup | Merged, including `transposed()` in upstream's `ArrayEx.swift` and `MacOsWindowLevel.fromJson`. |
 | S1 | `85f80bda`, `6f37ad0f` docs/collaborators | Docs and CI stay deleted; README stays WinMux's. |
 

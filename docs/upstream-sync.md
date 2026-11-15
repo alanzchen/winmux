@@ -387,6 +387,13 @@ Folded in Carbon's phase 2 nits:
 User-visible change: none intended. Upstream's distance fix affects only which display a point outside every display is
 attributed to.
 
+Review fix (Carbon S1-C1): the `a8241641` disposition "already covered" was wrong for the failure path. A summon or
+`move-workspace-to-monitor` rejected by `workspace-to-monitor-force-assignment` evicted the workspace from its source display
+before failing. `activateWorkspaceOnMonitorPreservingSourceViewport` now refuses before anything moves. User-visible: such a
+rejected command now leaves both displays as they were (it already exited 1). Also from that review:
+`resetFocusHistoryForTests()` replaces the partial reset in test setup, and a golden case pins `list-workspaces --format
+'%{window-id}'` as exit 1. Carbon's Nit 1 (identity-less display matching order) is deferred to S7b.
+
 The earlier "intentionally different" TOMLDecoder decision in `docs/upstream-backports.md` is superseded for S2. S2 must
 keep the Settings GUI's TOML edit round trips, which today use TOMLKit; it may keep TOMLKit for editing while parsing
 through upstream.

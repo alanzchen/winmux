@@ -24,6 +24,8 @@ extension Monitor {
 @MainActor
 func activateWorkspaceOnMonitorPreservingSourceViewport(_ workspace: Workspace, targetMonitor: Monitor,
                                                         contextProjectId: WorkspaceProjectId? = nil) -> Bool {
+    // Refuse before anything moves: a rejected request leaves the source display as it was (upstream a8241641).
+    guard isValidAssignment(workspace: workspace, screen: targetMonitor.rect.topLeftCorner) else { return false }
     let sourceMonitor = workspace.isVisible ? workspace.workspaceMonitor : nil
     // The display it leaves stays in its own project, which a pin in All Projects isn't from.
     let sourceProjectId = sourceMonitor.map { winMuxWorkspaceState.activeProjectId(for: $0) } ?? workspace.projectId
