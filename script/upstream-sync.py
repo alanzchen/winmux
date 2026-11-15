@@ -364,6 +364,28 @@ def upstream_changes(repo, base_rev, target):
     return changes
 
 
+def conflict_classifier(repo, manifest, base_rev, target, head="HEAD"):
+    """Return a function path -> class label for merge conflicts between head and target."""
+    head_paths = set(tree_blobs(repo, head))
+    renamed_from = {new: old for status, old, new, _ in upstream_changes(repo, base_rev, target) if status == "R"}
+    moved_into = {manifest.moved_to(row["path"]): row["path"] for row in manifest.rows if manifest.moved_to(row["path"])}
+
+    def classify(path):
+        origin = renamed_from.get(path, path)
+        row = manifest.row(origin)
+        if row and row["cls"] != "winmux-only":
+            cls = row["cls"]
+            if cls == "deleted" and manifest.moved_to(origin):
+                return "deleted, moved: port by hand"
+            return cls if origin == path else f"{cls} (renamed upstream)"
+        if path in moved_into:
+            return "moved (WinMux copy of an upstream file)"
+        if path in head_paths:
+            return "winmux-only collision"
+        return "new"
+    return classify
+
+
 def report(repo, target, head="HEAD", with_conflicts=True):
     state = load_state(repo)
     base_rev = state["upstream_base"]
@@ -416,24 +438,11 @@ def report(repo, target, head="HEAD", with_conflicts=True):
         lines.append("")
     if with_conflicts:
         found = conflicts(repo, base_rev, head, target)
-        renamed_from = {new: old for status, old, new, _ in upstream_changes(repo, base_rev, target) if status == "R"}
-        moved_into = {manifest.moved_to(row["path"]): row["path"] for row in manifest.rows if manifest.moved_to(row["path"])}
+        classify = conflict_classifier(repo, manifest, base_rev, target, head)
         lines.append(f"## Dry-run merge conflicts ({len(found)})\n")
         by_class = {}
         for kind, path in found:
-            if manifest.row(path) and not (path in head_paths and manifest.cls(path) == "winmux-only"):
-                cls = manifest.cls(path)
-            elif path in moved_into:
-                cls = "moved (WinMux copy of an upstream file)"
-            elif path in renamed_from:
-                cls = manifest.cls(renamed_from[path]) or "new"
-            elif path in head_paths:
-                cls = "winmux-only"
-            else:
-                cls = "new"
-            if cls == "deleted" and manifest.moved_to(renamed_from.get(path, path)):
-                cls = "deleted, moved: port by hand"
-            by_class.setdefault(cls, []).append((kind, path))
+            by_class.setdefault(classify(path), []).append((kind, path))
         lines.append("| class | conflicts | kinds |")
         lines.append("|---|---|---|")
         for cls, items in sorted(by_class.items()):
@@ -639,9 +648,14 @@ def main(argv=None):
             for path, moved in needs_port:
                 print(f"PORT {path} -> {moved}")
             left = unmerged_paths(repo)
-            manifest = Manifest.load(repo, "HEAD")
+            classify = conflict_classifier(repo, Manifest.load(repo, "HEAD"), state["upstream_base"], target)
+            labels = {}
             for path in left:
-                print(f"CONFLICT [{manifest.cls(path) or 'new'}] {path}")
+                labels.setdefault(classify(path), []).append(path)
+            for label, paths in sorted(labels.items()):
+                for path in paths:
+                    print(f"CONFLICT [{label}] {path}")
+            print("remaining: " + ", ".join(f"{label} {len(paths)}" for label, paths in sorted(labels.items())))
             print("resolve the rest, then run: script/upstream-sync.py finish")
             return 1 if left else 0
         elif args.command == "resolve-deleted":

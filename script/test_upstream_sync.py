@@ -278,6 +278,7 @@ class ReportAndMergeTest(ForkFixture):
             code = sync.main(["-C", str(self.repo.path), "merge", "upstream-main"])
         self.assertEqual(code, 1, out.getvalue())
         self.assertIn("CONFLICT [forked] Sources/forked.swift", out.getvalue())
+        self.assertIn("CONFLICT [deleted, moved: port by hand] Sources/moved.swift", out.getvalue())
         self.assertIn("PORT Sources/moved.swift -> Sources/ui/moved.swift", out.getvalue())
         self.assertFalse((self.repo.path / "docs/guide.adoc").exists())
         self.assertFalse((self.repo.path / "docs/new.adoc").exists())
