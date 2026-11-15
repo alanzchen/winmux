@@ -421,7 +421,7 @@ Merged upstream `aca3200e` (#7–32) with `script/upstream-sync.py merge`. 38 co
 - It still edits TOML with TOMLKit.
 - Every save, form edit or TOML Editor save, is still checked by `parseConfig` before it is written, now through TOMLDecoder.
 - An edit TOMLKit produces but TOMLDecoder rejects is therefore refused with the error, never written.
-- Covered by `SettingsEditorTest`, `ShortcutSettingsConfigEditsTest`, the `ConfigTestConfigEdits` round trips and the sidebar resize edit tests, all green.
+- Covered by `SettingsEditorTest`, `ShortcutSettingsConfigEditsTest`, the config-edit round trips in `ConfigTestConfigEdits.swift` and `WorkspaceSidebarResizeTest`, all green.
 
 **User-visible changes, all wording or syntax; exact texts:**
 
