@@ -45,8 +45,14 @@ func shouldSyncFocusBackToMacOs(
     frontmostActivationPolicy: NSApplication.ActivationPolicy?,
     nativeFocusIsTransient: Bool = false,
     systemSettingsIsOpening: Bool = false,
+    broughtBackSetAside: Bool = false,
 ) -> Bool {
     if nativeFocusIsTransient { return false }
+    // A refresh that brought back a window set aside read macOS's focus again and took it: nothing is synced back to
+    // macOS in it, which could only take focus from the window macOS just showed.
+    if broughtBackSetAside { return false }
+    // Shown again by its app while WinMux had it set aside: macOS's focus stands until it's brought back.
+    if nativeFocused?.isSetAsideAsNotPresentable == true { return false }
     if nativeFocused?.participatesInWorkspaceFocus == false {
         return false
     }
@@ -210,6 +216,11 @@ func runRefreshSessionBlocking(
                     let frontmostActivationPolicy = frontmostApplication?.activationPolicy
                     let nativeObservation = try await getNativeFocusObservation()
                     let nativeFocused = nativeObservation.window
+                    // macOS focused a window WinMux set aside as not presentable: its app showed it again (Spotlight,
+                    // the Dock, Cmd-Tab, a hotkey, `open`). Whatever the event, the full path brings it back first; only
+                    // then does it take focus (`updateFocusCache` leaves it alone until then).
+                    let focusedSetAside = nativeFocused?.isSetAsideAsNotPresentable == true
+                    let broughtBackBefore = notPresentableWindowsBroughtBack
                     try checkCancellation()
                     if let nativeFocused { try await debugWindowsIfRecording(nativeFocused) }
                     // The activated app is resolved directly: the frontmost app may lag its notification.
@@ -228,7 +239,7 @@ func runRefreshSessionBlocking(
                     try checkCancellation()
 
                     refreshModel()
-                    if requirements.windowRefreshBarrier {
+                    if requirements.windowRefreshBarrier || focusedSetAside {
                         if let refreshOverrideForTests {
                             try await refreshOverrideForTests()
                         } else {
@@ -238,13 +249,24 @@ func runRefreshSessionBlocking(
                         gcMonitors()
                     }
 
-                    if requirements.layoutReasonNormalization {
+                    if requirements.layoutReasonNormalization || focusedSetAside {
                         if let normalizeLayoutReasonOverrideForTests {
                             try await normalizeLayoutReasonOverrideForTests()
                         } else {
                             try await normalizeLayoutReason()
                         }
                         try checkCancellation()
+                        refreshModel()
+                    }
+                    // A window set aside was brought back: macOS's focus is read again and decides, before layout (no
+                    // cached id names that window), and nothing is synced back to macOS in this refresh.
+                    let broughtBackSetAside = notPresentableWindowsBroughtBack != broughtBackBefore
+                    if broughtBackSetAside {
+                        let reread = try await getNativeFocusObservation()
+                        try checkCancellation()
+                        if !reread.isTransient { updateFocusCache(reread.window, preserveLogicalFocus: presentation.callbacksChangedFocus) }
+                        focusReopenedSetAsideWindows(broughtBackSince: broughtBackBefore, nativeFocusBefore: nativeObservation,
+                            nativeFocusNow: reread)
                         refreshModel()
                     }
                     await updateNativeFullscreenChromeSuppression(nativeFocused: nativeFocused)
@@ -266,6 +288,7 @@ func runRefreshSessionBlocking(
                             nativeFocusIsTransient: nativeObservation.isTransient,
                             systemSettingsIsOpening: (activatedApp?.bundleIdentifier ?? frontmostApplication?.bundleIdentifier) ==
                                 SystemFrontApp.systemSettings && isSystemSettingsOpening(),
+                            broughtBackSetAside: broughtBackSetAside,
                         ) {
                             let logicalFocused = focus.windowOrNil
                             if logicalFocused?.windowId != nativeFocused?.windowId {
@@ -460,7 +483,18 @@ func refreshModel() {
 @MainActor
 private func refresh() async throws {
     // Garbage collect terminated apps and windows before working with all windows
-    let mapping = try await MacApp.refreshAllAndGetAliveWindowIds(frontmostAppBundleId: NSWorkspace.shared.frontmostApplication?.bundleIdentifier)
+    let windowServer = WindowServerWindowList(sessionSuspended: !savedWorkspaceRuntime.suspensions.isEmpty,
+        spaceSwitching: isActiveSpaceSwitching())
+    let refreshed = try await MacApp.refreshAllAndGetAliveWindowIds(
+        frontmostAppBundleId: NSWorkspace.shared.frontmostApplication?.bundleIdentifier, windowServer: windowServer)
+    // Only a refresh still current lets windows go, and commits what its apps decided.
+    try checkCancellation()
+    for (app, decided) in refreshed.decided {
+        app.commitWindowLiveness(decided, of: windowServer)
+        noteWindowPresentability(decided.presentable)
+    }
+    scheduleWindowLivenessChecks(Array(refreshed.decided.values))
+    let mapping = refreshed.alive
     let aliveWindowIds = mapping.values.flatMap { $0 }.toSet()
 
     for window in MacWindow.allWindows {
@@ -518,6 +552,40 @@ private func refresh() async throws {
 
     // Garbage collect workspaces after apps, because workspaces contain apps.
     Workspace.reconcileWorkspaceState()
+}
+
+/// The last time macOS switched the active Space, by system uptime (`GlobalObserver`).
+@MainActor var lastActiveSpaceChangeUptime: TimeInterval?
+
+/// For this long after a Space switch, a window on screen isn't taken as covered by its app's window list.
+let activeSpaceSwitchSettle: TimeInterval = 0.5
+
+@MainActor
+func isActiveSpaceSwitching(now: TimeInterval = ProcessInfo.processInfo.systemUptime) -> Bool {
+    lastActiveSpaceChangeUptime.map { now - $0 < activeSpaceSwitchSettle } ?? false
+}
+
+@MainActor private var windowLivenessRecheck = WindowLivenessRecheck()
+
+/// Refreshes of their own for what a committed refresh left to look at again, not left to whatever event comes next: a
+/// busy app's window the window server stopped listing is let go on the next refresh (`windowServerAbsencesToLetGo`),
+/// and a window kept while the window server still lists it is looked at again (`WindowLivenessRecheck`).
+@MainActor
+private func scheduleWindowLivenessChecks(_ decided: [AppWindowLiveness]) {
+    if decided.contains(where: \.asksForConfirmation) { scheduleWindowLivenessRefresh(after: .milliseconds(300)) }
+    let awaiting = decided.reduce(into: Set<UInt32>()) { $0.formUnion($1.awaitsWindowServer) }
+    if let delay = windowLivenessRecheck.next(awaiting: awaiting, startsSeries: decided.contains(where: \.startsRecheckSeries)) {
+        scheduleWindowLivenessRefresh(after: delay)
+    }
+}
+
+@MainActor
+private func scheduleWindowLivenessRefresh(after delay: Duration) {
+    guard TrayMenuModel.shared.isEnabled else { return }
+    _ = Task { @MainActor in
+        try? await Task.sleep(for: delay)
+        scheduleRefreshSession(.ax(kAXUIElementDestroyedNotification as String))
+    }
 }
 
 func refreshObs(_: AXObserver, _ ax: AXUIElement, notif: CFString, _: UnsafeMutableRawPointer?) {

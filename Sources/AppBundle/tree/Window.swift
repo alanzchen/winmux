@@ -33,6 +33,13 @@ open class Window: TreeNode, Hashable {
     @MainActor private(set) var lastKnownNativeFullscreen: Bool? = nil
     @MainActor private(set) var lastKnownNativeMinimized: Bool? = nil
     @MainActor private var lastKnownNativeStateGeneration: UInt64 = 0
+    /// It exists, but can't be shown: its element answers for nothing, no fresh one can be taken, and the window server
+    /// has it ordered out, while it isn't known minimized and its app isn't hidden (`noteWindowPresentability`). An app
+    /// that keeps a window it closed (WeChat, FaceTime, Telegram, Activity Monitor) leaves one. Set aside out of its tab
+    /// until it's ordered in again or a fresh element is taken; let go only as any window is, on evidence it closed.
+    @MainActor var isNotPresentable = false
+    /// Where it was when it was set aside as not presentable, to come back to.
+    @MainActor var notPresentableReturn: NotPresentableReturn?
 
     @MainActor
     func invalidateLastKnownNativeState() {
@@ -121,6 +128,7 @@ open class Window: TreeNode, Hashable {
     @MainActor static func get(byId windowId: UInt32) -> Window? { // todo make non optional
         isUnitTest
             ? (Workspace.all.flatMap { $0.allLeafWindowsRecursive } + macosMinimizedWindowsContainer.children.filterIsInstance(of: Window.self) +
+                macosNotPresentableWindowsContainer.children.filterIsInstance(of: Window.self) +
                 macosPopupWindowsContainer.children.filterIsInstance(of: Window.self)).first(where: { $0.windowId == windowId })
             : MacWindow.allWindowsMap[windowId]
     }

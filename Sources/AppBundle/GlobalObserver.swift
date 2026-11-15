@@ -19,6 +19,9 @@ enum GlobalObserver {
             ? (notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication)?.processIdentifier
             : nil
         if activatedAppPid != nil { nativeFocusEvents.note() }
+        if notifName == NSWorkspace.activeSpaceDidChangeNotification.rawValue {
+            MainActor.assumeIsolated { lastActiveSpaceChangeUptime = ProcessInfo.processInfo.systemUptime }
+        }
         // At once, on the main queue it's delivered on: a window that app opens next is judged by it.
         if let activatedAppPid { MainActor.assumeIsolated { noteAppActivatedForAuxiliaryWindows(pid: activatedAppPid) } }
         if notifName == NSWorkspace.didWakeNotification.rawValue || notifName == NSWorkspace.screensDidWakeNotification.rawValue {

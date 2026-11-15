@@ -525,7 +525,8 @@ func windowsInWorkspaceProject(_ projectId: WorkspaceProjectId) -> [Window] {
     var seen: Set<UInt32> = []
     var result: [Window] = []
     for workspace in Workspace.all where workspace.projectId == projectId && !workspaceIsPinnedInAllProjects(workspace) {
-        for window in workspace.allLeafWindowsRecursive + workspaceOwnedMinimizedWindows(workspace)
+        for window in workspace.allLeafWindowsRecursive + workspaceOwnedMinimizedWindows(workspace) +
+            workspaceOwnedNotPresentableWindows(workspace)
         where seen.insert(window.windowId).inserted
         {
             result.append(window)

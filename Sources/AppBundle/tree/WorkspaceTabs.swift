@@ -124,11 +124,12 @@ func workspaceTabWasLeftEmptyIgnoringLauncher(_ tab: Workspace) -> Bool {
 /// in the order the sidebar shows; tabs with windows first. With no other tab on that
 /// display, it stays, and the sidebar doesn't list it; a saved one closing with its last window,
 /// once nothing saved waits for it any more, gives its display a blank tab instead, so its saved
-/// name, group and label can go.
+/// name, group and label can go. A tab its last window left by being set aside as not presentable gives its display
+/// the same way, saved or not (`workspaceTabWasLeftEmptyBySetAside`).
 @MainActor
 func leaveTabsLeftEmptyOnScreen() {
     guard config.usesBrowserTabs else { return }
-    for tab in Workspace.all where tab.isVisible && workspaceTabWasLeftEmpty(tab) {
+    for tab in Workspace.all where tab.isVisible && (workspaceTabWasLeftEmpty(tab) || workspaceTabWasLeftEmptyBySetAside(tab)) {
         let blank = { tab.isSaved && workspaceTabClosesWithLastWindow(tab) && !tab.isAwaitingSavedWorkspaceRestoration
             ? createBlankWorkspace(projectId: tab.projectId, monitor: tab.workspaceMonitor) : nil }
         guard let next = workspaceTabReplacingEmptyTab(tab) ?? blank() else { continue }

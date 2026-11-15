@@ -47,7 +47,7 @@ private func makeWorkspaceSidebarWorkspaceViewModel(
     let workspaceMonitor = workspace.workspaceMonitor
     let isPinned = workspaceSidebarOrganizationStore.state.workspaces[workspace.name]?.isFavorite == true
     var lentWindow: WorkspaceSidebarWindowViewModel?
-    if isPinned, let lent = workspaceSidebarLentWindow(of: workspace) {
+    if isPinned, let lent = workspaceSidebarLentWindow(of: workspace), !lent.isNotPresentable {
         lentWindow = await makeWorkspaceSidebarWindowViewModel(for: lent, workspaceName: lent.nodeWorkspace?.name ?? workspace.name,
             currentFocus: currentFocus)
     }

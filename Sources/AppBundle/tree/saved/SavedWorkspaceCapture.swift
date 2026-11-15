@@ -37,6 +37,7 @@ func registeredSavedWorkspaceWindows() -> [Window] {
     guard isUnitTest else { return MacWindow.allWindows }
     return Workspace.all.flatMap(\.allLeafWindowsRecursive) +
         macosMinimizedWindowsContainer.children.filterIsInstance(of: Window.self) +
+        macosNotPresentableWindowsContainer.children.filterIsInstance(of: Window.self) +
         macosPopupWindowsContainer.children.filterIsInstance(of: Window.self)
 }
 
@@ -380,7 +381,7 @@ func snapshotLiveSavedLayout(
         liveFloating.insert(slot.id)
         return slot
     }
-    let detachedWindows = workspaceOwnedMinimizedWindows(workspace) +
+    let detachedWindows = workspaceOwnedMinimizedWindows(workspace) + workspaceOwnedNotPresentableWindows(workspace) +
         (workspace.existingMacOsNativeHiddenAppsWindowsContainer?.children.filterIsInstance(of: Window.self) ?? []) +
         (workspace.existingMacOsNativeFullscreenWindowsContainer?.children.filterIsInstance(of: Window.self) ?? [])
     let detached = detachedWindows.compactMap { window in

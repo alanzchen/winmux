@@ -16,9 +16,11 @@ final class AxWindowIdentityTest: XCTestCase {
         XCTAssertTrue(windows.isEmpty)
     }
 
-    func testSuccessfulNullIdIsUnknownAndCannotBeRegistered() {
+    /// Upstream AeroSpace 0f6b2e78: kCGNullWindowID is "a guaranteed invalid window ID". A registered window that
+    /// answers with it is gone (until 2026-11-14 it was kept as unknown, and closed windows stayed listed).
+    func testSuccessfulNullIdCannotBeRegisteredAndIsNoWindow() {
         XCTAssertNil(validAxWindowId(kCGNullWindowID, error: .success))
-        XCTAssertTrue(shouldKeepRegisteredAxWindow(windowId: nil, error: .success))
+        XCTAssertEqual(registeredAxWindowAnswer(windowId: nil, error: .success), .gone)
     }
 
     func testRealWindowIdRequiresSuccessfulConversion() {
@@ -27,11 +29,14 @@ final class AxWindowIdentityTest: XCTestCase {
         XCTAssertNil(validAxWindowId(42, error: .invalidUIElement))
     }
 
-    func testOnlyExplicitInvalidElementProvesWindowDeath() {
-        for error: AXError in [.success, .cannotComplete, .failure, .notImplemented, .noValue] {
-            XCTAssertTrue(shouldKeepRegisteredAxWindow(windowId: nil, error: error), "\(error)")
+    /// A timeout is a busy app; every other failure is an element that answers for nothing, as upstream AeroSpace tells
+    /// them. Neither alone lets a window go (`windowLivenessVerdict`).
+    func testOnlyATimeoutIsABusyApp() {
+        for error: AXError in [.success, .failure, .notImplemented, .noValue, .attributeUnsupported, .illegalArgument,
+                               .invalidUIElement] {
+            XCTAssertEqual(registeredAxWindowAnswer(windowId: nil, error: error), .gone, "\(error)")
         }
-        XCTAssertFalse(shouldKeepRegisteredAxWindow(windowId: nil, error: .invalidUIElement))
-        XCTAssertTrue(shouldKeepRegisteredAxWindow(windowId: 42, error: .success))
+        XCTAssertEqual(registeredAxWindowAnswer(windowId: nil, error: .cannotComplete), .busy)
+        XCTAssertEqual(registeredAxWindowAnswer(windowId: 42, error: .success), .alive)
     }
 }

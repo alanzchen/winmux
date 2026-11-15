@@ -147,7 +147,7 @@ func moveWorkspaceContents(from source: Workspace, to target: Workspace) {
                 break
         }
     }
-    for window in workspaceOwnedMinimizedWindows(source) {
+    for window in workspaceOwnedMinimizedWindows(source) + workspaceOwnedNotPresentableWindows(source) {
         switch window.layoutReason {
             case .macos(let prevParentKind, _):
                 window.layoutReason = .macos(prevParentKind: prevParentKind, prevWorkspaceName: target.name)
@@ -249,6 +249,7 @@ func workspaceShouldSurviveReconciliation(
     return workspace.isVisible ||
         workspace.retainsEmptyAfterProjectMove ||
         workspaceHasLifecycleWindows(workspace) ||
+        !workspaceOwnedNotPresentableWindows(workspace).isEmpty ||
         workspace.isKeptWhenEmpty ||
         workspace.isAwaitingSavedWorkspaceRestoration ||
         projectWorkspaces(projectId: workspace.projectId).filter { !$0.isArchived }.count == 1 ||

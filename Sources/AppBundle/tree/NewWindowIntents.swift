@@ -126,6 +126,9 @@ struct NewWindowIntentClaim {
 struct DeferredReopenPlacement {
     let window: Window
     let claim: NewWindowIntentClaim
+    /// False for a window set aside, brought back where a reopen asked: macOS's focus read after that restore decided
+    /// its focus (`focusReopenedSetAsideWindows`), so finishing it only places it.
+    var takesFocus = true
 }
 
 /// Where focus was when WinMux sent the request to the app.
@@ -557,9 +560,12 @@ func newWindowIntentMayTakeFocus(_ intent: NewWindowIntent, placing window: Wind
 
 /// A claimed window keeps its destination: saved-workspace routing, on-window-detected rules,
 /// and the new-workspace option are skipped, as for windows saved workspaces place. It takes
-/// focus unless the user moved on while it was opening. The request then completes.
+/// focus unless the user moved on while it was opening, or unless `takesFocus` is false: the
+/// caller decides that later (a window set aside, brought back: `reopenedSetAsideFocusRequests`),
+/// and a restore under way that defers the placement only places it. The request then completes.
 @MainActor
-func finishNewWindowIntentPlacement(_ window: Window, claim: NewWindowIntentClaim, broadcastsDetection: Bool = true) {
+func finishNewWindowIntentPlacement(_ window: Window, claim: NewWindowIntentClaim, broadcastsDetection: Bool = true,
+                                    takesFocus: Bool = true) {
     // The app may have entered a native state while detection was suspended. Preserve that
     // state even if the destination or requested mode differs; complete the request for
     // where the window actually is, without focus or a deferred placement pulling it back.
@@ -578,10 +584,10 @@ func finishNewWindowIntentPlacement(_ window: Window, claim: NewWindowIntentClai
     // A restore under way works from a snapshot older than this placement, across its AX waits, and
     // would put a reopened window back where it was before it closed. It's finished once they end.
     if claim.intent.reopens, activeFrozenRestoreCount > 0 {
-        NewWindowIntentRegistry.shared.deferPlacement(DeferredReopenPlacement(window: window, claim: claim))
+        NewWindowIntentRegistry.shared.deferPlacement(DeferredReopenPlacement(window: window, claim: claim, takesFocus: takesFocus))
         return
     }
-    if newWindowIntentMayTakeFocus(claim.intent, placing: window), window.nodeWorkspace?.isVisible == true, window.focusWindow() {
+    if takesFocus, newWindowIntentMayTakeFocus(claim.intent, placing: window), window.nodeWorkspace?.isVisible == true, window.focusWindow() {
         // The launcher made WinMux frontmost, and neither scripted nor reopened windows activate their app.
         window.nativeFocus()
     }
@@ -594,7 +600,8 @@ func finishNewWindowIntentPlacement(_ window: Window, claim: NewWindowIntentClai
 /// The last restore under way ended: each reopened window placed meanwhile is finished where it is,
 /// if its tab and request still stand. Restores left it alone, so it's in its tab unless the user
 /// moved it, which stands. It takes focus, and shows its tab again, only if the user hasn't moved
-/// on. Synchronous, so it never waits on the restore that called it.
+/// on and its focus wasn't decided already (`takesFocus`). Synchronous, so it never waits on the
+/// restore that called it.
 @MainActor
 func finishDeferredReopenPlacements() {
     let registry = NewWindowIntentRegistry.shared
@@ -618,7 +625,7 @@ func finishDeferredReopenPlacements() {
         }
         // A restore may have shown another tab where the user was looking at this one.
         let userWasHere = target.isVisible || claim.intent.focusWhenSent?.workspace === target
-        if newWindowIntentMayTakeFocus(claim.intent, placing: window), userWasHere {
+        if deferred.takesFocus, newWindowIntentMayTakeFocus(claim.intent, placing: window), userWasHere {
             showPinInAllProjectsWhereItWasClicked(target, claim.intent)
             if window.focusWindow() { window.nativeFocus() }
         }

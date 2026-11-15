@@ -115,13 +115,7 @@ final class MacWindow: Window {
         WindowLifecycleLog.shared.record(.unregistered, windowId: windowId, [
             "pid": "\(macApp.pid)", "bundleId": macApp.rawAppBundleId ?? "", "workspace": nodeWorkspace?.name ?? "",
         ])
-        if !skipClosedWindowsCache { cacheClosedWindowIfNeeded() }
-        removeClosedWindowFromTree()
-        // Closed: no pin lends it, and no pinned split brings it back, any more.
-        let (windowId, pid) = (windowId, macApp.pid)
-        forgetWorkspaceSidebarPinWindows { $0.windowId == windowId && $0.pid == pid }
-        // Windows opened from it stay open, as windows of their own.
-        AuxiliaryWindowRegistry.shared.forget(windowId: windowId, pid: pid)
+        forgetClosedWindow(skipClosedWindowsCache: skipClosedWindowsCache)
     }
 
     @MainActor override var title: String { get async throws { try await macApp.getAxTitle(windowId) ?? "" } }
@@ -206,5 +200,22 @@ final class MacWindow: Window {
             }
         }
         return rect
+    }
+}
+
+extension Window {
+    /// What a window that's gone leaves, once it's unregistered: its place in the tree, so its tab and the sidebar
+    /// no longer list it, a pin's or a pinned split's claim on it, and the links of windows opened from it.
+    @MainActor
+    func forgetClosedWindow(skipClosedWindowsCache: Bool) {
+        if !skipClosedWindowsCache { cacheClosedWindowIfNeeded() }
+        removeClosedWindowFromTree()
+        // Closed: no pin lends it, and no pinned split brings it back, any more.
+        let (windowId, pid) = (windowId, app.pid)
+        forgetWorkspaceSidebarPinWindows { $0.windowId == windowId && $0.pid == pid }
+        // No cached native focus names a window gone: one registered later under its id is decided afresh.
+        forgetCachedNativeFocus(of: self)
+        // Windows opened from it stay open, as windows of their own.
+        AuxiliaryWindowRegistry.shared.forget(windowId: windowId, pid: pid)
     }
 }

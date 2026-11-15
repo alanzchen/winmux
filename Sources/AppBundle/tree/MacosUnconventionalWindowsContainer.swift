@@ -16,6 +16,11 @@ final class MacosHiddenAppsWindowsContainer: TreeNode, NonLeafTreeNodeObject {
 }
 
 @MainActor let macosMinimizedWindowsContainer = MacosMinimizedWindowsContainer()
+/// Windows that exist but can't be shown (`Window.isNotPresentable`): out of every tab, its layout and the sidebar,
+/// remembered where they were (`setAsideNotPresentableWindow`). Of the minimized container's kind, so the tree treats
+/// them as it treats minimized windows; not that container, so nothing takes them for minimized windows of a tab
+/// (`workspaceOwnedMinimizedWindows`).
+@MainActor let macosNotPresentableWindowsContainer = MacosMinimizedWindowsContainer()
 final class MacosMinimizedWindowsContainer: TreeNode, NonLeafTreeNodeObject {
     @MainActor
     fileprivate init() {

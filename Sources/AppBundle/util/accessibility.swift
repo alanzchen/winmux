@@ -258,6 +258,13 @@ enum Ax {
         key: kAXWindowsAttribute,
         getter: { ($0 as? NSArray)?.compactMap(windowOrNil).map { ($0.windowId, $0.ax.cast) } ?? [] },
     )
+    /// The same windows, read in full: nil (not read) when the answer isn't a list, or when an element's window id
+    /// didn't come in time, so a window it leaves out is one the app doesn't list (`refreshRegisteredAxWindows`).
+    /// Elements that aren't windows (Finder's desktop) are left out, as `windowsAttr` does.
+    static let windowsInFullAttr = ReadableAttrImpl<[WindowIdAndAxUiElement]>(
+        key: kAXWindowsAttribute,
+        getter: { windowsInFull($0) },
+    )
     static let focusedWindowAttr = ReadableAttrImpl<WindowIdAndAxUiElementMock>(
         key: kAXFocusedWindowAttribute,
         getter: windowOrNil,
@@ -330,6 +337,23 @@ private func castToAxUiElementMock(_ a: AnyObject) -> AxUiElementMock {
 }
 
 typealias WindowIdAndAxUiElement = (windowId: UInt32, ax: AXUIElement)
+
+/// `Ax.windowsInFullAttr`'s windows, each element's window id asked of `windowId`.
+func windowsInFull(_ raw: AnyObject, windowId: (AXUIElement) -> (windowId: CGWindowID?, error: AXError) = {
+    AXUIElementSetMessagingTimeout($0, 1.0) // As AxWindow.new: not the 6s global default
+    return $0.containingWindowIdWithError()
+}) -> [WindowIdAndAxUiElement]? {
+    guard let elements = raw as? NSArray else { return nil }
+    var windows: [WindowIdAndAxUiElement] = []
+    for element in elements {
+        guard CFGetTypeID(element as CFTypeRef) == AXUIElementGetTypeID() else { continue }
+        let ax = element as! AXUIElement
+        let (id, error) = windowId(ax)
+        if error == .cannotComplete { return nil }
+        if let id { windows.append((id, ax)) }
+    }
+    return windows
+}
 typealias WindowIdAndAxUiElementMock = (windowId: UInt32, ax: AxUiElementMock)
 
 private func windowOrNil(_ any: Any?) -> WindowIdAndAxUiElementMock? {
@@ -370,9 +394,8 @@ extension AXUIElement: AxUiElementMock {
         return validAxWindowId(cgWindowId, error: error)
     }
 
-    /// Like containingWindowId, but surfaces the AXError so callers can distinguish "the window
-    /// is gone" (.invalidUIElement) from "the app didn't answer" (.cannotComplete — busy app or
-    /// timed-out round-trip). Window liveness decisions must not treat the latter as death.
+    /// Like containingWindowId, with the AXError: a timeout (.cannotComplete, a busy app) is told apart from an element
+    /// that answers for nothing. Neither is proof the window closed (`windowLivenessVerdict`).
     func containingWindowIdWithError() -> (windowId: CGWindowID?, error: AXError) {
         let state = signposter.beginInterval(#function, "axTaskLocalAppThreadToken: \(axTaskLocalAppThreadToken?.idForDebug)")
         defer { signposter.endInterval(#function, state) }
@@ -389,14 +412,28 @@ extension AXObserver {
     }
 }
 
-/// AX can report success for a non-window UI element while returning the reserved ID zero.
-/// Preserve the AX error separately: a successful but invalid ID is unknown, not proof of death.
+/// AX can report success for a non-window UI element while returning the reserved ID zero, which Apple calls "a
+/// guaranteed invalid window ID": no window (upstream AeroSpace 0f6b2e78). The AX error is kept separately
+/// (`registeredAxWindowAnswer`).
 func validAxWindowId(_ windowId: CGWindowID, error: AXError) -> CGWindowID? {
     error == .success && windowId != kCGNullWindowID ? windowId : nil
 }
 
-func shouldKeepRegisteredAxWindow(windowId: CGWindowID?, error: AXError) -> Bool {
-    // Only the explicit invalid-element result establishes that a registered AX window died.
-    // A zero ID, timeout, or unsupported query must be reconciled by later enumeration.
-    windowId != nil || error != .invalidUIElement
+/// What a registered window's own AX query says about it.
+enum RegisteredAxWindowAnswer: Equatable {
+    /// AX resolves it to its window.
+    case alive
+    /// The app didn't answer in time: busy.
+    case busy
+    /// Its element answers for nothing: the window closed, or the element went stale while the window lives on.
+    case gone
+}
+
+/// Whether AX resolves a registered window to a window ID, as upstream AeroSpace asks. A timeout is a busy app; any other
+/// failure (no value, an unsupported attribute, an illegal argument, a failure, a successful zero ID, an invalid element)
+/// is an element that answers for nothing. Neither proves the window closed: `windowLivenessVerdict` goes by the window
+/// server and the app's AXWindows for that.
+func registeredAxWindowAnswer(windowId: CGWindowID?, error: AXError) -> RegisteredAxWindowAnswer {
+    if windowId != nil { return .alive }
+    return error == .cannotComplete ? .busy : .gone
 }

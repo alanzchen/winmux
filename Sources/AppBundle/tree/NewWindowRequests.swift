@@ -173,22 +173,24 @@ func existingWindowIds(pid: Int32) -> Set<UInt32> {
 }
 
 /// Every window a process has that a reopen can't be showing: those WinMux has registered, and
-/// those on screen. A window the app hid when it was closed is off screen, and may come back.
+/// those on screen. A window the app hid when it was closed is off screen, and may come back; so may
+/// one WinMux set aside as not presentable.
 @MainActor
 func windowIdsBeforeReopen(
     pid: Int32,
     registered: [Window] = MacWindow.allWindows,
     onScreen: (Int32) -> Set<UInt32> = { windowServerWindowIds(pid: $0, onScreenOnly: true) },
 ) -> Set<UInt32> {
-    Set(registered.filter { $0.app.pid == pid }.map(\.windowId)).union(onScreen(pid))
+    Set(registered.filter { $0.app.pid == pid && !$0.isSetAsideAsNotPresentable }.map(\.windowId)).union(onScreen(pid))
 }
 
 /// Whether WinMux knows a window of this process: in a workspace, minimized, hidden or full
 /// screen. A reopen wouldn't make another; it would only bring one of those forward, or
-/// deminiaturize a window another tab owns. Popups held aside don't count.
+/// deminiaturize a window another tab owns. Popups held aside don't count, nor windows set aside as not
+/// presentable: an app that hid its window on close is reopened to show it.
 @MainActor
 func runningAppHasWindows(pid: Int32, windows: [Window]) -> Bool {
-    windows.contains { $0.app.pid == pid && $0.isBound && !($0.parent is MacosPopupWindowsContainer) }
+    windows.contains { $0.app.pid == pid && $0.isBound && !($0.parent is MacosPopupWindowsContainer) && !$0.isSetAsideAsNotPresentable }
 }
 
 /// The same, or nil when the window server gave no list, which says nothing about any window.

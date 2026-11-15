@@ -56,6 +56,9 @@ func setUpWorkspacesForTests() {
     for child in macosMinimizedWindowsContainer.children {
         child.unbindFromParent()
     }
+    for child in macosNotPresentableWindowsContainer.children {
+        child.unbindFromParent()
+    }
     for child in macosPopupWindowsContainer.children {
         child.unbindFromParent()
     }

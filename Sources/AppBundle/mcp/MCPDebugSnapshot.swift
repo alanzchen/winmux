@@ -58,7 +58,7 @@ func mcpDebugSnapshot(_ options: MCPDebugSnapshotOptions) async -> MCPJSON {
     let wanted = options.windowIds
     let model = TrayMenuModel.shared
     let rendered = model.workspaceSidebarWorkspaces
-    let inPanel = Set(model.visibleWorkspaceSidebarWorkspaces.map(\.name))
+    let inPanel = debugSnapshotRowsInPanel(model.visibleWorkspaceSidebarWorkspaces)
     let rows = rendered.filter { row in wanted.map { !$0.isDisjoint(with: debugSnapshotWindowIds(row)) } ?? true }
     let listed = Set(rendered.flatMap(debugSnapshotWindowIds))
     let live = debugSnapshotLiveWindows()
@@ -184,12 +184,20 @@ private func debugSnapshotWindowIds(_ row: WorkspaceSidebarWorkspaceViewModel) -
     return ids
 }
 
+/// The rows the panel shows of those in its display scope and project: in Tabs mode, not a tab left empty, which the
+/// list doesn't show (`workspaceSidebarTabsListedWorkspacesByProject`). Until 2026-11-15 a left-empty tab's row was
+/// reported as shown.
+@MainActor
+func debugSnapshotRowsInPanel(_ rows: [WorkspaceSidebarWorkspaceViewModel]) -> Set<String> {
+    Set(rows.filter { !(config.usesBrowserTabs && $0.isLeftEmpty) }.map(\.name))
+}
+
 /// Every window in WinMux's tree or registered with it, once each.
 @MainActor
 private func debugSnapshotLiveWindows() -> [Window] {
     var seen: Set<UInt32> = []
     let inTree = Workspace.all.flatMap(\.allLeafWindowsRecursive) + macosMinimizedWindowsContainer.allLeafWindowsRecursive
-        + macosPopupWindowsContainer.allLeafWindowsRecursive
+        + macosNotPresentableWindowsContainer.allLeafWindowsRecursive + macosPopupWindowsContainer.allLeafWindowsRecursive
     let registered: [Window] = MacWindow.allWindows.sorted { $0.windowId < $1.windowId }
     return (inTree + registered).filter { seen.insert($0.windowId).inserted }
 }
@@ -452,7 +460,9 @@ private struct DebugSnapshotWriter {
         let parentKind = window.parent.map(\.kind)
         var object: [String: MCPJSON] = [
             "hiddenWithApp": .bool(parentKind == .macosHiddenAppsWindowsContainer),
-            "minimized": .bool(parentKind == .macosMinimizedWindowsContainer),
+            "minimized": .bool(window.parent === macosMinimizedWindowsContainer),
+            "notPresentable": .bool(window.isNotPresentable),
+            "setAsideNotPresentable": .bool(window.parent === macosNotPresentableWindowsContainer),
             "nativeFullscreen": .bool(parentKind == .macosFullscreenWindowsContainer),
             "winmuxFullscreen": .bool(window.isFullscreen),
             "parkedInCorner": .bool(window.isHiddenInCorner),
@@ -491,8 +501,11 @@ private struct DebugSnapshotWriter {
     }
 }
 
+@MainActor
 private func debugSnapshotPlacement(_ parent: NonLeafTreeNodeObject?) -> String {
-    switch parent?.kind {
+    // Of the minimized container's kind, not minimized.
+    if parent === macosNotPresentableWindowsContainer { return "setAsideNotPresentable" }
+    return switch parent?.kind {
         case .tilingContainer?: "tiling"
         case .workspace?: "floating"
         case .macosMinimizedWindowsContainer?: "minimized"

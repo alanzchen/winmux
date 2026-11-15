@@ -5,6 +5,7 @@ func normalizeLayoutReason() async throws {
         try await _normalizeLayoutReason(workspace: workspace, windows: windows)
     }
     try await _normalizeLayoutReason(workspace: focus.workspace, windows: macosMinimizedWindowsContainer.children.filterIsInstance(of: Window.self))
+    try await bringBackPresentableWindows(fallback: focus.workspace)
     try await validateStillPopups()
 }
 
@@ -93,6 +94,8 @@ private func _normalizeLayoutReason(workspace: Workspace, windows: [Window]) asy
                     case isMacosWindowOfHiddenApp:
                         window.rememberMacOsLayoutOrigin()
                         window.bind(to: workspace.macOsNativeHiddenAppsWindowsContainer, adaptiveWeight: WEIGHT_DOESNT_MATTER, index: INDEX_BIND_LAST)
+                    case window.isNotPresentable:
+                        setAsideNotPresentableWindow(window)
                     default: break
                 }
             case .macos(let prevParentKind, let prevWorkspaceName):

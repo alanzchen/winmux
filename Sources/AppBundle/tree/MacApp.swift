@@ -23,6 +23,8 @@ final class MacApp: AbstractApp {
     private let axAppFastTimeout: ThreadGuardedValue<AXUIElement>
     private let appAxSubscriptions: ThreadGuardedValue<[AxSubscription]> // keep subscriptions in memory
     private let windows: ThreadGuardedValue<[UInt32: AxWindow]> = .init([:])
+    /// A refresh's decision until the main actor commits that refresh, and the windows it let go.
+    private let livenessLedger: ThreadGuardedValue<WindowLivenessLedger<AxWindow>> = .init(.init())
     private var windowsCount = 0
     var lastNativeFocusedWindowId: UInt32? = nil
     // Also holds synchronization while a noncanonical focused reference awaits
@@ -106,6 +108,7 @@ final class MacApp: AbstractApp {
                     let app = isGood ? MacApp(nsApp, axApp, axAppFastTimeout, subscriptions, AxAppWorker()) : nil
                     let appAxSubscriptionsThreadGuarded = app?.appAxSubscriptions
                     let windowsThreadGuarded = app?.windows
+                    let livenessLedgerThreadGuarded = app?.livenessLedger
                     let axAppFastTimeoutThreadGuarded = app?.axAppFastTimeout
                     let axAppThreadGuarded = app?.axApp
                     let worker = app?.thread
@@ -122,6 +125,7 @@ final class MacApp: AbstractApp {
                         // valid until the loop has actually returned on their owning thread.
                         appAxSubscriptionsThreadGuarded?.destroy()
                         windowsThreadGuarded?.destroy()
+                        livenessLedgerThreadGuarded?.destroy()
                         axAppFastTimeoutThreadGuarded?.destroy()
                         axAppThreadGuarded?.destroy()
                     }
@@ -323,7 +327,7 @@ final class MacApp: AbstractApp {
     }
 
     private func queryFocusedWindowId(registerIfNeeded: Bool = true) async throws -> FocusedWindowQuery {
-        try await thread?.runInLoop { [nsApp, axAppFastTimeout, windows, appId] job -> FocusedWindowQuery in
+        try await thread?.runInLoop { [nsApp, axAppFastTimeout, windows, livenessLedger, appId] job -> FocusedWindowQuery in
             if appId == .openAndSavePanelService { return .transient }
             var raw: AnyObject?
             let error = AXUIElementCopyAttributeValue(axAppFastTimeout.threadGuarded, kAXFocusedWindowAttribute as CFString, &raw)
@@ -492,6 +496,7 @@ final class MacApp: AbstractApp {
         frameWriteBarrier.recordWrite()
         setFrameJobs.removeValue(forKey: windowId)?.cancel()
         setFrameJobs[windowId] = withAxWindowAsync(windowId) { [axApp, frameWriteLedger] window, job in
+            guard !window.isUnbound else { return }
             let frame = try setFrame(window.ax, topLeft, size, fit: &window.frameFit, within: bounds, target: target, continuing: continuing,
                 now: ProcessInfo.processInfo.systemUptime, job) { writes in
                 try frameWriteLedger.record(windowId) { try disableAnimations(app: axApp.threadGuarded, job, writes) }
@@ -508,7 +513,8 @@ final class MacApp: AbstractApp {
         frameWriteBarrier.recordWrite()
         setFrameJobs.removeValue(forKey: windowId)?.cancel()
         _ = try await withAxWindow(windowId) { [axApp, frameWriteLedger] window, job in
-            try setFrame(window.ax, topLeft, size, fit: &window.frameFit, job) { writes in
+            guard !window.isUnbound else { return nil as Rect? }
+            return try setFrame(window.ax, topLeft, size, fit: &window.frameFit, job) { writes in
                 try frameWriteLedger.record(windowId) { try disableAnimations(app: axApp.threadGuarded, job, writes) }
             }
         }
@@ -714,11 +720,13 @@ final class MacApp: AbstractApp {
     private static func refreshAppAndGetAliveWindowIdsWithDeadline(
         _ nsApp: NSRunningApplication,
         frontmostAppBundleId: String?,
-    ) async throws -> [UInt32] {
+        windowServer: WindowServerWindowList,
+    ) async throws -> AppWindowsRefresh {
         let pid = nsApp.processIdentifier
-        let work = Task { @MainActor () -> [UInt32] in
-            guard let app = try await MacApp.getOrRegister(nsApp) else { return [] }
-            return try await app.refreshAndGetAliveWindowIds(frontmostAppBundleId: frontmostAppBundleId)
+        let work = Task { @MainActor () -> AppWindowsRefresh in
+            guard let app = try await MacApp.getOrRegister(nsApp) else { return .unchanged([]) }
+            return .decided(try await app.refreshAndGetAliveWindowIds(frontmostAppBundleId: frontmostAppBundleId,
+                windowServer: windowServer, setAside: notPresentableWindowIds(pid: pid)))
         }
         let deadline = Task { @MainActor in
             try? await Task.sleep(for: singleAppRefreshDeadline)
@@ -730,9 +738,10 @@ final class MacApp: AbstractApp {
                 return try await work.value
             } catch is CancellationError {
                 // Propagate if the whole refresh session was cancelled; otherwise the deadline
-                // fired — report the model's current windows for this app as alive.
+                // fired — report the model's current windows for this app as alive. Nothing it
+                // decided after that is committed.
                 try checkCancellation()
-                return MacWindow.allWindows.filter { $0.macApp.pid == pid }.map(\.windowId)
+                return .unchanged(MacWindow.allWindows.filter { $0.macApp.pid == pid }.map(\.windowId))
             }
         } onCancel: {
             work.cancel()
@@ -740,19 +749,27 @@ final class MacApp: AbstractApp {
     }
 
     @MainActor
-    static func refreshAllAndGetAliveWindowIds(frontmostAppBundleId: String?) async throws -> [MacApp: [UInt32]] {
+    /// `windowServer`: one list of every window there is, for the whole refresh (`refreshRegisteredAxWindows`), and the
+    /// refresh's identity: what an app decided is committed only with it (`commitWindowLiveness`). The windows alive, by
+    /// app, and what each app whose refresh completed decided.
+    static func refreshAllAndGetAliveWindowIds(
+        frontmostAppBundleId: String?,
+        windowServer: WindowServerWindowList = WindowServerWindowList(),
+    ) async throws -> (alive: [MacApp: [UInt32]], decided: [MacApp: AppWindowLiveness]) {
         for (_, app) in MacApp.allAppsMap { // gc dead apps
             try checkCancellation()
             if app.nsApp.isTerminated {
                 await app.destroy()
             }
         }
-        return try await withThrowingTaskGroup(of: (pid_t, [UInt32]).self, returning: [MacApp: [UInt32]].self) { group in
+        return try await withThrowingTaskGroup(of: (pid_t, AppWindowsRefresh).self,
+                                               returning: (alive: [MacApp: [UInt32]], decided: [MacApp: AppWindowLiveness]).self) { group in
             func refreshTheApp(_ nsApp: NSRunningApplication) {
                 group.addTask { @Sendable @MainActor in
                     (
                         nsApp.processIdentifier,
-                        try await refreshAppAndGetAliveWindowIdsWithDeadline(nsApp, frontmostAppBundleId: frontmostAppBundleId)
+                        try await refreshAppAndGetAliveWindowIdsWithDeadline(nsApp, frontmostAppBundleId: frontmostAppBundleId,
+                            windowServer: windowServer)
                     )
                 }
             }
@@ -772,49 +789,62 @@ final class MacApp: AbstractApp {
                     refreshTheApp(app.nsApp)
                 }
             }
-            var result: [MacApp: [UInt32]] = [:]
-            for try await (pid, windowIds) in group {
+            var alive: [MacApp: [UInt32]] = [:]
+            var decided: [MacApp: AppWindowLiveness] = [:]
+            for try await (pid, refreshed) in group {
                 if let app = MacApp.allAppsMap[pid] {
-                    result[app] = windowIds
+                    switch refreshed {
+                        case .decided(let liveness):
+                            alive[app] = liveness.alive
+                            decided[app] = liveness
+                        case .unchanged(let windowIds):
+                            alive[app] = windowIds
+                    }
                 }
             }
-            return result
+            return (alive, decided)
         }
     }
 
-    private func refreshAndGetAliveWindowIds(frontmostAppBundleId: String?) async throws -> [UInt32] {
+    /// Decides, on this app's thread, which of its windows are alive (`refreshRegisteredAxWindows`), and holds that until
+    /// the main actor commits the refresh (`commitWindowLiveness`).
+    private func refreshAndGetAliveWindowIds(frontmostAppBundleId: String?, windowServer: WindowServerWindowList,
+                                             setAside: Set<UInt32>) async throws -> AppWindowLiveness
+    {
         if nsApp.isTerminated {
             await destroy()
-            return []
+            return AppWindowLiveness()
         }
-        guard let thread else { return [] }
-        let (alive, dead) = try await thread.runInLoop { [nsApp, windows, axApp] (job) -> ([UInt32], [UInt32]) in
-            var alive: [UInt32: AxWindow] = windows.threadGuarded
-            var dead = [UInt32: AxWindow]()
-            // Second line of defence against lock screen. See the first line of defence: closedWindowsCache
-            // Second and third lines of defence are technically needed only to avoid potential flickering
-            if frontmostAppBundleId != lockScreenAppBundleId {
-                (alive, dead) = try alive.partition {
-                    try job.checkCancellation()
-                    let (windowId, error) = $0.value.ax.containingWindowIdWithError()
-                    if error != .success { AxWindowErrorLog.shared.record(windowId: $0.key, error: error) }
-                    return shouldKeepRegisteredAxWindow(windowId: windowId, error: error)
-                }
-            }
-
-            for (id, window) in axApp.threadGuarded.get(Ax.windowsAttr) ?? [] {
-                try job.checkCancellation()
-                try alive.getOrRegisterAxWindow(windowId: id, window, nsApp, job)
-            }
-
-            windows.threadGuarded = alive
-            return (Array(alive.keys), Array(dead.keys))
+        guard let thread else { return AppWindowLiveness() }
+        let appHidden = nsApp.isHidden
+        return try await thread.runInLoop { [nsApp, windows, livenessLedger, axApp] (job) -> AppWindowLiveness in
+            let refreshed = try refreshRegisteredAxWindows(windows.threadGuarded,
+                frontmostAppBundleId: frontmostAppBundleId, windowServer: windowServer,
+                listed: { axApp.threadGuarded.get(Ax.windowsInFullAttr) },
+                rebind: { stale, element in try AxWindow.rebound(stale, to: element, nsApp, job) },
+                register: { alive, id, element in _ = try alive.getOrRegisterAxWindow(windowId: id, element, nsApp, job) },
+                appHidden: appHidden, setAside: setAside, job)
+            livenessLedger.threadGuarded.hold(refreshed, of: windowServer)
+            return AppWindowLiveness(alive: Array(refreshed.alive.keys), dead: Array(refreshed.dead.keys),
+                asksForConfirmation: refreshed.asksForConfirmation, awaitsWindowServer: refreshed.awaitsWindowServer,
+                startsRecheckSeries: refreshed.startsRecheckSeries, presentable: refreshed.presentable)
         }
-        windowsCount = alive.count
-        for windowId in dead {
+    }
+
+    /// The main actor accepts `refresh` as current: what this app decided in it takes effect. On this app's thread, after
+    /// anything queued before: its windows as decided (unbound ones marked; `RegisteredWindowsRefresh.applied`), absences,
+    /// closed windows remembered. Any other refresh's decision held there is left alone.
+    @MainActor
+    func commitWindowLiveness(_ decided: AppWindowLiveness, of refresh: WindowServerWindowList) {
+        windowsCount = decided.alive.count
+        for windowId in decided.dead {
             setFrameJobs.removeValue(forKey: windowId)?.cancel()
         }
-        return alive
+        thread?.runInLoopAsync(autoCheckCancelled: false) { [windows, livenessLedger] _ in
+            guard let committed = livenessLedger.threadGuarded.commit(refresh) else { return }
+            for (windowId, window) in committed.alive { window.isUnbound = committed.unbound.contains(windowId) }
+            windows.threadGuarded = committed.applied(to: windows.threadGuarded)
+        }
     }
 
     private func destroy() async {
@@ -919,4 +949,20 @@ func shouldPerformNewFloatingWindowPresentation(
           case .window(let currentNativeWindowId) = currentNativeObservation
     else { return false }
     return currentNativeWindowId == expectedNativeWindowId || currentNativeWindowId == targetWindowId
+}
+
+/// What an app's refresh decided, for the main actor to commit (`MacApp.commitWindowLiveness`).
+struct AppWindowLiveness: Sendable {
+    var alive: [UInt32] = []
+    var dead: [UInt32] = []
+    var asksForConfirmation = false
+    var awaitsWindowServer: Set<UInt32> = []
+    var startsRecheckSeries = false
+    var presentable: [UInt32: Bool] = [:]
+}
+
+/// One app's part in a refresh: decided, or its windows taken as they are (its deadline passed, or there's no app).
+enum AppWindowsRefresh: Sendable {
+    case decided(AppWindowLiveness)
+    case unchanged([UInt32])
 }

@@ -111,9 +111,12 @@ func workspaceSidebarIsPinned(_ workspace: Workspace) -> Bool {
 
 /// The window `pin` lent to another tab's split, while it's there: not closed, and not back in the pin.
 @MainActor
+/// One set aside as not presentable isn't: the pin keeps it on record, to lend it again once it's back. Nor is one
+/// while the pin holds a window of its own (taken in meanwhile).
 func workspaceSidebarLentWindow(of pin: Workspace) -> Window? {
     guard config.usesBrowserTabs, let appearance = workspaceSidebarOrganizationStore.state.workspaces[pin.name],
-          appearance.isFavorite, let window = appearance.lentWindow?.live, window.nodeWorkspace !== pin else { return nil }
+          appearance.isFavorite, let window = appearance.lentWindow?.live, window.nodeWorkspace !== pin,
+          !window.isSetAsideAsNotPresentable, workspaceSidebarPinResourceWindows(pin).isEmpty else { return nil }
     return window
 }
 
@@ -682,7 +685,9 @@ private func workspaceSidebarAwayWindows(of composition: WorkspaceSidebarPinComp
     var seen: Set<UInt32> = []
     let homes = Dictionary(composition.away.map { ($0.window, $0.pinName) }, uniquingKeysWith: { first, _ in first })
     for link in composition.away.map(\.window) + composition.layout.windows {
-        guard let window = link.live, window.nodeWorkspace !== split, seen.insert(window.windowId).inserted else { continue }
+        // One set aside as not presentable isn't open anywhere: it comes back to its place by itself.
+        guard let window = link.live, !window.isSetAsideAsNotPresentable, window.nodeWorkspace !== split,
+              seen.insert(window.windowId).inserted else { continue }
         let home = homes[link].flatMap { Workspace.existing(byName: $0) }.flatMap { workspaceSidebarIsPinned($0) ? $0 : nil }
         let tab = window.nodeWorkspace
         let inHome = tab != nil && tab === home && home.map(workspaceSidebarPinResourceWindows)?.count == 1
@@ -769,6 +774,8 @@ func recallWorkspaceSidebarPinWindows(_ pin: Workspace) throws -> WorkspaceSideb
     try saveWorkspaceSidebarPinCompositions(of: [pin, workspaceSidebarLentWindow(of: pin)?.nodeWorkspace].compactMap { $0 })
     if workspaceSidebarPinSplitRole(pin) == .composition { return try recallWorkspaceSidebarComposition(pin) }
     guard workspaceSidebarPinResourceWindows(pin).isEmpty, let window = workspaceSidebarLentWindow(of: pin) else { return .nothing }
+    // Set aside, it can't be shown: nothing to bring back until it can.
+    if window.isNotPresentable { return .nothing }
     if window.parent is MacosMinimizedWindowsContainer { return .minimized(window) }
     if window.parent is MacosHiddenAppsWindowsContainer { return .hidden(window) }
     let isFloating = window.parent is Workspace
