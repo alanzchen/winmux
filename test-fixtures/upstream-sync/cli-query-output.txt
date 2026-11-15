@@ -138,6 +138,20 @@ mode
 mode.main.binding
 mode.main.binding-tap
 
+$ list-monitors --format '%{nonexistent}'
+exit: 1
+err: ERROR: Unknown interpolation variable 'nonexistent'. Possible values:
+         monitor-id
+         monitor-appkit-nsscreen-screens-id
+         monitor-name
+         monitor-is-main
+         right-padding
+         newline
+         tab
+
+$ list-apps --format '%{window-id}'
+exit: 0
+
 $ focus left
 exit: 0
 

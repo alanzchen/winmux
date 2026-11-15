@@ -88,12 +88,6 @@ failure: Mandatory option is not specified (--all|--focused|--monitor)
 $ list-workspaces --monitor
 failure: ERROR: <monitor>... is mandatory. <monitor> possible values: (<monitor-id>|focused|mouse|all)
 
-$ list-monitors --format '%{nonexistent}'
-parsed
-
-$ list-apps --format '%{window-id}'
-parsed
-
 $ resize
 failure: ERROR: Argument '(smart|smart-opposite|width|height)' is mandatory
 ERROR: Argument '[+|-]<number>' is mandatory

@@ -30,7 +30,7 @@ final class UpstreamSyncGoldenTest: XCTestCase {
             "layout", "layout accordion", "layout tab-group tiles", "layout --fail-if-noop", "workspace", "workspace --wrap-around",
             "workspace next --auto-back-and-forth", "move-node-to-workspace", "move-node-to-workspace --focus-follows-window",
             "list-windows", "list-windows --all --focused", "list-windows --all --format", "list-workspaces", "list-workspaces --monitor",
-            "list-monitors --format '%{nonexistent}'", "list-apps --format '%{window-id}'", "resize", "resize width", "resize width +x",
+            "resize", "resize width", "resize width +x",
             "split", "split sideways", "join-with", "swap", "summon-workspace", "move-workspace-to-monitor", "mode", "config --get",
             "trigger-binding", "volume", "volume up 5", "close --quit-if-last-window extra",
             "fullscreen on off", "macos-native-fullscreen sometimes", "enable maybe", "agent", "agent apply", "project", "create-project",
@@ -50,6 +50,8 @@ final class UpstreamSyncGoldenTest: XCTestCase {
             "list-windows --all --format '%{window-id}|%{app-name}|%{app-bundle-id}|%{workspace}|%{window-layout}'",
             "list-monitors", "list-monitors --json", "list-apps", "list-apps --json", "list-modes", "list-modes --json",
             "list-projects", "list-projects --json", "list-exec-env-vars", "config --major-keys",
+            // These parse; the format variable is checked when they run.
+            "list-monitors --format '%{nonexistent}'", "list-apps --format '%{window-id}'",
             "focus left", "focus-monitor next", "workspace-back-and-forth", "move-node-to-workspace 2", "focus right",
         ]
         var out = ""
@@ -203,8 +205,10 @@ private func flatten(_ value: Any, path: String, depth: Int, into lines: inout [
             if mirror.children.isEmpty { return leaf() }
             for child in mirror.children {
                 let label = internalRenames[child.label ?? "?"] ?? child.label ?? "?"
-                let childPath = label == "winmux" ? path : (path.isEmpty ? label : "\(path).\(label)")
-                flatten(child.value, path: childPath, depth: depth + 1, into: &lines)
+                // `winmux` is elided from the path, and from the depth, so it doesn't shorten what's printed below it.
+                let isElided = label == "winmux"
+                let childPath = isElided ? path : (path.isEmpty ? label : "\(path).\(label)")
+                flatten(child.value, path: childPath, depth: isElided ? depth : depth + 1, into: &lines)
             }
         case .dictionary, .set:
             let items = mirror.children.map { child -> (String, Any) in
