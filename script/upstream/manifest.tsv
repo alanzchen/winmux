@@ -112,7 +112,7 @@ pristine	Sources/AppBundle/subscriptions.swift
 forked	Sources/AppBundle/tree/AbstractApp.swift	hooked	12 changed lines
 forked	Sources/AppBundle/tree/MacApp.swift	hooked	733 changed lines
 forked	Sources/AppBundle/tree/MacWindow.swift	hooked	298 changed lines
-pristine	Sources/AppBundle/tree/MacosUnconventionalWindowsContainer.swift
+forked	Sources/AppBundle/tree/MacosUnconventionalWindowsContainer.swift	hooked	liveness fix adds the not-presentable container (additive; mark in phase 1)
 forked	Sources/AppBundle/tree/TilingContainer.swift	hooked	12 changed lines
 forked	Sources/AppBundle/tree/TreeNode.swift	hooked	29 changed lines
 forked	Sources/AppBundle/tree/TreeNodeCases.swift	hooked	4 changed lines
