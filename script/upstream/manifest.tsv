@@ -132,7 +132,7 @@ forked	Sources/AppBundle/ui/MessageView.swift	hooked	restored at the upstream pa
 forked	Sources/AppBundle/ui/NSPanelHud.swift	hooked	restored at the upstream path in phase 1
 forked	Sources/AppBundle/ui/SecureInputView.swift	pristine	restored at the upstream path in phase 1
 forked	Sources/AppBundle/ui/TrayMenuModel.swift		restored at the upstream path in phase 1 (tray redesign)
-pristine	Sources/AppBundle/ui/VolumeView.swift
+forked	Sources/AppBundle/ui/VolumeView.swift	pristine	explicit [self] capture (warning fix); upstream switches to [weak self] in a later slice
 pristine	Sources/AppBundle/util/ArrayEx.swift
 pristine	Sources/AppBundle/util/AwaitableOneTimeBroadcastLatch.swift
 pristine	Sources/AppBundle/util/AxSubscription.swift
