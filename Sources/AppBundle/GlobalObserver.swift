@@ -1,13 +1,7 @@
 import AppKit
 import Common
-import HotKey
 
 enum GlobalObserver {
-    @MainActor private static var isInitialized = false
-    @MainActor private static var notificationObserverTokens: [NSObjectProtocol] = []
-    @MainActor private static var eventMonitorTokens: [Any] = []
-    @MainActor private static var menuTrackingPointerMonitor: MenuTrackingPointerMonitor?
-
     private static func onNotif(_ notification: Notification) {
         // Third line of defence against lock screen window. See: closedWindowsCache
         // Second and third lines of defence are technically needed only to avoid potential flickering
@@ -15,19 +9,7 @@ enum GlobalObserver {
             return
         }
         let notifName = notification.name.rawValue
-        let activatedAppPid = notifName == NSWorkspace.didActivateApplicationNotification.rawValue
-            ? (notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication)?.processIdentifier
-            : nil
-        if activatedAppPid != nil { nativeFocusEvents.note() }
-        if notifName == NSWorkspace.activeSpaceDidChangeNotification.rawValue {
-            MainActor.assumeIsolated { lastActiveSpaceChangeUptime = ProcessInfo.processInfo.systemUptime }
-        }
-        // At once, on the main queue it's delivered on: a window that app opens next is judged by it.
-        if let activatedAppPid { MainActor.assumeIsolated { noteAppActivatedForAuxiliaryWindows(pid: activatedAppPid) } }
-        if notifName == NSWorkspace.didWakeNotification.rawValue || notifName == NSWorkspace.screensDidWakeNotification.rawValue {
-            // Before the refresh this schedules lays windows out.
-            MainActor.assumeIsolated { MonitorConfigurationObserver.shared.noteScreensWoke() }
-        }
+        let activatedAppPid = WinMuxHooks.globalObserverNotification(notification) // WINMUX-HOOK(globalObserverNotification)
         Task { @MainActor in
             if !TrayMenuModel.shared.isEnabled { return }
             if notifName == NSWorkspace.didActivateApplicationNotification.rawValue {
@@ -62,91 +44,21 @@ enum GlobalObserver {
         }
     }
 
-    // NSEvent monitor callbacks arrive on the main thread. Running their bodies synchronously
-    // instead of spawning a Task avoids an allocation + run-loop hop per input event — pointer
-    // events fire at 60-120Hz, so the Task-per-event pattern adds constant latency and churn.
-    private static func runOnMainActor(_ body: @escaping @MainActor () -> Void) {
-        if Thread.isMainThread {
-            MainActor.assumeIsolated(body)
-        } else {
-            Task { @MainActor in body() }
-        }
-    }
-
-    private static func onKeyDown(_ event: NSEvent) {
-        let keyCode = event.keyCode
-        let modifierFlags = event.modifierFlags
-        runOnMainActor {
-            // Another app's Escape can't be taken, but still cancels a sidebar drag.
-            _ = workspaceSidebarHandleEscapeDuringDrag(keyCode: Int64(keyCode))
-            noteTapBindingKeyDown()
-            SystemDockCoordinator.shared.noteKeyboardActivity(keyCode: keyCode, modifierFlags: modifierFlags)
-        }
-    }
-
-    private static func onFlagsChanged(_ event: NSEvent) {
-        let keyCode = event.keyCode
-        let modifierFlags = event.modifierFlags
-        runOnMainActor {
-            noteTapBindingFlagsChanged(keyCode: keyCode, modifierFlags: modifierFlags)
-            // Option toggles whether a tab dragged in Tabs mode stacks; show it without a move.
-            refreshActiveWorkspaceSidebarDragPreviewIfNeeded()
-        }
-    }
-
-    static func onPointerActivity(_ event: NSEvent) {
-        let isLeftMouseDownEvent = event.type == .leftMouseDown
-        let timestamp = event.timestamp
-        let screenPoint = NSEvent.mouseLocation
-        let point = normalizeAppKitScreenPoint(screenPoint)
-        runOnMainActor {
-            if isLeftMouseDownEvent {
-                WorkspaceSidebarDragSessions.shared.noteLeftMouseDown()
-                noteLeftMousePressBoundaryForDragRefresh()
-            }
-            MousePointerTracker.shared.note(point: point, timestamp: timestamp)
-            WorkspaceSidebarPanel.trapCursorForVisiblePanelsIfNeeded()
-            // Edge hold may have warped the cursor back onto this display.
-            let current = MousePointerTracker.shared.currentSample.point
-            WorkspaceSidebarPanel.noteHoverPointerActivityForVisiblePanels(timestamp: timestamp,
-                screenPoint: CGPoint(x: current.x, y: mainMonitor.height - current.y))
-            if isLeftMouseDownEvent {
-                Task { @MainActor in
-                    await WindowMouseInteractionDriver.shared.capturePendingResizeCandidate()
-                }
-            }
-            noteTapBindingKeyDown()
-        }
-    }
-
     @MainActor
     static func initObserver() {
-        guard !isInitialized else { return }
-        isInitialized = true
-        DoubleSidedWindowGesture.shared.install()
-        startSystemFrontWindowWatcher()
-        // The app in use is taken as active since now: it became so earlier, which only makes this stricter.
-        if let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier { noteAppActivatedForAuxiliaryWindows(pid: pid) }
-
+        guard WinMuxHooks.globalObserverWillInstall() else { return } // WINMUX-HOOK(globalObserverWillInstall)
         let nc = NSWorkspace.shared.notificationCenter
-        notificationObserverTokens.append(nc.addObserver(forName: NSWorkspace.didLaunchApplicationNotification, object: nil, queue: .main, using: onNotif))
-        notificationObserverTokens.append(nc.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main, using: onNotif))
-        notificationObserverTokens.append(nc.addObserver(forName: NSWorkspace.didHideApplicationNotification, object: nil, queue: .main, using: onHideApp))
-        notificationObserverTokens.append(nc.addObserver(forName: NSWorkspace.didUnhideApplicationNotification, object: nil, queue: .main, using: onNotif))
-        notificationObserverTokens.append(nc.addObserver(forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main, using: onNotif))
-        notificationObserverTokens.append(nc.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main, using: onNotif))
-        notificationObserverTokens.append(nc.addObserver(forName: NSWorkspace.screensDidWakeNotification, object: nil, queue: .main, using: onNotif))
-        notificationObserverTokens.append(nc.addObserver(forName: NSWorkspace.didTerminateApplicationNotification, object: nil, queue: .main, using: onNotif))
+        nc.addObserver(forName: NSWorkspace.didLaunchApplicationNotification, object: nil, queue: .main, using: onNotif)
+        nc.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main, using: onNotif)
+        nc.addObserver(forName: NSWorkspace.didHideApplicationNotification, object: nil, queue: .main, using: onHideApp)
+        nc.addObserver(forName: NSWorkspace.didUnhideApplicationNotification, object: nil, queue: .main, using: onNotif)
+        nc.addObserver(forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main, using: onNotif)
+        // WINMUX-HOOK-BEGIN(globalObserverWake)
+        nc.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main, using: onNotif)
+        nc.addObserver(forName: NSWorkspace.screensDidWakeNotification, object: nil, queue: .main, using: onNotif)
+        // WINMUX-HOOK-END(globalObserverWake)
+        nc.addObserver(forName: NSWorkspace.didTerminateApplicationNotification, object: nil, queue: .main, using: onNotif)
 
-        retainEventMonitor(NSEvent.addLocalMonitorForEvents(matching: .leftMouseUp) { event in
-            // Local drops are not observed by the global monitor. Dispatch after
-            // SwiftUI handles the event; cleanup is idempotent if onEnded ran first.
-            Task { @MainActor in
-                noteLeftMousePressBoundaryForDragRefresh()
-                finishWorkspaceSidebarDragAfterMouseUp()
-            }
-            return event
-        })
         retainEventMonitor(NSEvent.addGlobalMonitorForEvents(matching: .leftMouseUp) { _ in
             // todo reduce number of refreshSession in the callback
             //  resetManipulatedWithMouseIfPossible might call its own refreshSession
@@ -176,73 +88,6 @@ enum GlobalObserver {
                 }
             }
         })
-
-        retainEventMonitor(NSEvent.addGlobalMonitorForEvents(matching: .leftMouseDragged) { event in
-            let timestamp = event.timestamp
-            let point = normalizeAppKitScreenPoint(NSEvent.mouseLocation)
-            runOnMainActor {
-                MousePointerTracker.shared.note(point: point, timestamp: timestamp)
-                WorkspaceSidebarPanel.trapCursorForVisiblePanelsIfNeeded()
-                refreshPendingWindowDragIntentFromGlobalMouseDrag()
-            }
-        })
-
-        let pointerActivityMask: NSEvent.EventTypeMask = [
-            .mouseMoved,
-            .leftMouseDown, .rightMouseDown, .otherMouseDown,
-            .leftMouseDragged, .rightMouseDragged, .otherMouseDragged,
-            .scrollWheel,
-        ]
-        let pointerMonitor = MenuTrackingPointerMonitor(
-            installMonitor: { NSEvent.addGlobalMonitorForEvents(matching: pointerActivityMask, handler: onPointerActivity) },
-            removeMonitor: { NSEvent.removeMonitor($0) },
-            didResume: {
-                // Closing with Escape can leave the pointer stationary over the Dock.
-                // Resample input now; defer hover until the close notifications settle.
-                let screenPoint = NSEvent.mouseLocation
-                MousePointerTracker.shared.note(point: normalizeAppKitScreenPoint(screenPoint))
-                SystemDockCoordinator.shared.notePointerActivity(screenPoint)
-                WorkspaceSidebarPanel.scheduleHoverRecheckForVisiblePanels()
-            })
-        menuTrackingPointerMonitor = pointerMonitor
-        pointerMonitor.start()
-        retainEventMonitor(NSEvent.addLocalMonitorForEvents(matching: pointerActivityMask) { event in
-            onPointerActivity(event)
-            return event
-        })
-
-        retainEventMonitor(NSEvent.addGlobalMonitorForEvents(matching: .flagsChanged, handler: onFlagsChanged))
-        retainEventMonitor(NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { event in
-            onFlagsChanged(event)
-            return event
-        })
-
-        retainEventMonitor(NSEvent.addGlobalMonitorForEvents(matching: .keyDown, handler: onKeyDown))
-        retainEventMonitor(NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-            // Before sequence bindings, whose prefix keys include Escape.
-            if event.keyCode == 53, isWorkspaceSidebarDragSessionActive() {
-                _ = workspaceSidebarHandleEscapeDuringDrag(keyCode: 53)
-                return nil
-            }
-            onKeyDown(event)
-            // Check if this key matches a recently-pressed prefix (sequence binding)
-            if handleSequenceKeyDown(event: event) {
-                return nil // consume the event
-            }
-            // If this is a sequence prefix key (e.g. Escape), arm the sequence detector
-            if let prefix = Key(carbonKeyCode: UInt32(event.keyCode)),
-               sequenceBindingsPrefixKeys.contains(prefix) {
-                noteSequencePrefixKeyPressed(prefix)
-            }
-            if event.modifierFlags.contains(.control), event.keyCode == 34 {
-                return nil // consume the event
-            }
-            return event
-        })
-    }
-
-    @MainActor private static func retainEventMonitor(_ monitor: Any?) {
-        guard let monitor else { return }
-        eventMonitorTokens.append(monitor)
+        WinMuxHooks.installGlobalObserverMonitors() // WINMUX-HOOK(installGlobalObserverMonitors)
     }
 }
