@@ -406,22 +406,19 @@ Merged upstream `aca3200e` (#7–32) with `script/upstream-sync.py merge`. 38 co
 
 **Scope: the shell and D3 are not in S2.** The request named S2 as "the TOMLDecoder parser and shell, plus D3". Upstream's handwritten shell (`f4be7288`) and its breaking binding change (`790e1222`) are commits #115–164, which is S5's range. The train merges upstream in order. A merge of the shell commits brings every earlier commit with it, so taking them now would fold S3 (`ExitCode`, the `Command.run` signature) and S4 (`FloatingWindowsContainer`) into this candidate. That breaks "each slice ships separately". S2 therefore stops at `aca3200e`, the end of the TOMLDecoder series. D3 is decided (adopt upstream's shell, warn on bindings whose meaning changes) and ships with S5, together with the binding corpus. **S2 adds no config warnings, and no binding or config key changes meaning.**
 
-**Parser.** Config files are parsed by TOMLDecoder 0.4.4 (TOML 1.1), as upstream does.
+**Parser.** Config files are parsed by TOMLDecoder (TOML 1.1), as upstream does, behind WinMux's front end `WinMuxToml` (S2 review fixes, below). The pin is 0.4.5, upstream's own later pin.
 - `parseConfig` returns `[String]`, sorted.
 - WinMux's section parsers read `Json`:
   - `workspace-sidebar`, `window-tabs`, bindings, tap and sequence bindings, workspace intelligence, MCP;
   - the shortcuts preset.
 - `Json` gains one marked case, `.double` (hook `jsonDouble`), because WinMux settings take fractional numbers (for example `workspace-sidebar.glass-opacity`).
-- TOMLKit stays a dependency for files and fragments that never go through `parseConfig`:
-  - `window-rules.toml`;
-  - import validation in `ConfigBootstrap`;
-  - the Settings window, which validates and writes TOML fragments with TOMLKit.
+- TOMLKit stays a dependency only for `window-rules.toml`, a separate file. Nothing that reads, edits or validates the main config uses it any more (S2 review fixes).
 
-**Settings window.**
-- It still edits TOML with TOMLKit.
-- Every save, form edit or TOML Editor save, is still checked by `parseConfig` before it is written, now through TOMLDecoder.
-- An edit TOMLKit produces but TOMLDecoder rejects is therefore refused with the error, never written.
-- Covered by `SettingsEditorTest`, `ShortcutSettingsConfigEditsTest`, the config-edit round trips in `ConfigTestConfigEdits.swift` and `WorkspaceSidebarResizeTest`, all green.
+**Settings window and sidebar edits.**
+- They still edit the file's text line by line, keeping comments and layout.
+- Where a value ends, which lines are headers, and whether the result is valid are all decided by the loader's front end.
+- Every write goes through `writeConfigFile`, or `SettingsPersistence`'s identical check (S2 review fixes).
+- Covered by `SettingsEditorTest`, `ShortcutSettingsConfigEditsTest`, the config-edit round trips in `ConfigTestConfigEdits.swift`, `WorkspaceSidebarResizeTest`, `CarbonS2SettingsToml11ReproTest` and `S2TomlFrontEndTest`, all green.
 
 **User-visible changes, all wording or syntax; exact texts:**
 
@@ -435,7 +432,11 @@ Config files (errors appear in the load-failure message and in the Settings wind
 | Order of several errors | parse order | sorted by text. For example `key-mapping.key-notation-to-key-code.q: …` now comes before `key-mapping.key-notation-to-key-code: …` |
 | Invalid regex (`on-window-detected` `if.app-name-regex-substring` / `if.window-title-regex-substring`, monitor patterns in `gaps` and `workspace-to-monitor-force-assignment`) | `Can't parse 'X' regex. <reason>` | `Can't parse 'X' regex: <reason>`. Matching is still case-insensitive. |
 | TOML 1.1 syntax | rejected | accepted. For example, inline tables spanning lines with a trailing comma (upstream's `testParseInlineTables`). |
-| Malformed headers TOMLKit tolerated (AeroSpace issue 1064, for example `[[[on-window-detected]]`) | accepted | rejected: `(Line 1) Syntax error: invalid or missing key.` |
+| Malformed headers TOMLKit tolerated (AeroSpace issue 1064, for example `[[[on-window-detected]]`) | accepted in release builds (a debug-build assertion in TOMLKit's toml++; undefined behavior in release) | rejected: `(Line 1) Syntax error: invalid or missing key.` |
+| A carriage return not followed by a line feed (invalid TOML anywhere) | rejected with TOMLKit's text | rejected: `(Line N) Syntax error: carriage return without line feed.` (this also rejects CR CR LF, which TOMLDecoder alone accepted) |
+| CRLF files, a leading byte order mark, `\\` before a closing `"""` | read as the spec says | unchanged: read exactly as v0.6.421 read them (S2 review fixes) |
+
+`debug-windows` prints `on-window-detected` matchers with their regex source text (upstream `ac2957bc`). It used to print `Regex` and the misspelled key `appNameRegexSubstrin`.
 
 The effective default config and the WinMux test config (`config-default.txt`, `config-winmux.txt` golden files) parse to the same values as on v0.6.421.
 
@@ -467,7 +468,8 @@ CLI argument errors (exit codes unchanged). Upstream reworded value flags. WinMu
 | `axDumpKeys` | `dumpAxRecursive`, recursion limit and before `return` | replacement and rename | `debug-windows` keeps `WinMux.synthetic`, `WinMux.AxWritable`, `WinMux.AxFailed`, `WinMux.AxIgnored`. AX attribute names never start with `Aero.`, so the rename can't hit a real attribute. | `testAxDumpKeepsWinMuxKeyNames`; mutation (rename skipped) fails |
 | `axErrorRepr` | `extension AXError` | addition | `winMuxRepr` forwards to the file-private `repr`, for the two WinMux callers. | — |
 | `nativeFocusObservation` | end of `getNativeFocusedWindow.swift` | addition | Upstream's `getNativeFocusedWindow` body is back. It reads the same `focusedApp?.getFocusedWindow()` WinMux's version did, minus a stored-property read. | — |
-| `jsonDouble` | `Json`, `tomlAnyToParsedConfigRecursive` | addition | TOMLKit gave WinMux floats; this keeps them. | Mutation (case removed): `ConfigTest.testConfigParseError` fails (the test process traps) |
+| `jsonDouble` | `Json`, `tomlAnyToParsedConfigRecursive` | addition | TOMLKit gave WinMux floats; this keeps them. | `S2TomlFrontEndTest.testFloatsConvertToJsonDoubles` asserts the conversion directly. Removing the case also traps the test process, because `defaultConfig`'s own parse then fails inside its initializer. |
+| `tomlSource` | `parseConfig.swift` `_parseConfig`, before TOMLDecoder | guard and input rewrite | See S2 review fixes. Every rewrite yields the same TOML document; the guard reports only a character that is invalid anywhere in TOML. | Mutations below |
 
 **Build settings.**
 - Upstream enables strict memory safety and `NonisolatedNonsendingByDefault` in every module.
@@ -477,6 +479,95 @@ CLI argument errors (exit codes unchanged). Upstream reworded value flags. WinMu
 - `.swift-version` stays 6.4.2; upstream's is 6.3.0.
 
 **Toolchain warnings.** Upstream's unassigned `Task { … }` in `GlobalObserver` (two lines, one of them in the replaced, never-run monitor body) warns on Swift 6.4. AppBundle warnings don't fail the release build: `-warnings-as-errors` applies to the Cli product and the app target's own sources. S3 replaces both lines with upstream's `Task.startUnstructured`.
+
+### S2 review fixes (Astra A1–A3, Carbon S2-C1/C2)
+
+Principle: one parser, one truth. Anything that reads, edits or validates the main config agrees with the loader, and no writer skips validation.
+
+**The loader's front end, `WinMuxToml`.** `parseConfig` (hook `tomlSource`), the Settings and sidebar statement scans, and first-launch import all parse through it. It hands TOMLDecoder text that TOMLDecoder reads as the TOML spec, and v0.6.421, do:
+
+| Input | TOMLDecoder alone | Front end | Why |
+|---|---|---|---|
+| Text bridged from `NSTextStorage` (the TOML Editor) | traps: 0.4.4/0.4.5 force-unwraps contiguous UTF-8 when unpacking values (`Token.swift:105`) | always a new contiguous String | A1 |
+| CRLF inside multiline strings | keeps the CR in the value | CRLF → LF before parsing | A2. The spec lets a parser normalize newlines, and v0.6.421 gave LF. An escaped `\r` stays a CR. |
+| `\\` just before a closing `"""` | `unterminated triple-d-quote`: the lexer takes any backslash before the quote as escaping it (`Parser.swift:241`, still in 0.4.5) | `\\` in basic strings becomes `\`, the same character | A3. The rewrite walks TOML's lexical states (comments, four string kinds), so literal strings and comments are untouched. |
+| A bare value cut off at EOF (`width = -`, `n`, `in`, …) | reads out of bounds. 0.4.5 fixes several of these paths but not all: with the newline guard removed, `CarbonS2EofReproTest` still traps on 0.4.5 | a newline is appended when missing | S2-C2. Pinned 0.4.5 as well (upstream's later pin; it fixes base-prefixed integer unpacking too). |
+| A lone CR | CR CR LF accepted | rejected with its line | invalid TOML anywhere; v0.6.421 rejected it |
+| A leading byte order mark | `missing =` | dropped | Carbon nit 2; TOMLKit dropped it |
+
+None of these changes the line count, so error lines are the file's.
+
+**Structure scans.**
+- Before: `ConfigSettingsViews.updateSettingsScalarConfig`, the sidebar's `tomlMultilineValueContinuations` and project-order check, and `ConfigBootstrap`'s import check asked TOMLKit (TOML 1.0) where a multiline value ends.
+- After: they ask the front end, through one helper, `tomlStatementEnd`.
+- The shortcut editor (`updateModeBindingConfig`) had no multiline awareness at all. It now skips continuation lines too, and drops a removed binding's continuation lines with it.
+
+**One validated write path.**
+- `writeConfigFile(after, replacing: before, at:, changing:)`:
+  1. The loader must read `after` without adding an error that `before` didn't have.
+  2. Every key outside `changing` must keep its value, comparing the loader's reading of both texts. A key under a listed path counts as inside.
+  3. Only then is the file written atomically.
+- Writers using it:
+  - all six sidebar writers (workspace label, project label, color, emoji, metadata, order), each listing the keys it edits;
+  - the shortcut binding writer (`[mode.main.binding]`);
+  - the tabs-sidebar toggle.
+- `SettingsPersistence` applies the same kept-keys check after its existing zero-errors check:
+  - form edits list their section and keys, plus `workspace-sidebar.dock-appearance` when they freeze inherited Dock values;
+  - display-width edits list their display;
+  - the TOML Editor and undo replace the whole document, so they are validated but not key-checked.
+- First-launch import and the starter file write a new file: the front end must read the text first.
+- New refusal texts, shown where the edit was made:
+  - `WinMux didn't save this change: the configuration would no longer load.` followed by the loader's errors;
+  - `WinMux didn't save this change: it would also have changed '<key>'. Edit the file in Advanced → TOML Editor.`;
+  - `WinMux didn't save this change: it couldn't read the configuration to check the edit. Fix it in Advanced → TOML Editor.`
+- A sidebar edit on a file that doesn't parse is now refused, where v0.6.421 wrote it anyway.
+
+**Results**
+
+Reviewers' reproducers, used unchanged as RED:
+- `CarbonS2SettingsToml11ReproTest` (byte-identical copy in `Sources/AppBundleTests/review/`): 3 tests and 7 failures before, 0 failures after.
+- `CarbonS2EofReproTest` (method verbatim): it trapped before and passes after.
+- Astra's `S2SettingsForeignStringRepro`, `S2CRLFRepro` and `S2EscapedBackslashRepro`, built unchanged against this tree with her build script, retargeted:
+  - before: a trap, 0/3, 0/1;
+  - after: PASS, 3/3, 1/1.
+- Their contracts are also ported into `S2TomlFrontEndTest`.
+
+Differentials against v0.6.421:
+- Astra's corpus, 2,246 config inputs and 7,759 distinct CLI texts:
+  - configs: 736 accepted by both, 1,483 rejected by both, 0 newly rejected, 5 newly accepted, 0 crashes, 3 dump differences;
+  - CLI: 7,759 equal outcomes.
+- The 5 newly accepted inputs are TOML 1.1 inline tables (2) and floats below `Double`'s normal range (3: `1e-320`, `1e-999`, `1e-9999` as `glass-opacity`). TOMLKit rejected those; TOMLDecoder reads them as the nearest `Double`.
+- The 3 dump differences:
+  - two are v1's derived `persistentWorkspaces` order, which already varies between runs within each revision (Astra's control);
+  - one is the open item below.
+- Carbon's corpus: 204 valid on both, 0 newly failed, 1 newly accepted (TOML 1.1). The only dump difference is the regex wrapper's reflection text, with the same pattern. His TOML 1.1 Settings and sidebar probes keep every key.
+
+Fuzzing:
+- In the suite: every character prefix of every line of the default config, window-rules default, starter config and edge snippets, alone and with a stray CR, plus whole-file prefixes at each line. It takes under a second.
+- Once, outside the suite: every character prefix of all 2,446 reviewer config texts through the front end. That was 1,687,951 prefixes, 33,460 of them valid TOML, with 0 crashes.
+
+Mutations: each guard is replaced with its absence, and `S2TomlFrontEndTest` and the Carbon tests run.
+
+| Mutation | Caught by |
+|---|---|
+| The front end hands back the caller's String when nothing needs rewriting | A1 test traps (`Token.swift:105`) |
+| CRLF kept | 6 failures: the CRLF contracts and the lone-CR test |
+| A lone CR dropped instead of reported | 3 failures in the lone-CR test |
+| `\\` not rewritten | 8 failures in the escaped-backslash test |
+| No trailing newline | `CarbonS2EofReproTest` traps on 0.4.5 |
+| Byte order mark kept | the byte-order-mark test |
+| Kept-keys check off | the two write-refusal tests (4 failures) |
+| Added-errors check off | 3 failures in the loader-rejects test |
+| The statement scan never ends a multiline value | Carbon's two Settings tests (5 failures) |
+| `SettingsPersistence.save` skips the kept-keys check | the Settings refusal test |
+
+**Open item: canonically equal keys.**
+- Example: `[exec.env-vars]` with `"é"` written composed (`C3 A9`) and then decomposed (`65 CC 81`).
+- TOML treats these as two keys. WinMux's config, keyed by Swift `String`, can't hold both, and neither version is spec-correct.
+- v0.6.421 kept `one` (the composed key, written first); S2 keeps `two` (the last).
+- Matching v0.6.421 would need TOMLKit's key order, which isn't known to be document order: byte order also gives `one`.
+- The alternative is rejecting such a file with an error, which would make a file that loaded before fail.
+- Left as is for review. Astra rated it non-blocking.
 
 ### Side tables: projects, pins and workspace identity on upstream's model
 
