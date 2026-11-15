@@ -1,0 +1,5 @@
+rules: 1
+disabled: []
+problems:
+
+WindowRule(id: "wechat-image-viewer", appId: "com.tencent.xinWeChat", windowTitles: ["Photos and Videos"], subrole: Optional("AXStandardWindow"))

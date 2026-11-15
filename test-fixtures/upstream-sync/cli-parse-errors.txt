@@ -1,0 +1,201 @@
+$ 
+failure: Can't parse empty string command
+
+$ unknown-command
+failure: Unrecognized subcommand 'unknown-command'
+
+$ focus
+failure: Mandatory argument is missing. (left|down|up|right|dfs-next|dfs-prev|tab-next|tab-prev), --window-id, --dfs-index or --tab-index is required
+
+$ focus nowhere
+failure: ERROR: Can't parse 'nowhere'.
+       Possible values: (left|down|up|right|dfs-next|dfs-prev|tab-next|tab-prev)
+
+$ focus left --boundaries nowhere
+failure: ERROR: Can't parse 'nowhere'.
+       Possible values: (workspace|all-monitors-outer-frame)
+
+$ move
+failure: ERROR: Argument '(left|down|up|right)' is mandatory
+
+$ move up down
+failure: ERROR: Unknown argument 'down'
+
+$ layout
+failure: ERROR: Argument '(tab-group|tiles|horizontal|vertical|h_tab_group|v_tab_group|h_tiles|v_tiles|tiling|floating)' is mandatory
+
+$ layout accordion
+failure: ERROR: Can't parse 'accordion'
+       Possible values: (tab-group|tiles|horizontal|vertical|h_tab_group|v_tab_group|h_tiles|v_tiles|tiling|floating)
+
+$ layout tab-group tiles
+parsed
+
+$ layout --fail-if-noop
+failure: ERROR: Argument '(tab-group|tiles|horizontal|vertical|h_tab_group|v_tab_group|h_tiles|v_tiles|tiling|floating)' is mandatory
+
+$ workspace
+failure: ERROR: Argument '(<workspace-name>|next|prev)' is mandatory
+
+$ workspace --wrap-around
+failure: ERROR: Argument '(<workspace-name>|next|prev)' is mandatory
+
+$ workspace next --auto-back-and-forth
+failure: --auto-back-and-forth is incompatible with (next|prev)
+
+$ move-node-to-workspace
+failure: ERROR: Argument '(<workspace-name>|new|next|prev)' is mandatory
+
+$ move-node-to-workspace --focus-follows-window
+failure: ERROR: Argument '(<workspace-name>|new|next|prev)' is mandatory
+
+$ list-windows
+failure: Mandatory option is not specified (--focused|--all|--monitor|--workspace)
+
+$ list-windows --all --focused
+failure: ERROR: Conflicting options: --all, --focused
+
+$ list-windows --all --format
+failure: ERROR: <output-format> is mandatory. Possible values:
+         window-id
+         window-is-fullscreen
+         window-title
+         window-layout
+         window-parent-container-layout
+         workspace
+         workspace-display-name
+         workspace-is-focused
+         workspace-is-visible
+         workspace-is-saved
+         workspace-is-pinned
+         workspace-root-container-layout
+         monitor-id
+         monitor-appkit-nsscreen-screens-id
+         monitor-name
+         monitor-is-main
+         app-bundle-id
+         app-name
+         app-pid
+         app-exec-path
+         app-bundle-path
+         right-padding
+         newline
+         tab
+
+$ list-workspaces
+failure: Mandatory option is not specified (--all|--focused|--monitor)
+
+$ list-workspaces --monitor
+failure: ERROR: <monitor>... is mandatory. <monitor> possible values: (<monitor-id>|focused|mouse|all)
+
+$ list-monitors --format '%{nonexistent}'
+parsed
+
+$ list-apps --format '%{window-id}'
+parsed
+
+$ resize
+failure: ERROR: Argument '(smart|smart-opposite|width|height)' is mandatory
+ERROR: Argument '[+|-]<number>' is mandatory
+
+$ resize width
+failure: ERROR: Argument '[+|-]<number>' is mandatory
+
+$ resize width +x
+failure: ERROR: <number> argument must be a number
+
+$ split
+failure: ERROR: Argument '(horizontal|vertical|opposite)' is mandatory
+
+$ split sideways
+failure: ERROR: Can't parse 'sideways'.
+       Possible values: (horizontal|vertical|opposite)
+
+$ join-with
+failure: ERROR: Argument '(left|down|up|right)' is mandatory
+
+$ swap
+failure: ERROR: Argument '(left|down|up|right|dfs-next|dfs-prev)' is mandatory
+
+$ summon-workspace
+failure: ERROR: Argument '<workspace>' is mandatory
+
+$ move-workspace-to-monitor
+failure: ERROR: Argument '(left|down|up|right|next|prev|<monitor-pattern>)' is mandatory
+
+$ mode
+failure: ERROR: Argument '<binding-mode>' is mandatory
+
+$ config --get
+failure: ERROR: '<name>' is mandatory
+
+$ trigger-binding
+failure: ERROR: Argument '<binding>' is mandatory
+
+$ volume
+failure: ERROR: Argument '(up|down|mute-toggle|mute-on|mute-off|set)' is mandatory
+
+$ volume up 5
+failure: ERROR: Unknown argument '5'
+
+$ close --quit-if-last-window extra
+failure: ERROR: Unknown argument 'extra'
+
+$ fullscreen on off
+failure: ERROR: Unknown argument 'off'
+
+$ macos-native-fullscreen sometimes
+failure: ERROR: Can't parse 'sometimes'. Possible values: on|off
+
+$ enable maybe
+failure: ERROR: Can't parse 'maybe'.
+       Possible values: (on|off|toggle)
+
+$ agent
+failure: ERROR: Argument '(query|check|apply|skill)' is mandatory
+
+$ agent apply
+failure: --path or --stdin is mandatory for 'check' and 'apply'
+
+$ project
+failure: Project target is mandatory (use a positional target or --project-id <project-id>)
+
+$ create-project
+parsed
+
+$ rename-project
+failure: ERROR: Argument '<project-id>' is mandatory
+ERROR: Argument '<project-name>' is mandatory
+
+$ set-project-color
+failure: ERROR: Argument '<project-id>' is mandatory
+ERROR: Argument '(<#RRGGBB>|auto)' is mandatory
+
+$ move-node-to-project
+failure: Project target is mandatory (use a positional target or --project-id <project-id>)
+
+$ stack-with
+failure: ERROR: Argument '(left|down|up|right)' is mandatory
+
+$ save-workspace --name
+failure: ERROR: '<name>' is mandatory
+
+$ palette extra
+failure: ERROR: Unknown argument 'extra'
+
+$ open-sidebar extra
+failure: ERROR: Unknown argument 'extra'
+
+$ doctor --verbose
+failure: ERROR: Unknown flag '--verbose'
+
+$ exec-and-forget
+parsed
+
+$ subscribe
+failure: Either --all or at least one <event> must be specified
+
+$ subscribe nothing
+failure: ERROR: Can't parse 'nothing'.
+       Possible values: (focus-changed|focused-monitor-changed|focused-workspace-changed|mode-changed|window-detected|binding-triggered)
+

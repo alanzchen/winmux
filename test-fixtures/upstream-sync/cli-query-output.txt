@@ -1,0 +1,157 @@
+$ list-workspaces --all
+exit: 0
+out: 1
+out: 2
+
+$ list-workspaces --all --json
+exit: 0
+out: [
+  {
+    "workspace" : "1"
+  },
+  {
+    "workspace" : "2"
+  }
+]
+
+$ list-workspaces --focused
+exit: 0
+out: 1
+
+$ list-workspaces --all --format '%{workspace}|%{workspace-is-focused}|%{workspace-is-visible}|%{monitor-name}'
+exit: 0
+out: 1|true|true|Test Monitor
+out: 2|false|false|Test Monitor
+
+$ list-windows --all
+exit: 0
+out: 1 | bobko.WinMux.test-app | TestWindow(1)
+out: 2 | bobko.WinMux.test-app | TestWindow(2)
+out: 3 | bobko.WinMux.test-app | TestWindow(3)
+out: 4 | bobko.WinMux.test-app | TestWindow(4)
+out: 5 | bobko.WinMux.test-app | TestWindow(5)
+
+$ list-windows --all --json
+exit: 0
+out: [
+  {
+    "app-name" : "bobko.WinMux.test-app",
+    "window-id" : 1,
+    "window-title" : "TestWindow(1)"
+  },
+  {
+    "app-name" : "bobko.WinMux.test-app",
+    "window-id" : 2,
+    "window-title" : "TestWindow(2)"
+  },
+  {
+    "app-name" : "bobko.WinMux.test-app",
+    "window-id" : 3,
+    "window-title" : "TestWindow(3)"
+  },
+  {
+    "app-name" : "bobko.WinMux.test-app",
+    "window-id" : 4,
+    "window-title" : "TestWindow(4)"
+  },
+  {
+    "app-name" : "bobko.WinMux.test-app",
+    "window-id" : 5,
+    "window-title" : "TestWindow(5)"
+  }
+]
+
+$ list-windows --workspace focused --count
+exit: 0
+out: 3
+
+$ list-windows --all --format '%{window-id}|%{app-name}|%{app-bundle-id}|%{workspace}|%{window-layout}'
+exit: 0
+out: 1|bobko.WinMux.test-app|bobko.WinMux.test-app|1|h_tiles
+out: 2|bobko.WinMux.test-app|bobko.WinMux.test-app|1|v_tiles
+out: 3|bobko.WinMux.test-app|bobko.WinMux.test-app|1|v_tiles
+out: 4|bobko.WinMux.test-app|bobko.WinMux.test-app|2|v_tab_group
+out: 5|bobko.WinMux.test-app|bobko.WinMux.test-app|2|v_tab_group
+
+$ list-monitors
+exit: 0
+out: 1 | Test Monitor
+
+$ list-monitors --json
+exit: 0
+out: [
+  {
+    "monitor-id" : 1,
+    "monitor-name" : "Test Monitor"
+  }
+]
+
+$ list-apps
+exit: 0
+
+$ list-apps --json
+exit: 0
+out: [
+
+]
+
+$ list-modes
+exit: 0
+out: main
+
+$ list-modes --json
+exit: 0
+out: [
+  {
+    "mode-id" : "main"
+  }
+]
+
+$ list-projects
+exit: 0
+out: 1 | default | Default
+
+$ list-projects --json
+exit: 0
+out: [
+  {
+    "project-color" : "#C4B5FD",
+    "project-id" : "default",
+    "project-index" : 1,
+    "project-is-focused" : true,
+    "project-is-visible" : true,
+    "project-name" : "Default",
+    "project-window-count" : 5,
+    "project-workspace-count" : 2
+  }
+]
+
+$ list-exec-env-vars
+exit: 0
+out: PATH=/opt/homebrew/bin:/opt/homebrew/sbin:WINMUX_TEST_PATH
+out: WINMUX_INHERITED_TEST_ENV=inherited
+
+$ config --major-keys
+exit: 0
+out: .
+mode
+mode.main.binding
+mode.main.binding-tap
+
+$ focus left
+exit: 0
+
+$ focus-monitor next
+exit: 1
+err: Can't find target monitor
+
+$ workspace-back-and-forth
+exit: 1
+
+$ move-node-to-workspace 2
+exit: 1
+err: Workspace '2' doesn't exist
+
+$ focus right
+exit: 0
+

@@ -1,0 +1,23 @@
+### unknown-key = 1
+- unknown-key: Unknown top-level key
+### accordion-padding = 10
+- accordion-padding: Unknown top-level key
+### tab-group-padding = 'wide'
+- tab-group-padding: Expected type is 'integer'. But actual type is 'string'
+### default-root-container-layout = 'accordion'
+- default-root-container-layout: Can't parse layout 'accordion'
+### [workspace-sidebar] ⏎ mode = 'nowhere'
+- workspace-sidebar.mode: Possible values: sidebar, dock, tabs
+### [workspace-sidebar] ⏎ unknown = true
+- workspace-sidebar.unknown: Unknown key
+### [mode.main.binding] ⏎ alt-h = 'focus nowhere'
+- mode.main.binding.alt-h: ERROR: Can't parse 'nowhere'.
+       Possible values: (left|down|up|right|dfs-next|dfs-prev|tab-next|tab-prev)
+### [[on-window-detected]] ⏎ if.during-aerospace-startup = true ⏎ run = 'layout floating'
+- on-window-detected[0].if.during-aerospace-startup: Unknown key
+### [gaps] ⏎ inner.horizontal = -1
+
+### config-version = 99
+- config-version: Must be in [1, 2] range
+### not toml at all = = =
+- Error while parsing key-value pair: expected '=', saw 't' (at line 1, column 5)

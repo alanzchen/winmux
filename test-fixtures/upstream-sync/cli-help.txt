@@ -1,0 +1,176 @@
+## agent
+USAGE: agent [-h|--help] query [--path <path>]
+   OR: agent [-h|--help] check (--path <path>|--stdin)
+   OR: agent [-h|--help] apply (--path <path>|--stdin)
+   OR: agent [-h|--help] skill
+## balance-sizes
+USAGE: balance-sizes [-h|--help] [--workspace <workspace>]
+## close
+USAGE: close [-h|--help] [--quit-if-last-window] [--window-id <window-id>]
+## close-all-windows-but-current
+USAGE: close-all-windows-but-current [-h|--help] [--quit-if-last-window]
+## config
+USAGE: config [-h|--help] --get <name> [--json] [--keys]
+   OR: config [-h|--help] --major-keys
+   OR: config [-h|--help] --all-keys
+   OR: config [-h|--help] --config-path
+## create-project
+USAGE: create-project [-h|--help] [--name <project-name>] [--color <#RRGGBB>] [--json]
+## debug-windows
+USAGE: debug-windows [-h|--help] [--window-id <window-id>]
+## delete-project
+USAGE: delete-project [-h|--help] --action move-windows-to-fallback --if-window-count <count>
+                      [--json] <project-id>
+## doctor
+USAGE: doctor [-h|--help]
+
+Print diagnostics: permissions, monitors, per-app accessibility latency,
+and window manager state. Useful for bug reports and performance triage.
+## enable
+USAGE: enable [-h|--help] toggle
+   OR: enable [-h|--help] on [--fail-if-noop]
+   OR: enable [-h|--help] off [--fail-if-noop]
+## flatten-workspace-tree
+USAGE: flatten-workspace-tree [-h|--help] [--workspace <workspace>]
+## focus
+USAGE: focus [-h|--help] [--ignore-floating] [--wrap-around]
+             [--boundaries <boundary>] [--boundaries-action <action>]
+             [--fail-if-fullscreen] [--fail-if-macos-native-fullscreen]
+             (left|down|up|right)
+   OR: focus [-h|--help] [--ignore-floating] [--wrap-around]
+             [--boundaries <boundary>] [--boundaries-action <action>]
+             (dfs-next|dfs-prev)
+   OR: focus [-h|--help] [--ignore-floating] [--wrap-around]
+             [--boundaries <boundary>] [--boundaries-action <action>]
+             (tab-next|tab-prev)
+   OR: focus [-h|--help] --tab-index <tab-index>
+   OR: focus [-h|--help] --window-id <window-id>
+   OR: focus [-h|--help] --dfs-index <dfs-index>
+## focus-back-and-forth
+USAGE: focus-back-and-forth [-h|--help]
+## focus-monitor
+USAGE: focus-monitor [-h|--help] [--wrap-around] (left|down|up|right)
+   OR: focus-monitor [-h|--help] [--wrap-around] (next|prev)
+   OR: focus-monitor [-h|--help] [--] <monitor-pattern>...
+## forget-workspace
+USAGE: forget-workspace [-h|--help] [--workspace <workspace>] [--fail-if-noop] [--json]
+## fullscreen
+USAGE: fullscreen [-h|--help]     [--window-id <window-id>] [--no-outer-gaps]
+   OR: fullscreen [-h|--help] on  [--window-id <window-id>] [--no-outer-gaps] [--fail-if-noop]
+   OR: fullscreen [-h|--help] off [--window-id <window-id>] [--fail-if-noop]
+## join-with
+USAGE: join-with [-h|--help] [--window-id <window-id>] (left|down|up|right)
+## layout
+USAGE: layout [-h|--help] [--window-id <window-id>|--workspace <workspace>] [--root] [--fail-if-noop]
+              (h_tiles|v_tiles|h_tab_group|v_tab_group|tiles|tab-group|horizontal|vertical|tiling|floating)...
+   OR: layout [-h|--help] --for-next-detected-window [--workspace <workspace>] (tiling|floating)
+## list-apps
+USAGE: list-apps [-h|--help] [--macos-native-hidden [no]] [--format <output-format>] [--count] [--json]
+## list-exec-env-vars
+USAGE: list-exec-env-vars [-h|--help]
+## list-modes
+USAGE: list-modes [-h|--help] [--current] [--count] [--json]
+## list-monitors
+USAGE: list-monitors [-h|--help] [--focused [no]] [--mouse [no]] [--format <output-format>] [--count] [--json]
+## list-projects
+USAGE: list-projects [-h|--help] [--focused [no]] [--visible [no]] [--format <output-format>] [--count] [--json]
+## list-windows
+USAGE: list-windows [-h|--help] (--workspace <workspace>...|--monitor <monitor>...)
+                    [--monitor <monitor>...] [--workspace <workspace>...]
+                    [--pid <pid>] [--app-bundle-id <app-bundle-id>] [--format <output-format>]
+                    [--count] [--json]
+   OR: list-windows [-h|--help] --all [--format <output-format>] [--count] [--json]
+   OR: list-windows [-h|--help] --focused [--format <output-format>] [--count] [--json]
+## list-workspaces
+USAGE: list-workspaces [-h|--help] --monitor <monitor>... [--visible [no]] [--empty [no]] [--format <output-format>] [--count] [--json]
+   OR: list-workspaces [-h|--help] --all [--format <output-format>] [--count] [--json]
+   OR: list-workspaces [-h|--help] --focused [--format <output-format>] [--count] [--json]
+## macos-native-fullscreen
+USAGE: macos-native-fullscreen [-h|--help] [--window-id <window-id>]
+   OR: macos-native-fullscreen [-h|--help] [--window-id <window-id>] [--fail-if-noop] on
+   OR: macos-native-fullscreen [-h|--help] [--window-id <window-id>] [--fail-if-noop] off
+## macos-native-minimize
+USAGE: macos-native-minimize [-h|--help] [--window-id <window-id>]
+## mode
+USAGE: mode [-h|--help] [--] <binding-mode>
+## move
+USAGE: move [-h|--help] [--window-id <window-id>] [--boundaries <boundary>]
+            [--boundaries-action <boundary-action>] [--fail-if-fullscreen]
+            [--fail-if-macos-native-fullscreen] (left|down|up|right)
+## move-mouse
+USAGE: move-mouse [-h|--help] [--fail-if-noop] <mouse-position>
+## move-node-to-monitor
+USAGE: move-node-to-monitor [-h|--help] [--window-id <window-id>] [--focus-follows-window]
+                            [--wrap-around] (left|down|up|right|next|prev)
+   OR: move-node-to-monitor [-h|--help] [--window-id <window-id>] [--focus-follows-window]
+                            [--fail-if-noop] [--] <monitor-pattern>...
+## move-node-to-project
+USAGE: move-node-to-project [-h|--help] [--window-id <window-id>] [--focus-follows-window]
+                            [--wrap-around] [--fail-if-noop] (<project-id>|<project-index>|next|prev)
+   OR: move-node-to-project [-h|--help] [--window-id <window-id>] [--focus-follows-window]
+                            [--fail-if-noop] --project-id <project-id>
+## move-node-to-workspace
+USAGE: move-node-to-workspace [-h|--help] [--focus-follows-window] [--wrap-around]
+                              [--stdin|--no-stdin]
+                              (next|prev)
+   OR: move-node-to-workspace [-h|--help] [--focus-follows-window]
+                              [--window-id <window-id>] new
+   OR: move-node-to-workspace [-h|--help] [--focus-follows-window] [--fail-if-noop]
+                              [--window-id <window-id>] [--] <workspace-name>
+## move-workspace-to-monitor
+USAGE: move-workspace-to-monitor [-h|--help] [--workspace <workspace>] [--wrap-around] (left|down|up|right)
+   OR: move-workspace-to-monitor [-h|--help] [--workspace <workspace>] [--wrap-around] (next|prev)
+   OR: move-workspace-to-monitor [-h|--help] [--workspace <workspace>] [--] <monitor-pattern>...
+## open-launcher
+USAGE: open-launcher [--new-workspace]
+
+Opens the app launcher. Choosing an app opens a new window of it in the focused
+workspace, even if the app is already running elsewhere.
+
+OPTIONS:
+  --new-workspace   Create an empty workspace first and open the window there.
+## open-sidebar
+USAGE: open-sidebar
+
+Opens the workspace sidebar and arms type-to-search.
+## palette
+USAGE: palette [-h|--help]
+
+Toggle the window switcher palette: fuzzy-search all windows across all
+workspaces and projects, Enter to jump to the selected window.
+## project
+USAGE: project [-h|--help] [--wrap-around] [--fail-if-noop] (<project-id>|<project-index>|next|prev)
+   OR: project [-h|--help] [--fail-if-noop] --project-id <project-id>
+## reload-config
+USAGE: reload-config [-h|--help] [--no-gui] [--dry-run]
+## rename-project
+USAGE: rename-project [-h|--help] [--fail-if-noop] [--json] <project-id> <project-name>
+## resize
+USAGE: resize [-h|--help] [--window-id <window-id>] (smart|smart-opposite|width|height) [+|-]<number>
+## save-workspace
+USAGE: save-workspace [-h|--help] [--workspace <workspace>] [--name <name>] [--pin-to-display|--unpin-display] [--fail-if-noop] [--json]
+## set-project-color
+USAGE: set-project-color [-h|--help] [--fail-if-noop] [--json] <project-id> (<#RRGGBB>|auto)
+## split
+USAGE: split [-h|--help] [--window-id <window-id>] (horizontal|vertical|opposite)
+## stack-with
+USAGE: stack-with [-h|--help] [--window-id <window-id>] (left|down|up|right)
+## subscribe
+USAGE: subscribe [-h|--help] [--all] [--no-send-initial] [<event>...]
+## summon-workspace
+USAGE: summon-workspace [-h|--help] [--fail-if-noop] [--] <workspace>
+## swap
+USAGE: swap [-h|--help] [--window-id <window-id>] [--swap-focus]
+            [--wrap-around]
+            (left|down|up|right|dfs-next|dfs-prev)
+## trigger-binding
+USAGE: trigger-binding [-h|--help] --mode <mode-id> [--] <binding>
+## volume
+USAGE: volume [-h|--help] (up|down) [--no-gui]
+   OR: volume [-h|--help] (mute-toggle|mute-off|mute-on) [--no-gui]
+   OR: volume [-h|--help] set <number> [--no-gui]
+## workspace
+USAGE: workspace [-h|--help] [--auto-back-and-forth] [--fail-if-noop] [--] <workspace-name>
+   OR: workspace [-h|--help] [--wrap-around] [--stdin|--no-stdin] (next|prev)
+## workspace-back-and-forth
+USAGE: workspace-back-and-forth [-h|--help]

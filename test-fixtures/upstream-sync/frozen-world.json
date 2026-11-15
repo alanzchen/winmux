@@ -1,0 +1,163 @@
+{
+  "monitors" : [
+    {
+      "contextProjectId" : "default",
+      "topLeftCorner" : [
+        0,
+        0
+      ],
+      "visibleWorkspace" : "1"
+    }
+  ],
+  "windowIds" : [
+    1,
+    2,
+    3,
+    4,
+    5
+  ],
+  "workspaces" : [
+    {
+      "floatingWindows" : [
+
+      ],
+      "macosUnconventionalWindows" : [
+
+      ],
+      "monitor" : {
+        "contextProjectId" : "default",
+        "topLeftCorner" : [
+          0,
+          0
+        ],
+        "visibleWorkspace" : "1"
+      },
+      "name" : "1",
+      "namingStyle" : "explicit",
+      "projectId" : "default",
+      "rootTilingNode" : {
+        "children" : [
+          {
+            "kind" : "window",
+            "window" : {
+              "id" : 1,
+              "isFullscreen" : false,
+              "layoutReason" : {
+                "standard" : {
+
+                }
+              },
+              "noOuterGapsInFullscreen" : false,
+              "weight" : 1
+            }
+          },
+          {
+            "container" : {
+              "children" : [
+                {
+                  "kind" : "window",
+                  "window" : {
+                    "id" : 2,
+                    "isFullscreen" : false,
+                    "layoutReason" : {
+                      "standard" : {
+
+                      }
+                    },
+                    "noOuterGapsInFullscreen" : false,
+                    "weight" : 1
+                  }
+                },
+                {
+                  "kind" : "window",
+                  "window" : {
+                    "id" : 3,
+                    "isFullscreen" : false,
+                    "layoutReason" : {
+                      "standard" : {
+
+                      }
+                    },
+                    "noOuterGapsInFullscreen" : false,
+                    "weight" : 1
+                  }
+                }
+              ],
+              "layout" : "tiles",
+              "orientation" : "v",
+              "weight" : 1
+            },
+            "kind" : "container"
+          }
+        ],
+        "layout" : "tiles",
+        "orientation" : "h",
+        "weight" : 1
+      }
+    },
+    {
+      "floatingWindows" : [
+
+      ],
+      "macosUnconventionalWindows" : [
+
+      ],
+      "monitor" : {
+        "contextProjectId" : "default",
+        "topLeftCorner" : [
+          0,
+          0
+        ],
+        "visibleWorkspace" : "1"
+      },
+      "name" : "2",
+      "namingStyle" : "explicit",
+      "projectId" : "default",
+      "rootTilingNode" : {
+        "children" : [
+          {
+            "container" : {
+              "children" : [
+                {
+                  "kind" : "window",
+                  "window" : {
+                    "id" : 4,
+                    "isFullscreen" : false,
+                    "layoutReason" : {
+                      "standard" : {
+
+                      }
+                    },
+                    "noOuterGapsInFullscreen" : false,
+                    "weight" : 1
+                  }
+                },
+                {
+                  "kind" : "window",
+                  "window" : {
+                    "id" : 5,
+                    "isFullscreen" : false,
+                    "layoutReason" : {
+                      "standard" : {
+
+                      }
+                    },
+                    "noOuterGapsInFullscreen" : false,
+                    "weight" : 1
+                  }
+                }
+              ],
+              "layout" : "tab-group",
+              "orientation" : "v",
+              "weight" : 1
+            },
+            "kind" : "container"
+          }
+        ],
+        "layout" : "tiles",
+        "orientation" : "h",
+        "weight" : 1
+      }
+    }
+  ]
+}
