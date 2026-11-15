@@ -1,5 +1,4 @@
 import SwiftUI
-import TOMLKit
 
 struct ShortcutAutomationSettingsView: View {
     @ObservedObject var editor: SettingsEditor
@@ -134,21 +133,7 @@ func updateSettingsScalarConfig(in text: String, section: String?, key: String, 
             index += 1
             continue
         }
-        var end = index + 1
-        if let equal = settingsAssignmentIndex(in: line) {
-            let value = line[line.index(after: equal)...].trimmingCharacters(in: .whitespaces)
-            // Single-line scalars cannot continue. For containers/triple strings,
-            // parse only at possible closing delimiters, not every prefix line.
-            let delimiter = value.hasPrefix("\"\"\"") ? "\"\"\"" : value.hasPrefix("'''") ? "'''"
-                : value.hasPrefix("[") ? "]" : value.hasPrefix("{") ? "}" : nil
-            if let delimiter {
-                while end < lines.count {
-                    if lines[end - 1].contains(delimiter),
-                       (try? TOMLTable(string: lines[index..<end].joined(separator: "\n") + "\n")) != nil { break }
-                    end += 1
-                }
-            }
-        }
+        let end = tomlStatementEnd(lines, from: index)
         if let existingKey = settingsKey(in: lines[index]),
            [currentSection, existingKey].compactMap({ $0 }).joined(separator: ".") == [section, key].compactMap({ $0 }).joined(separator: ".") {
             let indent = String(lines[index].prefix(while: { $0.isWhitespace }))

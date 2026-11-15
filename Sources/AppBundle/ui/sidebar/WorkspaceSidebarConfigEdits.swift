@@ -1,5 +1,4 @@
 import Foundation
-import TOMLKit
 
 private let workspaceSidebarSectionHeader = "[workspace-sidebar]"
 private let workspaceSidebarProjectOrderKey = "project-order"
@@ -21,7 +20,7 @@ func updateWorkspaceSidebarProjectOrderConfig(in configText: String, order: [Str
         let valueEnd = lines.indices[(keyIndex + 1)...].first { !continuations.contains($0) } ?? lines.endIndex
         // Parsing the complete assignment also handles bracket characters in multi-line ids.
         // An unterminated array may have consumed the next table; never rewrite that input.
-        guard (try? TOMLTable(string: lines[keyIndex..<valueEnd].joined(separator: "\n") + "\n")) != nil else {
+        guard WinMuxToml.parses(lines[keyIndex..<valueEnd].joined(separator: "\n") + "\n") else {
             return nil
         }
         lines.removeSubrange((keyIndex + 1)..<valueEnd)
@@ -87,10 +86,7 @@ func persistWorkspaceSidebarProjectOrder(_ order: [String], targetUrl explicitTa
     guard let updatedText = updateWorkspaceSidebarProjectOrderConfig(in: currentText, order: order) else {
         throw WorkspaceMutationError.unreadableProjectOrder
     }
-    if let parent = targetUrl.deletingLastPathComponent().takeIf({ $0.path != targetUrl.path }) {
-        try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
-    }
-    try updatedText.write(to: targetUrl, atomically: true, encoding: .utf8)
+    try writeConfigFile(updatedText, replacing: currentText, at: targetUrl, changing: [["workspace-sidebar", "project-order"]])
 }
 
 func updateWorkspaceSidebarLabelConfig(
@@ -263,10 +259,7 @@ func persistWorkspaceSidebarLabel(
         workspaceName: workspaceName,
         label: label,
     )
-    if let parent = targetUrl.deletingLastPathComponent().takeIf({ $0.path != targetUrl.path }) {
-        try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
-    }
-    try updatedText.write(to: targetUrl, atomically: true, encoding: .utf8)
+    try writeConfigFile(updatedText, replacing: currentText, at: targetUrl, changing: [["workspace-sidebar", "workspace-labels", workspaceName]])
 }
 
 @MainActor
@@ -282,10 +275,7 @@ func persistWorkspaceSidebarProjectLabel(
         projectId: projectId,
         label: label,
     )
-    if let parent = targetUrl.deletingLastPathComponent().takeIf({ $0.path != targetUrl.path }) {
-        try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
-    }
-    try updatedText.write(to: targetUrl, atomically: true, encoding: .utf8)
+    try writeConfigFile(updatedText, replacing: currentText, at: targetUrl, changing: [["workspace-sidebar", "project-labels", projectId]])
 }
 
 @MainActor
@@ -301,10 +291,7 @@ func persistWorkspaceSidebarProjectColor(
         projectId: projectId,
         colorHex: colorHex,
     )
-    if let parent = targetUrl.deletingLastPathComponent().takeIf({ $0.path != targetUrl.path }) {
-        try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
-    }
-    try updatedText.write(to: targetUrl, atomically: true, encoding: .utf8)
+    try writeConfigFile(updatedText, replacing: currentText, at: targetUrl, changing: [["workspace-sidebar", "project-colors", projectId]])
 }
 
 @MainActor
@@ -332,10 +319,7 @@ func persistWorkspaceSidebarProjectMetadata(
         projectId: projectId,
         emoji: emoji,
     )
-    if let parent = targetUrl.deletingLastPathComponent().takeIf({ $0.path != targetUrl.path }) {
-        try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
-    }
-    try updatedText.write(to: targetUrl, atomically: true, encoding: .utf8)
+    try writeConfigFile(updatedText, replacing: currentText, at: targetUrl, changing: ["project-labels", "project-colors", "project-emojis"].map { ["workspace-sidebar", $0, projectId] })
 }
 
 @MainActor
@@ -347,8 +331,8 @@ func persistWorkspaceSidebarProjectEmoji(
     let targetUrl = explicitTargetUrl ?? preferredWorkspaceSidebarConfigUrl()
     let currentText = try readWorkspaceSidebarConfig(at: targetUrl, contentsWhenMissing: "")
     let updatedText = updateWorkspaceSidebarProjectEmojiConfig(in: currentText, projectId: projectId, emoji: emoji)
-    try FileManager.default.createDirectory(at: targetUrl.deletingLastPathComponent(), withIntermediateDirectories: true)
-    try updatedText.write(to: targetUrl, atomically: true, encoding: .utf8)
+    try writeConfigFile(updatedText, replacing: currentText, at: targetUrl,
+        changing: [["workspace-sidebar", "project-emojis", projectId]])
 }
 
 @MainActor
@@ -403,24 +387,12 @@ private func tomlCommentStart(in line: String) -> String.Index? {
 /// The indices of lines that continue a value begun on an earlier line: a multi-line string,
 /// array or inline table. Like the Settings writer, the TOML parser decides where the value
 /// ends, so escaped and doubled quotes inside it can't end it early.
-private func tomlMultilineValueContinuations(_ lines: [String]) -> Set<Int> {
+func tomlMultilineValueContinuations(_ lines: [String]) -> Set<Int> {
     var result: Set<Int> = []
     var index = 0
     while index < lines.count {
         let line = lines[index].trimmingCharacters(in: .whitespaces)
-        var end = index + 1
-        if !line.hasPrefix("["), !line.hasPrefix("#"), let equal = settingsAssignmentIndex(in: line) {
-            let value = line[line.index(after: equal)...].trimmingCharacters(in: .whitespaces)
-            let delimiter = value.hasPrefix("\"\"\"") ? "\"\"\"" : value.hasPrefix("'''") ? "'''"
-                : value.hasPrefix("[") ? "]" : value.hasPrefix("{") ? "}" : nil
-            if let delimiter {
-                while end < lines.count {
-                    if lines[end - 1].contains(delimiter),
-                       (try? TOMLTable(string: lines[index..<end].joined(separator: "\n") + "\n")) != nil { break }
-                    end += 1
-                }
-            }
-        }
+        let end = line.hasPrefix("[") || line.hasPrefix("#") ? index + 1 : tomlStatementEnd(lines, from: index)
         result.formUnion((index + 1)..<end)
         index = end
     }

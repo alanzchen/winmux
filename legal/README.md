@@ -13,9 +13,19 @@ WinMux bundles the following dependencies and uses the following materials:
 HotKey is used as a more convenient wrapper around macOS Carbon API to listen for global shortcuts.
 
 **TOMLDecoder**.
-[TOMLDecoder GitHub link](https://github.com/LebJe/TOMLKit).
+[TOMLDecoder GitHub link](https://github.com/dduan/TOMLDecoder).
 [TOMLDecoder MIT license](./third-party-license/LICENSE-TOMLDecoder.txt).
 TOMLDecoder is used as TOML parsing library.
+
+**TOMLKIT**.
+[TOMLKIT GitHub link](https://github.com/LebJe/TOMLKit).
+[TOMLKIT MIT license](./third-party-license/LICENSE-TOMLKIT.txt).
+TOMLKIT reads `window-rules.toml`, a separate file from the main config.
+
+**tomlplusplus**.
+[tomlplusplus GitHub link](https://github.com/marzer/tomlplusplus).
+[tomlplusplus MIT license](./third-party-license/LICENSE-tomlplusplus.txt).
+tomlplusplus is used indirectly through TOMLKIT Swift API.
 
 **swift-collections**.
 [swift-collections GitHub link](https://github.com/apple/swift-collections).

@@ -28,6 +28,13 @@ struct SettingsFileEdit {
     var section: String?
     var values: [String: String]
     var preservingDockAppearance = false
+
+    /// The keys this edit may change; `validateConfigEdit` refuses a result that changes any other.
+    var changing: [ConfigKeyPath] {
+        let section = section.map { $0.split(separator: ".").map(String.init) } ?? []
+        let keys = values.keys.map { section + $0.split(separator: ".").map(String.init) }
+        return preservingDockAppearance ? keys + [["workspace-sidebar", "dock-appearance"]] : keys
+    }
 }
 
 struct SettingsFileUndo {
@@ -52,7 +59,7 @@ struct SettingsPersistence {
     var reload: (URL) async throws -> Bool = { try await reloadConfig(forceConfigUrl: $0) }
 
     func save(_ edits: [SettingsFileEdit]) async throws -> SettingsFileUndo {
-        try await save { text in
+        try await save(changing: edits.flatMap(\.changing)) { text in
             edits.reduce(text) { text, edit in
                 updateSettingsAppearanceConfig(in: text, section: edit.section, values: edit.values,
                     preservingDockAppearance: edit.preservingDockAppearance)
@@ -60,15 +67,16 @@ struct SettingsPersistence {
         }
     }
 
-    /// Saves `edit` applied to the file's current text, for changes a key/value edit can't express.
-    func save(_ edit: (String) throws -> String) async throws -> SettingsFileUndo {
+    /// Saves `edit` applied to the file's current text, for changes a key/value edit can't express. `changing` lists
+    /// the keys it may change.
+    func save(changing: [ConfigKeyPath], _ edit: (String) throws -> String) async throws -> SettingsFileUndo {
         let url = target()
         let before = try read(url)
         guard parseConfig(before).errors.isEmpty else {
             throw SettingsEditError("The configuration on disk contains errors. Open Advanced → TOML Editor to fix them before changing form settings. The file has not been changed.")
         }
         let after = try edit(before)
-        try await apply(after, replacing: before, at: url)
+        try await apply(after, replacing: before, at: url, changing: changing)
         return SettingsFileUndo(url: url, before: before, after: after)
     }
 
@@ -76,7 +84,7 @@ struct SettingsPersistence {
         guard target() == record.url, try read(record.url) == record.after else {
             throw SettingsEditError("The configuration changed after this edit. Undo history was cleared to preserve those changes.", invalidatesUndo: true)
         }
-        try await apply(record.before, replacing: record.after, at: record.url)
+        try await apply(record.before, replacing: record.after, at: record.url, changing: nil)
     }
 
     func saveDocument(_ text: String, expected: String, expectedURL: URL? = nil) async throws -> SettingsFileUndo {
@@ -87,14 +95,19 @@ struct SettingsPersistence {
         guard try read(url) == expected else {
             throw SettingsEditError("The configuration changed since you loaded it. Reload from disk before saving to preserve those changes.")
         }
-        try await apply(text, replacing: expected, at: url)
+        try await apply(text, replacing: expected, at: url, changing: nil)
         return SettingsFileUndo(url: url, before: expected, after: text)
     }
 
-    private func apply(_ text: String, replacing before: String, at url: URL) async throws {
+    /// `changing` nil: the whole document is the edit.
+    private func apply(_ text: String, replacing before: String, at url: URL, changing: [ConfigKeyPath]?) async throws {
         let errors = parseConfig(text).errors
         guard errors.isEmpty else {
             throw SettingsEditError("This edit could not be applied to the current TOML. Open Advanced → TOML Editor to resolve these errors:\n" + errors.map(\.description).joined(separator: "\n"))
+        }
+        if let changing {
+            do { try checkConfigEditKeepsOtherKeys(before: before, after: text, changing: changing) }
+            catch { throw SettingsEditError(error.localizedDescription) }
         }
         try write(url, text)
         do {

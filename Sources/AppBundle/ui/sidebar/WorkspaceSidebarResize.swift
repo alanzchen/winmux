@@ -312,7 +312,7 @@ func commitWorkspaceSidebarWidth(_ width: Int?, for target: WorkspaceSidebarWidt
                     guard let width else { return }
                     _ = try await persistence.save([SettingsFileEdit(section: "workspace-sidebar", values: ["width": "\(width)"])])
                 case .display(let name):
-                    _ = try await persistence.save { text in
+                    _ = try await persistence.save(changing: [["workspace-sidebar", "display-widths", name]]) { text in
                         let updated = updateWorkspaceSidebarDisplayWidthConfig(in: text, display: name, width: width)
                         // The line edit can't rewrite a hand-written inline table, so it would add
                         // a second table or change nothing. Nor may it change any other setting.

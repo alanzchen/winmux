@@ -105,9 +105,9 @@ func handleWorkspaceSidebarOrganizationAction(_ action: WorkspaceSidebarAction, 
                 if !isUnitTest {
                     let url = preferredEditableConfigUrl()
                     let text = FileManager.default.fileExists(atPath: url.path) ? try String(contentsOf: url, encoding: .utf8) : ""
-                    try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-                    try updateWorkspaceSidebarScalarConfig(in: text, key: "tabs-always-expanded", renderedValue: expanded ? "true" : "false")
-                        .write(to: url, atomically: true, encoding: .utf8)
+                    let updated = updateWorkspaceSidebarScalarConfig(in: text, key: "tabs-always-expanded",
+                        renderedValue: expanded ? "true" : "false")
+                    try writeConfigFile(updated, replacing: text, at: url, changing: [["workspace-sidebar", "tabs-always-expanded"]])
                 }
                 config.workspaceSidebar.tabsAlwaysExpanded = expanded
             default: return

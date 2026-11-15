@@ -14,7 +14,11 @@ func updateModeBindingConfig(
         .sorted { $0.key < $1.key }
         .map { tomlModeBindingLine(notation: $0.key, command: $0.value) }
 
-    guard let sectionIndex = lines.firstIndex(where: { $0.trimmingCharacters(in: .whitespaces) == sectionHeader }) else {
+    // Text inside a multi-line value is never a header or a binding (the loader decides where values end).
+    let continuations = tomlMultilineValueContinuations(lines)
+    guard let sectionIndex = lines.indices.first(where: {
+        !continuations.contains($0) && lines[$0].trimmingCharacters(in: .whitespaces) == sectionHeader
+    }) else {
         guard !renderedAssignments.isEmpty else { return configText }
         var result = configText
         if !result.isEmpty, !result.hasSuffix("\n") {
@@ -28,16 +32,25 @@ func updateModeBindingConfig(
         return result
     }
 
-    let sectionEnd = lines[(sectionIndex + 1)...]
-        .firstIndex(where: isTomlSectionHeader)
+    let sectionEnd = lines.indices[(sectionIndex + 1)...]
+        .first(where: { !continuations.contains($0) && isTomlSectionHeader(lines[$0]) })
         ?? lines.endIndex
 
     var resultLines = Array(lines[..<sectionIndex])
     var bodyLines: [String] = []
-    for line in lines[(sectionIndex + 1)..<sectionEnd] {
+    var dropping = false
+    for index in (sectionIndex + 1)..<sectionEnd {
+        let line = lines[index]
+        if continuations.contains(index) {
+            // The rest of a dropped binding's multi-line value goes with it.
+            if !dropping { bodyLines.append(line) }
+            continue
+        }
+        dropping = false
         if let entry = parseTomlStringAssignment(line) {
             let command = canonicalConfigCommandScript(entry.value) ?? entry.value
             if assignments.keys.contains(entry.key) || managedCommands.contains(command) {
+                dropping = true
                 continue
             }
         }
@@ -66,10 +79,7 @@ func persistMainModeBindings(assignments: [String: String], managedCommands: Set
         managedCommands: managedCommands,
         assignments: assignments,
     )
-    if let parent = targetUrl.deletingLastPathComponent().takeIf({ $0.path != targetUrl.path }) {
-        try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
-    }
-    try updatedText.write(to: targetUrl, atomically: true, encoding: String.Encoding.utf8)
+    try writeConfigFile(updatedText, replacing: currentText, at: targetUrl, changing: [["mode", mainModeId, "binding"]])
     return targetUrl
 }
 

@@ -225,6 +225,7 @@ func tomlAnyToParsedConfigRecursive(any: Any, _ backtrace: ConfigBacktrace) -> P
 
 @MainActor private func _parseConfig(_ rawToml: String) -> (config: Config, errors: [ConfigParseError]) { // todo change return value to Result
     let rawTable: Json.JsonDict
+    guard case .success(let rawToml) = WinMuxToml.source(rawToml) else { return (defaultConfig, ConfigParseError.tomlSource(rawToml)) } // WINMUX-HOOK(tomlSource)
     do {
         let dict: [String: Any] = try .init(try TOMLTable(source: rawToml))
         switch tomlAnyToParsedConfigRecursive(any: dict, .emptyRoot) {

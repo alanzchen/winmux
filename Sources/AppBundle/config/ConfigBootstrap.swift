@@ -1,6 +1,5 @@
 import Common
 import Foundation
-import TOMLKit
 
 // WinMux's config locations, starter config and one-time import of an AeroSpace config. Upstream's
 // ConfigFile.swift keeps `ConfigFile` and `findCustomConfigUrl`, which answers through WinMuxHooks.findCustomConfigUrl.
@@ -198,15 +197,18 @@ func materializeBootstrapConfigIfNeeded(
         let migratedConfig = try migrateAerospaceConfigForWinMux(
             try String(contentsOf: aerospaceImportUrl, encoding: .utf8),
         )
+        // A new file: nothing to keep, but the loader must read what is written.
+        _ = try WinMuxToml.table(migratedConfig)
         try migratedConfig.write(to: targetUrl, atomically: true, encoding: .utf8)
     } else {
+        _ = try WinMuxToml.table(starterConfigText())
         try starterConfigText().write(to: targetUrl, atomically: true, encoding: .utf8)
     }
     return true
 }
 
 func migrateAerospaceConfigForWinMux(_ rawToml: String) throws -> String {
-    _ = try TOMLTable(string: rawToml)
+    _ = try WinMuxToml.table(rawToml)
 
     var migrated = aerospaceKeyboardConfigSections(from: rawToml)
     let literalReplacements = [
