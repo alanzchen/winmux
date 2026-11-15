@@ -74,7 +74,7 @@ forked	Sources/AppBundle/command/impl/WorkspaceBackAndForthCommand.swift	hooked	
 forked	Sources/AppBundle/command/impl/WorkspaceCommand.swift	hooked	203 changed lines
 forked	Sources/AppBundle/command/parseCommand.swift	hooked	4 changed lines
 forked	Sources/AppBundle/config/Config.swift	hooked	359 changed lines
-forked	Sources/AppBundle/config/ConfigFile.swift	hooked	306 changed lines
+hooked	Sources/AppBundle/config/ConfigFile.swift		replacement hook findCustomConfigUrl (S1)
 pristine	Sources/AppBundle/config/ConfigFileWatcher.swift
 pristine	Sources/AppBundle/config/DynamicConfigValue.swift
 forked	Sources/AppBundle/config/HotkeyBinding.swift	forked	tap and sequence bindings (251 changed lines)
@@ -248,6 +248,7 @@ forked	Sources/Common/model/clientServer.swift	hooked	27 changed lines
 deleted	Sources/Common/model/sponsorshipPrompts.swift		sponsorship prompts removed
 hooked	Sources/Common/util/AeroAny.swift		marked additions only (phase 2)
 pristine	Sources/Common/util/ArrSlice.swift
+pristine	Sources/Common/util/ArrayEx.swift
 pristine	Sources/Common/util/BoolEx.swift
 pristine	Sources/Common/util/CollectionEx.swift
 pristine	Sources/Common/util/ComparableEx.swift

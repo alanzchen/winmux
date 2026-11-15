@@ -3,7 +3,7 @@ import Foundation
 import TOMLKit
 
 // WinMux's config locations, starter config and one-time import of an AeroSpace config. Upstream's
-// ConfigFile.swift keeps `findCustomConfigUrl` (which WinMux points at `generatedConfigUrl()`) and `ConfigFile`.
+// ConfigFile.swift keeps `ConfigFile` and `findCustomConfigUrl`, which answers through WinMuxHooks.findCustomConfigUrl.
 
 let legacyConfigDotfileName = ".winmux.toml"
 let generatedConfigDirectoryName = "winmux"
@@ -300,4 +300,23 @@ private func isTomlSectionHeader(_ line: String) -> Bool {
     let trimmed = line.trimmingCharacters(in: .whitespaces)
     return (trimmed.hasPrefix("[[") && trimmed.hasSuffix("]]")) ||
         (trimmed.hasPrefix("[") && trimmed.hasSuffix("]"))
+}
+
+extension WinMuxHooks {
+    /// Replaces `findCustomConfigUrl`: `--config-path` if given, otherwise only WinMux's generated config
+    /// (`~/.config/winmux/winmux.toml`); an AeroSpace config is imported once at bootstrap, never read in place.
+    static func findCustomConfigUrl() -> ConfigFile {
+        let candidates: [URL] = if let configLocation = serverArgs.configLocation {
+            [URL(filePath: configLocation)]
+        } else {
+            [generatedConfigUrl()]
+        }
+        let existingCandidates: [URL] = candidates.filter { (candidate: URL) in FileManager.default.fileExists(atPath: candidate.path) }
+        let count = existingCandidates.count
+        return switch count {
+            case 0: .noCustomConfigExists
+            case 1: .file(existingCandidates.first.orDie())
+            default: .ambiguousConfigError(existingCandidates)
+        }
+    }
 }
