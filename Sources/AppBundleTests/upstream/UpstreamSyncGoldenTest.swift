@@ -51,7 +51,7 @@ final class UpstreamSyncGoldenTest: XCTestCase {
             "list-monitors", "list-monitors --json", "list-apps", "list-apps --json", "list-modes", "list-modes --json",
             "list-projects", "list-projects --json", "list-exec-env-vars", "config --major-keys",
             // These parse; the format variable is checked when they run.
-            "list-monitors --format '%{nonexistent}'", "list-apps --format '%{window-id}'",
+            "list-monitors --format '%{nonexistent}'", "list-windows --all --format '%{monitor-is-main}'",
             "focus left", "focus-monitor next", "workspace-back-and-forth", "move-node-to-workspace 2", "focus right",
         ]
         var out = ""

@@ -149,8 +149,13 @@ err: ERROR: Unknown interpolation variable 'nonexistent'. Possible values:
          newline
          tab
 
-$ list-apps --format '%{window-id}'
+$ list-windows --all --format '%{monitor-is-main}'
 exit: 0
+out: true
+out: true
+out: true
+out: true
+out: true
 
 $ focus left
 exit: 0
