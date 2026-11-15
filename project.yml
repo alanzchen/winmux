@@ -52,7 +52,7 @@ targets:
             UTTypeConformsTo:
               - public.data
     sources:
-      - "Sources/WinMuxApp"
+      - "Sources/AeroSpaceApp"
       - path: "resources"
         excludes:
           - "marketing"

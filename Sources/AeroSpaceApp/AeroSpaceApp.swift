@@ -5,7 +5,7 @@ import SwiftUI
 // This file is shared between SPM and xcode project
 
 @main
-struct WinMuxApp: App {
+struct AeroSpaceApp: App {
     @StateObject var viewModel = TrayMenuModel.shared
     @StateObject var messageModel = MessageModel.shared
     @StateObject var shortcutSettingsModel = ShortcutSettingsModel.shared

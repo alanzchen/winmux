@@ -63,6 +63,7 @@ let package = Package(
                 .target(name: "AppBundle"),
                 .target(name: "SparkleSupport"),
             ],
+            path: "Sources/AeroSpaceApp",
         ),
         .target(
             name: "SparkleSupport",
