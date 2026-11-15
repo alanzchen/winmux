@@ -128,6 +128,31 @@ User-visible risk: none intended. Possible regressions are a wrong brand string 
 
 Exit: one reviewed candidate, approved by both Astra and Carbon, shipped as a Preview.
 
+### Phase 1 outcome (candidate on `upstream/phase1-20261115`)
+
+Done:
+- Golden outputs (`Sources/AppBundleTests/upstream/UpstreamSyncGoldenTest.swift`, fixtures in `test-fixtures/upstream-sync/`, recorded on `e9012cc0`).
+- Branding by value: items 1 and 3, plus the `Config.winmux` field (item 4).
+- Relocated files and functions restored (item 2 in part: `relayoutWindow`, the window-detected callbacks, `AxWindow` and its registry, eight files at their upstream paths).
+- WINMUX-HOOK markers on the 14 upstream files whose WinMux diff was purely additive.
+
+Manifest:
+
+| | Before | After |
+|---|---|---|
+| pristine | 93 | 97 |
+| hooked | 0 | 14 |
+| forked | 151 | 143 |
+| forked non-test `Sources/` | 119 | 111 |
+
+Conflicts in a dry-run merge of upstream HEAD (`6ed6af62`): 317 → 311 overall, and 7 → 1 moved files needing a hand port. Content conflicts in `Sources/` stay at 114 files, with 340 → 337 hunks; the remaining ones come from behavioral changes, which phase 2's hooks address.
+
+Deferred, because each is not behavior-neutral or belongs with a later slice:
+- Exporting `AEROSPACE_*` alongside `WINMUX_*`, and the `during-aerospace-startup` alias: adds environment variables and accepts a new config key. Moved to S5 with D3.
+- Undoing the `parseConfig.swift` → `Toml*.swift` and `HotkeyBinding` splits: S2 ports the config parsers to TOMLDecoder anyway.
+- Restoring `Sources/AeroSpaceApp/` as the app directory: the release Xcode project (`project.yml`) names `Sources/WinMuxApp`. Done with phase 2 so the release build can be exercised on a candidate.
+- `NewWindowBinding`, focus-after-close and corner parking: these are WinMux logic replacing upstream bodies, so they become phase 2 hooks (`newWindowBinding`, `focusAfterClose`, `hide`/`unhide`), not moves.
+
 ## Phase 2: hooks
 
 Goal: every WinMux insertion in an upstream file becomes a named hook call, and every upstream file reaches its target
