@@ -3,7 +3,7 @@ import Common
 
 struct FocusBackAndForthCommand: Command {
     let args: FocusBackAndForthCmdArgs
-    /*conforms*/ let shouldResetClosedWindowsCache = true
+    /*conforms*/ let shouldResetClosedWindowsCache = false
 
     func run(_ env: CmdEnv, _ io: CmdIo) -> Bool {
         if let prevFocus {

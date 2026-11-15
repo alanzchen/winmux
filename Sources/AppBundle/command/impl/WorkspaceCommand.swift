@@ -4,7 +4,7 @@ import Foundation
 
 struct WorkspaceCommand: Command {
     let args: WorkspaceCmdArgs
-    /*conforms*/ let shouldResetClosedWindowsCache = true
+    /*conforms*/ let shouldResetClosedWindowsCache = false
 
     func run(_ env: CmdEnv, _ io: CmdIo) -> Bool {
         guard let target = args.resolveTargetOrReportError(env, io) else { return false }

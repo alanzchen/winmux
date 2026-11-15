@@ -204,6 +204,12 @@ private func flatten(_ value: Any, path: String, depth: Int, into lines: inout [
         case .struct, .class:
             if mirror.children.isEmpty { return leaf() }
             for child in mirror.children {
+                // Whether a command syncs the closed-windows cache is WinMux's decision (WinMuxHooks), not the
+                // upstream property alone: print the decision the command runs with.
+                if child.label == "shouldResetClosedWindowsCache", let command = value as? any Command {
+                    lines.append("\(path).shouldResetClosedWindowsCache = \(WinMuxHooks.syncsClosedWindowsCache(after: command))")
+                    continue
+                }
                 let label = internalRenames[child.label ?? "?"] ?? child.label ?? "?"
                 // `winmux` is elided from the path, and from the depth, so it doesn't shorten what's printed below it.
                 let isElided = label == "winmux"

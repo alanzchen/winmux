@@ -19,14 +19,9 @@ struct EnableCommand: Command {
             }
             return !args.failIfNoop
         }
+
         TrayMenuModel.shared.isEnabled = newState
-        if !newState {
-            TrayMenuModel.shared.isWorkspaceSidebarExpanded = false
-            clearPendingWindowDragIntent()
-            cancelManipulatedWithMouseState()
-        }
-        WorkspaceSidebarPanel.refreshAll()
-        WindowTabStripPanelController.shared.refresh()
+        WinMuxHooks.didSetEnabled(newState) // WINMUX-HOOK(didSetEnabled)
         if newState {
             for workspace in Workspace.all {
                 for window in workspace.allLeafWindowsRecursive where window.isFloating {

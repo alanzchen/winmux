@@ -4,7 +4,7 @@ import Common
 /// See: MacosNativeFullscreenCommand. Problem ID-B6E178F2
 struct MacosNativeMinimizeCommand: Command {
     let args: MacosNativeMinimizeCmdArgs
-    /*conforms*/ let shouldResetClosedWindowsCache = true
+    /*conforms*/ let shouldResetClosedWindowsCache = false
 
     func run(_ env: CmdEnv, _ io: CmdIo) async throws -> Bool {
         // resolveTargetOrReportError on already minimized windows will always fail
@@ -16,7 +16,7 @@ struct MacosNativeMinimizeCommand: Command {
         let newState: Bool = try await !window.isMacosMinimized
         window.asMacWindow().setNativeMinimized(newState)
         if newState { // minimize
-            window.rememberMacOsLayoutOrigin(detachFromWorkspace: true)
+            window.rememberMacOsLayoutOrigin(detachFromWorkspace: true) // WINMUX-HOOK(layoutOrigin)
             window.bind(to: macosMinimizedWindowsContainer, adaptiveWeight: 1, index: INDEX_BIND_LAST)
             return true
         } else { // unminimize
