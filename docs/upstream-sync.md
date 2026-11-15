@@ -4,8 +4,8 @@ WinMux is a fork of [AeroSpace](https://github.com/nikitabobko/AeroSpace). This 
 merging upstream losslessly: real `git merge`s of upstream history, with WinMux's features coupled to the upstream core
 through a small set of marked hooks instead of edits spread through upstream files.
 
-Status (2026-11-15): phase 0 tooling is in review on `upstream/phase0-20261115`. The history join on `main` waits for the
-current liveness release. Background analysis (module map, coupling inventory, merge-cost measurements) lives in
+Status (2026-11-15): phase 0 is on `main`, including the history join (`e9012cc0`, merge base `13b35332`). Phase 1 shipped as
+v0.6.419 Preview (`8ef3e860`). Phase 2 is in review on `upstream/phase2-20261115`. Background analysis (module map, coupling inventory, merge-cost measurements) lives in
 `.winmux-diagnostics/upstream-integration-20261115/REPORT.md` outside the repository.
 
 ## The model
@@ -166,14 +166,26 @@ far more diff in upstream files than hooks. Each hook call site in an upstream f
 when it has to return early:
 
 ```swift
-WinMux.hooks.windowWillUnregister(self) // WINMUX-HOOK(windowWillUnregister)
+WinMuxHooks.didSetEnabled(newState) // WINMUX-HOOK(didSetEnabled)
 // WINMUX-HOOK-BEGIN(frameWrite)
-if case .skip = WinMux.hooks.frameWrite(self, rect: rect, kind: .layout) { return }
+if case .skip = WinMuxHooks.frameWrite(self, rect: rect, kind: .layout) { return }
 // WINMUX-HOOK-END(frameWrite)
 ```
 
-Defaults reproduce upstream behavior exactly. `WinMux.hooks` is replaced in tests, so upstream's own tests keep testing
-upstream behavior, and WinMux's tests install the WinMux implementation.
+Hooks are static functions on `enum WinMuxHooks` (`Sources/AppBundle/WinMux/Hooks/WinMuxHooks.swift`). A call site runs exactly
+the code that stood there before, so nothing is installed at startup or in tests. This replaces the swappable
+`WinMux.hooks` registry first planned: the registry's only extra was running upstream's own tests against upstream
+behavior, and it cost an install step that could be forgotten. A *replacement hook* answers instead of an upstream body
+and is marked `WINMUX-HOOK-REPLACES(name)`:
+
+```swift
+// WINMUX-HOOK-REPLACES(runCmdSeq)
+if true { return try await WinMuxHooks.runCmdSeq(self, env, io) } // WINMUX-HOOK(runCmdSeq)
+<upstream body, unchanged and not executed>
+```
+
+Upstream edits to such a body merge without conflict but don't take effect. The sync report therefore lists every upstream
+change to a file with a replacement hook as **REVIEW**, so it gets ported into `WinMuxHooks`.
 
 ### Per-object extension state
 
@@ -274,6 +286,68 @@ startup phase boundaries. Timing-sensitive behavior (sidebar flicker, focus afte
 smoke pass with synthetic windows, and the VM is stopped afterwards.
 
 Exit: guard strict and green, one reviewed candidate (Astra and Carbon approve), Preview.
+
+### Phase 2 as implemented (candidate on `upstream/phase2-20261115`)
+
+**Hooks and their behavior-preservation arguments.** Each hook's body is the WinMux code that stood at the call site before,
+moved verbatim; any exception is stated below.
+
+| Hook | Call site | Kind | Why behavior is unchanged | Check |
+|---|---|---|---|---|
+| `runCmdSeq` | `Command.swift` `[Command].runCmdSeq(_:_:)` | replacement | The hook body is the previous WinMux body. The only edit is that the cache test calls `syncsClosedWindowsCache(after:)` instead of reading `shouldResetClosedWindowsCache` (next row). The replacement line returns on every call, so upstream's body never runs. `io` is passed as the same object. | Mutation (hook line removed): `WinMuxHooksTest.testCommandSequenceSeesTheTabsShownWhenItStarted` fails |
+| `syncsClosedWindowsCache(after:)` | read by `runCmdSeq` | policy | Seven upstream commands had been flipped to `shouldResetClosedWindowsCache = true` (BalanceSizes, FocusBackAndForth, Fullscreen, MacosNativeFullscreen, MacosNativeMinimize, WorkspaceBackAndForth, Workspace). They declare upstream's `false` again, and the hook returns `true` for exactly those types or any command declaring `true`. No command flipped the other way (checked against `13b35332`). `runCmdSeq` was the property's only reader. So every command gives the same answer as before. | Golden config dump prints the decision per bound command and is unchanged; `WinMuxHooksTest` covers all seven; mutations (table emptied, one entry removed) fail |
+| `didSetEnabled` | `EnableCommand.run`, right after `isEnabled = newState` | event | It ran at that same point before (between setting `isEnabled` and the floating-size loop). Same statements, same order. | Mutation (call removed): `testDisablingEndsSidebarExpansion` fails |
+| `globalObserverWillInstall` | first line of `GlobalObserver.initObserver` | guard and event | Same statements in the same order before any observer: the install-once guard, `DoubleSidedWindowGesture.install`, `startSystemFrontWindowWatcher`, frontmost-app activation. | By construction (AppKit observers aren't installable in unit tests) |
+| `globalObserverNotification` | `GlobalObserver.onNotif`, before the refresh `Task` | event | Same statements, synchronously on the delivering queue, before the `Task` is created; returns the same `activatedAppPid`. | By construction |
+| `installGlobalObserverMonitors` | last line of `GlobalObserver.initObserver` | event | Same monitors with the same handlers, all retained. One ordering change: the *local* mouse-up monitor is now installed after upstream's *global* one. Local monitors see this app's events and global monitors other apps', so no event reaches both and their relative order can't matter. | By construction; native smoke recommended |
+| notification observer tokens | `GlobalObserver.initObserver` | upstream lines restored | WinMux kept the tokens returned by `NotificationCenter.addObserver(forName:object:queue:using:)`. Apple documents that the center holds the observer strongly until it is removed, and nothing ever removed them, so dropping the tokens changes nothing. Event-monitor retention ("Keep key listeners alive", `9d693761`) is kept, including for upstream's mouse-up monitor. | — |
+| `visibleRectPaddedByOuterGaps` | `MonitorEx.swift` | replacement | The hook body is the previous WinMux body, using the same `workspaceSidebarInset`. | Mutation (back to upstream's formula): 171 failures across the sidebar width and layout tests |
+
+**Code moved or restored without behavior change:**
+- WinMux code moved unchanged into WinMux files: the rest of `GlobalObserver`, `mouse.swift`'s drag-session state, `ConfigFile.swift`'s config bootstrap, and `MonitorEx`/`WorkspaceEx` helpers.
+- Upstream bodies restored where WinMux had only restyled them: `mouseLocation`, `monitorId_oneBased` (plus a marked `@MainActor`), and `WorkspaceEx`'s container accessors and `forceAssignedMonitor`.
+- Dead code restored: helpers WinMux deleted only as unused.
+- `transposed()` lives in `StringEx.swift` again, which also removes the add/add collision with upstream's new `ArrayEx.swift`.
+- The app entry point is back at `Sources/AeroSpaceApp/`: `Package.swift` and `project.yml` point at it, and the target, product and executable stay `WinMuxApp`.
+- From Carbon's phase 1 review: run-time format cases moved to the query test, and `flatten`'s depth no longer counts the elided `winmux` segment. Fixtures were regenerated on `8ef3e860`.
+
+**Manifest:**
+
+| | Phase 1 | Phase 2 |
+|---|---|---|
+| pristine | 97 | 109 |
+| hooked | 14 | 19 |
+| forked | 143 | 127 |
+| forked non-test `Sources/` | 111 | 95 |
+
+`make upstream-guard` and the manual workflow are now blocking.
+
+**Plan change: convert the rest during its slice.** The other 95 forked non-test source files are mostly files upstream is
+rewriting in phase 3. Upstream's lines changed in them since the fork: `MacApp` 393, `parseConfig` 402, `Workspace` 164,
+`refresh` 138. Hooking WinMux code into bodies that S2–S10 replace would be done twice, and the second time against new
+upstream APIs (`ExitCode`, `CancellationMode`, the Monitor tree, `OpaqueWindowId`). Each file is therefore converted in the
+slice that brings most of its upstream changes. Phase 2 hooked the files upstream barely touches (`GlobalObserver`,
+`mouse.swift`, `ConfigFile`, `MonitorEx`, `WorkspaceEx`, the command flags), where a conversion lasts. The schedule, by the
+slice with the most upstream lines in each file (computed from `git diff --numstat` over each slice's range):
+
+| Slice | Files | Forked files converted with it |
+|---|---|---|
+| S1 | 1 | `config/ConfigFile.swift` |
+| S2 | 9 | `Common/util/StringEx.swift`, `GlobalObserver.swift`, `ListApps/ListMonitors/ListWorkspacesCommand.swift`, `config/startAtLogin.swift`, `getNativeFocusedWindow.swift`, `ui/TrayMenuModel.swift`, `util/dumpAxRecursive.swift` |
+| S3 | 24 | `Cli/_main.swift`, `server.swift`, `initAppBundle.swift`, `config/parseConfig.swift`, `command/format.swift`, `ReloadConfig/Focus/Move/MoveMouse/MoveNodeToMonitor/MoveNodeToWorkspace/MoveWorkspaceToMonitor/Resize/SummonWorkspace/WorkspaceBackAndForth/Config/ListWindowsCommand.swift`, the `Focus/ListApps/ListMonitors/ListWindows` arguments and `parseCmdArgs.swift`, `ui/MessageView.swift`, `util/appBundleUtil.swift` |
+| S4 | 4 | `LayoutCmdArgs.swift`, `LayoutCommand.swift`, `tree/WorkspaceEx.swift`, `tree/frozen/FrozenWorld.swift` |
+| S5 | 22 | `focus.swift`, `config/Config.swift`, `HotkeyBinding.swift`, `Mode.swift`, `parseOnWindowDetected.swift`, `parseExecEnvVariables.swift`, `parseCommand.swift`, `WorkspaceCommand.swift`, `cmdHelpGenerated.swift`, `NWConnectionEx.swift`, `clientServer.swift`, `AeroSpaceEnvVars.swift`, `AxUiElementWindowType.swift`, `ArgParserInput.swift`, `parseSpecificCmdArgs.swift` and the remaining command arguments |
+| S6 | 9 | `layout/refresh.swift`, `tree/MacWindow.swift`, `runLoop.swift`, `normalizeLayoutReason.swift`, `mouse/mouse.swift`, `util/accessibility.swift`, `ui/MenuBar.swift`, `DebugWindowsCommand.swift`, `MacosNativeFullscreenCommand.swift` |
+| S7a / S7b | 2 / 6 | `model/Monitor.swift`, `ui/SecureInputView.swift` / `tree/Workspace.swift`, `closedWindowsCache.swift`, `FrozenTreeNode.swift`, `TreeNodeCases.swift`, `windowLevelCache.swift`, `cmdResolveTargetOrReportError.swift` |
+| S8 | 8 | `layout/layoutRecursive.swift`, `moveWithMouse.swift`, `resizeWithMouse.swift`, `TilingContainer.swift`, `BalanceSizesCommand.swift`, `commonUtil.swift`, `Orientation.swift`, `ListWorkspacesCmdArgs.swift` |
+| S9 | 4 | `tree/MacApp.swift`, `focusCache.swift`, `gitHash/versionGenerated.swift` |
+| S10 | 4 | `tree/Window.swift`, `AeroSpaceApp.swift`, `model/Rect.swift`, `ui/ExperimentalUISettings.swift` |
+
+Each slice's exit criterion gains: the files scheduled for it reach their manifest target, and the guard stays strict. The
+≤10 forked budget applies at the end of S10.
+
+User-visible risk of this candidate: none intended. The hooks run the same statements at the same points. The one
+reordering (local vs global mouse-up monitor) involves monitors that never see the same event.
 
 ## Phase 3: merge train
 
