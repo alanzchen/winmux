@@ -2,7 +2,7 @@ import AppKit
 import Darwin
 import Foundation
 
-public let socketPath = "/tmp/\(winMuxAppId)-\(unixUserName).sock"
+public let socketPath = "/tmp/\(aeroSpaceAppId)-\(unixUserName).sock"
 public let unixUserName = NSUserName()
 public let mainModeId = "main"
 
@@ -37,7 +37,7 @@ public func dieT<T>(
             Please describe what you did to trigger this error
 
         Message: \(_message)
-        Version: \(winMuxAppVersion)
+        Version: \(aeroSpaceAppVersion)
         Git hash: \(gitHash)
         refreshSessionEvent: \(refreshSessionEvent.prettyDescription)
         Date: \(Date.now)

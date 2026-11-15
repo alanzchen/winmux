@@ -301,5 +301,5 @@ private extension Result {
 }
 
 func shortcutSettingsError(_ message: String) -> NSError {
-    NSError(domain: winMuxAppId, code: 1, userInfo: [NSLocalizedDescriptionKey: message])
+    NSError(domain: aeroSpaceAppId, code: 1, userInfo: [NSLocalizedDescriptionKey: message])
 }

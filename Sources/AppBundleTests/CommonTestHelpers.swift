@@ -11,7 +11,7 @@ extension ParsedCmd {
     }
 }
 
-extension WinMuxAny {
+extension AeroAny {
     @discardableResult
     func apply(_ block: (Self) -> Void) -> Self {
         block(self)

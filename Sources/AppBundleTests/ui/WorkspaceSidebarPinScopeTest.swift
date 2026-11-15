@@ -132,11 +132,11 @@ final class WorkspaceSidebarPinScopeTest: XCTestCase {
     func testAnOlderBuildShowsAPinInAllProjectsAsItsHomesPinAndItsNextWriteDropsTheScope() throws {
         var state = WorkspaceSidebarOrganization()
         state.workspaces["g"] = .init(colorHex: "#FF0000", isFavorite: true, pinOrder: 0, pinScope: .allProjects)
-        let newer = try JSONEncoder.winMuxDefault.encode(state)
+        let newer = try JSONEncoder.aeroSpaceDefault.encode(state)
         let older = try JSONDecoder().decode(OlderOrganization.self, from: newer)
         XCTAssertEqual(older.workspaces["g"], OlderAppearance(colorHex: "#FF0000", isFavorite: true, pinOrder: 0),
             "It reads the file, and shows the pin in its own project")
-        let rewritten = try JSONEncoder.winMuxDefault.encode(older)
+        let rewritten = try JSONEncoder.aeroSpaceDefault.encode(older)
         XCTAssertFalse(String(decoding: rewritten, as: UTF8.self).contains("pinScope"))
         let back = try JSONDecoder().decode(WorkspaceSidebarOrganization.self, from: rewritten)
         XCTAssertEqual(back.workspaces["g"]?.isFavorite, true, "Back in this build it's still pinned, with its color")

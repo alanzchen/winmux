@@ -121,7 +121,7 @@ struct SavedLaunchApp: Codable, Equatable, Sendable {
 func savedLaunchApps(_ slots: [SavedWindowSlot]) -> [SavedLaunchApp] {
     var seen: Set<String> = []
     return slots.filter {
-        $0.bundleId != winMuxAppId && $0.bundleId != lockScreenAppBundleId && !savedWorkspaceAppIsHelper(bundlePath: $0.bundlePath)
+        $0.bundleId != aeroSpaceAppId && $0.bundleId != lockScreenAppBundleId && !savedWorkspaceAppIsHelper(bundlePath: $0.bundlePath)
             && seen.insert($0.bundleId).inserted
     }
         .map { SavedLaunchApp(bundleId: $0.bundleId, bundlePath: $0.bundlePath, appName: $0.appName) }

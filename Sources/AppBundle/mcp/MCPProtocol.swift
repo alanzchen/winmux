@@ -245,7 +245,7 @@ private func mcpInitializeResult(_ params: [String: MCPJSON]) -> MCPJSON {
     return .object([
         "protocolVersion": .string(version),
         "capabilities": .object(["tools": .object(["listChanged": .bool(false)])]),
-        "serverInfo": .object(["name": .string("winmux"), "title": .string("WinMux"), "version": .string(winMuxAppVersion)]),
+        "serverInfo": .object(["name": .string("winmux"), "title": .string("WinMux"), "version": .string(aeroSpaceAppVersion)]),
         "instructions": .string("""
             WinMux is a macOS window manager. Its workspaces are the tabs of Tabs mode; a pinned workspace is a pin. \
             Read windows, workspaces, pins, displays, projects and apps with the list_ tools, or query_desktop for one \
@@ -493,7 +493,7 @@ let mcpTools: [MCPTool] = [
             }
             if args.first == "--version" || args.first == "-v" {
                 return .success(mcpCommandResult(mcpLocalAnswer(winmuxVersionText(clientVersionAndHash: nil,
-                    serverVersionAndHash: "\(winMuxAppVersion) \(gitHash)"))))
+                    serverVersionAndHash: "\(aeroSpaceAppVersion) \(gitHash)"))))
             }
             return .success(mcpCommandResult(await mcpRunCli(args, stdin: stdin)))
         }),
@@ -615,7 +615,7 @@ private func mcpDebugSnapshotOptions(_ arguments: [String: MCPJSON]) -> Result<M
 }
 
 private func mcpLocalAnswer(_ stdout: String) -> ServerAnswer {
-    ServerAnswer(exitCode: 0, stdout: stdout, stderr: "", serverVersionAndHash: "\(winMuxAppVersion) \(gitHash)")
+    ServerAnswer(exitCode: 0, stdout: stdout, stderr: "", serverVersionAndHash: "\(aeroSpaceAppVersion) \(gitHash)")
 }
 
 /// Runs a CLI command through the CLI's dispatch, as a client with no WINMUX_WINDOW_ID or WINMUX_WORKSPACE would.

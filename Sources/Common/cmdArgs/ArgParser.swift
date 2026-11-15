@@ -46,7 +46,7 @@ struct PosArgParserContext {
     let argPlaceholderIfMandatory: String?
 }
 
-func dashDashArg<Root: WinMuxAny>(mandatory: Bool) -> PosArgParser<Root, ()> {
+func dashDashArg<Root: AeroAny>(mandatory: Bool) -> PosArgParser<Root, ()> {
     ArgParser(
         \.noopKeyPath,
         { input in

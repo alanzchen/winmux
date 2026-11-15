@@ -136,7 +136,7 @@ func workspaceTopicEvidence(for tab: WorkspaceSidebarWorkspaceViewModel, token: 
     var isComplete = true
     let listed = workspaceSidebarPinnedTabWindows(tab)
     // WinMux's own windows, such as Settings, say nothing about the tab.
-    let shown = listed.filter { $0.appBundleId != winMuxAppId }
+    let shown = listed.filter { $0.appBundleId != aeroSpaceAppId }
     for window in shown {
         guard windows.count < 6 else { isComplete = false; break }
         let title = workspaceTopicSanitizedTitle(window.title, appName: window.appName)?.title ?? ""

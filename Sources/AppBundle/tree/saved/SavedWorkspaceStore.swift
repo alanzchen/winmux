@@ -218,7 +218,7 @@ private func deduplicatedSavedWorkspacesFile(_ file: SavedWorkspacesFile) -> Sav
 }
 
 func encodeSavedWorkspacesFile(_ file: SavedWorkspacesFile) throws -> Data {
-    try JSONEncoder.winMuxDefault.encode(file)
+    try JSONEncoder.aeroSpaceDefault.encode(file)
 }
 
 private func moveCorruptSavedWorkspacesFileAside(_ url: URL) -> String? {
@@ -245,7 +245,7 @@ func savedWorkspacesFileUrl() throws -> URL {
         appropriateFor: nil,
         create: true,
     )
-    let directory = appSupport.appendingPathComponent(winMuxAppName, isDirectory: true)
+    let directory = appSupport.appendingPathComponent(aeroSpaceAppName, isDirectory: true)
     return directory.appendingPathComponent(savedWorkspacesFilename, isDirectory: false)
 }
 

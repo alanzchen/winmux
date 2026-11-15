@@ -2,7 +2,7 @@ import Common
 import Darwin
 import Foundation
 
-let cliClientVersionAndHash: String = "\(winMuxAppVersion) \(gitHash)"
+let cliClientVersionAndHash: String = "\(aeroSpaceAppVersion) \(gitHash)"
 let maxAgentStdinBytes = 16 * 1024 * 1024
 private let stdinReadChunkBytes = 64 * 1024
 

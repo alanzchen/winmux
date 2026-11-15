@@ -61,7 +61,7 @@ final class WorkspaceLauncherTest: XCTestCase {
         let slack = LauncherApp(bundleId: "com.tinyspeck.slackmacgap", name: "Slack", url: URL(fileURLWithPath: "/Applications/Slack.app"))
         let notes = LauncherApp(bundleId: "com.apple.Notes", name: "Notes", url: URL(fileURLWithPath: "/System/Applications/Notes.app"))
         let code = LauncherApp(bundleId: "com.microsoft.VSCode", name: "Code", url: URL(fileURLWithPath: "/Applications/Visual Studio Code.app"))
-        let winMux = LauncherApp(bundleId: winMuxAppId, name: "WinMux", url: nil)
+        let winMux = LauncherApp(bundleId: aeroSpaceAppId, name: "WinMux", url: nil)
 
         XCTAssertEqual(launcherResults(installed: [safari, slack, notes, winMux], running: [notes], query: "").map(\.name),
             ["Notes", "Safari", "Slack"], "Running apps first, then alphabetical; never WinMux")

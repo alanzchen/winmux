@@ -59,7 +59,7 @@ private func emptyPinHome(for window: Window, detectedIn initialWorkspace: Works
           shouldMoveNewWindowToNewWorkspace(window, detectedIn: initialWorkspace, isNewRegularWindow: isNewRegularWindow),
           NewWindowIntentRegistry.shared.pendingClaim(windowId: window.windowId) == nil,
           let initialWorkspace, let bundleId = window.app.rawAppBundleId,
-          bundleId != winMuxAppId, bundleId != lockScreenAppBundleId,
+          bundleId != aeroSpaceAppId, bundleId != lockScreenAppBundleId,
           !appHasOtherRegisteredWindow(window, bundleId: bundleId)
     else { return nil }
     let monitor = window.nodeMonitor ?? initialWorkspace.workspaceMonitor

@@ -1,10 +1,10 @@
-public let stableWinMuxAppId: String = "com.zimengxiong.winmux"
+public let stableAeroSpaceAppId: String = "com.zimengxiong.winmux"
 #if DEBUG
-    public let winMuxAppId: String = "com.zimengxiong.winmux.debug"
-    public let winMuxAppName: String = "WinMux-Debug"
+    public let aeroSpaceAppId: String = "com.zimengxiong.winmux.debug"
+    public let aeroSpaceAppName: String = "WinMux-Debug"
 #else
-    public let winMuxAppId: String = stableWinMuxAppId
-    public let winMuxAppName: String = "WinMux"
+    public let aeroSpaceAppId: String = stableAeroSpaceAppId
+    public let aeroSpaceAppName: String = "WinMux"
 #endif
 
 /// The fork's issue tracker, where users report bugs and runtime errors.

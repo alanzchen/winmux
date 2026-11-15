@@ -10,8 +10,8 @@ private let winmuxRepositoryURL = "https://github.com/alanzchen/winmux"
         checkForUpdates: (() -> Void)? = nil,
     ) -> some Scene { // todo should it be converted to "SwiftUI struct"?
         MenuBarExtra {
-            let shortIdentification = "\(winMuxAppName) v\(winMuxAppVersion) \(gitShortHash)"
-            let identification      = "\(winMuxAppName) v\(winMuxAppVersion) \(gitHash)"
+            let shortIdentification = "\(aeroSpaceAppName) v\(aeroSpaceAppVersion) \(gitShortHash)"
+            let identification      = "\(aeroSpaceAppName) v\(aeroSpaceAppVersion) \(gitHash)"
         Text(shortIdentification)
         Button("Copy to clipboard") { identification.copyToClipboard() }
             .keyboardShortcut("C", modifiers: .command)
@@ -51,7 +51,7 @@ private let winmuxRepositoryURL = "https://github.com/alanzchen/winmux"
         Button("File an issue...") {
             openURLString(winMuxNewIssueURL)
         }
-        Button("Quit \(winMuxAppName)") {
+        Button("Quit \(aeroSpaceAppName)") {
             _ = Task {
                 defer { terminateApp() }
                 try await terminationHandler.beforeTermination()

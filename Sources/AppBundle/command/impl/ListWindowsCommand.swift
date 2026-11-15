@@ -62,7 +62,7 @@ struct ListWindowsCommand: Command {
                     return $0.window.windowId < $1.window.windowId
                 }
 
-            return windowInfos.map { FormatObject.window(window: $0.window, title: $0.title) }.writeFormattedOutput(
+            return windowInfos.map { AeroObj.window(window: $0.window, title: $0.title) }.writeFormattedOutput(
                 to: io,
                 format: args.format,
                 json: args.json,

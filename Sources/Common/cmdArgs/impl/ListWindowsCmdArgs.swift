@@ -81,7 +81,7 @@ func parseListWindowsCmdArgs(_ args: StrArrSlice) -> ParsedCmd<ListWindowsCmdArg
 
 func formatParser<Root>(
     _ keyPath: SendableWritableKeyPath<Root, [StringInterToken]>,
-    for kind: FormatObjectKind,
+    for kind: AeroObjKind,
 ) -> SubArgParser<Root, [StringInterToken]> {
     return ArgParser(keyPath) { input in
         if let arg = input.nonFlagArgOrNil() {
@@ -183,15 +183,15 @@ public enum PlainInterVar: String, CaseIterable {
     case tab = "tab"
 }
 
-public enum FormatObjectKind: CaseIterable, Sendable {
+public enum AeroObjKind: CaseIterable, Sendable {
     case window, workspace, project, app, monitor
 }
 
-public func getAvailableInterVars(for kind: FormatObjectKind) -> [String] {
+public func getAvailableInterVars(for kind: AeroObjKind) -> [String] {
     _getAvailableInterVars(for: kind) + PlainInterVar.allCases.map(\.rawValue)
 }
 
-private func _getAvailableInterVars(for kind: FormatObjectKind) -> [String] {
+private func _getAvailableInterVars(for kind: AeroObjKind) -> [String] {
     switch kind {
         case .app: FormatVar.AppFormatVar.allCases.map(\.rawValue)
         case .monitor: FormatVar.MonitorFormatVar.allCases.map(\.rawValue)

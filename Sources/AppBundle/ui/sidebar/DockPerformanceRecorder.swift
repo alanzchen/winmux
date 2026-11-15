@@ -156,7 +156,7 @@ final class DockPerformanceRecorder: ObservableObject {
         let sidebar = config.workspaceSidebar
         let report = DockPerformanceReport(schemaVersion: 2, startedUTC: startedUTC,
             hostTimeAnchor: startedHostTime, endedHostTime: CACurrentMediaTime(),
-            version: winMuxAppVersion, gitHash: gitHash,
+            version: aeroSpaceAppVersion, gitHash: gitHash,
             operatingSystem: ProcessInfo.processInfo.operatingSystemVersionString,
             hardwareModel: dockPerformanceHardwareModel(),
             processorCount: ProcessInfo.processInfo.processorCount,

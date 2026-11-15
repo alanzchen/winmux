@@ -16,7 +16,7 @@ struct AgentCommand: Command {
                 } catch let error as AgentSnapshotQueryError {
                     return io.err(error.localizedDescription)
                 }
-                guard let json = JSONEncoder.winMuxDefault.encodeToString(snapshot) else {
+                guard let json = JSONEncoder.aeroSpaceDefault.encodeToString(snapshot) else {
                     return io.err("Failed to encode agent snapshot")
                 }
                 if let path = args.path {

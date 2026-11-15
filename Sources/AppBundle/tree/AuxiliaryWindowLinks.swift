@@ -127,7 +127,7 @@ func persistAuxiliaryWindowLinks() {
             try? FileManager.default.removeItem(at: url)
             return
         }
-        let data = try JSONEncoder.winMuxDefault.encode(AuxiliaryWindowLinksFile(links: links))
+        let data = try JSONEncoder.aeroSpaceDefault.encode(AuxiliaryWindowLinksFile(links: links))
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try data.write(to: url, options: .atomic)
     } catch {}

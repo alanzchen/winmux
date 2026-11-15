@@ -261,7 +261,7 @@ final class WorkspaceSidebarSharedPinsTest: XCTestCase {
         XCTAssertEqual(pins(snapshot(on: monitors[0], sharing: false)), ["pin0"])
         XCTAssertEqual(pins(snapshot(on: monitors[1], sharing: false)), ["pin1"])
 
-        let encoded = try JSONSerialization.jsonObject(with: JSONEncoder.winMuxDefault.encode(workspaceSidebarOrganizationStore.state))
+        let encoded = try JSONSerialization.jsonObject(with: JSONEncoder.aeroSpaceDefault.encode(workspaceSidebarOrganizationStore.state))
             as? [String: Any]
         let original = try JSONSerialization.jsonObject(with: Data(fixture.utf8)) as? [String: Any]
         XCTAssertEqual(encoded.map { Set($0.keys) }, original.map { Set($0.keys) }, "No new keys: the schema is unchanged")

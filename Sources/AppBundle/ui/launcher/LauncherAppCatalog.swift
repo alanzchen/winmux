@@ -46,7 +46,7 @@ func launcherResults(
     query: String,
     isUnsupported: (LauncherApp) -> Bool = { _ in false },
 ) -> [LauncherApp] {
-    var seen: Set<String> = [winMuxAppId]
+    var seen: Set<String> = [aeroSpaceAppId]
     var merged: [LauncherApp] = []
     for app in running + installed where seen.insert(app.bundleId).inserted {
         merged.append(app)

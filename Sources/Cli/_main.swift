@@ -96,8 +96,8 @@ struct Main {
         }
 
         let environment = ProcessInfo.processInfo.environment
-        let windowId = environment[WINMUX_WINDOW_ID].flatMap(UInt32.init)
-        let workspace = environment[WINMUX_WORKSPACE]
+        let windowId = environment[AEROSPACE_WINDOW_ID].flatMap(UInt32.init)
+        let workspace = environment[AEROSPACE_WORKSPACE]
 
         // Handle subscribe command specially
         if parsedArgs is SubscribeCmdArgs {

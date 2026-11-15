@@ -14,7 +14,7 @@ struct ListAppsCommand: Command {
         if args.outputOnlyCount {
             return io.out("\(result.count)")
         } else {
-            return result.map { FormatObject.app($0) }.writeFormattedOutput(
+            return result.map { AeroObj.app($0) }.writeFormattedOutput(
                 to: io,
                 format: args.format,
                 json: args.json,

@@ -106,7 +106,7 @@ private func dumpWindowDebugInfo(_ window: Window) async throws -> String {
     }
     result["WinMux.on-window-detected"] = .array(matchingCallbacks)
 
-    return JSONEncoder.winMuxDefault.encodeToString(result).prettyDescription
+    return JSONEncoder.aeroSpaceDefault.encodeToString(result).prettyDescription
         .prefixLines(with: "\(window.app.rawAppBundleId ?? "nil-bundle-id").\(window.windowId) ||| ")
 }
 

@@ -16,7 +16,7 @@ func missingSavedWorkspaceApps(
     for record in records {
         for slot in record.layout.allSlots {
             guard runningApps[slot.bundleId] == nil,
-                  slot.bundleId != winMuxAppId,
+                  slot.bundleId != aeroSpaceAppId,
                   slot.bundleId != lockScreenAppBundleId,
                   !savedWorkspaceAppIsHelper(bundlePath: slot.bundlePath),
                   seen.insert(slot.bundleId).inserted

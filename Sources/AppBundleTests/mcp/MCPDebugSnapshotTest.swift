@@ -132,7 +132,7 @@ final class MCPDebugSnapshotTest: XCTestCase {
         _ = try await scene()
         let (document, _) = try await snapshot()
         XCTAssertEqual(document["schema"], .string("winmux-debug-snapshot/1"))
-        XCTAssertEqual(document["winmux"]?["version"], .string(winMuxAppVersion))
+        XCTAssertEqual(document["winmux"]?["version"], .string(aeroSpaceAppVersion))
         XCTAssertEqual(document["winmux"]?["commit"], .string(gitHash))
         XCTAssertFalse(document["macOS"]?.string?.isEmpty ?? true)
         let displays = try XCTUnwrap(document["monitors"]?.array)

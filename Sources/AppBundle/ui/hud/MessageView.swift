@@ -4,7 +4,7 @@ import SwiftUI
 @MainActor
 public func getMessageWindow(messageModel: MessageModel) -> some Scene {
     // Using SwiftUI.Window because another class in WinMux is already called Window
-    SwiftUI.Window(messageModel.detailMessage?.title ?? winMuxAppName, id: messageWindowId) {
+    SwiftUI.Window(messageModel.detailMessage?.title ?? aeroSpaceAppName, id: messageWindowId) {
         MessageView(model: messageModel)
             .onAppear {
                 // Set activation policy; otherwise, WinMux windows won't be able to receive focus and accept keyboard input
@@ -22,7 +22,7 @@ public func getMessageWindow(messageModel: MessageModel) -> some Scene {
     //.windowLevel(.floating) //This might be the SwiftUI way of doing window level instead of the onAppear block above, but it's only available from macOS 15.0
 }
 
-public let messageWindowId = "\(winMuxAppName).messageView"
+public let messageWindowId = "\(aeroSpaceAppName).messageView"
 
 struct MessageView: View {
     @StateObject private var model: MessageModel
@@ -151,7 +151,7 @@ public struct Message: Hashable, Equatable {
     public let body: String
     let actions: [MessageAction]
 
-    init(type: MessageType = .general, title: String = winMuxAppName, description: String, body: String, actions: [MessageAction] = []) {
+    init(type: MessageType = .general, title: String = aeroSpaceAppName, description: String, body: String, actions: [MessageAction] = []) {
         self.type = type
         self.title = title
         self.description = description

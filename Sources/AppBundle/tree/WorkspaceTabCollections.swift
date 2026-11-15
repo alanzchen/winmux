@@ -282,7 +282,7 @@ final class WorkspaceSidebarOrganizationStore {
         change(&next)
         guard next != state else { return }
         if let url {
-            let data = try JSONEncoder.winMuxDefault.encode(next)
+            let data = try JSONEncoder.aeroSpaceDefault.encode(next)
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
             try data.write(to: url, options: .atomic)
         }

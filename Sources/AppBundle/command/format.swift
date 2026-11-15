@@ -1,13 +1,13 @@
 import Common
 
-enum FormatObject {
+enum AeroObj {
     case window(window: Window, title: String)
     case workspace(Workspace)
     case project(ProjectFormatObject)
     case app(any AbstractApp)
     case monitor(Monitor)
 
-    var kind: FormatObjectKind {
+    var kind: AeroObjKind {
         switch self {
             case .window: .window
             case .workspace: .workspace
@@ -28,7 +28,7 @@ struct ProjectFormatObject {
     let windowCount: Int
 }
 
-extension [FormatObject] {
+extension [AeroObj] {
     @MainActor
     func writeFormattedOutput(
         to io: CmdIo,
@@ -127,22 +127,22 @@ private struct Cell<T> {
 
 extension String {
     @MainActor
-    func expandFormatVar(obj: FormatObject) -> Result<Primitive, String> {
+    func expandFormatVar(obj: AeroObj) -> Result<Primitive, String> {
         let formatVar = self.toFormatVar()
         switch (obj, formatVar) {
             case (_, .none): break
 
             case (.window(let w, _), .workspace):
-                return w.nodeWorkspace.flatMap(FormatObject.workspace).map(expandFormatVar) ?? .success(.string("NULL-WORKSPACE"))
+                return w.nodeWorkspace.flatMap(AeroObj.workspace).map(expandFormatVar) ?? .success(.string("NULL-WORKSPACE"))
             case (.window(let w, _), .monitor):
-                return w.nodeMonitor.flatMap(FormatObject.monitor).map(expandFormatVar) ?? .success(.string("NULL-MONITOR"))
+                return w.nodeMonitor.flatMap(AeroObj.monitor).map(expandFormatVar) ?? .success(.string("NULL-MONITOR"))
             case (.window(let w, _), .app):
                 return expandFormatVar(obj: .app(w.app))
             case (.window(_, _), .window): break
             case (.window, .project): break
 
             case (.workspace(let ws), .monitor):
-                return expandFormatVar(obj: FormatObject.monitor(ws.workspaceMonitor))
+                return expandFormatVar(obj: AeroObj.monitor(ws.workspaceMonitor))
             case (.workspace, _): break
 
             case (.project, _): break

@@ -108,6 +108,6 @@ private func writeSavedWorkspaceJson(_ workspace: Workspace, changed: Bool, to i
     if let display = record?.display?.name, !display.isEmpty {
         result["display"] = .string(display)
     }
-    return JSONEncoder.winMuxDefault.encodeToString(result).map(io.out)
+    return JSONEncoder.aeroSpaceDefault.encodeToString(result).map(io.out)
         ?? io.err("Failed to encode JSON")
 }

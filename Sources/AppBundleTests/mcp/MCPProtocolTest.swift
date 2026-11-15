@@ -293,7 +293,7 @@ final class MCPProtocolTest: XCTestCase {
         for args in [["--version"], ["-v"]] {
             let version = await tool("winmux", #"{"args":\#(String(decoding: MCPJSON.array(args.map(MCPJSON.string)).encoded(), as: UTF8.self))}"#)
             XCTAssertEqual(version?["isError"], .bool(false), "\(args): \(text(version))")
-            XCTAssertTrue(text(version).contains("WinMux.app server version: \(winMuxAppVersion) \(gitHash)"), text(version))
+            XCTAssertTrue(text(version).contains("WinMux.app server version: \(aeroSpaceAppVersion) \(gitHash)"), text(version))
         }
         let commandHelp = await tool("winmux", #"{"args":["workspace","--help"]}"#)
         XCTAssertEqual(commandHelp?["isError"], .bool(false), text(commandHelp))

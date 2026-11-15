@@ -79,7 +79,7 @@ func mcpDebugSnapshot(_ options: MCPDebugSnapshotOptions) async -> MCPJSON {
     var document: [String: MCPJSON] = [
         "schema": .string("winmux-debug-snapshot/1"),
         "generatedAt": .string(debugSnapshotTime(Date())),
-        "winmux": .object(["version": .string(winMuxAppVersion), "commit": .string(gitHash)]),
+        "winmux": .object(["version": .string(aeroSpaceAppVersion), "commit": .string(gitHash)]),
         "macOS": .string(ProcessInfo.processInfo.operatingSystemVersionString),
         "redaction": .object(["titles": .string(options.includeTitles ? "included" : "omitted")]),
         "filter": wanted.map { .object(["windowIds": .array($0.sorted().map { .int(Int($0)) })]) } ?? .null,

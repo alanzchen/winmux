@@ -31,7 +31,7 @@ struct ListProjectsCommand: Command {
         if args.outputOnlyCount {
             return io.out("\(result.count)")
         }
-        return result.map(FormatObject.project).writeFormattedOutput(
+        return result.map(AeroObj.project).writeFormattedOutput(
             to: io,
             format: args.format,
             json: args.json,
@@ -201,6 +201,6 @@ struct DeleteProjectCommand: Command {
 }
 
 private func writeProjectMutationJson(_ result: [String: Primitive], to io: CmdIo) -> Bool {
-    JSONEncoder.winMuxDefault.encodeToString(result).map(io.out)
+    JSONEncoder.aeroSpaceDefault.encodeToString(result).map(io.out)
         ?? io.err("Failed to encode JSON")
 }

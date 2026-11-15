@@ -1,7 +1,7 @@
 import Common
 import Foundation
 
-extension [FormatObject] {
+extension [AeroObj] {
     @MainActor
     func formatToJson(_ format: [StringInterToken], ignoreRightPaddingVar: Bool) -> Result<String, String> {
         var list: [[String: Primitive]] = []
@@ -22,7 +22,7 @@ extension [FormatObject] {
             }
             list.append(rawObj)
         }
-        return JSONEncoder.winMuxDefault.encodeToString(list).map(Result.success)
+        return JSONEncoder.aeroSpaceDefault.encodeToString(list).map(Result.success)
             ?? .failure("Can't encode '\(list)' to JSON")
     }
 }

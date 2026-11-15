@@ -18,10 +18,10 @@ struct CmdEnv: ConvenienceCopyable {
     var asMap: [String: String] {
         var result = [String: String]()
         if let windowId {
-            result[WINMUX_WINDOW_ID] = windowId.description
+            result[AEROSPACE_WINDOW_ID] = windowId.description
         }
         if let workspaceName {
-            result[WINMUX_WORKSPACE] = workspaceName.description
+            result[AEROSPACE_WORKSPACE] = workspaceName.description
         }
         return result
     }

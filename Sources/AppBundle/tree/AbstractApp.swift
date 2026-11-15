@@ -1,7 +1,7 @@
 import Common
 import Foundation
 
-protocol AbstractApp: AnyObject, Hashable, WinMuxAny {
+protocol AbstractApp: AnyObject, Hashable, AeroAny {
     var pid: Int32 { get }
     var rawAppBundleId: String? { get }
 

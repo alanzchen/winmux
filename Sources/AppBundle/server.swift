@@ -20,7 +20,7 @@ func startUnixSocketServer() {
 func toggleReleaseServerIfDebug(_ state: EnableCmdArgs.State) async {
     if serverArgs.isReadOnly { return }
     if !isDebug { return }
-    let socketFile = "/tmp/\(stableWinMuxAppId)-\(unixUserName).sock"
+    let socketFile = "/tmp/\(stableAeroSpaceAppId)-\(unixUserName).sock"
     let connection = NWConnection(to: NWEndpoint.unix(path: socketFile), using: .tcp)
     defer { connection.cancel() }
     if await connection.initConnection().error != nil { // Can't connect, WinMux.app is not running
@@ -32,7 +32,7 @@ func toggleReleaseServerIfDebug(_ state: EnableCmdArgs.State) async {
     _ = await connection.readNonAtomic()
 }
 
-private let serverVersionAndHash = "\(winMuxAppVersion) \(gitHash)"
+private let serverVersionAndHash = "\(aeroSpaceAppVersion) \(gitHash)"
 
 func negotiateSocketProtocolAsServer(_ connection: NWConnection) async -> Bool {
     let clientVersion: UInt32
@@ -106,7 +106,7 @@ func runCliRequest(_ request: ClientRequest) async -> ServerAnswer {
     guard let token: RunSessionGuard = await .isServerEnabled(orIsEnableCommand: command) else {
         return answer(
             exitCode: 1,
-            stderr: "\(winMuxAppName) server is disabled and doesn't accept commands. " +
+            stderr: "\(aeroSpaceAppName) server is disabled and doesn't accept commands. " +
                 "You can use 'winmux enable on' to enable the server",
         )
     }

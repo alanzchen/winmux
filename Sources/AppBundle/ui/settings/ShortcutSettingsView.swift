@@ -3,7 +3,7 @@ import Common
 import MASShortcut
 import SwiftUI
 
-public let shortcutSettingsWindowId = "\(winMuxAppName).shortcutSettings"
+public let shortcutSettingsWindowId = "\(aeroSpaceAppName).shortcutSettings"
 let shortcutSettingsDefaultSize = CGSize(width: 760, height: 620)
 let shortcutSettingsMinimumSize = CGSize(width: 700, height: 480)
 

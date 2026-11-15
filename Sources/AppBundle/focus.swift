@@ -13,7 +13,7 @@ extension LiveFocus {
 
 /// This object should be only passed around but never memorized
 /// Alternative name: ResolvedFocus
-struct LiveFocus: WinMuxAny, Equatable {
+struct LiveFocus: AeroAny, Equatable {
     let windowOrNil: Window?
     var workspace: Workspace
 
@@ -30,7 +30,7 @@ struct LiveFocus: WinMuxAny, Equatable {
 /// It's safe to keep a hard reference to this object.
 /// Unlike in LiveFocus, information inside FrozenFocus isn't guaranteed to be self-consistent.
 /// window - workspace - monitor relation could change since the moment object was created
-struct FrozenFocus: WinMuxAny, Equatable, Sendable {
+struct FrozenFocus: AeroAny, Equatable, Sendable {
     let windowId: UInt32?
     let workspaceName: String
     // monitorId is not part of the focus. We keep it here only for 'on-focused-monitor-changed' to work
@@ -91,8 +91,8 @@ func debugDescribe(_ snapshot: RefreshSessionFocusSnapshot?) -> String {
 
 /// Global focus.
 /// Commands must be cautious about accessing this property directly. There are legitimate cases.
-/// But, in general, commands must firstly check --window-id, --workspace, WINMUX_WINDOW_ID env and
-/// WINMUX_WORKSPACE env before accessing the global focus.
+/// But, in general, commands must firstly check --window-id, --workspace, AEROSPACE_WINDOW_ID env and
+/// AEROSPACE_WORKSPACE env before accessing the global focus.
 @MainActor var focus: LiveFocus { _focus.live }
 
 @MainActor private(set) var focusChangeGeneration: UInt64 = 0
@@ -312,9 +312,9 @@ enum FocusedMonitorChangePointer {
         process.executableURL = URL(filePath: exec)
         process.arguments = Array(config.execOnWorkspaceChange.dropFirst())
         var environment = config.execConfig.envVariables
-        environment[WINMUX_FOCUSED_WORKSPACE] = newWorkspace
-        environment[WINMUX_PREV_WORKSPACE] = oldWorkspace
-        environment[WINMUX_WORKSPACE] = newWorkspace
+        environment[AEROSPACE_FOCUSED_WORKSPACE] = newWorkspace
+        environment[AEROSPACE_PREV_WORKSPACE] = oldWorkspace
+        environment[AEROSPACE_WORKSPACE] = newWorkspace
         process.environment = environment
         _ = Result { try process.run() }
     }

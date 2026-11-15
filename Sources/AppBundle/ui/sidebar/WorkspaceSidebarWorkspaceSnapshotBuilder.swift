@@ -149,7 +149,7 @@ func workspaceSidebarPinnedLinkApp(_ workspace: Workspace) -> WorkspaceSidebarSa
 func workspaceSidebarSavedApps(for workspace: Workspace) -> [WorkspaceSidebarSavedApp] {
     guard let record = savedWorkspaceStore.record(named: workspace.name) else { return [] }
     let slots = record.layout.allSlots.filter {
-        $0.bundleId != winMuxAppId && $0.bundleId != lockScreenAppBundleId && !savedWorkspaceAppIsHelper(bundlePath: $0.bundlePath)
+        $0.bundleId != aeroSpaceAppId && $0.bundleId != lockScreenAppBundleId && !savedWorkspaceAppIsHelper(bundlePath: $0.bundlePath)
     }
     let waiting = Set(slots.map(\.bundleId))
     let apps = slots.map { ($0.bundleId, $0.bundlePath, $0.appName) } +
