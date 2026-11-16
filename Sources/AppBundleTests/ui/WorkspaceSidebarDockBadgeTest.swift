@@ -8,11 +8,11 @@ final class WorkspaceSidebarDockBadgeTest: XCTestCase {
         XCTAssertFalse(WorkspaceSidebarConfig().showAppBadges)
         let text = updateSettingsScalarConfig(in: "[workspace-sidebar]\nmode = 'dock'\n",
                                              section: "workspace-sidebar", key: "show-app-badges", renderedValue: "true")
-        let (config, errors) = parseConfig(text)
+        let (config, errors) = parseConfigForTests(text)
         XCTAssertTrue(errors.isEmpty)
         XCTAssertTrue(config.workspaceSidebar.showAppBadges)
         XCTAssertEqual(config.workspaceSidebar.mode, .dock)
-        let (_, invalid) = parseConfig("[workspace-sidebar]\nshow-app-badges = 'yes'\n")
+        let (_, invalid) = parseConfigForTests("[workspace-sidebar]\nshow-app-badges = 'yes'\n")
         XCTAssertEqual(invalid.count, 1)
     }
 

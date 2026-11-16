@@ -520,6 +520,23 @@ final class MacApp: AbstractApp {
         }
     }
 
+    /// Termination's frame write (upstream 8b236f1b): synchronous, because the termination handler runs on the main
+    /// thread and must not await. The write runs on this app's thread; a window that is already gone, a closed worker
+    /// or a write that takes longer than `terminationAxTimeout` gives up, so quitting never hangs.
+    func setAxFrameForTermination(_ windowId: UInt32, _ topLeft: CGPoint?, _ size: CGSize?) {
+        setFrameJobs.removeValue(forKey: windowId)?.cancel()
+        let done = DispatchSemaphore(value: 0)
+        guard let worker = thread else { return }
+        _ = worker.runInLoopAsync { [axApp, windows, frameWriteLedger] job in
+            defer { done.signal() }
+            guard let window = windows.threadGuarded[windowId], !window.isUnbound else { return }
+            _ = try? setFrame(window.ax, topLeft, size, fit: &window.frameFit, job) { writes in
+                try frameWriteLedger.record(windowId) { try disableAnimations(app: axApp.threadGuarded, job, writes) }
+            }
+        }
+        _ = done.wait(timeout: .now() + terminationAxTimeout)
+    }
+
     func waitForPendingFrameWrites() async throws {
         // Frame writes are queued on this app's AX thread. A marker on the same run loop
         // completes after those writes, without another AX read or a duplicate frame write.
@@ -588,11 +605,21 @@ final class MacApp: AbstractApp {
     }
 
     func getAxRect(_ windowId: UInt32) async throws -> Rect? {
-        try await withWindow(windowId) { window, job in
-            guard let topLeftCorner = window.get(Ax.topLeftCornerAttr) else { return nil }
-            guard let size = window.get(Ax.sizeAttr) else { return nil }
-            return Rect(topLeftX: topLeftCorner.x, topLeftY: topLeftCorner.y, width: size.width, height: size.height)
+        try await withWindow(windowId) { window, job in axRect(window) }
+    }
+
+    /// See `setAxFrameForTermination`.
+    func getAxRectForTermination(_ windowId: UInt32) -> Rect? {
+        let result = TerminationResultBox()
+        let done = DispatchSemaphore(value: 0)
+        guard let worker = thread else { return nil }
+        _ = worker.runInLoopAsync { [windows] _ in
+            defer { done.signal() }
+            guard let window = windows.threadGuarded[windowId] else { return }
+            result.set(axRect(window.ax))
         }
+        guard done.wait(timeout: .now() + terminationAxTimeout) == .success else { return nil }
+        return result.get()
     }
 
     func isWindowHeuristic(_ windowId: UInt32, _ windowLevel: MacOsWindowLevel?) async throws -> Bool {
@@ -1046,4 +1073,21 @@ extension [UInt32: AxWindow] {
             return nil
         }
     }
+}
+
+/// How long quitting waits for one window's AX read or write before moving on.
+private let terminationAxTimeout: DispatchTimeInterval = .milliseconds(500)
+
+private func axRect(_ window: AXUIElement) -> Rect? {
+    guard let topLeftCorner = window.get(Ax.topLeftCornerAttr) else { return nil }
+    guard let size = window.get(Ax.sizeAttr) else { return nil }
+    return Rect(topLeftX: topLeftCorner.x, topLeftY: topLeftCorner.y, width: size.width, height: size.height)
+}
+
+/// Hands a termination read from the app's thread to the main thread, which waits on a semaphore for it.
+private final class TerminationResultBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var rect: Rect?
+    func set(_ value: Rect?) { lock.withLock { rect = value } }
+    func get() -> Rect? { lock.withLock { rect } }
 }

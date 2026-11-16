@@ -85,7 +85,7 @@ final class WorkspaceSidebarTabIdentityTest: XCTestCase {
         let origin = focus.workspace
         XCTAssertTrue(TestWindow.new(id: 201, parent: origin.rootTilingContainer).focusWindow())
         _ = try workspaceSidebarOrganizationStore.create(projectId: origin.projectId, workspaceNames: [origin.name])
-        let (parsed, errors) = parseConfig("""
+        let (parsed, errors) = parseConfigForTests("""
         [[on-window-detected]]
         if.app-id = 'bobko.WinMux.test-app'
         run = ['move-node-to-workspace destination']

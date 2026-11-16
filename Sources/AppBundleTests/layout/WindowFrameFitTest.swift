@@ -797,7 +797,7 @@ func testAstraASizeLargerThanTheOnlyDisplayStillStopsBeingAskedFor() async throw
             for (direction, monitor) in [("right", other), ("left", builtIn as Monitor)] {
                 XCTAssertTrue(call.focusWindow())
                 let result = try await parseCommand("move-node-to-monitor \(direction)").cmdOrDie.run(.defaultEnv, .emptyStdin)
-                XCTAssertEqual(result.exitCode, 0, "\(label) \(direction): \(result.stderr)")
+                XCTAssertEqual(result.exitCode.rawValue, 0, "\(label) \(direction): \(result.stderr)")
                 XCTAssertTrue(call.nodeWorkspace === monitor.activeWorkspace, "\(label) \(direction)")
                 try await layoutAllAndCatchUp(app)
                 let cell = try XCTUnwrap(call.lastAppliedLayoutPhysicalRect)

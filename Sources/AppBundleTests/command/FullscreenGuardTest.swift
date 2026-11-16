@@ -38,7 +38,7 @@ final class FullscreenGuardTest: XCTestCase {
 
         let result = try await parseCommand("focus --fail-if-fullscreen right").cmdOrDie.run(.defaultEnv, .emptyStdin)
 
-        XCTAssertEqual(result.exitCode, 1)
+        XCTAssertEqual(result.exitCode.rawValue, 2)
         XCTAssertEqual(focus.windowOrNil, window)
         XCTAssertTrue(floating.parent === workspace)
         XCTAssertEqual(floating.axRectFetchCount, 0)
@@ -54,14 +54,14 @@ final class FullscreenGuardTest: XCTestCase {
 
         for _ in 0 ..< 2 {
             let result = try await parseCommand("focus --fail-if-macos-native-fullscreen right").cmdOrDie.run(.defaultEnv, .emptyStdin)
-            XCTAssertEqual(result.exitCode, 1)
+            XCTAssertEqual(result.exitCode.rawValue, 2)
             XCTAssertEqual(focus.windowOrNil, window)
         }
         XCTAssertEqual(window.nativeStateFetchCount, 1)
 
         window.nativeIsMacosFullscreen = false
         let result = try await parseCommand("focus --fail-if-fullscreen --fail-if-macos-native-fullscreen right").cmdOrDie.run(.defaultEnv, .emptyStdin)
-        XCTAssertEqual(result.exitCode, 0)
+        XCTAssertEqual(result.exitCode.rawValue, 0)
         XCTAssertEqual(focus.windowOrNil, sibling)
         XCTAssertEqual(window.nativeStateFetchCount, 2)
     }
@@ -78,7 +78,7 @@ final class FullscreenGuardTest: XCTestCase {
 
         let result = try await parseCommand("move --window-id 1 --fail-if-fullscreen right").cmdOrDie.run(.defaultEnv, .emptyStdin)
 
-        XCTAssertEqual(result.exitCode, 1)
+        XCTAssertEqual(result.exitCode.rawValue, 2)
         XCTAssertEqual(root.layoutDescription, before)
         XCTAssertEqual(focus.windowOrNil, focused)
     }
@@ -90,16 +90,16 @@ final class FullscreenGuardTest: XCTestCase {
         XCTAssertTrue(window.focusWindow())
 
         let ordinary = try await parseCommand("move right").cmdOrDie.run(.defaultEnv, .emptyStdin)
-        XCTAssertEqual(ordinary.exitCode, 0)
+        XCTAssertEqual(ordinary.exitCode.rawValue, 0)
         XCTAssertEqual(window.nativeStateFetchCount, 0)
         let guarded = try await parseCommand("move --fail-if-fullscreen --fail-if-macos-native-fullscreen left").cmdOrDie.run(.defaultEnv, .emptyStdin)
-        XCTAssertEqual(guarded.exitCode, 0)
+        XCTAssertEqual(guarded.exitCode.rawValue, 0)
         XCTAssertEqual(root.layoutDescription, .h_tiles([.window(1), .window(2)]))
         XCTAssertEqual(window.nativeStateFetchCount, 1)
 
         window.nativeIsMacosFullscreen = true
         let blocked = try await parseCommand("move --fail-if-macos-native-fullscreen right").cmdOrDie.run(.defaultEnv, .emptyStdin)
-        XCTAssertEqual(blocked.exitCode, 1)
+        XCTAssertEqual(blocked.exitCode.rawValue, 2)
         XCTAssertEqual(root.layoutDescription, .h_tiles([.window(1), .window(2)]))
     }
 
@@ -127,7 +127,7 @@ final class FullscreenGuardTest: XCTestCase {
 
         let result = try await parseCommand("focus --fail-if-macos-native-fullscreen left").cmdOrDie.run(.defaultEnv, .emptyStdin)
 
-        XCTAssertEqual(result.exitCode, 0)
+        XCTAssertEqual(result.exitCode.rawValue, 0)
         XCTAssertNil(window.lastKnownNativeFullscreen)
     }
 }

@@ -303,7 +303,7 @@ final class SavedWorkspaceEmptyPinTest: XCTestCase {
     }
 
     func testAnOnWindowDetectedRuleThatMovesTheWindowWins() async throws {
-        let (parsed, errors) = parseConfig("""
+        let (parsed, errors) = parseConfigForTests("""
             [[on-window-detected]]
             if.app-id = 'ru.keepcoder.Telegram'
             run = ['move-node-to-workspace mail']

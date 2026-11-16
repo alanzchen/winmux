@@ -11,7 +11,7 @@ final class WorkspaceSidebarTabsModeTest: XCTestCase {
     }
 
     func testTabsModeParsesAndKeepsSidebarGeometry() {
-        let (parsed, errors) = parseConfig("""
+        let (parsed, errors) = parseConfigForTests("""
             [workspace-sidebar]
             mode = 'tabs'
             """)
@@ -23,7 +23,7 @@ final class WorkspaceSidebarTabsModeTest: XCTestCase {
             "Tabs mode keeps the Sidebar rail")
         XCTAssertFalse(parsed.workspaceSidebar.floatsExpandedDockView)
 
-        let (_, invalid) = parseConfig("""
+        let (_, invalid) = parseConfigForTests("""
             [workspace-sidebar]
             mode = 'list'
             """)
@@ -124,7 +124,7 @@ final class WorkspaceSidebarTabsModeTest: XCTestCase {
 
     func testTabsModeWinsOverLegacyShowAppIconsInEitherOrder() {
         for toml in ["mode = 'tabs'\nshow-app-icons = false", "show-app-icons = true\nmode = 'tabs'"] {
-            let (parsed, errors) = parseConfig("[workspace-sidebar]\n\(toml)")
+            let (parsed, errors) = parseConfigForTests("[workspace-sidebar]\n\(toml)")
             XCTAssertEqual(errors, [])
             XCTAssertEqual(parsed.workspaceSidebar.mode, .tabs, toml)
             XCTAssertTrue(parsed.workspaceSidebar.usesTabsList, toml)

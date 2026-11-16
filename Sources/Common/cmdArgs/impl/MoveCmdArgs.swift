@@ -9,10 +9,8 @@ public struct MoveCmdArgs: CmdArgs {
             "--window-id": windowIdSubArgParser(),
             "--boundaries": ArgParser(\.rawBoundaries, upcastArgParserFun(parseBoundaries)),
             "--boundaries-action": ArgParser(\.rawBoundariesAction, upcastArgParserFun(parseBoundariesAction)),
-            // WINMUX-HOOK-BEGIN(fullscreenGuards)
             "--fail-if-fullscreen": trueBoolFlag(\.failIfFullscreen),
             "--fail-if-macos-native-fullscreen": trueBoolFlag(\.failIfMacosNativeFullscreen),
-            // WINMUX-HOOK-END(fullscreenGuards)
         ],
         posArgs: [newMandatoryPosArgParser(\.direction, parseCardinalDirectionArg, placeholder: CardinalDirection.unionLiteral)],
     )
@@ -20,10 +18,8 @@ public struct MoveCmdArgs: CmdArgs {
     public var direction: Lateinit<CardinalDirection> = .uninitialized
     public var rawBoundaries: Boundaries? = nil
     public var rawBoundariesAction: WhenBoundariesCrossed? = nil
-    // WINMUX-HOOK-BEGIN(fullscreenGuards)
     public var failIfFullscreen: Bool = false
     public var failIfMacosNativeFullscreen: Bool = false
-    // WINMUX-HOOK-END(fullscreenGuards)
 
     public init(rawArgs: [String], _ direction: CardinalDirection) {
         self.commonState = .init(rawArgs.slice)

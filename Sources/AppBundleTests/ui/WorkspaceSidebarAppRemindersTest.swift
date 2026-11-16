@@ -43,11 +43,11 @@ final class WorkspaceSidebarAppRemindersTest: XCTestCase {
         XCTAssertFalse(field.availability(editor).isShown)
         XCTAssertTrue(SettingsCatalog.results("reminders").contains { $0.id == field.id })
         XCTAssertFalse(WorkspaceSidebarConfig().showHiddenWorkspaceAppReminders)
-        let (parsed, errors) = parseConfig("[workspace-sidebar]\nshow-hidden-workspace-app-reminders = true\nshow-app-badges = false\n")
+        let (parsed, errors) = parseConfigForTests("[workspace-sidebar]\nshow-hidden-workspace-app-reminders = true\nshow-app-badges = false\n")
         XCTAssertTrue(errors.isEmpty)
         XCTAssertTrue(parsed.workspaceSidebar.showHiddenWorkspaceAppReminders)
         XCTAssertFalse(parsed.workspaceSidebar.showAppBadges, "Reminder setting is independent of ordinary icon badges")
-        XCTAssertFalse(parseConfig("[workspace-sidebar]\nshow-hidden-workspace-app-reminders = 'yes'\n").1.isEmpty)
+        XCTAssertFalse(parseConfigForTests("[workspace-sidebar]\nshow-hidden-workspace-app-reminders = 'yes'\n").1.isEmpty)
         let previous = config
         defer { config = previous }
         config = parsed

@@ -5,14 +5,14 @@ struct ListWindowsCommand: Command {
     let args: ListWindowsCmdArgs
     /*conforms*/ let shouldResetClosedWindowsCache = false
 
-    func run(_ env: CmdEnv, _ io: CmdIo) async throws -> Bool {
+    func run(_ env: CmdEnv, _ io: CmdIo) async throws -> BinaryExitCode {
         let focus = focus
         var windows: [Window] = []
 
         if args.filteringOptions.focused {
             switch focus.windowOrNil {
                 case let window?: windows = [window]
-                case nil: return io.err(noWindowIsFocused)
+                case nil: return .fail(io.err(noWindowIsFocused))
             }
         } else {
             var workspaces: Set<Workspace> = args.filteringOptions.workspaces.isEmpty
@@ -28,7 +28,7 @@ struct ListWindowsCommand: Command {
                     .toSet()
             if !args.filteringOptions.monitors.isEmpty {
                 let monitors: Set<CGPoint> = args.filteringOptions.monitors.resolveMonitors(io)
-                if monitors.isEmpty { return false }
+                if monitors.isEmpty { return .fail }
                 workspaces = workspaces.filter { monitors.contains($0.workspaceMonitor.rect.topLeftCorner) }
             }
             windows = workspaces.flatMap(\.allLeafWindowsRecursive)
@@ -41,32 +41,28 @@ struct ListWindowsCommand: Command {
         }
 
         if args.outputOnlyCount {
-            return io.out("\(windows.count)")
+            return .succ(io.out("\(windows.count)"))
         } else {
-            // Adapt AeroSpace 63e0976b / 25ccedf4: do not perform AX title reads
-            // for title-free formats. Keep ordering deterministic even though the
-            // workspace set above has no iteration order.
-            let needsTitle = args.format.contains(.interVar("window-title"))
-            var windowInfos: [(window: Window, title: String)] = []
+            var _list: [WindowWithPrefetchedTitle] = [] // todo cleanup
             for window in windows {
-                windowInfos.append((window, needsTitle ? try await window.title : ""))
+                _list.append(try await .resolveWindow(window, for: args.format))
             }
-            windowInfos = windowInfos
-                .filter { $0.window.isBound }
-                .sorted {
-                    let leftApp = $0.window.app.name ?? ""
-                    let rightApp = $1.window.app.name ?? ""
-                    if leftApp != rightApp { return leftApp < rightApp }
-                    if $0.title != $1.title { return $0.title < $1.title }
-                    return $0.window.windowId < $1.window.windowId
-                }
+            _list = _list.filter { $0.window.isBound }
+            _list = _list.sortedBy([{ $0.window.app.name ?? "" }, { $0.title ?? "" }])
+            _list = WinMuxHooks.windowListOrder(_list) // WINMUX-HOOK(listWindowsOrder)
 
-            return windowInfos.map { AeroObj.window(window: $0.window, title: $0.title) }.writeFormattedOutput(
-                to: io,
-                format: args.format,
-                json: args.json,
-                ignoreRightPaddingVar: args._format.isEmpty,
-            )
+            let list = _list.map { AeroObj.window($0) }
+            if args.json {
+                return switch list.formatToJson(args.format, ignoreRightPaddingVar: args._format.isEmpty) {
+                    case .success(let json): .succ(io.out(json))
+                    case .failure(let msg): .fail(io.err(msg))
+                }
+            } else {
+                return switch list.format(args.format) {
+                    case .success(let lines): .succ(io.out(lines))
+                    case .failure(let msg): .fail(io.err(msg))
+                }
+            }
         }
     }
 }

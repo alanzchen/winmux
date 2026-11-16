@@ -546,7 +546,7 @@ final class MCPDebugCaptureTest: XCTestCase {
     func testTurningTheToggleOnInSettingsAsksAndNothingElseThere() async throws {
         capture.permission = false
         let disk = SettingsTestDisk()
-        let editor = SettingsEditor(configuration: parseConfig(disk.text).config, persistence: disk.persistence)
+        let editor = SettingsEditor(configuration: parseConfigForTests(disk.text).config, persistence: disk.persistence)
         let fields = SettingsCatalog.fields
         let debug = try XCTUnwrap(fields.first { $0.id == "mcp-server.debug-screenshots" })
         let other = try XCTUnwrap(fields.first { $0.id == "mcp-server.require-token" })

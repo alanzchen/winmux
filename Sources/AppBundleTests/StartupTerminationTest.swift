@@ -14,7 +14,7 @@ final class StartupTerminationTest: XCTestCase {
         try previousSnapshot.write(to: snapshotUrl)
         var didRestoreManagedWindows = false
 
-        try await prepareManagedWindowsForTermination(
+        prepareManagedWindowsForTermination(
             runtimeReady: false,
             persistSession: { try? FileManager.default.removeItem(at: snapshotUrl) },
             restoreWindows: { didRestoreManagedWindows = true },
@@ -26,7 +26,7 @@ final class StartupTerminationTest: XCTestCase {
 
     func testReadyRuntimeSavesModelBeforeRestoringNativeWindows() async throws {
         var operations: [String] = []
-        try await prepareManagedWindowsForTermination(
+        prepareManagedWindowsForTermination(
             runtimeReady: true,
             persistSession: { operations.append("save") },
             restoreWindows: { operations.append("restore") },
@@ -44,7 +44,7 @@ final class StartupTerminationTest: XCTestCase {
         var didPersistSession = false
         var didRestoreManagedWindows = false
 
-        try await prepareManagedWindowsForTermination(
+        prepareManagedWindowsForTermination(
             persistSession: { didPersistSession = true },
             restoreWindows: { didRestoreManagedWindows = true },
         )

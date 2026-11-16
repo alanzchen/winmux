@@ -55,7 +55,7 @@ final class WorkspaceSidebarPinPolicyTest: XCTestCase {
         let one = try window(1), two = try window(2)
         _ = try window(4).focusWindow()
         let into = try await move(to: "a")
-        XCTAssertEqual(into.exitCode, 0)
+        XCTAssertEqual(into.exitCode.rawValue, 0)
         XCTAssertEqual(into.stderr, [], "The pin's window came to 4's own tab: nothing to complain of")
         XCTAssertEqual(ids(d), [4, 1], "d, which 4 was the whole of, takes the split")
         XCTAssertEqual(ids(a), [], "a isn't turned into a pinned split")
@@ -113,7 +113,7 @@ final class WorkspaceSidebarPinPolicyTest: XCTestCase {
         XCTAssertEqual(ids(n), [9, 1])
         _ = try window(9).focusWindow()
         let refused = try await move(to: "a")
-        XCTAssertNotEqual(refused.exitCode, 0)
+        XCTAssertNotEqual(refused.exitCode.rawValue, 0)
         XCTAssertTrue(refused.stderr.joined().contains("Workspace 'a' is a pin whose window is in another tab"), "\(refused.stderr)")
         XCTAssertEqual(ids(a), [])
 
@@ -567,7 +567,7 @@ final class WorkspaceSidebarPinPolicyTest: XCTestCase {
         XCTAssertTrue(notices.first?.contains("Exit full screen") == true, "\(notices)")
         _ = try window(4).focusWindow()
         let command = try await move(to: "b")
-        XCTAssertNotEqual(command.exitCode, 0)
+        XCTAssertNotEqual(command.exitCode.rawValue, 0)
         XCTAssertTrue(command.stderr.joined().contains("full screen"), "\(command.stderr)")
         XCTAssertTrue(two.parent is MacosFullscreenWindowsContainer && two.nodeWorkspace === b, "Never split, still in full screen")
         XCTAssertTrue(try window(4).nodeWorkspace === d)
@@ -791,7 +791,7 @@ final class WorkspaceSidebarPinPolicyTest: XCTestCase {
             try await setUp()
             let (a, _, d, _) = try tabs()
             let result = try await applyAgentLayout("a", [1, 4], asOperation: asOperation)
-            XCTAssertEqual(result.exitCode, 1, "\(asOperation)")
+            XCTAssertEqual(result.exitCode.rawValue, 2, "\(asOperation)")
             XCTAssertTrue(result.stderr.joined().contains("setWorkspaceLayout 'a'"), "\(result.stderr)")
             XCTAssertTrue(result.stderr.joined().contains("pin with one window"), "\(result.stderr)")
             XCTAssertEqual(ids(a), [1], "Refused before anything changed")
@@ -807,13 +807,13 @@ final class WorkspaceSidebarPinPolicyTest: XCTestCase {
             let z = Workspace.get(byName: "z")
             try setWorkspaceSidebarTabFavorite(z, true)
             let two = try await applyAgentLayout("z", [4, 5], asOperation: asOperation)
-            XCTAssertEqual(two.exitCode, 1, "\(asOperation)")
+            XCTAssertEqual(two.exitCode.rawValue, 2, "\(asOperation)")
             XCTAssertTrue(two.stderr.joined().contains("empty pin: it takes one window, not 2"), "\(two.stderr)")
             XCTAssertEqual(ids(z), [])
             XCTAssertEqual(ids(d), [4])
             XCTAssertEqual(ids(e), [5, 6])
             let one = try await applyAgentLayout("z", [4], asOperation: asOperation)
-            XCTAssertEqual(one.exitCode, 0, "\(one.stderr)")
+            XCTAssertEqual(one.exitCode.rawValue, 0, "\(one.stderr)")
             XCTAssertEqual(ids(z), [4])
         }
     }
@@ -825,14 +825,14 @@ final class WorkspaceSidebarPinPolicyTest: XCTestCase {
             let (a, _, d, e) = try tabs()
             let one = try window(1)
             let result = try await applyAgentLayout("n", [4, 1], asOperation: asOperation)
-            XCTAssertEqual(result.exitCode, 0, "\(result.stderr)")
+            XCTAssertEqual(result.exitCode.rawValue, 0, "\(result.stderr)")
             XCTAssertEqual(ids(Workspace.get(byName: "n")), [4, 1])
             XCTAssertEqual(ids(a), [])
             XCTAssertTrue(workspaceSidebarLentWindow(of: a) === one, "\(asOperation): the pin lends it, grey")
             XCTAssertFalse(workspaceSidebarIsPinned(Workspace.get(byName: "n")))
             // Ordinary layouts are made as they always were.
             let ordinary = try await applyAgentLayout("m", [6, 5], asOperation: asOperation)
-            XCTAssertEqual(ordinary.exitCode, 0, "\(ordinary.stderr)")
+            XCTAssertEqual(ordinary.exitCode.rawValue, 0, "\(ordinary.stderr)")
             XCTAssertEqual(ids(Workspace.get(byName: "m")), [6, 5])
             XCTAssertEqual(ids(e), [])
             XCTAssertEqual(ids(d), [])
@@ -846,7 +846,7 @@ final class WorkspaceSidebarPinPolicyTest: XCTestCase {
             {"operations": [{"type": "moveWindowToWorkspace", "windowId": 6, "workspace": "d"}],
              "layout": {"workspaces": [\(agentLayoutJson("d", [4, 5])), \(agentLayoutJson("a", [1, 4]))]}}
             """)
-        XCTAssertEqual(result.exitCode, 1)
+        XCTAssertEqual(result.exitCode.rawValue, 2)
         XCTAssertEqual(ids(a), [1])
         XCTAssertEqual(ids(d), [4])
         XCTAssertEqual(ids(e), [5, 6])
@@ -859,20 +859,20 @@ final class WorkspaceSidebarPinPolicyTest: XCTestCase {
         try setWorkspaceSidebarTabFavorite(e, true)
         // Into a pinned split it goes, and the pinned split stays one (Alan, October 8).
         let intoSplit = try await agentApply(#"{"operations": [{"type": "moveWindowToWorkspace", "windowId": 4, "workspace": "e"}]}"#)
-        XCTAssertEqual(intoSplit.exitCode, 0, "\(intoSplit.stderr)")
+        XCTAssertEqual(intoSplit.exitCode.rawValue, 0, "\(intoSplit.stderr)")
         XCTAssertEqual(ids(e), [5, 6, 4])
         XCTAssertTrue(workspaceSidebarIsPinned(e))
 
         // Out of a pin, it lends its window; then the lending pin takes none, moved or parked.
         let out = try await agentApply(#"{"operations": [{"type": "moveWindowToWorkspace", "windowId": 1, "workspace": "n"}]}"#)
-        XCTAssertEqual(out.exitCode, 0, "\(out.stderr)")
+        XCTAssertEqual(out.exitCode.rawValue, 0, "\(out.stderr)")
         XCTAssertEqual(workspaceSidebarLentWindow(of: a)?.windowId, 1)
         let refused = try await agentApply(#"{"operations": [{"type": "moveWindowToWorkspace", "windowId": 5, "workspace": "a"}]}"#)
-        XCTAssertEqual(refused.exitCode, 1)
+        XCTAssertEqual(refused.exitCode.rawValue, 2)
         XCTAssertTrue(refused.stderr.joined().contains("moveWindowToWorkspace window 5: Workspace 'a' is a pin whose window is in another tab"),
             "\(refused.stderr)")
         let park = try await agentApply(#"{"operations": [{"type": "parkWindow", "pane": {"windowId": 6}, "workspace": "a"}]}"#)
-        XCTAssertEqual(park.exitCode, 1)
+        XCTAssertEqual(park.exitCode.rawValue, 2)
         XCTAssertTrue(park.stderr.joined().contains("parkWindow: Workspace 'a' is a pin whose window is in another tab"),
             "\(park.stderr)")
         XCTAssertEqual(ids(a), [])
@@ -880,7 +880,7 @@ final class WorkspaceSidebarPinPolicyTest: XCTestCase {
 
         // A move to where the window already is stays a quiet success, as before.
         let noOp = try await agentApply(#"{"operations": [{"type": "moveWindowToWorkspace", "windowId": 1, "workspace": "n"}]}"#)
-        XCTAssertEqual(noOp.exitCode, 0, "\(noOp.stderr)")
+        XCTAssertEqual(noOp.exitCode.rawValue, 0, "\(noOp.stderr)")
         XCTAssertEqual(noOp.stderr, [])
     }
 
@@ -1140,12 +1140,12 @@ final class WorkspaceSidebarPinPolicyTest: XCTestCase {
         workspaceSidebarOrganizationStore = .init(state: saved, url: unwritableOrganizationFile)
 
         let move = try await agentApply(#"{"operations": [{"type": "moveWindowToWorkspace", "windowId": 17, "workspace": "d"}]}"#)
-        XCTAssertEqual(move.exitCode, 1)
+        XCTAssertEqual(move.exitCode.rawValue, 2)
         XCTAssertTrue(move.stderr.joined().contains("moveWindowToWorkspace window 17: Couldn't save the pinned split 's'"),
             "\(move.stderr)")
         for asOperation in [true, false] {
             let layout = try await applyAgentLayout("n", [18], asOperation: asOperation)
-            XCTAssertEqual(layout.exitCode, 1, "\(asOperation)")
+            XCTAssertEqual(layout.exitCode.rawValue, 2, "\(asOperation)")
             XCTAssertTrue(layout.stderr.joined().contains("Couldn't save the pinned split 's'"), "\(layout.stderr)")
         }
         _ = try window(17).focusWindow()
@@ -1156,7 +1156,7 @@ final class WorkspaceSidebarPinPolicyTest: XCTestCase {
 
         // A move no pinned split depends on isn't held up.
         let ordinary = try await agentApply(#"{"operations": [{"type": "moveWindowToWorkspace", "windowId": 5, "workspace": "d"}]}"#)
-        XCTAssertEqual(ordinary.exitCode, 0, "\(ordinary.stderr)")
+        XCTAssertEqual(ordinary.exitCode.rawValue, 0, "\(ordinary.stderr)")
         XCTAssertEqual(ids(d), [4, 5])
         XCTAssertEqual(ids(e), [6])
 
@@ -1164,7 +1164,7 @@ final class WorkspaceSidebarPinPolicyTest: XCTestCase {
         workspaceSidebarOrganizationStore = .init(state: workspaceSidebarOrganizationStore.state)
         for id: UInt32 in [17, 18] {
             let result = try await agentApply(#"{"operations": [{"type": "moveWindowToWorkspace", "windowId": \#(id), "workspace": "d"}]}"#)
-            XCTAssertEqual(result.exitCode, 0, "\(result.stderr)")
+            XCTAssertEqual(result.exitCode.rawValue, 0, "\(result.stderr)")
         }
         XCTAssertEqual(ids(s), [])
         XCTAssertEqual(appearance("s")?.composition?.layout.windows.map(\.windowId), [17, 18])
@@ -1182,14 +1182,14 @@ final class WorkspaceSidebarPinPolicyTest: XCTestCase {
         }
         workspaceSidebarOrganizationStore = .init(state: workspaceSidebarOrganizationStore.state, url: unwritableOrganizationFile)
         let move = try await agentApply(#"{"operations": [{"type": "moveWindowToWorkspace", "windowId": 7, "workspace": "d"}]}"#)
-        XCTAssertEqual(move.exitCode, 1)
+        XCTAssertEqual(move.exitCode.rawValue, 2)
         XCTAssertTrue(move.stderr.joined().contains("Couldn't save the pinned split 's'"), "\(move.stderr)")
         XCTAssertEqual(ids(s), [7, 8])
         XCTAssertEqual(ids(d), [4])
 
         workspaceSidebarOrganizationStore = .init(state: workspaceSidebarOrganizationStore.state)
         let retried = try await agentApply(#"{"operations": [{"type": "moveWindowToWorkspace", "windowId": 7, "workspace": "d"}]}"#)
-        XCTAssertEqual(retried.exitCode, 0, "\(retried.stderr)")
+        XCTAssertEqual(retried.exitCode.rawValue, 0, "\(retried.stderr)")
         XCTAssertEqual(ids(s), [8])
         XCTAssertEqual(workspaceSidebarPinSplitRole(s), .composition, "Recorded before it lost the window")
     }
@@ -1214,7 +1214,7 @@ final class WorkspaceSidebarPinPolicyTest: XCTestCase {
             }
             XCTAssertEqual(ids(e), [], "\(asOperation)")
             let result = try await applyAgentLayout("e", [1], asOperation: asOperation)
-            XCTAssertEqual(result.exitCode, 0, "\(asOperation): \(result.stderr)")
+            XCTAssertEqual(result.exitCode.rawValue, 0, "\(asOperation): \(result.stderr)")
             XCTAssertEqual(ids(e), [1], "\(asOperation)")
             XCTAssertTrue(workspaceSidebarLentWindow(of: a) === one, "\(asOperation): the pin lends it, grey")
             await updateWorkspaceSidebarModel()
@@ -1245,7 +1245,7 @@ final class WorkspaceSidebarPinPolicyTest: XCTestCase {
         workspaceSidebarOrganizationStore = .init(state: saved, url: unwritableOrganizationFile)
         for asOperation in [true, false] {
             let result = try await applyAgentLayout("e", [1], asOperation: asOperation)
-            XCTAssertEqual(result.exitCode, 1, "\(asOperation)")
+            XCTAssertEqual(result.exitCode.rawValue, 2, "\(asOperation)")
             XCTAssertTrue(result.stderr.joined().contains("setWorkspaceLayout 'e': couldn't save the pins lending their windows"),
                 "\(result.stderr)")
             XCTAssertEqual(ids(a), [1], "\(asOperation): nothing moved")
@@ -1393,7 +1393,7 @@ final class WorkspaceSidebarPinPolicyTest: XCTestCase {
 
     private func assertMove(to name: String, refused: Bool = false, file: StaticString = #filePath, line: UInt = #line) async throws {
         let result = try await move(to: name)
-        XCTAssertEqual(result.exitCode != 0, refused, "\(result.stderr)", file: file, line: line)
+        XCTAssertEqual(result.exitCode.rawValue != 0, refused, "\(result.stderr)", file: file, line: line)
     }
 
     /// A window drag released on screen with `kind` shown, as the drag's own release makes it.

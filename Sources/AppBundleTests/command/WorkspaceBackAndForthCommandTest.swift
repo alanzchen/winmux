@@ -14,7 +14,7 @@ final class WorkspaceBackAndForthCommandTest: XCTestCase {
             args: WorkspaceBackAndForthCmdArgs(rawArgs: []),
         ).run(.defaultEnv, .emptyStdin)
 
-        assertEquals(result.exitCode, 1)
+        assertEquals(result.exitCode.rawValue, 2)
         XCTAssertEqual(focus.workspace, initialWorkspace)
         XCTAssertNil(Workspace.existing(byName: "2"))
     }

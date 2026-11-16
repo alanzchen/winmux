@@ -341,7 +341,7 @@ final class WorkspaceSidebarMultidisplayActionsTest: XCTestCase {
     /// The sidebar is off here, so the sessions refresh no panel; the pointer move is injected.
     func testTheMonitorHooksStillRunAndOnlyTheirPointerMoveIsSkipped() async throws {
         let (monitors, tabs) = try displays(2)
-        let parsed = parseConfig("""
+        let parsed = parseConfigForTests("""
             on-focused-monitor-changed = ['move-mouse monitor-force-center', 'mode probe']
             [mode.main.binding]
             [mode.probe.binding]
@@ -668,14 +668,14 @@ final class WorkspaceSidebarMultidisplayActionsTest: XCTestCase {
 
     func testTheSettingParsesDefaultsAndIsATabsSetting() {
         for value in WorkspaceSidebarRemotePinClick.allCases {
-            let (parsed, errors) = parseConfig("[workspace-sidebar]\nmode = 'tabs'\nremote-pin-click = '\(value.rawValue)'\n")
+            let (parsed, errors) = parseConfigForTests("[workspace-sidebar]\nmode = 'tabs'\nremote-pin-click = '\(value.rawValue)'\n")
             XCTAssertEqual(errors, [])
             XCTAssertEqual(parsed.workspaceSidebar.remotePinClick, value)
             XCTAssertEqual(workspaceSidebarConfiguration(parsed).remotePinClick, value)
         }
-        XCTAssertEqual(parseConfig("[workspace-sidebar]\nmode = 'tabs'\n").config.workspaceSidebar.remotePinClick,
+        XCTAssertEqual(parseConfigForTests("[workspace-sidebar]\nmode = 'tabs'\n").config.workspaceSidebar.remotePinClick,
             .showOnItsDisplay, "Absent, the default")
-        XCTAssertFalse(parseConfig("[workspace-sidebar]\nremote-pin-click = 'teleport'\n").errors.isEmpty)
+        XCTAssertFalse(parseConfigForTests("[workspace-sidebar]\nremote-pin-click = 'teleport'\n").errors.isEmpty)
 
         let field = SettingsCatalog.field("workspace-sidebar.remote-pin-click")
         XCTAssertEqual(field.modes, [.tabs])
@@ -686,7 +686,7 @@ final class WorkspaceSidebarMultidisplayActionsTest: XCTestCase {
         XCTAssertEqual(configuration.workspaceSidebar.remotePinClick, .bringToThisDisplay)
         let text = updateSettingsScalarConfig(in: "[workspace-sidebar]\nmode = 'tabs'\n", section: "workspace-sidebar",
             key: "remote-pin-click", renderedValue: "'bring-to-this-display'")
-        XCTAssertEqual(parseConfig(text).config.workspaceSidebar.remotePinClick, .bringToThisDisplay, text)
+        XCTAssertEqual(parseConfigForTests(text).config.workspaceSidebar.remotePinClick, .bringToThisDisplay, text)
     }
 
     // MARK: The footer, rendered in a window-less view

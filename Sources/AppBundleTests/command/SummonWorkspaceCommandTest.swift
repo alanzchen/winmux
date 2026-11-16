@@ -15,7 +15,7 @@ final class SummonWorkspaceCommandTest: XCTestCase {
             .copy(\.target, .initialized(.parse("2").getOrDie()))
         let result = try await SummonWorkspaceCommand(args: args).run(.defaultEnv, .emptyStdin)
 
-        assertEquals(result.exitCode, 1)
+        assertEquals(result.exitCode.rawValue, 2)
         XCTAssertNil(Workspace.existing(byName: "2"))
     }
 
@@ -28,7 +28,7 @@ final class SummonWorkspaceCommandTest: XCTestCase {
             .copy(\.target, .initialized(.parse("2").getOrDie()))
         let result = try await SummonWorkspaceCommand(args: args).run(.defaultEnv, .emptyStdin)
 
-        assertEquals(result.exitCode, 1)
+        assertEquals(result.exitCode.rawValue, 2)
         XCTAssertEqual(focus.workspace, initialWorkspace)
     }
 }

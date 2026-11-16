@@ -7,55 +7,55 @@ struct AgentCommand: Command {
     var shouldResetClosedWindowsCache: Bool { args.subcommand.val == .apply }
     var canSkipPostCommandRefresh: Bool { args.subcommand.val != .apply }
 
-    func run(_ env: CmdEnv, _ io: CmdIo) async throws -> Bool {
+    func run(_ env: CmdEnv, _ io: CmdIo) async throws -> BinaryExitCode {
         switch args.subcommand.val {
             case .query:
                 let snapshot: AgentSnapshot
                 do {
                     snapshot = try await AgentSnapshot.query()
                 } catch let error as AgentSnapshotQueryError {
-                    return io.err(error.localizedDescription)
+                    return .fail(io.err(error.localizedDescription))
                 }
                 guard let json = JSONEncoder.aeroSpaceDefault.encodeToString(snapshot) else {
-                    return io.err("Failed to encode agent snapshot")
+                    return .fail(io.err("Failed to encode agent snapshot"))
                 }
                 if let path = args.path {
                     try json.write(to: URL(filePath: path), atomically: true, encoding: .utf8)
-                    return true
+                    return .succ
                 }
-                return io.out(json)
+                return .succ(io.out(json))
             case .check:
                 let request: AgentRequest
                 do {
                     request = try readRequest(io)
                 } catch {
-                    return io.err("Failed to read agent JSON: \(describeAgentJsonError(error))")
+                    return .fail(io.err("Failed to read agent JSON: \(describeAgentJsonError(error))"))
                 }
                 let errors = try await request.validate()
                 if errors.isEmpty {
-                    return io.out("OK")
+                    return .succ(io.out("OK"))
                 }
-                return io.err(errors.joinErrors())
+                return .fail(io.err(errors.joinErrors()))
             case .apply:
                 let request: AgentRequest
                 do {
                     request = try readRequest(io)
                 } catch {
-                    return io.err("Failed to read agent JSON: \(describeAgentJsonError(error))")
+                    return .fail(io.err("Failed to read agent JSON: \(describeAgentJsonError(error))"))
                 }
                 let errors = try await request.validate()
                 if !errors.isEmpty {
-                    return io.err(errors.joinErrors())
+                    return .fail(io.err(errors.joinErrors()))
                 }
                 // A move the pins' policy refuses, or that can't be saved, says so, and where.
                 do {
                     try await request.apply()
                 } catch {
-                    return io.err("Agent apply stopped: \(error.localizedDescription)")
+                    return .fail(io.err("Agent apply stopped: \(error.localizedDescription)"))
                 }
-                return true
+                return .succ
             case .skill:
-                return io.out(agentSkillText)
+                return .succ(io.out(agentSkillText))
         }
     }
 

@@ -37,7 +37,7 @@ final class WorkspaceSidebarResizeTest: XCTestCase {
         sidebar.collapsedWidth = 120
         XCTAssertEqual(workspaceSidebarResizeWidthBounds(sidebar), 121...480,
             "always-expanded rejects a width equal to collapsed-width")
-        let (_, errors) = parseConfig("""
+        let (_, errors) = parseConfigForTests("""
             [workspace-sidebar]
             always-expanded = true
             collapsed-width = 120
@@ -62,7 +62,7 @@ final class WorkspaceSidebarResizeTest: XCTestCase {
             let disk = SidebarWidthTestDisk(width: 130, extra: "    width-per-display = false\n# Keep this comment\n")
             let original = disk.text
             workspaceSidebarWidthPersistenceForTests = disk.persistence
-            config.workspaceSidebar = parseConfig(disk.text).config.workspaceSidebar
+            config.workspaceSidebar = parseConfigForTests(disk.text).config.workspaceSidebar
             WorkspaceSidebarPanel.refreshAll()
             XCTAssertEqual(config.workspaceSidebar.width, 160)
             XCTAssertEqual(panel.viewModel.workspaceSidebarVisibleWidth, 160)
@@ -371,7 +371,7 @@ final class WorkspaceSidebarResizeTest: XCTestCase {
             let save = try XCTUnwrap(right.endSidebarResize())
             await save.value
             XCTAssertEqual(written.count, 1)
-            let saved = parseConfig(written[0])
+            let saved = parseConfigForTests(written[0])
             XCTAssertEqual(saved.errors, [])
             XCTAssertEqual(saved.config.workspaceSidebar.displayWidths, ["Right": 300], written[0])
             XCTAssertEqual(saved.config.workspaceSidebar.width, 240, written[0])
@@ -418,7 +418,7 @@ final class WorkspaceSidebarResizeTest: XCTestCase {
             XCTAssertEqual(right.viewModel.workspaceSidebarVisibleWidth, 320)
             await save.value
             XCTAssertEqual(written.count, 1)
-            XCTAssertEqual(parseConfig(written[0]).config.workspaceSidebar.displayWidths, ["Right": 320], written[0])
+            XCTAssertEqual(parseConfigForTests(written[0]).config.workspaceSidebar.displayWidths, ["Right": 320], written[0])
             XCTAssertNil(left.resetSidebarDisplayWidth(), "A display already on the shared width has nothing to reset")
 
             config.workspaceSidebar.widthPerDisplay = false
@@ -657,7 +657,7 @@ private final class SidebarWidthTestDisk {
                 writes.append(text)
             },
             reload: { [unowned self] _ in
-                let parsed = parseConfig(text)
+                let parsed = parseConfigForTests(text)
                 guard parsed.errors.isEmpty else { return false }
                 config.workspaceSidebar = parsed.config.workspaceSidebar
                 WorkspaceSidebarPanel.refreshAll()

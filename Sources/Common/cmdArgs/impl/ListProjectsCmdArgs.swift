@@ -21,21 +21,21 @@ public struct ListProjectsCmdArgs: CmdArgs, JsonFormattableListCmdArgs {
 
     public var focused: Bool?
     public var visible: Bool?
-    public var _format: [StringInterToken] = []
+    public var _format: [InterToken<InterVar>] = []
     public var outputOnlyCount = false
     public var json = false
 }
 
 extension ListProjectsCmdArgs {
-    public var format: [StringInterToken] {
+    public var format: [InterToken<InterVar>] {
         if !_format.isEmpty { return _format }
         if json {
-            return FormatVar.ProjectFormatVar.allCases.map { .interVar($0.rawValue) }
+            return FormatVar.ProjectFormatVar.allCases.map { .interVar(.formatVar(.project($0))) }
         }
         return [
-            .interVar("project-index"), .interVar("right-padding"), .literal(" | "),
-            .interVar("project-id"), .interVar("right-padding"), .literal(" | "),
-            .interVar("project-name"),
+            .interVar(.formatVar(.project(.projectIndex))), .interVar(.plainInterVar(.rightPadding)), .literal(" | "),
+            .interVar(.formatVar(.project(.projectId))), .interVar(.plainInterVar(.rightPadding)), .literal(" | "),
+            .interVar(.formatVar(.project(.projectName))),
         ]
     }
 }

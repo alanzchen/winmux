@@ -27,7 +27,7 @@ func tryParseSequenceBinding(
 ) -> ParsedConfig<(prefix: Key, key: Key)> {
     let rawKeys = raw.split(separator: "-")
     guard rawKeys.count == 2 else {
-        return .failure(.semantic(backtrace, "Sequence bindings require exactly two keys separated by '-'"))
+        return .failure(.init(backtrace, "Sequence bindings require exactly two keys separated by '-'"))
     }
 
     let prefixName = String(rawKeys[0])
@@ -35,15 +35,15 @@ func tryParseSequenceBinding(
 
     // If the first part is a known modifier, this is a chord binding, not a sequence
     if modifiersMap[prefixName] != nil {
-        return .failure(.semantic(backtrace, "'\(raw)' is a chord binding, not a sequence"))
+        return .failure(.init(backtrace, "'\(raw)' is a chord binding, not a sequence"))
     }
 
     guard let prefix = mapping[prefixName] else {
-        return .failure(.semantic(backtrace, "Can't parse the prefix key '\(prefixName)' in '\(raw)' binding"))
+        return .failure(.init(backtrace, "Can't parse the prefix key '\(prefixName)' in '\(raw)' binding"))
     }
 
     guard let key = mapping[keyName] else {
-        return .failure(.semantic(backtrace, "Can't parse the key '\(keyName)' in '\(raw)' binding"))
+        return .failure(.init(backtrace, "Can't parse the key '\(keyName)' in '\(raw)' binding"))
     }
 
     return .success((prefix, key))

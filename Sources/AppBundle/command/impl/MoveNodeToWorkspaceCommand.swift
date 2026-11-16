@@ -4,20 +4,20 @@ struct MoveNodeToWorkspaceCommand: Command {
     let args: MoveNodeToWorkspaceCmdArgs
     /*conforms*/ let shouldResetClosedWindowsCache: Bool = true
 
-    func run(_ env: CmdEnv, _ io: CmdIo) async -> Bool {
-        guard let target = args.resolveTargetOrReportError(env, io) else { return false }
-        guard let window = target.windowOrNil else { return io.err(noWindowIsFocused) }
+    func run(_ env: CmdEnv, _ io: CmdIo) async -> BinaryExitCode {
+        guard let target = args.resolveTargetOrReportError(env, io) else { return .fail}
+        guard let window = target.windowOrNil else { return .fail(io.err(noWindowIsFocused))}
         let subjectWs = window.nodeWorkspace
         let targetWorkspace: Workspace
         switch args.target.val {
             case .newWorkspace:
-                guard let subjectWs else { return io.err("Window \(window.windowId) doesn't belong to any workspace") }
+                guard let subjectWs else { return .fail(io.err("Window \(window.windowId) doesn't belong to any workspace"))}
                 targetWorkspace = getOrCreateAdjacentBlankWorkspace(
                     projectId: workspaceContextProjectId(of: subjectWs),
                     monitor: window.nodeMonitor ?? target.workspace.workspaceMonitor,
                 )
             case .relative(let nextPrev):
-                guard let subjectWs else { return io.err("Window \(window.windowId) doesn't belong to any workspace") }
+                guard let subjectWs else { return .fail(io.err("Window \(window.windowId) doesn't belong to any workspace")) }
                 let ws = getNextPrevWorkspace(
                     current: subjectWs,
                     isNext: nextPrev == .next,
@@ -31,7 +31,7 @@ struct MoveNodeToWorkspaceCommand: Command {
                         usesStdin: args.useStdin,
                         listedAtSequenceStart: env.tabsListedAtSequenceStart,
                     )
-                guard let ws else { return io.err("Can't resolve next or prev workspace") }
+                guard let ws else { return .fail(io.err("Can't resolve next or prev workspace"))}
                 targetWorkspace = ws
             case .direct(let name):
                 guard let ws = resolveMoveTargetWorkspace(
@@ -40,17 +40,17 @@ struct MoveNodeToWorkspaceCommand: Command {
                     sourceMonitor: window.nodeMonitor ?? target.workspace.workspaceMonitor,
                     listedAtSequenceStart: env.tabsListedAtSequenceStart,
                 ) else {
-                    return io.err("Workspace '\(name.raw)' doesn't exist")
+                    return .fail(io.err("Workspace '\(name.raw)' doesn't exist"))
                 }
                 targetWorkspace = ws
         }
         // A pin whose one window is hidden with its app shows it first; one in full screen isn't split.
         if window.nodeWorkspace !== targetWorkspace, let notShown = await showWorkspaceSidebarPinsForSplit([targetWorkspace]) {
-            return io.err(notShown.message)
+            return .fail(io.err(notShown.message))
         }
         // Into or out of a pin with one window, as the pins' policy says: it keeps its window as its own.
-        return moveWindowToWorkspaceKeepingPins(window, targetWorkspace, io, focusFollowsWindow: args.focusFollowsWindow,
-            failIfNoop: args.failIfNoop)
+        return .from(bool: moveWindowToWorkspaceKeepingPins(window, targetWorkspace, io, focusFollowsWindow: args.focusFollowsWindow,
+            failIfNoop: args.failIfNoop))
     }
 }
 

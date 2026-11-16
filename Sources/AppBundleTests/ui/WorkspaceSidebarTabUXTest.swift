@@ -43,13 +43,13 @@ final class WorkspaceSidebarTabUXTest: XCTestCase {
         XCTAssertTrue(getNextPrevWorkspace(current: tabs[0], isNext: true, wrapAround: false, stdin: nil) === tabs[2])
         let result = try await WorkspaceCommand(args: WorkspaceCmdArgs(target: .direct(.parse("1").getOrDie())))
             .run(.defaultEnv, .emptyStdin)
-        XCTAssertEqual(result.exitCode, 0)
+        XCTAssertEqual(result.exitCode.rawValue, 0)
         XCTAssertTrue(focus.workspace === tabs[3], "Named tabs also participate in the visible numbering")
         XCTAssertTrue(getNextPrevWorkspace(current: tabs[2], isNext: true, wrapAround: false, stdin: "last\nfirst") === tabs[0],
             "Explicit CLI input keeps its supplied order")
         let moving = try XCTUnwrap(focus.windowOrNil)
         let moved = try await MoveNodeToWorkspaceCommand(args: .init(workspace: "3")).run(.defaultEnv, .emptyStdin)
-        XCTAssertEqual(moved.exitCode, 0)
+        XCTAssertEqual(moved.exitCode.rawValue, 0)
         XCTAssertTrue(moving.nodeWorkspace === tabs[2], "Moving by number uses the same destination as switching by number")
         config.workspaceSidebar.mode = .sidebar
         XCTAssertTrue(getNextPrevWorkspace(current: tabs[0], isNext: true, wrapAround: false, stdin: nil) === tabs[1])

@@ -150,13 +150,23 @@ public struct Message: Hashable, Equatable {
     public let description: String
     public let body: String
     let actions: [MessageAction]
+    /// A config message whose file loaded with warnings only (upstream 890ec336).
+    let containsWarnings: Bool
 
-    init(type: MessageType = .general, title: String = aeroSpaceAppName, description: String, body: String, actions: [MessageAction] = []) {
+    init(
+        type: MessageType = .general,
+        title: String = aeroSpaceAppName,
+        description: String,
+        body: String,
+        actions: [MessageAction] = [],
+        containsWarnings: Bool = false,
+    ) {
         self.type = type
         self.title = title
         self.description = description
         self.body = body
         self.actions = actions
+        self.containsWarnings = containsWarnings
     }
 }
 

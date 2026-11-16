@@ -289,7 +289,7 @@ enum FocusedMonitorChangePointer {
     if config.onFocusedMonitorChanged.isEmpty { return }
     guard let token: RunSessionGuard = .isServerEnabled else { return }
     // todo potential optimization: don't run runSession if we are already in runSession
-    _ = Task {
+    Task.startUnstructured {
         try await runLightSession(.onFocusedMonitorChanged, token) {
             _ = try await FocusedMonitorChangePointer.$isKept.withValue(keepsPointer) {
                 try await config.onFocusedMonitorChanged.runCmdSeq(.defaultEnv.withFocus(focus), .emptyStdin)
@@ -305,7 +305,7 @@ enum FocusedMonitorChangePointer {
     if config.onFocusChanged.isEmpty { return }
     guard let token: RunSessionGuard = .isServerEnabled else { return }
     // todo potential optimization: don't run runSession if we are already in runSession
-    _ = Task {
+    Task.startUnstructured {
         try await runLightSession(.onFocusChanged, token) {
             _ = try await config.onFocusChanged.runCmdSeq(.defaultEnv.withFocus(focus), .emptyStdin)
         }

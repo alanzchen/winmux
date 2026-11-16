@@ -411,7 +411,7 @@ final class MCPProtocolTest: XCTestCase {
 
     /// A binding can run list-exec-env-vars too: through trigger-binding it's refused the same way.
     func testTriggerBindingCantListTheEnvironmentForTheTailnetWithoutAToken() async throws {
-        let parsed = parseConfig("""
+        let parsed = parseConfigForTests("""
             [exec]
             inherit-env-vars = false
             [exec.env-vars]
@@ -467,7 +467,7 @@ final class MCPProtocolTest: XCTestCase {
     /// Requests in flight at once each keep their own restriction: a tailnet request's never reaches a local one,
     /// and a local one's lifting never reaches a tailnet one.
     func testConcurrentRequestsKeepTheirOwnRestriction() async {
-        let parsed = parseConfig("[mode.main.binding]\nalt-e = 'list-exec-env-vars'\n")
+        let parsed = parseConfigForTests("[mode.main.binding]\nalt-e = 'list-exec-env-vars'\n")
         config.modes = parsed.config.modes
         config.execConfig.envVariables = ["MCP_TEST_SYNTHETIC_SECRET": "fixture-only"]
         let host = tailnetHost
@@ -505,7 +505,7 @@ final class MCPProtocolTest: XCTestCase {
         try setWorkspaceSidebarTabFavorite(mail, true)
         let command = try XCTUnwrap(parseCommand("list-workspaces --all --format '%{workspace}|%{workspace-is-pinned}'").cmdOrNil)
         let result = try await command.run(.defaultEnv, .emptyStdin)
-        XCTAssertEqual(result.exitCode, 0, result.stderr.joined())
+        XCTAssertEqual(result.exitCode.rawValue, 0, result.stderr.joined())
         XCTAssertTrue(result.stdout.contains("mail|true"), "\(result.stdout)")
         XCTAssertTrue(result.stdout.contains("code|false"), "\(result.stdout)")
     }

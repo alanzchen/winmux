@@ -10,7 +10,7 @@ final class WorkspaceSidebarDockPositionTest: XCTestCase {
         for position in WorkspaceDockPosition.allCases {
             let text = updateSettingsScalarConfig(in: "[workspace-sidebar]\nmode = 'dock'\ndock-left-gap = 8\n",
                 section: "workspace-sidebar", key: "dock-position", renderedValue: "'\(position.rawValue)'")
-            var (parsed, errors) = parseConfig(text)
+            var (parsed, errors) = parseConfigForTests(text)
             XCTAssertTrue(errors.isEmpty)
             XCTAssertEqual(parsed.workspaceSidebar.effectiveDockPosition, position)
             XCTAssertEqual(parsed.workspaceSidebar.dockLeftGap, 8)
@@ -19,7 +19,7 @@ final class WorkspaceSidebarDockPositionTest: XCTestCase {
             XCTAssertEqual(parsed.workspaceSidebar.dockPosition, position)
         }
         for invalid in ["'top'", "3", "true"] {
-            let (_, errors) = parseConfig("[workspace-sidebar]\ndock-position = \(invalid)")
+            let (_, errors) = parseConfigForTests("[workspace-sidebar]\ndock-position = \(invalid)")
             XCTAssertEqual(errors.count, 1)
             XCTAssertTrue(errors[0].description.contains("dock-position"))
         }

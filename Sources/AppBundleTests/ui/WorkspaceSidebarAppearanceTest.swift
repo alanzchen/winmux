@@ -6,7 +6,7 @@ import XCTest
 @MainActor
 final class WorkspaceSidebarAppearanceTest: XCTestCase {
     func testAppearanceSectionsOverrideOnlyTheirOwnValues() {
-        let (parsed, errors) = parseConfig("""
+        let (parsed, errors) = parseConfigForTests("""
         [workspace-sidebar]
         mode = 'dock'
         chrome-style = 'solid'
@@ -33,7 +33,7 @@ final class WorkspaceSidebarAppearanceTest: XCTestCase {
     }
 
     func testLegacyDockSettingsAndNewSidebarDefaults() {
-        let (parsed, errors) = parseConfig("""
+        let (parsed, errors) = parseConfigForTests("""
         [workspace-sidebar]
         show-app-icons = true
         use-liquid-glass = false
@@ -55,13 +55,13 @@ final class WorkspaceSidebarAppearanceTest: XCTestCase {
         for section in ["sidebar-appearance", "dock-appearance"] {
             let key = section == "sidebar-appearance" ? "background-opacity" : "glass-opacity"
             for value in ["-0.1", "1.1", "nan", "inf", "true", "'dark'"] {
-                XCTAssertFalse(parseConfig("[workspace-sidebar.\(section)]\n\(key) = \(value)").errors.isEmpty)
+                XCTAssertFalse(parseConfigForTests("[workspace-sidebar.\(section)]\n\(key) = \(value)").errors.isEmpty)
             }
-            XCTAssertFalse(parseConfig("[workspace-sidebar.\(section)]\nunknown = true").errors.isEmpty)
+            XCTAssertFalse(parseConfigForTests("[workspace-sidebar.\(section)]\nunknown = true").errors.isEmpty)
         }
-        XCTAssertFalse(parseConfig("[workspace-sidebar.sidebar-appearance]\nblur = 1").errors.isEmpty)
-        XCTAssertFalse(parseConfig("[workspace-sidebar.dock-appearance]\nstyle = 'frosted'").errors.isEmpty)
-        XCTAssertFalse(parseConfig("[workspace-sidebar.dock-appearance]\ncustom-color = 'bad'").errors.isEmpty)
+        XCTAssertFalse(parseConfigForTests("[workspace-sidebar.sidebar-appearance]\nblur = 1").errors.isEmpty)
+        XCTAssertFalse(parseConfigForTests("[workspace-sidebar.dock-appearance]\nstyle = 'frosted'").errors.isEmpty)
+        XCTAssertFalse(parseConfigForTests("[workspace-sidebar.dock-appearance]\ncustom-color = 'bad'").errors.isEmpty)
     }
 
     func testLiveAppearanceChangesAndModeSwitchRetainIndependentPreferences() {
@@ -103,7 +103,7 @@ final class WorkspaceSidebarAppearanceTest: XCTestCase {
         """
         text = updateSettingsScalarConfig(in: text, section: "workspace-sidebar.sidebar-appearance", key: "background-opacity", renderedValue: "0.9")
         text = updateSettingsScalarConfig(in: text, section: "workspace-sidebar.dock-appearance", key: "style", renderedValue: "'solid'")
-        let (parsed, errors) = parseConfig(text)
+        let (parsed, errors) = parseConfigForTests(text)
         XCTAssertTrue(errors.isEmpty)
         XCTAssertEqual(parsed.workspaceSidebar.sidebarAppearance.backgroundOpacity, 0.9)
         XCTAssertEqual(parsed.workspaceSidebar.dockGlassOpacity, 0.7)
@@ -139,7 +139,7 @@ final class WorkspaceSidebarAppearanceTest: XCTestCase {
         """
         let updated = updateSettingsAppearanceConfig(in: text, section: "workspace-sidebar", values: ["chrome-style": "'liquid-glass'"],
             preservingDockAppearance: true)
-        let (parsed, errors) = parseConfig(updated)
+        let (parsed, errors) = parseConfigForTests(updated)
         XCTAssertTrue(errors.isEmpty)
         XCTAssertEqual(parsed.workspaceSidebar.chromeStyle, .liquidGlass)
         XCTAssertEqual(parsed.workspaceSidebar.dockChromeStyle, .solid)
@@ -159,7 +159,7 @@ final class WorkspaceSidebarAppearanceTest: XCTestCase {
             values: ["solid-chrome-color": "'midnight'"], preservingDockAppearance: true)
         XCTAssertTrue(chromeEdit.contains("glass-opacity = 0.23 # Saved by another editor"))
         let dockEdit = updateSettingsAppearanceConfig(in: chromeEdit, section: "workspace-sidebar.dock-appearance", values: ["style": "'liquid-glass'"])
-        let (parsed, errors) = parseConfig(dockEdit)
+        let (parsed, errors) = parseConfigForTests(dockEdit)
         XCTAssertTrue(errors.isEmpty)
         XCTAssertEqual(parsed.workspaceSidebar.solidChromeColor, .midnight)
         XCTAssertEqual(parsed.workspaceSidebar.dockSolidColor, .blue)
@@ -171,7 +171,7 @@ final class WorkspaceSidebarAppearanceTest: XCTestCase {
         let text = "[window-tabs]\nenabled = false\n"
         let updated = updateSettingsAppearanceConfig(in: text, section: "workspace-sidebar.sidebar-appearance",
             values: ["blur": "true", "background-opacity": "0.75"])
-        let (parsed, errors) = parseConfig(updated)
+        let (parsed, errors) = parseConfigForTests(updated)
         XCTAssertTrue(errors.isEmpty)
         XCTAssertFalse(parsed.windowTabs.enabled)
         XCTAssertTrue(parsed.workspaceSidebar.sidebarAppearance.blur)
@@ -185,7 +185,7 @@ final class WorkspaceSidebarAppearanceTest: XCTestCase {
             values: ["glass-opacity": "0.6"])
         let chromeEdit = updateSettingsAppearanceConfig(in: updated, section: "workspace-sidebar",
             values: ["chrome-style": "'liquid-glass'"], preservingDockAppearance: true)
-        let (parsed, errors) = parseConfig(chromeEdit)
+        let (parsed, errors) = parseConfigForTests(chromeEdit)
         XCTAssertTrue(errors.isEmpty, "\(errors)")
         XCTAssertEqual(parsed.workspaceSidebar.chromeStyle, .liquidGlass)
         XCTAssertEqual(parsed.workspaceSidebar.dockChromeStyle, .solid)

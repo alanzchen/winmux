@@ -103,7 +103,7 @@ final class WorkspaceSidebarProjectReorderTest: XCTestCase {
             [workspace-sidebar.project-labels]
                 "project-1" = "Research"
             """)
-        let (parsed, errors) = parseConfig(folded)
+        let (parsed, errors) = parseConfigForTests(folded)
         XCTAssertTrue(errors.isEmpty, "\(errors)")
         XCTAssertEqual(parsed.workspaceSidebar.projectOrder, ["project-1", "default"])
         XCTAssertEqual(updateWorkspaceSidebarProjectOrderConfig(in: "", order: ["default"]),
@@ -118,7 +118,7 @@ final class WorkspaceSidebarProjectReorderTest: XCTestCase {
         let rewritten = try XCTUnwrap(updateWorkspaceSidebarProjectOrderConfig(in: bracketedIds, order: ["c[d", "a]b"]))
         XCTAssertEqual(rewritten, "[workspace-sidebar]\n    project-order = [\"c[d\", \"a]b\"]\n    enabled = true\n",
             "Brackets inside quoted ids neither close nor open the list")
-        XCTAssertEqual(parseConfig(rewritten).0.workspaceSidebar.projectOrder, ["c[d", "a]b"])
+        XCTAssertEqual(parseConfigForTests(rewritten).0.workspaceSidebar.projectOrder, ["c[d", "a]b"])
 
         // A line whose quote never closes is invalid TOML; its first # still counts as the comment.
         XCTAssertEqual(updateWorkspaceSidebarScalarConfig(
@@ -155,7 +155,7 @@ final class WorkspaceSidebarProjectReorderTest: XCTestCase {
             [workspace-sidebar.project-labels] # names
                 "project-order" = "Order research"
             """)
-        let (parsed, errors) = parseConfig(rewritten)
+        let (parsed, errors) = parseConfigForTests(rewritten)
         XCTAssertTrue(errors.isEmpty, "\(errors)")
         XCTAssertEqual(parsed.workspaceSidebar.projectOrder, ["project-1", "default"])
         XCTAssertEqual(parsed.workspaceSidebar.projectLabels["project-order"], "Order research")
@@ -178,7 +178,7 @@ final class WorkspaceSidebarProjectReorderTest: XCTestCase {
             [workspace-sidebar.project-labels] # names
                 "tabs-always-expanded" = "Keep this project label"
             """)
-        let (parsed, errors) = parseConfig(rewritten)
+        let (parsed, errors) = parseConfigForTests(rewritten)
         XCTAssertTrue(errors.isEmpty, "\(errors)")
         XCTAssertTrue(parsed.workspaceSidebar.tabsAlwaysExpanded)
         XCTAssertEqual(parsed.workspaceSidebar.projectLabels["tabs-always-expanded"], "Keep this project label")
@@ -190,7 +190,7 @@ final class WorkspaceSidebarProjectReorderTest: XCTestCase {
             + "[workspace-sidebar] # real table\nproject-order = ['default']\n"
         let reordered = try XCTUnwrap(updateWorkspaceSidebarProjectOrderConfig(in: source, order: ["project-1", "default"]))
         let rewritten = updateWorkspaceSidebarScalarConfig(in: reordered, key: "tabs-always-expanded", renderedValue: "true")
-        let (parsed, errors) = parseConfig(rewritten)
+        let (parsed, errors) = parseConfigForTests(rewritten)
         XCTAssertTrue(errors.isEmpty, "\(errors)")
         XCTAssertEqual(parsed.workspaceSidebar.projectOrder, ["project-1", "default"])
         XCTAssertTrue(parsed.workspaceSidebar.tabsAlwaysExpanded)
@@ -201,7 +201,7 @@ final class WorkspaceSidebarProjectReorderTest: XCTestCase {
         let source = "[workspace-sidebar]\nproject-order = [\n'''first\n]still-id''',\n'default',\n]\nenabled = true\n"
         let rewritten = try XCTUnwrap(updateWorkspaceSidebarProjectOrderConfig(in: source, order: ["default"]))
         XCTAssertEqual(rewritten, "[workspace-sidebar]\nproject-order = [\"default\"]\nenabled = true\n")
-        XCTAssertTrue(parseConfig(rewritten).errors.isEmpty)
+        XCTAssertTrue(parseConfigForTests(rewritten).errors.isEmpty)
         XCTAssertNil(updateWorkspaceSidebarProjectOrderConfig(in: "[workspace-sidebar]\nproject-order = [", order: ["default"]))
     }
 

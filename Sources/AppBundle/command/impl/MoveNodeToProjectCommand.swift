@@ -4,30 +4,30 @@ struct MoveNodeToProjectCommand: Command {
     let args: MoveNodeToProjectCmdArgs
     /*conforms*/ let shouldResetClosedWindowsCache = true
 
-    func run(_ env: CmdEnv, _ io: CmdIo) async -> Bool {
-        guard let target = args.resolveTargetOrReportError(env, io) else { return false }
-        guard let window = target.windowOrNil else { return io.err(noWindowIsFocused) }
+    func run(_ env: CmdEnv, _ io: CmdIo) async -> BinaryExitCode {
+        guard let target = args.resolveTargetOrReportError(env, io) else { return .fail}
+        guard let window = target.windowOrNil else { return .fail(io.err(noWindowIsFocused))}
         guard let sourceWorkspace = window.nodeWorkspace else {
-            return io.err("Window \(window.windowId) doesn't belong to any workspace")
+            return .fail(io.err("Window \(window.windowId) doesn't belong to any workspace"))
         }
         guard let project = resolveProjectTarget(args.target.val, currentProjectId: workspaceContextProjectId(of: sourceWorkspace),
             wrapAround: args.wrapAround) else {
-            return io.err(projectTargetResolutionError(args.target.val))
+            return .fail(io.err(projectTargetResolutionError(args.target.val)))
         }
         let monitor = window.nodeMonitor ?? sourceWorkspace.workspaceMonitor
         let targetWorkspace = firstWorkspaceForProjectMove(projectId: project.id, monitor: monitor)
         // A pin whose one window is hidden with its app shows it first; one in full screen isn't split.
         if window.nodeWorkspace !== targetWorkspace, let notShown = await showWorkspaceSidebarPinsForSplit([targetWorkspace]) {
-            return io.err(notShown.message)
+            return .fail(io.err(notShown.message))
         }
-        return moveWindowToWorkspaceKeepingPins(
+        return .from(bool: moveWindowToWorkspaceKeepingPins(
             window,
             targetWorkspace,
             io,
             focusFollowsWindow: args.focusFollowsWindow,
             failIfNoop: args.failIfNoop,
             index: INDEX_BIND_LAST,
-        )
+        ))
     }
 }
 

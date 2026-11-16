@@ -35,6 +35,8 @@ public final class TrayMenuModel: ObservableObject {
     @Published var workspaceSidebarAppearance: WorkspaceSidebarConfiguration = .empty
     @Published var workspaceSidebarHoveredWorkspaceName: String? = nil
     @Published var experimentalUISettings: ExperimentalUISettings = ExperimentalUISettings()
+    /// The last config reload applied a config with warnings (upstream 890ec336).
+    @Published var lastReloadConfigContainedWarnings: Bool = false
 
     var visibleWorkspaceSidebarWorkspaces: [WorkspaceSidebarWorkspaceViewModel] {
         workspaceSidebarWorkspaces.filter {

@@ -17,7 +17,7 @@ final class UpstreamSyncGoldenTest: XCTestCase {
             out += "## \(kind.rawValue)\n"
             switch parseCommand("\(kind.rawValue) --help") {
                 case .help(let text): out += text + "\n"
-                case .failure(let error): out += "failure: \(error)\n"
+                case .failure(let error): out += "failure: \(error.msg)\n"
                 case .cmd: out += "cmd\n"
             }
         }
@@ -122,7 +122,12 @@ final class UpstreamSyncGoldenTest: XCTestCase {
         ]
         let out = cases.map { toml in
             "### \(toml.replacingOccurrences(of: "\n", with: " ⏎ "))\n"
-                + parseConfig(toml).errors.map { "- \($0.description)" }.joined(separator: "\n")
+                + { () -> String in
+                    // As `reload-config` prints them, errors then warnings; also whether the config would still load.
+                    let result = parseConfig(toml)
+                    let lines = result.strErrors + result.strWarnings + (result.allowReloadConfig ? [] : ["(config not applied)"])
+                    return lines.map { "- \($0)" }.joined(separator: "\n")
+                }()
         }.joined(separator: "\n")
         assertGolden("config-errors.txt", out + "\n")
     }
@@ -173,7 +178,8 @@ final class UpstreamSyncGoldenTest: XCTestCase {
                 let result = try await cmd.run(.defaultEnv, .emptyStdin)
                 // The environment prints in dictionary order, which isn't stable across processes.
                 let stdout = command == "list-exec-env-vars" ? result.stdout.sorted() : result.stdout
-                return "exit: \(result.exitCode)\n" + stdout.map { "out: \($0)\n" }.joined()
+                // What the CLI reports: server.swift maps a failed command to 1.
+                return "exit: \(winMuxCliExitCode(cmd, result.exitCode))\n" + stdout.map { "out: \($0)\n" }.joined()
                     + result.stderr.map { "err: \($0)\n" }.joined()
             case let other:
                 return describe(other)
@@ -183,7 +189,7 @@ final class UpstreamSyncGoldenTest: XCTestCase {
     /// Every parsed value, flattened by property path. A `winmux` path segment is dropped, so moving WinMux fields
     /// into one nested struct (docs/upstream-sync.md phase 1) keeps the fixture.
     private func dumpConfig(_ toml: String) async throws -> String {
-        let (parsed, errors) = parseConfig(toml)
+        let (parsed, errors) = parseConfigForTests(toml)
         var lines: [String] = []
         flatten(parsed, path: "", depth: 0, into: &lines)
         return "errors:\n" + errors.map { "- \($0.description)\n" }.joined() + lines.sorted().joined(separator: "\n") + "\n"
@@ -251,7 +257,7 @@ private func flatten(_ value: Any, path: String, depth: Int, into lines: inout [
 private func describe<T>(_ parsed: ParsedCmd<T>) -> String {
     switch parsed {
         case .cmd: "parsed\n"
-        case .failure(let error): "failure: \(error)\n"
+        case .failure(let error): "failure: \(error.msg)\n"
         case .help(let text): "help: \(text.split(separator: "\n").first ?? "")\n"
     }
 }

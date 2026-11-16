@@ -38,11 +38,11 @@ final class ProjectLifecycleCommandTest: XCTestCase {
 
     func testCreateValidatesBeforeMutatingAndReturnsStableId() async throws {
         let invalidResult = try await run("create-project --color tomato")
-        XCTAssertEqual(invalidResult.exitCode, 1)
+        XCTAssertEqual(invalidResult.exitCode.rawValue, 2)
         XCTAssertEqual(workspaceProjects().map(\.id), [workspaceProjectDefaultId])
 
         let result = try await run("create-project --name 'Research Lab' --color 60a5fa --json")
-        XCTAssertEqual(result.exitCode, 0)
+        XCTAssertEqual(result.exitCode.rawValue, 0)
         let json = try jsonObject(result)
         let projectId = try XCTUnwrap(json["project-id"] as? String)
         assertUuidProjectId(projectId)
@@ -53,7 +53,7 @@ final class ProjectLifecycleCommandTest: XCTestCase {
         XCTAssertEqual(orderedWorkspaces(in: WorkspaceProjectId(projectId)).count, 1)
 
         let plainResult = try await run("create-project")
-        XCTAssertEqual(plainResult.exitCode, 0)
+        XCTAssertEqual(plainResult.exitCode.rawValue, 0)
         let secondProjectId = try XCTUnwrap(plainResult.stdout.singleOrNil())
         assertUuidProjectId(secondProjectId)
         XCTAssertNotEqual(secondProjectId, projectId)
@@ -63,7 +63,7 @@ final class ProjectLifecycleCommandTest: XCTestCase {
         let projectId = try await createProject("--name Work --color '#123abc'")
 
         let plainResult = try await run("list-projects")
-        XCTAssertEqual(plainResult.exitCode, 0)
+        XCTAssertEqual(plainResult.exitCode.rawValue, 0)
         XCTAssertEqual(plainResult.stdout.count, 2)
         XCTAssertTrue(plainResult.stdout[0].contains("default"))
         XCTAssertTrue(plainResult.stdout[1].contains(projectId.rawValue))
@@ -91,26 +91,26 @@ final class ProjectLifecycleCommandTest: XCTestCase {
         let projectId = try await createProject()
 
         let renameResult = try await run("rename-project \(projectId.rawValue) 'Client One' --json")
-        XCTAssertEqual(renameResult.exitCode, 0)
+        XCTAssertEqual(renameResult.exitCode.rawValue, 0)
         XCTAssertEqual(try jsonObject(renameResult)["changed"] as? Bool, true)
         XCTAssertEqual(workspaceProject(id: projectId.rawValue)?.name, "Client One")
 
         let renameNoop = try await run("rename-project \(projectId.rawValue) 'Client One' --fail-if-noop")
-        XCTAssertEqual(renameNoop.exitCode, 1)
+        XCTAssertEqual(renameNoop.exitCode.rawValue, 2)
         XCTAssertEqual(renameNoop.stderr, ["Project '\(projectId.rawValue)' is already named 'Client One'"])
 
         let colorResult = try await run("set-project-color \(projectId.rawValue) aabbcc --json")
-        XCTAssertEqual(colorResult.exitCode, 0)
+        XCTAssertEqual(colorResult.exitCode.rawValue, 0)
         XCTAssertEqual(try jsonObject(colorResult)["project-color"] as? String, "#AABBCC")
         XCTAssertEqual(config.workspaceSidebar.projectColors[projectId.rawValue], "#AABBCC")
 
         let resetResult = try await run("set-project-color \(projectId.rawValue) auto --json")
-        XCTAssertEqual(resetResult.exitCode, 0)
+        XCTAssertEqual(resetResult.exitCode.rawValue, 0)
         XCTAssertEqual(try jsonObject(resetResult)["project-color"] as? String, "auto")
         XCTAssertNil(config.workspaceSidebar.projectColors[projectId.rawValue])
 
         let invalidResult = try await run("set-project-color \(projectId.rawValue) '#12345'")
-        XCTAssertEqual(invalidResult.exitCode, 1)
+        XCTAssertEqual(invalidResult.exitCode.rawValue, 2)
         XCTAssertTrue(invalidResult.stderr.singleOrNil()?.contains("Invalid project color") == true)
     }
 
@@ -135,18 +135,18 @@ final class ProjectLifecycleCommandTest: XCTestCase {
         let projectId = try await createProject("--name Work")
 
         let focusResult = try await run("project \(projectId.rawValue)")
-        XCTAssertEqual(focusResult.exitCode, 0)
+        XCTAssertEqual(focusResult.exitCode.rawValue, 0)
         XCTAssertEqual(focus.workspace.projectId, projectId)
 
         let defaultWorkspace = orderedWorkspaces(in: workspaceProjectDefaultId).first.orDie()
         let window = TestWindow.new(id: 701, parent: defaultWorkspace.rootTilingContainer)
         _ = window.focusWindow()
         let moveResult = try await run("move-node-to-project \(projectId.rawValue)")
-        XCTAssertEqual(moveResult.exitCode, 0)
+        XCTAssertEqual(moveResult.exitCode.rawValue, 0)
         XCTAssertEqual(window.nodeWorkspace?.projectId, projectId)
 
         let missingResult = try await run("project project-missing")
-        XCTAssertEqual(missingResult.exitCode, 1)
+        XCTAssertEqual(missingResult.exitCode.rawValue, 2)
         XCTAssertEqual(missingResult.stderr, ["Project 'project-missing' doesn't exist"])
     }
 
@@ -175,14 +175,14 @@ final class ProjectLifecycleCommandTest: XCTestCase {
         let staleResult = try await run(
             "delete-project \(projectId.rawValue) --action move-windows-to-fallback --if-window-count 0",
         )
-        XCTAssertEqual(staleResult.exitCode, 1)
+        XCTAssertEqual(staleResult.exitCode.rawValue, 2)
         XCTAssertEqual(movedWindow.nodeWorkspace?.projectId, projectId)
         XCTAssertNotNil(workspaceProject(id: projectId.rawValue))
 
         let moveResult = try await run(
             "delete-project \(projectId.rawValue) --action move-windows-to-fallback --if-window-count 1 --json",
         )
-        XCTAssertEqual(moveResult.exitCode, 0)
+        XCTAssertEqual(moveResult.exitCode.rawValue, 0)
         let json = try jsonObject(moveResult)
         XCTAssertEqual(json["deleted-project-id"] as? String, projectId.rawValue)
         XCTAssertEqual(json["fallback-project-id"] as? String, "default")
@@ -192,7 +192,7 @@ final class ProjectLifecycleCommandTest: XCTestCase {
         XCTAssertNil(workspaceProject(id: projectId.rawValue))
 
         let defaultResult = try await run("delete-project default --action move-windows-to-fallback --if-window-count 1")
-        XCTAssertEqual(defaultResult.exitCode, 1)
+        XCTAssertEqual(defaultResult.exitCode.rawValue, 2)
         XCTAssertTrue(defaultResult.stderr.singleOrNil()?.contains("cannot be deleted") == true)
     }
 
@@ -202,7 +202,7 @@ final class ProjectLifecycleCommandTest: XCTestCase {
 
     private func createProject(_ options: String = "") async throws -> WorkspaceProjectId {
         let result = try await run("create-project \(options)")
-        XCTAssertEqual(result.exitCode, 0)
+        XCTAssertEqual(result.exitCode.rawValue, 0)
         let rawId = try XCTUnwrap(result.stdout.singleOrNil())
         assertUuidProjectId(rawId)
         return WorkspaceProjectId(rawId)
@@ -214,13 +214,13 @@ final class ProjectLifecycleCommandTest: XCTestCase {
     }
 
     private func jsonObject(_ result: CmdResult) throws -> [String: Any] {
-        XCTAssertEqual(result.exitCode, 0)
+        XCTAssertEqual(result.exitCode.rawValue, 0)
         let data = try XCTUnwrap(result.stdout.singleOrNil()?.data(using: .utf8))
         return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
     }
 
     private func jsonArray(_ result: CmdResult) throws -> [[String: Any]] {
-        XCTAssertEqual(result.exitCode, 0)
+        XCTAssertEqual(result.exitCode.rawValue, 0)
         let data = try XCTUnwrap(result.stdout.singleOrNil()?.data(using: .utf8))
         return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [[String: Any]])
     }

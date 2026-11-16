@@ -23,7 +23,7 @@ final class S2TomlFrontEndTest: XCTestCase {
         )
         _ = try await persistence.saveDocument(editorText, expected: before)
         XCTAssertEqual(writes, 1)
-        XCTAssertEqual(parseConfig(editorText).config.workspaceSidebar.glassOpacity, 0.5)
+        XCTAssertEqual(parseConfigForTests(editorText).config.workspaceSidebar.glassOpacity, 0.5)
     }
 
     // MARK: A2 — CRLF
@@ -40,10 +40,10 @@ final class S2TomlFrontEndTest: XCTestCase {
     }
 
     func testLoneCarriageReturnIsRejectedWithItsLine() {
-        assertEquals(parseConfig("config-version = 2\n\r\n# a\rb\n").errors,
+        assertEquals(parseConfigForTests("config-version = 2\n\r\n# a\rb\n").errors,
                      ["(Line 3) Syntax error: carriage return without line feed."])
-        assertEquals(parseConfig("a = 1\r\r\nb = 2\n").errors, ["(Line 1) Syntax error: carriage return without line feed."])
-        assertEquals(parseConfig("x = '''\rq'''\n").errors, ["(Line 1) Syntax error: carriage return without line feed."])
+        assertEquals(parseConfigForTests("a = 1\r\r\nb = 2\n").errors, ["(Line 1) Syntax error: carriage return without line feed."])
+        assertEquals(parseConfigForTests("x = '''\rq'''\n").errors, ["(Line 1) Syntax error: carriage return without line feed."])
     }
 
     // MARK: A3 — escaped backslashes
@@ -62,7 +62,7 @@ final class S2TomlFrontEndTest: XCTestCase {
             KEPT = "tab\tand \u00E9 \\n"
             # comment with \\ and """ stays a comment
             """#
-        let (parsed, errors) = parseConfig(source)
+        let (parsed, errors) = parseConfigForTests(source)
         assertEquals(errors, [])
         let env = parsed.execConfig.envVariables
         assertEquals(env["WINDOWS_ROOT"], #"C:\Users\alan\"#)
@@ -75,17 +75,17 @@ final class S2TomlFrontEndTest: XCTestCase {
     }
 
     func testFrontEndKeepsLineNumbersAndInvalidText() {
-        let crlfErrors = parseConfig("a = 1\r\nb = \r\nc = 2\r\n").errors
-        assertEquals(crlfErrors, parseConfig("a = 1\nb = \nc = 2\n").errors)
+        let crlfErrors = parseConfigForTests("a = 1\r\nb = \r\nc = 2\r\n").errors
+        assertEquals(crlfErrors, parseConfigForTests("a = 1\nb = \nc = 2\n").errors)
         XCTAssertTrue(crlfErrors.singleOrNil()?.hasPrefix("(Line 2)") == true, "\(crlfErrors)")
-        XCTAssertFalse(parseConfig("x = \"\\q\"").errors.isEmpty, "an invalid escape stays invalid")
-        XCTAssertFalse(parseConfig("x = \"\"\"\\\\").errors.isEmpty, "an unterminated string stays unterminated")
+        XCTAssertFalse(parseConfigForTests("x = \"\\q\"").errors.isEmpty, "an invalid escape stays invalid")
+        XCTAssertFalse(parseConfigForTests("x = \"\"\"\\\\").errors.isEmpty, "an unterminated string stays unterminated")
     }
 
     // MARK: Carbon nit 2 — byte order mark
 
     func testLeadingByteOrderMarkIsIgnoredAsTomlKitDid() {
-        assertEquals(parseConfig("\u{FEFF}config-version = 2\n").errors, [])
+        assertEquals(parseConfigForTests("\u{FEFF}config-version = 2\n").errors, [])
     }
 
     // MARK: S2-C2 — EOF and truncated input
@@ -124,7 +124,9 @@ final class S2TomlFrontEndTest: XCTestCase {
     // MARK: Astra — jsonDouble without initializing defaultConfig
 
     func testFloatsConvertToJsonDoubles() {
-        assertEquals(tomlAnyToParsedConfigRecursive(any: 0.5, .emptyRoot), .success(.double(0.5)))
+        var errors: [ConfigParseDiagnostic] = []
+        assertEquals(tomlAnyToOrderedJsonRecursive(any: 0.5, .emptyRoot, &errors), .double(0.5))
+        assertEquals(errors, [])
         XCTAssertEqual((try? WinMuxToml.table("x = 0.25"))?["x"] as? Double, 0.25)
     }
 
@@ -172,7 +174,7 @@ final class S2TomlFrontEndTest: XCTestCase {
     private func assertParses(_ source: String, _ get: (Config) -> String?, _ expected: String,
                               file: StaticString = #filePath, line: UInt = #line)
     {
-        let (config, errors) = parseConfig(source)
+        let (config, errors) = parseConfigForTests(source)
         XCTAssertEqual(errors, [], file: file, line: line)
         XCTAssertEqual(get(config), expected, file: file, line: line)
     }

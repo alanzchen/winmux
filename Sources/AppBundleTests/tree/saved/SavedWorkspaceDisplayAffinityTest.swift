@@ -353,7 +353,7 @@ final class SavedWorkspaceDisplayAffinityTest: XCTestCase {
 
         let result = try await parseCommand("move-workspace-to-monitor --workspace pinned --wrap-around next").cmdOrDie.run(.defaultEnv, .emptyStdin)
 
-        assertEquals(result.exitCode, 1)
+        assertEquals(result.exitCode.rawValue, 2)
         XCTAssertTrue(dell.activeWorkspace === pinned)
         XCTAssertTrue(result.stderr.singleOrNil()?.contains("is kept on display") == true, "\(result.stderr)")
     }
@@ -369,7 +369,7 @@ final class SavedWorkspaceDisplayAffinityTest: XCTestCase {
         let args = SummonWorkspaceCmdArgs(rawArgs: []).copy(\.target, .initialized(.parse("pinned").getOrDie()))
         let result = try await SummonWorkspaceCommand(args: args).run(.defaultEnv, .emptyStdin)
 
-        assertEquals(result.exitCode, 1)
+        assertEquals(result.exitCode.rawValue, 2)
         XCTAssertFalse(laptop.activeWorkspace === pinned)
         XCTAssertTrue(savedPinBlocks(pinned, on: laptop))
         XCTAssertFalse(savedPinBlocks(pinned, on: dell))

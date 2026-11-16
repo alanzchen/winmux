@@ -343,7 +343,7 @@ func moveWindowToWorkspaceKeepingPins(_ window: Window, _ target: Workspace, _ i
         return try moveWindowToWorkspaceUnderPinPolicy(window, target, io, focusFollowsWindow: focusFollowsWindow,
             failIfNoop: failIfNoop, index: index)
     } catch {
-        return io.err(error.localizedDescription)
+        return io.errFalse(error.localizedDescription)
     }
 }
 

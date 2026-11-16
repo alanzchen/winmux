@@ -48,14 +48,13 @@ final class ConfigReadTest: XCTestCase {
         let liveUrl = configUrl
 
         for selectedUrl in [directory.appending(path: "missing.toml"), directory, invalidUrl] {
-            var output = ""
-            let ok = try await reloadConfig(
+            let result = try await reloadConfig(
                 args: ReloadConfigCmdArgs(rawArgs: []).copy(\.noGui, true),
                 forceConfigUrl: selectedUrl,
-                stdout: &output,
             )
-            XCTAssertFalse(ok)
-            XCTAssertTrue(output.contains(selectedUrl.path))
+            XCTAssertFalse(result.isOk)
+            XCTAssertFalse(result.appliedConfig)
+            XCTAssertTrue(result.stdout.contains(selectedUrl.path))
             XCTAssertEqual(config.tabGroupPadding, 47)
             XCTAssertEqual(config.workspaceSidebar.workspaceLabels, ["preserved": "Live configuration"])
             XCTAssertEqual(configUrl, liveUrl)
@@ -63,10 +62,9 @@ final class ConfigReadTest: XCTestCase {
     }
 
     func testBundledDefaultConfigStillLoads() throws {
-        switch readConfig(forceConfigUrl: defaultConfigUrl) {
-            case .success(let (_, url)): XCTAssertEqual(url, defaultConfigUrl)
-            case .failure(let error): XCTFail(error)
-        }
+        let result = readConfig(forceConfigUrl: defaultConfigUrl)
+        XCTAssertEqual(result.parseConfigResult.errors, [])
+        XCTAssertEqual(result.configUrl, defaultConfigUrl)
     }
 
     func testSelectedValidConfigStillParses() throws {
@@ -75,21 +73,18 @@ final class ConfigReadTest: XCTestCase {
         let url = directory.appending(path: "valid.toml")
         try "tab-group-padding = 47".write(to: url, atomically: true, encoding: .utf8)
 
-        switch readConfig(forceConfigUrl: url) {
-            case .success(let (parsed, selectedUrl)):
-                XCTAssertEqual(parsed.tabGroupPadding, 47)
-                XCTAssertEqual(selectedUrl, url)
-            case .failure(let error): XCTFail(error)
-        }
+        let result = readConfig(forceConfigUrl: url)
+        XCTAssertEqual(result.parseConfigResult.errors, [])
+        XCTAssertEqual(result.parseConfigResult.config.tabGroupPadding, 47)
+        XCTAssertEqual(result.configUrl, url)
     }
 
     private func assertReadFailure(_ url: URL, file: StaticString = #filePath, line: UInt = #line) {
-        switch readConfig(forceConfigUrl: url) {
-            case .success: XCTFail("A selected unreadable config must fail", file: file, line: line)
-            case .failure(let error):
-                XCTAssertTrue(error.contains(url.path), error, file: file, line: line)
-                XCTAssertTrue(error.contains("UTF-8"), error, file: file, line: line)
-        }
+        let result = readConfig(forceConfigUrl: url).parseConfigResult
+        XCTAssertFalse(result.allowReloadConfig, "A selected unreadable config must not load", file: file, line: line)
+        let error = result.errors.map { $0.description(.error) }.joined(separator: "\n")
+        XCTAssertTrue(error.contains(url.path), error, file: file, line: line)
+        XCTAssertTrue(error.contains("utf8"), error, file: file, line: line)
     }
 
     private func temporaryDirectory() throws -> URL {

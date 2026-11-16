@@ -25,7 +25,7 @@ final class NewWindowWorkspaceTest: XCTestCase {
     func testOptionIsOffByDefaultAndParses() {
         XCTAssertNil(defaultConfig.openNewWindowsInNewWorkspace, "Unset, so Tabs mode can turn it on")
         XCTAssertFalse(defaultConfig.opensNewWindowsInNewWorkspace)
-        let (parsed, errors) = parseConfig("open-new-windows-in-new-workspace = true")
+        let (parsed, errors) = parseConfigForTests("open-new-windows-in-new-workspace = true")
         XCTAssertEqual(errors, [])
         XCTAssertTrue(parsed.opensNewWindowsInNewWorkspace)
     }
@@ -80,7 +80,7 @@ final class NewWindowWorkspaceTest: XCTestCase {
     }
 
     func testOnWindowDetectedRulesPlaceWindowsFirst() async throws {
-        let (parsed, errors) = parseConfig("""
+        let (parsed, errors) = parseConfigForTests("""
         [[on-window-detected]]
         if.app-id = 'bobko.WinMux.test-app'
         run = ['move-node-to-workspace mail']

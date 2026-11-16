@@ -74,8 +74,8 @@ private struct SafeBenchmarkCommand: Command {
     let shouldResetClosedWindowsCache = false
     let canSkipPostCommandRefresh = true
 
-    func run(_ env: CmdEnv, _ io: CmdIo) async throws -> Bool {
-        true
+    func run(_ env: CmdEnv, _ io: CmdIo) async throws -> BinaryExitCode {
+        .succ
     }
 }
 
@@ -85,7 +85,7 @@ private struct UnsafeBenchmarkCommand: Command {
     let shouldResetClosedWindowsCache = false
     let canSkipPostCommandRefresh = false
 
-    func run(_ env: CmdEnv, _ io: CmdIo) async throws -> Bool {
-        true
+    func run(_ env: CmdEnv, _ io: CmdIo) async throws -> BinaryExitCode {
+        .succ
     }
 }

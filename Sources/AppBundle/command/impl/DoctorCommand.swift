@@ -5,7 +5,7 @@ struct DoctorCommand: Command {
     let args: DoctorCmdArgs
     /*conforms*/ let shouldResetClosedWindowsCache = false
 
-    func run(_ env: CmdEnv, _ io: CmdIo) async throws -> Bool {
+    func run(_ env: CmdEnv, _ io: CmdIo) async throws -> BinaryExitCode {
         io.out("WinMux doctor — git \(gitShortHash)")
         io.out("")
 
@@ -42,6 +42,6 @@ struct DoctorCommand: Command {
             let windows = row.windows >= 0 ? "\(row.windows)" : "error"
             io.out("  \(String(format: "%7.1f", row.ms))ms  \(row.name) (\(windows) ax windows)\(flag)")
         }
-        return true
+        return .succ
     }
 }

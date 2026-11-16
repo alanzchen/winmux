@@ -15,7 +15,7 @@ import TOMLDecoder
 /// None of these changes a line count, so error line numbers stay those of the file. Escaped backslashes and quote runs
 /// in multiline basic strings are fixed in the vendored TOMLDecoder itself (Vendor/TOMLDecoder/WINMUX-PATCH.md).
 enum WinMuxToml {
-    static func source(_ raw: String) -> Result<String, ConfigParseError> {
+    static func source(_ raw: String) -> Result<String, ConfigParseDiagnostic> {
         var bytes = Array(raw.utf8)
         if bytes.starts(with: [0xEF, 0xBB, 0xBF]) { bytes.removeFirst(3) }
         switch normalizedLineEndings(bytes) {
@@ -57,19 +57,13 @@ func tomlStatementEnd(_ lines: [String], from index: Int) -> Int {
     return end
 }
 
-extension ConfigParseError {
-    /// The syntax error `WinMuxToml.source` reports for `raw`, if any.
-    static func tomlSource(_ raw: String) -> [ConfigParseError] {
-        if case .failure(let error) = WinMuxToml.source(raw) { [error] } else { [] }
-    }
-}
 
 private enum Byte {
     static let lf: UInt8 = 0x0A
     static let cr: UInt8 = 0x0D
 }
 
-private func normalizedLineEndings(_ bytes: [UInt8]) -> Result<[UInt8], ConfigParseError> {
+private func normalizedLineEndings(_ bytes: [UInt8]) -> Result<[UInt8], ConfigParseDiagnostic> {
     guard bytes.contains(Byte.cr) else { return .success(bytes) }
     var result: [UInt8] = []
     result.reserveCapacity(bytes.count)
@@ -79,7 +73,8 @@ private func normalizedLineEndings(_ bytes: [UInt8]) -> Result<[UInt8], ConfigPa
         let byte = bytes[index]
         if byte == Byte.cr {
             guard index + 1 < bytes.count, bytes[index + 1] == Byte.lf else {
-                return .failure(.syntax("(Line \(line)) Syntax error: carriage return without line feed."))
+                return .failure(.init(.emptyRoot, "(Line \(line)) Syntax error: carriage return without line feed.",
+                                      preventConfigReload: true))
             }
         } else {
             if byte == Byte.lf { line += 1 }
@@ -90,3 +85,6 @@ private func normalizedLineEndings(_ bytes: [UInt8]) -> Result<[UInt8], ConfigPa
     return .success(result)
 }
 
+
+/// Where the outdated `config-version` warning sends users: WinMux's docs, not AeroSpace's guide.
+let winMuxConfigVersionGuideUrl = "https://github.com/alanzchen/winmux/blob/main/docs/configuration.md#config-version"

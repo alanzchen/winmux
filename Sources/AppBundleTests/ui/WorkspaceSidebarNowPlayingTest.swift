@@ -94,7 +94,7 @@ final class WorkspaceSidebarNowPlayingTest: XCTestCase {
     }
 
     func testMusicPlayerAtBottomIsATabsSettingThatDefaultsOff() {
-        let (parsed, errors) = parseConfig("""
+        let (parsed, errors) = parseConfigForTests("""
             [workspace-sidebar]
             mode = 'tabs'
             music-player-at-bottom = true

@@ -1,9 +1,9 @@
 protocol JsonFormattableListCmdArgs: Sendable {
-    var _format: [StringInterToken] { get }
+    var _format: [InterToken<InterVar>] { get }
     var json: Bool { get }
 }
 
-extension ParsedCmd where T: JsonFormattableListCmdArgs {
+extension ParsedCmd where T: JsonFormattableListCmdArgs & CmdArgs {
     func validateJsonFormat() -> ParsedCmd<T> {
         flatMap { args in
             if args.json, let msg = getErrorIfFormatIsIncompatibleWithJson(args._format) {
@@ -38,18 +38,18 @@ public struct ListAppsCmdArgs: CmdArgs, JsonFormattableListCmdArgs {
     )
 
     public var macosHidden: Bool?
-    public var _format: [StringInterToken] = []
+    public var _format: [InterToken<InterVar>] = []
     public var outputOnlyCount: Bool = false
     public var json: Bool = false
 }
 
 extension ListAppsCmdArgs {
-    public var format: [StringInterToken] {
+    public var format: [InterToken<InterVar>] {
         _format.isEmpty
             ? [
-                .interVar("app-pid"), .interVar("right-padding"), .literal(" | "),
-                .interVar("app-bundle-id"), .interVar("right-padding"), .literal(" | "),
-                .interVar("app-name"),
+                .interVar(.formatVar(.app(.appPid))), .interVar(.plainInterVar(.rightPadding)), .literal(" | "),
+                .interVar(.formatVar(.app(.appBundleId))), .interVar(.plainInterVar(.rightPadding)), .literal(" | "),
+                .interVar(.formatVar(.app(.appName))),
             ]
             : _format
     }
@@ -60,10 +60,10 @@ func parseListAppsCmdArgs(_ args: StrArrSlice) -> ParsedCmd<ListAppsCmdArgs> {
         .validateJsonFormat()
 }
 
-func getErrorIfFormatIsIncompatibleWithJson(_ format: [StringInterToken]) -> String? {
+func getErrorIfFormatIsIncompatibleWithJson(_ format: [InterToken<InterVar>]) -> String? {
     for x in format {
         switch x {
-            case .interVar("right-padding"):
+            case .interVar(.plainInterVar(.rightPadding)):
                 return "%{right-padding} interpolation variable is not allowed when --json is used"
             case .interVar: break // skip
             case .literal(let literal):

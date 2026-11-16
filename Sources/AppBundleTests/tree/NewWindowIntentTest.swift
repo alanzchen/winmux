@@ -440,7 +440,7 @@ final class NewWindowIntentTest: XCTestCase {
     }
 
     func testAConcurrentRegistrationLeavesTheClaimToTheDetectionInProgress() async throws {
-        let (parsed, errors) = parseConfig("""
+        let (parsed, errors) = parseConfigForTests("""
         [[on-window-detected]]
         if.app-id = 'bobko.WinMux.test-app'
         run = ['move-node-to-workspace mail']
@@ -468,7 +468,7 @@ final class NewWindowIntentTest: XCTestCase {
     }
 
     func testAClaimArrivingAfterDetectionCheckedIsSettledWhenDetectionEnds() async throws {
-        let (parsed, errors) = parseConfig("""
+        let (parsed, errors) = parseConfigForTests("""
         [[on-window-detected]]
         if.app-id = 'bobko.WinMux.test-app'
         run = ['move-node-to-workspace mail']
@@ -547,7 +547,7 @@ final class NewWindowIntentTest: XCTestCase {
     }
 
     func testAClaimedWindowKeepsItsDestinationOverOtherPlacementRules() async throws {
-        let (parsed, errors) = parseConfig("""
+        let (parsed, errors) = parseConfigForTests("""
         [[on-window-detected]]
         if.app-id = 'bobko.WinMux.test-app'
         run = ['move-node-to-workspace mail']

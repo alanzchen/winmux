@@ -7,8 +7,8 @@ final class WorkspaceCommandTest: XCTestCase {
     override func setUp() async throws { setUpWorkspacesForTests() }
 
     func testParseWorkspaceCommand() {
-        testParseCommandFail("workspace my mail", msg: "ERROR: Unknown argument 'mail'")
-        testParseCommandFail("workspace 'my mail'", msg: "ERROR: Whitespace characters are forbidden in workspace names")
+        testParseCommandFail("workspace my mail", msg: "ERROR: Unknown argument 'mail'", exitCode: 2)
+        testParseCommandFail("workspace 'my mail'", msg: "ERROR: Whitespace characters are forbidden in workspace names", exitCode: 2)
         assertEquals(parseCommand("workspace").errorOrNil, "ERROR: Argument '(<workspace-name>|next|prev)' is mandatory")
         testParseCommandSucc("workspace next", WorkspaceCmdArgs(target: .relative(.next)))
         testParseCommandSucc("workspace --auto-back-and-forth W", WorkspaceCmdArgs(target: .direct(.parse("W").getOrDie()), autoBackAndForth: true))
@@ -25,7 +25,7 @@ final class WorkspaceCommandTest: XCTestCase {
             args: WorkspaceCmdArgs(target: .direct(.parse("2").getOrDie())),
         ).run(.defaultEnv, .emptyStdin)
 
-        assertEquals(result.exitCode, 1)
+        assertEquals(result.exitCode.rawValue, 2)
         XCTAssertNil(Workspace.existing(byName: "2"))
     }
 
@@ -39,7 +39,7 @@ final class WorkspaceCommandTest: XCTestCase {
             args: WorkspaceCmdArgs(target: .direct(.parse("2").getOrDie())),
         ).run(.defaultEnv, .emptyStdin)
 
-        assertEquals(result.exitCode, 0)
+        assertEquals(result.exitCode.rawValue, 0)
         XCTAssertEqual(focus.workspace.name, "2")
         XCTAssertEqual(workspaceDisplayName("2"), "Workspace 2")
     }
@@ -54,7 +54,7 @@ final class WorkspaceCommandTest: XCTestCase {
             args: WorkspaceCmdArgs(target: .direct(.parse("3").getOrDie())),
         ).run(.defaultEnv, .emptyStdin)
 
-        assertEquals(result.exitCode, 1)
+        assertEquals(result.exitCode.rawValue, 2)
         XCTAssertNil(Workspace.existing(byName: "3"))
     }
 
@@ -66,7 +66,7 @@ final class WorkspaceCommandTest: XCTestCase {
         assertEquals(
             try await WorkspaceCommand(
                 args: WorkspaceCmdArgs(target: .direct(.parse("2").getOrDie())),
-            ).run(.defaultEnv, .emptyStdin).exitCode,
+            ).run(.defaultEnv, .emptyStdin).exitCode.rawValue,
             0,
         )
         _ = workspace1.focusWorkspace()
@@ -77,7 +77,7 @@ final class WorkspaceCommandTest: XCTestCase {
             args: WorkspaceCmdArgs(target: .direct(.parse("3").getOrDie())),
         ).run(.defaultEnv, .emptyStdin)
 
-        assertEquals(result.exitCode, 1)
+        assertEquals(result.exitCode.rawValue, 2)
         XCTAssertNil(Workspace.existing(byName: "3"))
     }
 
@@ -93,13 +93,13 @@ final class WorkspaceCommandTest: XCTestCase {
         let focusFirst = try await WorkspaceCommand(
             args: WorkspaceCmdArgs(target: .direct(.parse("1").getOrDie())),
         ).run(.defaultEnv, .emptyStdin)
-        assertEquals(focusFirst.exitCode, 0)
+        assertEquals(focusFirst.exitCode.rawValue, 0)
         XCTAssertTrue(focus.workspace === first)
 
         let focusSecond = try await WorkspaceCommand(
             args: WorkspaceCmdArgs(target: .direct(.parse("2").getOrDie())),
         ).run(.defaultEnv, .emptyStdin)
-        assertEquals(focusSecond.exitCode, 0)
+        assertEquals(focusSecond.exitCode.rawValue, 0)
         XCTAssertTrue(focus.workspace === second)
     }
 
@@ -116,7 +116,7 @@ final class WorkspaceCommandTest: XCTestCase {
             args: WorkspaceCmdArgs(target: .direct(.parse("3").getOrDie())),
         ).run(.defaultEnv, .emptyStdin)
 
-        assertEquals(result.exitCode, 0)
+        assertEquals(result.exitCode.rawValue, 0)
         XCTAssertEqual(focus.workspace.name, "2")
         XCTAssertNil(Workspace.existing(byName: "4"))
         XCTAssertEqual(workspaceDisplayName(first.name), "Workspace 1")
@@ -137,7 +137,7 @@ final class WorkspaceCommandTest: XCTestCase {
             args: WorkspaceCmdArgs(target: .relative(.next)),
         ).run(.defaultEnv, .emptyStdin)
 
-        assertEquals(result.exitCode, 0)
+        assertEquals(result.exitCode.rawValue, 0)
         XCTAssertEqual(focus.workspace.name, "2")
         XCTAssertNil(Workspace.existing(byName: "4"))
         XCTAssertEqual(workspaceDisplayName(first.name), "Workspace 1")
@@ -164,7 +164,7 @@ final class WorkspaceCommandTest: XCTestCase {
         assertEquals(
             try await WorkspaceCommand(args: WorkspaceCmdArgs(target: .relative(.next)))
                 .run(.defaultEnv, .emptyStdin)
-                .exitCode,
+                .exitCode.rawValue,
             0,
         )
         XCTAssertTrue(focus.workspace === secondDisplay)
@@ -172,7 +172,7 @@ final class WorkspaceCommandTest: XCTestCase {
         assertEquals(
             try await WorkspaceCommand(args: WorkspaceCmdArgs(target: .relative(.next)))
                 .run(.defaultEnv, .emptyStdin)
-                .exitCode,
+                .exitCode.rawValue,
             0,
         )
         XCTAssertTrue(focus.workspace === third)
@@ -180,7 +180,7 @@ final class WorkspaceCommandTest: XCTestCase {
         assertEquals(
             try await WorkspaceCommand(args: WorkspaceCmdArgs(target: .relative(.prev)))
                 .run(.defaultEnv, .emptyStdin)
-                .exitCode,
+                .exitCode.rawValue,
             0,
         )
         XCTAssertTrue(focus.workspace === secondDisplay)
@@ -188,7 +188,7 @@ final class WorkspaceCommandTest: XCTestCase {
         assertEquals(
             try await WorkspaceCommand(args: WorkspaceCmdArgs(target: .relative(.prev)))
                 .run(.defaultEnv, .emptyStdin)
-                .exitCode,
+                .exitCode.rawValue,
             0,
         )
         XCTAssertTrue(focus.workspace === first)
@@ -203,7 +203,7 @@ final class WorkspaceCommandTest: XCTestCase {
         assertEquals(
             try await WorkspaceCommand(
                 args: WorkspaceCmdArgs(target: .direct(.parse("2").getOrDie())),
-            ).run(.defaultEnv, .emptyStdin).exitCode,
+            ).run(.defaultEnv, .emptyStdin).exitCode.rawValue,
             0,
         )
 
@@ -224,7 +224,7 @@ final class WorkspaceCommandTest: XCTestCase {
             args: WorkspaceCmdArgs(target: .relative(.next)),
         ).run(.defaultEnv, .emptyStdin)
 
-        assertEquals(result.exitCode, 0)
+        assertEquals(result.exitCode.rawValue, 0)
         XCTAssertEqual(focus.workspace.name, "2")
         XCTAssertEqual(workspaceDisplayName("2"), "Workspace 2")
     }
@@ -238,7 +238,7 @@ final class WorkspaceCommandTest: XCTestCase {
         assertEquals(
             try await WorkspaceCommand(
                 args: WorkspaceCmdArgs(target: .relative(.next)),
-            ).run(.defaultEnv, .emptyStdin).exitCode,
+            ).run(.defaultEnv, .emptyStdin).exitCode.rawValue,
             0,
         )
 
@@ -261,7 +261,7 @@ final class WorkspaceCommandTest: XCTestCase {
             args: WorkspaceCmdArgs(target: .direct(.parse("1").getOrDie())),
         ).run(.defaultEnv, .emptyStdin)
 
-        assertEquals(result.exitCode, 0)
+        assertEquals(result.exitCode.rawValue, 0)
         XCTAssertTrue(focus.workspace === projectWorkspace)
         XCTAssertEqual(focus.workspace.projectId, project.id)
         XCTAssertEqual(workspaceDisplayName(focus.workspace.name), "Workspace 1")
@@ -282,7 +282,7 @@ final class WorkspaceCommandTest: XCTestCase {
             args: WorkspaceCmdArgs(target: .direct(.parse("2").getOrDie())),
         ).run(.defaultEnv, .emptyStdin)
 
-        assertEquals(result.exitCode, 0)
+        assertEquals(result.exitCode.rawValue, 0)
         XCTAssertEqual(focus.workspace.projectId, project.id)
         XCTAssertFalse(focus.workspace === defaultWorkspace2)
         XCTAssertEqual(workspaceDisplayName(focus.workspace.name), "Workspace 2")
@@ -303,7 +303,7 @@ final class WorkspaceCommandTest: XCTestCase {
             args: WorkspaceCmdArgs(target: .relative(.next)),
         ).run(.defaultEnv, .emptyStdin)
 
-        assertEquals(result.exitCode, 0)
+        assertEquals(result.exitCode.rawValue, 0)
         XCTAssertEqual(focus.workspace.projectId, project.id)
         XCTAssertFalse(focus.workspace === defaultWorkspace2)
         XCTAssertEqual(workspaceDisplayName(focus.workspace.name), "Workspace 2")
@@ -319,7 +319,7 @@ final class WorkspaceCommandTest: XCTestCase {
             args: WorkspaceCmdArgs(target: .relative(.next), wrapAround: true),
         ).run(.defaultEnv, .emptyStdin)
 
-        assertEquals(result.exitCode, 0)
+        assertEquals(result.exitCode.rawValue, 0)
         XCTAssertEqual(focus.workspace, workspace1)
         XCTAssertNil(Workspace.existing(byName: "2"))
     }
@@ -331,7 +331,7 @@ final class WorkspaceCommandTest: XCTestCase {
             args: WorkspaceCmdArgs(target: .direct(.parse("2").getOrDie())),
         ).run(.defaultEnv, .emptyStdin)
 
-        assertEquals(result.exitCode, 1)
+        assertEquals(result.exitCode.rawValue, 2)
         XCTAssertNil(Workspace.existing(byName: "2"))
     }
 
@@ -344,7 +344,7 @@ final class WorkspaceCommandTest: XCTestCase {
             args: WorkspaceCmdArgs(target: .direct(.parse("2").getOrDie())),
         ).run(.defaultEnv, .emptyStdin)
 
-        assertEquals(result.exitCode, 1)
+        assertEquals(result.exitCode.rawValue, 2)
         XCTAssertEqual(focus.workspace, initialWorkspace)
     }
 
@@ -360,7 +360,7 @@ final class WorkspaceCommandTest: XCTestCase {
             args: WorkspaceCmdArgs(target: .direct(.parse("2").getOrDie())),
         ).run(.defaultEnv, .emptyStdin)
 
-        assertEquals(result.exitCode, 0)
+        assertEquals(result.exitCode.rawValue, 0)
         XCTAssertEqual(mainMonitor.activeWorkspace, workspace2)
 
         let didRestore = try await restoreClosedWindowsCacheIfNeeded(newlyDetectedWindow: window1)
@@ -386,7 +386,7 @@ final class WorkspaceCommandTest: XCTestCase {
             CmdStdin("1\n2\n4\n5"),
         )
 
-        assertEquals(result.exitCode, 0)
+        assertEquals(result.exitCode.rawValue, 0)
         XCTAssertEqual(focus.workspace, workspace4)
     }
 
@@ -407,7 +407,7 @@ final class WorkspaceCommandTest: XCTestCase {
             CmdStdin("1\n2\n4\n5"),
         )
 
-        assertEquals(result.exitCode, 0)
+        assertEquals(result.exitCode.rawValue, 0)
         XCTAssertEqual(focus.workspace, workspace2)
     }
 
@@ -425,7 +425,7 @@ final class WorkspaceCommandTest: XCTestCase {
             CmdStdin("1\n2\n2\n3"),
         )
 
-        assertEquals(result.exitCode, 0)
+        assertEquals(result.exitCode.rawValue, 0)
         XCTAssertEqual(focus.workspace, workspace3)
     }
 }

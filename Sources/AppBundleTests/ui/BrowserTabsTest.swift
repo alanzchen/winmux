@@ -483,7 +483,7 @@ final class BrowserTabsTest: XCTestCase {
 
     @MainActor
     func testSettingsDefaultToBrowserTabsWithIconsOptIn() {
-        let (parsed, errors) = parseConfig("""
+        let (parsed, errors) = parseConfigForTests("""
             [workspace-sidebar]
             mode = 'tabs'
             browser-tabs = false

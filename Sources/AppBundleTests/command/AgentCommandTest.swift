@@ -32,7 +32,7 @@ final class AgentCommandTest: XCTestCase {
                 """)),
         )
 
-        XCTAssertEqual(result.exitCode, 0)
+        XCTAssertEqual(result.exitCode.rawValue, 0)
         XCTAssertEqual(result.stdout, ["OK"])
         XCTAssertTrue(result.stderr.isEmpty)
     }
@@ -55,7 +55,7 @@ final class AgentCommandTest: XCTestCase {
                 """)),
         )
 
-        XCTAssertEqual(result.exitCode, 0)
+        XCTAssertEqual(result.exitCode.rawValue, 0)
         XCTAssertTrue(result.stdout.isEmpty)
         XCTAssertTrue(result.stderr.isEmpty)
         XCTAssertTrue(window.nodeWorkspace === Workspace.get(byName: "b"))
@@ -67,7 +67,7 @@ final class AgentCommandTest: XCTestCase {
             CmdStdin("not json"),
         )
 
-        XCTAssertEqual(result.exitCode, 1)
+        XCTAssertEqual(result.exitCode.rawValue, 2)
         XCTAssertTrue(result.stdout.isEmpty)
         XCTAssertTrue(result.stderr.joined(separator: "\n").contains("Failed to read agent JSON"))
     }
@@ -89,7 +89,7 @@ final class AgentCommandTest: XCTestCase {
                 """),
         )
 
-        XCTAssertEqual(result.exitCode, 1)
+        XCTAssertEqual(result.exitCode.rawValue, 2)
         XCTAssertTrue(result.stderr.joined(separator: "\n").contains("missing worldId"))
         XCTAssertTrue(window.nodeWorkspace === source)
     }
@@ -105,7 +105,7 @@ final class AgentCommandTest: XCTestCase {
                 """),
         )
 
-        XCTAssertEqual(result.exitCode, 1)
+        XCTAssertEqual(result.exitCode.rawValue, 2)
         XCTAssertTrue(result.stderr.joined(separator: "\n").contains("missing schemaVersion"))
     }
 
@@ -120,14 +120,14 @@ final class AgentCommandTest: XCTestCase {
                 """)),
         )
 
-        XCTAssertEqual(result.exitCode, 1)
+        XCTAssertEqual(result.exitCode.rawValue, 2)
         XCTAssertTrue(result.stderr.joined(separator: "\n").contains("Unsupported agent schemaVersion '2'"))
     }
 
     func testSkill() async throws {
         let result = try await parseCommand("agent skill").cmdOrDie.run(.defaultEnv, .emptyStdin)
 
-        XCTAssertEqual(result.exitCode, 0)
+        XCTAssertEqual(result.exitCode.rawValue, 0)
         XCTAssertTrue(result.stdout.joined(separator: "\n").contains("name: winmux-agent"))
         XCTAssertTrue(result.stdout.joined(separator: "\n").contains("setWinMuxFullscreen"))
         XCTAssertTrue(result.stdout.joined(separator: "\n").contains("\"swapPanes\""))
@@ -153,7 +153,7 @@ final class AgentCommandTest: XCTestCase {
 
         let result = try await parseCommand("agent query").cmdOrDie.run(.defaultEnv, .emptyStdin)
 
-        XCTAssertEqual(result.exitCode, 0)
+        XCTAssertEqual(result.exitCode.rawValue, 0)
         let out = result.stdout.joined(separator: "\n")
         XCTAssertTrue(out.contains("\"tabGroupId\" : \"tabgroup-2\""))
         XCTAssertTrue(out.contains("\"paneId\" : \"pane-tabgroup-2\""))
@@ -220,7 +220,7 @@ final class AgentCommandTest: XCTestCase {
         let result = try await parseCommand("agent query").cmdOrDie.run(.defaultEnv, .emptyStdin)
 
         XCTAssertEqual(captureCount, agentSnapshotQueryMaxAttempts)
-        XCTAssertEqual(result.exitCode, 1)
+        XCTAssertEqual(result.exitCode.rawValue, 2)
         XCTAssertTrue(result.stderr.joined(separator: "\n").contains("Window state kept changing"))
         XCTAssertTrue(result.stderr.joined(separator: "\n").contains("Retry 'winmux agent query'"))
     }
@@ -261,7 +261,7 @@ final class AgentCommandTest: XCTestCase {
 
         let result = try await parseCommand("agent check --path \(path.path)").cmdOrDie.run(.defaultEnv, .emptyStdin)
 
-        XCTAssertEqual(result.exitCode, 1)
+        XCTAssertEqual(result.exitCode.rawValue, 2)
         XCTAssertTrue(result.stderr.joined(separator: "\n").contains("Agent JSON is stale"))
     }
 
@@ -282,7 +282,7 @@ final class AgentCommandTest: XCTestCase {
         let result = try await parseCommand("agent check --path \(path.path)").cmdOrDie.run(.defaultEnv, .emptyStdin)
 
         let stderr = result.stderr.joined(separator: "\n")
-        XCTAssertEqual(result.exitCode, 1)
+        XCTAssertEqual(result.exitCode.rawValue, 2)
         XCTAssertTrue(stderr.contains("Agent JSON is stale"))
         XCTAssertFalse(stderr.contains("placePane"))
     }
@@ -319,7 +319,7 @@ final class AgentCommandTest: XCTestCase {
 
         let result = try await parseCommand("agent apply --path \(path.path)").cmdOrDie.run(.defaultEnv, .emptyStdin)
 
-        XCTAssertEqual(result.exitCode, 0)
+        XCTAssertEqual(result.exitCode.rawValue, 0)
         let targetRoot = Workspace.get(byName: "b").rootTilingContainer
         let movedGroup = targetRoot.allAgentTabGroupsForTests.singleOrNil()
         XCTAssertTrue(movedGroup === group)
@@ -344,7 +344,7 @@ final class AgentCommandTest: XCTestCase {
 
         let result = try await parseCommand("agent apply --path \(path.path)").cmdOrDie.run(.defaultEnv, .emptyStdin)
 
-        XCTAssertEqual(result.exitCode, 0)
+        XCTAssertEqual(result.exitCode.rawValue, 0)
         XCTAssertEqual(root.children.compactMap { ($0 as? Window)?.windowId }, [2, 1])
     }
 
@@ -366,7 +366,7 @@ final class AgentCommandTest: XCTestCase {
 
         let result = try await parseCommand("agent apply --path \(path.path)").cmdOrDie.run(.defaultEnv, .emptyStdin)
 
-        XCTAssertEqual(result.exitCode, 0)
+        XCTAssertEqual(result.exitCode.rawValue, 0)
         XCTAssertEqual(root.children.compactMap { ($0 as? Window)?.windowId }, [2, 1])
     }
 
@@ -389,7 +389,7 @@ final class AgentCommandTest: XCTestCase {
 
         let result = try await parseCommand("agent apply --path \(path.path)").cmdOrDie.run(.defaultEnv, .emptyStdin)
 
-        XCTAssertEqual(result.exitCode, 0)
+        XCTAssertEqual(result.exitCode.rawValue, 0)
         XCTAssertEqual(root.children.compactMap { ($0 as? Window)?.windowId }, [2, 1])
         XCTAssertTrue(editor.isFullscreen)
         XCTAssertTrue(editor.noOuterGapsInFullscreen)
@@ -419,7 +419,7 @@ final class AgentCommandTest: XCTestCase {
 
         let result = try await parseCommand("agent apply --path \(path.path)").cmdOrDie.run(.defaultEnv, .emptyStdin)
 
-        XCTAssertEqual(result.exitCode, 0)
+        XCTAssertEqual(result.exitCode.rawValue, 0)
         let group = root.allAgentTabGroupsForTests.singleOrNil()
         XCTAssertEqual(group?.agentWindowIdsForTests, [1, 2, 3])
         XCTAssertEqual(group?.tabActiveWindow?.windowId, 2)
@@ -463,7 +463,7 @@ final class AgentCommandTest: XCTestCase {
 
         let result = try await parseCommand("agent apply --path \(path.path)").cmdOrDie.run(.defaultEnv, .emptyStdin)
 
-        XCTAssertEqual(result.exitCode, 0)
+        XCTAssertEqual(result.exitCode.rawValue, 0)
         let target = Workspace.get(byName: "tabs")
         XCTAssertEqual(target.preferredMonitorPointForTesting, secondary.rect.topLeftCorner)
         XCTAssertEqual(target.workspaceMonitor.rect.topLeftCorner, secondary.rect.topLeftCorner)
@@ -487,7 +487,7 @@ final class AgentCommandTest: XCTestCase {
 
         let result = try await parseCommand("agent check --path \(path.path)").cmdOrDie.run(.defaultEnv, .emptyStdin)
 
-        XCTAssertEqual(result.exitCode, 1)
+        XCTAssertEqual(result.exitCode.rawValue, 2)
         XCTAssertTrue(result.stderr.joined(separator: "\n").contains("createTabGroup: window 1 appears more than once"))
     }
 

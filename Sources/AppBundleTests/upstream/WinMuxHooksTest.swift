@@ -39,7 +39,7 @@ final class WinMuxHooksTest: XCTestCase {
         TrayMenuModel.shared.isEnabled = true
         TrayMenuModel.shared.isWorkspaceSidebarExpanded = true
         let result = try await parseCommand("enable off").cmdOrDie.run(.defaultEnv, .emptyStdin)
-        XCTAssertEqual(result.exitCode, 0)
+        XCTAssertEqual(result.exitCode.rawValue, 0)
         XCTAssertFalse(TrayMenuModel.shared.isWorkspaceSidebarExpanded)
         _ = try await parseCommand("enable on").cmdOrDie.run(.defaultEnv, .emptyStdin)
     }
@@ -76,8 +76,8 @@ private struct EnvRecordingCommand: Command {
 
     static func == (lhs: Self, rhs: Self) -> Bool { lhs.seen === rhs.seen }
 
-    func run(_ env: CmdEnv, _ io: CmdIo) async throws -> Bool {
+    func run(_ env: CmdEnv, _ io: CmdIo) async throws -> BinaryExitCode {
         seen.value.append(env.tabsListedAtSequenceStart)
-        return true
+        return .succ
     }
 }

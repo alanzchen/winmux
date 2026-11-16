@@ -5,21 +5,21 @@ struct MoveCommand: Command {
     let args: MoveCmdArgs
     /*conforms*/ let shouldResetClosedWindowsCache = true
 
-    func run(_ env: CmdEnv, _ io: CmdIo) async throws -> Bool {
+    func run(_ env: CmdEnv, _ io: CmdIo) async throws -> BinaryExitCode {
         let direction = args.direction.val
-        guard let target = args.resolveTargetOrReportError(env, io) else { return false }
+        guard let target = args.resolveTargetOrReportError(env, io) else { return .fail }
         guard let currentWindow = target.windowOrNil else {
-            return io.err(noWindowIsFocused)
+            return .fail(io.err(noWindowIsFocused))
         }
         if try await shouldFailBecauseFullscreen(
             window: currentWindow,
             failIfFullscreen: args.failIfFullscreen,
             failIfMacosNativeFullscreen: args.failIfMacosNativeFullscreen,
         ) {
-            return false
+            return .fail
         }
         let currentNode = currentWindow.moveNode
-        guard let parent = currentNode.parent else { return false }
+        guard let parent = currentNode.parent else { return .fail}
         switch parent.cases {
             case .tilingContainer(let parent):
                 let indexOfCurrent = currentNode.ownIndex.orDie()
@@ -27,23 +27,23 @@ struct MoveCommand: Command {
                 if parent.orientation == direction.orientation && parent.children.indices.contains(indexOfSiblingTarget) {
                     let siblingTarget = parent.children[indexOfSiblingTarget]
                     if currentNode is TilingContainer || (siblingTarget as? TilingContainer)?.layout == .tabGroup {
-                        return moveNodeToSiblingIndex(currentNode, parent, indexOfSiblingTarget)
+                        return .from(bool: moveNodeToSiblingIndex(currentNode, parent, indexOfSiblingTarget))
                     }
                     switch siblingTarget.tilingTreeNodeCasesOrDie() {
                         case .tilingContainer(let topLevelSiblingTargetContainer):
-                            return deepMoveIn(node: currentNode, into: topLevelSiblingTargetContainer, moveDirection: direction)
+                            return .from(bool: deepMoveIn(node: currentNode, into: topLevelSiblingTargetContainer, moveDirection: direction))
                         case .window: // "swap windows"
-                            return moveNodeToSiblingIndex(currentNode, parent, indexOfSiblingTarget)
+                            return .from(bool: moveNodeToSiblingIndex(currentNode, parent, indexOfSiblingTarget))
                     }
                 } else {
-                    return moveOut(node: currentNode, direction: direction, io, args, env)
+                    return .from(bool: moveOut(node: currentNode, direction: direction, io, args, env))
                 }
             case .workspace: // floating window
-                return io.err("moving floating windows isn't yet supported") // todo
+                return .fail(io.err("moving floating windows isn't yet supported")) // todo
             case .macosMinimizedWindowsContainer, .macosFullscreenWindowsContainer, .macosHiddenAppsWindowsContainer:
-                return io.err(moveOutMacosUnconventionalWindow)
+                return .fail(io.err(moveOutMacosUnconventionalWindow))
             case .macosPopupWindowsContainer:
-                return false // Impossible
+                return .fail(io.err(bugPrompt())) // Impossible
         }
     }
 }
@@ -62,24 +62,24 @@ private func moveNodeToSiblingIndex(_ node: TreeNode, _ parent: TilingContainer,
     _ args: MoveCmdArgs,
     _ direction: CardinalDirection,
     _ env: CmdEnv,
-) -> Bool {
+) -> BinaryExitCode {
     switch args.boundaries {
         case .workspace:
             switch args.boundariesAction {
-                case .stop: return true
-                case .fail: return false
+                case .stop: return .succ
+                case .fail: return .fail
                 case .createImplicitContainer:
                     createImplicitContainerAndMoveNode(node, workspace, direction)
-                    return true
+                    return .succ
             }
         case .allMonitorsOuterFrame:
             guard let (monitors, index) = node.nodeMonitor?.findRelativeMonitor(inDirection: direction) else {
-                return io.err("Should never happen. Can't find the current monitor")
+                return .fail(io.err("Should never happen. Can't find the current monitor"))
             }
 
             if monitors.indices.contains(index) {
                 let focusWindow = node.mostRecentWindowRecursive
-                guard let focusWindow else { return false }
+                guard let focusWindow else { return .fail}
                 let moveNodeToMonitorArgs = MoveNodeToMonitorCmdArgs(target: .direction(direction))
                     .copy(\.windowId, focusWindow.windowId)
                     .copy(\.focusFollowsWindow, focus.windowOrNil == focusWindow)
@@ -96,13 +96,13 @@ private func moveNodeToSiblingIndex(_ node: TreeNode, _ parent: TilingContainer,
     _ workspace: Workspace,
     _ args: MoveCmdArgs,
     _ direction: CardinalDirection,
-) -> Bool {
+) -> BinaryExitCode {
     switch args.boundariesAction {
-        case .stop: return true
-        case .fail: return false
+        case .stop: return .succ
+        case .fail: return .fail
         case .createImplicitContainer:
             createImplicitContainerAndMoveNode(node, workspace, direction)
-            return true
+            return .succ
     }
 }
 
@@ -132,9 +132,9 @@ private let moveOutMacosUnconventionalWindow = "moving macOS fullscreen, minimiz
             node.bind(to: parent, adaptiveWeight: WEIGHT_AUTO, index: ownIndex + direction.insertionOffset)
             return true
         case .workspace(let parent):
-            return hitWorkspaceBoundaries(node, parent, io, args, direction, env)
+            return hitWorkspaceBoundaries(node, parent, io, args, direction, env) == .succ
         case .macosMinimizedWindowsContainer, .macosFullscreenWindowsContainer, .macosHiddenAppsWindowsContainer:
-            return io.err(moveOutMacosUnconventionalWindow)
+            return io.errFalse(moveOutMacosUnconventionalWindow)
         case .macosPopupWindowsContainer:
             return false // Impossible
     }

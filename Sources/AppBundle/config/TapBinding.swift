@@ -75,16 +75,16 @@ struct TapBinding: Equatable, Sendable {
     }
 }
 
-func parseTapBindings(_ raw: Json, _ backtrace: ConfigBacktrace, _ errors: inout [ConfigParseError]) -> [String: TapBinding] {
+func parseTapBindings(_ raw: OrderedJson, _ backtrace: ConfigBacktrace, _ errors: inout [ConfigParseDiagnostic]) -> [String: TapBinding] {
     guard let rawTable = raw.asDictOrNil else {
-        errors += [expectedActualTypeError(expected: .table, actual: raw.tomlType, backtrace)]
+        errors += [expectedActualTypeDiagnostic(expected: .table, actual: raw.tomlType, backtrace)]
         return [:]
     }
     var result: [String: TapBinding] = [:]
-    for (binding, rawCommand): (String, Json) in rawTable {
+    for (binding, rawCommand): (String, OrderedJson) in rawTable {
         let backtrace = backtrace + .key(binding)
         let tapKey = TapModifierKey(rawValue: binding)
-            .orFailure(.semantic(
+            .orFailure(.init(
                 backtrace,
                 "Unsupported tap binding key '\(binding)'. Supported keys: \(TapModifierKey.allCases.map(\.rawValue).joined(separator: ", "))",
             ))

@@ -9,7 +9,7 @@ final class WorkspaceSidebarModeTest: XCTestCase {
                                  ("[workspace-sidebar]", .dock),
                                  ("[workspace-sidebar]\nshow-app-icons = true", .dock),
                                  ("[workspace-sidebar]\nshow-app-icons = false", .sidebar)] {
-            let (parsed, errors) = parseConfig(text)
+            let (parsed, errors) = parseConfigForTests(text)
             XCTAssertTrue(errors.isEmpty)
             XCTAssertEqual(parsed.workspaceSidebar.mode, expected)
         }
@@ -20,13 +20,13 @@ final class WorkspaceSidebarModeTest: XCTestCase {
             let legacy = "show-app-icons = \(mode == .sidebar)"
             let modern = "mode = '\(mode.rawValue)'"
             for fields in ["\(legacy)\n\(modern)", "\(modern)\n\(legacy)"] {
-                let (parsed, errors) = parseConfig("[workspace-sidebar]\n" + fields)
+                let (parsed, errors) = parseConfigForTests("[workspace-sidebar]\n" + fields)
                 XCTAssertTrue(errors.isEmpty)
                 XCTAssertEqual(parsed.workspaceSidebar.mode, mode)
             }
         }
         for invalid in ["'compact'", "true", "4"] {
-            XCTAssertFalse(parseConfig("[workspace-sidebar]\nmode = \(invalid)").errors.isEmpty)
+            XCTAssertFalse(parseConfigForTests("[workspace-sidebar]\nmode = \(invalid)").errors.isEmpty)
         }
     }
 
@@ -42,7 +42,7 @@ final class WorkspaceSidebarModeTest: XCTestCase {
         """
         for mode in [WorkspaceSidebarMode.sidebar, .dock, .sidebar] {
             text = updateSettingsScalarConfig(in: text, section: "workspace-sidebar", key: "mode", renderedValue: "'\(mode.rawValue)'")
-            let (parsed, errors) = parseConfig(text)
+            let (parsed, errors) = parseConfigForTests(text)
             XCTAssertTrue(errors.isEmpty)
             let sidebar = parsed.workspaceSidebar
             XCTAssertEqual(sidebar.mode, mode)

@@ -16,22 +16,22 @@ extension WinMuxHooks {
     /// the sequence starts; the model is normalized before the closed-windows cache is touched; the cache is synced to
     /// the current world, not cleared, and only after a command that succeeded and can change the tree.
     @MainActor
-    static func runCmdSeq(_ commands: [any Command], _ env: CmdEnv, _ io: CmdIo) async throws -> Bool {
+    static func runCmdSeq(_ commands: [any Command], _ env: CmdEnv, _ io: CmdIo) async throws -> Int32ExitCode {
         // Only this sequence's commands see it, through their env; a sequence run within one keeps it.
         var env = env
         if config.usesBrowserTabs, env.tabsListedAtSequenceStart.isEmpty {
             env.tabsListedAtSequenceStart = Set(Workspace.all.filter(workspaceTabIsShown).map(\.id))
         }
-        var isSucc = true
+        // As upstream (beb67f4a): the sequence exits with its last command's code.
+        var exitCode = Int32ExitCode(rawValue: EXIT_CODE_ZERO)
         for command in commands {
-            let commandSucc = try await command.run(env, io)
-            isSucc = commandSucc && isSucc
+            exitCode = Int32ExitCode(rawValue: (try await command.run(env, io)).rawValue)
             refreshModel()
-            if commandSucc && syncsClosedWindowsCache(after: command) {
+            if exitCode.rawValue == EXIT_CODE_ZERO && syncsClosedWindowsCache(after: command) {
                 syncClosedWindowsCacheToCurrentWorld()
             }
         }
-        return isSucc
+        return exitCode
     }
 
     /// Whether a command can change the tree or which workspace a display shows, so the closed-windows cache follows

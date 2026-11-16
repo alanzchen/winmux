@@ -24,20 +24,20 @@ extension Config {
 }
 
 func parseWorkspaceIntelligence(
-    _ raw: Json,
+    _ raw: OrderedJson,
     _ backtrace: ConfigBacktrace,
-    _ errors: inout [ConfigParseError],
+    _ errors: inout [ConfigParseDiagnostic],
 ) -> WorkspaceIntelligenceConfig {
     parseTable(raw, WorkspaceIntelligenceConfig(), [
         "mode": Parser(\.mode) { raw, backtrace in
             parseString(raw, backtrace).flatMap { value in
-                WorkspaceIntelligenceMode(rawValue: value).orFailure(.semantic(backtrace, "Possible values: off, manual"))
+                WorkspaceIntelligenceMode(rawValue: value).orFailure(.init(backtrace, "Possible values: off, manual"))
             }
         },
         "excluded-apps": Parser(\.excludedApps) { raw, backtrace in
             parseArrayOfStrings(raw, backtrace).flatMap { apps in
                 let trimmed = apps.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                if trimmed.contains(where: \.isEmpty) { return .failure(.semantic(backtrace, "App bundle IDs can't be empty")) }
+                if trimmed.contains(where: \.isEmpty) { return .failure(.init(backtrace, "App bundle IDs can't be empty")) }
                 var seen: Set<String> = []
                 return .success(trimmed.filter { seen.insert($0).inserted })
             }

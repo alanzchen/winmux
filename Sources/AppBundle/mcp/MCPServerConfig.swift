@@ -24,7 +24,7 @@ struct MCPServerConfig: ConvenienceCopyable, Equatable, Sendable {
     var debugScreenshots = false
 }
 
-func parseMCPServer(_ raw: Json, _ backtrace: ConfigBacktrace, _ errors: inout [ConfigParseError]) -> MCPServerConfig {
+func parseMCPServer(_ raw: OrderedJson, _ backtrace: ConfigBacktrace, _ errors: inout [ConfigParseDiagnostic]) -> MCPServerConfig {
     var config = parseTable(raw, MCPServerConfig(), [
         "enabled": Parser(\.enabled, parseBool),
         "port": Parser(\.port, parseMCPPort),
@@ -37,22 +37,22 @@ func parseMCPServer(_ raw: Json, _ backtrace: ConfigBacktrace, _ errors: inout [
                 let label = name.trimmingCharacters(in: .whitespaces).lowercased()
                 return label.isEmpty || mcpIsDNSLabel(label)
                     ? .success(label)
-                    : .failure(.semantic(backtrace, "A machine name is letters, digits and hyphens, up to 63, such as alans-macbook-pro"))
+                    : .failure(.init(backtrace, "A machine name is letters, digits and hyphens, up to 63, such as alans-macbook-pro"))
             }
         },
     ], backtrace, &errors)
     if config.tailnet, config.tailnetPort == config.port {
-        errors.append(.semantic(backtrace, "tailnet-port must differ from port"))
+        errors.append(.init(backtrace, "tailnet-port must differ from port"))
         config.tailnet = false
     }
     return config
 }
 
-private func parseMCPPort(_ raw: Json, _ backtrace: ConfigBacktrace) -> ParsedConfig<Int> {
+private func parseMCPPort(_ raw: OrderedJson, _ backtrace: ConfigBacktrace) -> ParsedConfig<Int> {
     parseInt(raw, backtrace).flatMap { port in
         mcpServerPortRange.contains(port)
             ? .success(port)
-            : .failure(.semantic(backtrace, "The port must be from \(mcpServerPortRange.lowerBound) to \(mcpServerPortRange.upperBound)"))
+            : .failure(.init(backtrace, "The port must be from \(mcpServerPortRange.lowerBound) to \(mcpServerPortRange.upperBound)"))
     }
 }
 

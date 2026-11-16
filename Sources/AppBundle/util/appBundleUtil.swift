@@ -9,11 +9,11 @@ let myPid = NSRunningApplication.current.processIdentifier
 let lockScreenAppBundleId = "com.apple.loginwindow"
 
 func interceptTermination(_ _signal: Int32) {
-    signal(_signal, { signal in
+    signal(_signal, { (signal: Int32) in
         check(Thread.current.isMainThread)
-        _ = Task {
-            defer { exit(signal) }
-            try await terminationHandler.beforeTermination()
+        Task.startUnstructured { @MainActor in
+            terminationHandler?.beforeTermination()
+            exit(signal)
         }
     } as sig_t)
 }
@@ -24,13 +24,23 @@ func initTerminationHandler() {
 }
 
 private struct AppServerTerminationHandler: TerminationHandler {
-    func beforeTermination() async throws {
-        // CLI quit, restart, and handled termination signals share this path.
+    @MainActor
+    func beforeTermination() {
+        // CLI quit, restart, and handled termination signals share this path. Synchronous, on the main thread
+        // (upstream 8b236f1b): an awaiting handler deadlocked when die() ran on the main thread.
         if TrayMenuModel.shared.accessibilityPermissionStatus == .granted {
             SystemDockCoordinator.shared.shutdown()
-            try await prepareManagedWindowsForTermination()
+            prepareManagedWindowsForTermination()
         }
-        await toggleReleaseServerIfDebug(.on)
+        if isDebug {
+            let semaphore = DispatchSemaphore(value: 0)
+            // Task.detached doesn't inherit @MainActor, which would deadlock here.
+            Task.detached {
+                await toggleReleaseServerIfDebug(.on)
+                semaphore.signal()
+            }
+            semaphore.wait()
+        }
     }
 }
 
@@ -44,26 +54,26 @@ func prepareManagedWindowsForTermination(
         savedWorkspaceStore.flushNow()
         persistFrozenWorldForRestartIfPossible()
     },
-    restoreWindows: @MainActor () async throws -> Void = makeAllWindowsVisibleAndRestoreSize,
-) async throws {
+    restoreWindows: @MainActor () -> Void = makeAllWindowsVisibleAndRestoreSize,
+) {
     if runtimeReady { persistSession() }
-    try await restoreWindows()
+    restoreWindows()
 }
 
 @MainActor
-private func makeAllWindowsVisibleAndRestoreSize() async throws {
+private func makeAllWindowsVisibleAndRestoreSize() {
     // Make all windows fullscreen before Quit
-    for (_, window) in MacWindow.allWindowsMap {
+    for window in MacWindow.allWindowsMap.values {
         // makeAllWindowsVisibleAndRestoreSize may be invoked when something went wrong (e.g. some windows are unbound)
         // that's why it's not allowed to use `.parent` call in here
-        let monitor = try await window.getCenter()?.monitorApproximation ?? mainMonitor
+        let monitor = window.macApp.getAxRectForTermination(window.windowId)?.center.monitorApproximation ?? mainMonitor
         let monitorVisibleRect = monitor.visibleRect
         let windowSize = window.lastFloatingSize ?? CGSize(width: monitorVisibleRect.width, height: monitorVisibleRect.height)
         let point = CGPoint(
             x: (monitorVisibleRect.width - windowSize.width) / 2,
             y: (monitorVisibleRect.height - windowSize.height) / 2,
         )
-        try await window.setAxFrameBlocking(point, windowSize)
+        window.macApp.setAxFrameForTermination(window.windowId, point, windowSize)
     }
 }
 

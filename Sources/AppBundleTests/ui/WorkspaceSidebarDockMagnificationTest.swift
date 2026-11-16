@@ -58,7 +58,7 @@ final class WorkspaceSidebarDockMagnificationTest: XCTestCase {
         text = updateSettingsScalarConfig(in: text, section: "workspace-sidebar", key: "dock-magnification", renderedValue: "true")
         text = updateSettingsScalarConfig(in: text, section: "workspace-sidebar", key: "dock-magnification-amount", renderedValue: "0.65")
         text = updateSettingsScalarConfig(in: text, section: "workspace-sidebar", key: "dock-icon-size", renderedValue: "40")
-        let (parsed, errors) = parseConfig(text)
+        let (parsed, errors) = parseConfigForTests(text)
         XCTAssertTrue(errors.isEmpty)
         XCTAssertTrue(parsed.workspaceSidebar.usesDockMagnification)
         XCTAssertEqual(parsed.workspaceSidebar.dockMagnificationAmount, 0.65)
@@ -77,11 +77,11 @@ final class WorkspaceSidebarDockMagnificationTest: XCTestCase {
 
     func testMagnificationAmountValidation() {
         for amount in ["-0.01", "1.01", "nan", "inf", "-inf", "true", "'high'"] {
-            let (_, errors) = parseConfig("[workspace-sidebar]\ndock-magnification-amount = \(amount)")
+            let (_, errors) = parseConfigForTests("[workspace-sidebar]\ndock-magnification-amount = \(amount)")
             XCTAssertFalse(errors.isEmpty, amount)
         }
         for amount in ["0", "0.25", "1"] {
-            let (parsed, errors) = parseConfig("[workspace-sidebar]\ndock-magnification-amount = \(amount)")
+            let (parsed, errors) = parseConfigForTests("[workspace-sidebar]\ndock-magnification-amount = \(amount)")
             XCTAssertTrue(errors.isEmpty, amount)
             XCTAssertEqual(parsed.workspaceSidebar.dockMagnificationAmount, Double(amount))
         }
@@ -116,11 +116,11 @@ final class WorkspaceSidebarDockMagnificationTest: XCTestCase {
 
     func testInvalidIconSizesAreRejected() {
         for size in ["23", "49", "0", "-1", "40.5", "'large'"] {
-            let (_, errors) = parseConfig("[workspace-sidebar]\ndock-icon-size = \(size)")
+            let (_, errors) = parseConfigForTests("[workspace-sidebar]\ndock-icon-size = \(size)")
             XCTAssertFalse(errors.isEmpty, size)
         }
         for size in [24, 40, 48] {
-            let (parsed, errors) = parseConfig("[workspace-sidebar]\ndock-icon-size = \(size)")
+            let (parsed, errors) = parseConfigForTests("[workspace-sidebar]\ndock-icon-size = \(size)")
             XCTAssertTrue(errors.isEmpty)
             XCTAssertEqual(parsed.workspaceSidebar.dockIconSize, size)
         }

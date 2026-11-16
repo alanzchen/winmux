@@ -57,7 +57,7 @@ extension ShortcutSettingsModel {
                     assignments: renderedAssignments,
                     managedCommands: managedCommands,
                 )
-                let isOk = try await reloadConfig(forceConfigUrl: targetUrl)
+                let isOk = try await reloadConfig(forceConfigUrl: targetUrl).isOk
                 if isOk {
                     reload()
                 }

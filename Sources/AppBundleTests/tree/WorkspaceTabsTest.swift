@@ -47,7 +47,7 @@ final class WorkspaceTabsTest: XCTestCase {
         config.workspaceSidebar.enabled = false
         XCTAssertFalse(config.opensNewWindowsInNewWorkspace, "Without the sidebar there are no tabs")
 
-        let (parsed, errors) = parseConfig("""
+        let (parsed, errors) = parseConfigForTests("""
             [workspace-sidebar]
             enabled = true
             mode = 'tabs'

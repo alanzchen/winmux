@@ -5,27 +5,27 @@ struct SaveWorkspaceCommand: Command {
     let args: SaveWorkspaceCmdArgs
     /*conforms*/ let shouldResetClosedWindowsCache = false
 
-    func run(_ env: CmdEnv, _ io: CmdIo) -> Bool {
-        guard let target = args.resolveTargetOrReportError(env, io) else { return false }
+    func run(_ env: CmdEnv, _ io: CmdIo) -> BinaryExitCode {
+        guard let target = args.resolveTargetOrReportError(env, io) else { return .fail}
         let workspace = target.workspace
         let requestedName: String?
         do {
             requestedName = try args.displayName.map(normalizedWorkspaceProjectDisplayName)
         } catch {
-            return io.err(error.localizedDescription)
+            return .fail(io.err(error.localizedDescription))
         }
         let isPinned = savedWorkspaceStore.record(named: workspace.name)?.isPinnedToDisplay == true
         // Checked before saving, so a pin that can't happen leaves the workspace unchanged.
         if args.pinToDisplay == true, !isPinned {
             if resolvedForceAssignedMonitor(forWorkspaceName: workspace.name) != nil {
-                return io.err(
+                return .fail(io.err(
                     "Workspace '\(workspaceDisplayName(workspace.name))' (\(workspace.name)) can't be kept on a display: " +
                         "workspace-to-monitor-force-assignment in the config assigns it to a monitor",
-                )
+                ))
             }
             let monitor = workspace.visibleMonitor ?? workspace.workspaceMonitor
             if SavedDisplayAffinity(monitor: monitor) == nil {
-                return io.err(WorkspaceMutationError.displayHasNoIdentity(monitor.name).localizedDescription)
+                return .fail(io.err(WorkspaceMutationError.displayHasNoIdentity(monitor.name).localizedDescription))
             }
         }
 
@@ -41,7 +41,7 @@ struct SaveWorkspaceCommand: Command {
                 try saveWorkspaceForSidebar(workspaceName: workspace.name, displayName: requestedName)
             }
         } catch {
-            return io.err(error.localizedDescription)
+            return .fail(io.err(error.localizedDescription))
         }
         let changed = !wasSaved || pinChanged || workspaceDisplayName(workspace.name) != previousDisplayName
         if !changed {
@@ -52,14 +52,14 @@ struct SaveWorkspaceCommand: Command {
             }
             let message = "Workspace '\(previousDisplayName)' is already saved\(pinState)"
             if args.failIfNoop {
-                return io.err(message)
+                return .fail(io.err(message))
             }
             io.err("\(message). Tip: use --fail-if-noop to exit with non-zero code")
         }
         if args.json {
             return writeSavedWorkspaceJson(workspace, changed: changed, to: io)
         }
-        return true
+        return .succ
     }
 }
 
@@ -67,33 +67,33 @@ struct ForgetWorkspaceCommand: Command {
     let args: ForgetWorkspaceCmdArgs
     /*conforms*/ let shouldResetClosedWindowsCache = false
 
-    func run(_ env: CmdEnv, _ io: CmdIo) -> Bool {
-        guard let target = args.resolveTargetOrReportError(env, io) else { return false }
+    func run(_ env: CmdEnv, _ io: CmdIo) -> BinaryExitCode {
+        guard let target = args.resolveTargetOrReportError(env, io) else { return .fail}
         let workspace = target.workspace
         let displayName = workspaceDisplayName(workspace.name)
         let changed: Bool
         do {
             changed = try forgetSavedWorkspace(workspace)
         } catch {
-            return io.err(error.localizedDescription)
+            return .fail(io.err(error.localizedDescription))
         }
         if !changed {
             let message = "Workspace '\(displayName)' is not saved"
             if args.failIfNoop {
-                return io.err(message)
+                return .fail(io.err(message))
             }
             io.err("\(message). Tip: use --fail-if-noop to exit with non-zero code")
         }
         if args.json {
             return writeSavedWorkspaceJson(workspace, changed: changed, to: io)
         }
-        return true
+        return .succ
     }
 }
 
 /// `saved-id` and `display` (the home display's name) are omitted while unknown.
 @MainActor
-private func writeSavedWorkspaceJson(_ workspace: Workspace, changed: Bool, to io: CmdIo) -> Bool {
+private func writeSavedWorkspaceJson(_ workspace: Workspace, changed: Bool, to io: CmdIo) -> BinaryExitCode {
     let record = savedWorkspaceStore.record(named: workspace.name)
     var result: [String: Primitive] = [
         "changed": .bool(changed),
@@ -108,6 +108,6 @@ private func writeSavedWorkspaceJson(_ workspace: Workspace, changed: Bool, to i
     if let display = record?.display?.name, !display.isEmpty {
         result["display"] = .string(display)
     }
-    return JSONEncoder.aeroSpaceDefault.encodeToString(result).map(io.out)
-        ?? io.err("Failed to encode JSON")
+    return JSONEncoder.aeroSpaceDefault.encodeToString(result).map { .succ(io.out($0)) }
+        ?? .fail(io.err("Failed to encode JSON"))
 }

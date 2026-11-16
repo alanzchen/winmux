@@ -26,7 +26,7 @@ final class ConfigTest: XCTestCase {
                 alt-l = 'focus --boundaries-action wrap-around-the-workspace up'
                 alt-semicolon = 'focus --boundaries-action wrap-around-the-workspace right'
             """
-        let (i3Config, errors) = parseConfig(toml)
+        let (i3Config, errors) = parseConfigForTests(toml)
         assertEquals(errors, [])
         assertEquals(i3Config.execConfig, defaultConfig.execConfig)
         assertEquals(i3Config.enableNormalizationFlattenContainers, false)
@@ -35,7 +35,7 @@ final class ConfigTest: XCTestCase {
 
     func testParseDefaultConfig() throws {
         let toml = try String(contentsOf: projectRoot.appending(component: "resources/default-config.toml"), encoding: .utf8)
-        let (config, errors) = parseConfig(toml)
+        let (config, errors) = parseConfigForTests(toml)
         assertEquals(errors, [])
         XCTAssertTrue(config.automaticallyTileNewWindows)
         XCTAssertFalse(config.workspaceSidebar.showClock)
@@ -48,93 +48,120 @@ final class ConfigTest: XCTestCase {
     }
 
     func testParseAutomaticallyTileNewWindows() {
-        let (config, errors) = parseConfig("automatically-tile-new-windows = false")
+        let (config, errors) = parseConfigForTests("automatically-tile-new-windows = false")
 
         assertEquals(errors, [])
         XCTAssertFalse(config.automaticallyTileNewWindows)
     }
 
     func testParseShakeToToggleTiling() {
-        let (config, errors) = parseConfig("enable-shake-to-toggle-tiling = false")
+        let (config, errors) = parseConfigForTests("enable-shake-to-toggle-tiling = false")
 
         assertEquals(errors, [])
         XCTAssertFalse(config.enableShakeToToggleTiling)
     }
 
     func testConfigVersionOutOfBounds() {
-        let (_, errors) = parseConfig(
+        let result = parseConfig(
             """
             config-version = 0
             """,
         )
-        assertEquals(errors, ["config-version: Must be in [1, 2] range"])
+        assertTrue(result.allowReloadConfig)
+        assertEquals(result.strErrors, ["[ERROR] config-version: config-version must be in [1, 2] range"])
+    }
+
+    func testConfigVersionOutdatedWarning() {
+        let result = parseConfig(
+            """
+            config-version = 1
+            """,
+        )
+        assertTrue(result.allowReloadConfig)
+        assertEquals(result.errors, [])
+        assertEquals(result.strWarnings, [
+            "[WARNING] The current 'config-version = 1' is outdated. " +
+                "Please consider migrating to 'config-version = \(maxConfigVersion)'. " +
+                "See https://nikitabobko.github.io/AeroSpace/guide#config-version for the migration guide.",
+        ])
+    }
+
+    func testLatestConfigVersionNoWarning() {
+        let result = parseConfig(
+            """
+            config-version = \(maxConfigVersion)
+            """,
+        )
+        assertEquals(result.errors, [])
+        assertEquals(result.warnings, [])
     }
 
     func testExecOnWorkspaceChangeDifferentTypesError() {
-        let (_, errors) = parseConfig(
+        let errors = parseConfig(
             """
             exec-on-workspace-change = ['', 1]
             """,
-        )
-        assertEquals(errors, ["exec-on-workspace-change[1]: Expected type is \'string\'. But actual type is \'int\'"])
+        ).strErrors
+        assertEquals(errors, ["[ERROR] exec-on-workspace-change[1]: Expected type is \'String\'. But actual type is \'Int\'"])
     }
 
     func testDuplicatedPersistentWorkspaces() {
-        let (_, errors) = parseConfig(
+        let errors = parseConfig(
             """
             config-version = 2
             persistent-workspaces = ['a', 'a']
             """,
-        )
-        assertEquals(errors, ["persistent-workspaces: Contains duplicated workspace names"])
+        ).strErrors
+        assertEquals(errors, ["[ERROR] persistent-workspaces: Contains duplicated workspace names"])
     }
 
     func testPersistentWorkspacesAreAvailableOnlySinceVersion2() {
-        let (_, errors) = parseConfig(
+        let errors = parseConfig(
             """
             persistent-workspaces = ['a']
             """,
-        )
-        assertEquals(errors, ["persistent-workspaces: This config option is only available since \'config-version = 2\'"])
+        ).strErrors
+        assertEquals(errors, ["[ERROR] persistent-workspaces: This config option is only available since \'config-version = 2\'"])
     }
 
     func testQueryCantBeUsedInConfig() {
-        let (_, errors) = parseConfig(
+        let errors = parseConfig(
             """
             [mode.main.binding]
                 alt-a = 'list-apps'
             """,
-        )
+        ).strErrors
         XCTAssertTrue(errors.singleOrNil()?.contains("cannot be used in config") == true)
     }
 
     func testDropBindings() {
-        let (config, errors) = parseConfig(
+        let result = parseConfig(
             """
             mode.main = {}
             """,
         )
-        assertEquals(errors, [])
-        XCTAssertTrue(config.modes[mainModeId]?.bindings.isEmpty == true)
+        assertTrue(result.allowReloadConfig)
+        assertEquals(result.errors, [])
+        assertTrue(result.config.modes[mainModeId]?.bindings.isEmpty == true)
     }
 
     func testParseMode() {
-        let (config, errors) = parseConfig(
+        let result = parseConfig(
             """
             [mode.main.binding]
                 alt-h = 'focus left'
             """,
         )
-        assertEquals(errors, [])
+        assertEquals(result.errors, [])
         let binding = HotkeyBinding(.option, .h, [FocusCommand.new(direction: .left)])
         assertEquals(
-            config.modes[mainModeId],
+            result.config.modes[mainModeId],
             Mode(bindings: [binding.descriptionWithKeyCode: binding], tapBindings: [:]),
         )
     }
 
     func testParseTapBindings() {
-        let (config, errors) = parseConfig(
+        let (config, errors) = parseConfigForTests(
             """
             [mode.main.binding-tap]
                 left-alt = 'focus left'
@@ -230,7 +257,7 @@ final class ConfigTest: XCTestCase {
     }
 
     func testWindowDetectedCallbackEqualityChecksCommandCount() {
-        let matcher = WindowDetectedCallbackMatcher(appId: "com.example.app")
+        let matcher = WindowDetectedCallbackMatcher.legacy(LegacyWindowDetectedCallbackMatcher(appId: "com.example.app"))
         let short = WindowDetectedCallback(
             matcher: matcher,
             rawRun: [FocusCommand.new(direction: .left)],
@@ -244,21 +271,21 @@ final class ConfigTest: XCTestCase {
     }
 
     func testModesMustContainDefaultModeError() {
-        let (config, errors) = parseConfig(
+        let result = parseConfig(
             """
             [mode.foo.binding]
                 alt-h = 'focus left'
             """,
         )
         assertEquals(
-            errors,
-            ["mode: Please specify \'main\' mode"],
+            result.strErrors,
+            ["[ERROR] mode: Please specify \'main\' mode"],
         )
-        assertEquals(config.modes[mainModeId], nil)
+        assertEquals(result.config.modes[mainModeId], nil)
     }
 
     func testHotkeyParseError() {
-        let (config, errors) = parseConfig(
+        let result = parseConfig(
             """
             [mode.main.binding]
                 alt-hh = 'focus left'
@@ -267,21 +294,21 @@ final class ConfigTest: XCTestCase {
             """,
         )
         assertEquals(
-            errors,
+            result.strErrors,
             [
-                "mode.main.binding.aalt-j: Can\'t parse modifiers in \'aalt-j\' binding",
-                "mode.main.binding.alt-hh: Can\'t parse the key in \'alt-hh\' binding",
+                "[ERROR] mode.main.binding.aalt-j: Can\'t parse modifiers in \'aalt-j\' binding",
+                "[ERROR] mode.main.binding.alt-hh: Can\'t parse the key in \'alt-hh\' binding",
             ],
         )
         let binding = HotkeyBinding(.option, .k, [FocusCommand.new(direction: .up)])
         assertEquals(
-            config.modes[mainModeId],
+            result.config.modes[mainModeId],
             Mode(bindings: [binding.descriptionWithKeyCode: binding], tapBindings: [:]),
         )
     }
 
     func testTapBindingParseError() {
-        let (config, errors) = parseConfig(
+        let (config, errors) = parseConfigForTests(
             """
             [mode.main.binding-tap]
                 unicorn = 'focus left'
@@ -314,7 +341,7 @@ final class ConfigTest: XCTestCase {
     }
 
     func testPermanentWorkspaceNames() {
-        let (config, errors) = parseConfig(
+        let result = parseConfig(
             """
             [mode.main.binding]
                 alt-1 = 'workspace 1'
@@ -323,26 +350,26 @@ final class ConfigTest: XCTestCase {
                 alt-4 = ['workspace 4', 'focus left']
             """,
         )
-        assertEquals(errors, [])
-        assertEquals(config.persistentWorkspaces.sorted(), ["1", "2", "3", "4"])
+        assertEquals(result.errors, [])
+        assertEquals(result.config.persistentWorkspaces.sorted(), ["1", "2", "3", "4"])
     }
 
     func testUnknownTopLevelKeyParseError() {
-        let (config, errors) = parseConfig(
+        let result = parseConfig(
             """
             unknownKey = true
             enable-normalization-flatten-containers = false
             """,
         )
         assertEquals(
-            errors,
-            ["unknownKey: Unknown top-level key"],
+            result.strErrors,
+            ["[ERROR] unknownKey: Unknown top-level key"],
         )
-        assertEquals(config.enableNormalizationFlattenContainers, false)
+        assertEquals(result.config.enableNormalizationFlattenContainers, false)
     }
 
     func testUnknownKeyParseError() {
-        let (config, errors) = parseConfig(
+        let result = parseConfig(
             """
             enable-normalization-flatten-containers = false
             [gaps]
@@ -350,50 +377,51 @@ final class ConfigTest: XCTestCase {
             """,
         )
         assertEquals(
-            errors,
-            ["gaps.unknownKey: Unknown key"],
+            result.strErrors,
+            ["[ERROR] gaps.unknownKey: Unknown key"],
         )
-        assertEquals(config.enableNormalizationFlattenContainers, false)
+        assertEquals(result.config.enableNormalizationFlattenContainers, false)
     }
 
     func testTypeMismatch() {
-        let (_, errors) = parseConfig(
+        let errors = parseConfig(
             """
             enable-normalization-flatten-containers = 'true'
             """,
-        )
+        ).strErrors
         assertEquals(
             errors,
-            ["enable-normalization-flatten-containers: Expected type is \'bool\'. But actual type is \'string\'"],
+            ["[ERROR] enable-normalization-flatten-containers: Expected type is \'Bool\'. But actual type is \'String\'"],
         )
     }
 
     func testConfigParseError() {
+        assertFalse(parseConfig("true").allowReloadConfig)
         assertEquals(
-            parseConfig("true").errors,
-            ["(Line 1) Syntax error: missing =."],
+            parseConfig("true").strErrors,
+            ["[ERROR] (Line 1) Syntax error: missing =."],
         )
 
         assertEquals(
-            parseConfig("\n1").errors,
-            ["(Line 2) Syntax error: missing =."],
+            parseConfig("\n1").strErrors,
+            ["[ERROR] (Line 2) Syntax error: missing =."],
         )
 
         assertEquals(
-            parseConfig("foo: 1").errors,
-            ["(Line 1) Syntax error: missing =."],
+            parseConfig("foo: 1").strErrors,
+            ["[ERROR] (Line 1) Syntax error: missing =."],
         )
 
         // Upstream reports "foo: Unsupported TOML type: Double". WinMux reads floats (hook jsonDouble), so the value
         // passes conversion and the key is reported instead.
         assertEquals(
-            parseConfig("foo = 1.0").errors,
+            parseConfigForTests("foo = 1.0").errors,
             ["foo: Unknown top-level key"],
         )
 
         assertEquals(
-            parseConfig("foo.bar = 1979-05-27").errors,
-            ["foo.bar: Unsupported TOML type: LocalDate"],
+            parseConfig("foo.bar = 1979-05-27").strErrors,
+            ["[ERROR] foo.bar: Unsupported TOML type: LocalDate", "[ERROR] foo: Unknown top-level key"],
         )
     }
 
@@ -417,7 +445,7 @@ final class ConfigTest: XCTestCase {
     }
 
     func testSplitCommandAndFlattenContainersNormalization() {
-        let (_, errors) = parseConfig(
+        let (_, errors) = parseConfigForTests(
             """
             enable-normalization-flatten-containers = true
             [mode.main.binding]
@@ -439,7 +467,7 @@ final class ConfigTest: XCTestCase {
     }
 
     func testParseWorkspaceToMonitorAssignment() {
-        let (parsed, errors) = parseConfig(
+        let result = parseConfig(
             """
             [workspace-to-monitor-force-assignment]
                 workspace_name_1 = 1                            # Sequence number of the monitor (from left to right, 1-based indexing)
@@ -455,7 +483,7 @@ final class ConfigTest: XCTestCase {
             """,
         )
         assertEquals(
-            parsed.workspaceToMonitorForceAssignment,
+            result.config.workspaceToMonitorForceAssignment,
             [
                 "workspace_name_1": [.sequenceNumber(1)],
                 "workspace_name_2": [.main],
@@ -470,14 +498,92 @@ final class ConfigTest: XCTestCase {
             ],
         )
         assertEquals([
-            "workspace-to-monitor-force-assignment.w7[0]: Empty string is an illegal monitor description",
-            "workspace-to-monitor-force-assignment.w8: Monitor sequence numbers uses 1-based indexing. Values less than 1 are illegal",
-        ], errors)
+            "[ERROR] workspace-to-monitor-force-assignment.w7[0]: Empty string is an illegal monitor description",
+            "[ERROR] workspace-to-monitor-force-assignment.w8: Monitor sequence numbers uses 1-based indexing. Values less than 1 are illegal",
+        ], result.strErrors)
         assertEquals([:], defaultConfig.workspaceToMonitorForceAssignment)
     }
 
+    func testParseOnWindowDetected() {
+        let result = parseConfig(
+            """
+            on-window-detected = [
+                { # 0
+                    check-further-callbacks = true,
+                    run = ['layout floating', 'move-node-to-workspace W'],
+                },
+                { # 1
+                    if.app-id = 'com.apple.systempreferences',
+                    run = [],
+                },
+                {}, # 2
+                { # 3
+                    run = ['move-node-to-workspace S', 'layout tiling'],
+                },
+                { # 4
+                    run = ['move-node-to-workspace S', 'move-node-to-workspace W'],
+                },
+                { # 5
+                    run = ['move-node-to-workspace S', 'layout h_tiles'],
+                },
+                { # 6
+                    if = 'test %{app-bundle-id} = org.alacritty',
+                    run = ['move-node-to-workspace T'],
+                },
+            ]
+            """,
+        )
+        let matcher6Args = TestCmdArgs(rawArgs: [])
+            .copy(\.lhs, .initialized(.app(.appBundleId)))
+            .copy(\.infixOperator, .initialized(.equals))
+            .copy(\.rhs, .initialized("org.alacritty"))
+        assertEquals(result.config.onWindowDetected, [
+            WindowDetectedCallback( // 0
+                checkFurtherCallbacks: true,
+                rawRun: [
+                    LayoutCommand(args: LayoutCmdArgs(rawArgs: [], toggleBetween: [.floating])),
+                    MoveNodeToWorkspaceCommand(args: MoveNodeToWorkspaceCmdArgs(workspace: "W")),
+                ],
+            ),
+            WindowDetectedCallback( // 1
+                matcher: .legacy(LegacyWindowDetectedCallbackMatcher(
+                    appId: "com.apple.systempreferences",
+                )),
+                rawRun: [],
+            ),
+            WindowDetectedCallback( // 3
+                rawRun: [
+                    MoveNodeToWorkspaceCommand(args: MoveNodeToWorkspaceCmdArgs(workspace: "S")),
+                    LayoutCommand(args: LayoutCmdArgs(rawArgs: [], toggleBetween: [.tiling])),
+                ],
+            ),
+            WindowDetectedCallback( // 4
+                rawRun: [
+                    MoveNodeToWorkspaceCommand(args: MoveNodeToWorkspaceCmdArgs(workspace: "S")),
+                    MoveNodeToWorkspaceCommand(args: MoveNodeToWorkspaceCmdArgs(workspace: "W")),
+                ],
+            ),
+            WindowDetectedCallback( // 5
+                rawRun: [
+                    MoveNodeToWorkspaceCommand(args: MoveNodeToWorkspaceCmdArgs(workspace: "S")),
+                    LayoutCommand(args: LayoutCmdArgs(rawArgs: [], toggleBetween: [.h_tiles])),
+                ],
+            ),
+            WindowDetectedCallback( // 6
+                matcher: .command(TestCommand(args: matcher6Args)),
+                rawRun: [
+                    MoveNodeToWorkspaceCommand(args: MoveNodeToWorkspaceCmdArgs(workspace: "T")),
+                ],
+            ),
+        ])
+
+        assertEquals(result.strErrors, [
+            "[ERROR] on-window-detected[2]: \'run\' is mandatory key",
+        ])
+    }
+
     func testParseInlineTables() {
-        let errors = parseConfig(
+        let errors = parseConfigForTests(
             """
             on-window-detected = [
                 {
@@ -506,7 +612,7 @@ final class ConfigTest: XCTestCase {
             if.app-id = 'com.openai.chat'
             run = 'layout floating'
             """,
-        ).errors
-        assertEquals(errors, ["(Line 1) Syntax error: invalid or missing key."])
+        ).strErrors
+        assertEquals(errors, ["[ERROR] (Line 1) Syntax error: invalid or missing key."])
     }
 }

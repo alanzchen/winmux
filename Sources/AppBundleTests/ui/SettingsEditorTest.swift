@@ -15,7 +15,7 @@ final class SettingsEditorTest: XCTestCase {
         let previous = config
         defer { config = previous }
         let disk = SettingsTestDisk()
-        config = parseConfig(disk.text).config
+        config = parseConfigForTests(disk.text).config
         let editor = SettingsEditor(configuration: config, persistence: disk.persistence)
         disk.failWrites = true
         let field = SettingsCatalog.field("workspace-sidebar.show-workspace-tooltips")
@@ -48,7 +48,7 @@ final class SettingsEditorTest: XCTestCase {
         defer { config = previous; document.text = previousText }
         for editsDocument in [false, true] {
             let disk = SettingsTestDisk()
-            config = parseConfig(disk.text).config
+            config = parseConfigForTests(disk.text).config
             let editor = SettingsEditor(configuration: config, persistence: disk.persistence)
             disk.failWrites = true
             let first = SettingsCatalog.field("workspace-sidebar.show-workspace-tooltips")
@@ -87,7 +87,7 @@ final class SettingsEditorTest: XCTestCase {
         for field in SettingsCatalog.fields where field.writePreference == nil {
             let text = updateSettingsAppearanceConfig(in: "config-version = 2\n", section: field.section,
                 values: [field.key: field.render(field.defaultValue)])
-            let parsed = parseConfig(text)
+            let parsed = parseConfigForTests(text)
             XCTAssertTrue(parsed.errors.isEmpty, "\(field.id): \(parsed.errors)")
             XCTAssertEqual(field.read(parsed.config), field.defaultValue, field.id)
         }
@@ -106,7 +106,7 @@ final class SettingsEditorTest: XCTestCase {
                 let text = updateSettingsAppearanceConfig(in: "config-version = 2\n", section: field.section,
                     values: [field.key: field.render(.text(option.value))],
                     preservingDockAppearance: field.preservingDockAppearance)
-                let parsed = parseConfig(text)
+                let parsed = parseConfigForTests(text)
                 XCTAssertTrue(parsed.errors.isEmpty, "\(field.id) = \(option.value): \(parsed.errors)")
             }
         }
@@ -114,7 +114,7 @@ final class SettingsEditorTest: XCTestCase {
 
     func testRemovedShortcutPresetIsNotOfferedButItsKeyStillLoads() {
         XCTAssertFalse(SettingsCatalog.allFields.contains { $0.key == "shortcuts-preset" })
-        XCTAssertTrue(parseConfig("shortcuts-preset = 'none'\n").errors.isEmpty)
+        XCTAssertTrue(parseConfigForTests("shortcuts-preset = 'none'\n").errors.isEmpty)
     }
 
     func testTooltipSettingsAreDiscoverableAndRespectDisplayMode() {
@@ -147,7 +147,7 @@ final class SettingsEditorTest: XCTestCase {
         XCTAssertTrue(SettingsCatalog.results("open missing apps").contains { $0.id == open.id })
 
         let disk = SettingsTestDisk()
-        config = parseConfig(disk.text).config
+        config = parseConfigForTests(disk.text).config
         let editor = SettingsEditor(persistence: disk.persistence)
         editor.setDraft(.bool(false), for: save); editor.commit(save)
         editor.setDraft(.bool(true), for: open); editor.commit(open)
@@ -184,14 +184,14 @@ final class SettingsEditorTest: XCTestCase {
         let saved = config
         defer { config = saved }
         let disk = SettingsTestDisk()
-        config = parseConfig(disk.text).config
+        config = parseConfigForTests(disk.text).config
         let editor = SettingsEditor(persistence: disk.persistence)
         let field = SettingsCatalog.field("start-at-login")
         editor.setDraft(.bool(true), for: field); editor.commit(field)
         editor.setDraft(.bool(false), for: field); editor.commit(field)
         await editor.waitUntilIdle()
         XCTAssertEqual(disk.writes.count, 2)
-        XCTAssertFalse(parseConfig(disk.text).config.startAtLogin)
+        XCTAssertFalse(parseConfigForTests(disk.text).config.startAtLogin)
         XCTAssertFalse(editor.value(field).bool)
         XCTAssertTrue(editor.drafts.isEmpty)
         XCTAssertNil(editor.error)
@@ -201,7 +201,7 @@ final class SettingsEditorTest: XCTestCase {
         let saved = config
         defer { config = saved }
         let disk = SettingsTestDisk()
-        config = parseConfig(disk.text).config
+        config = parseConfigForTests(disk.text).config
         let editor = SettingsEditor(persistence: disk.persistence)
         let field = SettingsCatalog.field("start-at-login")
         disk.failWrites = true
@@ -227,7 +227,7 @@ final class SettingsEditorTest: XCTestCase {
         defer { config = saved }
         let disk = SettingsTestDisk()
         let original = disk.text
-        config = parseConfig(original).config
+        config = parseConfigForTests(original).config
         let editor = SettingsEditor(persistence: disk.persistence)
         disk.failNextReload = true
         let field = SettingsCatalog.field("start-at-login")
@@ -243,7 +243,7 @@ final class SettingsEditorTest: XCTestCase {
         let saved = config
         defer { config = saved }
         let disk = SettingsTestDisk()
-        config = parseConfig(disk.text).config
+        config = parseConfigForTests(disk.text).config
         let editor = SettingsEditor(persistence: disk.persistence)
         let field = SettingsCatalog.field("start-at-login")
         editor.setDraft(.bool(true), for: field); editor.commit(field)
@@ -256,7 +256,7 @@ final class SettingsEditorTest: XCTestCase {
         XCTAssertFalse(editor.canRetry)
         XCTAssertNil(editor.undoTitle)
         editor.revertDrafts()
-        editor.synchronize(parseConfig(external).config)
+        editor.synchronize(parseConfigForTests(external).config)
         XCTAssertTrue(editor.value(SettingsCatalog.field("auto-reload-config")).bool)
     }
 
@@ -266,7 +266,7 @@ final class SettingsEditorTest: XCTestCase {
         let disk = SettingsTestDisk()
         disk.text += "\n[workspace-sidebar]\nchrome-style = 'solid'\nsolid-chrome-color = 'blue'\ndock-icon-size = 32\n"
         let original = disk.text
-        config = parseConfig(original).config
+        config = parseConfigForTests(original).config
         let editor = SettingsEditor(persistence: disk.persistence)
         editor.reset(.windowChrome)
         await editor.waitUntilIdle()
@@ -283,7 +283,7 @@ final class SettingsEditorTest: XCTestCase {
         let saved = config
         defer { config = saved }
         let disk = SettingsTestDisk()
-        config = parseConfig(disk.text).config
+        config = parseConfigForTests(disk.text).config
         let editor = SettingsEditor(persistence: disk.persistence)
         disk.text += "\n# External comment\nenable-shake-to-toggle-tiling = false\n"
         let field = SettingsCatalog.field("persistent-workspaces")
@@ -300,7 +300,7 @@ final class SettingsEditorTest: XCTestCase {
         defer { config = saved }
         let disk = SettingsTestDisk()
         disk.text += "persistent-workspaces = [\n  '1', # Keep\n  'two]words',\n]\n# Other setting\n[workspace-sidebar]\nwidth = 250\n"
-        config = parseConfig(disk.text).config
+        config = parseConfigForTests(disk.text).config
         let editor = SettingsEditor(persistence: disk.persistence)
         let field = SettingsCatalog.field("persistent-workspaces")
         editor.setDraft(.text("3, 4"), for: field); editor.commit(field)
@@ -315,7 +315,7 @@ final class SettingsEditorTest: XCTestCase {
         let saved = config
         defer { config = saved }
         let disk = SettingsTestDisk()
-        config = parseConfig(disk.text).config
+        config = parseConfigForTests(disk.text).config
         let editor = SettingsEditor(persistence: disk.persistence)
         let original = disk.text
         let edited = original.replacingOccurrences(of: "start-at-login = false", with: "start-at-login = true")
@@ -346,14 +346,14 @@ final class SettingsEditorTest: XCTestCase {
             key: "dock-icon-size", renderedValue: "40")
         XCTAssertTrue(updated.contains("dock-icon-size = 24"))
         XCTAssertFalse(updated.contains("'dock-icon-size' = 32"))
-        XCTAssertEqual(parseConfig(updated).config.workspaceSidebar.dockIconSize, 40)
-        XCTAssertTrue(parseConfig(updated).errors.isEmpty)
+        XCTAssertEqual(parseConfigForTests(updated).config.workspaceSidebar.dockIconSize, 40)
+        XCTAssertTrue(parseConfigForTests(updated).errors.isEmpty)
     }
 
     func testTOMLEditUpdatesEquivalentDottedKeysAndSubtables() {
         for text in ["[gaps.inner]\nhorizontal = 8\nvertical = 9\n", "gaps.inner.horizontal = 8\n", "[gaps.inner]\nvertical = 9\n"] {
             let updated = updateSettingsScalarConfig(in: text, section: "gaps", key: "inner.horizontal", renderedValue: "12")
-            let parsed = parseConfig(updated)
+            let parsed = parseConfigForTests(updated)
             XCTAssertTrue(parsed.errors.isEmpty, "\(updated): \(parsed.errors)")
             XCTAssertEqual(settingsConstantValue(parsed.config.gaps.inner.horizontal), 12)
         }
@@ -372,7 +372,7 @@ final class SettingsEditorTest: XCTestCase {
     func testWindowAppearanceCanPreserveInheritedDockOnMinimalConfig() {
         let updated = updateSettingsAppearanceConfig(in: "config-version = 2\n", section: "workspace-sidebar",
             values: ["chrome-style": "'solid'"], preservingDockAppearance: true)
-        let parsed = parseConfig(updated)
+        let parsed = parseConfigForTests(updated)
         XCTAssertTrue(parsed.errors.isEmpty, "\(updated): \(parsed.errors)")
         XCTAssertEqual(parsed.config.workspaceSidebar.chromeStyle, .solid)
         XCTAssertEqual(parsed.config.workspaceSidebar.dockChromeStyle, defaultConfig.workspaceSidebar.dockChromeStyle)
@@ -381,7 +381,7 @@ final class SettingsEditorTest: XCTestCase {
     func testTOMLInsertionKeepsMostSpecificTableWhenParentAppearsLater() {
         let gaps = "[gaps.inner]\nvertical = 9\n[gaps]\nouter.left = 12\n"
         let updated = updateSettingsScalarConfig(in: gaps, section: "gaps", key: "inner.horizontal", renderedValue: "16")
-        let parsed = parseConfig(updated)
+        let parsed = parseConfigForTests(updated)
         XCTAssertTrue(parsed.errors.isEmpty, "\(updated): \(parsed.errors)")
         XCTAssertEqual(settingsConstantValue(parsed.config.gaps.inner.horizontal), 16)
         XCTAssertEqual(settingsConstantValue(parsed.config.gaps.inner.vertical), 9)
@@ -422,7 +422,7 @@ final class SettingsEditorTest: XCTestCase {
         let saved = config
         defer { config = saved }
         let disk = SettingsTestDisk()
-        config = parseConfig(disk.text).config
+        config = parseConfigForTests(disk.text).config
         let editor = SettingsEditor(persistence: disk.persistence)
         let field = SettingsCatalog.automationFields.first { $0.key == "on-focus-changed" }!
         let draft = SettingsValue.text("focus left\n   \nfocus right")
@@ -443,7 +443,7 @@ final class SettingsEditorTest: XCTestCase {
         let saved = config
         defer { config = saved }
         let disk = SettingsTestDisk()
-        config = parseConfig(disk.text).config
+        config = parseConfigForTests(disk.text).config
         disk.text += "persistent-workspaces = [\n'1'\n[workspace-sidebar]\ndock-icon-size = 32\n"
         let original = disk.text
         let editor = SettingsEditor(persistence: disk.persistence)
@@ -477,7 +477,7 @@ final class SettingsEditorTest: XCTestCase {
         let saved = config
         defer { config = saved }
         let disk = SettingsTestDisk()
-        config = parseConfig(disk.text).config
+        config = parseConfigForTests(disk.text).config
         let editor = SettingsEditor(persistence: disk.persistence)
         disk.failWrites = true
         for key in ["start-at-login", "auto-reload-config"] {
@@ -497,7 +497,7 @@ final class SettingsEditorTest: XCTestCase {
         let saved = config
         defer { config = saved }
         let disk = SettingsTestDisk()
-        config = parseConfig(disk.text).config
+        config = parseConfigForTests(disk.text).config
         let editor = SettingsEditor(persistence: disk.persistence)
         let field = SettingsCatalog.field("start-at-login")
         disk.failWrites = true
@@ -517,7 +517,7 @@ final class SettingsEditorTest: XCTestCase {
         let saved = config
         defer { config = saved }
         let disk = SettingsTestDisk()
-        config = parseConfig(disk.text).config
+        config = parseConfigForTests(disk.text).config
         let editor = SettingsEditor(persistence: disk.persistence)
         let original = disk.text
         let edited = original.replacingOccurrences(of: "start-at-login = false", with: "start-at-login = true")
@@ -557,7 +557,7 @@ final class SettingsTestDisk {
             }, reload: { _ in
                 await Task.yield()
                 if self.failNextReload { self.failNextReload = false; return false }
-                let parsed = parseConfig(self.text)
+                let parsed = parseConfigForTests(self.text)
                 guard parsed.errors.isEmpty else { return false }
                 config = parsed.config
                 return true

@@ -51,7 +51,7 @@ final class SettingsAvailabilityTest: XCTestCase {
             }
         }
         XCTAssertFalse(SettingsCatalog.fields.contains { $0.key == "show-status-pills" }, "No view reads status pills")
-        XCTAssertTrue(parseConfig("[workspace-sidebar]\nshow-status-pills = false\n").errors.isEmpty, "The key still parses")
+        XCTAssertTrue(parseConfigForTests("[workspace-sidebar]\nshow-status-pills = false\n").errors.isEmpty, "The key still parses")
     }
 
     func testMenuBarSettingsOfferOnlyWhatTheStatusItemRenders() {
@@ -221,7 +221,7 @@ final class SettingsAvailabilityTest: XCTestCase {
         defer { config = saved }
         let disk = SettingsTestDisk()
         disk.text += "[workspace-sidebar]\n    enabled = true\n    mode = 'dock'\n    chrome-style = 'liquid-glass'\n    glass-opacity = 0.4\n"
-        config = parseConfig(disk.text).config
+        config = parseConfigForTests(disk.text).config
         let editor = SettingsEditor(persistence: disk.persistence)
         let edits: [(String, SettingsValue)] = [
             ("workspace-sidebar.chrome-style", .text("solid")),
@@ -257,7 +257,7 @@ final class SettingsAvailabilityTest: XCTestCase {
         defer { config = saved }
         let disk = SettingsTestDisk()
         disk.text += "open-new-windows-in-new-workspace = false\n[workspace-sidebar]\n    enabled = true\n    mode = 'tabs'\n"
-        config = parseConfig(disk.text).config
+        config = parseConfigForTests(disk.text).config
         let editor = SettingsEditor(persistence: disk.persistence)
         let newWorkspace = SettingsCatalog.field("open-new-windows-in-new-workspace")
         disk.failWrites = true
@@ -285,7 +285,7 @@ final class SettingsAvailabilityTest: XCTestCase {
         defer { config = saved }
         let disk = SettingsTestDisk()
         disk.text += "open-new-windows-in-new-workspace = false\n[workspace-sidebar]\n    enabled = true\n    mode = 'tabs'\n"
-        config = parseConfig(disk.text).config
+        config = parseConfigForTests(disk.text).config
         let editor = SettingsEditor(persistence: disk.persistence)
         let newWorkspace = SettingsCatalog.field("open-new-windows-in-new-workspace")
         disk.failWrites = true
@@ -316,7 +316,7 @@ final class SettingsAvailabilityTest: XCTestCase {
         for field in SettingsCatalog.fields where field.group == .newWindows && field.unsetValue == nil {
             disk.text += "\(field.key) = \(field.render(field.defaultValue))\n"
         }
-        config = parseConfig(disk.text).config
+        config = parseConfigForTests(disk.text).config
         XCTAssertNil(config.openNewWindowsInNewWorkspace)
         let editor = SettingsEditor(persistence: disk.persistence)
         editor.reset(.newWindows)
@@ -334,7 +334,7 @@ final class SettingsAvailabilityTest: XCTestCase {
         for resetFirst in [false, true] {
             let disk = SettingsTestDisk()
             disk.text += "open-new-windows-in-new-workspace = true\n[workspace-sidebar]\n    enabled = true\n    mode = 'dock'\n"
-            config = parseConfig(disk.text).config
+            config = parseConfigForTests(disk.text).config
             let editor = SettingsEditor(persistence: disk.persistence)
             disk.failWrites = true
             // In Dock, both edits write false: one explicitly, one by removing the key.

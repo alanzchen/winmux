@@ -3,6 +3,10 @@ USAGE: agent [-h|--help] query [--path <path>]
    OR: agent [-h|--help] check (--path <path>|--stdin)
    OR: agent [-h|--help] apply (--path <path>|--stdin)
    OR: agent [-h|--help] skill
+## false
+USAGE: false [-h|--help]
+## true
+USAGE: true [-h|--help]
 ## balance-sizes
 USAGE: balance-sizes [-h|--help] [--workspace <workspace>]
 ## close
@@ -142,7 +146,7 @@ workspaces and projects, Enter to jump to the selected window.
 USAGE: project [-h|--help] [--wrap-around] [--fail-if-noop] (<project-id>|<project-index>|next|prev)
    OR: project [-h|--help] [--fail-if-noop] --project-id <project-id>
 ## reload-config
-USAGE: reload-config [-h|--help] [--no-gui] [--dry-run]
+USAGE: reload-config [-h|--help] [--no-gui] [--dry-run] [--warnings-as-errors]
 ## rename-project
 USAGE: rename-project [-h|--help] [--fail-if-noop] [--json] <project-id> <project-name>
 ## resize
@@ -163,6 +167,12 @@ USAGE: summon-workspace [-h|--help] [--fail-if-noop] [--] <workspace>
 USAGE: swap [-h|--help] [--window-id <window-id>] [--swap-focus]
             [--wrap-around]
             (left|down|up|right|dfs-next|dfs-prev)
+## test
+USAGE: test [-h|--help] <lhs> = <rhs>
+   OR: test [-h|--help] <lhs> ~= <rhs>
+## test-not
+USAGE: test [-h|--help] <lhs> = <rhs>
+   OR: test [-h|--help] <lhs> ~= <rhs>
 ## trigger-binding
 USAGE: trigger-binding [-h|--help] --mode <mode-id> [--] <binding>
 ## volume

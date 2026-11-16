@@ -9,6 +9,10 @@ extension CmdArgs {
                  .openLauncher, .openSidebar, .palette, .project, .renameProject, .saveWorkspace, .setProjectColor, .stackWith:
                 command = winMuxCommand(self)
             // WINMUX-HOOK-END(commands)
+            case ._false:
+                command = FalseCommand(args: self as! FalseCmdArgs)
+            case ._true:
+                command = TrueCommand(args: self as! TrueCmdArgs)
             case .balanceSizes:
                 command = BalanceSizesCommand(args: self as! BalanceSizesCmdArgs)
             case .close:
@@ -77,6 +81,10 @@ extension CmdArgs {
                 command = SummonWorkspaceCommand(args: self as! SummonWorkspaceCmdArgs)
             case .swap:
                 command = SwapCommand(args: self as! SwapCmdArgs)
+            case .test:
+                command = TestCommand(args: self as! TestCmdArgs)
+            case .testNot:
+                command = TestNotCommand(args: self as! TestNotCmdArgs)
             case .triggerBinding:
                 command = TriggerBindingCommand(args: self as! TriggerBindingCmdArgs)
             case .volume:

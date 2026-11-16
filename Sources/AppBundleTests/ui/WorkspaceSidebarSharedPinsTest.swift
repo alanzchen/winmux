@@ -33,7 +33,7 @@ final class WorkspaceSidebarSharedPinsTest: XCTestCase {
     // MARK: The setting
 
     func testSharePinnedTabsIsATabsSettingThatDefaultsOff() {
-        let (parsed, errors) = parseConfig("""
+        let (parsed, errors) = parseConfigForTests("""
             [workspace-sidebar]
             mode = 'tabs'
             share-pinned-tabs = true
@@ -59,7 +59,7 @@ final class WorkspaceSidebarSharedPinsTest: XCTestCase {
         // Saved from Settings, the key reads back from the file.
         let text = updateSettingsScalarConfig(in: "[workspace-sidebar]\nmode = 'tabs'\n", section: "workspace-sidebar",
             key: "share-pinned-tabs", renderedValue: "true")
-        XCTAssertTrue(parseConfig(text).config.workspaceSidebar.sharePinnedTabs, text)
+        XCTAssertTrue(parseConfigForTests(text).config.workspaceSidebar.sharePinnedTabs, text)
     }
 
     // MARK: What each display lists

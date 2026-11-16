@@ -89,7 +89,7 @@ struct ShortcutAdvancedView: View {
 
     private func validateConfig() {
         let errors = parseConfig(document.text).errors
-        document.validationMessage = errors.isEmpty ? nil : errors.map(\.description).joined(separator: "\n\n")
+        document.validationMessage = errors.isEmpty ? nil : errors.map { $0.description(.error) }.joined(separator: "\n\n")
         document.saveMessage = errors.isEmpty ? "Configuration is valid." : nil
     }
 

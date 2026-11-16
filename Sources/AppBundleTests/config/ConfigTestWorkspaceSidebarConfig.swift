@@ -5,47 +5,47 @@ import XCTest
 
 extension ConfigTest {
     func testTooltipVisibilityDefaultsAndIndependentParsing() {
-        let (defaults, defaultErrors) = parseConfig("[workspace-sidebar]")
+        let (defaults, defaultErrors) = parseConfigForTests("[workspace-sidebar]")
         XCTAssertTrue(defaultErrors.isEmpty)
         XCTAssertTrue(defaults.workspaceSidebar.showWorkspaceTooltips)
         XCTAssertTrue(defaults.workspaceSidebar.showAppTooltips)
         for workspace in [false, true] {
             for app in [false, true] {
-                let (parsed, errors) = parseConfig("[workspace-sidebar]\nshow-workspace-tooltips = \(workspace)\nshow-app-tooltips = \(app)")
+                let (parsed, errors) = parseConfigForTests("[workspace-sidebar]\nshow-workspace-tooltips = \(workspace)\nshow-app-tooltips = \(app)")
                 XCTAssertTrue(errors.isEmpty)
                 XCTAssertEqual(parsed.workspaceSidebar.showWorkspaceTooltips, workspace)
                 XCTAssertEqual(parsed.workspaceSidebar.showAppTooltips, app)
             }
         }
         for key in ["show-workspace-tooltips", "show-app-tooltips"] {
-            let (_, errors) = parseConfig("[workspace-sidebar]\n\(key) = 'invalid'")
+            let (_, errors) = parseConfigForTests("[workspace-sidebar]\n\(key) = 'invalid'")
             XCTAssertFalse(errors.isEmpty)
         }
     }
 
     func testDockIdentityLabelModes() {
         for mode in ["auto", "always", "off"] {
-            let (parsed, errors) = parseConfig("[workspace-sidebar]\ndock-identity-labels = '\(mode)'")
+            let (parsed, errors) = parseConfigForTests("[workspace-sidebar]\ndock-identity-labels = '\(mode)'")
             XCTAssertTrue(errors.isEmpty)
             XCTAssertEqual(parsed.workspaceSidebar.dockIdentityLabels.rawValue, mode)
         }
-        let (_, errors) = parseConfig("[workspace-sidebar]\ndock-identity-labels = 'invalid'")
+        let (_, errors) = parseConfigForTests("[workspace-sidebar]\ndock-identity-labels = 'invalid'")
         XCTAssertFalse(errors.isEmpty)
     }
 
     func testDisplayFilterDefaultsToThisDisplayAndParsesBothValues() {
-        XCTAssertEqual(parseConfig("[workspace-sidebar]").0.workspaceSidebar.displayFilter, .thisDisplay)
+        XCTAssertEqual(parseConfigForTests("[workspace-sidebar]").0.workspaceSidebar.displayFilter, .thisDisplay)
         for filter in WorkspaceSidebarDisplayFilter.allCases {
-            let (parsed, errors) = parseConfig("[workspace-sidebar]\ndisplay-filter = '\(filter.rawValue)'")
+            let (parsed, errors) = parseConfigForTests("[workspace-sidebar]\ndisplay-filter = '\(filter.rawValue)'")
             XCTAssertTrue(errors.isEmpty)
             XCTAssertEqual(parsed.workspaceSidebar.displayFilter, filter)
         }
-        let (_, errors) = parseConfig("[workspace-sidebar]\ndisplay-filter = 'main'")
+        let (_, errors) = parseConfigForTests("[workspace-sidebar]\ndisplay-filter = 'main'")
         XCTAssertFalse(errors.isEmpty)
     }
 
     func testParseWorkspaceSidebar() {
-        let (parsed, errors) = parseConfig(
+        let (parsed, errors) = parseConfigForTests(
             """
             [workspace-sidebar]
                 enabled = true
@@ -103,7 +103,7 @@ extension ConfigTest {
             ),
         )
 
-        let (backwardCompatible, backwardCompatibleErrors) = parseConfig(
+        let (backwardCompatible, backwardCompatibleErrors) = parseConfigForTests(
             """
             [workspace-sidebar]
                 enabled = true
@@ -115,7 +115,7 @@ extension ConfigTest {
         XCTAssertTrue(backwardCompatible.workspaceSidebar.stayOnTop)
         XCTAssertEqual(backwardCompatible.workspaceSidebar.glassOpacity, 1.0)
 
-        let (solidChrome, solidChromeErrors) = parseConfig(
+        let (solidChrome, solidChromeErrors) = parseConfigForTests(
             """
             [workspace-sidebar]
                 chrome-style = 'solid'
@@ -124,7 +124,7 @@ extension ConfigTest {
         assertEquals(solidChromeErrors, [])
         XCTAssertEqual(solidChrome.workspaceSidebar.chromeStyle, .solid)
 
-        let (mintChrome, mintChromeErrors) = parseConfig(
+        let (mintChrome, mintChromeErrors) = parseConfigForTests(
             """
             [workspace-sidebar]
                 solid-chrome-color = 'mint'
@@ -133,7 +133,7 @@ extension ConfigTest {
         assertEquals(mintChromeErrors, [])
         XCTAssertEqual(mintChrome.workspaceSidebar.solidChromeColor, .mint)
 
-        let (_, chromeStyleErrors) = parseConfig(
+        let (_, chromeStyleErrors) = parseConfigForTests(
             """
             [workspace-sidebar]
                 chrome-style = 'blurred'
@@ -143,7 +143,7 @@ extension ConfigTest {
             "workspace-sidebar.chrome-style: Possible values: liquid-glass, solid",
         ])
 
-        let (_, solidColorErrors) = parseConfig(
+        let (_, solidColorErrors) = parseConfigForTests(
             """
             [workspace-sidebar]
                 solid-chrome-color = 'gray'
@@ -153,7 +153,7 @@ extension ConfigTest {
             "workspace-sidebar.solid-chrome-color: Possible values: black, onyx, charcoal, midnight, graphite, slate, steel, silver, fog, blue, indigo, lavender, ocean, teal, mint, green, sage, gold, cocoa, rose, mauve, plum, violet, apricot, custom",
         ])
 
-        let (_, alwaysExpandedWidthErrors) = parseConfig(
+        let (_, alwaysExpandedWidthErrors) = parseConfigForTests(
             """
             [workspace-sidebar]
                 always-expanded = true
@@ -165,7 +165,7 @@ extension ConfigTest {
             "workspace-sidebar.width: Must be greater than collapsed-width when always-expanded is true",
         ])
 
-        let (_, widthErrors) = parseConfig(
+        let (_, widthErrors) = parseConfigForTests(
             """
             [workspace-sidebar]
                 collapsed-width = 0
@@ -179,7 +179,7 @@ extension ConfigTest {
             "workspace-sidebar.width: Must be greater than 0",
         ])
 
-        let (_, colorErrors) = parseConfig(
+        let (_, colorErrors) = parseConfigForTests(
             """
             [workspace-sidebar.project-colors]
                 default = 'not-a-color'
@@ -189,7 +189,7 @@ extension ConfigTest {
             "workspace-sidebar.project-colors.default: Must be a hex color like '#RRGGBB'",
         ])
 
-        let (_, actionErrors) = parseConfig(
+        let (_, actionErrors) = parseConfigForTests(
             """
             [workspace-sidebar]
                 project-deletion-action = 'explode'
@@ -201,14 +201,14 @@ extension ConfigTest {
     }
 
     func testParseSavedWorkspaceOptions() {
-        let (defaults, defaultErrors) = parseConfig("[workspace-sidebar]")
+        let (defaults, defaultErrors) = parseConfigForTests("[workspace-sidebar]")
         assertEquals(defaultErrors, [])
         XCTAssertTrue(defaults.workspaceSidebar.saveNamedWorkspaces)
         XCTAssertFalse(defaults.workspaceSidebar.openSavedWorkspaceAppsAtStartup)
 
         for save in [false, true] {
             for open in [false, true] {
-                let (parsed, errors) = parseConfig("""
+                let (parsed, errors) = parseConfigForTests("""
                     [workspace-sidebar]
                         save-named-workspaces = \(save)
                         open-saved-workspace-apps-at-startup = \(open)
@@ -219,14 +219,14 @@ extension ConfigTest {
             }
         }
 
-        let (invalid, invalidErrors) = parseConfig("""
+        let (invalid, invalidErrors) = parseConfigForTests("""
             [workspace-sidebar]
                 save-named-workspaces = 'false'
                 open-saved-workspace-apps-at-startup = 1
             """)
         assertEquals(invalidErrors, [
-            "workspace-sidebar.open-saved-workspace-apps-at-startup: Expected type is 'bool'. But actual type is 'int'",
-            "workspace-sidebar.save-named-workspaces: Expected type is 'bool'. But actual type is 'string'",
+            "workspace-sidebar.open-saved-workspace-apps-at-startup: Expected type is 'Bool'. But actual type is 'Int'",
+            "workspace-sidebar.save-named-workspaces: Expected type is 'Bool'. But actual type is 'String'",
         ])
         // A rejected value leaves the default in place.
         XCTAssertTrue(invalid.workspaceSidebar.saveNamedWorkspaces)
@@ -234,14 +234,14 @@ extension ConfigTest {
     }
 
     func testWorkspaceSidebarAppIconsCanBeDisabledAndRejectInvalidTypes() {
-        let (parsed, errors) = parseConfig("""
+        let (parsed, errors) = parseConfigForTests("""
             [workspace-sidebar]
                 show-app-icons = false
             """)
         assertEquals(errors, [])
         XCTAssertFalse(parsed.workspaceSidebar.showAppIcons)
 
-        let (_, invalidErrors) = parseConfig("""
+        let (_, invalidErrors) = parseConfigForTests("""
             [workspace-sidebar]
                 show-app-icons = 'true'
             """)
@@ -269,7 +269,7 @@ extension ConfigTest {
                 key: "show-app-icons",
                 renderedValue: enabled ? "true" : "false",
             )
-            let (parsed, errors) = parseConfig(updated)
+            let (parsed, errors) = parseConfigForTests(updated)
 
             assertEquals(errors, [])
             XCTAssertEqual(parsed.workspaceSidebar.showAppIcons, enabled)
@@ -283,7 +283,7 @@ extension ConfigTest {
 
     func testParseWorkspaceSidebarGlassOpacity() {
         for (rawValue, expected) in [("0", 0.0), ("1", 1.0), ("0.0", 0.0), ("1.0", 1.0), ("0.35", 0.35)] {
-            let (parsed, errors) = parseConfig("""
+            let (parsed, errors) = parseConfigForTests("""
                 [workspace-sidebar]
                     glass-opacity = \(rawValue)
                 """)
@@ -295,7 +295,7 @@ extension ConfigTest {
 
     func testParseWorkspaceSidebarGlassOpacityRejectsOutOfRangeAndNonfiniteNumbers() {
         for rawValue in ["-1", "2", "-0.01", "1.01", "inf", "+inf", "-inf", "nan", "+nan", "-nan"] {
-            let (_, errors) = parseConfig("""
+            let (_, errors) = parseConfigForTests("""
                 [workspace-sidebar]
                     glass-opacity = \(rawValue)
                 """)
@@ -308,7 +308,7 @@ extension ConfigTest {
 
     func testParseWorkspaceSidebarGlassOpacityRejectsNonnumericValues() {
         for rawValue in ["'0.5'", "true", "[]", "{}"] {
-            let (_, errors) = parseConfig("""
+            let (_, errors) = parseConfigForTests("""
                 [workspace-sidebar]
                     glass-opacity = \(rawValue)
                 """)
@@ -339,7 +339,7 @@ extension ConfigTest {
             key: "glass-opacity",
             renderedValue: "0.42",
         )
-        let (parsed, errors) = parseConfig(updated)
+        let (parsed, errors) = parseConfigForTests(updated)
 
         assertEquals(errors, [])
         XCTAssertEqual(parsed.workspaceSidebar.glassOpacity, 0.42)
@@ -361,7 +361,7 @@ extension ConfigTest {
             key: "glass-opacity",
             renderedValue: "0.6",
         )
-        let (parsed, errors) = parseConfig(updated)
+        let (parsed, errors) = parseConfigForTests(updated)
 
         assertEquals(errors, [])
         XCTAssertEqual(parsed.workspaceSidebar.glassOpacity, 0.6)
@@ -369,7 +369,7 @@ extension ConfigTest {
     }
 
     func testParseWindowTabs() {
-        let (parsed, errors) = parseConfig(
+        let (parsed, errors) = parseConfigForTests(
             """
             [window-tabs]
                 enabled = true
@@ -379,7 +379,7 @@ extension ConfigTest {
         assertEquals(errors, [])
         assertEquals(parsed.windowTabs, WindowTabsConfig(enabled: true, height: 38))
 
-        let (_, heightErrors) = parseConfig(
+        let (_, heightErrors) = parseConfigForTests(
             """
             [window-tabs]
                 height = 20
@@ -391,7 +391,7 @@ extension ConfigTest {
     }
 
     func testParseRectangleShortcutsPresetIsRemoved() {
-        let (parsed, errors) = parseConfig(
+        let (parsed, errors) = parseConfigForTests(
             """
             shortcuts-preset = 'rectangle'
             [mode.main.binding]
@@ -406,7 +406,7 @@ extension ConfigTest {
     }
 
     func testRemovedRectangleShortcutsPresetDoesNotOverrideExplicitBindings() {
-        let (parsed, errors) = parseConfig(
+        let (parsed, errors) = parseConfigForTests(
             """
             shortcuts-preset = 'rectangle'
             [mode.main.binding]
@@ -422,84 +422,21 @@ extension ConfigTest {
     }
 
     func testRemovedRectangleShortcutsPresetWithoutModesReportsOnlyTheRemoval() {
-        assertEquals(parseConfig("shortcuts-preset = 'rectangle'\n").errors, [
+        assertEquals(parseConfigForTests("shortcuts-preset = 'rectangle'\n").errors, [
             "shortcuts-preset: The 'rectangle' shortcuts preset has been removed",
         ])
     }
 
-    func testParseOnWindowDetected() {
-        let (parsed, errors) = parseConfig(
-            """
-            [[on-window-detected]] # 0
-                check-further-callbacks = true
-                run = ['layout floating', 'move-node-to-workspace W']
-            [[on-window-detected]] # 1
-                if.app-id = 'com.apple.systempreferences'
-                run = []
-            [[on-window-detected]] # 2
-            [[on-window-detected]] # 3
-                run = ['move-node-to-workspace S', 'layout tiling']
-            [[on-window-detected]] # 4
-                run = ['move-node-to-workspace S', 'move-node-to-workspace W']
-            [[on-window-detected]] # 5
-                run = ['move-node-to-workspace S', 'layout h_tiles']
-            """,
-        )
-        assertEquals(parsed.onWindowDetected, [
-            WindowDetectedCallback( // 0
-                matcher: WindowDetectedCallbackMatcher(
-                    appId: nil,
-                    appNameRegexSubstring: nil,
-                    windowTitleRegexSubstring: nil,
-                ),
-                checkFurtherCallbacks: true,
-                rawRun: [
-                    LayoutCommand(args: LayoutCmdArgs(rawArgs: [], toggleBetween: [.floating])),
-                    MoveNodeToWorkspaceCommand(args: MoveNodeToWorkspaceCmdArgs(workspace: "W")),
-                ],
-            ),
-            WindowDetectedCallback( // 1
-                matcher: WindowDetectedCallbackMatcher(
-                    appId: "com.apple.systempreferences",
-                    appNameRegexSubstring: nil,
-                    windowTitleRegexSubstring: nil,
-                ),
-                rawRun: [],
-            ),
-            WindowDetectedCallback( // 3
-                rawRun: [
-                    MoveNodeToWorkspaceCommand(args: MoveNodeToWorkspaceCmdArgs(workspace: "S")),
-                    LayoutCommand(args: LayoutCmdArgs(rawArgs: [], toggleBetween: [.tiling])),
-                ],
-            ),
-            WindowDetectedCallback( // 4
-                rawRun: [
-                    MoveNodeToWorkspaceCommand(args: MoveNodeToWorkspaceCmdArgs(workspace: "S")),
-                    MoveNodeToWorkspaceCommand(args: MoveNodeToWorkspaceCmdArgs(workspace: "W")),
-                ],
-            ),
-            WindowDetectedCallback( // 5
-                rawRun: [
-                    MoveNodeToWorkspaceCommand(args: MoveNodeToWorkspaceCmdArgs(workspace: "S")),
-                    LayoutCommand(args: LayoutCmdArgs(rawArgs: [], toggleBetween: [.h_tiles])),
-                ],
-            ),
-        ])
-
-        assertEquals(errors, [
-            "on-window-detected[2]: \'run\' is mandatory key",
-        ])
-    }
-
     func testParseOnWindowDetectedRegex() {
-        let (config, errors) = parseConfig(
+        let (config, errors) = parseConfigForTests(
             """
             [[on-window-detected]]
                 if.app-name-regex-substring = '^system settings$'
                 run = []
             """,
         )
-        XCTAssertTrue(config.onWindowDetected.singleOrNil()!.matcher.appNameRegexSubstring != nil)
+        guard case .legacy(let matcher) = config.onWindowDetected.singleOrNil()!.matcher else { return XCTFail("expected a table matcher") }
+        XCTAssertTrue(matcher.appNameRegexSubstring != nil)
         assertEquals(errors, [])
     }
 
@@ -510,7 +447,7 @@ extension ConfigTest {
     }
 
     func testParseGaps() {
-        let (config, errors1) = parseConfig(
+        let (config, errors1) = parseConfigForTests(
             """
             [gaps]
                 inner.horizontal = 10
@@ -547,7 +484,7 @@ extension ConfigTest {
             ),
         )
 
-        let (_, errors2) = parseConfig(
+        let (_, errors2) = parseConfigForTests(
             """
             [gaps]
                 inner.horizontal = [true]
@@ -562,7 +499,7 @@ extension ConfigTest {
     }
 
     func testParseZeroGapsForBorderlessTiling() {
-        let (config, errors) = parseConfig(
+        let (config, errors) = parseConfigForTests(
             """
             [gaps]
                 inner.horizontal = 0
@@ -579,7 +516,7 @@ extension ConfigTest {
     }
 
     func testParseKeyMapping() {
-        let (config, errors) = parseConfig(
+        let (config, errors) = parseConfigForTests(
             """
             [key-mapping.key-notation-to-key-code]
                 q = 'q'
@@ -597,7 +534,7 @@ extension ConfigTest {
         let binding = HotkeyBinding(.option, .u, [WorkspaceCommand(args: WorkspaceCmdArgs(target: .direct(.parse("unicorn").getOrDie())))])
         assertEquals(config.modes[mainModeId]?.bindings, [binding.descriptionWithKeyCode: binding])
 
-        let (_, errors1) = parseConfig(
+        let (_, errors1) = parseConfigForTests(
             """
             [key-mapping.key-notation-to-key-code]
                 q = 'qw'
@@ -605,11 +542,11 @@ extension ConfigTest {
             """,
         )
         assertEquals(errors1, [
-            "key-mapping.key-notation-to-key-code.q: 'qw' is invalid key code",
             "key-mapping.key-notation-to-key-code: ' f' is invalid key notation",
+            "key-mapping.key-notation-to-key-code.q: 'qw' is invalid key code",
         ])
 
-        let (dvorakConfig, dvorakErrors) = parseConfig(
+        let (dvorakConfig, dvorakErrors) = parseConfigForTests(
             """
             key-mapping.preset = 'dvorak'
             """,
@@ -617,7 +554,7 @@ extension ConfigTest {
         assertEquals(dvorakErrors, [])
         assertEquals(dvorakConfig.keyMapping, KeyMapping(preset: .dvorak, rawKeyNotationToKeyCode: [:]))
         assertEquals(dvorakConfig.keyMapping.resolve()["quote"], .q)
-        let (colemakConfig, colemakErrors) = parseConfig(
+        let (colemakConfig, colemakErrors) = parseConfigForTests(
             """
             key-mapping.preset = 'colemak'
             """,

@@ -75,7 +75,7 @@ final class S2DeltaTest: XCTestCase {
             for (index, edit) in editors.enumerated() {
                 let lfAfter = edit(sample)
                 assertEquals(edit(crlf), lfAfter?.replacingOccurrences(of: "\n", with: "\r\n"), additionalMsg: "editor \(index)")
-                if let lfAfter { assertEquals(parseConfig(lfAfter).errors, [], additionalMsg: "editor \(index)") }
+                if let lfAfter { assertEquals(parseConfigForTests(lfAfter).errors, [], additionalMsg: "editor \(index)") }
             }
         }
     }
@@ -125,6 +125,29 @@ final class S2DeltaTest: XCTestCase {
         try writeConfigFile(after, replacing: before, at: regular, changing: [["workspace-sidebar", "width"]])
         assertEquals(try String(contentsOf: regular, encoding: .utf8), after)
         assertEquals((try fileManager.attributesOfItem(atPath: regular.path)[.posixPermissions] as? NSNumber)?.intValue, 0o600)
+    }
+
+    func testConfigWriteKeepsExtendedAttributes() throws {
+        let url = root.appending(path: "winmux.toml")
+        try "[workspace-sidebar]\nwidth = 300\n".write(to: url, atomically: true, encoding: .utf8)
+        let value = Array("dotfiles".utf8)
+        XCTAssertEqual(setxattr(url.path, "com.example.winmux-test", value, value.count, 0, 0), 0)
+        try replaceConfigFileOnDisk("[workspace-sidebar]\nwidth = 320\n", at: url)
+        var read = [UInt8](repeating: 0, count: 64)
+        let size = getxattr(url.path, "com.example.winmux-test", &read, read.count, 0, 0)
+        XCTAssertEqual(size, value.count, "the attribute survives the write")
+        XCTAssertEqual(Array(read.prefix(max(size, 0))), value)
+        assertEquals(try String(contentsOf: url, encoding: .utf8), "[workspace-sidebar]\nwidth = 320\n")
+    }
+
+    func testLegacyConfigMigratesThroughADanglingSymlink() throws {
+        let legacy = root.appending(path: "legacy.toml")
+        try "config-version = 2\n".write(to: legacy, atomically: true, encoding: .utf8)
+        let link = root.appending(path: "winmux.toml")
+        try FileManager.default.createSymbolicLink(atPath: link.path, withDestinationPath: "dotfiles-target.toml")
+        XCTAssertTrue(try materializeBootstrapConfigIfNeeded(targetUrl: link, existingLegacyUrls: [legacy]))
+        XCTAssertNotNil(try? FileManager.default.destinationOfSymbolicLink(atPath: link.path))
+        assertEquals(try String(contentsOf: root.appending(path: "dotfiles-target.toml"), encoding: .utf8), "config-version = 2\n")
     }
 
     func testFirstLaunchFileThroughADanglingSymlinkCreatesTheTarget() throws {

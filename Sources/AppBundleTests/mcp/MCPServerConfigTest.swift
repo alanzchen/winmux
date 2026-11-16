@@ -7,11 +7,11 @@ import XCTest
 final class MCPServerConfigTest: XCTestCase {
     func testTheServerIsOffByDefaultOnItsOwnPortWithNoToken() {
         XCTAssertEqual(defaultConfig.mcpServer, MCPServerConfig(enabled: false, port: 41740, requireToken: false))
-        XCTAssertEqual(parseConfig("start-at-login = false\n").config.mcpServer, MCPServerConfig())
+        XCTAssertEqual(parseConfigForTests("start-at-login = false\n").config.mcpServer, MCPServerConfig())
     }
 
     func testTheMCPServerSectionIsRead() {
-        let parsed = parseConfig("""
+        let parsed = parseConfigForTests("""
             [mcp-server]
             enabled = true
             port = 5123
@@ -25,7 +25,7 @@ final class MCPServerConfigTest: XCTestCase {
     func testAPrivilegedOrImpossiblePortOrAnUnknownKeyIsAnError() {
         for text in ["[mcp-server]\nport = 80\n", "[mcp-server]\nport = 70000\n", "[mcp-server]\nlisten = '0.0.0.0'\n",
                      "[mcp-server]\ntoken = 'abc'\n", "[mcp-server]\ntailscale = true\n"] {
-            XCTAssertFalse(parseConfig(text).errors.isEmpty, text)
+            XCTAssertFalse(parseConfigForTests(text).errors.isEmpty, text)
         }
     }
 
@@ -38,10 +38,10 @@ final class MCPServerConfigTest: XCTestCase {
 
     func testDebugScreenshotsAreReadAndOffByDefault() {
         XCTAssertFalse(defaultConfig.mcpServer.debugScreenshots)
-        let parsed = parseConfig("[mcp-server]\nenabled = true\ndebug-screenshots = true\n")
+        let parsed = parseConfigForTests("[mcp-server]\nenabled = true\ndebug-screenshots = true\n")
         XCTAssertEqual(parsed.errors, [])
         XCTAssertTrue(parsed.config.mcpServer.debugScreenshots)
-        XCTAssertFalse(parseConfig("[mcp-server]\ndebug-screenshots = 'yes'\n").errors.isEmpty)
+        XCTAssertFalse(parseConfigForTests("[mcp-server]\ndebug-screenshots = 'yes'\n").errors.isEmpty)
         let row = SettingsCatalog.fields.first { $0.id == "mcp-server.debug-screenshots" }
         XCTAssertTrue(row?.help.contains("can't be redacted") == true, row?.help ?? "")
     }
@@ -50,16 +50,16 @@ final class MCPServerConfigTest: XCTestCase {
         XCTAssertEqual(defaultConfig.mcpServer.tailnet, false)
         XCTAssertEqual(defaultConfig.mcpServer.tailnetPort, 41741)
         XCTAssertEqual(defaultConfig.mcpServer.tailnetName, "")
-        let parsed = parseConfig("[mcp-server]\nenabled = true\ntailnet = true\ntailnet-port = 5124\ntailnet-name = 'Studio'\n")
+        let parsed = parseConfigForTests("[mcp-server]\nenabled = true\ntailnet = true\ntailnet-port = 5124\ntailnet-name = 'Studio'\n")
         XCTAssertEqual(parsed.errors, [])
         XCTAssertEqual(parsed.config.mcpServer, MCPServerConfig(enabled: true, tailnet: true, tailnetPort: 5124, tailnetName: "studio"))
         for text in ["[mcp-server]\ntailnet = true\nport = 5000\ntailnet-port = 5000\n", "[mcp-server]\ntailnet-name = 'not a name'\n",
                      "[mcp-server]\ntailnet-port = 80\n"] {
-            XCTAssertFalse(parseConfig(text).errors.isEmpty, text)
+            XCTAssertFalse(parseConfigForTests(text).errors.isEmpty, text)
         }
-        XCTAssertFalse(parseConfig("[mcp-server]\ntailnet = true\nport = 5000\ntailnet-port = 5000\n").config.mcpServer.tailnet,
+        XCTAssertFalse(parseConfigForTests("[mcp-server]\ntailnet = true\nport = 5000\ntailnet-port = 5000\n").config.mcpServer.tailnet,
             "Never on with both on one port")
-        XCTAssertEqual(parseConfig("[mcp-server]\nport = 41741\n").errors, [], "Only a tailnet that's on needs its own port")
+        XCTAssertEqual(parseConfigForTests("[mcp-server]\nport = 41741\n").errors, [], "Only a tailnet that's on needs its own port")
     }
 
     func testSettingsOffersTheServersRowsOnTheGeneralPageUsableOnlyWhileItsOn() throws {

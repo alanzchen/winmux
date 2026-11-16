@@ -32,7 +32,7 @@ final class ListWorkspacesTest: XCTestCase {
         let command = parseCommand("list-workspaces --all --format %{workspace}").cmdOrDie
         let succeeded = try await command.run(.defaultEnv, io)
 
-        XCTAssertTrue(succeeded)
+        XCTAssertEqual(succeeded.rawValue, 0)
         XCTAssertEqual(io.stdout.filter { $0 != "setUpWorkspacesForTests" }, ["10", "2"])
     }
 
@@ -46,12 +46,12 @@ final class ListWorkspacesTest: XCTestCase {
 
         let empty = CmdIo(stdin: .emptyStdin)
         let listedEmpty = try await parseCommand("list-workspaces --monitor all --empty --format %{workspace}").cmdOrDie.run(.defaultEnv, empty)
-        XCTAssertTrue(listedEmpty)
+        XCTAssertEqual(listedEmpty.rawValue, 0)
         XCTAssertTrue(empty.stdout.contains(workspace.name))
 
         let nonEmpty = CmdIo(stdin: .emptyStdin)
         let listedNonEmpty = try await parseCommand("list-workspaces --monitor all --empty no --format %{workspace}").cmdOrDie.run(.defaultEnv, nonEmpty)
-        XCTAssertTrue(listedNonEmpty)
+        XCTAssertEqual(listedNonEmpty.rawValue, 0)
         XCTAssertFalse(nonEmpty.stdout.contains(workspace.name))
     }
 }

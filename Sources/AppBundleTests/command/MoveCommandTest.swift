@@ -6,6 +6,48 @@ import XCTest
 final class MoveCommandTest: XCTestCase {
     override func setUp() async throws { setUpWorkspacesForTests() }
 
+    func testParse() {
+        assertNil(parseCommand("move --fail-if-fullscreen left").errorOrNil)
+        assertNil(parseCommand("move --fail-if-macos-native-fullscreen --window-id 1 right").errorOrNil)
+    }
+
+    func testFailIfFullscreen() async throws {
+        let root = Workspace.get(byName: name).rootTilingContainer.apply {
+            let window = TestWindow.new(id: 1, parent: $0)
+            assertEquals(window.focusWindow(), true)
+            window.isFullscreen = true
+            TestWindow.new(id: 2, parent: $0)
+        }
+
+        let result = try await parseCommand("move --fail-if-fullscreen right").cmdOrDie.run(.defaultEnv, .emptyStdin)
+        assertEquals(result.exitCode.rawValue, 2)
+        assertEquals(root.layoutDescription, .h_tiles([.window(1), .window(2)]))
+    }
+
+    func testFailIfMacosNativeFullscreen() async throws {
+        let root = Workspace.get(byName: name).rootTilingContainer.apply {
+            let window = TestWindow.new(id: 1, parent: $0)
+            assertEquals(window.focusWindow(), true)
+            window.isMacosFullscreenForTest = true
+            TestWindow.new(id: 2, parent: $0)
+        }
+
+        let result = try await parseCommand("move --fail-if-macos-native-fullscreen right").cmdOrDie.run(.defaultEnv, .emptyStdin)
+        assertEquals(result.exitCode.rawValue, 2)
+        assertEquals(root.layoutDescription, .h_tiles([.window(1), .window(2)]))
+    }
+
+    func testFailIfFullscreenAllowsRegularWindows() async throws {
+        let root = Workspace.get(byName: name).rootTilingContainer.apply {
+            assertEquals(TestWindow.new(id: 1, parent: $0).focusWindow(), true)
+            TestWindow.new(id: 2, parent: $0)
+        }
+
+        let result = try await parseCommand("move --fail-if-fullscreen --fail-if-macos-native-fullscreen right").cmdOrDie.run(.defaultEnv, .emptyStdin)
+        assertEquals(result.exitCode.rawValue, 0)
+        assertEquals(root.layoutDescription, .h_tiles([.window(2), .window(1)]))
+    }
+
     func testMove_swapWindows() async throws {
         let root = Workspace.get(byName: name).rootTilingContainer.apply {
             assertEquals(TestWindow.new(id: 1, parent: $0).focusWindow(), true)
@@ -58,7 +100,7 @@ final class MoveCommandTest: XCTestCase {
                 ]),
             ]),
         )
-        assertEquals(result.exitCode, 0)
+        assertEquals(result.exitCode.rawValue, 0)
     }
 
     func testMoveInto_findTopMostContainerWithRightOrientation() async throws {
@@ -167,7 +209,7 @@ final class MoveCommandTest: XCTestCase {
                 ]),
             ]),
         )
-        assertEquals(result.exitCode, 0)
+        assertEquals(result.exitCode.rawValue, 0)
     }
 
     func testStop_onRootNode() async throws {
@@ -185,7 +227,7 @@ final class MoveCommandTest: XCTestCase {
                 .h_tiles([.window(1), .window(2), .window(3)]),
             ]),
         )
-        assertEquals(result.exitCode, 0)
+        assertEquals(result.exitCode.rawValue, 0)
     }
 
     func testStop_onRootNode_withOppositeOrientation() async throws {
@@ -203,7 +245,7 @@ final class MoveCommandTest: XCTestCase {
                 .h_tiles([.window(1), .window(2), .window(3)]),
             ]),
         )
-        assertEquals(result.exitCode, 0)
+        assertEquals(result.exitCode.rawValue, 0)
     }
 
     func testStop_onRootNode_whenNoBoundary() async throws {
@@ -221,7 +263,7 @@ final class MoveCommandTest: XCTestCase {
                 .h_tiles([.window(2), .window(1), .window(3)]),
             ]),
         )
-        assertEquals(result.exitCode, 0)
+        assertEquals(result.exitCode.rawValue, 0)
     }
 
     func testStop_onInnerNode() async throws {
@@ -241,7 +283,7 @@ final class MoveCommandTest: XCTestCase {
                 .h_tiles([.window(1), .v_tiles([.window(3)]), .window(2)]),
             ]),
         )
-        assertEquals(result.exitCode, 0)
+        assertEquals(result.exitCode.rawValue, 0)
     }
 
     func testFail() async throws {
@@ -259,7 +301,7 @@ final class MoveCommandTest: XCTestCase {
                 .h_tiles([.window(1), .window(2), .window(3)]),
             ]),
         )
-        assertEquals(result.exitCode, 1)
+        assertEquals(result.exitCode.rawValue, 2)
     }
 
     func testMoveOut() async throws {

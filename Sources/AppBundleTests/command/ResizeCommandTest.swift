@@ -21,8 +21,8 @@ final class ResizeCommandTest: XCTestCase {
         testParseCommandFail("resize s 10", msg: """
             ERROR: Can't parse 's'.
                    Possible values: (width|height|smart|smart-opposite)
-            """)
-        testParseCommandFail("resize smart foo", msg: "ERROR: <number> argument must be a number")
+            """, exitCode: 2)
+        testParseCommandFail("resize smart foo", msg: "ERROR: <number> argument must be a number", exitCode: 2)
     }
 
     func testResizeWidthAddsWeightToFocusedWindowAndSubtractsFromSiblings() async throws {
@@ -33,7 +33,7 @@ final class ResizeCommandTest: XCTestCase {
 
         let result = try await parseCommand("resize width +4").cmdOrDie.run(.defaultEnv, .emptyStdin)
 
-        assertEquals(result.exitCode, 0)
+        assertEquals(result.exitCode.rawValue, 0)
         assertEquals(focused.hWeight, 104)
         assertEquals(sibling.hWeight, 96)
     }
@@ -46,7 +46,7 @@ final class ResizeCommandTest: XCTestCase {
 
         let result = try await parseCommand("resize width +500").cmdOrDie.run(.defaultEnv, .emptyStdin)
 
-        assertEquals(result.exitCode, 0)
+        assertEquals(result.exitCode.rawValue, 0)
         assertEquals(focused.hWeight, 220)
         assertEquals(sibling.hWeight, minimumTiledResizeWeight)
     }
@@ -59,7 +59,7 @@ final class ResizeCommandTest: XCTestCase {
 
         let result = try await parseCommand("resize width -500").cmdOrDie.run(.defaultEnv, .emptyStdin)
 
-        assertEquals(result.exitCode, 0)
+        assertEquals(result.exitCode.rawValue, 0)
         assertEquals(focused.hWeight, minimumTiledResizeWeight)
         assertEquals(sibling.hWeight, 220)
     }
@@ -78,7 +78,7 @@ final class ResizeCommandTest: XCTestCase {
 
         let result = try await parseCommand("resize height 110").cmdOrDie.run(.defaultEnv, .emptyStdin)
 
-        assertEquals(result.exitCode, 0)
+        assertEquals(result.exitCode.rawValue, 0)
         assertEquals(focused.vWeight, 110)
         assertEquals(verticalSibling.vWeight, 90)
         assertEquals(focusedContainer.hWeight, 8)
@@ -91,7 +91,7 @@ final class ResizeCommandTest: XCTestCase {
 
         let result = try await parseCommand("resize width +1").cmdOrDie.run(.defaultEnv, .emptyStdin)
 
-        assertEquals(result.exitCode, 1)
+        assertEquals(result.exitCode.rawValue, 2)
         assertEquals(
             result.stderr,
             ["resize command doesn't support floating windows yet https://github.com/nikitabobko/AeroSpace/issues/9"],

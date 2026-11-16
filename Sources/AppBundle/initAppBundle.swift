@@ -3,7 +3,7 @@ import Common
 import Foundation
 
 @MainActor public func initAppBundle() {
-    _ = Task {
+    Task.startUnstructured {
         initTerminationHandler()
         unsafe _isCli = false
         initServerArgs()
@@ -37,15 +37,16 @@ import Foundation
                 body: error.localizedDescription,
             )
         }
-        if try await !reloadConfig(forceConfigUrl: bootstrappedConfigUrl) {
-            var out = ""
+        // A config with minor errors is applied (upstream 61f0eac9); one that isn't falls back to the defaults.
+        if try await !reloadConfig(forceConfigUrl: bootstrappedConfigUrl).appliedConfig {
+            let fallback = try await reloadConfig(forceConfigUrl: defaultConfigUrl)
             check(
-                try await reloadConfig(forceConfigUrl: defaultConfigUrl, stdout: &out),
+                fallback.appliedConfig && fallback.isOk,
                 """
                 Can't load default config. Your installation is probably corrupted.
                 Please don't modify '\(defaultConfigUrl)'
 
-                \(out)
+                \(fallback.stdout)
                 """,
             )
         }
@@ -140,7 +141,7 @@ func setServerReadOnlyForTests(_ readOnly: Bool) { _serverArgs.isReadOnly = read
 private func initServerArgs() {
     let args = CommandLine.arguments.slice(1...) ?? []
     if args.contains(where: { $0 == "-h" || $0 == "--help" }) {
-        exit(0, out: serverHelp)
+        exit(EXIT_CODE_ZERO, out: serverHelp)
     }
     var index = 0
     while index < args.count {
@@ -148,11 +149,11 @@ private func initServerArgs() {
         index += 1
         switch current {
             case "--version", "-v":
-                exit(0, out: "\(aeroSpaceAppVersion) \(gitHash)")
+                exit(EXIT_CODE_ZERO, out: "\(aeroSpaceAppVersion) \(gitHash)")
             case "--config-path":
                 switch args.getOrNil(atIndex: index) {
                     case let arg?: unsafe _serverArgs.configLocation = arg
-                    case nil: exit(1, err: "Missing <path> in --config-path flag")
+                    case nil: exit(EXIT_CODE_TWO, err: "Missing <path> in --config-path flag")
                 }
                 index += 1
             case "--read-only": // todo rename to '--disabled' and unite with disabled feature
@@ -162,10 +163,10 @@ private func initServerArgs() {
                 // Usually it's '-NSDocumentRevisionsDebugMode NO'/'-NSDocumentRevisionsDebugMode YES'
                 while args.getOrNil(atIndex: index)?.starts(with: "-") == false { index += 1 }
             default:
-                exit(1, err: "Unrecognized flag '\(args.first.orDie())'")
+                exit(EXIT_CODE_TWO, err: "Unrecognized flag \(args.first.orDie().singleQuoted)")
         }
     }
     if let path = serverArgs.configLocation, !FileManager.default.fileExists(atPath: path) {
-        exit(1, err: "\(path) doesn't exist")
+        exit(EXIT_CODE_TWO, err: "\(path) doesn't exist")
     }
 }

@@ -5,8 +5,8 @@ struct OpenSidebarCommand: Command {
     /*conforms*/ let shouldResetClosedWindowsCache = false
 
     @MainActor
-    func run(_ env: CmdEnv, _ io: CmdIo) async throws -> Bool {
+    func run(_ env: CmdEnv, _ io: CmdIo) async throws -> BinaryExitCode {
         openWorkspaceSidebarFromCommand()
-        return true
+        return .succ
     }
 }

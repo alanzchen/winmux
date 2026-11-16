@@ -42,6 +42,7 @@ forked	Sources/AppBundle/command/impl/ConfigCommand.swift	hooked	15 changed line
 forked	Sources/AppBundle/command/impl/DebugWindowsCommand.swift	hooked	40 changed lines
 hooked	Sources/AppBundle/command/impl/EnableCommand.swift		marked additions only (phase 2)
 pristine	Sources/AppBundle/command/impl/ExecAndForgetCommand.swift
+pristine	Sources/AppBundle/command/impl/FalseCommand.swift
 pristine	Sources/AppBundle/command/impl/FlattenWorkspaceTreeCommand.swift
 pristine	Sources/AppBundle/command/impl/FocusBackAndForthCommand.swift
 forked	Sources/AppBundle/command/impl/FocusCommand.swift	hooked	82 changed lines
@@ -68,9 +69,12 @@ forked	Sources/AppBundle/command/impl/ResizeCommand.swift	hooked	17 changed line
 pristine	Sources/AppBundle/command/impl/SplitCommand.swift
 forked	Sources/AppBundle/command/impl/SummonWorkspaceCommand.swift	hooked	12 changed lines
 pristine	Sources/AppBundle/command/impl/SwapCommand.swift
+pristine	Sources/AppBundle/command/impl/TestCommand.swift
+pristine	Sources/AppBundle/command/impl/TestNotCommand.swift
 hooked	Sources/AppBundle/command/impl/TriggerBindingCommand.swift		marked additive lines (phase 1)
+pristine	Sources/AppBundle/command/impl/TrueCommand.swift
 pristine	Sources/AppBundle/command/impl/VolumeCommand.swift
-forked	Sources/AppBundle/command/impl/WorkspaceBackAndForthCommand.swift	hooked	4 changed lines
+pristine	Sources/AppBundle/command/impl/WorkspaceBackAndForthCommand.swift
 forked	Sources/AppBundle/command/impl/WorkspaceCommand.swift	hooked	203 changed lines
 forked	Sources/AppBundle/command/parseCommand.swift	hooked	4 changed lines
 forked	Sources/AppBundle/config/Config.swift	hooked	359 changed lines
@@ -94,11 +98,12 @@ forked	Sources/AppBundle/initAppBundle.swift	hooked	91 changed lines
 forked	Sources/AppBundle/layout/layoutRecursive.swift	forked	layout pass with parking/staleness; tab groups move behind the layout delegate (268 changed lines)
 forked	Sources/AppBundle/layout/refresh.swift	forked	coalescing scheduler + requirement-gated session; propose coalescing upstream (697 changed lines)
 forked	Sources/AppBundle/model/AxUiElementWindowType.swift	hooked	12 changed lines
-hooked	Sources/AppBundle/model/Json.swift		marked additions jsonDouble (S2)
+pristine	Sources/AppBundle/model/Json.swift
 hooked	Sources/AppBundle/model/KnownBundleId.swift		marked additive lines (phase 1)
 forked	Sources/AppBundle/model/Monitor.swift	hooked	122 changed lines
 pristine	Sources/AppBundle/model/MonitorDescriptionEx.swift
 hooked	Sources/AppBundle/model/MonitorEx.swift		marked additions only (phase 2)
+hooked	Sources/AppBundle/model/OrderedJson.swift		marked additions jsonDouble (S3)
 forked	Sources/AppBundle/model/Rect.swift	pristine	brand-only diff (2 lines); phase 1 restores upstream identifiers
 pristine	Sources/AppBundle/model/ServerEvent.swift
 forked	Sources/AppBundle/mouse/mouse.swift	hooked	397 changed lines
@@ -132,11 +137,11 @@ forked	Sources/AppBundle/ui/MessageView.swift	hooked	restored at the upstream pa
 forked	Sources/AppBundle/ui/NSPanelHud.swift	hooked	restored at the upstream path in phase 1
 forked	Sources/AppBundle/ui/SecureInputView.swift	pristine	restored at the upstream path in phase 1
 forked	Sources/AppBundle/ui/TrayMenuModel.swift		restored at the upstream path in phase 1 (tray redesign)
-forked	Sources/AppBundle/ui/VolumeView.swift	pristine	explicit [self] capture (warning fix); upstream switches to [weak self] in a later slice
-pristine	Sources/AppBundle/util/ArrayEx.swift
+pristine	Sources/AppBundle/ui/VolumeView.swift
 pristine	Sources/AppBundle/util/AwaitableOneTimeBroadcastLatch.swift
 pristine	Sources/AppBundle/util/AxSubscription.swift
 pristine	Sources/AppBundle/util/AxUiElementMock.swift
+pristine	Sources/AppBundle/util/CompletableFuture.swift
 deleted	Sources/AppBundle/util/LazySequenceProtocolEx.swift
 pristine	Sources/AppBundle/util/MruStack.swift
 pristine	Sources/AppBundle/util/NSRunningApplicationEx.swift
@@ -154,6 +159,7 @@ forked	Sources/AppBundleTests/assert.swift		test (19 changed lines); reconcile p
 pristine	Sources/AppBundleTests/command/BalanceSizesCommandTest.swift
 pristine	Sources/AppBundleTests/command/CloseCommandTest.swift
 forked	Sources/AppBundleTests/command/ExecCommandTest.swift		test (23 changed lines); reconcile per slice
+pristine	Sources/AppBundleTests/command/FalseCommandTest.swift
 pristine	Sources/AppBundleTests/command/FlattenWorkspaceTreeCommandTest.swift
 forked	Sources/AppBundleTests/command/FocusCommandTest.swift		test (131 changed lines); reconcile per slice
 pristine	Sources/AppBundleTests/command/JoinWithCommandTest.swift
@@ -169,7 +175,10 @@ forked	Sources/AppBundleTests/command/ResizeCommandTest.swift		test (76 changed 
 pristine	Sources/AppBundleTests/command/SplitCommandTest.swift
 pristine	Sources/AppBundleTests/command/SubscribeCmdArgsTest.swift
 forked	Sources/AppBundleTests/command/SummonWorkspaceCommandTest.swift		test (22 changed lines); reconcile per slice
-forked	Sources/AppBundleTests/command/SwapCommandTest.swift		test (13 changed lines); reconcile per slice
+pristine	Sources/AppBundleTests/command/SwapCommandTest.swift		test (13 changed lines); reconcile per slice
+forked	Sources/AppBundleTests/command/TestCommandTest.swift
+pristine	Sources/AppBundleTests/command/TriggerBindingCommandTest.swift
+pristine	Sources/AppBundleTests/command/TrueCommandTest.swift
 forked	Sources/AppBundleTests/command/WorkspaceCommandTest.swift		test (409 changed lines); reconcile per slice
 forked	Sources/AppBundleTests/config/ConfigTest.swift		test (390 changed lines); reconcile per slice
 forked	Sources/AppBundleTests/config/ParseEnvVariablesTest.swift		test (4 changed lines); reconcile per slice
@@ -177,6 +186,7 @@ pristine	Sources/AppBundleTests/config/SplitArgsTest.swift
 forked	Sources/AppBundleTests/model/ClientServerTest.swift		test (12 changed lines); reconcile per slice
 deleted	Sources/AppBundleTests/shell/ShellTest.swift		dead WIP at the fork; upstream's live shell arrives in slice 2
 forked	Sources/AppBundleTests/testUtil.swift		test (44 changed lines); reconcile per slice
+pristine	Sources/AppBundleTests/tree/OnWindowDetectedTest.swift
 forked	Sources/AppBundleTests/tree/TestApp.swift		test (19 changed lines); reconcile per slice
 forked	Sources/AppBundleTests/tree/TestWindow.swift		test (106 changed lines); reconcile per slice
 pristine	Sources/AppBundleTests/tree/TilingContainer.swift
@@ -187,6 +197,9 @@ deleted	Sources/Cli/subcommandDescriptionsGenerated.swift	forked	moved-to=Source
 forked	Sources/Common/appMetadata.swift	hooked	13 changed lines
 hooked	Sources/Common/cmdArgs/ArgParser.swift		marked additive lines (phase 1)
 forked	Sources/Common/cmdArgs/ArgParserInput.swift	hooked	11 changed lines
+pristine	Sources/Common/cmdArgs/ExitCode.swift
+pristine	Sources/Common/cmdArgs/ParsedCliArgs.swift
+pristine	Sources/Common/cmdArgs/ParsedCmd.swift
 pristine	Sources/Common/cmdArgs/SubArgParser.swift
 hooked	Sources/Common/cmdArgs/cmdArgsManifest.swift		marked additive lines (phase 1)
 pristine	Sources/Common/cmdArgs/impl/BalanceSizesCmdArgs.swift
@@ -196,6 +209,7 @@ pristine	Sources/Common/cmdArgs/impl/ConfigCmdArgs.swift
 pristine	Sources/Common/cmdArgs/impl/DebugWindowsCmdArgs.swift
 pristine	Sources/Common/cmdArgs/impl/EnableCmdArgs.swift
 hooked	Sources/Common/cmdArgs/impl/ExecAndForgetCmdArgs.swift		marked additive lines (phase 1)
+pristine	Sources/Common/cmdArgs/impl/FalseCmdArgs.swift
 pristine	Sources/Common/cmdArgs/impl/FlattenWorkspaceTreeCmdArgs.swift
 pristine	Sources/Common/cmdArgs/impl/FocusBackAndForthCmdArgs.swift
 forked	Sources/Common/cmdArgs/impl/FocusCmdArgs.swift	hooked	68 changed lines
@@ -223,7 +237,10 @@ pristine	Sources/Common/cmdArgs/impl/SplitCmdArgs.swift
 pristine	Sources/Common/cmdArgs/impl/SubscribeCmdArgs.swift
 forked	Sources/Common/cmdArgs/impl/SummonWorkspaceCmdArgs.swift	hooked	5 changed lines
 pristine	Sources/Common/cmdArgs/impl/SwapCmdArgs.swift
+pristine	Sources/Common/cmdArgs/impl/TestCmdArgs.swift
+pristine	Sources/Common/cmdArgs/impl/TestNotCmdArgs.swift
 forked	Sources/Common/cmdArgs/impl/TriggerBindingCmdArgs.swift	hooked	5 changed lines
+pristine	Sources/Common/cmdArgs/impl/TrueCmdArgs.swift
 pristine	Sources/Common/cmdArgs/impl/VolumeCmdArgs.swift
 pristine	Sources/Common/cmdArgs/impl/WorkspaceBackAndForthCmdArgs.swift
 forked	Sources/Common/cmdArgs/impl/WorkspaceCmdArgs.swift	hooked	21 changed lines
@@ -265,6 +282,7 @@ pristine	Sources/Common/util/ResultEx.swift
 pristine	Sources/Common/util/SequenceEx.swift
 hooked	Sources/Common/util/StringEx.swift		hook appName (S2)
 pristine	Sources/Common/util/StringLogicalSegments.swift
+pristine	Sources/Common/util/TaskEx.swift
 forked	Sources/Common/util/commonUtil.swift	forked	refresh events and requirements (109 changed lines)
 deleted	Sources/Common/util/showMessageInGui.swift
 forked	Sources/Common/versionGenerated.swift	hooked	4 changed lines
@@ -296,8 +314,6 @@ forked	resources/Assets.xcassets/AppIcon.appiconset/icon.png	forked	WinMux build
 pristine	resources/Assets.xcassets/Contents.json
 deleted	run-cli.sh
 deleted	run-debug.sh
-deleted	run-swift-test.sh
-deleted	run-tests.sh
 deleted	script/build-brew-cask.sh
 deleted	script/check-uncommitted-files.sh
 deleted	script/clean-project.sh
@@ -308,6 +324,8 @@ forked	script/install-dep.sh	forked	WinMux build/branding/docs (46 changed lines
 forked	script/publish-release.sh	forked	WinMux build/branding/docs (57 changed lines)
 deleted	script/reset-accessibility-permission-for-debug.sh
 forked	script/setup.sh	forked	WinMux build/branding/docs (54 changed lines)
+deleted	swift-test.sh
+deleted	test.sh
 deleted	.bundle/*		upstream Ruby/asciidoctor tooling
 deleted	.github/*		upstream CI and repository automation; the fork's own workflows are listed as winmux-only
 deleted	.github/DISCUSSION_TEMPLATE/*		upstream GitHub templates

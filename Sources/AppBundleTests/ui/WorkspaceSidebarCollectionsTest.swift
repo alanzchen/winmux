@@ -280,7 +280,7 @@ final class WorkspaceSidebarCollectionsTest: XCTestCase {
         XCTAssertFalse(config.workspaceSidebar.pinsSidebarOpen)
         config.workspaceSidebar.alwaysExpanded = true
         XCTAssertTrue(config.workspaceSidebar.pinsSidebarOpen)
-        let (parsed, errors) = parseConfig("[workspace-sidebar]\nmode = 'tabs'\nalways-expanded = false")
+        let (parsed, errors) = parseConfigForTests("[workspace-sidebar]\nmode = 'tabs'\nalways-expanded = false")
         XCTAssertEqual(errors, [])
         XCTAssertTrue(parsed.workspaceSidebar.pinsSidebarOpen)
     }

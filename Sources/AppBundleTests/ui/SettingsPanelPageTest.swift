@@ -85,7 +85,7 @@ final class SettingsPanelPageTest: XCTestCase {
         defer { config = saved }
         let disk = SettingsTestDisk()
         disk.text += "[workspace-sidebar]\n    enabled = true\n    mode = 'dock'\n"
-        config = parseConfig(disk.text).config
+        config = parseConfigForTests(disk.text).config
         let editor = SettingsEditor(persistence: disk.persistence)
         editor.hasWindowStacks = { true }
         let mode = SettingsCatalog.field(SettingsPanelLayout.modeField)
@@ -124,7 +124,7 @@ final class SettingsPanelPageTest: XCTestCase {
         defer { config = saved }
         let disk = SettingsTestDisk()
         disk.text += "[workspace-sidebar]\n    enabled = false\n    mode = 'dock'\n"
-        config = parseConfig(disk.text).config
+        config = parseConfigForTests(disk.text).config
         let editor = SettingsEditor(persistence: disk.persistence)
         editor.hasWindowStacks = { true }
         let mode = SettingsCatalog.field(SettingsPanelLayout.modeField)
@@ -170,7 +170,7 @@ final class SettingsPanelPageTest: XCTestCase {
         defer { config = saved }
         let disk = SettingsTestDisk()
         disk.text += "[workspace-sidebar]\n    enabled = true\n    mode = 'dock'\n"
-        config = parseConfig(disk.text).config
+        config = parseConfigForTests(disk.text).config
         let editor = SettingsEditor(persistence: disk.persistence)
         editor.hasWindowStacks = { true }
         let mode = SettingsCatalog.field(SettingsPanelLayout.modeField)
@@ -221,7 +221,7 @@ final class SettingsPanelPageTest: XCTestCase {
         defer { config = saved }
         let disk = SettingsTestDisk()
         disk.text += "[workspace-sidebar]\n    enabled = true\n    mode = 'dock'\n"
-        config = parseConfig(disk.text).config
+        config = parseConfigForTests(disk.text).config
         let editor = SettingsEditor(persistence: disk.persistence)
         editor.hasWindowStacks = { true }
         disk.text = disk.text.replacingOccurrences(of: "mode = 'dock'", with: "mode = 'tabs'")
@@ -243,7 +243,7 @@ final class SettingsPanelPageTest: XCTestCase {
         defer { config = saved }
         let disk = SettingsTestDisk()
         disk.text += "[workspace-sidebar]\n    enabled = true\n    mode = 'dock'\n"
-        config = parseConfig(disk.text).config
+        config = parseConfigForTests(disk.text).config
         let editor = SettingsEditor(persistence: disk.persistence)
         editor.hasWindowStacks = { true }
         let mode = SettingsCatalog.field(SettingsPanelLayout.modeField)
@@ -276,7 +276,7 @@ final class SettingsPanelPageTest: XCTestCase {
         defer { config = saved }
         let disk = SettingsTestDisk()
         disk.text += "[workspace-sidebar]\n    enabled = true\n    mode = 'tabs'\n"
-        config = parseConfig(disk.text).config
+        config = parseConfigForTests(disk.text).config
         let editor = SettingsEditor(persistence: disk.persistence)
         editor.hasWindowStacks = { true }
         let mode = SettingsCatalog.field(SettingsPanelLayout.modeField)
@@ -315,7 +315,7 @@ final class SettingsPanelPageTest: XCTestCase {
         defer { config = saved }
         let disk = SettingsTestDisk()
         disk.text += "[workspace-sidebar]\n    enabled = false\n    mode = 'tabs'\n"
-        config = parseConfig(disk.text).config
+        config = parseConfigForTests(disk.text).config
         let editor = SettingsEditor(persistence: disk.persistence)
         editor.hasWindowStacks = { true }
         let enabled = SettingsCatalog.field(SettingsPanelLayout.enabledField)
@@ -340,7 +340,7 @@ final class SettingsPanelPageTest: XCTestCase {
 
         // Restoring the whole header also restores Dock mode, so it asks nothing.
         disk.text = disk.text.replacingOccurrences(of: "enabled = true", with: "enabled = false")
-        config = parseConfig(disk.text).config
+        config = parseConfigForTests(disk.text).config
         editor.synchronize(config)
         editor.reset(.dockMode)
         await editor.waitUntilIdle()
@@ -363,7 +363,7 @@ final class SettingsPanelPageTest: XCTestCase {
                 width = 300
 
             """
-        config = parseConfig(disk.text).config
+        config = parseConfigForTests(disk.text).config
         let editor = SettingsEditor(persistence: disk.persistence)
         let section = SettingsPanelLayout.sections(.dock).first { $0.id == "dock.behavior" }!
         editor.reset(section.fields.map(SettingsCatalog.field), title: section.title)

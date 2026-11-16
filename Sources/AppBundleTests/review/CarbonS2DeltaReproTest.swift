@@ -43,7 +43,7 @@ final class CarbonS2DeltaReproTest: XCTestCase {
         )
         let afterSidebar = try String(contentsOf: dotfilesToml, encoding: .utf8)
         XCTAssertEqual(
-            parseConfig(afterSidebar).config.workspaceSidebar.workspaceLabels["1"],
+            parseConfigForTests(afterSidebar).config.workspaceSidebar.workspaceLabels["1"],
             "Work",
             "writeConfigFile left dotfiles target unchanged",
         )
@@ -61,7 +61,7 @@ final class CarbonS2DeltaReproTest: XCTestCase {
         )
         let afterSettings = try String(contentsOf: dotfilesToml, encoding: .utf8)
         XCTAssertEqual(
-            parseConfig(afterSettings).config.workspaceSidebar.width,
+            parseConfigForTests(afterSettings).config.workspaceSidebar.width,
             340,
             "SettingsPersistence.write left dotfiles target unchanged",
         )
@@ -89,12 +89,12 @@ final class CarbonS2DeltaReproTest: XCTestCase {
             "    width = 300",
             "",
         ].joined(separator: "\r\n")
-        XCTAssertEqual(parseConfig(initialCrlf).errors, [])
+        XCTAssertEqual(parseConfigForTests(initialCrlf).errors, [])
         try Data(initialCrlf.utf8).write(to: targetUrl)
 
         XCTAssertNoThrow(try persistWorkspaceSidebarProjectOrder(["default", "work"], targetUrl: targetUrl))
         let saved = try String(contentsOf: targetUrl, encoding: .utf8)
-        let (parsed, errors) = parseConfig(saved)
+        let (parsed, errors) = parseConfigForTests(saved)
         XCTAssertEqual(errors, [])
         XCTAssertEqual(parsed.workspaceSidebar.projectOrder, ["default", "work"])
         XCTAssertEqual(parsed.workspaceSidebar.width, 300)
@@ -131,7 +131,7 @@ final class CarbonS2DeltaReproTest: XCTestCase {
             "alt-h = 'focus left'",
             "",
         ].joined(separator: "\r\n")
-        XCTAssertEqual(parseConfig(initialCrlf).errors, [])
+        XCTAssertEqual(parseConfigForTests(initialCrlf).errors, [])
         try Data(initialCrlf.utf8).write(to: targetUrl)
 
         XCTAssertNoThrow(try persistWorkspaceSidebarLabel(workspaceName: "1", label: "Renamed", targetUrl: targetUrl))

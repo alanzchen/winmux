@@ -33,7 +33,27 @@ enum NonLeafTreeNodeKind: String, Codable, Equatable, Sendable {
     case macosPopupWindowsContainer
 }
 
+enum TilingContainerParentCases {
+    case unbound
+    case tilingContainer(TilingContainer)
+    case workspace(Workspace)
+}
+
 protocol NonLeafTreeNodeObject: TreeNode {}
+
+extension TilingContainer {
+    var tilingContainerParentCases: TilingContainerParentCases {
+        guard let parent else { return .unbound }
+        return switch parent.cases {
+            case .tilingContainer(let it): .tilingContainer(it)
+            case .workspace(let it): .workspace(it)
+            case .macosFullscreenWindowsContainer: dieT("macosFullscreenWindowsContainer can't be TilingContainer's parent")
+            case .macosHiddenAppsWindowsContainer: dieT("macosHiddenAppsWindowsContainer can't be TilingContainer's parent")
+            case .macosMinimizedWindowsContainer: dieT("macosMinimizedWindowsContainer can't be TilingContainer's parent")
+            case .macosPopupWindowsContainer: dieT("macosPopupWindowsContainer can't be TilingContainer's parent")
+        }
+    }
+}
 
 extension TreeNode {
     var nodeCases: TreeNodeCases {
@@ -103,8 +123,16 @@ func getChildParentRelation(child: TreeNode, parent: NonLeafTreeNodeObject) -> C
     illegalChildParentRelation(child: child, parent: parent)
 }
 
-func illegalChildParentRelation(child: TreeNode, parent: NonLeafTreeNodeObject?) -> Never {
-    die("Illegal child-parent relation. Child: \(child), Parent: \((parent ?? child.parent).prettyDescription)")
+func illegalChildParentRelation(
+    child: TreeNode,
+    parent: NonLeafTreeNodeObject?,
+    file: StaticString = #fileID,
+    line: Int = #line,
+    column: Int = #column,
+    function: String = #function,
+) -> Never {
+    let msg = "Illegal child-parent relation. Child: \(child), Parent: \((parent ?? child.parent).prettyDescription)"
+    die(msg, file: file, line: line, column: column, function: function)
 }
 
 func getChildParentRelationOrNil(child: TreeNode, parent: NonLeafTreeNodeObject) -> ChildParentRelation? {

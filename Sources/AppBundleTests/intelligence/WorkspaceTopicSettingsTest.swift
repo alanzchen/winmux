@@ -22,7 +22,7 @@ final class WorkspaceTopicSettingsTest: XCTestCase {
         XCTAssertEqual(defaultConfig.workspaceSidebar.intelligence, WorkspaceIntelligenceConfig())
         XCTAssertEqual(defaultConfig.workspaceSidebar.intelligence.mode, .off)
         XCTAssertFalse(defaultConfig.suggestsTopicGroups)
-        let (parsed, errors) = parseConfig("""
+        let (parsed, errors) = parseConfigForTests("""
             [workspace-sidebar]
             enabled = true
             mode = 'tabs'
@@ -37,7 +37,7 @@ final class WorkspaceTopicSettingsTest: XCTestCase {
     }
 
     func testBadValuesAreReported() {
-        let (_, errors) = parseConfig("""
+        let (_, errors) = parseConfigForTests("""
             [workspace-sidebar.intelligence]
             mode = 'automatic'
             excluded-apps = ['']
@@ -72,7 +72,7 @@ final class WorkspaceTopicSettingsTest: XCTestCase {
         XCTAssertEqual(configuration.workspaceSidebar.intelligence.mode, .manual)
         let text = updateSettingsAppearanceConfig(in: "config-version = 2\n", section: "workspace-sidebar.intelligence",
             values: ["mode": field.render(.bool(true))])
-        let (parsed, errors) = parseConfig(text)
+        let (parsed, errors) = parseConfigForTests(text)
         XCTAssertEqual(errors, [])
         XCTAssertEqual(parsed.workspaceSidebar.intelligence.mode, .manual)
         XCTAssertTrue(SettingsPanelLayout.sections(.tabs).flatMap(\.fields).contains(field.id))

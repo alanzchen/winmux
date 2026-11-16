@@ -22,6 +22,20 @@ private let winmuxRepositoryURL = "https://github.com/alanzchen/winmux"
             }
             Divider()
         }
+        // Upstream 890ec336: a config that loaded with warnings; the button shows them.
+        if viewModel.lastReloadConfigContainedWarnings, let token: RunSessionGuard = .isServerEnabled {
+            Button {
+                Task.startUnstructured {
+                    try await runLightSession(.menuBarButton, token) {
+                        let args = ReloadConfigCmdArgs(rawArgs: []).copy(\.warningsAsErrors, true)
+                        _ = try await reloadConfig(args: args)
+                    }
+                }
+            } label: {
+                Label("Config contains warnings…", systemImage: "exclamationmark.triangle.fill")
+            }
+            Divider()
+        }
         if viewModel.accessibilityPermissionStatus == .granted {
             Button(viewModel.isEnabled ? "Disable" : "Enable") {
                 _ = Task {
@@ -52,10 +66,8 @@ private let winmuxRepositoryURL = "https://github.com/alanzchen/winmux"
             openURLString(winMuxNewIssueURL)
         }
         Button("Quit \(aeroSpaceAppName)") {
-            _ = Task {
-                defer { terminateApp() }
-                try await terminationHandler.beforeTermination()
-            }
+            terminationHandler?.beforeTermination()
+            terminateApp()
         }.keyboardShortcut("Q", modifiers: .command)
     } label: {
         switch menuBarIconKind(viewModel) {

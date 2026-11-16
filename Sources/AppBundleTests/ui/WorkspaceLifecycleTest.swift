@@ -49,7 +49,7 @@ final class WorkspaceLifecycleTest: XCTestCase {
         assertEquals(
             try await WorkspaceCommand(args: WorkspaceCmdArgs(target: .direct(.parse("2").getOrDie())))
                 .run(.defaultEnv, .emptyStdin)
-                .exitCode,
+                .exitCode.rawValue,
             0,
         )
         let existingBlank = try XCTUnwrap(Workspace.existing(byName: "2"))
@@ -69,7 +69,7 @@ final class WorkspaceLifecycleTest: XCTestCase {
         assertEquals(
             try await WorkspaceCommand(args: WorkspaceCmdArgs(target: .direct(.parse("2").getOrDie())))
                 .run(.defaultEnv, .emptyStdin)
-                .exitCode,
+                .exitCode.rawValue,
             0,
         )
         let deletedBlank = try XCTUnwrap(Workspace.existing(byName: "2"))
@@ -95,7 +95,7 @@ final class WorkspaceLifecycleTest: XCTestCase {
         assertEquals(
             try await MoveNodeToWorkspaceCommand(args: MoveNodeToWorkspaceCmdArgs(workspace: defaultTarget.name))
                 .run(.defaultEnv, .emptyStdin)
-                .exitCode,
+                .exitCode.rawValue,
             0,
         )
         Workspace.reconcileWorkspaceState()
@@ -113,14 +113,14 @@ final class WorkspaceLifecycleTest: XCTestCase {
         assertEquals(
             try await WorkspaceCommand(args: WorkspaceCmdArgs(target: .relative(.next)))
                 .run(.defaultEnv, .emptyStdin)
-                .exitCode,
+                .exitCode.rawValue,
             0,
         )
 
         let result = try await WorkspaceCommand(args: WorkspaceCmdArgs(target: .relative(.next)))
             .run(.defaultEnv, .emptyStdin)
 
-        assertEquals(result.exitCode, 1)
+        assertEquals(result.exitCode.rawValue, 2)
         XCTAssertNil(Workspace.existing(byName: "3"))
         XCTAssertEqual(emptyUserFacingWorkspaces(in: occupied.projectId).map(\.name), ["2"])
     }
@@ -134,7 +134,7 @@ final class WorkspaceLifecycleTest: XCTestCase {
         assertEquals(
             try await WorkspaceCommand(args: WorkspaceCmdArgs(target: .relative(.next)))
                 .run(.defaultEnv, .emptyStdin)
-                .exitCode,
+                .exitCode.rawValue,
             0,
         )
         let emptyWorkspace = try XCTUnwrap(Workspace.existing(byName: "2"))

@@ -11,7 +11,7 @@ final class ShortcutSettingsConflictTest: XCTestCase {
     }
 
     func testOnlyCustomCommandBindingsBlockAManagedShortcut() {
-        let (parsed, errors) = parseConfig(
+        let (parsed, errors) = parseConfigForTests(
             """
             [mode.main.binding]
                 alt-h = 'focus left'

@@ -6,7 +6,7 @@ import XCTest
 @MainActor
 final class ConfigBootstrapTest: XCTestCase {
     func testStarterConfigParses() {
-        let (parsedConfig, errors) = parseConfig(starterConfigText())
+        let (parsedConfig, errors) = parseConfigForTests(starterConfigText())
         assertEquals(errors, [])
 
         let bindings: [(String, String)] = parsedConfig.modes["main"]?.bindings.values.map {
@@ -169,7 +169,7 @@ final class ConfigBootstrapTest: XCTestCase {
         XCTAssertFalse(migratedText.contains("accordion"))
         XCTAssertFalse(migratedText.contains("AEROSPACE_"))
 
-        let (parsedConfig, errors) = parseConfig(migratedText)
+        let (parsedConfig, errors) = parseConfigForTests(migratedText)
         XCTAssertEqual(errors, [])
         XCTAssertTrue(parsedConfig.workspaceSidebar.enabled)
         XCTAssertTrue(parsedConfig.windowTabs.enabled)

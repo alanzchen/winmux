@@ -192,7 +192,9 @@ func materializeBootstrapConfigIfNeeded(
         try FileManager.default.createDirectory(at: parentUrl, withIntermediateDirectories: true)
     }
     if let legacyUrl = existingLegacyUrls.first {
-        try FileManager.default.copyItem(at: legacyUrl, to: targetUrl)
+        // The user's own file, copied as is, through the one disk writer so a dangling symlink at the target creates
+        // its dotfiles file instead of failing (Carbon S2 nit).
+        try replaceConfigFileOnDisk(try String(contentsOf: legacyUrl, encoding: .utf8), at: targetUrl)
     } else if let aerospaceImportUrl {
         let migratedConfig = try migrateAerospaceConfigForWinMux(
             try String(contentsOf: aerospaceImportUrl, encoding: .utf8),

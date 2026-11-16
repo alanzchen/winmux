@@ -38,7 +38,7 @@ extension AgentCommandTest {
 
         let result = try await parseCommand("agent apply --path \(path.path)").cmdOrDie.run(.defaultEnv, .emptyStdin)
 
-        XCTAssertEqual(result.exitCode, 0)
+        XCTAssertEqual(result.exitCode.rawValue, 0)
         let group = try XCTUnwrap(root.allAgentTabGroupsForTests.singleOrNil())
         XCTAssertEqual(group.agentWindowIdsForTests, [1, 2])
         XCTAssertTrue(root.children.last === group)
@@ -77,7 +77,7 @@ extension AgentCommandTest {
 
         let result = try await parseCommand("agent apply --path \(path.path)").cmdOrDie.run(.defaultEnv, .emptyStdin)
 
-        XCTAssertEqual(result.exitCode, 0)
+        XCTAssertEqual(result.exitCode.rawValue, 0)
         let targetRoot = Workspace.get(byName: "coding").rootTilingContainer
         XCTAssertEqual((targetRoot.children.first as? Window)?.windowId, 1)
         let group = targetRoot.children.last as? TilingContainer
@@ -126,7 +126,7 @@ extension AgentCommandTest {
 
         let result = try await parseCommand("agent apply --path \(path.path)").cmdOrDie.run(.defaultEnv, .emptyStdin)
 
-        XCTAssertEqual(result.exitCode, 0)
+        XCTAssertEqual(result.exitCode.rawValue, 0)
         let targetRoot = Workspace.get(byName: "coding").rootTilingContainer
         let left = targetRoot.children[0]
         let rightSplit = try XCTUnwrap(targetRoot.children[1] as? TilingContainer)
@@ -166,7 +166,7 @@ extension AgentCommandTest {
 
         let result = try await parseCommand("agent check --path \(path.path)").cmdOrDie.run(.defaultEnv, .emptyStdin)
 
-        XCTAssertEqual(result.exitCode, 1)
+        XCTAssertEqual(result.exitCode.rawValue, 2)
         XCTAssertTrue(result.stderr.joined(separator: "\n").contains("setWorkspaceLayout 'coding': window 1 appears more than once"))
     }
 
@@ -188,7 +188,7 @@ extension AgentCommandTest {
 
         let result = try await parseCommand("agent apply --path \(path.path)").cmdOrDie.run(.defaultEnv, .emptyStdin)
 
-        XCTAssertEqual(result.exitCode, 0)
+        XCTAssertEqual(result.exitCode.rawValue, 0)
         XCTAssertEqual(root.children[0].getWeight(.h) / root.getWeight(.h), 0.8, accuracy: 0.0001)
         XCTAssertEqual(root.children[1].getWeight(.h) / root.getWeight(.h), 0.2, accuracy: 0.0001)
     }
@@ -214,7 +214,7 @@ extension AgentCommandTest {
 
         let result = try await parseCommand("agent apply --path \(path.path)").cmdOrDie.run(.defaultEnv, .emptyStdin)
 
-        XCTAssertEqual(result.exitCode, 0)
+        XCTAssertEqual(result.exitCode.rawValue, 0)
         XCTAssertEqual(rightSplit.children[0].getWeight(.v) / rightSplit.getWeight(.v), 0.75, accuracy: 0.0001)
         XCTAssertEqual(rightSplit.children[1].getWeight(.v) / rightSplit.getWeight(.v), 0.25, accuracy: 0.0001)
         XCTAssertEqual(rightSplit.getWeight(.h) / root.getWeight(.h), 0.2, accuracy: 0.0001)
@@ -243,7 +243,7 @@ extension AgentCommandTest {
 
         let result = try await parseCommand("agent apply --path \(path.path)").cmdOrDie.run(.defaultEnv, .emptyStdin)
 
-        XCTAssertEqual(result.exitCode, 0)
+        XCTAssertEqual(result.exitCode.rawValue, 0)
         let targetRoot = Workspace.get(byName: "coding").rootTilingContainer
         XCTAssertEqual((targetRoot.children.first as? Window)?.windowId, 1)
         XCTAssertFalse((targetRoot.children.first as? Window)?.isFloating ?? true)

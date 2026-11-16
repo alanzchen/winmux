@@ -26,8 +26,9 @@ final class WinMuxToastTest: XCTestCase {
         var output = ""
         let key = NSApp.keyWindow
         let request = MessageModel.shared.detailRequestId
-        let succeeded = try await reloadConfig(args: args, forceConfigUrl: url, stdout: &output)
-        XCTAssertFalse(succeeded)
+        let result = try await reloadConfig(args: args, forceConfigUrl: url)
+        output = result.stdout
+        XCTAssertFalse(result.isOk)
         for _ in 0..<4 { await Task.yield() }
         let panel = WinMuxToastPanel.shared
         let diagnostic = try XCTUnwrap(panel.model.shown?.notice.details)
@@ -46,8 +47,9 @@ final class WinMuxToastTest: XCTestCase {
         panel.dismiss()
         args.noGui = true
         output = ""
-        let quietResult = try await reloadConfig(args: args, forceConfigUrl: url, stdout: &output)
-        XCTAssertFalse(quietResult)
+        let quietResult = try await reloadConfig(args: args, forceConfigUrl: url)
+        output = quietResult.stdout
+        XCTAssertFalse(quietResult.isOk)
         for _ in 0..<4 { await Task.yield() }
         XCTAssertNil(panel.model.shown, "--no-gui still only returns its diagnostic")
         XCTAssertEqual(output, diagnostic.body)
@@ -63,8 +65,9 @@ final class WinMuxToastTest: XCTestCase {
         var args = ReloadConfigCmdArgs(rawArgs: [])
         args.dryRun = true
         var output = ""
-        let succeeded = try await reloadConfig(args: args, forceConfigUrl: url, stdout: &output)
-        XCTAssertFalse(succeeded)
+        let result = try await reloadConfig(args: args, forceConfigUrl: url)
+        output = result.stdout
+        XCTAssertFalse(result.isOk)
         for _ in 0..<4 { await Task.yield() }
         let panel = WinMuxToastPanel.shared
         let diagnostic = try XCTUnwrap(panel.model.shown?.notice.details)

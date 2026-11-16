@@ -8,7 +8,7 @@ func startUnixSocketServer() {
     params.requiredLocalEndpoint = .unix(path: socketPath)
     let listener = Result { try NWListener(using: params) }.getOrDie()
     listener.newConnectionHandler = { connection in
-        Task {
+        Task.startUnstructured {
             defer { connection.cancel() }
             connection.start(queue: .global())
             await newConnection(connection)
@@ -75,7 +75,7 @@ private func newConnection(_ connection: NWConnection) async { // todo add exit 
                 await answerToClient(
                     exitCode: 1,
                     stderr: """
-                        Can't parse request '\(String(describing: String(data: rawRequest, encoding: .utf8)).singleQuoted)'.
+                        Can't parse request \(String(describing: String(data: rawRequest, encoding: .utf8)).singleQuoted).
                         Error: \(error)
                         """,
                 )
@@ -85,8 +85,8 @@ private func newConnection(_ connection: NWConnection) async { // todo add exit 
         if request.args.first == "subscribe" {
             switch parseSubscribeCmdArgs(request.args.slice(1...).orDie()) {
                 case .cmd(let subscribeArgs): await handleSubscribeAndWaitTillError(connection, subscribeArgs)
-                case .help(let help): await answerToClient(exitCode: 0, stdout: help)
-                case .failure(let err): await answerToClient(exitCode: 1, stderr: err)
+                case .help(let help): await answerToClient(exitCode: EXIT_CODE_ZERO, stdout: help)
+                case .failure(let err): await answerToClient(exitCode: 1, stderr: err.msg)
             }
             continue
         }
@@ -132,7 +132,7 @@ func runCliRequest(_ request: ClientRequest) async -> ServerAnswer {
             )
             let cmdResult = try await command.run(env, CmdStdin(request.stdin))
             return ServerAnswer(
-                exitCode: cmdResult.exitCode,
+                exitCode: winMuxCliExitCode(command, cmdResult.exitCode),
                 stdout: cmdResult.stdout.joined(separator: "\n"),
                 stderr: cmdResult.stderr.joined(separator: "\n"),
                 serverVersionAndHash: serverVersionAndHash,

@@ -36,7 +36,7 @@ public struct ListWindowsCmdArgs: CmdArgs, JsonFormattableListCmdArgs {
     fileprivate var allAlias: Bool = false
 
     public var filteringOptions = FilteringOptions()
-    public var _format: [StringInterToken] = []
+    public var _format: [InterToken<InterVar>] = []
     public var outputOnlyCount: Bool = false
     public var json: Bool = false
 
@@ -50,12 +50,12 @@ public struct ListWindowsCmdArgs: CmdArgs, JsonFormattableListCmdArgs {
 }
 
 extension ListWindowsCmdArgs {
-    public var format: [StringInterToken] {
+    public var format: [InterToken<InterVar>] {
         _format.isEmpty
             ? [
-                .interVar("window-id"), .interVar("right-padding"), .literal(" | "),
-                .interVar("app-name"), .interVar("right-padding"), .literal(" | "),
-                .interVar("window-title"),
+                .interVar(.formatVar(.window(.windowId))), .interVar(.plainInterVar(.rightPadding)), .literal(" | "),
+                .interVar(.formatVar(.app(.appName))), .interVar(.plainInterVar(.rightPadding)), .literal(" | "),
+                .interVar(.formatVar(.window(.windowTitle))),
             ]
             : _format
     }
@@ -80,12 +80,12 @@ func parseListWindowsCmdArgs(_ args: StrArrSlice) -> ParsedCmd<ListWindowsCmdArg
 }
 
 func formatParser<Root>(
-    _ keyPath: SendableWritableKeyPath<Root, [StringInterToken]>,
+    _ keyPath: SendableWritableKeyPath<Root, [InterToken<InterVar>]>,
     for kind: AeroObjKind,
-) -> SubArgParser<Root, [StringInterToken]> {
+) -> SubArgParser<Root, [InterToken<InterVar>]> {
     return ArgParser(keyPath) { input in
         if let arg = input.nonFlagArgOrNil() {
-            return switch arg.interpolationTokens(interpolationChar: "%") {
+            return switch arg.interpolationTokens(interpolationChar: "%", ofInterVarType: InterVar.self) {
                 case .success(let tokens): .succ(tokens, advanceBy: 1)
                 case .failure(let err): .fail("Failed to parse <output-format>. \(err)", advanceBy: 1)
             }
@@ -125,14 +125,64 @@ public enum WorkspaceFilter: Equatable, Sendable {
     case name(WorkspaceName)
 }
 
-public enum FormatVar: Equatable {
+public enum FormatVar: RawRepresentable, Equatable, CaseIterable, Sendable {
     case window(WindowFormatVar)
     case workspace(WorkspaceFormatVar)
     case project(ProjectFormatVar)
     case app(AppFormatVar)
     case monitor(MonitorFormatVar)
 
-    public enum WindowFormatVar: String, Equatable, CaseIterable {
+    // periphery:ignore
+    private var kind: AeroObjKind {
+        switch self {
+            case .app: .app
+            case .monitor: .monitor
+            case .window: .window
+            case .workspace: .workspace
+            case .project: .project // WINMUX-HOOK(projects)
+        }
+    }
+
+    public static var allCases: [FormatVar] {
+        AeroObjKind.allCases.flatMap {
+            switch $0 {
+                case .app: AppFormatVar.allCases.map(FormatVar.app)
+                case .monitor: MonitorFormatVar.allCases.map(FormatVar.monitor)
+                case .window: WindowFormatVar.allCases.map(FormatVar.window)
+                case .workspace: WorkspaceFormatVar.allCases.map(FormatVar.workspace)
+                case .project: ProjectFormatVar.allCases.map(FormatVar.project) // WINMUX-HOOK(projects)
+            }
+        }
+    }
+
+    public init?(rawValue: String) {
+        let value = AeroObjKind.allCases.map { kind in
+            switch kind {
+                case .app: AppFormatVar(rawValue: rawValue).map(FormatVar.app)
+                case .monitor: MonitorFormatVar(rawValue: rawValue).map(FormatVar.monitor)
+                case .window: WindowFormatVar(rawValue: rawValue).map(FormatVar.window)
+                case .workspace: WorkspaceFormatVar(rawValue: rawValue).map(FormatVar.workspace)
+                case .project: ProjectFormatVar(rawValue: rawValue).map(FormatVar.project) // WINMUX-HOOK(projects)
+            }
+        }.filterNotNil()
+        switch value.sequencePattern {
+            case .empty: return nil
+            case .one(let it): self = it
+            default: die("FormatVar clash: \(value)")
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+            case .app(let it): it.rawValue
+            case .monitor(let it): it.rawValue
+            case .window(let it): it.rawValue
+            case .workspace(let it): it.rawValue
+            case .project(let it): it.rawValue // WINMUX-HOOK(projects)
+        }
+    }
+
+    public enum WindowFormatVar: String, Equatable, CaseIterable, Sendable {
         case windowId = "window-id"
         case windowIsFullscreen = "window-is-fullscreen"
         case windowTitle = "window-title"
@@ -140,7 +190,7 @@ public enum FormatVar: Equatable {
         case windowParentContainerLayout = "window-parent-container-layout"
     }
 
-    public enum WorkspaceFormatVar: String, Equatable, CaseIterable {
+    public enum WorkspaceFormatVar: String, Equatable, CaseIterable, Sendable {
         case workspaceName = "workspace"
         case workspaceDisplayName = "workspace-display-name"
         case workspaceFocused = "workspace-is-focused"
@@ -150,7 +200,7 @@ public enum FormatVar: Equatable {
         case workspaceRootContainerLayout = "workspace-root-container-layout"
     }
 
-    public enum ProjectFormatVar: String, Equatable, CaseIterable {
+    public enum ProjectFormatVar: String, Equatable, CaseIterable, Sendable {
         case projectIndex = "project-index"
         case projectId = "project-id"
         case projectName = "project-name"
@@ -161,7 +211,7 @@ public enum FormatVar: Equatable {
         case projectWindowCount = "project-window-count"
     }
 
-    public enum AppFormatVar: String, Equatable, CaseIterable {
+    public enum AppFormatVar: String, Equatable, CaseIterable, Sendable {
         case appBundleId = "app-bundle-id"
         case appName = "app-name"
         case appPid = "app-pid"
@@ -169,7 +219,7 @@ public enum FormatVar: Equatable {
         case appBundlePath = "app-bundle-path"
     }
 
-    public enum MonitorFormatVar: String, Equatable, CaseIterable {
+    public enum MonitorFormatVar: String, Equatable, CaseIterable, Sendable {
         case monitorId_oneBased = "monitor-id"
         case monitorAppKitNsScreenScreensId = "monitor-appkit-nsscreen-screens-id"
         case monitorName = "monitor-name"
@@ -177,10 +227,58 @@ public enum FormatVar: Equatable {
     }
 }
 
-public enum PlainInterVar: String, CaseIterable {
+public enum PlainInterVar: String, CaseIterable, Sendable, Equatable {
     case rightPadding = "right-padding"
     case newline = "newline"
     case tab = "tab"
+}
+
+public enum InterVar: RawRepresentable, Equatable, CaseIterable, Sendable {
+    case formatVar(FormatVar)
+    case plainInterVar(PlainInterVar)
+
+    private enum Kind: CaseIterable, Equatable, Sendable {
+        case formatVar
+        case plainInterVar
+    }
+
+    // periphery:ignore
+    private var kind: Kind {
+        switch self {
+            case .formatVar: .formatVar
+            case .plainInterVar: .plainInterVar
+        }
+    }
+
+    public static var allCases: [InterVar] {
+        Kind.allCases.flatMap { kind in
+            switch kind {
+                case .formatVar: FormatVar.allCases.map(InterVar.formatVar)
+                case .plainInterVar: PlainInterVar.allCases.map(InterVar.plainInterVar)
+            }
+        }
+    }
+
+    public init?(rawValue: String) {
+        let this: [Self] = Kind.allCases.map { kind in
+            switch kind {
+                case .formatVar: FormatVar(rawValue: rawValue).map(InterVar.formatVar)
+                case .plainInterVar: PlainInterVar(rawValue: rawValue).map(InterVar.plainInterVar)
+            }
+        }.filterNotNil()
+        switch this.sequencePattern {
+            case .empty: return nil
+            case .one(let it): self = it
+            default: die("Clashed cases: \(this)")
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+            case .formatVar(let it): it.rawValue
+            case .plainInterVar(let it): it.rawValue
+        }
+    }
 }
 
 public enum AeroObjKind: CaseIterable, Sendable {

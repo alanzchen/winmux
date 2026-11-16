@@ -77,7 +77,7 @@ final class WindowFrameFitFollowUpTest: XCTestCase {
 
         XCTAssertTrue(call.focusWindow())
         let result = try await parseCommand("swap left").cmdOrDie.run(.defaultEnv, .emptyStdin)
-        XCTAssertEqual(result.exitCode, 0, "\(result.stderr)")
+        XCTAssertEqual(result.exitCode.rawValue, 0, "\(result.stderr)")
         try await layout(workspace, passes: 3)
         XCTAssertEqual(plain.lastAppliedLayoutPhysicalRect, right)
         XCTAssertEqual(plainApp.frame, right, "Moved to the other cell")
@@ -214,7 +214,7 @@ final class WindowFrameFitFollowUpTest: XCTestCase {
 
         suppressPostDragAxObserverEvents(for: [window.windowId])
         let result = try await parseCommand("move-node-to-monitor right").cmdOrDie.run(.defaultEnv, .emptyStdin)
-        XCTAssertEqual(result.exitCode, 0, "\(result.stderr)")
+        XCTAssertEqual(result.exitCode.rawValue, 0, "\(result.stderr)")
         XCTAssertTrue(window.nodeWorkspace === external.activeWorkspace)
         try await layoutAll(event: .hotkeyBinding)
         let cell = try XCTUnwrap(window.lastAppliedLayoutPhysicalRect)

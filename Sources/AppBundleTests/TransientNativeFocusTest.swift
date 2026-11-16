@@ -50,7 +50,7 @@ final class TransientNativeFocusTest: XCTestCase {
 
     func testRoutingCallbacksExcludePopupsButKeepIndependentFloatingDialogs() async throws {
         let workspace = focus.workspace
-        let (parsed, errors) = parseConfig("""
+        let (parsed, errors) = parseConfigForTests("""
         [[on-window-detected]]
         if.app-id = 'bobko.WinMux.test-app'
         if.during-winmux-startup = false

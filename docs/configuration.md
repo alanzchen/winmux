@@ -506,6 +506,15 @@ turn this off, set this at the top of the file:
 middle-click-closes-windows = false
 ```
 
+## Config version
+
+`config-version` lets a config opt in to changes that would otherwise break existing files. Omitting it means
+`config-version = 1`; the highest version is 2, and new configs use it. With a lower version, `winmux reload-config`
+prints a warning to stderr and the menu shows **Config contains warnings…**; the config still loads.
+
+`config-version = 2` changes one thing: `persistent-workspaces` can be set explicitly, and when it isn't set no
+workspace is kept when empty. With version 1, WinMux kept every workspace named on the right-hand side of a binding.
+
 ## Keep empty workspaces
 
 Persistent workspaces require configuration version 2. Set these at the top level:

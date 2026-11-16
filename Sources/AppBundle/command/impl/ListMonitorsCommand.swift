@@ -5,7 +5,7 @@ struct ListMonitorsCommand: Command {
     let args: ListMonitorsCmdArgs
     /*conforms*/ let shouldResetClosedWindowsCache = false
 
-    func run(_ env: CmdEnv, _ io: CmdIo) -> Bool {
+    func run(_ env: CmdEnv, _ io: CmdIo) -> BinaryExitCode {
         let focus = focus
         var result = sortedMonitors
         if let focused = args.focused {
@@ -19,16 +19,16 @@ struct ListMonitorsCommand: Command {
         lazy var list = result.map(AeroObj.monitor)
         return switch true {
             case args.outputOnlyCount:
-                io.out("\(result.count)")
+                .succ(io.out("\(result.count)"))
             case args.json:
                 switch list.formatToJson(args.format, ignoreRightPaddingVar: args._format.isEmpty) {
-                    case .success(let json): io.out(json)
-                    case .failure(let msg): io.err(msg)
+                    case .success(let json): .succ(io.out(json))
+                    case .failure(let msg): .fail(io.err(msg))
                 }
             default:
                 switch list.format(args.format) {
-                    case .success(let lines): io.out(lines)
-                    case .failure(let msg): io.err(msg)
+                    case .success(let lines): .succ(io.out(lines))
+                    case .failure(let msg): .fail(io.err(msg))
                 }
         }
     }

@@ -6,7 +6,7 @@ struct OpenLauncherCommand: Command {
     /*conforms*/ let shouldResetClosedWindowsCache = false
 
     @MainActor
-    func run(_ env: CmdEnv, _ io: CmdIo) async throws -> Bool {
+    func run(_ env: CmdEnv, _ io: CmdIo) async throws -> BinaryExitCode {
         var workspace = focus.workspace
         var newTab: WorkspaceLauncherNewTab?
         if args.newWorkspace {
@@ -19,9 +19,9 @@ struct OpenLauncherCommand: Command {
             } else {
                 workspace = getOrCreateAdjacentBlankWorkspace(projectId: projectId, monitor: monitor)
             }
-            guard workspace.focusWorkspace() else { return io.err("Couldn't switch to a new workspace") }
+            guard workspace.focusWorkspace() else { return .fail(io.err("Couldn't switch to a new workspace"))}
         }
-        guard workspace.isVisible else { return io.err("The launcher opens only for a workspace on screen") }
+        guard workspace.isVisible else { return .fail(io.err("The launcher opens only for a workspace on screen"))}
         let name = workspace.name
         // Shown once the command yields the main actor; each refresh repositions it.
         Task { @MainActor [newTab] in
@@ -29,6 +29,6 @@ struct OpenLauncherCommand: Command {
                 runWorkspaceSidebarSession { closeUnusedNewTab(newTab) }
             }
         }
-        return true
+        return .succ
     }
 }

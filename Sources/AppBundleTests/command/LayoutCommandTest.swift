@@ -14,7 +14,7 @@ final class LayoutCommandTest: XCTestCase {
     func testEmptyWorkspaceChangesRootLayoutWithoutAWindow() async throws {
         let workspace = focus.workspace
         let result = try await parseCommand("layout vertical").cmdOrDie.run(.defaultEnv, .emptyStdin)
-        XCTAssertEqual(result.exitCode, 0)
+        XCTAssertEqual(result.exitCode.rawValue, 0)
         XCTAssertEqual(workspace.rootTilingContainer.orientation, .v)
         XCTAssertNil(focus.windowOrNil)
     }
@@ -26,7 +26,7 @@ final class LayoutCommandTest: XCTestCase {
         TestWindow.new(id: 1, parent: nested)
         TestWindow.new(id: 2, parent: nested)
         let result = try await parseCommand("layout --workspace background --root vertical").cmdOrDie.run(.defaultEnv, .emptyStdin)
-        XCTAssertEqual(result.exitCode, 0)
+        XCTAssertEqual(result.exitCode.rawValue, 0)
         XCTAssertEqual(background.rootTilingContainer.orientation, .v)
         XCTAssertEqual(nested.orientation, .h)
         XCTAssertEqual(nested.layout, .tabGroup)
@@ -39,22 +39,22 @@ final class LayoutCommandTest: XCTestCase {
         let window = TestWindow.new(id: 1, parent: nested)
         XCTAssertTrue(window.focusWindow())
         let result = try await parseCommand("layout --root vertical").cmdOrDie.run(.defaultEnv, .emptyStdin)
-        XCTAssertEqual(result.exitCode, 0)
+        XCTAssertEqual(result.exitCode.rawValue, 0)
         XCTAssertEqual(root.orientation, .v)
         XCTAssertEqual(nested.orientation, .h)
     }
 
     func testNoopIsSuccessfulUnlessRequestedToFail() async throws {
-        for (command, exitCode) in [("layout horizontal", 0), ("layout --fail-if-noop horizontal", 1)] {
+        for (command, exitCode) in [("layout horizontal", 0), ("layout --fail-if-noop horizontal", 2)] {
             let result = try await parseCommand(command).cmdOrDie.run(.defaultEnv, .emptyStdin)
-            XCTAssertEqual(result.exitCode, Int32(exitCode))
+            XCTAssertEqual(result.exitCode.rawValue, Int32(exitCode))
         }
     }
 
     func testWindowModesStillFailOnEmptyWorkspace() async throws {
         for mode in ["tiling", "floating"] {
             let result = try await parseCommand("layout \(mode)").cmdOrDie.run(.defaultEnv, .emptyStdin)
-            XCTAssertEqual(result.exitCode, 1)
+            XCTAssertEqual(result.exitCode.rawValue, 2)
         }
     }
 
@@ -62,7 +62,7 @@ final class LayoutCommandTest: XCTestCase {
         config.workspaceSidebar.enabled = true
         config.workspaceSidebar.mode = .tabs
         let result = try await parseCommand("layout --root tab-group").cmdOrDie.run(.defaultEnv, .emptyStdin)
-        XCTAssertEqual(result.exitCode, 1)
+        XCTAssertEqual(result.exitCode.rawValue, 2)
         XCTAssertEqual(focus.workspace.rootTilingContainer.layout, .tiles)
     }
 

@@ -20,21 +20,21 @@ private let workspaceSidebarParser: [String: any ParserProtocol<WorkspaceSidebar
     "show-hidden-workspace-app-reminders": Parser(\.showHiddenWorkspaceAppReminders, parseBool),
     "dock-identity-labels": Parser(\.dockIdentityLabels) { raw, backtrace in
         parseString(raw, backtrace).flatMap { value in
-            DockIdentityLabels(rawValue: value).orFailure(.semantic(backtrace, "Possible values: auto, always, off"))
+            DockIdentityLabels(rawValue: value).orFailure(.init(backtrace, "Possible values: auto, always, off"))
         }
     },
     "dock-magnification": Parser(\.dockMagnification, parseBool),
     "dock-magnification-amount": Parser(\.dockMagnificationAmount, parseWorkspaceSidebarUnitInterval),
     "dock-icon-size": Parser(\.dockIconSize) { raw, backtrace in
-        parseInt(raw, backtrace).filter(.semantic(backtrace, "Must be between 24 and 48 points")) { (24...48).contains($0) }
+        parseInt(raw, backtrace).filter(.init(backtrace, "Must be between 24 and 48 points")) { (24...48).contains($0) }
     },
     "dock-position": Parser(\.dockPosition) { raw, backtrace in
         parseString(raw, backtrace).flatMap { value in
-            WorkspaceDockPosition(rawValue: value).orFailure(.semantic(backtrace, "Possible values: left, bottom, right"))
+            WorkspaceDockPosition(rawValue: value).orFailure(.init(backtrace, "Possible values: left, bottom, right"))
         }
     },
     "dock-left-gap": Parser(\.dockLeftGap) { raw, backtrace in
-        parseInt(raw, backtrace).filter(.semantic(backtrace, "Must be between 0 and 24 points")) { (0...24).contains($0) }
+        parseInt(raw, backtrace).filter(.init(backtrace, "Must be between 0 and 24 points")) { (0...24).contains($0) }
     },
     "collapsed-width": Parser(\.collapsedWidth, parseWorkspaceSidebarWidth),
     "width": Parser(\.width, parseWorkspaceSidebarWidth),
@@ -46,7 +46,7 @@ private let workspaceSidebarParser: [String: any ParserProtocol<WorkspaceSidebar
     "display-filter": Parser(\.displayFilter) { raw, backtrace in
         parseString(raw, backtrace).flatMap { value in
             WorkspaceSidebarDisplayFilter(rawValue: value)
-                .orFailure(.semantic(backtrace, "Possible values: this-display, all-displays"))
+                .orFailure(.init(backtrace, "Possible values: this-display, all-displays"))
         }
     },
     "show-status-pills": Parser(\.showStatusPills, parseBool),
@@ -90,9 +90,9 @@ private let workspaceSidebarParser: [String: any ParserProtocol<WorkspaceSidebar
 ]
 
 func parseWorkspaceSidebar(
-    _ raw: Json,
+    _ raw: OrderedJson,
     _ backtrace: ConfigBacktrace,
-    _ errors: inout [ConfigParseError],
+    _ errors: inout [ConfigParseDiagnostic],
 ) -> WorkspaceSidebarConfig {
     var parsed = parseTable(raw, WorkspaceSidebarConfig(), workspaceSidebarParser, backtrace, &errors)
     // Explicit mode wins over the old show-app-icons alias, regardless of table order.
@@ -107,7 +107,7 @@ func parseWorkspaceSidebar(
         parsed.chromeStyle = modernStyle
     }
     if parsed.alwaysExpanded, parsed.width <= parsed.collapsedWidth {
-        errors += [.semantic(
+        errors += [.init(
             backtrace + .key("width"),
             "Must be greater than collapsed-width when always-expanded is true",
         )]
@@ -115,7 +115,7 @@ func parseWorkspaceSidebar(
     // Unlike width, which predates tabs-always-expanded, these are also checked for Tabs mode.
     if parsed.pinsSidebarOpen {
         for (display, width) in parsed.displayWidths.sorted(by: { $0.key < $1.key }) where width <= parsed.collapsedWidth {
-            errors += [.semantic(
+            errors += [.init(
                 backtrace + .key("display-widths") + .key(display),
                 "Must be greater than collapsed-width while the panel is kept expanded",
             )]
@@ -126,55 +126,55 @@ func parseWorkspaceSidebar(
     return parsed
 }
 
-private func parseWorkspaceSidebarMode(_ raw: Json, _ backtrace: ConfigBacktrace) -> ParsedConfig<WorkspaceSidebarMode> {
+private func parseWorkspaceSidebarMode(_ raw: OrderedJson, _ backtrace: ConfigBacktrace) -> ParsedConfig<WorkspaceSidebarMode> {
     parseString(raw, backtrace).flatMap { value in
-        WorkspaceSidebarMode(rawValue: value).orFailure(.semantic(backtrace, "Possible values: sidebar, dock, tabs"))
+        WorkspaceSidebarMode(rawValue: value).orFailure(.init(backtrace, "Possible values: sidebar, dock, tabs"))
     }
 }
 
-private func parseChromeSolidCustomColor(_ raw: Json, _ backtrace: ConfigBacktrace) -> ParsedConfig<String> {
+private func parseChromeSolidCustomColor(_ raw: OrderedJson, _ backtrace: ConfigBacktrace) -> ParsedConfig<String> {
     parseString(raw, backtrace).flatMap { rawValue in
-        normalizedWorkspaceSidebarColorHex(rawValue).orFailure(.semantic(backtrace, "Use a six-digit hex color, such as #1A2B3C"))
+        normalizedWorkspaceSidebarColorHex(rawValue).orFailure(.init(backtrace, "Use a six-digit hex color, such as #1A2B3C"))
     }
 }
 
-private func parseChromeStyle(_ raw: Json, _ backtrace: ConfigBacktrace) -> ParsedConfig<ChromeStyle> {
+private func parseChromeStyle(_ raw: OrderedJson, _ backtrace: ConfigBacktrace) -> ParsedConfig<ChromeStyle> {
     parseString(raw, backtrace).flatMap { rawValue in
-        ChromeStyle(rawValue: rawValue).orFailure(.semantic(
+        ChromeStyle(rawValue: rawValue).orFailure(.init(
             backtrace,
             "Possible values: \(ChromeStyle.allCases.map(\.rawValue).joined(separator: ", "))",
         ))
     }
 }
 
-private func parseWorkspaceSidebarUnitInterval(_ raw: Json, _ backtrace: ConfigBacktrace) -> ParsedConfig<Double> {
+private func parseWorkspaceSidebarUnitInterval(_ raw: OrderedJson, _ backtrace: ConfigBacktrace) -> ParsedConfig<Double> {
     let value = raw.asDoubleOrNil ?? raw.asIntOrNil.map(Double.init)
     return value
-        .orFailure(.semantic(backtrace, "Must be a number from 0 to 1"))
-        .filter(.semantic(backtrace, "Must be a finite number from 0 to 1")) { $0.isFinite && (0...1).contains($0) }
+        .orFailure(.init(backtrace, "Must be a number from 0 to 1"))
+        .filter(.init(backtrace, "Must be a finite number from 0 to 1")) { $0.isFinite && (0...1).contains($0) }
 }
 
-private func parseChromeSolidColor(_ raw: Json, _ backtrace: ConfigBacktrace) -> ParsedConfig<ChromeSolidColor> {
+private func parseChromeSolidColor(_ raw: OrderedJson, _ backtrace: ConfigBacktrace) -> ParsedConfig<ChromeSolidColor> {
     parseString(raw, backtrace).flatMap { rawValue in
-        ChromeSolidColor(rawValue: rawValue).orFailure(.semantic(
+        ChromeSolidColor(rawValue: rawValue).orFailure(.init(
             backtrace,
             "Possible values: \(ChromeSolidColor.allCases.map(\.rawValue).joined(separator: ", "))",
         ))
     }
 }
 
-private func parseWorkspaceSidebarWidth(_ raw: Json, _ backtrace: ConfigBacktrace) -> ParsedConfig<Int> {
+private func parseWorkspaceSidebarWidth(_ raw: OrderedJson, _ backtrace: ConfigBacktrace) -> ParsedConfig<Int> {
     parseInt(raw, backtrace)
-        .filter(.semantic(backtrace, "Must be greater than 0")) { $0 > 0 }
+        .filter(.init(backtrace, "Must be greater than 0")) { $0 > 0 }
 }
 
 private func parseWorkspaceSidebarDisplayWidths(
-    _ raw: Json,
+    _ raw: OrderedJson,
     _ backtrace: ConfigBacktrace,
-    _ errors: inout [ConfigParseError],
+    _ errors: inout [ConfigParseDiagnostic],
 ) -> [String: Int] {
     guard let rawTable = raw.asDictOrNil else {
-        errors += [expectedActualTypeError(expected: .table, actual: raw.tomlType, backtrace)]
+        errors += [expectedActualTypeDiagnostic(expected: .table, actual: raw.tomlType, backtrace)]
         return [:]
     }
     var result: [String: Int] = [:]
@@ -186,18 +186,18 @@ private func parseWorkspaceSidebarDisplayWidths(
     return result
 }
 
-private func parseWorkspaceSidebarMenuBarReserveHeight(_ raw: Json, _ backtrace: ConfigBacktrace) -> ParsedConfig<Int> {
+private func parseWorkspaceSidebarMenuBarReserveHeight(_ raw: OrderedJson, _ backtrace: ConfigBacktrace) -> ParsedConfig<Int> {
     parseInt(raw, backtrace)
-        .filter(.semantic(backtrace, "Must be greater than or equal to 0")) { $0 >= 0 }
+        .filter(.init(backtrace, "Must be greater than or equal to 0")) { $0 >= 0 }
 }
 
 private func parseWorkspaceSidebarRemotePinClick(
-    _ raw: Json,
+    _ raw: OrderedJson,
     _ backtrace: ConfigBacktrace,
 ) -> ParsedConfig<WorkspaceSidebarRemotePinClick> {
     parseString(raw, backtrace).flatMap { rawValue in
         WorkspaceSidebarRemotePinClick(rawValue: rawValue)
-            .orFailure(.semantic(
+            .orFailure(.init(
                 backtrace,
                 "Possible values: \(WorkspaceSidebarRemotePinClick.allCases.map(\.rawValue).joined(separator: ", "))",
             ))
@@ -205,12 +205,12 @@ private func parseWorkspaceSidebarRemotePinClick(
 }
 
 private func parseWorkspaceProjectDeletionAction(
-    _ raw: Json,
+    _ raw: OrderedJson,
     _ backtrace: ConfigBacktrace,
 ) -> ParsedConfig<WorkspaceProjectDeletionAction> {
     parseString(raw, backtrace).flatMap { rawValue in
         WorkspaceProjectDeletionAction(rawValue: rawValue)
-            .orFailure(.semantic(
+            .orFailure(.init(
                 backtrace,
                 "Possible values: \(WorkspaceProjectDeletionAction.allCases.map(\.rawValue).joined(separator: ", "))",
             ))
@@ -218,12 +218,12 @@ private func parseWorkspaceProjectDeletionAction(
 }
 
 private func parseWorkspaceSidebarLabels(
-    _ raw: Json,
+    _ raw: OrderedJson,
     _ backtrace: ConfigBacktrace,
-    _ errors: inout [ConfigParseError],
+    _ errors: inout [ConfigParseDiagnostic],
 ) -> [String: String] {
     guard let rawTable = raw.asDictOrNil else {
-        errors += [expectedActualTypeError(expected: .table, actual: raw.tomlType, backtrace)]
+        errors += [expectedActualTypeDiagnostic(expected: .table, actual: raw.tomlType, backtrace)]
         return [:]
     }
     var result: [String: String] = [:]
@@ -248,12 +248,12 @@ func normalizedWorkspaceSidebarColorHex(_ raw: String) -> String? {
 }
 
 private func parseWorkspaceSidebarProjectColors(
-    _ raw: Json,
+    _ raw: OrderedJson,
     _ backtrace: ConfigBacktrace,
-    _ errors: inout [ConfigParseError],
+    _ errors: inout [ConfigParseDiagnostic],
 ) -> [String: String] {
     guard let rawTable = raw.asDictOrNil else {
-        errors += [expectedActualTypeError(expected: .table, actual: raw.tomlType, backtrace)]
+        errors += [expectedActualTypeDiagnostic(expected: .table, actual: raw.tomlType, backtrace)]
         return [:]
     }
     var result: [String: String] = [:]
@@ -261,7 +261,7 @@ private func parseWorkspaceSidebarProjectColors(
         let colorBacktrace = backtrace + .key(projectId)
         guard let color = parseString(rawColor, colorBacktrace).getOrNil(appendErrorTo: &errors) else { continue }
         guard let normalized = normalizedWorkspaceSidebarColorHex(color) else {
-            errors.append(.semantic(colorBacktrace, "Must be a hex color like '#RRGGBB'"))
+            errors.append(.init(colorBacktrace, "Must be a hex color like '#RRGGBB'"))
             continue
         }
         result[projectId] = normalized
@@ -270,12 +270,12 @@ private func parseWorkspaceSidebarProjectColors(
 }
 
 private func parseWorkspaceSidebarProjectEmojis(
-    _ raw: Json,
+    _ raw: OrderedJson,
     _ backtrace: ConfigBacktrace,
-    _ errors: inout [ConfigParseError],
+    _ errors: inout [ConfigParseDiagnostic],
 ) -> [String: String] {
     guard let rawTable = raw.asDictOrNil else {
-        errors += [expectedActualTypeError(expected: .table, actual: raw.tomlType, backtrace)]
+        errors += [expectedActualTypeDiagnostic(expected: .table, actual: raw.tomlType, backtrace)]
         return [:]
     }
     var result: [String: String] = [:]
@@ -283,7 +283,7 @@ private func parseWorkspaceSidebarProjectEmojis(
         let path = backtrace + .key(projectId)
         guard let value = parseString(rawEmoji, path).getOrNil(appendErrorTo: &errors) else { continue }
         guard let emoji = normalizedWorkspaceProjectEmoji(value) else {
-            errors.append(.semantic(path, "Must be a single emoji"))
+            errors.append(.init(path, "Must be a single emoji"))
             continue
         }
         result[projectId] = emoji

@@ -118,12 +118,11 @@ final class MacWindow: Window {
         forgetClosedWindow(skipClosedWindowsCache: skipClosedWindowsCache)
     }
 
-    @MainActor override var title: String { get async throws { try await macApp.getAxTitle(windowId) ?? "" } }
-    @MainActor override var isMacosFullscreen: Bool { get async throws { try await macApp.isMacosNativeFullscreen(windowId) == true } }
-    @MainActor override var isMacosMinimized: Bool { get async throws { try await macApp.isMacosNativeMinimized(windowId) == true } }
+    override var title: String { get async throws { try await macApp.getAxTitle(windowId) ?? "" } }
+    override var isMacosFullscreen: Bool { get async throws { try await macApp.isMacosNativeFullscreen(windowId) == true } }
+    override var isMacosMinimized: Bool { get async throws { try await macApp.isMacosNativeMinimized(windowId) == true } }
 
-    @MainActor
-    override func nativeFocus() {
+    @MainActor override func nativeFocus() {
         macApp.nativeFocus(windowId)
     }
 
@@ -270,21 +269,26 @@ private func onWindowDetected(_ window: Window) async throws {
 extension WindowDetectedCallback {
     @MainActor
     func matches(_ window: Window) async throws -> Bool {
-        if let startupMatcher = matcher.duringAeroSpaceStartup, startupMatcher != isStartup {
-            return false
+        switch self.matcher {
+            case .legacy(let matcher):
+                if let startupMatcher = matcher.duringAeroSpaceStartup, startupMatcher != isStartup {
+                    return false
+                }
+                if let regex = matcher.windowTitleRegexSubstring, !(try await window.title).contains(caseInsensitiveRegex: regex) {
+                    return false
+                }
+                if let appId = matcher.appId, appId != window.app.rawAppBundleId {
+                    return false
+                }
+                if let regex = matcher.appNameRegexSubstring, !(window.app.name ?? "").contains(caseInsensitiveRegex: regex) {
+                    return false
+                }
+                if let workspace = matcher.workspace, workspace != window.nodeWorkspace?.name {
+                    return false
+                }
+                return true
+            case .command(let command):
+                return try await command.run(.defaultEnv.copy(\.windowId, window.windowId), .emptyStdin).exitCode.rawValue == 0
         }
-        if let regex = matcher.windowTitleRegexSubstring, !(try await window.title).contains(caseInsensitiveRegex: regex) {
-            return false
-        }
-        if let appId = matcher.appId, appId != window.app.rawAppBundleId {
-            return false
-        }
-        if let regex = matcher.appNameRegexSubstring, !(window.app.name ?? "").contains(caseInsensitiveRegex: regex) {
-            return false
-        }
-        if let workspace = matcher.workspace, workspace != window.nodeWorkspace?.name {
-            return false
-        }
-        return true
     }
 }

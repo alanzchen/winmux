@@ -2,6 +2,8 @@ public enum CmdKind: String, CaseIterable, Equatable, Sendable {
     // Sorted
 
     case agent // WINMUX-HOOK(commands)
+    case _false = "false"
+    case _true = "true"
     case balanceSizes = "balance-sizes"
     case close
     case closeAllWindowsButCurrent = "close-all-windows-but-current"
@@ -50,6 +52,8 @@ public enum CmdKind: String, CaseIterable, Equatable, Sendable {
     case subscribe
     case summonWorkspace = "summon-workspace"
     case swap
+    case test
+    case testNot = "test-not"
     case triggerBinding = "trigger-binding"
     case volume
     case workspace
@@ -65,6 +69,10 @@ func initSubcommands() -> [String: any SubCommandParserProtocol] {
                  .openLauncher, .openSidebar, .palette, .project, .renameProject, .saveWorkspace, .setProjectColor, .stackWith:
                 result[kind.rawValue] = winMuxSubcommandParser(kind)
             // WINMUX-HOOK-END(commands)
+            case ._false:
+                result[kind.rawValue] = SubCommandParser(FalseCmdArgs.init)
+            case ._true:
+                result[kind.rawValue] = SubCommandParser(TrueCmdArgs.init)
             case .balanceSizes:
                 result[kind.rawValue] = SubCommandParser(BalanceSizesCmdArgs.init)
             case .close:
@@ -137,6 +145,10 @@ func initSubcommands() -> [String: any SubCommandParserProtocol] {
                 result[kind.rawValue] = SubCommandParser(SummonWorkspaceCmdArgs.init)
             case .swap:
                 result[kind.rawValue] = SubCommandParser(parseSwapCmdArgs)
+            case .test:
+                result[kind.rawValue] = SubCommandParser(parseTestCmdArgs)
+            case .testNot:
+                result[kind.rawValue] = SubCommandParser(parseTestNotCmdArgs)
             case .triggerBinding:
                 result[kind.rawValue] = SubCommandParser(parseTriggerBindingCmdArgs)
             case .volume:

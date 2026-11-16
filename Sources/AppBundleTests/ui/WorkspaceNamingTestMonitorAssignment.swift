@@ -28,7 +28,7 @@ extension WorkspaceNamingTest {
         args.target = .initialized(.relative(.next))
         let result = try await MoveWorkspaceToMonitorCommand(args: args).run(.defaultEnv, .emptyStdin)
 
-        assertEquals(result.exitCode, 0)
+        assertEquals(result.exitCode.rawValue, 0)
         XCTAssertTrue(secondary.activeWorkspace === projectWorkspace)
         XCTAssertEqual(main.activeWorkspace.projectId, project.id)
         XCTAssertTrue(main.activeWorkspace !== projectWorkspace)
@@ -73,7 +73,7 @@ extension WorkspaceNamingTest {
         let result = try await parseCommand("summon-workspace \(projectWorkspace.name)").cmdOrDie
             .run(.defaultEnv, .emptyStdin)
 
-        assertEquals(result.exitCode, 0)
+        assertEquals(result.exitCode.rawValue, 0)
         XCTAssertTrue(main.activeWorkspace === projectWorkspace)
         XCTAssertTrue(focus.workspace === projectWorkspace)
         XCTAssertEqual(secondary.activeWorkspace.projectId, project.id)

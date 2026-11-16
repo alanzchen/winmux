@@ -141,7 +141,7 @@ private func moveTilingWindow(_ window: Window) {
 }
 
 @MainActor
-func swapWindows(_ window1: Window, _ window2: Window) {
+func swapWindows(mruDominant window1: Window, _ window2: Window) {
     swapNodes(window1.moveNode, window2.moveNode)
 }
 

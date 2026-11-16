@@ -139,15 +139,8 @@ mode.main.binding
 mode.main.binding-tap
 
 $ list-monitors --format '%{nonexistent}'
-exit: 1
-err: ERROR: Unknown interpolation variable 'nonexistent'. Possible values:
-         monitor-id
-         monitor-appkit-nsscreen-screens-id
-         monitor-name
-         monitor-is-main
-         right-padding
-         newline
-         tab
+failure: ERROR: Failed to parse <output-format>. Can't parse 'nonexistent'.
+       Possible values: (window-id|window-is-fullscreen|window-title|window-layout|window-parent-container-layout|workspace|workspace-display-name|workspace-is-focused|workspace-is-visible|workspace-is-saved|workspace-is-pinned|workspace-root-container-layout|project-index|project-id|project-name|project-color|project-is-focused|project-is-visible|project-workspace-count|project-window-count|app-bundle-id|app-name|app-pid|app-exec-path|app-bundle-path|monitor-id|monitor-appkit-nsscreen-screens-id|monitor-name|monitor-is-main|right-padding|newline|tab)
 
 $ list-windows --all --format '%{monitor-is-main}'
 exit: 0

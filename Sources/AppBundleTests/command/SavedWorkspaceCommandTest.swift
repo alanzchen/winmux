@@ -51,22 +51,22 @@ final class SavedWorkspaceCommandTest: XCTestCase {
         TestWindow.new(id: 1, parent: target.rootTilingContainer)
 
         let first = try await run("save-workspace --workspace 3")
-        XCTAssertEqual(first.exitCode, 0)
+        XCTAssertEqual(first.exitCode.rawValue, 0)
         XCTAssertTrue(target.isSaved)
 
         let noop = try await run("save-workspace --workspace 3")
-        XCTAssertEqual(noop.exitCode, 0)
+        XCTAssertEqual(noop.exitCode.rawValue, 0)
         XCTAssertEqual(noop.stderr, ["Workspace '3' is already saved. Tip: use --fail-if-noop to exit with non-zero code"])
 
         let failing = try await run("save-workspace --workspace 3 --fail-if-noop")
-        XCTAssertEqual(failing.exitCode, 1)
+        XCTAssertEqual(failing.exitCode.rawValue, 2)
         XCTAssertEqual(failing.stderr, ["Workspace '3' is already saved"])
     }
 
     func testSaveRejectsInvalidNameBeforeSaving() async throws {
         let result = try await run("save-workspace --name '   '")
 
-        XCTAssertEqual(result.exitCode, 1)
+        XCTAssertEqual(result.exitCode.rawValue, 2)
         XCTAssertFalse(focus.workspace.isSaved)
     }
 
@@ -81,11 +81,11 @@ final class SavedWorkspaceCommandTest: XCTestCase {
         XCTAssertTrue(savedPinBlocks(workspace, on: laptop))
 
         let again = try await run("save-workspace --workspace code --pin-to-display --fail-if-noop")
-        XCTAssertEqual(again.exitCode, 1)
+        XCTAssertEqual(again.exitCode.rawValue, 2)
         XCTAssertEqual(again.stderr, ["Workspace 'code' is already saved and kept on display '\(dell.name)'"])
 
         let unpinned = try await run("save-workspace --workspace code --unpin-display")
-        XCTAssertEqual(unpinned.exitCode, 0)
+        XCTAssertEqual(unpinned.exitCode.rawValue, 0)
         XCTAssertEqual(savedWorkspaceStore.record(named: "code")?.isPinnedToDisplay, false)
         XCTAssertFalse(savedPinBlocks(workspace, on: laptop))
     }
@@ -97,7 +97,7 @@ final class SavedWorkspaceCommandTest: XCTestCase {
 
         let result = try await run("save-workspace --workspace code --pin-to-display")
 
-        XCTAssertEqual(result.exitCode, 1)
+        XCTAssertEqual(result.exitCode.rawValue, 2)
         XCTAssertFalse(workspace.isSaved)
     }
 
@@ -108,7 +108,7 @@ final class SavedWorkspaceCommandTest: XCTestCase {
 
         let result = try await run("save-workspace --pin-to-display")
 
-        XCTAssertEqual(result.exitCode, 1)
+        XCTAssertEqual(result.exitCode.rawValue, 2)
         XCTAssertFalse(focus.workspace.isSaved)
     }
 
@@ -126,7 +126,7 @@ final class SavedWorkspaceCommandTest: XCTestCase {
         XCTAssertNotNil(Workspace.existing(byName: "code"))
 
         let noop = try await run("forget-workspace --workspace code --fail-if-noop")
-        XCTAssertEqual(noop.exitCode, 1)
+        XCTAssertEqual(noop.exitCode.rawValue, 2)
         XCTAssertEqual(noop.stderr, ["Workspace 'code' is not saved"])
     }
 
@@ -159,9 +159,9 @@ final class SavedWorkspaceCommandTest: XCTestCase {
         let noop = try await run("save-workspace --workspace code --unpin-display --fail-if-noop")
         let json = try await run("save-workspace --workspace code --json")
 
-        XCTAssertEqual(noop.exitCode, 1)
+        XCTAssertEqual(noop.exitCode.rawValue, 2)
         XCTAssertEqual(noop.stderr, ["Workspace 'code' is already saved and not kept on a display"])
-        XCTAssertEqual(json.exitCode, 0)
+        XCTAssertEqual(json.exitCode.rawValue, 0)
         XCTAssertEqual(json.stderr, ["Workspace 'code' is already saved. Tip: use --fail-if-noop to exit with non-zero code"])
         XCTAssertEqual(try jsonObject(json)["changed"] as? Bool, false)
     }
@@ -174,7 +174,7 @@ final class SavedWorkspaceCommandTest: XCTestCase {
 
         let result = try await run("save-workspace --workspace code --pin-to-display")
 
-        XCTAssertEqual(result.exitCode, 1)
+        XCTAssertEqual(result.exitCode.rawValue, 2)
         XCTAssertEqual(savedWorkspaceStore.record(named: "code")?.isPinnedToDisplay, false)
     }
 
@@ -183,7 +183,7 @@ final class SavedWorkspaceCommandTest: XCTestCase {
 
         let result = try await run("save-workspace")
 
-        XCTAssertEqual(result.exitCode, 1)
+        XCTAssertEqual(result.exitCode.rawValue, 2)
         XCTAssertEqual(result.stderr, ["Saved workspaces are read-only: written by a newer WinMux"])
     }
 
@@ -205,7 +205,7 @@ final class SavedWorkspaceCommandTest: XCTestCase {
     }
 
     private func jsonObject(_ result: CmdResult) throws -> [String: Any] {
-        XCTAssertEqual(result.exitCode, 0, "\(result.stderr)")
+        XCTAssertEqual(result.exitCode.rawValue, 0, "\(result.stderr)")
         let data = try XCTUnwrap(result.stdout.singleOrNil()?.data(using: .utf8))
         return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
     }

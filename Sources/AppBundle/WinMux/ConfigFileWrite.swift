@@ -20,14 +20,23 @@ func writeConfigFile(_ after: String, replacing before: String, at url: URL, cha
 
 /// The only code that puts config text on disk (`writeConfigFile`, `SettingsPersistence`, first-launch files). A config
 /// symlinked into a dotfiles repository stays a symlink: the chain is followed to the real file, which is replaced
-/// atomically by a temporary file in its own directory, which keeps its permissions.
+/// atomically, keeping its permissions and extended attributes.
 func replaceConfigFileOnDisk(_ text: String, at url: URL) throws {
     let fileManager = FileManager.default
     let target = try configFileTarget(url)
     let parent = target.deletingLastPathComponent()
     if parent.path != target.path { try fileManager.createDirectory(at: parent, withIntermediateDirectories: true) }
-    // Foundation's atomic write keeps an existing file's permissions (S2DeltaTest checks 0600).
-    try text.write(to: target, atomically: true, encoding: .utf8)
+    guard fileManager.fileExists(atPath: target.path) else {
+        try text.write(to: target, atomically: true, encoding: .utf8)
+        return
+    }
+    // An existing file is replaced with `replaceItemAt`, which keeps the original's metadata: permissions and extended
+    // attributes (Astra S2 nit; a plain atomic write dropped the attributes). The new text is staged on the same volume.
+    let staging = try fileManager.url(for: .itemReplacementDirectory, in: .userDomainMask, appropriateFor: target, create: true)
+    defer { try? fileManager.removeItem(at: staging) }
+    let staged = staging.appending(path: target.lastPathComponent)
+    try text.write(to: staged, atomically: false, encoding: .utf8)
+    _ = try fileManager.replaceItemAt(target, withItemAt: staged)
 }
 
 /// `url` with its symlink chain followed, one link at a time: relative destinations are relative to the link's own
@@ -46,8 +55,8 @@ func configFileTarget(_ url: URL) throws -> URL {
 
 @MainActor
 func validateConfigEdit(before: String, after: String, changing: [ConfigKeyPath]?) throws {
-    let beforeErrors = Set(parseConfig(before).errors)
-    let added = parseConfig(after).errors.filter { !beforeErrors.contains($0) }
+    let beforeErrors = Set(parseConfig(before).errors.map { $0.description(.error) })
+    let added = parseConfig(after).errors.map { $0.description(.error) }.filter { !beforeErrors.contains($0) }
     guard added.isEmpty else {
         throw ConfigEditRefused("WinMux didn't save this change: the configuration would no longer load.\n"
             + added.joined(separator: "\n"))
@@ -76,12 +85,14 @@ func checkConfigEditKeepsOtherKeys(before: String, after: String, changing: [Con
 /// Every value the loader reads from `text`, by key path. Tables are walked; arrays and scalars are values, and so is an
 /// empty table: its presence can matter (an empty `[exec]` changes `PATH`, an empty `[mode.service]` defines a mode).
 /// nil when the text doesn't parse.
-func configLeaves(_ text: String) -> [ConfigKeyPath: Json]? {
+func configLeaves(_ text: String) -> [ConfigKeyPath: OrderedJson]? {
+    var conversionErrors: [ConfigParseDiagnostic] = []
     guard let table = try? WinMuxToml.table(text),
-          case .success(let json) = tomlAnyToParsedConfigRecursive(any: table, .emptyRoot)
+          let json = tomlAnyToOrderedJsonRecursive(any: table, .emptyRoot, &conversionErrors),
+          conversionErrors.isEmpty
     else { return nil }
-    var leaves: [ConfigKeyPath: Json] = [:]
-    func walk(_ value: Json, _ path: ConfigKeyPath) {
+    var leaves: [ConfigKeyPath: OrderedJson] = [:]
+    func walk(_ value: OrderedJson, _ path: ConfigKeyPath) {
         if case .dict(let dict) = value, !dict.isEmpty || path.isEmpty {
             for (key, child) in dict { walk(child, path + [key]) }
         } else {

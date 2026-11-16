@@ -6,7 +6,7 @@ final class CarbonS2EofReproTest: XCTestCase {
     @MainActor
     func testIncompleteBareTokenAtEofDoesNotCrashParseConfig() {
         for input in ["width = -", "width = +", "enabled = n", "enabled = na", "mode = i", "mode = in"] {
-            XCTAssertFalse(parseConfig(input).errors.isEmpty, input)
+            XCTAssertFalse(parseConfigForTests(input).errors.isEmpty, input)
         }
     }
 }

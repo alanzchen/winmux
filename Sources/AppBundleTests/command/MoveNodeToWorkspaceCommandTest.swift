@@ -32,7 +32,7 @@ final class MoveNodeToWorkspaceCommandTest: XCTestCase {
         let result = try await MoveNodeToWorkspaceCommand(args: args).run(.defaultEnv, .emptyStdin)
 
         let targetWorkspace = try XCTUnwrap(sourceWindow.nodeWorkspace)
-        assertEquals(result.exitCode, 0)
+        assertEquals(result.exitCode.rawValue, 0)
         XCTAssertNotEqual(targetWorkspace, sourceWorkspace)
         XCTAssertNotEqual(targetWorkspace, existingWorkspace)
         XCTAssertEqual(targetWorkspace.projectId, sourceWorkspace.projectId)
@@ -148,7 +148,7 @@ final class MoveNodeToWorkspaceCommandTest: XCTestCase {
         let result = try await MoveNodeToWorkspaceCommand(args: MoveNodeToWorkspaceCmdArgs(workspace: "2"))
             .run(.defaultEnv, .emptyStdin)
 
-        assertEquals(result.exitCode, 0)
+        assertEquals(result.exitCode.rawValue, 0)
         XCTAssertEqual(window.nodeWorkspace?.name, "2")
         XCTAssertEqual(workspaceDisplayName("2"), "Workspace 2")
     }
@@ -162,7 +162,7 @@ final class MoveNodeToWorkspaceCommandTest: XCTestCase {
         let result = try await MoveNodeToWorkspaceCommand(args: MoveNodeToWorkspaceCmdArgs(workspace: "3"))
             .run(.defaultEnv, .emptyStdin)
 
-        assertEquals(result.exitCode, 1)
+        assertEquals(result.exitCode.rawValue, 2)
         XCTAssertNil(Workspace.existing(byName: "3"))
         XCTAssertEqual(window.nodeWorkspace, workspace1)
     }
@@ -179,7 +179,7 @@ final class MoveNodeToWorkspaceCommandTest: XCTestCase {
         let result = try await MoveNodeToWorkspaceCommand(args: MoveNodeToWorkspaceCmdArgs(workspace: "3"))
             .run(.defaultEnv, .emptyStdin)
 
-        assertEquals(result.exitCode, 0)
+        assertEquals(result.exitCode.rawValue, 0)
         XCTAssertEqual(window.nodeWorkspace?.name, "2")
         XCTAssertNil(Workspace.existing(byName: "4"))
         XCTAssertEqual(workspaceDisplayName(first.name), "Workspace 1")
@@ -195,7 +195,7 @@ final class MoveNodeToWorkspaceCommandTest: XCTestCase {
         assertEquals(
             try await WorkspaceCommand(args: WorkspaceCmdArgs(target: .direct(.parse("2").getOrDie())))
                 .run(.defaultEnv, .emptyStdin)
-                .exitCode,
+                .exitCode.rawValue,
             0,
         )
         _ = window.focusWindow()
@@ -205,7 +205,7 @@ final class MoveNodeToWorkspaceCommandTest: XCTestCase {
         let result = try await MoveNodeToWorkspaceCommand(args: MoveNodeToWorkspaceCmdArgs(workspace: "3"))
             .run(.defaultEnv, .emptyStdin)
 
-        assertEquals(result.exitCode, 1)
+        assertEquals(result.exitCode.rawValue, 2)
         XCTAssertNil(Workspace.existing(byName: "3"))
         XCTAssertEqual(window.nodeWorkspace, workspace1)
     }
@@ -219,7 +219,7 @@ final class MoveNodeToWorkspaceCommandTest: XCTestCase {
         let result = try await MoveNodeToWorkspaceCommand(args: MoveNodeToWorkspaceCmdArgs(target: .relative(.next)))
             .run(.defaultEnv, .emptyStdin)
 
-        assertEquals(result.exitCode, 0)
+        assertEquals(result.exitCode.rawValue, 0)
         XCTAssertEqual(window.nodeWorkspace?.name, "2")
     }
 

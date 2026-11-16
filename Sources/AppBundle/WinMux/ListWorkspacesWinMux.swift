@@ -7,14 +7,14 @@ extension WinMuxHooks {
     /// sidebar shows" (`workspaceHasSidebarVisibleWindows`), so a workspace holding only native-fullscreen windows
     /// counts as empty.
     @MainActor
-    static func listWorkspaces(_ args: ListWorkspacesCmdArgs, _ io: CmdIo) -> Bool {
+    static func listWorkspaces(_ args: ListWorkspacesCmdArgs, _ io: CmdIo) -> BinaryExitCode {
         var result: [Workspace] = userFacingWorkspaces(orderedWorkspacesForPresentation())
         if let visible = args.filteringOptions.visible {
             result = result.filter { $0.isVisible == visible }
         }
         if !args.filteringOptions.onMonitors.isEmpty {
             let monitors: Set<CGPoint> = args.filteringOptions.onMonitors.resolveMonitors(io)
-            if monitors.isEmpty { return false }
+            if monitors.isEmpty { return .fail }
             result = result.filter { monitors.contains($0.workspaceMonitor.rect.topLeftCorner) }
         }
         if let empty = args.filteringOptions.empty {
@@ -22,7 +22,7 @@ extension WinMuxHooks {
         }
 
         if args.outputOnlyCount {
-            return io.out("\(result.count)")
+            return .succ(io.out("\(result.count)"))
         } else {
             return result.map { AeroObj.workspace($0) }.writeFormattedOutput(
                 to: io,

@@ -37,7 +37,7 @@ final class CarbonS2SettingsToml11ReproTest: XCTestCase {
             [mode.main.binding]
                 alt-h = 'focus left'
             """
-        let initial = parseConfig(savedText)
+        let initial = parseConfigForTests(savedText)
         XCTAssertEqual(initial.errors, [])
         config = initial.config
 
@@ -46,7 +46,7 @@ final class CarbonS2SettingsToml11ReproTest: XCTestCase {
             read: { _ in savedText },
             write: { _, next in savedText = next },
             reload: { _ in
-                let parsed = parseConfig(savedText)
+                let parsed = parseConfigForTests(savedText)
                 guard parsed.errors.isEmpty else { return false }
                 config = parsed.config
                 return true
@@ -87,7 +87,7 @@ final class CarbonS2SettingsToml11ReproTest: XCTestCase {
                 enabled = true
                 width = 300
             """
-        let initial = parseConfig(savedText)
+        let initial = parseConfigForTests(savedText)
         XCTAssertEqual(initial.errors, [])
         config = initial.config
 
@@ -96,7 +96,7 @@ final class CarbonS2SettingsToml11ReproTest: XCTestCase {
             read: { _ in savedText },
             write: { _, next in savedText = next },
             reload: { _ in
-                let parsed = parseConfig(savedText)
+                let parsed = parseConfigForTests(savedText)
                 guard parsed.errors.isEmpty else { return false }
                 config = parsed.config
                 return true
@@ -130,13 +130,13 @@ final class CarbonS2SettingsToml11ReproTest: XCTestCase {
             [mode.main.binding]
             alt-h = 'focus left'
             """
-        XCTAssertEqual(parseConfig(initialText).errors, [])
+        XCTAssertEqual(parseConfigForTests(initialText).errors, [])
         try initialText.write(to: targetUrl, atomically: true, encoding: .utf8)
 
         try persistWorkspaceSidebarLabel(workspaceName: "1", label: "Renamed", targetUrl: targetUrl)
 
         let savedText = try String(contentsOf: targetUrl, encoding: .utf8)
-        let (parsed, errors) = parseConfig(savedText)
+        let (parsed, errors) = parseConfigForTests(savedText)
         XCTAssertEqual(errors, [])
         XCTAssertEqual(parsed.workspaceSidebar.workspaceLabels["1"], "Renamed")
         XCTAssertEqual(parsed.workspaceSidebar.workspaceLabels["2"], "Keep Me", "Sidebar label edit truncated subsequent labels")

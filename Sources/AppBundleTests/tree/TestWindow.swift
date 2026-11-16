@@ -6,6 +6,11 @@ final class TestWindow: Window, CustomStringConvertible {
     private var _isHiddenInCorner: Bool = false
     // Mutating the fake native state models a real state transition, which in production is
     // always accompanied by an AX event that invalidates the last-known-native-state cache.
+    /// Upstream's tests' name for the fake native fullscreen state.
+    @MainActor var isMacosFullscreenForTest: Bool {
+        get { nativeIsMacosFullscreen }
+        set { nativeIsMacosFullscreen = newValue }
+    }
     @MainActor var nativeIsMacosFullscreen: Bool = false {
         didSet { invalidateLastKnownNativeState() }
     }
@@ -125,4 +130,5 @@ final class TestWindow: Window, CustomStringConvertible {
         }
         _isHiddenInCorner = false
     }
+
 }

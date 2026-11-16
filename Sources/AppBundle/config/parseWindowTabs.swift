@@ -5,14 +5,14 @@ private let windowTabsParser: [String: any ParserProtocol<WindowTabsConfig>] = [
 ]
 
 func parseWindowTabs(
-    _ raw: Json,
+    _ raw: OrderedJson,
     _ backtrace: ConfigBacktrace,
-    _ errors: inout [ConfigParseError],
+    _ errors: inout [ConfigParseDiagnostic],
 ) -> WindowTabsConfig {
     parseTable(raw, WindowTabsConfig(), windowTabsParser, backtrace, &errors)
 }
 
-private func parseWindowTabsHeight(_ raw: Json, _ backtrace: ConfigBacktrace) -> ParsedConfig<Int> {
+private func parseWindowTabsHeight(_ raw: OrderedJson, _ backtrace: ConfigBacktrace) -> ParsedConfig<Int> {
     parseInt(raw, backtrace)
-        .filter(.semantic(backtrace, "Must be greater than 20")) { $0 > 20 }
+        .filter(.init(backtrace, "Must be greater than 20")) { $0 > 20 }
 }

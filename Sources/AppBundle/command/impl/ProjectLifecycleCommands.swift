@@ -5,7 +5,7 @@ struct ListProjectsCommand: Command {
     let args: ListProjectsCmdArgs
     /*conforms*/ let shouldResetClosedWindowsCache = false
 
-    func run(_ env: CmdEnv, _ io: CmdIo) -> Bool {
+    func run(_ env: CmdEnv, _ io: CmdIo) -> BinaryExitCode {
         // The projects the user is in: a pin in All Projects on screen is in its display's.
         let focusedProjectId = workspaceContextProjectId(of: focus.workspace)
         let visibleProjectIds = Set(Workspace.all.filter(\.isVisible).map(workspaceContextProjectId(of:)))
@@ -29,7 +29,7 @@ struct ListProjectsCommand: Command {
         }
 
         if args.outputOnlyCount {
-            return io.out("\(result.count)")
+            return .succ(io.out("\(result.count)"))
         }
         return result.map(AeroObj.project).writeFormattedOutput(
             to: io,
@@ -44,17 +44,17 @@ struct CreateProjectCommand: Command {
     let args: CreateProjectCmdArgs
     /*conforms*/ let shouldResetClosedWindowsCache = true
 
-    func run(_ env: CmdEnv, _ io: CmdIo) -> Bool {
+    func run(_ env: CmdEnv, _ io: CmdIo) -> BinaryExitCode {
         let requestedName: String?
         do {
             requestedName = try args.name.map(normalizedWorkspaceProjectDisplayName)
         } catch {
-            return io.err(error.localizedDescription)
+            return .fail(io.err(error.localizedDescription))
         }
         let requestedColor: String?
         if let color = args.color {
             guard let normalized = normalizedWorkspaceSidebarColorHex(color) else {
-                return io.err(WorkspaceMutationError.invalidProjectColor(color).localizedDescription)
+                return .fail(io.err(WorkspaceMutationError.invalidProjectColor(color).localizedDescription))
             }
             requestedColor = normalized
         } else {
@@ -74,9 +74,9 @@ struct CreateProjectCommand: Command {
                     "project-name": .string(currentProject.name),
                 ], to: io)
             }
-            return io.out(currentProject.id.rawValue)
+            return .succ(io.out(currentProject.id.rawValue))
         } catch {
-            return io.err(error.localizedDescription)
+            return .fail(io.err(error.localizedDescription))
         }
     }
 }
@@ -85,27 +85,27 @@ struct RenameProjectCommand: Command {
     let args: RenameProjectCmdArgs
     /*conforms*/ let shouldResetClosedWindowsCache = false
 
-    func run(_ env: CmdEnv, _ io: CmdIo) -> Bool {
+    func run(_ env: CmdEnv, _ io: CmdIo) -> BinaryExitCode {
         guard let project = workspaceProject(id: args.projectId.val) else {
-            return io.err(WorkspaceMutationError.projectNotFound(args.projectId.val).localizedDescription)
+            return .fail(io.err(WorkspaceMutationError.projectNotFound(args.projectId.val).localizedDescription))
         }
         let name: String
         do {
             name = try normalizedWorkspaceProjectDisplayName(args.displayName.val)
         } catch {
-            return io.err(error.localizedDescription)
+            return .fail(io.err(error.localizedDescription))
         }
         let changed = project.name != name
         if !changed {
             if args.failIfNoop {
-                return io.err("Project '\(project.id.rawValue)' is already named '\(name)'")
+                return .fail(io.err("Project '\(project.id.rawValue)' is already named '\(name)'"))
             }
             io.err("Project '\(project.id.rawValue)' is already named '\(name)'. Tip: use --fail-if-noop to exit with non-zero code")
         } else {
             do {
                 try renameWorkspaceProject(project.id, displayName: name)
             } catch {
-                return io.err(error.localizedDescription)
+                return .fail(io.err(error.localizedDescription))
             }
         }
         if args.json {
@@ -115,7 +115,7 @@ struct RenameProjectCommand: Command {
                 "project-name": .string(name),
             ], to: io)
         }
-        return true
+        return .succ
     }
 }
 
@@ -123,9 +123,9 @@ struct SetProjectColorCommand: Command {
     let args: SetProjectColorCmdArgs
     /*conforms*/ let shouldResetClosedWindowsCache = false
 
-    func run(_ env: CmdEnv, _ io: CmdIo) -> Bool {
+    func run(_ env: CmdEnv, _ io: CmdIo) -> BinaryExitCode {
         guard let project = workspaceProject(id: args.projectId.val) else {
-            return io.err(WorkspaceMutationError.projectNotFound(args.projectId.val).localizedDescription)
+            return .fail(io.err(WorkspaceMutationError.projectNotFound(args.projectId.val).localizedDescription))
         }
         let rawColor = args.color.val.trimmingCharacters(in: .whitespacesAndNewlines)
         let requestedColor: String?
@@ -134,7 +134,7 @@ struct SetProjectColorCommand: Command {
         } else if let normalized = normalizedWorkspaceSidebarColorHex(rawColor) {
             requestedColor = normalized
         } else {
-            return io.err(WorkspaceMutationError.invalidProjectColor(rawColor).localizedDescription)
+            return .fail(io.err(WorkspaceMutationError.invalidProjectColor(rawColor).localizedDescription))
         }
         let currentColor = config.workspaceSidebar.projectColors[project.id.rawValue]
             .flatMap(normalizedWorkspaceSidebarColorHex)
@@ -142,14 +142,14 @@ struct SetProjectColorCommand: Command {
         if !changed {
             let colorDescription = requestedColor ?? "auto"
             if args.failIfNoop {
-                return io.err("Project '\(project.id.rawValue)' already uses color '\(colorDescription)'")
+                return .fail(io.err("Project '\(project.id.rawValue)' already uses color '\(colorDescription)'"))
             }
             io.err("Project '\(project.id.rawValue)' already uses color '\(colorDescription)'. Tip: use --fail-if-noop to exit with non-zero code")
         } else {
             do {
                 try setWorkspaceProjectColor(project.id, colorHex: requestedColor)
             } catch {
-                return io.err(error.localizedDescription)
+                return .fail(io.err(error.localizedDescription))
             }
         }
         if args.json {
@@ -159,7 +159,7 @@ struct SetProjectColorCommand: Command {
                 "project-id": .string(project.id.rawValue),
             ], to: io)
         }
-        return true
+        return .succ
     }
 }
 
@@ -167,26 +167,26 @@ struct DeleteProjectCommand: Command {
     let args: DeleteProjectCmdArgs
     /*conforms*/ let shouldResetClosedWindowsCache = true
 
-    func run(_ env: CmdEnv, _ io: CmdIo) async -> Bool {
+    func run(_ env: CmdEnv, _ io: CmdIo) async -> BinaryExitCode {
         guard let project = workspaceProject(id: args.projectId.val) else {
-            return io.err(WorkspaceMutationError.projectNotFound(args.projectId.val).localizedDescription)
+            return .fail(io.err(WorkspaceMutationError.projectNotFound(args.projectId.val).localizedDescription))
         }
         guard canDeleteWorkspaceProject(project.id) else {
-            return io.err(WorkspaceMutationError.projectCannotBeDeleted(project.name).localizedDescription)
+            return .fail(io.err(WorkspaceMutationError.projectCannotBeDeleted(project.name).localizedDescription))
         }
         let fallbackId = workspaceProjectFallbackForDeletion(excluding: project.id)
         let windowCount = windowsInWorkspaceProject(project.id).count
         let expectedWindowCount = Int(args.ifWindowCount.orDie())
         guard windowCount == expectedWindowCount else {
-            return io.err(
+            return .fail(io.err(
                 "Project '\(project.id.rawValue)' window count changed: expected \(expectedWindowCount), found \(windowCount). Run list-projects again before deleting.",
-            )
+            ))
         }
         let action = WorkspaceProjectDeletionAction.moveWindowsToFallback
         do {
             try deleteWorkspaceProject(project.id)
         } catch {
-            return io.err(error.localizedDescription)
+            return .fail(io.err(error.localizedDescription))
         }
         if args.json {
             return writeProjectMutationJson([
@@ -196,11 +196,11 @@ struct DeleteProjectCommand: Command {
                 "window-count": .int(windowCount),
             ], to: io)
         }
-        return true
+        return .succ
     }
 }
 
-private func writeProjectMutationJson(_ result: [String: Primitive], to io: CmdIo) -> Bool {
-    JSONEncoder.aeroSpaceDefault.encodeToString(result).map(io.out)
-        ?? io.err("Failed to encode JSON")
+private func writeProjectMutationJson(_ result: [String: Primitive], to io: CmdIo) -> BinaryExitCode {
+    JSONEncoder.aeroSpaceDefault.encodeToString(result).map { .succ(io.out($0)) }
+        ?? .fail(io.err("Failed to encode JSON"))
 }

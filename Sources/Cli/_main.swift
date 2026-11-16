@@ -16,7 +16,7 @@ struct Main {
             exit(cliUsageOrParseErrorExitCode, err: usage)
         }
         if args.first == "--help" || args.first == "-h" {
-            exit(0, out: usage)
+            exit(EXIT_CODE_ZERO, out: usage)
         }
 
         if args.first == "--version" || args.first == "-v" {
@@ -24,7 +24,7 @@ struct Main {
             let serverVersionAndHash: String?
             switch await connection.initConnection().error {
                 case nil:
-                    let ans = await run(connection, [], stdin: "", windowId: nil, workspace: nil)
+                    let ans = await run(connection, [], stdin: "", windowId: nil, workspace: nil, failExitCode: 1)
                     serverVersionAndHash = ans.serverVersionAndHash
                 case .nwError:
                     serverVersionAndHash = nil
@@ -41,18 +41,25 @@ struct Main {
                     """,
                 )
             }
-            exit(0)
+            exit(EXIT_CODE_ZERO)
         }
 
         let parsedArgs: any CmdArgs
         switch parseCmdArgs(args) {
+            // Upstream's shortcut: these answer without the server.
+            case .cmd(_ as TrueCmdArgs): exit(ConditionalExitCode._true.rawValue)
+            case .cmd(_ as FalseCmdArgs): exit(ConditionalExitCode._false.rawValue)
             case .cmd(let commandArgs):
                 parsedArgs = commandArgs
             case .help(let help):
                 exit(0, out: help)
             case .failure(let e):
-                exit(cliUsageOrParseErrorExitCode, err: e)
+                exit(cliUsageOrParseErrorExitCode, err: e.msg)
         }
+
+        // WinMux's contract (docs/cli.md): a failure reaching or talking to the server exits 1; a conditional command
+        // (test, true, false) keeps upstream's 2 for errors, since 1 means false.
+        let failExitCode: Int32 = isConditionalCommand(parsedArgs) ? ConditionalExitCode.fail.rawValue : 1
 
         let connection = NWConnection(to: NWEndpoint.unix(path: socketPath), using: .tcp)
 
@@ -74,7 +81,7 @@ struct Main {
         } else if shouldReadRelativeWorkspaceStdin(parsedArgs), hasStdin() {
             if !hasExplicitRelativeWorkspaceStdinFlag(parsedArgs) {
                 exit(
-                    1,
+                    failExitCode,
                     err: """
                         ERROR: Implicit stdin is detected (stdin is not TTY). Implicit stdin was forbidden in AeroSpace v0.20.0.
                         1. Please supply '--stdin' flag to make stdin explicit and preserve the old behavior
@@ -101,15 +108,15 @@ struct Main {
 
         // Handle subscribe command specially
         if parsedArgs is SubscribeCmdArgs {
-            await runSubscribe(connection, args, windowId: windowId, workspace: workspace)
-            exit(0) // Should not reach here
+            await runSubscribe(connection, args, windowId: windowId, workspace: workspace, failExitCode: failExitCode)
+            exit(EXIT_CODE_ZERO) // Should not reach here
         }
 
-        let ans = await run(connection, args, stdin: stdin, windowId: windowId, workspace: workspace)
+        let ans = await run(connection, args, stdin: stdin, windowId: windowId, workspace: workspace, failExitCode: failExitCode)
 
         if !ans.stdout.isEmpty { print(ans.stdout) }
         if !ans.stderr.isEmpty { eprint(ans.stderr) }
-        if ans.exitCode != 0 && ans.serverVersionAndHash != cliClientVersionAndHash {
+        if ans.exitCode != EXIT_CODE_ZERO && ans.serverVersionAndHash != cliClientVersionAndHash {
             eprint(
                 """
                 Warning: WinMux client/server versions don't match
@@ -162,9 +169,9 @@ private func shouldUseRelativeWorkspaceStdin(_ args: any CmdArgs) -> Bool {
     }
 }
 
-func runSubscribe(_ connection: NWConnection, _ args: StrArrSlice, windowId: UInt32?, workspace: String?) async {
+func runSubscribe(_ connection: NWConnection, _ args: StrArrSlice, windowId: UInt32?, workspace: String?, failExitCode: Int32) async {
     if let e = await connection.writeAtomic(ClientRequest(args: args.toArray(), stdin: "", windowId: windowId, workspace: workspace)).error {
-        exit(1, err: "Failed to write to server socket: \(e)")
+        exit(failExitCode, err: "Failed to write to server socket: \(e)")
     }
 
     while true {
@@ -174,23 +181,26 @@ func runSubscribe(_ connection: NWConnection, _ args: StrArrSlice, windowId: UIn
                     print(str)
                     unsafe fflush(stdout)
                 } else {
-                    exit(1, err: "Can't convert bytes to utf8 String")
+                    exit(failExitCode, err: "Can't convert bytes to utf8 String")
                 }
             case .failure(let e):
-                exit(1, err: "runSubscribe error: \(e)")
+                exit(failExitCode, err: "runSubscribe error: \(e)")
         }
     }
 }
 
-func run(_ connection: NWConnection, _ args: StrArrSlice, stdin: String, windowId: UInt32?, workspace: String?) async -> ServerAnswer {
+func run(_ connection: NWConnection, _ args: StrArrSlice, stdin: String, windowId: UInt32?, workspace: String?, failExitCode: Int32) async -> ServerAnswer {
     if let e = await connection.writeAtomic(ClientRequest(args: args.toArray(), stdin: stdin, windowId: windowId, workspace: workspace)).error {
-        exit(1, err: "Failed to write to server socket: \(e)")
+        exit(failExitCode, err: "Failed to write to server socket: \(e)")
     }
 
     switch await connection.readNonAtomic() {
         case .success(let answer):
-            return (try? JSONDecoder().decode(ServerAnswer.self, from: answer)) ?? exitT(1, err: "Failed to parse server response: \(String(data: answer, encoding: .utf8).prettyDescription)")
+            return (try? JSONDecoder().decode(ServerAnswer.self, from: answer)) ?? exitT(EXIT_CODE_TWO, err: "Failed to parse server response: \(String(data: answer, encoding: .utf8).prettyDescription)")
         case .failure(let error):
-            exit(1, err: "Failed to read from server socket: \(error)")
+            exit(failExitCode, err: "Failed to read from server socket: \(error)")
     }
 }
+
+private func isConditionalCommand(_ args: any CmdArgs) -> Bool { isConditional(args) }
+private func isConditional<T: CmdArgs>(_ args: T) -> Bool { T.ExitCodeType.self == ConditionalExitCode.self }

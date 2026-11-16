@@ -5,42 +5,44 @@ struct MoveMouseCommand: Command {
     let args: MoveMouseCmdArgs
     /*conforms*/ let shouldResetClosedWindowsCache = false
 
-    func run(_ env: CmdEnv, _ io: CmdIo) async throws -> Bool {
+    func run(_ env: CmdEnv, _ io: CmdIo) async throws -> BinaryExitCode {
         // For a focus change a sidebar action made where the pointer stays: nothing to do.
-        if FocusedMonitorChangePointer.isKept { return true }
+        if FocusedMonitorChangePointer.isKept { return .succ}
         let mouse = mouseLocation
-        guard let target = args.resolveTargetOrReportError(env, io) else { return false }
+        guard let target = args.resolveTargetOrReportError(env, io) else { return .fail }
         switch args.mouseTarget.val {
             case .windowLazyCenter:
-                guard let rect = try await windowSubjectRectOrReportError(target, io) else { return false }
+                guard let rect = try await windowSubjectRectOrReportError(target, io) else { return .fail }
                 if rect.contains(mouse) {
-                    if !args.failIfNoop {
-                        io.err("The mouse already belongs to the window. Tip: use --fail-if-noop to exit with non-zero code")
+                    return switch args.failIfNoop {
+                        case true: .fail
+                        case false:
+                            .succ(io.err("The mouse already belongs to the window. Tip: use --fail-if-noop to exit with non-zero code"))
                     }
-                    return !args.failIfNoop
                 }
-                return moveMouse(io, rect.center)
+                return .from(bool: moveMouse(io, rect.center))
             case .windowForceCenter:
-                guard let rect = try await windowSubjectRectOrReportError(target, io) else { return false }
-                return moveMouse(io, rect.center)
+                guard let rect = try await windowSubjectRectOrReportError(target, io) else { return .fail }
+                return .from(bool: moveMouse(io, rect.center))
             case .monitorLazyCenter:
                 let rect = target.workspace.workspaceMonitor.rect
                 if rect.contains(mouse) {
-                    if !args.failIfNoop {
-                        io.err("The mouse already belongs to the monitor. Tip: use --fail-if-noop to exit with non-zero code")
+                    return switch args.failIfNoop {
+                        case true: .fail
+                        case false:
+                            .succ(io.err("The mouse already belongs to the monitor. Tip: use --fail-if-noop to exit with non-zero code"))
                     }
-                    return !args.failIfNoop
                 }
-                return moveMouse(io, rect.center)
+                return .from(bool: moveMouse(io, rect.center))
             case .monitorForceCenter:
-                return moveMouse(io, target.workspace.workspaceMonitor.rect.center)
+                return .from(bool: moveMouse(io, target.workspace.workspaceMonitor.rect.center))
         }
     }
 }
 
 @MainActor
 private func moveMouse(_ io: CmdIo, _ point: CGPoint) -> Bool {
-    postMoveMouseEvent(point) ? true : io.err("Failed to move mouse")
+    postMoveMouseEvent(point) ? true : io.errFalse("Failed to move mouse")
 }
 
 /// Moves the pointer to `point`. Tests replace it, so no real mouse event is posted.

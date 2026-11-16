@@ -99,7 +99,7 @@ final class WorkspaceLauncherTest: XCTestCase {
     func testOptionsAreOffByDefaultAndParse() {
         XCTAssertFalse(defaultConfig.workspaceSidebar.newWorkspaceLauncher)
         XCTAssertFalse(defaultConfig.workspaceSidebar.launcherMenuFallback)
-        let (parsed, errors) = parseConfig("""
+        let (parsed, errors) = parseConfigForTests("""
             [workspace-sidebar]
             new-workspace-launcher = true
             launcher-menu-fallback = true

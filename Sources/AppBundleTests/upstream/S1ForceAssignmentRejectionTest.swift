@@ -46,7 +46,7 @@ final class S1ForceAssignmentRejectionTest: XCTestCase {
         XCTAssertTrue(ws2.isVisible)
 
         let result = try await parseCommand("summon-workspace 2").cmdOrDie.run(.defaultEnv, .emptyStdin)
-        XCTAssertEqual(result.exitCode, 1)
+        XCTAssertEqual(result.exitCode.rawValue, 2)
         XCTAssertTrue(
             result.stderr.joined(separator: "\n").contains("workspace-to-monitor-force-assignment doesn't allow it"),
             "Unexpected stderr: \(result.stderr)",
@@ -85,7 +85,7 @@ final class S1ForceAssignmentRejectionTest: XCTestCase {
         let workspacesBefore = Workspace.all.map(\.name)
 
         let result = try await parseCommand("move-workspace-to-monitor --workspace 2 left").cmdOrDie.run(.defaultEnv, .emptyStdin)
-        XCTAssertEqual(result.exitCode, 1)
+        XCTAssertEqual(result.exitCode.rawValue, 2)
         XCTAssertTrue(result.stderr.joined(separator: "\n").contains("workspace-to-monitor-force-assignment doesn't allow it"),
                       "Unexpected stderr: \(result.stderr)")
         XCTAssertEqual(secondary.activeWorkspace, ws2)

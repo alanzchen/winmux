@@ -6,16 +6,16 @@ struct WorkspaceCommand: Command {
     let args: WorkspaceCmdArgs
     /*conforms*/ let shouldResetClosedWindowsCache = false
 
-    func run(_ env: CmdEnv, _ io: CmdIo) -> Bool {
-        guard let target = args.resolveTargetOrReportError(env, io) else { return false }
+    func run(_ env: CmdEnv, _ io: CmdIo) -> BinaryExitCode {
+        guard let target = args.resolveTargetOrReportError(env, io) else { return .fail}
         let focusedWs = target.workspace
         switch resolveWorkspaceTarget(from: focusedWs, io: io, listedAtSequenceStart: env.tabsListedAtSequenceStart) {
             case .focus(let workspace):
-                return focusOrReportNoop(workspace, focusedWorkspace: focusedWs, io: io, failIfNoop: args.failIfNoop)
+                return .from(bool: focusOrReportNoop(workspace, focusedWorkspace: focusedWs, io: io, failIfNoop: args.failIfNoop))
             case .backAndForth:
                 return WorkspaceBackAndForthCommand(args: WorkspaceBackAndForthCmdArgs(rawArgs: [])).run(env, io)
             case .error:
-                return false
+                return .fail
         }
     }
 

@@ -115,14 +115,14 @@ final class WorkspaceSidebarDockGapTest: XCTestCase {
         for gap in [0, 2, 24] {
             let text = updateSettingsScalarConfig(in: "[workspace-sidebar]\nmode = 'dock'\nwidth = 280\n",
                                                  section: "workspace-sidebar", key: "dock-left-gap", renderedValue: "\(gap)")
-            let (parsed, errors) = parseConfig(text)
+            let (parsed, errors) = parseConfigForTests(text)
             XCTAssertTrue(errors.isEmpty)
             XCTAssertEqual(parsed.workspaceSidebar.dockLeftGap, gap)
             XCTAssertEqual(parsed.workspaceSidebar.effectiveLeftGap, gap)
             XCTAssertEqual(parsed.workspaceSidebar.width, 280)
         }
         for invalid in ["-1", "25", "2.5", "'2'"] {
-            let (_, errors) = parseConfig("[workspace-sidebar]\ndock-left-gap = \(invalid)\n")
+            let (_, errors) = parseConfigForTests("[workspace-sidebar]\ndock-left-gap = \(invalid)\n")
             XCTAssertEqual(errors.count, 1)
             XCTAssertTrue(errors[0].description.contains("workspace-sidebar.dock-left-gap"))
         }

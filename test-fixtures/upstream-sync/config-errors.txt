@@ -1,23 +1,34 @@
 ### unknown-key = 1
-- unknown-key: Unknown top-level key
+- [ERROR] unknown-key: Unknown top-level key
+- [WARNING] The current 'config-version = 1' is outdated. Please consider migrating to 'config-version = 2'. See https://nikitabobko.github.io/AeroSpace/guide#config-version for the migration guide.
 ### accordion-padding = 10
-- accordion-padding: Unknown top-level key
+- [ERROR] accordion-padding: Unknown top-level key
+- [WARNING] The current 'config-version = 1' is outdated. Please consider migrating to 'config-version = 2'. See https://nikitabobko.github.io/AeroSpace/guide#config-version for the migration guide.
 ### tab-group-padding = 'wide'
-- tab-group-padding: Expected type is 'int'. But actual type is 'string'
+- [ERROR] tab-group-padding: Expected type is 'Int'. But actual type is 'String'
+- [WARNING] The current 'config-version = 1' is outdated. Please consider migrating to 'config-version = 2'. See https://nikitabobko.github.io/AeroSpace/guide#config-version for the migration guide.
 ### default-root-container-layout = 'accordion'
-- default-root-container-layout: Can't parse layout 'accordion'
+- [ERROR] default-root-container-layout: Can't parse layout 'accordion'
+- [WARNING] The current 'config-version = 1' is outdated. Please consider migrating to 'config-version = 2'. See https://nikitabobko.github.io/AeroSpace/guide#config-version for the migration guide.
 ### [workspace-sidebar] ⏎ mode = 'nowhere'
-- workspace-sidebar.mode: Possible values: sidebar, dock, tabs
+- [ERROR] workspace-sidebar.mode: Possible values: sidebar, dock, tabs
+- [WARNING] The current 'config-version = 1' is outdated. Please consider migrating to 'config-version = 2'. See https://nikitabobko.github.io/AeroSpace/guide#config-version for the migration guide.
 ### [workspace-sidebar] ⏎ unknown = true
-- workspace-sidebar.unknown: Unknown key
+- [ERROR] workspace-sidebar.unknown: Unknown key
+- [WARNING] The current 'config-version = 1' is outdated. Please consider migrating to 'config-version = 2'. See https://nikitabobko.github.io/AeroSpace/guide#config-version for the migration guide.
 ### [mode.main.binding] ⏎ alt-h = 'focus nowhere'
-- mode.main.binding.alt-h: ERROR: Can't parse 'nowhere'.
+- [ERROR] mode.main.binding.alt-h: ERROR: Can't parse 'nowhere'.
        Possible values: (left|down|up|right|dfs-next|dfs-prev|tab-next|tab-prev)
+- [WARNING] The current 'config-version = 1' is outdated. Please consider migrating to 'config-version = 2'. See https://nikitabobko.github.io/AeroSpace/guide#config-version for the migration guide.
 ### [[on-window-detected]] ⏎ if.during-aerospace-startup = true ⏎ run = 'layout floating'
-- on-window-detected[0].if.during-aerospace-startup: Unknown key
+- [ERROR] on-window-detected[0].if.during-aerospace-startup: Unknown key
+- [WARNING] The current 'config-version = 1' is outdated. Please consider migrating to 'config-version = 2'. See https://nikitabobko.github.io/AeroSpace/guide#config-version for the migration guide.
 ### [gaps] ⏎ inner.horizontal = -1
-
+- [WARNING] The current 'config-version = 1' is outdated. Please consider migrating to 'config-version = 2'. See https://nikitabobko.github.io/AeroSpace/guide#config-version for the migration guide.
 ### config-version = 99
-- config-version: Must be in [1, 2] range
+- [ERROR] config-version: config-version must be in [1, 2] range
+- [WARNING] The current 'config-version = 1' is outdated. Please consider migrating to 'config-version = 2'. See https://nikitabobko.github.io/AeroSpace/guide#config-version for the migration guide.
 ### not toml at all = = =
-- (Line 1) Syntax error: missing =.
+- [ERROR] (Line 1) Syntax error: missing =.
+- [WARNING] The current 'config-version = 1' is outdated. Please consider migrating to 'config-version = 2'. See https://nikitabobko.github.io/AeroSpace/guide#config-version for the migration guide.
+- (config not applied)
