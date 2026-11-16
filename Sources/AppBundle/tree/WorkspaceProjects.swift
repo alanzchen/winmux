@@ -97,6 +97,7 @@ func createWorkspaceProjectForCommand(displayName: String?, colorHex: String?) t
             label: label,
             colorHex: normalizedColor,
             emoji: nil,
+            userInitiated: true,
         )
     }
 
@@ -153,7 +154,7 @@ func moveWorkspaceProject(_ projectId: WorkspaceProjectId, relativeTo targetId: 
     guard ids != current else { return false }
     let order = ids.map(\.rawValue)
     if !isUnitTest {
-        try persistWorkspaceSidebarProjectOrder(order)
+        try persistWorkspaceSidebarProjectOrder(order, userInitiated: true)
     }
     config.workspaceSidebar.projectOrder = order
     return true
@@ -236,7 +237,7 @@ func renameWorkspaceForSidebar(workspaceName: String, displayName: String, force
     }
     config.workspaceSidebar.workspaceLabels[workspaceName] = trimmedName
     if !isUnitTest {
-        try persistWorkspaceSidebarLabel(workspaceName: workspaceName, label: trimmedName)
+        try persistWorkspaceSidebarLabel(workspaceName: workspaceName, label: trimmedName, userInitiated: true)
     }
 }
 
@@ -264,7 +265,7 @@ func resetWorkspaceSidebarName(workspaceName: String) throws {
     }
     config.workspaceSidebar.workspaceLabels.removeValue(forKey: workspaceName)
     if !isUnitTest {
-        try persistWorkspaceSidebarLabel(workspaceName: workspaceName, label: nil)
+        try persistWorkspaceSidebarLabel(workspaceName: workspaceName, label: nil, userInitiated: true)
     }
 }
 
@@ -276,7 +277,7 @@ func renameWorkspaceProject(_ projectId: WorkspaceProjectId, displayName: String
     }
     let trimmedName = try normalizedWorkspaceProjectDisplayName(displayName)
     if !isUnitTest {
-        try persistWorkspaceSidebarProjectLabel(projectId: projectId.rawValue, label: trimmedName)
+        try persistWorkspaceSidebarProjectLabel(projectId: projectId.rawValue, label: trimmedName, userInitiated: true)
     }
     config.workspaceSidebar.projectLabels[projectId.rawValue] = trimmedName
 }
@@ -298,7 +299,7 @@ func setWorkspaceProjectColor(_ projectId: WorkspaceProjectId, colorHex: String?
         normalizedColorHex = nil
     }
     if !isUnitTest {
-        try persistWorkspaceSidebarProjectColor(projectId: projectId.rawValue, colorHex: normalizedColorHex)
+        try persistWorkspaceSidebarProjectColor(projectId: projectId.rawValue, colorHex: normalizedColorHex, userInitiated: true)
     }
     if let normalizedColorHex {
         config.workspaceSidebar.projectColors[projectId.rawValue] = normalizedColorHex
@@ -330,7 +331,7 @@ func setWorkspaceProjectEmoji(_ projectId: WorkspaceProjectId, emoji: String?) t
         normalized = nil
     }
     if !isUnitTest {
-        try persistWorkspaceSidebarProjectEmoji(projectId: projectId.rawValue, emoji: normalized)
+        try persistWorkspaceSidebarProjectEmoji(projectId: projectId.rawValue, emoji: normalized, userInitiated: true)
     }
     config.workspaceSidebar.projectEmojis[projectId.rawValue] = normalized
 }
@@ -495,6 +496,7 @@ private func persistWorkspaceSidebarProjectMetadataRemoval(_ projectId: Workspac
         label: nil,
         colorHex: nil,
         emoji: nil,
+        userInitiated: true,
     )
 }
 

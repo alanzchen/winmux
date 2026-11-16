@@ -17,6 +17,17 @@ extension WinMuxHooks {
     /// the current world, not cleared, and only after a command that succeeded and can change the tree.
     @MainActor
     static func runCmdSeq(_ commands: [any Command], _ env: CmdEnv, _ io: CmdIo) async throws -> Int32ExitCode {
+        try await runCmdSeq(commands, env, io) { _, _ in }
+    }
+
+    /// `runCmdSeq`, reporting each command's own exit code to `onResult` (`trigger-binding` aggregates them).
+    @MainActor
+    static func runCmdSeq(
+        _ commands: [any Command],
+        _ env: CmdEnv,
+        _ io: CmdIo,
+        onResult: (any Command, Int32ExitCode) -> Void,
+    ) async throws -> Int32ExitCode {
         // Only this sequence's commands see it, through their env; a sequence run within one keeps it.
         var env = env
         if config.usesBrowserTabs, env.tabsListedAtSequenceStart.isEmpty {
@@ -26,12 +37,46 @@ extension WinMuxHooks {
         var exitCode = Int32ExitCode(rawValue: EXIT_CODE_ZERO)
         for command in commands {
             exitCode = Int32ExitCode(rawValue: (try await command.run(env, io)).rawValue)
+            onResult(command, exitCode)
             refreshModel()
             if exitCode.rawValue == EXIT_CODE_ZERO && syncsClosedWindowsCache(after: command) {
                 syncClosedWindowsCacheToCurrentWorld()
             }
         }
         return exitCode
+    }
+
+    /// `trigger-binding`'s exit code, in the CLI's terms (docs/upstream-sync.md, S3): 0 when every command of the
+    /// binding succeeded; 2 when a conditional command (`test`, `test-not`, or a nested `trigger-binding` that ended so)
+    /// reported an error; otherwise 1 when any command failed, as v0.6.422 did. Upstream reports only the last
+    /// command's code; that waits for S5, where `&&` and `||` arrive.
+    @MainActor
+    static func runBindingForCli(_ commands: [any Command], _ env: CmdEnv, _ io: CmdIo) async throws -> Int32ExitCode {
+        var anyFailed = false
+        var conditionalError = false
+        _ = try await runCmdSeq(commands, env, io) { command, code in
+            let cliCode = winMuxCliExitCode(command, code)
+            if cliCode != EXIT_CODE_ZERO { anyFailed = true }
+            if cliCode == EXIT_CODE_TWO { conditionalError = true }
+        }
+        return Int32ExitCode(rawValue: conditionalError ? EXIT_CODE_TWO : anyFailed ? 1 : EXIT_CODE_ZERO)
+    }
+
+    /// Replaces `TriggerBindingCommand.run`: the same lookup, with `runBindingForCli` for the result.
+    @MainActor
+    static func triggerBinding(_ args: TriggerBindingCmdArgs, _ env: CmdEnv, _ io: CmdIo) async throws -> Int32ExitCode {
+        guard let mode = config.modes[args.mode] else {
+            return .fail(io.err("Mode '\(args.mode)' doesn't exist. " +
+                "Available modes: \(config.modes.keys.joined(separator: ","))"))
+        }
+        if let binding = mode.bindings.values.first(where: { $0.descriptionWithKeyNotation == args.binding.val }) {
+            // refreshSession is not needed since commands are already run in refreshSession
+            return try await runBindingForCli(binding.commands, env, io)
+        }
+        if let binding = mode.sequenceBindings.values.first(where: { $0.descriptionWithKeyNotation == args.binding.val }) {
+            return try await runBindingForCli(binding.commands, env, io)
+        }
+        return .fail(io.err("Binding '\(args.binding.val)' is not presented in mode '\(args.mode)'"))
     }
 
     /// Whether a command can change the tree or which workspace a display shows, so the closed-windows cache follows

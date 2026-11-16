@@ -71,7 +71,9 @@ private func workspaceSidebarConfigSection(in lines: [String], continuations: Se
 }
 
 @MainActor
-func persistWorkspaceSidebarProjectOrder(_ order: [String], targetUrl explicitTargetUrl: URL? = nil) throws {
+func persistWorkspaceSidebarProjectOrder(_ order: [String], targetUrl explicitTargetUrl: URL? = nil, userInitiated: Bool = false) throws {
+    // D-S3-1: automatic write-back waits for a config without errors; explicit edits still go through the validated writer.
+    guard userInitiated || !configWriteBackSuspended else { return }
     let targetUrl = explicitTargetUrl ?? preferredWorkspaceSidebarConfigUrl()
     let currentText = try readWorkspaceSidebarConfig(at: targetUrl, contentsWhenMissing: "")
     guard let updatedText = updateWorkspaceSidebarProjectOrderConfig(in: currentText, order: order) else {
@@ -245,7 +247,10 @@ func persistWorkspaceSidebarLabel(
     workspaceName: String,
     label: String?,
     targetUrl explicitTargetUrl: URL? = nil,
+    userInitiated: Bool = false,
 ) throws {
+    // D-S3-1: automatic write-back waits for a config without errors; explicit edits still go through the validated writer.
+    guard userInitiated || !configWriteBackSuspended else { return }
     let targetUrl = explicitTargetUrl ?? preferredWorkspaceSidebarConfigUrl()
     let currentText = try readWorkspaceSidebarConfig(at: targetUrl, contentsWhenMissing: "")
     let updatedText = updateWorkspaceSidebarLabelConfig(
@@ -261,7 +266,10 @@ func persistWorkspaceSidebarProjectLabel(
     projectId: String,
     label: String?,
     targetUrl explicitTargetUrl: URL? = nil,
+    userInitiated: Bool = false,
 ) throws {
+    // D-S3-1: automatic write-back waits for a config without errors; explicit edits still go through the validated writer.
+    guard userInitiated || !configWriteBackSuspended else { return }
     let targetUrl = explicitTargetUrl ?? preferredWorkspaceSidebarConfigUrl()
     let currentText = try readWorkspaceSidebarConfig(at: targetUrl, contentsWhenMissing: "")
     let updatedText = updateWorkspaceSidebarProjectLabelConfig(
@@ -277,7 +285,10 @@ func persistWorkspaceSidebarProjectColor(
     projectId: String,
     colorHex: String?,
     targetUrl explicitTargetUrl: URL? = nil,
+    userInitiated: Bool = false,
 ) throws {
+    // D-S3-1: automatic write-back waits for a config without errors; explicit edits still go through the validated writer.
+    guard userInitiated || !configWriteBackSuspended else { return }
     let targetUrl = explicitTargetUrl ?? preferredWorkspaceSidebarConfigUrl()
     let currentText = try readWorkspaceSidebarConfig(at: targetUrl, contentsWhenMissing: "")
     let updatedText = updateWorkspaceSidebarProjectColorConfig(
@@ -295,7 +306,10 @@ func persistWorkspaceSidebarProjectMetadata(
     colorHex: String?,
     emoji: String?,
     targetUrl explicitTargetUrl: URL? = nil,
+    userInitiated: Bool = false,
 ) throws {
+    // D-S3-1: automatic write-back waits for a config without errors; explicit edits still go through the validated writer.
+    guard userInitiated || !configWriteBackSuspended else { return }
     let targetUrl = explicitTargetUrl ?? preferredWorkspaceSidebarConfigUrl()
     let currentText = try readWorkspaceSidebarConfig(at: targetUrl, contentsWhenMissing: "")
     let textWithLabel = updateWorkspaceSidebarProjectLabelConfig(
@@ -321,7 +335,10 @@ func persistWorkspaceSidebarProjectEmoji(
     projectId: String,
     emoji: String?,
     targetUrl explicitTargetUrl: URL? = nil,
+    userInitiated: Bool = false,
 ) throws {
+    // D-S3-1: automatic write-back waits for a config without errors; explicit edits still go through the validated writer.
+    guard userInitiated || !configWriteBackSuspended else { return }
     let targetUrl = explicitTargetUrl ?? preferredWorkspaceSidebarConfigUrl()
     let currentText = try readWorkspaceSidebarConfig(at: targetUrl, contentsWhenMissing: "")
     let updatedText = updateWorkspaceSidebarProjectEmojiConfig(in: currentText, projectId: projectId, emoji: emoji)

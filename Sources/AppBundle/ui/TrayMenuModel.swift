@@ -35,8 +35,10 @@ public final class TrayMenuModel: ObservableObject {
     @Published var workspaceSidebarAppearance: WorkspaceSidebarConfiguration = .empty
     @Published var workspaceSidebarHoveredWorkspaceName: String? = nil
     @Published var experimentalUISettings: ExperimentalUISettings = ExperimentalUISettings()
-    /// The last config reload applied a config with warnings (upstream 890ec336).
+    /// The last config reload found warnings or errors (upstream 890ec336; errors too since the S3 review).
     @Published var lastReloadConfigContainedWarnings: Bool = false
+    /// The last reload's errors, until a reload without errors: the menu keeps an item that opens them (D-S3-1).
+    @Published var configErrorDetails: Message? = nil
 
     var visibleWorkspaceSidebarWorkspaces: [WorkspaceSidebarWorkspaceViewModel] {
         workspaceSidebarWorkspaces.filter {

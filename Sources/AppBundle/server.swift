@@ -105,7 +105,7 @@ func runCliRequest(_ request: ClientRequest) async -> ServerAnswer {
     let (command, help, err) = parseCommand(request.args).unwrap()
     guard let token: RunSessionGuard = await .isServerEnabled(orIsEnableCommand: command) else {
         return answer(
-            exitCode: 1,
+            exitCode: winMuxRefusalExitCode(request.args),
             stderr: "\(aeroSpaceAppName) server is disabled and doesn't accept commands. " +
                 "You can use 'winmux enable on' to enable the server",
         )
@@ -114,7 +114,7 @@ func runCliRequest(_ request: ClientRequest) async -> ServerAnswer {
         return answer(exitCode: 0, stdout: help)
     }
     if let err {
-        return answer(exitCode: 1, stderr: err)
+        return answer(exitCode: winMuxServerParseFailureExitCode(request.args), stderr: err)
     }
     if command?.isExec == true {
         return answer(exitCode: 1, stderr: "exec-and-forget is prohibited in CLI")
@@ -141,7 +141,7 @@ func runCliRequest(_ request: ClientRequest) async -> ServerAnswer {
     }
     var result = _answer.getOrNil() ??
         ServerAnswer(
-            exitCode: 1,
+            exitCode: winMuxRefusalExitCode(request.args),
             stderr: "Fail to await main thread. \(_answer.failureOrNil?.localizedDescription ?? "")",
             serverVersionAndHash: serverVersionAndHash,
         )

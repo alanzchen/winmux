@@ -54,11 +54,21 @@ struct ReloadConfigResult {
             default: MessageModel.shared.closeConfigErrorDetails()
         }
     }
-    // Upstream 61f0eac9: a config with minor errors is applied; only a severe one (TOML syntax, an unreadable or
-    // ambiguous file) keeps the previous config.
-    let applied = parseResult.allowReloadConfig && !args.dryRun
+    // D-S3-1: a config with any error keeps the live config once a config without errors has been applied in this
+    // run; until then (startup) what parses is applied, as upstream 61f0eac9 does. A severe error (TOML syntax, an
+    // unreadable or ambiguous file) is never applied.
+    let hasErrors = !parseResult.errors.isEmpty
+    let applied = !args.dryRun && parseResult.allowReloadConfig && (!hasErrors || !hasAppliedConfigWithoutErrors)
+    if !args.dryRun {
+        configErrorsPending = hasErrors
+        TrayMenuModel.shared.configErrorDetails = errorMsg.map {
+            Message(type: .config, description: "WinMux Config Error", body: $0)
+        }
+        // Also set for errors: the menu keeps an item until a clean reload.
+        TrayMenuModel.shared.lastReloadConfigContainedWarnings = containsWarnings || hasErrors
+    }
     if applied {
-        TrayMenuModel.shared.lastReloadConfigContainedWarnings = containsWarnings
+        if !hasErrors { hasAppliedConfigWithoutErrors = true }
         resetHotKeys()
         config = parseResult.config
         configUrl = result.configUrl

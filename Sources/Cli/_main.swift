@@ -67,9 +67,9 @@ struct Main {
             case nil:
                 break
             case .nwError(let error):
-                exit(1, err: "Can't connect to WinMux server. Is WinMux.app running?\n\(error.localizedDescription)")
+                exit(failExitCode, err: "Can't connect to WinMux server. Is WinMux.app running?\n\(error.localizedDescription)")
             case .customError(let error):
-                exit(1, err: error)
+                exit(failExitCode, err: error)
         }
 
         var stdin = ""
@@ -96,7 +96,7 @@ struct Main {
                     stdin += line
                     lineCount += 1
                     if lineCount > 1000 {
-                        exit(1, err: "stdin number of lines limit is exceeded")
+                        exit(failExitCode, err: "stdin number of lines limit is exceeded")
                     }
                 }
             }

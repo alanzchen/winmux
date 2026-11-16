@@ -680,10 +680,10 @@ Merged upstream `90347dbb` (#33–97) with `script/upstream-sync.py merge`. 94 c
 | Area | Upstream S3 | WinMux S3 | Why |
 |---|---|---|---|
 | CLI and MCP exit code of a failed command | 2 (`5ad04a76`) | 1, as docs/cli.md documents. 2 stays for local usage and parse errors. `test`, `test-not`, `true` and `false` keep upstream's 0 true, 1 false, 2 error. | Scripts rely on WinMux's documented codes. Commands return upstream's codes internally, and `winMuxCliExitCode` maps them where the server answers. Adopting upstream's 2 is a one-line change there if wanted. |
-| Exit code of a command sequence | the last command's (`beb67f4a`) | the same | Only bindings, callbacks and `trigger-binding` run sequences. |
-| Reload with minor errors | applied (`61f0eac9`) | applied. A severe error (TOML syntax, an unreadable or ambiguous file) keeps the previous config, and at startup falls back to the defaults as before. | Upstream's behavior; a typo in one key no longer drops the whole file. |
+| Exit code of a command sequence | the last command's (`beb67f4a`) | the same inside WinMux (bindings, callbacks). `trigger-binding` reports the whole binding, as in v0.6.422: see *S3 review fixes*. | Upstream's per-command result waits for S5, where `&&` and `\|\|` arrive. |
+| Reload with minor errors | applied (`61f0eac9`) | kept out once a config without errors has loaded: any error keeps the live config. At startup, with no such config yet, what parses loads, as upstream. A severe error (TOML syntax, an unreadable or ambiguous file) is never applied and at startup falls back to the defaults. See *S3 review fixes*. | Coordinator decision D-S3-1, after Carbon S3-C3: a partial reading can change modes and lose bindings, and automatic writers then edit the file from it. |
 | `reload-config` output | errors only, on stdout | unchanged from v0.6.422: `Failed to parse '<path>'. N error(s). M warning(s)` and then the diagnostics, also shown in the dialog. Warnings go to stderr. | Scripts and the dialog keep their text. |
-| Termination | synchronous `beforeTermination` on the main thread, which fixes a deadlock in `die` | the same | WinMux keeps its session save and window restore, using synchronous helpers on its per-app AX thread. Each window's read or write gives up after 500 ms, so quitting can't hang on a stuck app. |
+| Termination | synchronous `beforeTermination` on the main thread, which fixes a deadlock in `die` | the same | WinMux keeps its session save and window restore, using synchronous helpers on its per-app AX thread. Each window's read and its write each give up after 500 ms, so one stuck app can't hang quitting. The cap is per window, not for the whole quit: N stuck windows can take up to N seconds, and a window whose write timed out may not be restored. An overall budget is left for later. |
 
 **User-visible changes; exact texts**
 - New commands `test`, `test-not`, `true`, `false`, and the flag `reload-config --warnings-as-errors`, with help as in `cli-help.txt`.
@@ -692,14 +692,15 @@ Merged upstream `90347dbb` (#33–97) with `script/upstream-sync.py merge`. 94 c
 - `config-version: Must be in [1, 2] range` becomes `config-version: config-version must be in [1, 2] range`.
 - Several errors are listed in key order: keys within a table are sorted before parsing (upstream `a1465c23`). Since S2 they were sorted by text; for example, `key-mapping.key-notation-to-key-code: …` again precedes `key-mapping.key-notation-to-key-code.q: …`.
 - A config without `config-version = 2` loads with the warning `The current 'config-version = 1' is outdated. Please consider migrating to 'config-version = 2'. See https://github.com/alanzchen/winmux/blob/main/docs/configuration.md#config-version for the migration guide.` Upstream links AeroSpace's guide. The warning is printed to stderr by `reload-config`, and the menu shows **Config contains warnings…**, which opens them. WinMux's default and starter configs use version 2. docs/configuration.md gains a *Config version* section.
-- A config with only minor errors now loads; see the table above.
+- At startup a config with only minor errors now loads; a reload with any error keeps the live config. Either way the menu shows **Config Has Errors — Show Error Details** (**配置有错误** in Chinese) until a reload without errors. See the table above.
 - An unknown variable in `--format` is rejected when the command is parsed. Before, it failed when the command ran:
   - before: exit 1, `Unknown interpolation variable 'nonexistent'. Possible values: …`;
   - now: exit 2 (usage), `Failed to parse <output-format>. Can't parse 'nonexistent'.` followed by every variable.
 - An unreadable selected config reports `Can't read contents of '<path>' as a utf8 string: …`. WinMux's text said `UTF-8`.
 - `on-window-detected` without `if` now matches through the command `true`, which is the same matching as before.
+- A command-valued `if` runs its command for each detected window, with the window's id and the config's `exec` environment. `exec-and-forget` there is allowed, as in bindings; its result is whether the process launched, so it always matches. `debug-windows` evaluates every matcher again, so a matcher with side effects runs again during diagnostics (upstream code taken as is).
 
-No CLI exit code changes for existing commands: `cli-query-output.txt` and `cli-parse-errors.txt` show identical codes.
+No CLI exit code changes for existing commands: `cli-query-output.txt` and `cli-parse-errors.txt` show identical codes. The one change is `--format`, 1 → 2, above. Not covered by that statement: WinMuxApp's own startup flags (an invalid flag or a missing `--config-path` file) exit 2 instead of 1, upstream's usage change for the app executable (`initAppBundle.swift`).
 
 **Hooks added or changed**
 
@@ -710,6 +711,8 @@ No CLI exit code changes for existing commands: `cli-query-output.txt` and `cli-
 | `listWindowsOrder` | `ListWindowsCommand`, after upstream's sort | Keeps WinMux's window-id tie-break; upstream's lazy title fetch replaces WinMux's equivalent. | `ListWindowsTest` (2 tests fail without it) |
 | `projects`, `workspaceVars`, `writeFormattedOutput` | `format.swift`, `ListWindowsCmdArgs.swift` | WinMux's project variables and workspace extras on upstream's typed engine. | golden query output unchanged |
 | `runCmdSeq` | `Command.swift` | Returns `Int32ExitCode` (the last command's code); the closed-windows cache syncs only after a command that exits 0. | `WinMuxHooksTest` |
+| `triggerBinding` (replaces) | `TriggerBindingCommand.swift` | The same mode and binding lookup and messages; the result is the whole binding's (D-S3-2), as v0.6.422 reported. | `S3ReviewFixTest`, Carbon's and Astra's reproducers |
+| `unitTestIsolation` | `startAtLogin.swift` | Tests only: `syncStartAtLogin` does nothing under XCTest (D-S3-3). | source |
 
 Mutations, against `S3WinMuxPolicyTest`, `ListWindowsTest` and `S2DeltaTest`; each is caught:
 
@@ -728,6 +731,29 @@ Mutations, against `S3WinMuxPolicyTest`, `ListWindowsTest` and `S2DeltaTest`; ea
 - Forked non-test sources: 87 → 85.
 - The merge already carries most of the review surface. Converting `server.swift`, `initAppBundle.swift`, `parseConfig.swift`, `format.swift`, twelve commands and the CLI on top would double it.
 - Proposed: a separate S3b candidate with only conversions, reviewed and shipped on its own, before S4.
+
+### S3 review fixes (Astra S3-A1–A3, Carbon S3-C1–C3; coordinator decisions D-S3-1–D-S3-4)
+
+Commits after `b8bab83e`; the merge commit `734e0308` is unchanged.
+
+**D-S3-1: a config with errors.**
+- Reload: a config with any error keeps the live config, once a config without errors has loaded in this run (`ReloadConfigCommand.swift`, `hasAppliedConfigWithoutErrors`). A config with warnings only (no `config-version`, for example) still applies.
+- Startup, with no such config yet: what parses loads, as upstream does. A severe error still falls back to the defaults (`initAppBundle.swift`); the user's errors stay listed and the next config that parses still loads.
+- In every errored state the menu shows **Config Has Errors — Show Error Details** (**配置有错误** when the user's language is Chinese; `MenuBar.swift`). It opens the full diagnostics and stays until a reload without errors. The 4 s toast still appears.
+- While the last reload found errors, no automatic config write runs (`configWriteBackSuspended`, `ConfigErrorStateWinMux.swift`). That covers clearing a label when its workspace goes (one guard, which orphaned-label cleanup also goes through), a new project's default label, and pruning a deleted project from `project-order`. Explicit edits (renaming, recoloring, reordering, deleting a project, toggling the tabs sidebar, Settings, the TOML Editor) still go through the validated writer. The bootstrap writers only create a file that doesn't exist, so they never meet a config with errors.
+- `reload-config --dry-run` changes neither the live config nor this state.
+
+Carbon's S3-C3a reproducer names the table `[workspace-sidebar.labels]`. WinMux's key is `[workspace-sidebar.workspace-labels]`, so that file's labels are an unknown key and never load. Its final assertion (`workspaceLabels["2"] == "Mail"`) therefore fails on `b8bab83e`, on this candidate, and would on v0.6.422; Carbon's own log shows the file unchanged on `b8bab83e` too. The test is kept byte-identical and fails. The file stays byte-identical. `S3ReviewFixTest.testAnErroredConfigsWorkspaceLabelsSurviveReconcileAndAutomaticWrites` runs the same scenario with WinMux's key: the label stays in memory and every automatic writer leaves the file byte-identical, while an explicit edit still saves.
+
+**D-S3-2: exit codes.** The only exit-code change in S3 is `--format`, 1 → 2.
+- A conditional command (`test`, `test-not`, `true`, `false`) answers 2 for every error, never 1 ("false"):
+  - the CLI: WinMux not running, a connection error, the stdin line limit (`Sources/Cli/_main.swift`);
+  - the server and MCP: WinMux disabled, the main thread unreachable, a parse failure (`winMuxRefusalExitCode`, `winMuxServerParseFailureExitCode` in `CliExitCodeWinMux.swift`);
+  - `trigger-binding`, below.
+- Over MCP and raw socket clients, a parse failure answers 2 for a conditional command or an invalid `--format`, matching the CLI. Every other parse failure stays 1, as in v0.6.422. The CLI parses locally and exits 2, as before.
+- `trigger-binding` reports the whole binding (`WinMuxHooks.runBindingForCli`): 0 if every command succeeded, 2 if a conditional command reported an error, otherwise 1 if any command failed, as v0.6.422 did. A false `test` counts as a failed command. Commands still all run, in order. Upstream reports only the last command's code; that waits for S5, where `&&` and `||` arrive.
+
+**D-S3-3, D-S3-4: tests.** Tests never register system-wide hotkeys (`activateMode`) or sync the login item (`syncStartAtLogin`). The legacy LaunchAgents cleanup never touches the real `~/Library/LaunchAgents` from a test. Tests that reload config set `HOME` and `CFFIXED_USER_HOME` to a temporary directory.
 
 ### Side tables: projects, pins and workspace identity on upstream's model
 

@@ -4,6 +4,7 @@ import ServiceManagement
 
 @MainActor
 func syncStartAtLogin() {
+    if isUnitTest { return } // WINMUX-HOOK(unitTestIsolation)
     cleanupPlistFromPrevVersions()
     let service = SMAppService.mainApp
     switch true {

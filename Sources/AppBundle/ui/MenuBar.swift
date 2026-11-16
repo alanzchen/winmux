@@ -22,8 +22,16 @@ private let winmuxRepositoryURL = "https://github.com/alanzchen/winmux"
             }
             Divider()
         }
-        // Upstream 890ec336: a config that loaded with warnings; the button shows them.
-        if viewModel.lastReloadConfigContainedWarnings, let token: RunSessionGuard = .isServerEnabled {
+        // D-S3-1: until a reload without errors, whether or not the config was applied.
+        if let details = viewModel.configErrorDetails {
+            Button {
+                MessageModel.shared.openDetails(details)
+            } label: {
+                Label("\(configHasErrorsMenuTitle) — Show Error Details", systemImage: "exclamationmark.octagon.fill")
+            }
+            Divider()
+        } else if viewModel.lastReloadConfigContainedWarnings, let token: RunSessionGuard = .isServerEnabled {
+            // Upstream 890ec336: a config that loaded with warnings; the button shows them.
             Button {
                 Task.startUnstructured {
                     try await runLightSession(.menuBarButton, token) {

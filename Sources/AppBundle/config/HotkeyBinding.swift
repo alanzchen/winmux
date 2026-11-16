@@ -72,7 +72,8 @@ extension HotKey {
     pendingTapBindings = [:]
     pressedTapModifiers = []
     cancelPendingTapTriggers()
-    for binding in targetBindings.values where !hotkeys.keys.contains(binding.descriptionWithKeyCode) {
+    // Tests never register system-wide hotkeys (S3 review, D-S3-3).
+    for binding in targetBindings.values where !isUnitTest && !hotkeys.keys.contains(binding.descriptionWithKeyCode) {
         hotkeys[binding.descriptionWithKeyCode] = HotKey(key: binding.keyCode, modifiers: binding.modifiers, keyDownHandler: {
             Task { @MainActor in
                 if hotkeysSuspended { return }

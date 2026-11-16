@@ -17,6 +17,8 @@ func sidebarDraftWorkspaceIndex(_ name: String) -> Int? {
 
 @MainActor
 func clearWorkspaceSidebarLabelIfNeeded(_ workspaceName: String) {
+    // D-S3-1: the live config may be an incomplete reading of the file; its labels stay, in memory and on disk.
+    guard !configWriteBackSuspended else { return }
     guard config.workspaceSidebar.workspaceLabels.removeValue(forKey: workspaceName) != nil else { return }
     if !isUnitTest {
         try? persistWorkspaceSidebarLabel(workspaceName: workspaceName, label: nil)
