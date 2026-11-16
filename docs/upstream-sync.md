@@ -660,6 +660,75 @@ Mutations, against `S2DeltaTest`, `S2TomlFrontEndTest` and the Carbon tests:
 | No empty-table ancestor allowance | yes |
 | An explicit permission restore after the write removed | survived: Foundation's atomic write already keeps the mode, so the restore was dropped and the test pins the mode |
 
+### S3 outcome (candidate on `upstream/s3-20261115`)
+
+Merged upstream `90347dbb` (#33–97) with `script/upstream-sync.py merge`. 94 conflicts:
+- 38 deletions resolved automatically.
+- 56 resolved by hand, all recorded by rerere.
+- Dispositions are in `docs/upstream-backports.md` (Merge train).
+
+**What arrives**
+- Commands: `ExitCode` and the new `Command.run` signature; the `test`, `test-not`, `true` and `false` commands.
+- Config:
+  - `on-window-detected.if` may be a command (`if = 'test %{app-bundle-id} = org.alacritty'`), next to the existing table form;
+  - config diagnostics with warnings, and reload with only minor errors;
+  - `OrderedJson` config values and typed interpolation tokens.
+- Internals: `Task.startUnstructured`; upstream's synchronous termination handler.
+
+**Decisions taken here (Alan may overrule):**
+
+| Area | Upstream S3 | WinMux S3 | Why |
+|---|---|---|---|
+| CLI and MCP exit code of a failed command | 2 (`5ad04a76`) | 1, as docs/cli.md documents. 2 stays for local usage and parse errors. `test`, `test-not`, `true` and `false` keep upstream's 0 true, 1 false, 2 error. | Scripts rely on WinMux's documented codes. Commands return upstream's codes internally, and `winMuxCliExitCode` maps them where the server answers. Adopting upstream's 2 is a one-line change there if wanted. |
+| Exit code of a command sequence | the last command's (`beb67f4a`) | the same | Only bindings, callbacks and `trigger-binding` run sequences. |
+| Reload with minor errors | applied (`61f0eac9`) | applied. A severe error (TOML syntax, an unreadable or ambiguous file) keeps the previous config, and at startup falls back to the defaults as before. | Upstream's behavior; a typo in one key no longer drops the whole file. |
+| `reload-config` output | errors only, on stdout | unchanged from v0.6.422: `Failed to parse '<path>'. N error(s). M warning(s)` and then the diagnostics, also shown in the dialog. Warnings go to stderr. | Scripts and the dialog keep their text. |
+| Termination | synchronous `beforeTermination` on the main thread, which fixes a deadlock in `die` | the same | WinMux keeps its session save and window restore, using synchronous helpers on its per-app AX thread. Each window's read or write gives up after 500 ms, so quitting can't hang on a stuck app. |
+
+**User-visible changes; exact texts**
+- New commands `test`, `test-not`, `true`, `false`, and the flag `reload-config --warnings-as-errors`, with help as in `cli-help.txt`.
+- Config diagnostics are prefixed `[ERROR] ` or `[WARNING] `, in the dialog and in `reload-config` output. Example: `[ERROR] unknown-key: Unknown top-level key`.
+- Type names in `Expected type is '<expected>'. But actual type is '<actual>'` are capitalized: `Int`, `String`, `Bool`, `Table`, `Array`, `Double`.
+- `config-version: Must be in [1, 2] range` becomes `config-version: config-version must be in [1, 2] range`.
+- Several errors are listed in key order: keys within a table are sorted before parsing (upstream `a1465c23`). Since S2 they were sorted by text; for example, `key-mapping.key-notation-to-key-code: …` again precedes `key-mapping.key-notation-to-key-code.q: …`.
+- A config without `config-version = 2` loads with the warning `The current 'config-version = 1' is outdated. Please consider migrating to 'config-version = 2'. See https://github.com/alanzchen/winmux/blob/main/docs/configuration.md#config-version for the migration guide.` Upstream links AeroSpace's guide. The warning is printed to stderr by `reload-config`, and the menu shows **Config contains warnings…**, which opens them. WinMux's default and starter configs use version 2. docs/configuration.md gains a *Config version* section.
+- A config with only minor errors now loads; see the table above.
+- An unknown variable in `--format` is rejected when the command is parsed. Before, it failed when the command ran:
+  - before: exit 1, `Unknown interpolation variable 'nonexistent'. Possible values: …`;
+  - now: exit 2 (usage), `Failed to parse <output-format>. Can't parse 'nonexistent'.` followed by every variable.
+- An unreadable selected config reports `Can't read contents of '<path>' as a utf8 string: …`. WinMux's text said `UTF-8`.
+- `on-window-detected` without `if` now matches through the command `true`, which is the same matching as before.
+
+No CLI exit code changes for existing commands: `cli-query-output.txt` and `cli-parse-errors.txt` show identical codes.
+
+**Hooks added or changed**
+
+| Hook | Where | Why behavior is unchanged | Check |
+|---|---|---|---|
+| `jsonDouble` | moved from `Json` to `OrderedJson` and `tomlAnyToOrderedJsonRecursive` | Floats still reach WinMux's settings; `Json` is pristine again. | `S2TomlFrontEndTest.testFloatsConvertToJsonDoubles` |
+| `tomlSource` | top of `parseConfig` | The same front end; a lone CR is reported as a severe diagnostic. | S2 tests |
+| `listWindowsOrder` | `ListWindowsCommand`, after upstream's sort | Keeps WinMux's window-id tie-break; upstream's lazy title fetch replaces WinMux's equivalent. | `ListWindowsTest` (2 tests fail without it) |
+| `projects`, `workspaceVars`, `writeFormattedOutput` | `format.swift`, `ListWindowsCmdArgs.swift` | WinMux's project variables and workspace extras on upstream's typed engine. | golden query output unchanged |
+| `runCmdSeq` | `Command.swift` | Returns `Int32ExitCode` (the last command's code); the closed-windows cache syncs only after a command that exits 0. | `WinMuxHooksTest` |
+
+Mutations, against `S3WinMuxPolicyTest`, `ListWindowsTest` and `S2DeltaTest`; each is caught:
+
+| Mutation | Fails |
+|---|---|
+| A failed command keeps upstream's exit 2 at the CLI | the CLI exit-code test |
+| Conditional commands mapped too (`test` error reported as 1) | the CLI exit-code test |
+| Reload applies only an error-free config (the pre-S3 rule) | the reload test (3 assertions) |
+| The config-version warning links AeroSpace's guide | the warning test |
+| No `list-windows` window-id tie-break | `ListWindowsTest` |
+| Config writes use a plain atomic write (drops extended attributes) | the extended-attributes test |
+| Legacy migration copies the file (doesn't follow a dangling symlink) | the dangling-link migration test |
+
+**Not done in this candidate: the S3 conversions.**
+- The schedule lists 24 forked files to convert to hooked in S3. This candidate merges and ports them but leaves them forked.
+- Forked non-test sources: 87 → 85.
+- The merge already carries most of the review surface. Converting `server.swift`, `initAppBundle.swift`, `parseConfig.swift`, `format.swift`, twelve commands and the CLI on top would double it.
+- Proposed: a separate S3b candidate with only conversions, reviewed and shipped on its own, before S4.
+
 ### Side tables: projects, pins and workspace identity on upstream's model
 
 Upstream (after S7b and S9):

@@ -82,7 +82,7 @@ final class ConfigTest: XCTestCase {
         assertEquals(result.strWarnings, [
             "[WARNING] The current 'config-version = 1' is outdated. " +
                 "Please consider migrating to 'config-version = \(maxConfigVersion)'. " +
-                "See https://nikitabobko.github.io/AeroSpace/guide#config-version for the migration guide.",
+                "See https://github.com/alanzchen/winmux/blob/main/docs/configuration.md#config-version for the migration guide.",
         ])
     }
 

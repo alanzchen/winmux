@@ -1,34 +1,34 @@
 ### unknown-key = 1
 - [ERROR] unknown-key: Unknown top-level key
-- [WARNING] The current 'config-version = 1' is outdated. Please consider migrating to 'config-version = 2'. See https://nikitabobko.github.io/AeroSpace/guide#config-version for the migration guide.
+- [WARNING] The current 'config-version = 1' is outdated. Please consider migrating to 'config-version = 2'. See https://github.com/alanzchen/winmux/blob/main/docs/configuration.md#config-version for the migration guide.
 ### accordion-padding = 10
 - [ERROR] accordion-padding: Unknown top-level key
-- [WARNING] The current 'config-version = 1' is outdated. Please consider migrating to 'config-version = 2'. See https://nikitabobko.github.io/AeroSpace/guide#config-version for the migration guide.
+- [WARNING] The current 'config-version = 1' is outdated. Please consider migrating to 'config-version = 2'. See https://github.com/alanzchen/winmux/blob/main/docs/configuration.md#config-version for the migration guide.
 ### tab-group-padding = 'wide'
 - [ERROR] tab-group-padding: Expected type is 'Int'. But actual type is 'String'
-- [WARNING] The current 'config-version = 1' is outdated. Please consider migrating to 'config-version = 2'. See https://nikitabobko.github.io/AeroSpace/guide#config-version for the migration guide.
+- [WARNING] The current 'config-version = 1' is outdated. Please consider migrating to 'config-version = 2'. See https://github.com/alanzchen/winmux/blob/main/docs/configuration.md#config-version for the migration guide.
 ### default-root-container-layout = 'accordion'
 - [ERROR] default-root-container-layout: Can't parse layout 'accordion'
-- [WARNING] The current 'config-version = 1' is outdated. Please consider migrating to 'config-version = 2'. See https://nikitabobko.github.io/AeroSpace/guide#config-version for the migration guide.
+- [WARNING] The current 'config-version = 1' is outdated. Please consider migrating to 'config-version = 2'. See https://github.com/alanzchen/winmux/blob/main/docs/configuration.md#config-version for the migration guide.
 ### [workspace-sidebar] ⏎ mode = 'nowhere'
 - [ERROR] workspace-sidebar.mode: Possible values: sidebar, dock, tabs
-- [WARNING] The current 'config-version = 1' is outdated. Please consider migrating to 'config-version = 2'. See https://nikitabobko.github.io/AeroSpace/guide#config-version for the migration guide.
+- [WARNING] The current 'config-version = 1' is outdated. Please consider migrating to 'config-version = 2'. See https://github.com/alanzchen/winmux/blob/main/docs/configuration.md#config-version for the migration guide.
 ### [workspace-sidebar] ⏎ unknown = true
 - [ERROR] workspace-sidebar.unknown: Unknown key
-- [WARNING] The current 'config-version = 1' is outdated. Please consider migrating to 'config-version = 2'. See https://nikitabobko.github.io/AeroSpace/guide#config-version for the migration guide.
+- [WARNING] The current 'config-version = 1' is outdated. Please consider migrating to 'config-version = 2'. See https://github.com/alanzchen/winmux/blob/main/docs/configuration.md#config-version for the migration guide.
 ### [mode.main.binding] ⏎ alt-h = 'focus nowhere'
 - [ERROR] mode.main.binding.alt-h: ERROR: Can't parse 'nowhere'.
        Possible values: (left|down|up|right|dfs-next|dfs-prev|tab-next|tab-prev)
-- [WARNING] The current 'config-version = 1' is outdated. Please consider migrating to 'config-version = 2'. See https://nikitabobko.github.io/AeroSpace/guide#config-version for the migration guide.
+- [WARNING] The current 'config-version = 1' is outdated. Please consider migrating to 'config-version = 2'. See https://github.com/alanzchen/winmux/blob/main/docs/configuration.md#config-version for the migration guide.
 ### [[on-window-detected]] ⏎ if.during-aerospace-startup = true ⏎ run = 'layout floating'
 - [ERROR] on-window-detected[0].if.during-aerospace-startup: Unknown key
-- [WARNING] The current 'config-version = 1' is outdated. Please consider migrating to 'config-version = 2'. See https://nikitabobko.github.io/AeroSpace/guide#config-version for the migration guide.
+- [WARNING] The current 'config-version = 1' is outdated. Please consider migrating to 'config-version = 2'. See https://github.com/alanzchen/winmux/blob/main/docs/configuration.md#config-version for the migration guide.
 ### [gaps] ⏎ inner.horizontal = -1
-- [WARNING] The current 'config-version = 1' is outdated. Please consider migrating to 'config-version = 2'. See https://nikitabobko.github.io/AeroSpace/guide#config-version for the migration guide.
+- [WARNING] The current 'config-version = 1' is outdated. Please consider migrating to 'config-version = 2'. See https://github.com/alanzchen/winmux/blob/main/docs/configuration.md#config-version for the migration guide.
 ### config-version = 99
 - [ERROR] config-version: config-version must be in [1, 2] range
-- [WARNING] The current 'config-version = 1' is outdated. Please consider migrating to 'config-version = 2'. See https://nikitabobko.github.io/AeroSpace/guide#config-version for the migration guide.
+- [WARNING] The current 'config-version = 1' is outdated. Please consider migrating to 'config-version = 2'. See https://github.com/alanzchen/winmux/blob/main/docs/configuration.md#config-version for the migration guide.
 ### not toml at all = = =
 - [ERROR] (Line 1) Syntax error: missing =.
-- [WARNING] The current 'config-version = 1' is outdated. Please consider migrating to 'config-version = 2'. See https://nikitabobko.github.io/AeroSpace/guide#config-version for the migration guide.
+- [WARNING] The current 'config-version = 1' is outdated. Please consider migrating to 'config-version = 2'. See https://github.com/alanzchen/winmux/blob/main/docs/configuration.md#config-version for the migration guide.
 - (config not applied)
