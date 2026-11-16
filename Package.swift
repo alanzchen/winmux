@@ -29,7 +29,8 @@ let package = Package(
         .package(url: "https://github.com/InerziaSoft/ISSoundAdditions.git", exact: "2.0.1"),
         .package(url: "https://github.com/LebJe/TOMLKit.git", exact: "0.5.5"),
         .package(url: "https://github.com/rxhanson/MASShortcut", revision: "2f9fbb3f959b7a683c6faaf9638d22afad37a235"),
-        .package(url: "https://github.com/dduan/TOMLDecoder", exact: "0.4.5"),
+        // TOMLDecoder 0.4.5 with WinMux's lexer patch (Vendor/TOMLDecoder/WINMUX-PATCH.md).
+        .package(path: "Vendor/TOMLDecoder"),
         .package(url: "https://github.com/apple/swift-collections.git", exact: "1.3.0"),
         .package(url: "https://github.com/soffes/HotKey.git", exact: "0.2.1"),
         .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.9.6"),
