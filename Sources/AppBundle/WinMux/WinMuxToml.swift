@@ -11,17 +11,16 @@ import TOMLDecoder
 /// - A leading byte order mark is dropped, as TOMLKit did.
 /// - CRLF becomes LF. Inside multiline strings TOMLDecoder keeps the CR; TOMLKit and the spec's newline rule give LF.
 ///   A CR not followed by LF is invalid anywhere in TOML and is reported here, before TOMLDecoder could accept it.
-/// - `\\` inside a basic string becomes `\u005C`, the same character. TOMLDecoder 0.4.5 treats any backslash before a
-///   closing `"""` as escaping it, so `"""C:\\"""` would never close.
 /// - The text ends with a newline. Some TOMLDecoder releases read past the end after a bare value at EOF.
-/// None of these changes a line count, so error line numbers stay those of the file.
+/// None of these changes a line count, so error line numbers stay those of the file. Escaped backslashes and quote runs
+/// in multiline basic strings are fixed in the vendored TOMLDecoder itself (Vendor/TOMLDecoder/WINMUX-PATCH.md).
 enum WinMuxToml {
     static func source(_ raw: String) -> Result<String, ConfigParseError> {
         var bytes = Array(raw.utf8)
         if bytes.starts(with: [0xEF, 0xBB, 0xBF]) { bytes.removeFirst(3) }
         switch normalizedLineEndings(bytes) {
             case .failure(let error): return .failure(error)
-            case .success(let lfOnly): bytes = rewritingEscapedBackslashes(lfOnly)
+            case .success(let lfOnly): bytes = lfOnly
         }
         if bytes.last != Byte.lf { bytes.append(Byte.lf) }
         return .success(String(decoding: bytes, as: UTF8.self))
@@ -68,12 +67,7 @@ extension ConfigParseError {
 private enum Byte {
     static let lf: UInt8 = 0x0A
     static let cr: UInt8 = 0x0D
-    static let backslash: UInt8 = 0x5C
-    static let doubleQuote: UInt8 = 0x22
-    static let singleQuote: UInt8 = 0x27
-    static let hash: UInt8 = 0x23
 }
-private let escapedBackslash = Array(#"\u005C"#.utf8)
 
 private func normalizedLineEndings(_ bytes: [UInt8]) -> Result<[UInt8], ConfigParseError> {
     guard bytes.contains(Byte.cr) else { return .success(bytes) }
@@ -96,75 +90,3 @@ private func normalizedLineEndings(_ bytes: [UInt8]) -> Result<[UInt8], ConfigPa
     return .success(result)
 }
 
-/// Walks TOML's lexical states (comments, the four string kinds) on LF-only text. Text that isn't valid TOML is copied
-/// unchanged, so TOMLDecoder reports its error.
-private func rewritingEscapedBackslashes(_ bytes: [UInt8]) -> [UInt8] {
-    guard bytes.contains(Byte.backslash) else { return bytes }
-    enum State { case normal, comment, basic, literal, multilineBasic, multilineLiteral }
-    var state = State.normal
-    var result: [UInt8] = []
-    result.reserveCapacity(bytes.count + 16)
-    var index = 0
-    func run(of quote: UInt8) -> Int {
-        var end = index
-        while end < bytes.count, bytes[end] == quote { end += 1 }
-        return end - index
-    }
-    while index < bytes.count {
-        let byte = bytes[index]
-        switch state {
-            case .normal:
-                switch byte {
-                    case Byte.hash: state = .comment
-                    case Byte.doubleQuote: state = run(of: Byte.doubleQuote) >= 3 ? .multilineBasic : .basic
-                    case Byte.singleQuote: state = run(of: Byte.singleQuote) >= 3 ? .multilineLiteral : .literal
-                    default: break
-                }
-                // An opening triple quote is copied whole, so it can't count as a closing one.
-                let width = state == .multilineBasic || state == .multilineLiteral ? 3 : 1
-                result.append(contentsOf: bytes[index..<min(index + width, bytes.count)])
-                index += width
-            case .comment:
-                if byte == Byte.lf { state = .normal }
-                result.append(byte)
-                index += 1
-            case .literal:
-                if byte == Byte.singleQuote || byte == Byte.lf { state = .normal }
-                result.append(byte)
-                index += 1
-            case .basic, .multilineBasic:
-                if byte == Byte.backslash, index + 1 < bytes.count {
-                    if bytes[index + 1] == Byte.backslash {
-                        result.append(contentsOf: escapedBackslash)
-                    } else {
-                        result.append(contentsOf: bytes[index...index + 1])
-                    }
-                    index += 2
-                } else if state == .basic {
-                    if byte == Byte.doubleQuote || byte == Byte.lf { state = .normal }
-                    result.append(byte)
-                    index += 1
-                } else if byte == Byte.doubleQuote {
-                    // Up to two quotes before the closing three belong to the string.
-                    let quotes = run(of: Byte.doubleQuote)
-                    if quotes >= 3 { state = .normal }
-                    result.append(contentsOf: bytes[index..<index + quotes])
-                    index += quotes
-                } else {
-                    result.append(byte)
-                    index += 1
-                }
-            case .multilineLiteral:
-                if byte == Byte.singleQuote {
-                    let quotes = run(of: Byte.singleQuote)
-                    if quotes >= 3 { state = .normal }
-                    result.append(contentsOf: bytes[index..<index + quotes])
-                    index += quotes
-                } else {
-                    result.append(byte)
-                    index += 1
-                }
-        }
-    }
-    return result
-}

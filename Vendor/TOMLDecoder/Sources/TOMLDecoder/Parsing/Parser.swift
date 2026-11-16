@@ -238,7 +238,15 @@ struct Parser: ~Copyable {
                                bytes[i + 2] == CodeUnits.doubleQuote
                             {
                                 if i + 3 >= end || bytes[i + 3] != CodeUnits.doubleQuote {
-                                    if bytes[i - 1] == CodeUnits.backslash {
+                                    // WINMUX-PATCH: the quote is escaped only after an odd run of backslashes;
+                                    // `\\"""` is an escaped backslash, then the closing delimiter.
+                                    var backslashes = 0
+                                    while i - 1 - backslashes >= start + 3,
+                                          bytes[i - 1 - backslashes] == CodeUnits.backslash
+                                    {
+                                        backslashes += 1
+                                    }
+                                    if backslashes % 2 == 1 {
                                         i += 1
                                         continue
                                     }
@@ -1753,6 +1761,7 @@ func basicString(bytes: UnsafeBufferPointer<UInt8>, range: Range<Int>, multiline
                     start: index, endIndex: endIndex,
                     characters: [CodeUnits.space, CodeUnits.tab, CodeUnits.cr, CodeUnits.lf]
                 )
+                consecutiveQuotes = 0 // WINMUX-PATCH: a line-ending backslash separates quote runs
                 continue
             }
         }
@@ -1791,6 +1800,7 @@ func basicString(bytes: UnsafeBufferPointer<UInt8>, range: Range<Int>, multiline
                 throw TOMLError(.illegalUCSCode(ucs))
             }
             resultCodeUnits.append(contentsOf: scalar.utf8)
+            consecutiveQuotes = 0 // WINMUX-PATCH: like every other escape, \u/\U/\x ends a quote run
             continue
         } else if ch == CodeUnits.lowerB {
             ch = CodeUnits.backspace

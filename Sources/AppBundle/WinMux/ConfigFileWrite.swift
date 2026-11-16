@@ -8,17 +8,40 @@ struct ConfigEditRefused: LocalizedError {
     init(_ message: String) { errorDescription = message }
 }
 
-/// The one way WinMux replaces a config file's text. The loader must read `after` without adding an error `before`
+/// The one way WinMux edits a config file's text. The loader must read `after` without adding an error `before`
 /// didn't have. When the edit names the keys it changes (`changing`), every other key must keep its value, as the
-/// loader reads both texts. Then the file is written atomically. nil means the whole document is the edit (the TOML
-/// Editor, undo).
+/// loader reads both texts. Then `replaceConfigFileOnDisk` writes it. nil means the whole document is the edit (the
+/// TOML Editor, undo).
 @MainActor
 func writeConfigFile(_ after: String, replacing before: String, at url: URL, changing: [ConfigKeyPath]?) throws {
     try validateConfigEdit(before: before, after: after, changing: changing)
-    if let parent = url.deletingLastPathComponent().takeIf({ $0.path != url.path }) {
-        try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
+    try replaceConfigFileOnDisk(after, at: url)
+}
+
+/// The only code that puts config text on disk (`writeConfigFile`, `SettingsPersistence`, first-launch files). A config
+/// symlinked into a dotfiles repository stays a symlink: the chain is followed to the real file, which is replaced
+/// atomically by a temporary file in its own directory, which keeps its permissions.
+func replaceConfigFileOnDisk(_ text: String, at url: URL) throws {
+    let fileManager = FileManager.default
+    let target = try configFileTarget(url)
+    let parent = target.deletingLastPathComponent()
+    if parent.path != target.path { try fileManager.createDirectory(at: parent, withIntermediateDirectories: true) }
+    // Foundation's atomic write keeps an existing file's permissions (S2DeltaTest checks 0600).
+    try text.write(to: target, atomically: true, encoding: .utf8)
+}
+
+/// `url` with its symlink chain followed, one link at a time: relative destinations are relative to the link's own
+/// directory and are left for the file system to resolve, so a link inside a symlinked directory resolves as the OS
+/// resolves it. A dangling chain gives the path the last link names, which writing then creates.
+func configFileTarget(_ url: URL) throws -> URL {
+    var path = url.path
+    for _ in 0 ..< 32 {
+        guard let destination = try? FileManager.default.destinationOfSymbolicLink(atPath: path) else {
+            return URL(fileURLWithPath: path)
+        }
+        path = destination.hasPrefix("/") ? destination : (path as NSString).deletingLastPathComponent + "/" + destination
     }
-    try after.write(to: url, atomically: true, encoding: .utf8)
+    throw ConfigEditRefused("WinMux didn't save this change: \(url.path.singleQuoted) is a symlink loop.")
 }
 
 @MainActor
@@ -33,28 +56,33 @@ func validateConfigEdit(before: String, after: String, changing: [ConfigKeyPath]
 }
 
 /// Refuses an edit that changes, adds or removes any key outside `changing` (a key under a listed path counts as inside).
+/// An empty table may also appear or go at a listed path's ancestor: removing a table's last key removes its header.
 func checkConfigEditKeepsOtherKeys(before: String, after: String, changing: [ConfigKeyPath]) throws {
     guard let old = configLeaves(before), let new = configLeaves(after) else {
         throw ConfigEditRefused("WinMux didn't save this change: it couldn't read the configuration to check the edit. "
             + "Fix it in Advanced → TOML Editor.")
     }
-    let touched = Set(old.keys).union(new.keys)
-        .filter { path in old[path] != new[path] && !changing.contains { path.starts(with: $0) } }
+    func allowed(_ path: ConfigKeyPath) -> Bool {
+        changing.contains { path.starts(with: $0) } ||
+            (old[path] ?? new[path]) == .dict([:]) && changing.contains { $0.starts(with: path) }
+    }
+    let touched = Set(old.keys).union(new.keys).filter { path in old[path] != new[path] && !allowed(path) }
     if let first = touched.sorted(by: { $0.joined(separator: ".") < $1.joined(separator: ".") }).first {
         throw ConfigEditRefused("WinMux didn't save this change: it would also have changed "
             + "\(first.joined(separator: ".").singleQuoted). Edit the file in Advanced → TOML Editor.")
     }
 }
 
-/// Every value the loader reads from `text`, by key path. Tables are walked; arrays and scalars are values. Empty tables
-/// carry no setting and are skipped. nil when the text doesn't parse.
+/// Every value the loader reads from `text`, by key path. Tables are walked; arrays and scalars are values, and so is an
+/// empty table: its presence can matter (an empty `[exec]` changes `PATH`, an empty `[mode.service]` defines a mode).
+/// nil when the text doesn't parse.
 func configLeaves(_ text: String) -> [ConfigKeyPath: Json]? {
     guard let table = try? WinMuxToml.table(text),
           case .success(let json) = tomlAnyToParsedConfigRecursive(any: table, .emptyRoot)
     else { return nil }
     var leaves: [ConfigKeyPath: Json] = [:]
     func walk(_ value: Json, _ path: ConfigKeyPath) {
-        if case .dict(let dict) = value {
+        if case .dict(let dict) = value, !dict.isEmpty || path.isEmpty {
             for (key, child) in dict { walk(child, path + [key]) }
         } else {
             leaves[path] = value

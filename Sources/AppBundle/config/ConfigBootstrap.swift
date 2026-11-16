@@ -199,10 +199,10 @@ func materializeBootstrapConfigIfNeeded(
         )
         // A new file: nothing to keep, but the loader must read what is written.
         _ = try WinMuxToml.table(migratedConfig)
-        try migratedConfig.write(to: targetUrl, atomically: true, encoding: .utf8)
+        try replaceConfigFileOnDisk(migratedConfig, at: targetUrl)
     } else {
         _ = try WinMuxToml.table(starterConfigText())
-        try starterConfigText().write(to: targetUrl, atomically: true, encoding: .utf8)
+        try replaceConfigFileOnDisk(starterConfigText(), at: targetUrl)
     }
     return true
 }
@@ -258,7 +258,9 @@ private func removingAerospaceKeyboardConfigSections(from rawToml: String) -> St
 }
 
 private func keyboardConfigSections(from rawToml: String, keepMatchingSections: Bool) -> String {
-    let lines = rawToml.components(separatedBy: "\n")
+    // The imported file may use CRLF; the new file is written with LF. Text inside a multi-line value is never a header.
+    let lines = EditableConfigText(rawToml).lines
+    let continuations = tomlMultilineValueContinuations(lines)
     var sections: [[String]] = []
     var current: [String] = []
     var shouldKeepCurrent = !keepMatchingSections
@@ -271,8 +273,8 @@ private func keyboardConfigSections(from rawToml: String, keepMatchingSections: 
         shouldKeepCurrent = false
     }
 
-    for line in lines {
-        if isTomlSectionHeader(line) {
+    for (index, line) in lines.enumerated() {
+        if !continuations.contains(index), isTomlSectionHeader(line) {
             flushCurrentSection()
             current = [line]
             shouldKeepCurrent = isAerospaceKeyboardSectionHeader(line) == keepMatchingSections

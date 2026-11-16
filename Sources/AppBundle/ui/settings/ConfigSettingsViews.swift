@@ -108,8 +108,8 @@ let settingsUnsetRenderedValue = ""
 
 func updateSettingsScalarConfig(in text: String, section: String?, key: String, renderedValue: String) -> String {
     let removes = renderedValue == settingsUnsetRenderedValue
-    let newline = text.contains("\r\n") ? "\r\n" : "\n"
-    var lines = text.components(separatedBy: "\n").map { $0.hasSuffix("\r") ? String($0.dropLast()) : $0 }
+    var config = EditableConfigText(text)
+    var lines = config.lines
     // Scan complete TOML statements so text inside a multiline string/array can
     // never be mistaken for another key or a table header.
     var index = 0
@@ -138,7 +138,8 @@ func updateSettingsScalarConfig(in text: String, section: String?, key: String, 
            [currentSection, existingKey].compactMap({ $0 }).joined(separator: ".") == [section, key].compactMap({ $0 }).joined(separator: ".") {
             let indent = String(lines[index].prefix(while: { $0.isWhitespace }))
             lines.replaceSubrange(index..<end, with: removes ? [] : ["\(indent)\(existingKey) = \(renderedValue)"])
-            return lines.joined(separator: newline)
+            config.lines = lines
+            return config.text
         }
         index = end
     }
@@ -150,7 +151,8 @@ func updateSettingsScalarConfig(in text: String, section: String?, key: String, 
         lines.append("[\(section)]")
         lines.append("    \(key) = \(renderedValue)")
     }
-    return lines.joined(separator: newline)
+    config.lines = lines
+    return config.text
 }
 
 private func settingsSectionName(in line: String) -> String? {

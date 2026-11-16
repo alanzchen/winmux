@@ -9,7 +9,8 @@ func updateModeBindingConfig(
     assignments: [String: String],
 ) -> String {
     let sectionHeader = "[mode.\(modeName).\(tableKey)]"
-    let lines = configText.components(separatedBy: "\n")
+    var config = EditableConfigText(configText)
+    let lines = config.lines
     let renderedAssignments = assignments
         .sorted { $0.key < $1.key }
         .map { tomlModeBindingLine(notation: $0.key, command: $0.value) }
@@ -20,16 +21,8 @@ func updateModeBindingConfig(
         !continuations.contains($0) && lines[$0].trimmingCharacters(in: .whitespaces) == sectionHeader
     }) else {
         guard !renderedAssignments.isEmpty else { return configText }
-        var result = configText
-        if !result.isEmpty, !result.hasSuffix("\n") {
-            result += "\n"
-        }
-        if !result.isEmpty {
-            result += "\n"
-        }
-        result += "\(sectionHeader)\n"
-        result += renderedAssignments.joined(separator: "\n")
-        return result
+        config.appendTable(sectionHeader, renderedAssignments)
+        return config.text
     }
 
     let sectionEnd = lines.indices[(sectionIndex + 1)...]
@@ -65,7 +58,8 @@ func updateModeBindingConfig(
         resultLines.append("")
     }
     resultLines.append(contentsOf: lines[sectionEnd...])
-    return resultLines.joined(separator: "\n")
+    config.lines = resultLines
+    return config.text
 }
 
 @MainActor

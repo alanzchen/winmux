@@ -8,7 +8,8 @@ private let workspaceSidebarProjectOrderKey = "project-order"
 func updateWorkspaceSidebarProjectOrderConfig(in configText: String, order: [String]) -> String? {
     let rendered = "[" + order.map { "\"\(tomlEscape($0))\"" }.joined(separator: ", ") + "]"
     // The value is rewritten on one line; drop the continuation lines of a hand-written multi-line array.
-    var lines = configText.components(separatedBy: "\n")
+    var config = EditableConfigText(configText)
+    var lines = config.lines
     let continuations = tomlMultilineValueContinuations(lines)
     if let section = workspaceSidebarConfigSection(in: lines, continuations: continuations),
        let keyIndex = section.dropFirst().first(where: {
@@ -20,12 +21,13 @@ func updateWorkspaceSidebarProjectOrderConfig(in configText: String, order: [Str
         let valueEnd = lines.indices[(keyIndex + 1)...].first { !continuations.contains($0) } ?? lines.endIndex
         // Parsing the complete assignment also handles bracket characters in multi-line ids.
         // An unterminated array may have consumed the next table; never rewrite that input.
-        guard WinMuxToml.parses(lines[keyIndex..<valueEnd].joined(separator: "\n") + "\n") else {
+        guard WinMuxToml.parses(lines[keyIndex..<valueEnd].joined(separator: "\n")) else {
             return nil
         }
         lines.removeSubrange((keyIndex + 1)..<valueEnd)
     }
-    return updateWorkspaceSidebarScalarConfig(in: lines.joined(separator: "\n"), key: workspaceSidebarProjectOrderKey,
+    config.lines = lines
+    return updateWorkspaceSidebarScalarConfig(in: config.text, key: workspaceSidebarProjectOrderKey,
         renderedValue: rendered)
 }
 
@@ -34,33 +36,22 @@ func updateWorkspaceSidebarScalarConfig(
     key: String,
     renderedValue: String,
 ) -> String {
-    let lines = configText.components(separatedBy: "\n")
-    let continuations = tomlMultilineValueContinuations(lines)
-    guard let section = workspaceSidebarConfigSection(in: lines, continuations: continuations) else {
-        var result = configText
-        if !result.isEmpty, !result.hasSuffix("\n") {
-            result += "\n"
+    EditableConfigText.editing(configText) { config in
+        let lines = config.lines
+        let continuations = tomlMultilineValueContinuations(lines)
+        guard let section = workspaceSidebarConfigSection(in: lines, continuations: continuations) else {
+            config.appendTable(workspaceSidebarSectionHeader, ["    \(key) = \(renderedValue)"])
+            return
         }
-        if !result.isEmpty {
-            result += "\n"
+        for lineIndex in section.dropFirst() {
+            guard !continuations.contains(lineIndex), workspaceSidebarConfigKey(in: lines[lineIndex]) == key else { continue }
+            let indentation = String(lines[lineIndex].prefix(while: { $0.isWhitespace }))
+            let trailingComment = trailingTomlComment(in: lines[lineIndex]).map { " " + $0 } ?? ""
+            config.lines[lineIndex] = "\(indentation)\(key) = \(renderedValue)\(trailingComment)"
+            return
         }
-        result += "\(workspaceSidebarSectionHeader)\n"
-        result += "    \(key) = \(renderedValue)"
-        return result
+        config.lines.insert("    \(key) = \(renderedValue)", at: section.lowerBound + 1)
     }
-
-    let sectionIndex = section.lowerBound
-    var resultLines = lines
-    for lineIndex in section.dropFirst() {
-        guard !continuations.contains(lineIndex), workspaceSidebarConfigKey(in: resultLines[lineIndex]) == key else { continue }
-        let indentation = String(resultLines[lineIndex].prefix(while: { $0.isWhitespace }))
-        let trailingComment = trailingTomlComment(in: resultLines[lineIndex]).map { " " + $0 } ?? ""
-        resultLines[lineIndex] = "\(indentation)\(key) = \(renderedValue)\(trailingComment)"
-        return resultLines.joined(separator: "\n")
-    }
-
-    resultLines.insert("    \(key) = \(renderedValue)", at: sectionIndex + 1)
-    return resultLines.joined(separator: "\n")
 }
 
 /// Real table boundaries exclude comments and text contained in multi-line values.
@@ -170,7 +161,19 @@ private func updateWorkspaceSidebarKeyValueSectionConfig(
     renderedValue value: String?,
     preserveCommentsWhenEmpty: Bool = false,
 ) -> String {
-    let lines = configText.components(separatedBy: "\n")
+    EditableConfigText.editing(configText) { config in
+        config.lines = updatedKeyValueSectionLines(config.lines, sectionHeader: sectionHeader, key: key, renderedValue: value,
+            preserveCommentsWhenEmpty: preserveCommentsWhenEmpty)
+    }
+}
+
+private func updatedKeyValueSectionLines(
+    _ lines: [String],
+    sectionHeader: String,
+    key: String,
+    renderedValue value: String?,
+    preserveCommentsWhenEmpty: Bool,
+) -> [String] {
     // Text inside a multi-line value is never a header or a key.
     let continuations = tomlMultilineValueContinuations(lines)
     // A table header may carry a comment, including the next table's: that still ends this one,
@@ -187,17 +190,8 @@ private func updateWorkspaceSidebarKeyValueSectionConfig(
         return text.trimmingCharacters(in: .whitespaces) == sectionHeader
     }
     guard let sectionIndex = lines.indices.first(where: isSectionHeader) else {
-        guard let value else { return configText }
-        var result = configText
-        if !result.isEmpty, !result.hasSuffix("\n") {
-            result += "\n"
-        }
-        if !result.isEmpty {
-            result += "\n"
-        }
-        result += "\(sectionHeader)\n"
-        result += tomlWorkspaceSidebarKeyValueLine(key: key, value: value)
-        return result
+        guard let value else { return lines }
+        return EditableConfigText.appendingTable(sectionHeader, [tomlWorkspaceSidebarKeyValueLine(key: key, value: value)], to: lines)
     }
 
     let sectionEnd = lines.indices[(sectionIndex + 1)...].first(where: isHeader) ?? lines.endIndex
@@ -243,7 +237,7 @@ private func updateWorkspaceSidebarKeyValueSectionConfig(
         }
     }
     resultLines.append(contentsOf: lines[sectionEnd...])
-    return resultLines.joined(separator: "\n")
+    return resultLines
 }
 
 @MainActor

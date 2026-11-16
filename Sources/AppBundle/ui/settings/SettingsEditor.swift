@@ -52,10 +52,7 @@ struct SettingsPersistence {
         guard FileManager.default.fileExists(atPath: url.path) else { return starterConfigText() }
         return try String(contentsOf: url, encoding: .utf8)
     }
-    var write: (URL, String) throws -> Void = { url, text in
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try text.write(to: url, atomically: true, encoding: .utf8)
-    }
+    var write: (URL, String) throws -> Void = { url, text in try replaceConfigFileOnDisk(text, at: url) }
     var reload: (URL) async throws -> Bool = { try await reloadConfig(forceConfigUrl: $0) }
 
     func save(_ edits: [SettingsFileEdit]) async throws -> SettingsFileUndo {
@@ -105,10 +102,9 @@ struct SettingsPersistence {
         guard errors.isEmpty else {
             throw SettingsEditError("This edit could not be applied to the current TOML. Open Advanced → TOML Editor to resolve these errors:\n" + errors.map(\.description).joined(separator: "\n"))
         }
-        if let changing {
-            do { try checkConfigEditKeepsOtherKeys(before: before, after: text, changing: changing) }
-            catch { throw SettingsEditError(error.localizedDescription) }
-        }
+        // The same check `writeConfigFile` makes; `write` is `replaceConfigFileOnDisk` outside tests.
+        do { try validateConfigEdit(before: before, after: text, changing: changing) }
+        catch { throw SettingsEditError(error.localizedDescription) }
         try write(url, text)
         do {
             guard try await reload(url) else { throw SettingsEditError("The setting could not be applied.") }
