@@ -24,8 +24,25 @@ let projectRoot: URL = {
     return url
 }()
 
+/// Resets, after every test, process-wide state a test can leave behind: a reload that found errors suspends automatic
+/// config writes until a clean reload (D-S3-1), so a later test's writes would quietly not happen.
+private final class ConfigErrorStateReset: NSObject, XCTestObservation {
+    func testCaseDidFinish(_ testCase: XCTestCase) {
+        MainActor.assumeIsolated { resetConfigErrorStateForTests() }
+    }
+}
+
+@MainActor private let configErrorStateReset: Void = XCTestObservationCenter.shared.addTestObserver(ConfigErrorStateReset())
+
+/// Every test that reloads config calls this, or `setUpWorkspacesForTests`.
+@MainActor
+func installConfigErrorStateReset() {
+    configErrorStateReset
+}
+
 @MainActor
 func setUpWorkspacesForTests() {
+    installConfigErrorStateReset()
     resetConfigErrorStateForTests()
     WorkspaceSidebarDragSessions.shared.resetForTests()
     WorkspaceSidebarTabUndo.shared.clear()

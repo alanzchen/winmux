@@ -5,6 +5,11 @@ import XCTest
 
 @MainActor
 final class ConfigReadTest: XCTestCase {
+    override func setUp() {
+        super.setUp()
+        installConfigErrorStateReset()
+    }
+
     func testSelectedMissingConfigReportsReadFailure() throws {
         let directory = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }

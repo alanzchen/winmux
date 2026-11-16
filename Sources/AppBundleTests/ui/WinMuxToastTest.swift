@@ -6,6 +6,11 @@ import XCTest
 
 @MainActor
 final class WinMuxToastTest: XCTestCase {
+    override func setUp() {
+        super.setUp()
+        installConfigErrorStateReset()
+    }
+
     override func tearDown() {
         MessageModel.shared.message = nil
         MessageModel.shared.detailMessage = nil
