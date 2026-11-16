@@ -141,7 +141,7 @@ final class CarbonS3ReproTest: XCTestCase {
             config-version = 2
             persistent-workspaces = ["1", 2]
 
-            [workspace-sidebar.labels]
+            [workspace-sidebar.workspace-labels]
             1 = "Code"
             2 = "Mail"
             """
