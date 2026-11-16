@@ -734,7 +734,7 @@ Mutations, against `S3WinMuxPolicyTest`, `ListWindowsTest` and `S2DeltaTest`; ea
 
 ### S3 review fixes (Astra S3-A1–A3, Carbon S3-C1–C3; coordinator decisions D-S3-1–D-S3-4)
 
-Commits after `b8bab83e`; the merge commit `734e0308` is unchanged.
+Commits after `b8bab83e`; the merge commit `734e0308` is unchanged. Full suite at `11151004`, with a temporary `HOME` and `CFFIXED_USER_HOME`: 3420 tests, 10 skipped, 1 failure (Carbon's `[workspace-sidebar.labels]` test, below).
 
 **D-S3-1: a config with errors.**
 - Reload: a config with any error keeps the live config, once a config without errors has loaded in this run (`ReloadConfigCommand.swift`, `hasAppliedConfigWithoutErrors`). A config with warnings only (no `config-version`, for example) still applies.
@@ -754,6 +754,28 @@ Carbon's S3-C3a reproducer names the table `[workspace-sidebar.labels]`. WinMux'
 - `trigger-binding` reports the whole binding (`WinMuxHooks.runBindingForCli`): 0 if every command succeeded, 2 if a conditional command reported an error, otherwise 1 if any command failed, as v0.6.422 did. A false `test` counts as a failed command. Commands still all run, in order. Upstream reports only the last command's code; that waits for S5, where `&&` and `||` arrive.
 
 **D-S3-3, D-S3-4: tests.** Tests never register system-wide hotkeys (`activateMode`) or sync the login item (`syncStartAtLogin`). The legacy LaunchAgents cleanup never touches the real `~/Library/LaunchAgents` from a test. Tests that reload config set `HOME` and `CFFIXED_USER_HOME` to a temporary directory.
+
+**Reproducers.** Astra's probes, unchanged and built against this candidate with copies of her build scripts pointed at this worktree: exit contracts 12/12, config visibility 7/7, offline CLI 6/6. Carbon's `CarbonS3ReproTest`, byte-identical: 5 of 6; the sixth is the `[workspace-sidebar.labels]` test above.
+
+Mutations, against `S3ReviewFixTest`, `S3WinMuxPolicyTest` and `CarbonS3ReproTest` (offline CLI: Astra's probe), each with a temporary `HOME`; each is caught:
+
+| Mutation | Fails |
+|---|---|
+| Any config that parses applies (upstream's rule) | the keep-live-config test; Carbon S3-C3a |
+| A config with errors never applies, even at startup | the startup test, the labels test, the policy reload test |
+| No persistent error details | the keep-live-config and startup tests |
+| `--dry-run` sets the error state | the dry-run test |
+| Automatic writes never suspended | the labels test (file changed, label dropped) and two others |
+| Label clearing unguarded | the labels test |
+| The label writer ignores `userInitiated` / is unguarded | the labels test (explicit edit refused / file changed) |
+| The project-order writer unguarded | the labels test (file changed) |
+| `trigger-binding`: no conditional error 2 / the last command's code / mapped like any command | the trigger test; Carbon S3-C1c or S3-C2 |
+| Refusals (disabled, unreachable) always 1 | the server-path test; Carbon S3-C1b |
+| Server parse failure: conditional 1 / `--format` 1 / everything 2 | the server-path test; Carbon S3-C1a (first two) |
+| CLI connection failure exits 1 for a conditional command | Astra's offline probe (2 checks) |
+| No per-test reset of the error state | 7 `ConfigTest` persistence tests after `ConfigReadTest` |
+
+Not covered by a test: the hotkey and login-item guards (no observable state under XCTest), the startup fallback in `initAppBundle.swift` (app launch only), and the menu item's view (it reads `configErrorDetails`, which the tests check).
 
 ### Side tables: projects, pins and workspace identity on upstream's model
 
