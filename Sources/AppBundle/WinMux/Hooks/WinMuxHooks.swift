@@ -46,10 +46,10 @@ extension WinMuxHooks {
         return exitCode
     }
 
-    /// `trigger-binding`'s exit code, in the CLI's terms (docs/upstream-sync.md, S3): 0 when every command of the
-    /// binding succeeded; 2 when a conditional command (`test`, `test-not`, or a nested `trigger-binding` that ended so)
-    /// reported an error; otherwise 1 when any command failed, as v0.6.422 did. Upstream reports only the last
-    /// command's code; that waits for S5, where `&&` and `||` arrive.
+    /// `trigger-binding`'s exit code, in the CLI's terms (docs/upstream-sync.md, S3 review fixes). 2 is only a
+    /// conditional command's error (`test`, `test-not`, or a nested `trigger-binding` that ended so). Every other
+    /// failure is 1, as v0.6.422 reported: a failed command, a false condition, a missing mode or binding. 0 when every
+    /// command succeeded. Upstream reports only the last command's code; that waits for S5, where `&&` and `||` arrive.
     @MainActor
     static func runBindingForCli(_ commands: [any Command], _ env: CmdEnv, _ io: CmdIo) async throws -> Int32ExitCode {
         var anyFailed = false
@@ -59,15 +59,21 @@ extension WinMuxHooks {
             if cliCode != EXIT_CODE_ZERO { anyFailed = true }
             if cliCode == EXIT_CODE_TWO { conditionalError = true }
         }
-        return Int32ExitCode(rawValue: conditionalError ? EXIT_CODE_TWO : anyFailed ? 1 : EXIT_CODE_ZERO)
+        if conditionalError { return Int32ExitCode(rawValue: EXIT_CODE_TWO) }
+        return anyFailed ? bindingFailed : Int32ExitCode(rawValue: EXIT_CODE_ZERO)
     }
+
+    /// A failed `trigger-binding` that isn't a conditional error: 1. Upstream's `.fail` is 2, which the CLI would report
+    /// as is, since `trigger-binding` already answers in the CLI's terms.
+    private static let bindingFailed = Int32ExitCode(rawValue: 1)
 
     /// Replaces `TriggerBindingCommand.run`: the same lookup, with `runBindingForCli` for the result.
     @MainActor
     static func triggerBinding(_ args: TriggerBindingCmdArgs, _ env: CmdEnv, _ io: CmdIo) async throws -> Int32ExitCode {
         guard let mode = config.modes[args.mode] else {
-            return .fail(io.err("Mode '\(args.mode)' doesn't exist. " +
-                "Available modes: \(config.modes.keys.joined(separator: ","))"))
+            _ = io.err("Mode '\(args.mode)' doesn't exist. " +
+                "Available modes: \(config.modes.keys.joined(separator: ","))")
+            return bindingFailed
         }
         if let binding = mode.bindings.values.first(where: { $0.descriptionWithKeyNotation == args.binding.val }) {
             // refreshSession is not needed since commands are already run in refreshSession
@@ -76,7 +82,8 @@ extension WinMuxHooks {
         if let binding = mode.sequenceBindings.values.first(where: { $0.descriptionWithKeyNotation == args.binding.val }) {
             return try await runBindingForCli(binding.commands, env, io)
         }
-        return .fail(io.err("Binding '\(args.binding.val)' is not presented in mode '\(args.mode)'"))
+        _ = io.err("Binding '\(args.binding.val)' is not presented in mode '\(args.mode)'")
+        return bindingFailed
     }
 
     /// Whether a command can change the tree or which workspace a display shows, so the closed-windows cache follows

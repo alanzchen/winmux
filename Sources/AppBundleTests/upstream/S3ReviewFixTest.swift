@@ -149,12 +149,16 @@ final class S3ReviewFixTest: XCTestCase {
         XCTAssertEqual(unknownFlag.exitCode, 1, "other parse failures over MCP stay 1, as in v0.6.422")
         let badTest = await cli(["test"])
         XCTAssertEqual(badTest.exitCode, 2)
+        let badTrigger = await cli(["trigger-binding", "alt-h", "--bogus"])
+        XCTAssertEqual(badTrigger.exitCode, 1, "trigger-binding isn't a conditional command")
 
         TrayMenuModel.shared.isEnabled = false
         let disabledTestNot = await cli(["test-not", "%{workspace}", "=", "1"])
         XCTAssertEqual(disabledTestNot.exitCode, 2)
         let disabledWorkspace = await cli(["workspace", "1"])
         XCTAssertEqual(disabledWorkspace.exitCode, 1)
+        let disabledTrigger = await cli(["trigger-binding", "alt-h", "--mode", "main"])
+        XCTAssertEqual(disabledTrigger.exitCode, 1)
     }
 
     func testTriggerBindingReportsTheWholeBinding() async {
@@ -187,6 +191,43 @@ final class S3ReviewFixTest: XCTestCase {
         XCTAssertEqual(falseFirst, 1, "a false condition fails the binding, as any failed command does")
         let failureLast = await trigger("alt-e")
         XCTAssertEqual(failureLast, 1)
+    }
+
+    /// Astra S3-R2-A1: `trigger-binding`'s own failures are ordinary failed commands, 1 as in v0.6.422, through the CLI
+    /// server and MCP, and so is a nested one. Only a conditional error is 2, nested or not.
+    func testTriggerBindingLookupFailuresAreOrdinaryFailures() async throws {
+        let focused = focus.workspace.name
+        let parsed = parseConfig(
+            """
+            config-version = 2
+            [mode.main.binding]
+                alt-j = ['trigger-binding alt-h --mode main', 'workspace \(focused)']
+                alt-k = ['trigger-binding alt-h --mode removed']
+                alt-l = ['test %{window-id} = 1']
+                alt-m = ['trigger-binding alt-l --mode main', 'workspace \(focused)']
+            """
+        )
+        XCTAssertTrue(parsed.errors.isEmpty, "\(parsed.errors)")
+        config = parsed.config
+        XCTAssertNil(focus.windowOrNil)
+        let tool = try XCTUnwrap(mcpTools.first { $0.name == "winmux" })
+
+        for (args, expected) in [
+            ("trigger-binding alt-h --mode main", 1),
+            ("trigger-binding alt-h --mode removed", 1),
+            ("trigger-binding alt-j --mode main", 1),
+            ("trigger-binding alt-k --mode main", 1),
+            ("trigger-binding alt-m --mode main", 2),
+        ] as [(String, Int32)] {
+            let split = try args.splitArgs().get()
+            let server = await cli(split)
+            XCTAssertEqual(server.exitCode, expected, "CLI server: \(args): \(server.stderr)")
+            guard case .success(let json) = await tool.run(["args": .array(split.map(MCPJSON.string))]) else {
+                XCTFail("MCP: \(args) failed")
+                continue
+            }
+            XCTAssertEqual(json["structuredContent"]?["exitCode"], .int(Int(expected)), "MCP: \(args)")
+        }
     }
 
     // MARK: D-S3-4

@@ -752,6 +752,24 @@ Carbon's S3-C3a reproducer names the table `[workspace-sidebar.labels]`. WinMux'
   - `trigger-binding`, below.
 - Over MCP and raw socket clients, a parse failure answers 2 for a conditional command or an invalid `--format`, matching the CLI. Every other parse failure stays 1, as in v0.6.422. The CLI parses locally and exits 2, as before.
 - `trigger-binding` reports the whole binding (`WinMuxHooks.runBindingForCli`): 0 if every command succeeded, 2 if a conditional command reported an error, otherwise 1 if any command failed, as v0.6.422 did. A false `test` counts as a failed command. Commands still all run, in order. Upstream reports only the last command's code; that waits for S5, where `&&` and `||` arrive.
+- `trigger-binding`'s own failures are ordinary failed commands, 1 as in v0.6.422: a missing mode, a missing binding, and so a nested `trigger-binding` that fails that way. Only a conditional error makes it 2, nested or not (Astra S3-R2-A1; upstream's `.fail` is 2).
+- In short, 2 is reserved for a conditional command's error (runtime, connection, disabled server, parse) and an invalid `--format`. Every other failure keeps its v0.6.422 code.
+
+**Round 2 (Astra S3-R2-A1).** Missing modes and bindings answered upstream's 2 through the CLI server and MCP, and a binding that triggered a missing one reported it as a conditional error. Both lookups now answer 1. Astra's `S3Round2LookupProbe` passes unchanged (8/8), and so do her other probes: config lifecycle 14/14, exit contracts 12/12, config visibility 7/7, S2 disk 22/22, offline CLI 6/6. Her 150-input runtime corpus differs from her `11151004` run only in the three missing-binding rows, now 1. Against v0.6.422 it differs in the `--format`, conditional-command rows and one binding whose `test` errors (2; v0.6.422 had no `test`, so the binding didn't load).
+
+Exit-code classifier mutations (`WinMuxHooks.swift`, `CliExitCodeWinMux.swift`), against `S3ReviewFixTest`, `S3WinMuxPolicyTest` and `CarbonS3ReproTest`; each is caught:
+
+| Mutation | Fails |
+|---|---|
+| Missing mode answers upstream's 2 / missing binding answers 2 / every binding failure 2 | the lookup test (CLI server and MCP); the third also the trigger test and Carbon S3-C2 |
+| A binding's conditional error not reported (1) | the lookup and trigger tests; Carbon S3-C1c |
+| Any failure inside a binding counts as a conditional error | the lookup and trigger tests; Carbon S3-C2 |
+| Failures inside a binding ignored (0) | the lookup and trigger tests; Carbon S3-C2 |
+| `trigger-binding` mapped like any command (2 → 1) | the lookup and trigger tests; Carbon S3-C1c |
+| Conditional commands mapped too (2 → 1) | the above and the policy test |
+| Refusal always 1 / always 2 | the server-path test; the first also Carbon S3-C1b |
+| Server parse failure: conditional 1 / `--format` 1 / everything 2 | the server-path test; the first two also Carbon S3-C1a |
+| `trigger-binding` treated as a conditional command (disabled server, parse failure answer 2) | the server-path test |
 
 **D-S3-3, D-S3-4: tests.** Tests never register system-wide hotkeys (`activateMode`) or sync the login item (`syncStartAtLogin`). The legacy LaunchAgents cleanup never touches the real `~/Library/LaunchAgents` from a test. Tests that reload config set `HOME` and `CFFIXED_USER_HOME` to a temporary directory.
 
