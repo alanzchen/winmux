@@ -417,7 +417,7 @@ Merged upstream `aca3200e` (#7–32) with `script/upstream-sync.py merge`. 38 co
 **Settings window and sidebar edits.**
 - They still edit the file's text line by line, keeping comments and layout.
 - Where a value ends, which lines are headers, and whether the result is valid are all decided by the loader's front end.
-- Every write goes through `writeConfigFile`, or `SettingsPersistence`'s identical check (S2 review fixes).
+- Every write is checked by `validateConfigEdit` and written by `replaceConfigFileOnDisk` (S2 review fixes, S2 delta review fixes).
 - Covered by `SettingsEditorTest`, `ShortcutSettingsConfigEditsTest`, the config-edit round trips in `ConfigTestConfigEdits.swift`, `WorkspaceSidebarResizeTest`, `CarbonS2SettingsToml11ReproTest` and `S2TomlFrontEndTest`, all green.
 
 **User-visible changes, all wording or syntax; exact texts:**
@@ -469,7 +469,7 @@ CLI argument errors (exit codes unchanged). Upstream reworded value flags. WinMu
 | `axErrorRepr` | `extension AXError` | addition | `winMuxRepr` forwards to the file-private `repr`, for the two WinMux callers. | — |
 | `nativeFocusObservation` | end of `getNativeFocusedWindow.swift` | addition | Upstream's `getNativeFocusedWindow` body is back. It reads the same `focusedApp?.getFocusedWindow()` WinMux's version did, minus a stored-property read. | — |
 | `jsonDouble` | `Json`, `tomlAnyToParsedConfigRecursive` | addition | TOMLKit gave WinMux floats; this keeps them. | `S2TomlFrontEndTest.testFloatsConvertToJsonDoubles` asserts the conversion directly. Removing the case also traps the test process, because `defaultConfig`'s own parse then fails inside its initializer. |
-| `tomlSource` | `parseConfig.swift` `_parseConfig`, before TOMLDecoder | guard and input rewrite | See S2 review fixes. Every rewrite yields the same TOML document; the guard reports only a character that is invalid anywhere in TOML. | Mutations below |
+| `tomlSource` | `parseConfig.swift` `_parseConfig`, before TOMLDecoder | guard and input normalization | See S2 review fixes. Each normalization (contiguous storage, CRLF, byte order mark, final newline) yields the same TOML document; the guard reports only a character that is invalid anywhere in TOML. | Mutations below |
 
 **Build settings.**
 - Upstream enables strict memory safety and `NonisolatedNonsendingByDefault` in every module.
@@ -490,7 +490,7 @@ Principle: one parser, one truth. Anything that reads, edits or validates the ma
 |---|---|---|---|
 | Text bridged from `NSTextStorage` (the TOML Editor) | traps: 0.4.4/0.4.5 force-unwraps contiguous UTF-8 when unpacking values (`Token.swift:105`) | always a new contiguous String | A1 |
 | CRLF inside multiline strings | keeps the CR in the value | CRLF → LF before parsing | A2. The spec lets a parser normalize newlines, and v0.6.421 gave LF. An escaped `\r` stays a CR. |
-| `\\` just before a closing `"""` | `unterminated triple-d-quote`: the lexer takes any backslash before the quote as escaping it (`Parser.swift:241`, still in 0.4.5) | `\\` in basic strings becomes `\`, the same character | A3. The rewrite walks TOML's lexical states (comments, four string kinds), so literal strings and comments are untouched. |
+| `\\` just before a closing `"""` | `unterminated triple-d-quote`: the lexer takes any backslash before the quote as escaping it (`Parser.swift:241`, still in 0.4.5) | fixed in the vendored TOMLDecoder (S2 delta review fixes); the first round's textual `\\` → `\u005C` rewrite is gone | A3 |
 | A bare value cut off at EOF (`width = -`, `n`, `in`, …) | reads out of bounds. 0.4.5 fixes several of these paths but not all: with the newline guard removed, `CarbonS2EofReproTest` still traps on 0.4.5 | a newline is appended when missing | S2-C2. Pinned 0.4.5 as well (upstream's later pin; it fixes base-prefixed integer unpacking too). |
 | A lone CR | CR CR LF accepted | rejected with its line | invalid TOML anywhere; v0.6.421 rejected it |
 | A leading byte order mark | `missing =` | dropped | Carbon nit 2; TOMLKit dropped it |
@@ -553,7 +553,7 @@ Mutations: each guard is replaced with its absence, and `S2TomlFrontEndTest` and
 | The front end hands back the caller's String when nothing needs rewriting | A1 test traps (`Token.swift:105`) |
 | CRLF kept | 6 failures: the CRLF contracts and the lone-CR test |
 | A lone CR dropped instead of reported | 3 failures in the lone-CR test |
-| `\\` not rewritten | 8 failures in the escaped-backslash test |
+| `\\` not rewritten (first round; the rewrite is replaced by the decoder patch below) | 8 failures in the escaped-backslash test |
 | No trailing newline | `CarbonS2EofReproTest` traps on 0.4.5 |
 | Byte order mark kept | the byte-order-mark test |
 | Kept-keys check off | the two write-refusal tests (4 failures) |
@@ -567,7 +567,98 @@ Mutations: each guard is replaced with its absence, and `S2TomlFrontEndTest` and
 - v0.6.421 kept `one` (the composed key, written first); S2 keeps `two` (the last).
 - Matching v0.6.421 would need TOMLKit's key order, which isn't known to be document order: byte order also gives `one`.
 - The alternative is rejecting such a file with an error, which would make a file that loaded before fail.
-- Left as is for review. Astra rated it non-blocking.
+- Decided in review: S2 keeps last-wins.
+
+### S2 delta review fixes (Astra S2-D-A1/A2, Carbon S2-D1/D2)
+
+Three structural causes, three fixes.
+
+**(a) Editors split and trimmed raw text themselves → `EditableConfigText`.**
+- It is the only place config text becomes lines (`Sources/AppBundle/WinMux/EditableConfigText.swift`).
+- It records the file's line ending (CRLF if the file uses CRLF anywhere) and its byte order mark, and exposes LF lines with neither.
+- On write, `text` restores both.
+- All config editors work only on those lines: the sidebar's scalar, key/value-section and project-order editors, the shortcut binding editor, the Settings scalar editor, and the AeroSpace import splitter.
+- Their ad-hoc `components(separatedBy: "\n")`, `\r` stripping and string-appended sections are gone. Missing tables are added by `appendTable`.
+- A grep of `Sources/AppBundle` for `components(separatedBy: "\n")`, `split(separator: "\n"` and newline splitting finds no config editor. The remaining hits are browser and Hookmark script output, the `workspace` command's stdin list, and the Settings text field that takes one command per line.
+- A CRLF file therefore looks to every editor exactly like its LF twin. It is written back with CRLF, with comments and layout kept.
+- A file mixing CRLF and LF is written with CRLF throughout. Values don't change: the loader reads a CRLF inside a multiline string as LF.
+
+**(b) Atomic writes renamed over symlinks → `replaceConfigFileOnDisk`.**
+- It is the only code that writes the config to disk, used by `writeConfigFile`, `SettingsPersistence`'s default writer, and the first-launch import and starter file.
+- It follows the symlink chain one link at a time with `readlink`. A relative destination is taken relative to the link's own directory and left for the OS to resolve, so links inside symlinked directories resolve physically.
+- It then replaces the real file atomically through a temporary file in that file's directory. That keeps the link and the file's permissions.
+- A dangling link creates its target.
+- A chain longer than 32 links is refused as a loop: `WinMux didn't save this change: '<path>' is a symlink loop.`
+- `SettingsPersistence` now runs the same `validateConfigEdit` as `writeConfigFile` after its own zero-errors check, then writes with `replaceConfigFileOnDisk`.
+
+**(c) The `\\` → `\` rewrite misread TOMLDecoder's quote counting → patched TOMLDecoder.**
+- `Vendor/TOMLDecoder` holds TOMLDecoder 0.4.5's library sources, committed unchanged in its own commit. A second commit adds three marked lines:
+  - the lexer counts the backslash run before a `"""`, which is escaped only after an odd run;
+  - `\u`/`\U`/`\x` escapes and line-ending backslashes end a quote run, like every other escape.
+- `Vendor/TOMLDecoder/WINMUX-PATCH.md` describes both defects with reproducers, ready to report upstream. Drop the copy for a fixed release.
+- The front end no longer rewrites text.
+
+**Guard contract (Astra).**
+- An empty table is now a value in the kept-keys check: an empty `[exec]` changes `PATH`, and an empty `[mode.service]` defines a mode.
+- Only an empty table at an ancestor of an edited key may appear or go, which is what happens when a table's last key is removed.
+
+**Results**
+
+Reproducers, unchanged as RED, built against this tree:
+
+| Reproducer | Before (`f9b15b91`) | After |
+|---|---|---|
+| `CarbonS2DeltaReproTest` (byte-identical) | 3 tests, 8 failures | 0 failures |
+| Astra `S2DeltaWriteProbe` | 11 checks, 6 failures | 0 failures |
+| Astra `S2DeltaGuardProbe` | 7 checks, 2 failures | 0 failures |
+| Astra `S2DeltaRewriteRepro` | fail | pass |
+
+- Astra's first-round reproducers and Carbon's first-round tests still pass.
+- All of these are also ported into `S2DeltaTest`.
+
+String differentials:
+- Astra's 80,302-input string corpus against `tomllib`:
+  - all 41,010 reference-valid inputs decode equal, with 0 rejections (her run had 4: 2 from the rewrite and 2 pre-existing decoder bugs, which the patch also fixes);
+  - the 10 acceptances outside her reference are TOML 1.1 `\e`/`\x` escapes, which her Python 3.12 `tomllib` (TOML 1.0) rejects.
+- 60,000 random multiline and basic strings (escaped quotes, escaped backslashes, line-ending backslashes, `"`/`\`, quote runs) against Python 3.15's `tomllib`, which reads TOML 1.1:
+  - all 47,380 valid inputs decode equal;
+  - all 12,620 invalid inputs are rejected.
+
+Config differentials against v0.6.421:
+- Astra's: 2,246 config inputs, 0 newly rejected, 0 crashes, 5 newly accepted and 3 dump differences, the same as the previous round; all 7,759 CLI outcomes equal.
+- Carbon's: 0 newly failed. The only dump difference is the regex wrapper's reflection text.
+
+Prefix fuzz, rerun on the patched decoder: every character prefix of all 2,446 reviewer config texts (1,687,951 prefixes) through the front end, with 0 crashes and the same 33,460 valid prefixes as before.
+
+CRLF through every editor:
+- Every reviewer corpus text that contains a newline and no CR (2,196 of the 2,446) went through 12 editor operations, as LF and as CRLF:
+  - sidebar width, workspace label set and removal, project label, color, emoji and order, display width;
+  - the shortcut bindings;
+  - Settings gaps, opacity and unset.
+- 26,352 runs:
+  - editing the CRLF file gave exactly the CRLF form of editing the LF file every time;
+  - the validated write decided the same way for both every time.
+- 1,999 edits on files that load were refused for both endings. All are files the line editors can't edit:
+  - inline-table or quoted-key forms of whole sections (`"workspace-sidebar" = { … }`);
+  - top-level dotted keys (`gaps.inner.horizontal = 8`).
+- Settings refused these on v0.6.421 too. The sidebar writers used to write a file that then failed to load.
+
+Mutations, against `S2DeltaTest`, `S2TomlFrontEndTest` and the Carbon tests:
+
+| Mutation | Caught |
+|---|---|
+| Lexer: any backslash escapes the closing quote | yes |
+| No quote-run reset after `\u` | yes |
+| No quote-run reset after a line-ending backslash | yes |
+| `EditableConfigText` always writes LF | yes |
+| CRs left in the lines | yes |
+| Byte order mark left on the first line | yes |
+| Symlinks not followed | yes |
+| A relative link resolved against the working directory | yes |
+| `SettingsPersistence` writes with its own atomic write | yes |
+| Empty tables skipped | yes |
+| No empty-table ancestor allowance | yes |
+| An explicit permission restore after the write removed | survived: Foundation's atomic write already keeps the mode, so the restore was dropped and the test pins the mode |
 
 ### Side tables: projects, pins and workspace identity on upstream's model
 
