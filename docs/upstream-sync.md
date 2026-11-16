@@ -731,6 +731,10 @@ Mutations, against `S3WinMuxPolicyTest`, `ListWindowsTest` and `S2DeltaTest`; ea
 - Forked non-test sources: 87 → 85.
 - The merge already carries most of the review surface. Converting `server.swift`, `initAppBundle.swift`, `parseConfig.swift`, `format.swift`, twelve commands and the CLI on top would double it.
 - Proposed: a separate S3b candidate with only conversions, reviewed and shipped on its own, before S4.
+- Also deferred to S3b, Carbon's S3 round-2 nits (none blocks; S3 ships without them):
+  - R2-1: the sidebar's **+ New Project** (`createWorkspaceProject()`, `WorkspaceProjects.swift`) saves the new project's default label as an automatic write. While the config has errors that label isn't saved, so a project created then and never renamed or recolored loses its label at restart. It should pass `userInitiated: true`, as `create-project` does.
+  - R2-2: `winMuxServerParseFailureExitCode` decides that `--format` failed by parsing the arguments without it. That also answers 2 over MCP when the remaining arguments conflict (`--count --format`) or the command has no `--format` at all; those should stay 1. The CLI exits 2 for every usage error either way.
+  - R2-3: `reload-config --dry-run` without `--no-gui` still runs the message branch (a toast, or closing an open error-details window). v0.6.422 skipped it for a dry run; gate it on `!args.dryRun` again. The menu item is already gated.
 
 ### S3 review fixes (Astra S3-A1–A3, Carbon S3-C1–C3; coordinator decisions D-S3-1–D-S3-4)
 
