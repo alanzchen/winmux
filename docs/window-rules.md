@@ -18,9 +18,13 @@ never moved by a rule, and a rule never closes, hides or resizes a window to ful
 - WinMux's own rules ship with the app (`default-window-rules.toml`). Updates replace them; don't edit them.
 - Your rules go in `~/.config/winmux/window-rules.toml`. Run **Reload Config** after editing it.
 
-## WinMux's rule: WeChat's image viewer
+## WinMux's rules
 
-One rule is on by default, with the id `wechat-image-viewer`. A WeChat window titled exactly
+Two rules are on by default: WeChat's image viewer and Telegram's untitled windows.
+
+### WeChat's image viewer
+
+The rule's id is `wechat-image-viewer`. A WeChat window titled exactly
 `Photos and Videos`, a standard window, opened from a WeChat window in use just after a click or key press,
 floats at its own size over that window.
 
@@ -51,6 +55,51 @@ floats at its own size over that window.
   enabled = false
   ```
 
+### Telegram's Mini Apps and Instant View
+
+The rule's id is `telegram-web-view`. Telegram opens a Mini App or an Instant View page in a window of its own
+that has no title. A Telegram window with no title, a standard window, opened from a Telegram window in use
+that has a title, just after a click or key press, floats at its own size over that window, listed under it,
+like a Safari tab group, instead of taking a tab of its own.
+
+```toml
+[[rule]]
+id = "telegram-web-view"
+app-id = "ru.keepcoder.Telegram"
+untitled = true
+subrole = "AXStandardWindow"
+opener-titled = true
+opened-from = "focused-window"
+action = "float-under-opener"
+```
+
+- Telegram leaves all its windows untitled until it has connected, its main window too. While it connects,
+  the rule names nothing: a chat or account you open in a new window then gets a tab of its own and is saved
+  with it, as any window is. A Mini App opened then gets a tab of its own too.
+- Once Telegram has connected, any other untitled standard window it opens from one of its windows just after
+  a press floats over that window too. In Telegram 13.2's source these are a call you start, a group call,
+  Passport and the screen-sharing picker. Its media viewer, picture in picture and full-screen video aren't
+  standard windows on the usual level, and are placed as before. Drag any of them to a tab of its own to keep
+  it there.
+- Telegram's main window isn't opened from another Telegram window in use just after a press, so it's placed
+  as before.
+- One window can be taken for a Mini App by mistake: a second account opened in a window of its own while that
+  account is still connecting, from a main window whose account has connected. It has no title when it
+  appears, so it floats over that main window and isn't saved with layouts. Drag it to a gap in the tab list or
+  onto **+ New Tab**, use **Move to New Tab**, or move it with `move-node-to-workspace`: it's then an ordinary
+  window, in a tab of its own, saved with it. A chat Telegram opens in a window of its own once connected is
+  expected to have its title by the time it appears, though Telegram doesn't guarantee that order.
+- A window whose title couldn't be read (Telegram busy, say) isn't taken for one without a title.
+- To turn the rule off, put this in your own file:
+
+  ```toml
+  version = 1
+
+  [[rule]]
+  id = "telegram-web-view"
+  enabled = false
+  ```
+
 ## A rule
 
 ```toml
@@ -61,12 +110,21 @@ id = "my-image-viewer"                 # letters, digits, '-', '_' and '.'
 app-id = "com.example.app"             # the app's bundle id, exactly
 window-title = ["Photos and Videos"]   # the window's exact title, in each language you use
 subrole = "AXStandardWindow"           # optional: the window's accessibility subrole, exactly
+opener-titled = true                   # optional: the window it was opened from has a title
 opened-from = "focused-window"         # the only value
 action = "float-under-opener"          # the only value
 ```
 
 - Titles match exactly, after spaces around them are trimmed, and are case-sensitive. List each
   translation you use: a title the rule doesn't list isn't matched.
+- For a window without a title, write `untitled = true` instead of `window-title`. It names a window
+  whose title is missing or empty, after spaces are trimmed; not one whose title couldn't be read. A rule
+  has exactly one of the two: both, neither, or `untitled = false` is a mistake (to turn a rule off, write
+  `enabled = false`).
+- `opener-titled = true` (optional) also asks that the window it was opened from has a title when the new
+  window first appears. A title that's empty, or can't be read, doesn't count. It tells apart windows an app
+  leaves untitled for a while, such as all of Telegram's while it connects. `opener-titled = false` is a
+  mistake: leave the key out instead.
 - A title can be shared by two different windows of an app. A rule names every window with that title
   that's opened from another of the app's windows, so choose titles that only the window you mean has.
 - `winmux debug-windows` shows a window's title, subrole and bundle id.
@@ -80,7 +138,8 @@ action = "float-under-opener"          # the only value
 ## When a rule can't be used
 
 - A rule with a mistake is left out, and the rest still apply. Mistakes include a missing or misspelled
-  key, a key rules don't have (such as `run`), a value other than the ones above, or a repeated id.
+  key, a key rules don't have (such as `run`), a value other than the ones above, both `window-title` and
+  `untitled` (or neither), `untitled = false`, `opener-titled = false`, or a repeated id.
 - A file that isn't a rules file is left out whole: invalid TOML, or a version other than `1`. Your own
   file being left out never changes WinMux's rules.
 - What was left out, and why, is shown after Reload Config, and printed by `winmux reload-config`. The main
@@ -91,7 +150,10 @@ action = "float-under-opener"          # the only value
 
 A window placed by a rule behaves like any other window opened from another:
 
-- **Its own tab:** moving it to a tab of its own makes it an ordinary window for good.
+- **Its own tab:** moving it to another tab yourself makes it an ordinary window for good, saved as any other:
+  **Move to New Tab**, a drop in a gap of the tab list or onto **+ New Tab**, or `move-node-to-workspace` (from
+  the CLI, a hotkey, an agent or an `on-window-detected` rule). Moving the window it was opened from doesn't, nor
+  does WinMux placing windows itself, as it starts.
 - **Opener closed:** if the window it was opened from closes, it stays open as a window of its own.
 - **Restart:** after WinMux restarts, it's listed under its opener again while both are still the same
   windows.

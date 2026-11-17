@@ -101,6 +101,15 @@ func isAuxiliaryWindowOfOpenParent(_ window: Window) -> Bool {
     return parent !== window && parent.app.pid == window.app.pid
 }
 
+/// The user moved `node`'s windows to another tab on purpose: dropped between tabs or on New Tab, or moved by
+/// `move-node-to-workspace` (`MoveNodeToWorkspaceCommand`). One listed under the window it was opened from is a window of
+/// its own from then on, saved as any other, as one moved with Move to New Tab is. Never for a move WinMux makes itself
+/// (`moveWindowToWorkspace`), as when it places a window it finds as it starts.
+@MainActor
+func detachAuxiliaryWindowsMovedByUser(_ node: TreeNode) {
+    for window in node.allLeafWindowsRecursive { AuxiliaryWindowRegistry.shared.detach(window) }
+}
+
 /// Whether `window` is a floating draft or message window, which a saved tab or pin never records. A
 /// dialog is saved as before, and a window the user moved to a tab of its own is an ordinary one.
 @MainActor
@@ -287,8 +296,10 @@ struct AuxiliaryWindowPlacement {
 @MainActor
 func auxiliaryWindowPlacement(_ evidence: AuxiliaryWindowOriginEvidence?, type: AxUiElementWindowType,
                               role: () async throws -> AuxiliaryWindowRole?) async rethrows -> AuxiliaryWindowPlacement? {
-    guard type != .popup, let evidence, auxiliaryWindowOrigin(evidence) != nil else { return nil }
-    let windowRole: AuxiliaryWindowRole? = type == .dialog ? .dialog : try await role()
+    guard type != .popup, let evidence, let origin = auxiliaryWindowOrigin(evidence) else { return nil }
+    let windowRole: AuxiliaryWindowRole? = type == .dialog
+        ? .dialog
+        : try await $windowRuleOpenerId.withValue(origin.windowId) { try await role() }
     // The accessibility read awaited: nothing may have changed meanwhile.
     guard let windowRole, let parent = auxiliaryWindowOrigin(evidence) else { return nil }
     return AuxiliaryWindowPlacement(parent: parent, role: windowRole)

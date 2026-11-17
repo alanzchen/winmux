@@ -187,6 +187,28 @@ final class AuxiliaryWindowLinksTest: XCTestCase {
         XCTAssertEqual(tile.cells, [11], "A window of its own")
     }
 
+    func testWinMuxPlacingAWindowItFindsAsItStartsLeavesItsLinkToBeRecovered() async throws {
+        let pin = focus.workspace
+        let main = TestWindow.new(id: 10, parent: pin.rootTilingContainer, app: messenger, title: "Messenger")
+        try setWorkspaceSidebarTabFavorite(pin, true)
+        XCTAssertTrue(main.focusWindow())
+        let viewer = try await openAuxiliaryTestWindow(11, app: messenger, role: .windowRule, from: main, title: "")
+        XCTAssertTrue(auxiliaryWindowParent(of: viewer) === main)
+        // WinMux starts again, tiling new windows off: the viewer, found as a regular window, gets a tab of its own
+        // as WinMux places it, before its kept link is recovered.
+        AuxiliaryWindowRegistry.shared.removeAll()
+        loadAuxiliaryWindowLinksForStartup()
+        XCTAssertEqual(pendingAuxiliaryWindowLinks.map(\.window.windowId), [11])
+        config.automaticallyTileNewWindows = false
+        try await $_isStartup.withValue(true) {
+            _ = try await restoreOrDetectNewWindow(viewer, isRegularWindow: true)
+        }
+        XCTAssertFalse(viewer.nodeWorkspace === pin, "WinMux placed it in a tab of its own")
+        recoverAuxiliaryWindowLinks()
+        XCTAssertEqual(AuxiliaryWindowRegistry.shared.role(of: viewer), .windowRule, "Not a move of the user's: its link is recovered")
+        XCTAssertEqual(AuxiliaryWindowRegistry.shared.parentWindowId(of: viewer), main.windowId)
+    }
+
     func testNoSameAppWindowGetsALinkItNeverHad() async throws {
         let (pin, _, _) = try await pinWithLinkedDialog()
         let unlinked = TestWindow.new(id: 12, parent: pin, app: messenger, title: "")

@@ -298,6 +298,7 @@ func applyTabGapDrop(sourceNode: TreeNode, sourceWindow: Window, projectId: Work
     if let anchor { winMuxWorkspaceState.moveWorkspace(tab.id, relativeTo: anchor.id, after: gap.isAfter) }
     let isFloatingWindow = sourceNode === sourceWindow && sourceWindow.isFloating
     sourceNode.bind(to: isFloatingWindow ? tab : tab.rootTilingContainer, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
+    detachAuxiliaryWindowsMovedByUser(sourceNode)
     captureNewAutomaticWorkspaceIdentity(tab)
     _ = sourceWindow.focusWindow()
     return true

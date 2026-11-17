@@ -685,10 +685,13 @@ final class MacApp: AbstractApp {
         } ?? [:]
     }
 
-    /// A new window's title and subrole, for the window rules, in one call.
+    /// A new window's title and subrole, for the window rules, in one call. A title that couldn't be read is told
+    /// apart from none (`WindowRuleFacts.titleUnreadable`).
     func getWindowRuleFacts(_ windowId: UInt32) async throws -> WindowRuleFacts? {
         try await withWindow(windowId) { window, job in
-            WindowRuleFacts(title: window.get(Ax.titleAttr), subrole: window.get(Ax.subroleAttr))
+            var title: AnyObject?
+            let error = unsafe AXUIElementCopyAttributeValue(window, kAXTitleAttribute as CFString, &title)
+            return WindowRuleFacts(titleRead: error, title, subrole: window.get(Ax.subroleAttr))
         }
     }
 

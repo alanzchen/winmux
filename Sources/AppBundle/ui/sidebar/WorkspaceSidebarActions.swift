@@ -269,6 +269,7 @@ func createWorkspaceFromSidebarDrag(
         targetContainer = workspace.rootTilingContainer
     }
     sourceNode.bind(to: targetContainer, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
+    detachAuxiliaryWindowsMovedByUser(sourceNode)
     return true
 }
 
@@ -548,6 +549,7 @@ private func moveSidebarSourceToNewWorkspace(
         // A pin whose one window gets the new tab lends it there.
         _ = try moveWorkspaceSidebarNodeOutKeepingPins(sourceNode) {
             sourceNode.bind(to: targetContainer, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
+            detachAuxiliaryWindowsMovedByUser(sourceNode)
             return true
         }
         await updateWorkspaceSidebarModel()

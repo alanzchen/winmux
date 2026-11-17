@@ -1,4 +1,5 @@
 @testable import AppBundle
+import AppKit
 import Common
 import XCTest
 
@@ -67,6 +68,64 @@ final class WindowRulesTest: XCTestCase {
             XCTAssertEqual(file.problems.count, 1, "\(rule)")
             XCTAssertTrue(file.problems.first?.contains(reason) == true, "\(file.problems) should name \(reason)")
             XCTAssertTrue(file.problems.first?.contains("test.toml") == true, "Names the file")
+        }
+    }
+
+    func testARuleCanNameAWindowWithoutATitle() {
+        let file = parse("""
+            version = 1
+            [[rule]]
+            id = "web-view"
+            app-id = "com.example.messenger"
+            untitled = true
+            subrole = "AXStandardWindow"
+            opened-from = "focused-window"
+            action = "float-under-opener"
+            """)
+        XCTAssertEqual(file.problems, [])
+        XCTAssertEqual(file.rules, [WindowRule(id: "web-view", appId: "com.example.messenger", title: .untitled, subrole: "AXStandardWindow")])
+        XCTAssertEqual(file.rules.first?.windowTitles, [], "Named by no title")
+    }
+
+    func testARuleNamesItsWindowByTitlesOrAsUntitledExactlyOneOfTheTwo() {
+        let base = "app-id = \"com.example.app\"\nopened-from = \"focused-window\"\naction = \"float-under-opener\""
+        let cases: [(keys: String, reason: String)] = [
+            ("window-title = \"Viewer\"\nuntitled = true", "has both window-title and untitled"),
+            ("window-title = \"Viewer\"\nuntitled = false", "has both window-title and untitled"),
+            ("", "needs window-title, the window's exact title, or untitled = true"),
+            ("untitled = false", "untitled = false names no window: name it by window-title instead, or leave untitled out; " +
+                "to turn a rule off, use enabled = false."),
+            ("untitled = \"yes\"", "untitled must be true"),
+            ("window-title = \"  \"", "window-title has an empty title; for a window without one, use untitled = true"),
+        ]
+        var reasons: Set<String> = []
+        for (keys, reason) in cases {
+            let file = parse("version = 1\n[[rule]]\nid = \"r\"\n\(base)\n\(keys)\n\n" + viewer.replacingOccurrences(of: "version = 1\n", with: ""))
+            XCTAssertEqual(file.rules.map(\.id), ["viewer"], "Left out, and the rest still apply: \(keys)")
+            XCTAssertEqual(file.problems.count, 1, keys)
+            XCTAssertTrue(file.problems.first?.contains("test.toml: rule r: \(reason)") == true, "\(file.problems) should say: \(reason)")
+            reasons.insert(file.problems.first ?? "")
+        }
+        XCTAssertEqual(reasons.count, cases.count - 1, "Each mistake says what it is (both keys, either value, say the same)")
+    }
+
+    func testARuleCanAskForAnOpenerWithATitle() {
+        let rule = """
+            app-id = "com.example.app"
+            untitled = true
+            opened-from = "focused-window"
+            action = "float-under-opener"
+            """
+        let asked = parse("version = 1\n[[rule]]\nid = \"r\"\n\(rule)\nopener-titled = true")
+        XCTAssertEqual(asked.problems, [])
+        XCTAssertEqual(asked.rules, [WindowRule(id: "r", appId: "com.example.app", title: .untitled, subrole: nil, openerTitled: true)])
+        XCTAssertEqual(parse("version = 1\n[[rule]]\nid = \"r\"\n\(rule)").rules.first?.openerTitled, false, "Not asked when left out")
+        for (value, reason) in [("false", "opener-titled = false asks nothing of the opener: leave it out."),
+                                ("\"yes\"", "opener-titled must be true, for an opener with a title.")] {
+            let file = parse("version = 1\n[[rule]]\nid = \"r\"\n\(rule)\nopener-titled = \(value)\n\n" +
+                viewer.replacingOccurrences(of: "version = 1\n", with: ""))
+            XCTAssertEqual(file.rules.map(\.id), ["viewer"], "Left out, and the rest still apply: \(value)")
+            XCTAssertEqual(file.problems, ["test.toml: rule r: \(reason)"])
         }
     }
 
@@ -167,15 +226,19 @@ final class WindowRulesTest: XCTestCase {
         XCTAssertTrue(broken.problems[0].contains(url.path), "Says which file")
     }
 
-    func testWinMuxShipsTheWeChatImageViewerRuleAndAUserFileCanTurnItOffOrReplaceIt() throws {
+    func testWinMuxShipsTheWeChatAndTelegramRulesAndAUserFileCanTurnThemOffOrReplaceThem() throws {
         let shipped = parse(try String(contentsOf: bundledWindowRulesUrl, encoding: .utf8))
         XCTAssertEqual(shipped.problems, [], "The shipped file is valid")
+        let telegram = WindowRule(id: "telegram-web-view", appId: "ru.keepcoder.Telegram", title: .untitled, subrole: "AXStandardWindow",
+            openerTitled: true)
         XCTAssertEqual(shipped.rules, [WindowRule(id: "wechat-image-viewer", appId: "com.tencent.xinWeChat",
-            windowTitles: ["Photos and Videos"], subrole: "AXStandardWindow")],
-            "One rule on by default: WeChat's image viewer, by its English title, as observed")
+            windowTitles: ["Photos and Videos"], subrole: "AXStandardWindow"), telegram],
+            "On by default: WeChat's image viewer, by its English title, and Telegram's untitled windows, as observed")
         let off = parse("version = 1\n[[rule]]\nid = \"wechat-image-viewer\"\nenabled = false")
         XCTAssertEqual(off.problems, [])
-        XCTAssertEqual(mergeWindowRules(shipped: shipped, user: off), [], "Turned off by its id")
+        XCTAssertEqual(mergeWindowRules(shipped: shipped, user: off), [telegram], "Turned off by its id")
+        let bothOff = parse("version = 1\n[[rule]]\nid = \"wechat-image-viewer\"\nenabled = false\n[[rule]]\nid = \"telegram-web-view\"\nenabled = false")
+        XCTAssertEqual(mergeWindowRules(shipped: shipped, user: bothOff), [])
         let replaced = parse("""
             version = 1
             [[rule]]
@@ -186,7 +249,7 @@ final class WindowRulesTest: XCTestCase {
             opened-from = "focused-window"
             action = "float-under-opener"
             """)
-        XCTAssertEqual(mergeWindowRules(shipped: shipped, user: replaced).map(\.windowTitles), [["Photos and Videos", "图片和视频"]],
+        XCTAssertEqual(mergeWindowRules(shipped: shipped, user: replaced).map(\.windowTitles), [["Photos and Videos", "图片和视频"], []],
             "Replaced whole by the user's rule of the same id")
     }
 
@@ -204,6 +267,64 @@ final class WindowRulesTest: XCTestCase {
         XCTAssertFalse(rule.matches(appId: "com.example.messenger", facts: .init(title: "Photo Viewer", subrole: nil)))
         XCTAssertFalse(rule.matches(appId: "com.example.other", facts: .init(title: "Photo Viewer", subrole: "AXStandardWindow")))
         XCTAssertFalse(rule.matches(appId: nil, facts: .init(title: "Photo Viewer", subrole: "AXStandardWindow")))
+    }
+
+    func testAnUntitledRuleMatchesAMissingOrEmptyTitleOnlyNotOneThatCouldntBeRead() {
+        let rule = WindowRule(id: "web-view", appId: "com.example.messenger", title: .untitled, subrole: "AXStandardWindow")
+        for title: String? in [nil, "", "  ", "\n\t"] {
+            XCTAssertTrue(rule.matches(appId: "com.example.messenger", facts: .init(title: title, subrole: "AXStandardWindow")),
+                "No title: \(String(describing: title))")
+        }
+        XCTAssertFalse(rule.matches(appId: "com.example.messenger", facts: .init(title: "Mini App", subrole: "AXStandardWindow")))
+        XCTAssertFalse(rule.matches(appId: "com.example.messenger", facts: .init(title: " . ", subrole: "AXStandardWindow")))
+        XCTAssertFalse(rule.matches(appId: "com.example.messenger", facts: .init(title: nil, subrole: "AXStandardWindow", titleUnreadable: true)),
+            "A title that couldn't be read isn't the lack of one")
+        XCTAssertFalse(rule.matches(appId: "com.example.messenger", facts: .init(title: "", subrole: "AXDialog")))
+        XCTAssertFalse(rule.matches(appId: "com.example.messenger", facts: .init(title: "", subrole: nil)))
+        XCTAssertFalse(rule.matches(appId: "com.example.other", facts: .init(title: "", subrole: "AXStandardWindow")))
+        XCTAssertFalse(rule.matches(appId: nil, facts: .init(title: "", subrole: "AXStandardWindow")))
+        let titled = WindowRule(id: "viewer", appId: "com.example.messenger", windowTitles: ["Viewer"], subrole: nil)
+        XCTAssertFalse(titled.matches(appId: "com.example.messenger", facts: .init(title: "", subrole: nil)),
+            "A rule naming titles doesn't name an untitled window")
+    }
+
+    func testAWindowsTitleReadIsToldApartFromNoTitleAndFromOneThatCouldntBeRead() {
+        let titled = WindowRuleFacts(titleRead: .success, "Mini App" as NSString, subrole: "AXStandardWindow")
+        XCTAssertEqual(titled, WindowRuleFacts(title: "Mini App", subrole: "AXStandardWindow"))
+        XCTAssertEqual(WindowRuleFacts(titleRead: .success, "" as NSString, subrole: nil), WindowRuleFacts(title: "", subrole: nil))
+        for none: AXError in [.noValue, .attributeUnsupported] {
+            XCTAssertEqual(WindowRuleFacts(titleRead: none, nil, subrole: nil), WindowRuleFacts(title: nil, subrole: nil), "No title: \(none)")
+        }
+        for failed: AXError in [.cannotComplete, .invalidUIElement, .failure, .apiDisabled] {
+            XCTAssertEqual(WindowRuleFacts(titleRead: failed, nil, subrole: nil),
+                WindowRuleFacts(title: nil, subrole: nil, titleUnreadable: true), "Unread: \(failed)")
+        }
+        XCTAssertEqual(WindowRuleFacts(titleRead: .success, NSNumber(value: 1), subrole: nil),
+            WindowRuleFacts(title: nil, subrole: nil, titleUnreadable: true), "A title that isn't text is unread")
+    }
+
+    func testARuleAskingForAnOpenerWithATitleNamesTheWindowOnlyThen() async {
+        setUpWorkspacesForTests()
+        let titledOpener = TestWindow.new(id: 10, parent: focus.workspace.rootTilingContainer, title: "Messenger @ Alan")
+        let untitledOpener = TestWindow.new(id: 12, parent: focus.workspace.rootTilingContainer, title: "  ")
+        activeWindowRules = [WindowRule(id: "web-view", appId: "com.example.messenger", title: .untitled, subrole: nil, openerTitled: true)]
+        defer { activeWindowRules = [] }
+        let untitled: () -> WindowRuleFacts? = { .init(title: "", subrole: nil) }
+        let underTitled = await newWindowAuxiliaryRole(bundleId: "com.example.messenger", ownRole: { nil }, facts: untitled, opener: titledOpener)
+        XCTAssertEqual(underTitled, .windowRule)
+        let underUntitled = await newWindowAuxiliaryRole(bundleId: "com.example.messenger", ownRole: { nil }, facts: untitled,
+            opener: untitledOpener)
+        XCTAssertNil(underUntitled, "Its opener has no title yet: not named")
+        let noOpener = await newWindowAuxiliaryRole(bundleId: "com.example.messenger", ownRole: { nil }, facts: untitled)
+        XCTAssertNil(noOpener, "No opener known: not named")
+        let fromPlacement = await $windowRuleOpenerId.withValue(titledOpener.windowId) {
+            await newWindowAuxiliaryRole(bundleId: "com.example.messenger", ownRole: { nil }, facts: untitled)
+        }
+        XCTAssertEqual(fromPlacement, .windowRule, "The opener being placed under, by default")
+        activeWindowRules.append(WindowRule(id: "any", appId: "com.example.messenger", title: .untitled, subrole: nil))
+        let anyOpener = await newWindowAuxiliaryRole(bundleId: "com.example.messenger", ownRole: { nil }, facts: untitled,
+            opener: untitledOpener)
+        XCTAssertEqual(anyOpener, .windowRule, "Another rule names it whatever its opener")
     }
 
     func testTheRoleComesFromTheAppsOwnFieldsFirstAndIsAskedOnlyOfAnAppARuleNames() async {

@@ -49,8 +49,13 @@ struct MoveNodeToWorkspaceCommand: Command {
             return .fail(io.err(notShown.message))
         }
         // Into or out of a pin with one window, as the pins' policy says: it keeps its window as its own.
-        return .from(bool: moveWindowToWorkspaceKeepingPins(window, targetWorkspace, io, focusFollowsWindow: args.focusFollowsWindow,
-            failIfNoop: args.failIfNoop))
+        let moved = moveWindowToWorkspaceKeepingPins(window, targetWorkspace, io, focusFollowsWindow: args.focusFollowsWindow,
+            failIfNoop: args.failIfNoop)
+        // Moved to another tab on purpose (the CLI, a hotkey, an agent, an on-window-detected rule), it's no longer listed
+        // under the window it was opened from. Not as WinMux starts: rules applied again to the windows it finds leave
+        // their links to be recovered (`recoverAuxiliaryWindowLinks`).
+        if moved, !isStartup, window.nodeWorkspace !== subjectWs { detachAuxiliaryWindowsMovedByUser(window) }
+        return .from(bool: moved)
     }
 }
 
