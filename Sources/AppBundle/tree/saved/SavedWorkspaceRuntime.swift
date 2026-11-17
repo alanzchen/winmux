@@ -269,9 +269,6 @@ func installSavedWorkspaceObservers() {
         observe(workspaceCenter, NSWorkspace.sessionDidBecomeActiveNotification) {
             resumeSavedWorkspaceCapture(after: .sessionInactive)
         },
-        observe(NotificationCenter.default, NSApplication.willTerminateNotification) {
-            savedWorkspaceStore.flushNow()
-        },
     ]
     let distributedCenter = DistributedNotificationCenter.default()
     runtime.distributedObserverTokens += [

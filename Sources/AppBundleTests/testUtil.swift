@@ -44,6 +44,7 @@ func installConfigErrorStateReset() {
 func setUpWorkspacesForTests() {
     installConfigErrorStateReset()
     resetConfigErrorStateForTests()
+    PersistenceHealth.shared.resetForTests()
     WorkspaceSidebarDragSessions.shared.resetForTests()
     WorkspaceSidebarTabUndo.shared.clear()
     WorkspaceSidebarTabSplitHoverController.shared.reset()

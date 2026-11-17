@@ -39,6 +39,11 @@ public final class TrayMenuModel: ObservableObject {
     @Published var lastReloadConfigContainedWarnings: Bool = false
     /// The last reload's errors, until a reload without errors: the menu keeps an item that opens them (D-S3-1).
     @Published var configErrorDetails: Message? = nil
+    /// A state file WinMux couldn't save, until it's saved: the menu keeps an item that opens this. Set by
+    /// PersistenceHealth.
+    @Published var persistenceFailureDetails: Message? = nil
+    /// Some of those files hold changes that writing again could save. Set by PersistenceHealth.
+    @Published var canRetryPersistenceNow: Bool = false
 
     var visibleWorkspaceSidebarWorkspaces: [WorkspaceSidebarWorkspaceViewModel] {
         workspaceSidebarWorkspaces.filter {

@@ -237,7 +237,7 @@ private func debugSnapshotReads(_ windowIds: [UInt32], includeTitles: Bool) asyn
             }
             debugSnapshotAppsReading.insert(pid)
             group.addTask {
-                await mcpFirst(orAfter: timeout) { await debugSnapshotAppRead(pid, ids, includeTitles) }
+                await mcpFirst(orAfter: timeout) { await debugSnapshotAppRead(pid, ids, includeTitles) }.completedValue
                     ?? Dictionary(uniqueKeysWithValues: ids.map { ($0, .timedOut) })
             }
         }
@@ -306,6 +306,26 @@ func debugSnapshotRect(_ rect: Rect?) -> MCPJSON {
 private func debugSnapshotPoint(_ point: CGPoint?) -> MCPJSON {
     guard let point else { return .null }
     return .object(["x": debugSnapshotNumber(point.x), "y": debugSnapshotNumber(point.y)])
+}
+
+/// Confirmed, pending or blocked, and why it's blocked: a window that isn't actually hidden shows as blocked,
+/// not as parked.
+private func debugSnapshotParkOutcome(_ outcome: CornerParkOutcome?) -> MCPJSON {
+    switch outcome {
+        case nil: return .null
+        case .confirmed?: return .object(["state": .string("confirmed")])
+        case .pending?: return .object(["state": .string("pending")])
+        case .blocked(let reason)?:
+            var object: [String: MCPJSON] = ["state": .string("blocked")]
+            switch reason {
+                case .notSeenAtTarget(let lastSeen):
+                    object["reason"] = .string("notSeenAtTarget")
+                    object["lastSeen"] = debugSnapshotPoint(lastSeen)
+                case .placeholderDisplay: object["reason"] = .string("placeholderDisplay")
+                case .frameUnreadable: object["reason"] = .string("frameUnreadable")
+            }
+            return .object(object)
+    }
 }
 
 /// Writes rows and members, leaving titles, labels and paths out unless they're asked for.
@@ -477,10 +497,12 @@ private struct DebugSnapshotWriter {
                 "confirmed": .bool(parking.isConfirmed),
                 "unconfirmedParks": .int(parking.unconfirmedParks),
                 "retriesExhausted": .bool(parking.exhaustedAtNativeGeneration != nil),
+                "lastSeenAwayFromTarget": debugSnapshotPoint(parking.lastSeenAwayFromTarget),
             ])
         } else {
             object["park"] = .null
         }
+        object["parkOutcome"] = debugSnapshotParkOutcome(window.cornerParkingForDebug?.outcome)
         return .object(object)
     }
 

@@ -52,15 +52,15 @@ let auxiliaryWindowLinksRecoveryWindow: TimeInterval = 60
 @MainActor private(set) var pendingAuxiliaryWindowLinks: [AuxiliaryWindowLinkRecord] = []
 @MainActor private var pendingAuxiliaryWindowLinksDeadline: TimeInterval = 0
 
-/// Reads the links kept by WinMux's last run, before its windows are registered. Those of a process that's
-/// gone, or of another boot, are left: their windows are gone too.
+/// Reads the links kept by WinMux's last run, before its windows are registered. Those shown to be of a
+/// process that's gone, or of another boot, are left: their windows are gone too.
 @MainActor
 func loadAuxiliaryWindowLinksForStartup() {
     pendingAuxiliaryWindowLinks = []
     guard let url = auxiliaryWindowLinksURL(), let data = try? Data(contentsOf: url),
           let file = try? JSONDecoder().decode(AuxiliaryWindowLinksFile.self, from: data), file.version == 1
     else { return }
-    pendingAuxiliaryWindowLinks = file.links.filter { $0.window.mayStillBeOpen }
+    pendingAuxiliaryWindowLinks = file.links.filter { $0.window.standing != .gone }
     pendingAuxiliaryWindowLinksDeadline = auxiliaryWindowLinksNow() + auxiliaryWindowLinksRecoveryWindow
 }
 
@@ -75,7 +75,7 @@ func recoverAuxiliaryWindowLinks() {
     let registry = AuxiliaryWindowRegistry.shared
     var waiting: [AuxiliaryWindowLinkRecord] = []
     var restored = false
-    for link in pendingAuxiliaryWindowLinks where link.window.mayStillBeOpen {
+    for link in pendingAuxiliaryWindowLinks where link.window.standing != .gone {
         guard let window = link.window.live else {
             if !isDue { waiting.append(link) }
             continue
@@ -112,8 +112,8 @@ func discardPendingAuxiliaryWindowLink(windowId: UInt32, pid: Int32, asParent: B
     return pendingAuxiliaryWindowLinks != before
 }
 
-/// Writes the links WinMux knows now, with those still waiting from startup. Best effort: a link not kept
-/// is a window of its own after the next start, as before.
+/// Writes the links WinMux knows now, with those still waiting from startup. A link not kept is a window of
+/// its own after the next start, as before; a write that fails is reported and tried again by PersistenceHealth.
 @MainActor
 func persistAuxiliaryWindowLinks() {
     guard !serverArgs.isReadOnly, let url = auxiliaryWindowLinksURL() else { return }
@@ -123,12 +123,15 @@ func persistAuxiliaryWindowLinks() {
     }.sorted { $0.window.windowId < $1.window.windowId }
     let links = known + pendingAuxiliaryWindowLinks
     do {
-        guard !links.isEmpty else {
-            try? FileManager.default.removeItem(at: url)
-            return
+        if links.isEmpty {
+            if FileManager.default.fileExists(atPath: url.path) { try FileManager.default.removeItem(at: url) }
+        } else {
+            let data = try JSONEncoder.aeroSpaceDefault.encode(AuxiliaryWindowLinksFile(links: links))
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try data.write(to: url, options: .atomic)
         }
-        let data = try JSONEncoder.aeroSpaceDefault.encode(AuxiliaryWindowLinksFile(links: links))
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try data.write(to: url, options: .atomic)
-    } catch {}
+        PersistenceHealth.shared.recordSuccess(.auxiliaryWindowLinks)
+    } catch {
+        PersistenceHealth.shared.recordFailure(.auxiliaryWindowLinks, error, .retry { persistAuxiliaryWindowLinks() })
+    }
 }

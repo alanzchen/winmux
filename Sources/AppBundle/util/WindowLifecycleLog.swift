@@ -1,10 +1,11 @@
 import AppKit
 
-/// A window's recent comings and goings, for a debug snapshot: registered, gone, parked in a corner, back from
-/// one, moved to another workspace, and which workspace each display shows. Ids, kinds and workspace names only.
+/// A window's recent comings and goings, for a debug snapshot: registered, gone, parked in a corner, a park
+/// that's blocked, back from a corner, moved to another workspace, and which workspace each display shows. Ids,
+/// kinds, workspace names and park positions only.
 struct WindowLifecycleEvent: Equatable, Sendable {
     enum Kind: String, Sendable {
-        case registered, unregistered, parked, unparked, moved, workspaceShown
+        case registered, unregistered, parked, parkBlocked, unparked, moved, workspaceShown
     }
 
     let at: Date

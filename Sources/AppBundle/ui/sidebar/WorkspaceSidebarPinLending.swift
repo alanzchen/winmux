@@ -12,58 +12,16 @@ import Common
 
 // MARK: Window identity
 
-/// The boot WinMux runs in. A window number and process seen in another boot are another window.
-@MainActor var workspaceSidebarBootTime: () -> Date? = { workspaceSidebarCurrentBoot }
+// Defined by `LiveWindowRef`. These names are the ones pins' tests replace.
 
-/// Read once: it doesn't change while WinMux runs.
-private let workspaceSidebarCurrentBoot = workspaceSidebarSystemBootTime()
-
-/// A process's app and launch, while it runs: what tells it from a later process given the same number.
-@MainActor var workspaceSidebarRunningProcess: (Int32) -> (bundleId: String?, launch: Date?)? = { pid in
-    NSRunningApplication(processIdentifier: pid).map { ($0.bundleIdentifier, $0.launchDate) }
+@MainActor var workspaceSidebarBootTime: () -> Date? {
+    get { liveWindowBootTime }
+    set { liveWindowBootTime = newValue }
 }
 
-private func workspaceSidebarSystemBootTime() -> Date? {
-    var mib = [CTL_KERN, KERN_BOOTTIME]
-    var time = timeval()
-    var size = MemoryLayout<timeval>.stride
-    guard sysctl(&mib, 2, &time, &size, nil, 0) == 0 else { return nil }
-    return Date(timeIntervalSince1970: TimeInterval(time.tv_sec) + TimeInterval(time.tv_usec) / 1_000_000)
-}
-
-private func workspaceSidebarSameInstant(_ a: Date?, _ b: Date?) -> Bool {
-    switch (a, b) {
-        case (nil, nil): true
-        case (let a?, let b?): abs(a.timeIntervalSince(b)) < 0.001
-        default: false
-    }
-}
-
-extension WorkspaceSidebarPinWindow {
-    @MainActor
-    init(_ window: Window) {
-        self.init(windowId: window.windowId, pid: window.app.pid, bundleId: window.app.rawAppBundleId,
-            processLaunch: window.app.launchDate, boot: workspaceSidebarBootTime())
-    }
-
-    /// The window, if it's still this one: open, in the same process of the same app, launched when
-    /// it was, in the same boot.
-    @MainActor
-    var live: Window? {
-        guard let window = Window.get(byId: windowId), window.app.pid == pid, window.app.rawAppBundleId == bundleId,
-              workspaceSidebarSameInstant(window.app.launchDate, processLaunch),
-              workspaceSidebarSameInstant(workspaceSidebarBootTime(), boot) else { return nil }
-        return window
-    }
-
-    /// Whether it may still be open as WinMux starts again: the same boot, and its process still
-    /// running, the same app, launched when it was. Its window may not be seen yet.
-    @MainActor
-    var mayStillBeOpen: Bool {
-        guard workspaceSidebarSameInstant(workspaceSidebarBootTime(), boot),
-              let process = workspaceSidebarRunningProcess(pid) else { return false }
-        return process.bundleId == bundleId && workspaceSidebarSameInstant(process.launch, processLaunch)
-    }
+@MainActor var workspaceSidebarRunningProcess: (Int32) -> (bundleId: String?, launch: Date?)? {
+    get { liveWindowRunningProcess }
+    set { liveWindowRunningProcess = newValue }
 }
 
 extension WorkspaceSidebarItemAppearance {
@@ -99,7 +57,7 @@ func forgetWorkspaceSidebarPinWindows(where gone: (WorkspaceSidebarPinWindow) ->
 /// open stay, until their window is seen or closes.
 @MainActor
 func forgetWorkspaceSidebarPinWindowsNoLongerOpen() {
-    forgetWorkspaceSidebarPinWindows { !$0.mayStillBeOpen }
+    forgetWorkspaceSidebarPinWindows { $0.standing == .gone }
 }
 
 // MARK: Pins' part in a move

@@ -176,6 +176,31 @@ final class MCPDebugSnapshotTest: XCTestCase {
         XCTAssertEqual(telegram["focused"], .bool(true))
     }
 
+    /// Carbon L3-W1 / Astra B2: a window whose parks were all ignored is still marked parked, so the snapshot says
+    /// it's blocked, and where it was last seen, instead of letting it look hidden.
+    func testAParkThatRanOutOfRetriesShowsAsBlockedWithWhereTheWindowWasLastSeen() async throws {
+        let scene = try await scene()
+        var (document, _) = try await snapshot()
+        XCTAssertEqual(member(document, 12)?["state"]?["parkOutcome"], .object(["state": .string("pending")]),
+                       "Parked once, not yet seen in its corner")
+        XCTAssertEqual(member(document, 11)?["state"]?["parkOutcome"], .null)
+
+        let parking = try XCTUnwrap(scene.mail.cornerParkingForDebug)
+        let target = try XCTUnwrap(parking.parking.target)
+        let clamped = Rect(topLeftX: target.x - 9, topLeftY: target.y - 28, width: 756, height: 949)
+        for _ in 0 ... HiddenWindowParking.maxUnconfirmedParks {
+            _ = parking.parking.park(corner: .bottomRightCorner, monitorVisibleRect: try XCTUnwrap(parking.parking.monitorVisibleRect),
+                                     target: target, observed: clamped, reasserting: false, nativeGeneration: 1)
+        }
+        (document, _) = try await snapshot()
+        let state = try XCTUnwrap(member(document, 12)?["state"])
+        XCTAssertEqual(state["parkedInCorner"], .bool(true), "WinMux still means it to be hidden")
+        XCTAssertEqual(state["parkOutcome"]?["state"], .string("blocked"))
+        XCTAssertEqual(state["parkOutcome"]?["reason"], .string("notSeenAtTarget"))
+        XCTAssertEqual(state["parkOutcome"]?["lastSeen"], .object(["x": .int(Int(clamped.minX)), "y": .int(Int(clamped.minY))]))
+        XCTAssertEqual(state["park"]?["lastSeenAwayFromTarget"], state["parkOutcome"]?["lastSeen"])
+    }
+
     /// The other case: a member whose app no longer lists its window, with the AX error that said so.
     func testAMemberTheAppNoLongerListsCarriesTheAppsAnswerAndItsLastAXError() async throws {
         _ = try await scene()

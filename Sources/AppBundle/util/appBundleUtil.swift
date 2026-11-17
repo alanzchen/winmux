@@ -21,26 +21,15 @@ func interceptTermination(_ _signal: Int32) {
 @MainActor
 func initTerminationHandler() {
     unsafe _terminationHandler = AppServerTerminationHandler()
+    TerminationPreparation.shared.observeTermination(on: .default)
 }
 
 private struct AppServerTerminationHandler: TerminationHandler {
+    /// CLI quit, restart, handled termination signals and die(); NSApp.terminate from elsewhere arrives through
+    /// willTerminate. See TerminationPreparation.
     @MainActor
     func beforeTermination() {
-        // CLI quit, restart, and handled termination signals share this path. Synchronous, on the main thread
-        // (upstream 8b236f1b): an awaiting handler deadlocked when die() ran on the main thread.
-        if TrayMenuModel.shared.accessibilityPermissionStatus == .granted {
-            SystemDockCoordinator.shared.shutdown()
-            prepareManagedWindowsForTermination()
-        }
-        if isDebug {
-            let semaphore = DispatchSemaphore(value: 0)
-            // Task.detached doesn't inherit @MainActor, which would deadlock here.
-            Task.detached {
-                await toggleReleaseServerIfDebug(.on)
-                semaphore.signal()
-            }
-            semaphore.wait()
-        }
+        TerminationPreparation.shared.run()
     }
 }
 

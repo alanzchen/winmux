@@ -110,17 +110,33 @@ final class SavedWorkspaceStore {
         }
     }
 
+    /// Writes now. One that fails leaves the records unsaved: PersistenceHealth reports it and tries again.
     func flushNow() {
-        // Best effort, like window-state.json. The next change retries the write.
-        try? flushNowReportingFailure()
+        _ = flush()
     }
 
     /// Writes now, and says whether it worked: for edits that must not go on when it didn't.
     func flushNowReportingFailure() throws {
+        try flush().get()
+    }
+
+    private func flush() -> Result<Void, any Error> {
         writeTask?.cancel()
         writeTask = nil
-        if let readOnlyReason { throw WorkspaceMutationError.savedWorkspacesReadOnly(readOnlyReason) }
-        guard let url else { return }
+        if let readOnlyReason { return .failure(WorkspaceMutationError.savedWorkspacesReadOnly(readOnlyReason)) }
+        guard let url else { return .success(()) }
+        do {
+            try write(to: url)
+            PersistenceHealth.shared.recordSuccess(.savedWorkspaces)
+            return .success(())
+        } catch {
+            // `lastWrittenData` is still what's on disk, so the records stay unsaved until a write succeeds.
+            PersistenceHealth.shared.recordFailure(.savedWorkspaces, error, .retry { [weak self] in self?.flushNow() })
+            return .failure(error)
+        }
+    }
+
+    private func write(to url: URL) throws {
         let data = try encodeSavedWorkspacesFile(file)
         guard data != lastWrittenData else { return }
         let directory = url.deletingLastPathComponent()
@@ -251,7 +267,14 @@ func savedWorkspacesFileUrl() throws -> URL {
 
 @MainActor
 func loadSavedWorkspaceStoreForStartup() {
-    guard let url = try? savedWorkspacesFileUrl() else { return }
+    let url: URL
+    do {
+        url = try savedWorkspacesFileUrl()
+    } catch {
+        // The store stays in memory only: nothing it holds is saved this session.
+        PersistenceHealth.shared.recordFailure(.savedWorkspaces, error, .notSaved)
+        return
+    }
     let readOnlyReason = serverArgs.isReadOnly ? "WinMux is running with --read-only." : nil
     let (store, notice) = SavedWorkspaceStore.load(from: url, readOnlyReason: readOnlyReason)
     savedWorkspaceStore = store

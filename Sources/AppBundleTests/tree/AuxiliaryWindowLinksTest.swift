@@ -18,6 +18,8 @@ final class AuxiliaryWindowLinksTest: XCTestCase {
     private var savedProcess: ((Int32) -> (bundleId: String?, launch: Date?)?)?
     private var running: [Int32: (bundleId: String?, launch: Date?)] = [:]
     private var currentBoot: Date?
+    private var savedSession: (() -> String?)?
+    private var currentSession: String? = "BOOT-A"
 
     override func setUp() async throws {
         setUpWorkspacesForTests()
@@ -37,12 +39,16 @@ final class AuxiliaryWindowLinksTest: XCTestCase {
         workspaceSidebarBootTime = { [unowned self] in currentBoot }
         running = [messenger.pid: (messenger.rawAppBundleId, launch)]
         workspaceSidebarRunningProcess = { [unowned self] pid in running[pid] }
+        savedSession = liveWindowBootSession
+        currentSession = "BOOT-A"
+        liveWindowBootSession = { [unowned self] in currentSession }
     }
 
     override func tearDown() async throws {
         if let savedURL { auxiliaryWindowLinksURL = savedURL }
         if let savedBoot { workspaceSidebarBootTime = savedBoot }
         if let savedProcess { workspaceSidebarRunningProcess = savedProcess }
+        if let savedSession { liveWindowBootSession = savedSession }
         AuxiliaryWindowRegistry.shared.removeAll()
         try? FileManager.default.removeItem(at: folder)
         workspaceSidebarOrganizationStore = .init()
@@ -107,6 +113,7 @@ final class AuxiliaryWindowLinksTest: XCTestCase {
         let (_, _, again) = try await relink(dialog)
         running[messenger.pid] = (messenger.rawAppBundleId, launch)
         currentBoot = boot.addingTimeInterval(3600)
+        currentSession = "BOOT-B"
         restart()
         XCTAssertNil(AuxiliaryWindowRegistry.shared.role(of: again), "Another boot: the numbers are another windows'")
         tile = try await pinCells(pin)

@@ -37,26 +37,7 @@ import Foundation
                 body: error.localizedDescription,
             )
         }
-        // A config with minor errors is applied (upstream 61f0eac9); one that isn't falls back to the defaults.
-        if try await !reloadConfig(forceConfigUrl: bootstrappedConfigUrl).appliedConfig {
-            let userConfigErrors = TrayMenuModel.shared.configErrorDetails
-            let fallback = try await reloadConfig(forceConfigUrl: defaultConfigUrl)
-            // The defaults stand in for the user's config: its errors stay in the menu, automatic write-back stays
-            // suspended, and the user's next config that parses still loads (D-S3-1).
-            hasAppliedConfigWithoutErrors = false
-            configErrorsPending = true
-            TrayMenuModel.shared.configErrorDetails = userConfigErrors
-            TrayMenuModel.shared.lastReloadConfigContainedWarnings = true
-            check(
-                fallback.appliedConfig && fallback.isOk,
-                """
-                Can't load default config. Your installation is probably corrupted.
-                Please don't modify '\(defaultConfigUrl)'
-
-                \(fallback.stdout)
-                """,
-            )
-        }
+        try await loadConfigAtStartup(bootstrappedConfigUrl: bootstrappedConfigUrl)
         materializePersistedWorkspaceProjects()
         MonitorConfigurationObserver.shared.prepareForStartup()
 
@@ -145,6 +126,7 @@ private let serverHelp = """
 nonisolated(unsafe) private var _serverArgs = ServerArgs()
 var serverArgs: ServerArgs { _serverArgs }
 func setServerReadOnlyForTests(_ readOnly: Bool) { _serverArgs.isReadOnly = readOnly }
+func setServerConfigLocationForTests(_ path: String?) { _serverArgs.configLocation = path }
 private func initServerArgs() {
     let args = CommandLine.arguments.slice(1...) ?? []
     if args.contains(where: { $0 == "-h" || $0 == "--help" }) {

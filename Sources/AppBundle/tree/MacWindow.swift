@@ -160,6 +160,8 @@ final class MacWindow: Window {
 
     override var cornerParkingForDebug: CornerParkingState? { cornerParking }
 
+    var cornerParkOutcome: CornerParkOutcome? { cornerParking.outcome }
+
     override var isHiddenInCorner: Bool {
         cornerParking.isHiddenInCorner
     }

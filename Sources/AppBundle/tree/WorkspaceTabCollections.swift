@@ -106,15 +106,8 @@ struct WorkspaceSidebarItemAppearance: Codable, Hashable {
     }
 }
 
-/// One lifetime of a window: its number, its process, that process's app and launch, and the boot it
-/// ran in. The same number and process seen in another boot, or in another launch, are another window.
-struct WorkspaceSidebarPinWindow: Codable, Hashable {
-    var windowId: UInt32
-    var pid: Int32
-    var bundleId: String? = nil
-    var processLaunch: Date? = nil
-    var boot: Date? = nil
-}
+/// A window a pin lent or a pinned split holds, by its lifetime: see `LiveWindowRef`.
+typealias WorkspaceSidebarPinWindow = LiveWindowRef
 
 /// A pinned document: the file, as a bookmark that follows it when it's renamed or moved on its disk,
 /// the app that showed it, and its name for messages. `fileId` and `volume`, the file's number and
@@ -282,9 +275,17 @@ final class WorkspaceSidebarOrganizationStore {
         change(&next)
         guard next != state else { return }
         if let url {
-            let data = try JSONEncoder.aeroSpaceDefault.encode(next)
-            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try data.write(to: url, options: .atomic)
+            do {
+                let data = try JSONEncoder.aeroSpaceDefault.encode(next)
+                try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try data.write(to: url, options: .atomic)
+                PersistenceHealth.shared.recordSuccess(.sidebarOrganization)
+            } catch {
+                // Not published either: what's shown stays what's saved. Reported here for every caller, including
+                // automatic ones that don't look at the error (Astra AS-5-N1, Carbon ASD-N3).
+                PersistenceHealth.shared.recordFailure(.sidebarOrganization, error, .changeNotMade)
+                throw error
+            }
         }
         let previous = state
         state = next
@@ -439,7 +440,15 @@ func moveWorkspaceSidebarCollection(_ id: String, to projectId: WorkspaceProject
 
 @MainActor
 func loadWorkspaceSidebarOrganization() {
-    guard !isUnitTest, let savedURL = try? savedWorkspacesFileUrl() else { return }
+    guard !isUnitTest else { return }
+    let savedURL: URL
+    do {
+        savedURL = try savedWorkspacesFileUrl()
+    } catch {
+        // The store stays in memory only: nothing it holds is saved this session.
+        PersistenceHealth.shared.recordFailure(.sidebarOrganization, error, .notSaved)
+        return
+    }
     workspaceSidebarOrganizationStore = .load(
         url: savedURL.deletingLastPathComponent().appendingPathComponent("sidebar-organization.json"),
         readOnly: serverArgs.isReadOnly)

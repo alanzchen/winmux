@@ -25,13 +25,18 @@ struct ReloadConfigResult {
     let isOk: Bool
     /// The config was applied: it had no severe error and this wasn't a dry run.
     let appliedConfig: Bool
+    /// The file read.
+    let configUrl: URL
     let stdout: String
     let stderr: String
 }
 
+/// `standingInFor`: the file read stands in for this config, which couldn't be applied. Its values are
+/// applied, and this one stays `configUrl`: the config WinMux watches, reloads and edits.
 @MainActor func reloadConfig(
     args: ReloadConfigCmdArgs = ReloadConfigCmdArgs(rawArgs: []),
     forceConfigUrl: URL? = nil,
+    standingInFor requestedConfigUrl: URL? = nil,
 ) async throws -> ReloadConfigResult {
     let result = readConfig(forceConfigUrl: forceConfigUrl)
     let parseResult = result.parseConfigResult
@@ -71,7 +76,7 @@ struct ReloadConfigResult {
         if !hasErrors { hasAppliedConfigWithoutErrors = true }
         resetHotKeys()
         config = parseResult.config
-        configUrl = result.configUrl
+        configUrl = requestedConfigUrl ?? result.configUrl
         noteSavedWorkspaceConfigLoaded()
         try await activateMode(activeMode)
         syncStartAtLogin()
@@ -95,6 +100,7 @@ struct ReloadConfigResult {
     return ReloadConfigResult(
         isOk: errors.isEmpty,
         appliedConfig: applied,
+        configUrl: result.configUrl,
         stdout: ([errorMsg ?? warningMsg].compactMap { $0 } + windowRules.problems).joined(separator: "\n"),
         stderr: warnings.joined(separator: "\n\n"),
     )

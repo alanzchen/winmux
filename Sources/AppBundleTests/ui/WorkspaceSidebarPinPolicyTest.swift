@@ -15,6 +15,7 @@ final class WorkspaceSidebarPinPolicyTest: XCTestCase {
     private var bootTime: (() -> Date?)?
     private var unhide: (@MainActor (AppBundle.Window) async -> Bool)?
     private var runningProcess: ((Int32) -> (bundleId: String?, launch: Date?)?)?
+    private var bootSession: (() -> String?)?
 
     override func setUp() async throws {
         setUpWorkspacesForTests()
@@ -27,6 +28,7 @@ final class WorkspaceSidebarPinPolicyTest: XCTestCase {
         recallNotice = recallNotice ?? workspaceSidebarPinRecallNotice
         bootTime = bootTime ?? workspaceSidebarBootTime
         runningProcess = runningProcess ?? workspaceSidebarRunningProcess
+        bootSession = bootSession ?? liveWindowBootSession
         notices = []
         workspaceSidebarPinRecallNotice = { [unowned self] title, body in notices.append("\(title): \(body)") }
     }
@@ -42,6 +44,7 @@ final class WorkspaceSidebarPinPolicyTest: XCTestCase {
         if let recallNotice { workspaceSidebarPinRecallNotice = recallNotice }
         if let bootTime { workspaceSidebarBootTime = bootTime }
         if let runningProcess { workspaceSidebarRunningProcess = runningProcess }
+        if let bootSession { liveWindowBootSession = bootSession }
         appForTests = nil
         setMonitorsForTests(nil)
         config = defaultConfig
@@ -579,12 +582,14 @@ final class WorkspaceSidebarPinPolicyTest: XCTestCase {
         let boot = Date(timeIntervalSince1970: 1_000_000)
         let launch = Date(timeIntervalSince1970: 2_000_000)
         workspaceSidebarBootTime = { boot }
+        liveWindowBootSession = { "BOOT-A" }
         let notes = TestApp(pid: 501, bundleId: "com.example.notes", launchDate: launch)
         let a = Workspace.get(byName: "a"), d = Workspace.get(byName: "d")
         let window = TestWindow.new(id: 30, parent: d.rootTilingContainer, app: notes)
         try setWorkspaceSidebarTabFavorite(a, true)
         let link = WorkspaceSidebarPinWindow(window)
-        XCTAssertEqual(link, .init(windowId: 30, pid: 501, bundleId: "com.example.notes", processLaunch: launch, boot: boot))
+        XCTAssertEqual(link, .init(windowId: 30, pid: 501, bundleId: "com.example.notes", processLaunch: launch, boot: boot,
+                                   bootSession: "BOOT-A"))
         XCTAssertTrue(link.live === window)
         try workspaceSidebarOrganizationStore.update { $0.workspaces["a"]?.lentWindow = link }
         XCTAssertTrue(workspaceSidebarLentWindow(of: a) === window)
@@ -602,11 +607,18 @@ final class WorkspaceSidebarPinPolicyTest: XCTestCase {
         other.processLaunch = launch.addingTimeInterval(5)
         XCTAssertNil(other.live, "Another launch")
 
+        // Sleep, wake or a clock change moves the boot's time; it's still this boot (Carbon ASD-C1).
+        workspaceSidebarBootTime = { boot.addingTimeInterval(60) }
+        XCTAssertTrue(link.live === window)
+        XCTAssertTrue(workspaceSidebarLentWindow(of: a) === window)
+
         // Another boot: the same number and process are another window.
+        liveWindowBootSession = { "BOOT-B" }
         workspaceSidebarBootTime = { boot.addingTimeInterval(60) }
         XCTAssertNil(link.live)
         XCTAssertNil(workspaceSidebarLentWindow(of: a))
         workspaceSidebarBootTime = { boot }
+        liveWindowBootSession = { "BOOT-A" }
 
         // The app relaunched with the same process number, its window given the same number.
         window.unbindFromParent()
@@ -652,11 +664,12 @@ final class WorkspaceSidebarPinPolicyTest: XCTestCase {
         let running: [Int32: (bundleId: String?, launch: Date?)] = [501: ("com.example.notes", launch),
             503: ("com.example.notes", launch.addingTimeInterval(9)), 504: ("com.example.mail", launch)]
         workspaceSidebarRunningProcess = { running[$0] }
-        func link(_ id: UInt32, _ pid: Int32, boot: Date = boot) -> WorkspaceSidebarPinWindow {
-            .init(windowId: id, pid: pid, bundleId: "com.example.notes", processLaunch: launch, boot: boot)
+        liveWindowBootSession = { "BOOT-A" }
+        func link(_ id: UInt32, _ pid: Int32, boot: Date = boot, session: String = "BOOT-A") -> WorkspaceSidebarPinWindow {
+            .init(windowId: id, pid: pid, bundleId: "com.example.notes", processLaunch: launch, boot: boot, bootSession: session)
         }
         let kept = link(1, 501), quit = link(2, 502), relaunched = link(3, 503), reused = link(4, 504)
-        let otherBoot = link(5, 501, boot: boot.addingTimeInterval(-3600))
+        let otherBoot = link(5, 501, boot: boot.addingTimeInterval(-3600), session: "BOOT-0")
         try workspaceSidebarOrganizationStore.update { state in
             for (name, lent) in [("a", kept), ("b", quit), ("c", relaunched), ("d", reused), ("e", otherBoot)] {
                 state.workspaces[name] = .init(isFavorite: true)

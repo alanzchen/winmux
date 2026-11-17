@@ -675,15 +675,19 @@ func sessionRequiresHiddenWindowsReassertion() -> Bool {
 
 /// Parks a window that must not be seen (an inactive workspace's window, an inactive tab, a
 /// window behind a fullscreen tab). Windows confirmed parked cost nothing; see `parkInCorner`.
+/// Returns what hiding it has come to: confirmed, pending (the next pass looks again) or
+/// blocked, which no further pass changes until a reassertion or a new target.
 @MainActor
+@discardableResult
 func parkHiddenWindow(
     _ window: Window,
     in corner: OptimalHideCorner,
     reasserting: Bool,
     ifStillValid: () -> Bool = { true },
-) async throws {
-    guard let visibility = window as? any WorkspaceWindowVisibility else { return }
+) async throws -> CornerParkOutcome? {
+    guard let visibility = window as? any WorkspaceWindowVisibility else { return nil }
     try await visibility.hideInCorner(corner, reassert: reasserting, ifStillValid: ifStillValid)
+    return visibility.cornerParkOutcome
 }
 
 @MainActor
@@ -778,8 +782,9 @@ func layoutWorkspaces() async throws {
             }
         }
     }
-    // Carried out, unless this pass stopped short (superseded, a tree change, a park it gave up)
-    // or a session asked for more while it ran.
+    // Carried out, unless this pass stopped short (superseded, a tree change) or a session asked
+    // for more while it ran. A park still pending is looked at again by the next pass anyway; a
+    // blocked one stays blocked until the next reassertion, so neither keeps this one owed.
     try checkCancellation()
     if outcome.isComplete, isCurrentPresentation(), owedHiddenWindowsReassertion == owedAtStart {
         owedHiddenWindowsReassertion = nil

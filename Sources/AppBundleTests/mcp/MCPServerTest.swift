@@ -95,6 +95,40 @@ final class MCPServerTest: XCTestCase {
         XCTAssertTrue(refused, "Nothing listens once it's off")
     }
 
+    // Astra's audit B3, through the connection's own task, which isn't on the main actor: a command that answers
+    // while the deadline waits completes, and its deadline's timer is cancelled after that, ending nothing.
+    func testACommandThatAnswersWhileItsDeadlineWaitsCompletesOverTheConnection() async throws {
+        let savedDeadline = mcpRequestDeadline
+        defer { mcpRequestDeadline = savedDeadline }
+        let deadline = MCPTestDeadline()
+        mcpRequestDeadline = { try await deadline.sleep($0) }
+        server.apply(MCPServerConfig(enabled: true, port: 0))
+        let listening = await eventually { server.state == .listening && server.port != nil }
+        XCTAssertTrue(listening, "\(server.state)")
+        let port = try XCTUnwrap(server.port)
+
+        let call = #"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"winmux","arguments":{"args":["list-exec-env-vars"]}}}"#
+        let response = Task.detached { () async throws -> (Int, MCPJSON?) in
+            var request = URLRequest(url: URL(string: "http://127.0.0.1:\(port)/mcp")!)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue("application/json, text/event-stream", forHTTPHeaderField: "Accept")
+            request.httpBody = Data(call.utf8)
+            request.timeoutInterval = 10
+            let (data, response) = try await URLSession.shared.data(for: request)
+            return ((response as? HTTPURLResponse)?.statusCode ?? 0, MCPJSON.decode(data))
+        }
+        // The command runs on the main actor: holding it here makes it answer only once the timer is waiting.
+        XCTAssertTrue(deadline.blockUntilWaiting(), "The request's deadline started")
+        let (status, message) = try await response.value
+        XCTAssertEqual(status, 200)
+        let result = message?["result"]
+        XCTAssertEqual(result?["isError"], .bool(false), "\(String(describing: result))")
+        XCTAssertEqual(result?["structuredContent"]?["exitCode"], .int(0))
+        let cancelled = await deadline.cancelled.wait(timeout: 5)
+        XCTAssertTrue(cancelled, "The deadline was cancelled once the command had answered")
+    }
+
     func testAPortInUseIsReportedInSettingsAndAsANotice() async throws {
         let parameters = NWParameters.tcp
         parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: .any)

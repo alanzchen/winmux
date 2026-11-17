@@ -186,7 +186,8 @@ private struct LayoutContext {
     }
 
     @MainActor
-    func park(_ window: Window, stillHidden: () -> Bool) async throws {
+    @discardableResult
+    func park(_ window: Window, stillHidden: () -> Bool) async throws -> CornerParkOutcome? {
         try await parkHiddenWindow(window, in: hideCorner, reasserting: reassertHiddenWindows) {
             proceeds(isStillCurrent() && window.nodeWorkspace === workspace && stillHidden())
         }

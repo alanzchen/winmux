@@ -299,7 +299,7 @@ let mcpTools: [MCPTool] = [
         run: { _ in
             let answer = await mcpRunCli(["list-windows", "--focused", "--json", "--format", mcpWindowFields])
             // No window has focus: the CLI says so as an error; the tool's answer is an empty list. Other errors stay errors.
-            if let answer, answer.exitCode != 0, answer.stderr == noWindowIsFocused { return .success(mcpTextResult("[]", isError: false)) }
+            if let answer = answer.completedValue, answer.exitCode != 0, answer.stderr == noWindowIsFocused { return .success(mcpTextResult("[]", isError: false)) }
             return .success(mcpReadResult(answer))
         }),
     MCPTool(name: "list_workspaces", title: "List workspaces",
@@ -312,7 +312,9 @@ let mcpTools: [MCPTool] = [
         inputSchema: mcpNoArguments, readOnly: true,
         run: { _ in
             let answer = await mcpRunCli(["list-workspaces", "--all", "--json", "--format", mcpWorkspaceFields])
-            guard let answer, answer.exitCode == 0, let rows = MCPJSON.decode(Data(answer.stdout.utf8))?.array else {
+            guard let completed = answer.completedValue, completed.exitCode == 0,
+                  let rows = MCPJSON.decode(Data(completed.stdout.utf8))?.array
+            else {
                 return .success(mcpReadResult(answer))
             }
             let pins = MCPJSON.array(rows.filter { $0["workspace-is-pinned"] == .bool(true) })
@@ -489,11 +491,11 @@ let mcpTools: [MCPTool] = [
             }
             // The CLI prints its help and version itself, before asking WinMux.app: answered here from the same text.
             if args.first == "--help" || args.first == "-h" {
-                return .success(mcpCommandResult(mcpLocalAnswer(winmuxUsage(program: "winmux", includesClientCommands: false))))
+                return .success(mcpCommandResult(.completed(mcpLocalAnswer(winmuxUsage(program: "winmux", includesClientCommands: false)))))
             }
             if args.first == "--version" || args.first == "-v" {
-                return .success(mcpCommandResult(mcpLocalAnswer(winmuxVersionText(clientVersionAndHash: nil,
-                    serverVersionAndHash: "\(aeroSpaceAppVersion) \(gitHash)"))))
+                return .success(mcpCommandResult(.completed(mcpLocalAnswer(winmuxVersionText(clientVersionAndHash: nil,
+                    serverVersionAndHash: "\(aeroSpaceAppVersion) \(gitHash)")))))
             }
             return .success(mcpCommandResult(await mcpRunCli(args, stdin: stdin)))
         }),
@@ -619,8 +621,8 @@ private func mcpLocalAnswer(_ stdout: String) -> ServerAnswer {
 }
 
 /// Runs a CLI command through the CLI's dispatch, as a client with no WINMUX_WINDOW_ID or WINMUX_WORKSPACE would.
-/// Nil when it hasn't answered within `mcpToolTimeout`.
-private func mcpRunCli(_ args: [String], stdin: String = "") async -> ServerAnswer? {
+/// Its answer, unless `mcpToolTimeout` passes first.
+private func mcpRunCli(_ args: [String], stdin: String = "") async -> MCPRequestOutcome<ServerAnswer> {
     // Explicit nulls, as the CLI sends them when those variables are unset.
     let request = ClientRequest(args: args, stdin: stdin, windowId: nil, workspace: nil)
     return await mcpFirst(orAfter: mcpToolTimeout) { await runCliRequest(request) }
@@ -631,17 +633,24 @@ private func mcpTextResult(_ text: String, isError: Bool) -> MCPJSON {
 }
 
 private let mcpTimedOut = "The command didn't answer within \(mcpToolTimeout.components.seconds) seconds. It may still finish."
+private let mcpCancelled = "The request was cancelled before the command answered. It may still finish."
+
+/// The error for a command that ended without answering: it timed out or was cancelled.
+private func mcpUnanswered(_ outcome: MCPRequestOutcome<ServerAnswer>) -> MCPJSON {
+    if case .cancelled = outcome { return mcpTextResult(mcpCancelled, isError: true) }
+    return mcpTextResult(mcpTimedOut, isError: true)
+}
 
 /// A read: the CLI's JSON as it printed it, or its error.
-private func mcpReadResult(_ answer: ServerAnswer?) -> MCPJSON {
-    guard let answer else { return mcpTextResult(mcpTimedOut, isError: true) }
+private func mcpReadResult(_ outcome: MCPRequestOutcome<ServerAnswer>) -> MCPJSON {
+    guard case .completed(let answer) = outcome else { return mcpUnanswered(outcome) }
     if answer.exitCode == 0 { return mcpTextResult(answer.stdout, isError: false) }
     return mcpTextResult(answer.stderr.isEmpty ? "Exit code \(answer.exitCode)" : answer.stderr, isError: true)
 }
 
 /// A command: what it printed, and its exit code, which says whether it failed.
-private func mcpCommandResult(_ answer: ServerAnswer?) -> MCPJSON {
-    guard let answer else { return mcpTextResult(mcpTimedOut, isError: true) }
+private func mcpCommandResult(_ outcome: MCPRequestOutcome<ServerAnswer>) -> MCPJSON {
+    guard case .completed(let answer) = outcome else { return mcpUnanswered(outcome) }
     let text = [answer.stdout, answer.stderr].filter { !$0.isEmpty }.joined(separator: "\n")
     return .object([
         "content": .array([.object(["type": .string("text"), "text": .string(text.isEmpty ? "Exit code \(answer.exitCode)" : text)])]),
@@ -654,30 +663,74 @@ private func mcpCommandResult(_ answer: ServerAnswer?) -> MCPJSON {
     ])
 }
 
-/// `work`'s value, or nil if it takes longer than `timeout`. `work` isn't cancelled: it finishes either way.
-func mcpFirst<T: Sendable>(orAfter timeout: Duration, _ work: @escaping @Sendable () async -> T) async -> T? {
-    let once = MCPOnce()
-    return await withCheckedContinuation { (continuation: CheckedContinuation<T?, Never>) in
-        let timer = Task {
-            try? await Task.sleep(for: timeout)
-            if once.claim() { continuation.resume(returning: nil) }
-        }
-        Task {
-            let value = await work()
-            timer.cancel()
-            if once.claim() { continuation.resume(returning: value) }
-        }
+/// How a request ended. Exactly one of these happens to each request.
+enum MCPRequestOutcome<T: Sendable>: Sendable {
+    case completed(T)
+    /// The deadline passed first. The work isn't cancelled: it may still finish.
+    case timedOut
+    /// Whoever awaited the request was cancelled first.
+    case cancelled
+
+    var completedValue: T? {
+        if case .completed(let value) = self { value } else { nil }
     }
 }
 
-private final class MCPOnce: @unchecked Sendable {
+/// How a request waits out its deadline. It throws when cancelled, which happens once the request has ended
+/// another way. Tests replace it to decide when the deadline passes.
+nonisolated(unsafe) var mcpRequestDeadline: @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
+
+/// `work`'s value, unless `timeout` passes or the caller is cancelled first. `work` isn't cancelled: it finishes either way.
+func mcpFirst<T: Sendable>(orAfter timeout: Duration, _ work: @escaping @Sendable () async -> T) async -> MCPRequestOutcome<T> {
+    let request = MCPRequestLifecycle<T>()
+    let deadline = mcpRequestDeadline
+    Task { request.end(.completed(await work())) }
+    let timer = Task { await request.timeOut(after: timeout, deadline) }
+    let outcome = await withTaskCancellationHandler {
+        await request.outcome()
+    } onCancel: {
+        request.end(.cancelled)
+    }
+    timer.cancel()
+    return outcome
+}
+
+/// The sole owner of one request's state. It goes from running to completed, timed out or cancelled, once; whatever
+/// ends it later finds it ended and changes nothing.
+final class MCPRequestLifecycle<T: Sendable>: @unchecked Sendable {
     private let lock = NSLock()
-    private var claimed = false
-    func claim() -> Bool {
-        lock.withLock {
-            if claimed { return false }
-            claimed = true
-            return true
+    private var ended: MCPRequestOutcome<T>?
+    private var waiter: CheckedContinuation<MCPRequestOutcome<T>, Never>?
+
+    /// Whether this ended the request.
+    @discardableResult
+    func end(_ outcome: MCPRequestOutcome<T>) -> Bool {
+        let (ended, waiter): (Bool, CheckedContinuation<MCPRequestOutcome<T>, Never>?) = lock.withLock {
+            guard self.ended == nil else { return (false, nil) }
+            self.ended = outcome
+            defer { self.waiter = nil }
+            return (true, self.waiter)
+        }
+        waiter?.resume(returning: outcome)
+        return ended
+    }
+
+    /// Ends the request as timed out once `deadline` has waited out `timeout`, unless it ended first. Cancelling
+    /// this isn't the deadline passing: it ends nothing.
+    func timeOut(after timeout: Duration, _ deadline: @Sendable (Duration) async throws -> Void) async {
+        do { try await deadline(timeout) } catch { return }
+        end(.timedOut)
+    }
+
+    /// Waits for the request to end. Only one caller may wait.
+    func outcome() async -> MCPRequestOutcome<T> {
+        await withCheckedContinuation { continuation in
+            let ended: MCPRequestOutcome<T>? = lock.withLock {
+                if let ended { return ended }
+                waiter = continuation
+                return nil
+            }
+            if let ended { continuation.resume(returning: ended) }
         }
     }
 }

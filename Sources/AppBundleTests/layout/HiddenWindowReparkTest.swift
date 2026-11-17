@@ -39,6 +39,8 @@ private final class ParkingTestWindow: Window {
     var failingWrites = 0
     /// The app never accepts a frame write.
     var refusesWrites = false
+    /// The app moves the window this far from where a write puts it, as macOS clamps some apps' parks.
+    var clampBy: CGPoint?
     /// The app reports its own moves (kAXMoved); movedObs then drops the cached frame.
     var reportsMoves = true
     /// The app doesn't answer frame reads.
@@ -101,7 +103,9 @@ private final class ParkingTestWindow: Window {
             return
         }
         if refusesWrites { return }
-        nativeRect = target
+        nativeRect = clampBy.map {
+            Rect(topLeftX: target.minX + $0.x, topLeftY: target.minY + $0.y, width: target.width, height: target.height)
+        } ?? target
         guard reportsMoves else { return }
         // Tests run on the main actor, like movedObs's handler.
         nonisolated(unsafe) let window = self
@@ -135,6 +139,8 @@ extension ParkingTestWindow: WorkspaceWindowVisibility {
     func unhideFromCorner() {
         restoreFromCorner(cornerParking)
     }
+
+    var cornerParkOutcome: CornerParkOutcome? { cornerParking.outcome }
 }
 
 /// Regression tests for hidden windows of inactive workspaces and tabs left visible after a
@@ -597,7 +603,7 @@ final class HiddenWindowReparkTest: XCTestCase {
             try await pass(.globalObserver(screenParams))
             for _ in 0 ..< 10 { try await pass(.globalObserverLeftMouseUp) }
         }
-        XCTAssertEqual(firstPasses.writes, HiddenWindowParking.maxUnconfirmedParks + 1)
+        XCTAssertEqual(firstPasses.writes, HiddenWindowParking.maxUnconfirmedParks, "The pass that runs out writes nothing")
         let idle = try await cost(hidden) {
             for _ in 0 ..< 10 { try await pass(.globalObserverLeftMouseUp) }
         }
@@ -607,7 +613,7 @@ final class HiddenWindowReparkTest: XCTestCase {
             try await pass(.globalObserver(wake))
             for _ in 0 ..< 10 { try await pass(.globalObserverLeftMouseUp) }
         }
-        XCTAssertEqual(afterWake.writes, HiddenWindowParking.maxUnconfirmedParks + 1, "A reassertion gets a fresh, still bounded, budget")
+        XCTAssertEqual(afterWake.writes, HiddenWindowParking.maxUnconfirmedParks, "A reassertion gets a fresh, still bounded, budget")
     }
 
     // MARK: Wake, cost, and no polling
@@ -860,12 +866,14 @@ final class HiddenWindowReparkTest: XCTestCase {
         }
         XCTAssertEqual(idle.reads + idle.writes, 0, "No reads or writes once retries are spent, even with the cache empty")
 
-        // A real event for the window earns one more look.
+        // A real event for the window earns one more look, but not another write: the window has ignored every
+        // park this target allows, and the event may be the app answering WinMux's own last write.
         hidden[0].moveReportingAxEvent(to: CGPoint(x: 0, y: 33))
         let afterEvent = try await cost(hidden) {
             for _ in 0 ..< 5 { try await pass(.globalObserverLeftMouseUp) }
         }
-        XCTAssertEqual(afterEvent.writes, 1)
+        XCTAssertEqual(afterEvent.reads, 1, "One look")
+        XCTAssertEqual(afterEvent.writes, 0)
     }
 
     func testAFullscreenLayoutWritesNothingOnceTheDisplaysGoAwayMidPass() async throws {
@@ -1203,6 +1211,227 @@ final class HiddenWindowReparkTest: XCTestCase {
                                     reasserting: false, nativeGeneration: 9), .confirmed)
         XCTAssertFalse(parking.awaitsConfirmation)
         XCTAssertTrue(parking.mayRetry(atNativeGeneration: 9))
+    }
+
+    // MARK: Parking outcome (Carbon L2-W2/L3-W1, Astra B2)
+
+    /// Parks the first hidden window, which refuses every write, on the built-in display after it left the 6K.
+    private func refusedPark() async throws -> ParkingTestWindow {
+        let hidden = hiddenWindows(1)
+        try await settle([sixK], hidden: hidden)
+        connect([builtin])
+        hidden[0].refusesWrites = true
+        return hidden[0]
+    }
+
+    func testThePassThatRunsOutOfParksWritesNothingAndReportsTheParkBlocked() async throws {
+        let window = try await refusedPark()
+        let stuckAt = window.nativeRect.topLeftCorner
+        WindowLifecycleLog.shared.reset()
+        for attempt in 1 ... HiddenWindowParking.maxUnconfirmedParks {
+            let writes = window.axWrites
+            let outcome = try await parkHiddenWindow(window, in: .bottomRightCorner, reasserting: false)
+            XCTAssertEqual(outcome, .pending, "\(attempt)")
+            XCTAssertEqual(window.axWrites - writes, 1, "\(attempt)")
+        }
+        let submissions = window.frameSubmissions
+        let outcome = try await parkHiddenWindow(window, in: .bottomRightCorner, reasserting: false)
+        XCTAssertEqual(outcome, .blocked(.notSeenAtTarget(lastSeen: stuckAt)))
+        XCTAssertEqual(window.frameSubmissions, submissions, "No frame write on the pass that declares the park blocked")
+        XCTAssertTrue(window.isHiddenInCorner, "Still meant to be hidden, so it's restored when shown")
+        XCTAssertEqual(window.cornerParkOutcome, outcome)
+
+        let blocked = WindowLifecycleLog.shared.events.filter { $0.kind == .parkBlocked }
+        XCTAssertEqual(blocked.count, 1)
+        XCTAssertEqual(blocked.first?.windowId, window.windowId)
+        XCTAssertEqual(blocked.first?.detail["reason"], "notSeenAtTarget lastSeen=\(Int(stuckAt.x)),\(Int(stuckAt.y))")
+
+        for _ in 0 ..< 5 {
+            let again = try await parkHiddenWindow(window, in: .bottomRightCorner, reasserting: false)
+            XCTAssertEqual(again, outcome, "Stays blocked")
+        }
+        XCTAssertEqual(window.frameSubmissions, submissions)
+        XCTAssertEqual(WindowLifecycleLog.shared.events.filter { $0.kind == .parkBlocked }.count, 1, "Logged once, not per pass")
+    }
+
+    func testABlockedParkIsBlockedInTheLayoutPassesTooAndAReassertionMakesItPendingAgain() async throws {
+        let window = try await refusedPark()
+        try await pass(.globalObserver(screenParams))
+        for _ in 0 ..< 10 { try await pass(.globalObserverLeftMouseUp) }
+        guard case .blocked(.notSeenAtTarget)? = window.cornerParkOutcome else {
+            return XCTFail("\(String(describing: window.cornerParkOutcome))")
+        }
+        let writes = window.axWrites
+        try await pass(.globalObserver(wake))
+        XCTAssertEqual(window.cornerParkOutcome, .pending, "A reassertion earns new parks")
+        XCTAssertEqual(window.axWrites - writes, 1)
+    }
+
+    func testALookAfterANativeEventConfirmsABlockedParkTheAppFinallyCarriedOut() async throws {
+        let window = try await refusedPark()
+        for _ in 0 ... HiddenWindowParking.maxUnconfirmedParks {
+            try await parkHiddenWindow(window, in: .bottomRightCorner, reasserting: false)
+        }
+        guard case .blocked? = window.cornerParkOutcome else { return XCTFail() }
+        window.moveReportingAxEvent(to: parkedPoint(on: builtin))
+        let outcome = try await parkHiddenWindow(window, in: .bottomRightCorner, reasserting: false)
+        XCTAssertEqual(outcome, .confirmed)
+        XCTAssertEqual(window.cornerParkOutcome, .confirmed)
+    }
+
+    func testAParkAgainstThePlaceholderDisplayIsBlockedUntilARealDisplayIsBack() async throws {
+        let hidden = hiddenWindows(1)
+        try await settle([builtin], hidden: hidden)
+        XCTAssertEqual(hidden[0].cornerParkOutcome, .confirmed)
+        connect([noDisplay])
+        let writes = hidden[0].axWrites
+        let outcome = try await parkHiddenWindow(hidden[0], in: .bottomRightCorner, reasserting: true)
+        XCTAssertEqual(outcome, .blocked(.placeholderDisplay))
+        XCTAssertEqual(hidden[0].axWrites, writes)
+        connect([builtin])
+        let back = try await parkHiddenWindow(hidden[0], in: .bottomRightCorner, reasserting: true)
+        XCTAssertEqual(back, .confirmed)
+    }
+
+    func testRestoringAWindowEndsItsParkingOutcome() async throws {
+        let window = try await refusedPark()
+        for _ in 0 ... HiddenWindowParking.maxUnconfirmedParks {
+            try await parkHiddenWindow(window, in: .bottomRightCorner, reasserting: false)
+        }
+        window.unhideFromCorner()
+        XCTAssertNil(window.cornerParkOutcome)
+    }
+
+    func testTheParkingStateSaysWhereABlockedWindowWasLastSeen() {
+        var parking = HiddenWindowParking()
+        XCTAssertNil(parking.outcome)
+        let rect = builtin.visibleRect
+        let target = parkedPoint(on: builtin)
+        let clamped = Rect(topLeftX: target.x - 9, topLeftY: target.y - 28, width: 100, height: 100)
+        for _ in 1 ... HiddenWindowParking.maxUnconfirmedParks {
+            _ = parking.park(corner: .bottomRightCorner, monitorVisibleRect: rect, target: target, observed: clamped,
+                             reasserting: false, nativeGeneration: 7)
+            XCTAssertEqual(parking.outcome, .pending)
+        }
+        _ = parking.park(corner: .bottomRightCorner, monitorVisibleRect: rect, target: target, observed: clamped,
+                         reasserting: false, nativeGeneration: 7)
+        XCTAssertEqual(parking.outcome, .blocked(.notSeenAtTarget(lastSeen: clamped.topLeftCorner)))
+        _ = parking.park(corner: .bottomRightCorner, monitorVisibleRect: rect, target: target,
+                         observed: Rect(topLeftX: target.x, topLeftY: target.y, width: 100, height: 100),
+                         reasserting: false, nativeGeneration: 8)
+        XCTAssertEqual(parking.outcome, .confirmed)
+    }
+
+    // MARK: Recovery after a blocked park: decided by what a look sees (Astra AS-2, Carbon ASD-N1)
+
+    /// Astra's case: the app ignored every park while busy; once it answers again it moves the window, and that
+    /// move is news. The next passes park it, with a budget of their own.
+    func testABusyAppThatRecoversAndMovesItsWindowHasItParkedAgain() async throws {
+        let window = try await refusedPark()
+        try await pass(.globalObserver(screenParams))
+        for _ in 0 ..< 10 { try await pass(.globalObserverLeftMouseUp) }
+        guard case .blocked? = window.cornerParkOutcome else { return XCTFail("\(String(describing: window.cornerParkOutcome))") }
+
+        window.refusesWrites = false
+        window.moveReportingAxEvent(to: CGPoint(x: 140, y: 110))
+        XCTAssertGreaterThan(window.visibleArea(on: builtin), 1, "On screen, over the tab shown")
+        let recovery = try await cost([window]) {
+            for _ in 0 ..< 3 { try await pass(.globalObserverLeftMouseUp) }
+        }
+        XCTAssertEqual(recovery.writes, 1)
+        assertHidden([window], on: builtin, "parked again once the app answers")
+        XCTAssertEqual(window.cornerParkOutcome, .confirmed)
+    }
+
+    /// Carbon's anti-churn property: an event that finds the window where it was last seen (where the app keeps it,
+    /// or the echo of WinMux's own last write) is no news. A look, no write.
+    func testAnEventThatFindsABlockedWindowWhereItWasLastSeenEarnsALookAndNoWrite() async throws {
+        let window = try await refusedPark()
+        for _ in 0 ... HiddenWindowParking.maxUnconfirmedParks {
+            try await parkHiddenWindow(window, in: .bottomRightCorner, reasserting: false)
+        }
+        guard case .blocked(.notSeenAtTarget(let lastSeen))? = window.cornerParkOutcome else { return XCTFail() }
+        window.moveReportingAxEvent(to: try XCTUnwrap(lastSeen))
+        let echo = try await cost([window]) {
+            for _ in 0 ..< 3 { try await pass(.globalObserverLeftMouseUp) }
+        }
+        XCTAssertEqual(echo.reads, 1, "One look")
+        XCTAssertEqual(echo.writes, 0)
+        XCTAssertEqual(window.cornerParkOutcome, .blocked(.notSeenAtTarget(lastSeen: lastSeen)))
+    }
+
+    /// Carbon's clamped case: macOS keeps the park 9 x 28 points short of the corner. When the app later moves the
+    /// window back on screen, that's news and it's parked again, within a fresh budget, no more; it lands at the
+    /// clamp spot, is blocked there again, and the echo there costs no write.
+    func testAClampedWindowTheAppMovesBackOnScreenIsParkedAgainWithinAFreshBudget() async throws {
+        let hidden = hiddenWindows(1)
+        try await settle([sixK], hidden: hidden)
+        connect([builtin])
+        let window = hidden[0]
+        window.clampBy = CGPoint(x: -9, y: -28)
+        window.reportsMoves = false
+        let initial = window.axWrites
+        for _ in 0 ... HiddenWindowParking.maxUnconfirmedParks {
+            try await parkHiddenWindow(window, in: .bottomRightCorner, reasserting: false)
+        }
+        let clampSpot = parkedPoint(on: builtin) + CGPoint(x: -9, y: -28)
+        XCTAssertEqual(window.cornerParkOutcome, .blocked(.notSeenAtTarget(lastSeen: clampSpot)))
+        XCTAssertEqual(window.axWrites - initial, HiddenWindowParking.maxUnconfirmedParks)
+
+        window.moveReportingAxEvent(to: CGPoint(x: 200, y: 150))
+        let writes = window.axWrites
+        let afterMove = try await parkHiddenWindow(window, in: .bottomRightCorner, reasserting: false)
+        XCTAssertEqual(afterMove, .pending, "News: parked again")
+        XCTAssertEqual(window.nativeRect.topLeftCorner, clampSpot, "Back in the corner, as far as macOS lets it go")
+        var outcome = afterMove
+        for _ in 0 ..< 2 * HiddenWindowParking.maxUnconfirmedParks {
+            window.invalidateLastKnownNativeState()
+            outcome = try await parkHiddenWindow(window, in: .bottomRightCorner, reasserting: false)
+        }
+        XCTAssertEqual(outcome, .blocked(.notSeenAtTarget(lastSeen: clampSpot)))
+        XCTAssertEqual(window.axWrites - writes, HiddenWindowParking.maxUnconfirmedParks,
+                       "A fresh budget for the move, and nothing for the echoes at the clamp spot after it")
+    }
+
+    func testAFailedReadKeepsWhereTheWindowWasLastSeen() {
+        var parking = HiddenWindowParking()
+        let rect = builtin.visibleRect
+        let target = parkedPoint(on: builtin)
+        let away = Rect(topLeftX: 40, topLeftY: 60, width: 100, height: 100)
+        _ = parking.park(corner: .bottomRightCorner, monitorVisibleRect: rect, target: target, observed: away,
+                         reasserting: false, nativeGeneration: 1)
+        for _ in 1 ... HiddenWindowParking.maxUnconfirmedParks {
+            _ = parking.park(corner: .bottomRightCorner, monitorVisibleRect: rect, target: target, observed: nil,
+                             reasserting: false, nativeGeneration: 1)
+        }
+        XCTAssertEqual(parking.outcome, .blocked(.notSeenAtTarget(lastSeen: away.topLeftCorner)))
+        XCTAssertEqual(parking.park(corner: .bottomRightCorner, monitorVisibleRect: rect, target: target, observed: nil,
+                                    reasserting: false, nativeGeneration: 2), .retriesExhausted, "Still nothing seen: no news")
+        XCTAssertEqual(parking.park(corner: .bottomRightCorner, monitorVisibleRect: rect, target: target, observed: away,
+                                    reasserting: false, nativeGeneration: 3), .retriesExhausted, "Where it was: no news")
+        XCTAssertEqual(parking.park(corner: .bottomRightCorner, monitorVisibleRect: rect, target: target,
+                                    observed: Rect(topLeftX: 300, topLeftY: 60, width: 100, height: 100),
+                                    reasserting: false, nativeGeneration: 4), .unconfirmed, "Moved: a fresh budget")
+    }
+
+    /// Carbon ASD-R2-N1: looks that find no move leave where the park was blocked as it was, so steps each within the
+    /// tolerance can't walk it along; once they add up to more than that, it's a move.
+    func testStepsWithinTheToleranceDontMoveWhereABlockedParkIsMeasuredFrom() {
+        var parking = HiddenWindowParking()
+        let rect = builtin.visibleRect
+        let target = parkedPoint(on: builtin)
+        let anchor = CGPoint(x: target.x - 9, y: target.y - 28)
+        func look(_ dx: CGFloat, _ generation: UInt64) -> HiddenWindowParking.Outcome {
+            parking.park(corner: .bottomRightCorner, monitorVisibleRect: rect, target: target,
+                         observed: Rect(topLeftX: anchor.x + dx, topLeftY: anchor.y, width: 100, height: 100),
+                         reasserting: false, nativeGeneration: generation)
+        }
+        for generation in 0 ... UInt64(HiddenWindowParking.maxUnconfirmedParks) { _ = look(0, generation) }
+        XCTAssertEqual(parking.outcome, .blocked(.notSeenAtTarget(lastSeen: anchor)))
+        XCTAssertEqual(look(0.8, 10), .retriesExhausted)
+        XCTAssertEqual(look(1.0, 11), .retriesExhausted)
+        XCTAssertEqual(parking.lastSeenAwayFromTarget, anchor, "Still measured from where it was blocked")
+        XCTAssertEqual(look(1.6, 12), .unconfirmed, "1.6 points from there: a move")
     }
 
     // MARK: Per-display sidebar panels

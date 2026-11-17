@@ -44,6 +44,17 @@ private let winmuxRepositoryURL = "https://github.com/alanzchen/winmux"
             }
             Divider()
         }
+        if let details = viewModel.persistenceFailureDetails {
+            Button {
+                MessageModel.shared.openDetails(details)
+            } label: {
+                Label("\(persistenceFailedMenuTitle) — Show Details", systemImage: "externaldrive.badge.exclamationmark")
+            }
+            if viewModel.canRetryPersistenceNow {
+                Button(persistenceRetryNowMenuTitle) { PersistenceHealth.shared.retryNow() }
+            }
+            Divider()
+        }
         if viewModel.accessibilityPermissionStatus == .granted {
             Button(viewModel.isEnabled ? "Disable" : "Enable") {
                 _ = Task {
