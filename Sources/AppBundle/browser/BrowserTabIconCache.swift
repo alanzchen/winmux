@@ -125,8 +125,18 @@ final class BrowserTabIconDiskCache: @unchecked Sendable {
     private let lifetime: TimeInterval
     private let clock: () -> TimeInterval
     private let lock = NSLock()
-    private var index: Index?
-    private var secret: SymmetricKey?
+    private struct PreparedIndex {
+        var index: Index
+        let secret: SymmetricKey
+    }
+    // Disk operations serialize on `lock`; metadata readers never wait for filesystem work.
+    // This is the only authoritative in-memory index, published after each disk operation.
+    private let metadataLock = NSLock()
+    private var storedPreparedIndex: PreparedIndex?
+    private var preparedIndex: PreparedIndex? {
+        get { metadataLock.withLock { storedPreparedIndex } }
+        set { metadataLock.withLock { storedPreparedIndex = newValue } }
+    }
     private var lastWrite: TimeInterval = -.infinity
 
     init(directory: URL, maximumEntries: Int = BrowserTabIconDiskCache.maximumEntries,
@@ -159,12 +169,11 @@ final class BrowserTabIconDiskCache: @unchecked Sendable {
         _ = loadIndex()
     }
 
-    /// Whether a profile's icon is kept, without waiting: false while the index isn't read yet, or
-    /// another thread is using it.
+    /// Whether a profile's icon is kept in the prepared index, without waiting for disk work.
     func knows(partition: String, icon: String) -> Bool {
-        guard lock.try() else { return false }
-        defer { lock.unlock() }
-        guard let index, let name = name(partition: partition, icon: icon), let entry = index.entries[name] else { return false }
+        guard let prepared = preparedIndex,
+              let name = name(partition: partition, icon: icon, secret: prepared.secret),
+              let entry = prepared.index.entries[name] else { return false }
         return clock() - entry.used < lifetime
     }
 
@@ -179,13 +188,13 @@ final class BrowserTabIconDiskCache: @unchecked Sendable {
               Self.digest(png) == entry.digest, BrowserTabIconDownload.thumbnail(png) != nil else {
             index.entries[name] = nil
             evict(&index)
-            self.index = index
+            publish(index)
             write(index)
             return nil
         }
         entry.used = now
         index.entries[name] = entry
-        self.index = index
+        publish(index)
         if now - lastWrite >= Self.useWriteInterval { write(index) }
         return png
     }
@@ -201,7 +210,7 @@ final class BrowserTabIconDiskCache: @unchecked Sendable {
         let now = clock()
         if let kept = index.entries[name], kept.icon == icon, kept.digest == digest {
             index.entries[name]?.used = now
-            self.index = index
+            publish(index)
             if now - lastWrite >= Self.useWriteInterval { write(index) }
             return
         }
@@ -213,7 +222,7 @@ final class BrowserTabIconDiskCache: @unchecked Sendable {
         }
         index.entries[name] = entry
         evict(&index)
-        self.index = index
+        publish(index)
         write(index)
     }
 
@@ -224,7 +233,7 @@ final class BrowserTabIconDiskCache: @unchecked Sendable {
         guard let loaded = loadIndex() else { return }
         var index = loaded
         evict(&index)
-        self.index = index
+        publish(index)
         if index.entries.count != loaded.entries.count { write(index) }
     }
 
@@ -232,9 +241,8 @@ final class BrowserTabIconDiskCache: @unchecked Sendable {
     func remove() {
         lock.lock()
         defer { lock.unlock() }
+        preparedIndex = nil
         try? FileManager.default.removeItem(at: directory)
-        index = nil
-        secret = nil
         lastWrite = -.infinity
     }
 
@@ -244,7 +252,7 @@ final class BrowserTabIconDiskCache: @unchecked Sendable {
     private func iconFile(_ icon: String) -> URL { iconsDirectory.appendingPathComponent(icon + ".png") }
 
     private func loadIndex() -> Index? {
-        if let index { return index }
+        if let prepared = preparedIndex { return prepared.index }
         let manager = FileManager.default
         do {
             try manager.createDirectory(at: iconsDirectory, withIntermediateDirectories: true)
@@ -262,19 +270,28 @@ final class BrowserTabIconDiskCache: @unchecked Sendable {
             try? manager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: iconsDirectory.path)
             try? manager.removeItem(at: directory.appendingPathComponent("index.json"))
         }
-        secret = SymmetricKey(data: bytes)
+        let secret = SymmetricKey(data: bytes)
         var loaded = (try? Data(contentsOf: directory.appendingPathComponent("index.json")))
             .flatMap { try? JSONDecoder().decode(Index.self, from: $0) } ?? Index()
         // Version 1 filed icons by site; none of it is used now.
         if loaded.v != 2 { loaded = Index() }
         loaded.entries = loaded.entries.filter { SafariExtensionMessage.isIconKey($0.value.icon) && $0.value.bytes > 0 }
         evict(&loaded)
-        index = loaded
+        preparedIndex = PreparedIndex(index: loaded, secret: secret)
         return loaded
     }
 
     private func name(partition: String, icon: String) -> String? {
-        guard let secret, SafariExtensionMessage.isIconKey(icon) else { return nil }
+        guard let prepared = preparedIndex else { return nil }
+        return name(partition: partition, icon: icon, secret: prepared.secret)
+    }
+
+    private func publish(_ index: Index) {
+        metadataLock.withLock { storedPreparedIndex?.index = index }
+    }
+
+    private func name(partition: String, icon: String, secret: SymmetricKey) -> String? {
+        guard SafariExtensionMessage.isIconKey(icon) else { return nil }
         let code = HMAC<SHA256>.authenticationCode(for: Data("\(partition)\n\(icon)".utf8), using: secret)
         return code.map { String(format: "%02x", $0) }.joined()
     }
