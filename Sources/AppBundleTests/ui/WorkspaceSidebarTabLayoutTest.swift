@@ -20,6 +20,40 @@ final class WorkspaceSidebarTabLayoutTest: XCTestCase {
         try await super.tearDown()
     }
 
+    /// Alan, 2026-11-18: folding a browser window's tabs moved its card smoothly, but every row below it jumped. The
+    /// disclosure button toggles in an animated transaction, so a row outside the card, as the rows below it are,
+    /// moves in that same animation; with Reduce Motion, in none.
+    func testADisclosureMovesTheRowsBelowItsCardInTheSameAnimation() async throws {
+        _ = NSApplication.shared
+        try XCTSkipIf(NSScreen.screens.isEmpty, "Requires a native macOS window server")
+        for reducesMotion in [false, true] {
+            let log = DisclosureTransactionLog()
+            let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 160, height: 120), styleMask: [.borderless],
+                backing: .buffered, defer: false)
+            window.contentView = NSHostingView(rootView: DisclosureListHarness(log: log)
+                .environment(\.workspaceSidebarReducesMotion, reducesMotion))
+            window.orderFrontRegardless()
+            defer { window.orderOut(nil) }
+            window.contentView?.layoutSubtreeIfNeeded()
+            try await Task.sleep(for: .milliseconds(50))
+            log.updates = []
+
+            // The chevron, in window coordinates (bottom-left origin), at the top of the list.
+            let indent = WorkspaceSidebarTabIndent()
+            let chevron = CGPoint(x: max(0, indent.leadingPadding - 4) + (workspaceSidebarTabIconSize + 8) / 2,
+                                  y: 120 - workspaceSidebarTabRowHeight / 2)
+            for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+                window.sendEvent(try XCTUnwrap(NSEvent.mouseEvent(with: type, location: chevron, modifierFlags: [], timestamp: 0,
+                    windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)))
+            }
+            try await Task.sleep(for: .milliseconds(50))
+
+            let update = try XCTUnwrap(log.updates.last { !$0.isExpanded }, "The row below moved: \(log.updates)")
+            XCTAssertEqual(update.animation, reducesMotion ? nil : WorkspaceSidebarTabMotion.disclosure,
+                "reducesMotion: \(reducesMotion)")
+        }
+    }
+
     /// Where a row's icon starts, from the list's edge.
     private func iconX(_ indent: WorkspaceSidebarTabIndent) -> CGFloat { indent.inset + indent.leadingPadding }
 
@@ -302,4 +336,28 @@ final class WorkspaceSidebarTabLayoutTest: XCTestCase {
 @MainActor
 private final class TabLayoutDropTargetProbe {
     var targets: [WorkspaceSidebarDropTargetFrame] = []
+}
+
+/// What a row outside a disclosure's card saw: the group's state, and the animation its update came in.
+@MainActor
+private final class DisclosureTransactionLog {
+    var updates: [(isExpanded: Bool, animation: Animation?)] = []
+}
+
+/// A group's disclosure button at the top of a list, and a row below it whose place depends on the group.
+private struct DisclosureListHarness: View {
+    let log: DisclosureTransactionLog
+    @State private var isExpanded = true
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            WorkspaceSidebarTabDisclosureButton(isExpanded: isExpanded, label: "Group") { isExpanded.toggle() }
+            Color.clear.frame(width: 20, height: isExpanded ? 60 : 10)
+            Color.clear.frame(width: 20, height: 10)
+                .transaction { [isExpanded] transaction in
+                    MainActor.assumeIsolated { log.updates.append((isExpanded, transaction.animation)) }
+                }
+        }
+        .frame(width: 160, height: 120, alignment: .topLeading)
+    }
 }

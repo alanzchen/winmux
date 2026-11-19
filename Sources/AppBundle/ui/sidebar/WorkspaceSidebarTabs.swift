@@ -817,11 +817,10 @@ extension WorkspaceSidebarView {
                 ? (projectName(contextProjectId), projectColor(contextProjectId))
                 : nil,
             actions: actions,
+            // Animated by the disclosure button, its only caller.
             onToggleCollapsed: {
-                withAnimation(WorkspaceSidebarTabMotion.disclosure(reducesMotion: reduceDockMotion)) {
-                    if collapsedTabFolderNames.remove(workspace.name) == nil {
-                        collapsedTabFolderNames.insert(workspace.name)
-                    }
+                if collapsedTabFolderNames.remove(workspace.name) == nil {
+                    collapsedTabFolderNames.insert(workspace.name)
                 }
             },
             onCommitOverride: {

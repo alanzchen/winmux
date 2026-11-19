@@ -171,7 +171,8 @@ struct WorkspaceSidebarTabGroupTitle: View {
 }
 
 /// A disclosure button laid over a header's chevron, for headers whose label does something
-/// else when clicked.
+/// else when clicked. It owns the disclosure's motion: the toggle runs in an animated transaction,
+/// so the whole list moves with the card, the rows below it sliding to their new places.
 struct WorkspaceSidebarTabDisclosureButton: View {
     let isExpanded: Bool
     var tint: Color? = nil
@@ -180,9 +181,12 @@ struct WorkspaceSidebarTabDisclosureButton: View {
     let toggle: () -> Void
     @State private var isHovered = false
     @Environment(\.workspaceSidebarTabIndent) private var indent
+    @Environment(\.workspaceSidebarReducesMotion) private var reducesMotion
 
     var body: some View {
-        Button(action: toggle) {
+        Button {
+            withAnimation(WorkspaceSidebarTabMotion.disclosure(reducesMotion: reducesMotion)) { toggle() }
+        } label: {
             WorkspaceSidebarTabDisclosureChevron(isExpanded: isExpanded, tint: tint, isHighlighted: isHovered,
                 isEnabled: canToggle)
                 .frame(width: workspaceSidebarTabIconSize + 8, height: workspaceSidebarTabRowHeight)
