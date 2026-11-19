@@ -33,6 +33,8 @@ final class MacWindow: Window {
         let firstSeenInActiveApp = macApp.nsApp.isActive
         // Also before any: what could tie it to the window it was opened from, read all at once.
         let originEvidence = captureAuxiliaryWindowOriginEvidence(newWindowId: windowId, pid: macApp.pid, observedAt: observedAt)
+        // Freeze the inferred opener before any AX await or placement.
+        let firstSightOpener = WindowFirstSightOpener(originEvidence) // WINMUX-HOOK(firstSightFrame)
         let rect = try await macApp.getAxRect(windowId)
         let (data, windowType, claimed, auxiliary) = try await classifyAndGetBindingDataForNewWindow(
             windowId,
@@ -55,10 +57,11 @@ final class MacWindow: Window {
         window.recordAuthoritativeActualRect(rect)
         allWindowsMap[windowId] = window
         AxWindowErrorLog.shared.forget(windowId: windowId)
-        WindowLifecycleLog.shared.record(.registered, windowId: windowId, [
-            "pid": "\(macApp.pid)", "bundleId": macApp.rawAppBundleId ?? "", "workspace": window.nodeWorkspace?.name ?? "",
-            "type": "\(windowType)", "auxiliary": auxiliary == nil ? "false" : "true",
-        ])
+        // WINMUX-HOOK-BEGIN(firstSightFrame)
+        // Reuse the first AX frame before placement can change it.
+        WindowLifecycleLog.shared.recordRegistration(of: window, type: windowType, isAuxiliary: auxiliary != nil,
+            initialAxFrame: rect, opener: firstSightOpener)
+        // WINMUX-HOOK-END(firstSightFrame)
         NewWindowIntentRegistry.shared.windowsBeingDetected.insert(windowId)
         defer { NewWindowIntentRegistry.shared.windowsBeingDetected.remove(windowId) }
 

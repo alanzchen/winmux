@@ -2,7 +2,7 @@ import AppKit
 
 /// A window's recent comings and goings, for a debug snapshot: registered, gone, parked in a corner, a park
 /// that's blocked, back from a corner, moved to another workspace, and which workspace each display shows. Ids,
-/// kinds, workspace names and park positions only.
+/// kinds, workspace names and frames only; no titles or window contents.
 struct WindowLifecycleEvent: Equatable, Sendable {
     enum Kind: String, Sendable {
         case registered, unregistered, parked, parkBlocked, unparked, moved, workspaceShown
@@ -13,6 +13,23 @@ struct WindowLifecycleEvent: Equatable, Sendable {
     /// Nil for a display's event.
     let windowId: UInt32?
     let detail: [String: String]
+}
+
+/// The inferred opener at first sight, independently of whether the new window matches an auxiliary
+/// rule. Copy `lastKnownActualRect` before registration awaits, without falling back to a layout target.
+/// This cache can include an authoritative frame WinMux wrote, not only AX read-back. The inference
+/// follows the existing origin rules: a focused auxiliary resolves to its parent. It may stop being
+/// valid during later awaits; absence means attribution was unavailable or failed, not "no opener".
+struct WindowFirstSightOpener {
+    let windowId: UInt32
+    let cachedActualFrame: Rect?
+
+    @MainActor
+    init?(_ evidence: AuxiliaryWindowOriginEvidence?) {
+        guard let evidence, let opener = auxiliaryWindowOrigin(evidence) else { return nil }
+        windowId = opener.windowId
+        cachedActualFrame = opener.lastKnownActualRect
+    }
 }
 
 /// The newest `capacity` events, oldest first. Recording one costs an append to a fixed buffer.
@@ -33,6 +50,21 @@ final class WindowLifecycleLog {
         let event = WindowLifecycleEvent(at: Date(), kind: kind, windowId: windowId, detail: detail)
         ring.append(event)
         observer?(event)
+    }
+
+    func recordRegistration(of window: Window, type: AxUiElementWindowType, isAuxiliary: Bool,
+                            initialAxFrame: Rect?, opener: WindowFirstSightOpener?) {
+        var detail = [
+            "pid": "\(window.app.pid)", "bundleId": window.app.rawAppBundleId ?? "",
+            "workspace": window.nodeWorkspace?.name ?? "", "type": "\(type)",
+            "auxiliary": isAuxiliary ? "true" : "false", "initialAxFrame": debugDescribe(initialAxFrame),
+        ]
+        if let opener {
+            detail["openerWindowId"] = "\(opener.windowId)"
+            detail["openerFrame"] = debugDescribe(opener.cachedActualFrame)
+            detail["openerFrameSource"] = opener.cachedActualFrame == nil ? "unavailable" : "cachedActual"
+        }
+        record(.registered, windowId: window.windowId, detail)
     }
 
     func reset() {
