@@ -232,8 +232,8 @@ final class WindowRulesTest: XCTestCase {
         let telegram = WindowRule(id: "telegram-web-view", appId: "ru.keepcoder.Telegram", title: .untitled, subrole: "AXStandardWindow",
             openerTitled: true)
         XCTAssertEqual(shipped.rules, [WindowRule(id: "wechat-image-viewer", appId: "com.tencent.xinWeChat",
-            windowTitles: ["Photos and Videos"], subrole: "AXStandardWindow"), telegram],
-            "On by default: WeChat's image viewer, by its English title, and Telegram's untitled windows, as observed")
+            windowTitles: ["Photos and Videos", "图片和视频"], subrole: "AXStandardWindow"), telegram],
+            "On by default: WeChat's image viewer, by its English and Simplified Chinese titles, and Telegram's untitled windows, as observed")
         let off = parse("version = 1\n[[rule]]\nid = \"wechat-image-viewer\"\nenabled = false")
         XCTAssertEqual(off.problems, [])
         XCTAssertEqual(mergeWindowRules(shipped: shipped, user: off), [telegram], "Turned off by its id")

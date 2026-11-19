@@ -4,7 +4,7 @@ import Common
 import XCTest
 
 /// WinMux's shipped window rules, read from its own rules file as WinMux reads it: WeChat's image viewer, by its
-/// English title "Photos and Videos", and Telegram's untitled windows (its Mini Apps and Instant View pages),
+/// English and Simplified Chinese titles "Photos and Videos" and "图片和视频", and Telegram's untitled windows (its Mini Apps and Instant View pages),
 /// opened from a window of the app in use just after a press, float at their own size over that window, listed
 /// under it. Nothing else changes: the apps' other windows, other apps, a window with no clear opener, at startup
 /// or placed already, and Telegram's main window. A user's rules file turns a rule off or replaces it by its id.
@@ -127,6 +127,17 @@ final class ShippedWindowRuleTest: XCTestCase {
         XCTAssertEqual(tile.counted, [11])
     }
 
+    /// Alan's MacBook, 2026-11-19: WeChat with a Simplified Chinese interface titles its image viewer "图片和视频".
+    func testWeChatsSimplifiedChineseImageViewerFloatsUnderItsWindowToo() async throws {
+        let (pin, main) = try pin(of: wechat)
+        let tabsBefore = Workspace.all.count
+        let viewer = try await appear(11, app: wechat, title: "图片和视频", order: [11, 10])
+        XCTAssertTrue(viewer.nodeWorkspace === pin && viewer.isFloating, "Floating over its window, in its tab")
+        XCTAssertTrue(auxiliaryWindowParent(of: viewer) === main)
+        XCTAssertEqual(AuxiliaryWindowRegistry.shared.role(of: viewer), .windowRule)
+        XCTAssertEqual(Workspace.all.count, tabsBefore, "No tab of its own")
+    }
+
     // MARK: - Nothing else
 
     func testOtherWeChatWindowsOtherAppsAndOtherLanguagesAreAsBefore() async throws {
@@ -134,8 +145,8 @@ final class ShippedWindowRuleTest: XCTestCase {
         let chat = try await appear(11, app: wechat, title: "Chat", order: [11, 10])
         assertAsBefore(chat, notIn: pin, "A chat window WeChat opens from its window")
         refocus(main)
-        let chinese = try await appear(12, app: wechat, title: "图片和视频", order: [12, 10])
-        assertAsBefore(chinese, notIn: pin, "Another language's title isn't covered by the shipped rule")
+        let unlisted = try await appear(12, app: wechat, title: "图片", order: [12, 10])
+        assertAsBefore(unlisted, notIn: pin, "A title the shipped rule doesn't list, exactly, isn't covered")
         refocus(main)
         let dialogKind = try await appear(13, app: wechat, title: "Photos and Videos", subrole: "AXDialog", order: [13, 10])
         assertAsBefore(dialogKind, notIn: pin, "Another subrole")

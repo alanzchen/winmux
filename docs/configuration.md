@@ -429,8 +429,8 @@ takes precedence over `auto-add-new-windows-to-tab-group`.
 
 In Tabs mode, a window rule names a window, such as an app's image viewer, that should float over the
 window it was opened from instead of taking a tab of its own. WinMux's own rule does this for WeChat's
-`Photos and Videos` image viewer (English title only). Your rules, which can turn WinMux's off or replace
-them, live in a separate file, `~/.config/winmux/window-rules.toml`. See [Window rules](window-rules.md).
+image viewer (its English and Simplified Chinese titles only). Your rules, which can turn WinMux's off or
+replace them, live in a separate file, `~/.config/winmux/window-rules.toml`. See [Window rules](window-rules.md).
 
 ## Let MCP clients use WinMux
 

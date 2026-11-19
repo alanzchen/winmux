@@ -2,5 +2,5 @@ rules: 2
 disabled: []
 problems:
 
-WindowRule(id: "wechat-image-viewer", appId: "com.tencent.xinWeChat", title: AppBundle.WindowRuleTitle.exact(["Photos and Videos"]), subrole: Optional("AXStandardWindow"), openerTitled: false)
+WindowRule(id: "wechat-image-viewer", appId: "com.tencent.xinWeChat", title: AppBundle.WindowRuleTitle.exact(["Photos and Videos", "图片和视频"]), subrole: Optional("AXStandardWindow"), openerTitled: false)
 WindowRule(id: "telegram-web-view", appId: "ru.keepcoder.Telegram", title: AppBundle.WindowRuleTitle.untitled, subrole: Optional("AXStandardWindow"), openerTitled: true)

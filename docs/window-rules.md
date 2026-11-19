@@ -25,11 +25,11 @@ Two rules are on by default: WeChat's image viewer and Telegram's untitled windo
 ### WeChat's image viewer
 
 The rule's id is `wechat-image-viewer`. A WeChat window titled exactly
-`Photos and Videos`, a standard window, opened from a WeChat window in use just after a click or key press,
-floats at its own size over that window.
+`Photos and Videos` or `图片和视频`, a standard window, opened from a WeChat window in use just after a click or
+key press, floats at its own size over that window.
 
-- Only the English title is covered. With WeChat in another language, add your title by replacing the rule
-  in your own file, keeping its id:
+- Only the English and Simplified Chinese titles are covered. With WeChat in another language, add your title
+  by replacing the rule in your own file, keeping its id:
 
   ```toml
   version = 1
@@ -37,7 +37,7 @@ floats at its own size over that window.
   [[rule]]
   id = "wechat-image-viewer"
   app-id = "com.tencent.xinWeChat"
-  window-title = ["Photos and Videos", "your title"]
+  window-title = ["Photos and Videos", "图片和视频", "your title"]
   subrole = "AXStandardWindow"
   opened-from = "focused-window"
   action = "float-under-opener"
