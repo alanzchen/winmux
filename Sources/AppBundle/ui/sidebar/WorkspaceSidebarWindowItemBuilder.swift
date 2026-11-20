@@ -9,6 +9,7 @@ func makeWorkspaceSidebarWindowViewModel(
     for window: Window,
     workspaceName: String,
     currentFocus: LiveFocus,
+    state: WorkspaceTabMemberState = .laidOut,
 ) async -> WorkspaceSidebarWindowViewModel {
     let appName = window.app.name ?? window.app.rawAppBundleId ?? "Unknown App"
     let title = await getSidebarWindowTitle(window, appName: appName)
@@ -20,6 +21,7 @@ func makeWorkspaceSidebarWindowViewModel(
         appBundlePath: window.app.bundlePath,
         title: title,
         isFocused: currentFocus.windowOrNil == window,
+        state: state,
     )
 }
 

@@ -1,70 +1,53 @@
 extension TilingContainer {
     @MainActor
     var allAgentTabGroupsRecursive: [TilingContainer] {
-        var result: [TilingContainer] = []
-        func visit(_ node: TreeNode) {
-            guard let container = node as? TilingContainer else { return }
-            if container.isWindowTabGroup {
-                result.append(container)
-                return
-            }
-            for child in container.children {
-                visit(child)
-            }
-        }
-        visit(self)
-        return result
+        WorkspaceTabSnapshot.layout(of: self).agentTabGroups.map(\.source)
     }
 
     @MainActor
-    var agentTabWindows: [Window] {
-        children.compactMap { $0.tabRepresentativeWindow ?? $0.mostRecentWindowRecursive ?? $0.anyLeafWindowRecursive }
-    }
+    var agentTabWindows: [Window] { WorkspaceTabSnapshot.tabRepresentatives(of: self) }
 
     @MainActor
-    func agentRawLayoutNode() -> AgentRawLayoutNode {
-        if isWindowTabGroup {
-            return .tabGroup(
-                tabGroupId: agentTabGroupId(self),
-                activeWindowId: tabActiveWindow?.windowId,
-                tabs: agentTabWindows.map(\.windowId),
-                size: agentSizeRatio,
-            )
-        }
-        return .split(
-            direction: orientation == .h ? .horizontal : .vertical,
-            layout: layout.rawValue,
-            size: agentSizeRatio,
-            children: children.compactMap(agentRawLayoutChild),
-        )
-    }
+    func agentRawLayoutNode() -> AgentRawLayoutNode { WorkspaceTabSnapshot.layout(of: self).agentRawLayoutNode() }
 
+
+}
+
+extension WorkspaceTabLayoutContainer {
     @MainActor
     func agentWorldLines(prefix: String) -> [String] {
-        let nodeId = isWindowTabGroup
-            ? "tabGroup:\(agentTabGroupId(self))"
+        let nodeId = layout == .tabGroup && children.count > 1
+            ? "tabGroup:\(agentTabGroupId(source))"
             : "container:\(orientation.rawValue):\(layout.rawValue)"
-        let weight = (parent as? TilingContainer).map { "|weight:\(getWeight($0.orientation))" } ?? ""
-        var result = ["\(prefix)|\(nodeId)\(weight)|children:\(children.count)"]
-        for (index, child) in children.enumerated() {
+        let weightText = hasTilingParent ? "|weight:\(weight)" : ""
+        return ["\(prefix)|\(nodeId)\(weightText)|children:\(children.count)"] + children.enumerated().flatMap { index, node in
             let childPrefix = "\(prefix).\(index)"
-            if let window = child as? Window {
-                result.append("\(childPrefix)|window:\(window.windowId)|weight:\(window.getWeight(orientation))")
-            } else if let container = child as? TilingContainer {
-                result.append(contentsOf: container.agentWorldLines(prefix: childPrefix))
+            switch node {
+                case .window(let leaf): return ["\(childPrefix)|window:\(leaf.window.windowId)|weight:\(leaf.weight)"]
+                case .container(let nested): return nested.agentWorldLines(prefix: childPrefix)
             }
         }
-        return result
     }
 
-    @MainActor
-    private func agentRawLayoutChild(_ child: TreeNode) -> AgentRawLayoutNode? {
-        if let window = child as? Window {
-            return .window(windowId: window.windowId, size: window.agentSizeRatio)
+    var agentTabGroups: [WorkspaceTabLayoutContainer] {
+        if layout == .tabGroup && children.count > 1 { return [self] }
+        return children.flatMap { node in
+            if case .container(let nested) = node { return nested.agentTabGroups }
+            return []
         }
-        if let container = child as? TilingContainer {
-            return container.agentRawLayoutNode()
+    }
+
+    @MainActor func agentRawLayoutNode() -> AgentRawLayoutNode {
+        if layout == .tabGroup && children.count > 1 {
+            return .tabGroup(tabGroupId: agentTabGroupId(source), activeWindowId: source.tabActiveWindow?.windowId,
+                tabs: tabRepresentatives.map(\.windowId), size: source.agentSizeRatio)
         }
-        return nil
+        return .split(direction: orientation == .h ? .horizontal : .vertical, layout: layout.rawValue,
+            size: source.agentSizeRatio, children: children.map { node in
+                switch node {
+                    case .window(let leaf): .window(windowId: leaf.window.windowId, size: leaf.window.agentSizeRatio)
+                    case .container(let nested): nested.agentRawLayoutNode()
+                }
+            })
     }
 }

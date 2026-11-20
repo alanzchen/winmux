@@ -2,15 +2,16 @@ import Common
 
 extension Workspace {
     @MainActor
-    func agentPaneRelations() -> [AgentPaneRelation] {
+    func agentPaneRelations(content: WorkspaceTabSnapshot? = nil) -> [AgentPaneRelation] {
+        let content = content ?? WorkspaceTabSnapshot(self)
         var byPane: [String: AgentPaneRelation] = [:]
-        visitAgentPaneRelations(rootTilingContainer, byPane: &byPane)
+        visitAgentPaneRelations(.container(content.root), byPane: &byPane)
         return Array(byPane.values)
     }
 
     @MainActor
-    private func visitAgentPaneRelations(_ node: TreeNode, byPane: inout [String: AgentPaneRelation]) {
-        guard let container = node as? TilingContainer, !container.isWindowTabGroup else { return }
+    private func visitAgentPaneRelations(_ node: WorkspaceTabLayoutNode, byPane: inout [String: AgentPaneRelation]) {
+        guard case .container(let container) = node, !(container.layout == .tabGroup && container.children.count > 1) else { return }
         let childPaneIds = container.children.map(agentPaneIds)
         for index in childPaneIds.indices.dropLast() {
             for lhs in childPaneIds[index] {
@@ -53,8 +54,12 @@ extension Workspace {
     }
 
     @MainActor
-    private func agentPaneIds(_ node: TreeNode) -> [String] {
-        if let paneId = node.agentPaneId { return [paneId] }
-        return node.children.flatMap(agentPaneIds)
+    private func agentPaneIds(_ node: WorkspaceTabLayoutNode) -> [String] {
+        switch node {
+            case .window(let leaf): return ["pane-\(leaf.window.windowId)"]
+            case .container(let container):
+                if container.layout == .tabGroup && container.children.count > 1 { return [agentPaneIdForTabGroup(tabGroupId: agentTabGroupId(container.source))] }
+                return container.children.flatMap(agentPaneIds)
+        }
     }
 }

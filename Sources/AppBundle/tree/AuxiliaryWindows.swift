@@ -114,7 +114,7 @@ func detachAuxiliaryWindowsMovedByUser(_ node: TreeNode) {
 /// dialog is saved as before, and a window the user moved to a tab of its own is an ordinary one.
 @MainActor
 func isEphemeralAuxiliaryWindow(_ window: Window) -> Bool {
-    window.isFloating && AuxiliaryWindowRegistry.shared.role(of: window)?.isEphemeral == true
+    WorkspaceTabSnapshot.isEphemeral(window)
 }
 
 // MARK: - Where a new window came from

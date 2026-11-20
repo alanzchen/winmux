@@ -64,7 +64,7 @@ struct WorkspaceSidebarOffscreenMember: Hashable {
             case .hiddenWithApp: "Hidden"
             case .minimized: "Minimized"
             case .nativeFullscreen: "Full Screen"
-            case .laidOut, .floating: ""
+            case .laidOut, .floating, .notPresentable: ""
         }
     }
 }

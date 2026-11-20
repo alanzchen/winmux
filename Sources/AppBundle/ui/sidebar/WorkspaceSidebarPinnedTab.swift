@@ -18,7 +18,7 @@ struct WorkspaceSidebarPinnedGridLayout {
     /// `shortcuts` is how many shortcut tiles follow the pins, one window's width each.
     init(workspaces: [WorkspaceSidebarWorkspaceViewModel], shortcuts: Int = 0, sizedLike all: [WorkspaceSidebarWorkspaceViewModel]? = nil,
          width: CGFloat) {
-        let widestSplit = (all ?? workspaces).map { workspaceSidebarPinnedTabWindows($0).count }.max() ?? 1
+        let widestSplit = (all ?? workspaces).map { workspaceSidebarPinnedTabWindows($0).filter { $0.state != .floating }.count }.max() ?? 1
         let minimumTileWidth = max(72, CGFloat(widestSplit) * 46)
         columns = max(1, Int((max(width, 0) + 8) / (minimumTileWidth + 8)))
         let tiles = workspaces.count + shortcuts
@@ -103,6 +103,38 @@ struct WorkspaceSidebarPinnedTab: View {
     @ObservedObject private var selection = WorkspaceSidebarTabSelection.shared
     @ObservedObject private var drag = WorkspaceSidebarTabDragState.shared
 
+    private func windowTile(_ window: WorkspaceSidebarWindowViewModel, windowCount: Int, showsIdentity: Bool,
+                            summarizesWorkspace: Bool, tileHeight: CGFloat? = nil) -> some View {
+        Button { (onRecall ?? onSelect)(summarizesWorkspace ? nil : window.windowId) } label: {
+            icon(window, windowCount: windowCount)
+                .frame(maxWidth: .infinity, minHeight: tileHeight ?? (compact || showsIdentity ? 34 : 54))
+                .contentShape(Rectangle())
+                .overlay(alignment: .topTrailing) {
+                    WorkspaceSidebarTabBadge(appName: window.appName, bundlePath: window.appBundlePath,
+                        model: badgeModel, compact: compact, windowId: window.windowId)
+                        .fixedSize().padding(compact ? 2 : 3)
+                }
+                .overlay(alignment: .bottomTrailing) {
+                    WorkspaceSidebarTabAudioIndicator(window: window, size: compact ? 7 : 9)
+                        .padding(compact ? 3 : 6)
+                }
+        }
+        .buttonStyle(.plain)
+        .background {
+            if window.isFocused && isActiveHere {
+                RoundedRectangle(cornerRadius: compact ? 6 : 10)
+                    .fill(Color(nsColor: .controlBackgroundColor)).padding(compact ? 1 : 3)
+            }
+        }
+        .help(helpWithLocation(summarizesWorkspace ? workspace.displayName
+            : (window.title.map { "\(window.appName) — \($0)" } ?? window.appName)))
+        .accessibilityLabel(summarizesWorkspace ? workspace.displayName : (window.title ?? window.appName))
+        .accessibilityHint(locationHelp ?? "")
+        .workspaceSidebarBringHereAction(onBringHere)
+        .accessibilityAddTraits(isActiveHere && (summarizesWorkspace ? workspace.isFocused : window.isFocused) ? .isSelected : [])
+        .sidebarIdentityMenu(.tab(workspace.name, windowId: summarizesWorkspace ? nil : window.windowId))
+    }
+
     /// Dragged, alone or as one of the chosen tabs it carries: dimmed until the drag ends.
     private var isDragSource: Bool { drag.draggedPinnedTab == workspace.name || drag.draggedTabs.contains(workspace.name) }
 
@@ -171,39 +203,37 @@ struct WorkspaceSidebarPinnedTab: View {
                             ?? workspace.appearance.link.map { "Opens \($0.title)" } ?? (savedApps.isEmpty ? "" : "Opens \(appNames)"))
                         .sidebarIdentityMenu(.workspace(workspace.name))
                 } else {
-                    ForEach(displayedWindows) { window in
-                        if window.id != windows.first?.id {
-                            Rectangle().fill(.primary.opacity(0.14)).frame(width: 1, height: compact ? 14 : 24).accessibilityHidden(true)
-                        }
-                        Button { (onRecall ?? onSelect)(summarizesWorkspace ? nil : window.windowId) } label: {
-                            icon(window, windowCount: displayedWindows.count)
-                                .frame(maxWidth: .infinity, minHeight: compact || showsIdentity ? 34 : 54)
-                                .contentShape(Rectangle())
-                                .overlay(alignment: .topTrailing) {
-                                    WorkspaceSidebarTabBadge(appName: window.appName, bundlePath: window.appBundlePath,
-                                        model: badgeModel, compact: compact, windowId: window.windowId)
-                                        .fixedSize().padding(compact ? 2 : 3)
+                    let tiles = displayedWindows.filter { $0.state != .floating }
+                    let floats = displayedWindows.filter { $0.state == .floating }
+                    ZStack(alignment: .bottomTrailing) {
+                        HStack(spacing: 0) {
+                            ForEach(tiles) { window in
+                                if window.id != tiles.first?.id {
+                                    Rectangle().fill(.primary.opacity(0.14)).frame(width: 1, height: compact ? 14 : 24).accessibilityHidden(true)
                                 }
-                                .overlay(alignment: .bottomTrailing) {
-                                    WorkspaceSidebarTabAudioIndicator(window: window, size: compact ? 7 : 9)
-                                        .padding(compact ? 3 : 6)
-                                }
-                        }
-                        .buttonStyle(.plain)
-                        .background {
-                            if window.isFocused && isActiveHere {
-                                RoundedRectangle(cornerRadius: compact ? 6 : 10)
-                                    .fill(Color(nsColor: .controlBackgroundColor)).padding(compact ? 1 : 3)
+                                windowTile(window, windowCount: tiles.count, showsIdentity: showsIdentity,
+                                    summarizesWorkspace: summarizesWorkspace)
                             }
                         }
-                        .help(helpWithLocation(summarizesWorkspace ? workspace.displayName
-                            : (window.title.map { "\(window.appName) — \($0)" } ?? window.appName)))
-                        .accessibilityLabel(summarizesWorkspace ? workspace.displayName : (window.title ?? window.appName))
-                        .accessibilityHint(locationHelp ?? "")
-                        .workspaceSidebarBringHereAction(onBringHere)
-                        .accessibilityAddTraits(isActiveHere && (summarizesWorkspace ? workspace.isFocused : window.isFocused) ? .isSelected : [])
-                        .sidebarIdentityMenu(.tab(workspace.name, windowId: summarizesWorkspace ? nil : window.windowId))
+                        if !floats.isEmpty {
+                            HStack(spacing: tiles.isEmpty ? 0 : -4) {
+                                ForEach(floats) { window in
+                                    windowTile(window, windowCount: 1, showsIdentity: showsIdentity,
+                                        summarizesWorkspace: summarizesWorkspace,
+                                        tileHeight: tiles.isEmpty ? nil : (compact ? 24 : 32))
+                                        .frame(maxWidth: tiles.isEmpty ? .infinity : (compact ? 26 : 36))
+                                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 5))
+                                        .overlay(alignment: .bottomLeading) {
+                                            Image(systemName: "rectangle.on.rectangle").font(.system(size: compact ? 7 : 9))
+                                                .foregroundStyle(.secondary).padding(2).accessibilityLabel("Floating window")
+                                        }
+                                }
+                            }
+                            .padding(tiles.isEmpty ? 0 : 2)
+                        }
                     }
+                    .frame(maxWidth: .infinity, minHeight: compact || showsIdentity ? 34 : 54,
+                        maxHeight: compact || showsIdentity ? 34 : 54)
                 }
             }
         }

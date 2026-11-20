@@ -119,14 +119,20 @@ struct SavedWorkspaceRuntimeIdentityState {
 @MainActor
 struct WorkspaceSidebarTabUndoSnapshot {
     let organization = workspaceSidebarOrganizationStore.state
-    private let items = Workspace.all.map { WorkspaceSidebarUndoWorkspace($0) }
+    private let items: [WorkspaceSidebarUndoWorkspace]
     private let projects = winMuxWorkspaceState.projectsById
     private let viewports = winMuxWorkspaceState.monitorViewportsById
     private let monitorRects = monitors.map(\.rect)
     private let saved = savedWorkspaceStore.records
-    private let recentWindows = Workspace.all.flatMap { workspaceSidebarUndoWindowRecency($0) }
+    private let recentWindows: [Window]
     private let focusedWindow = focus.windowOrNil
     private let focusedWorkspace = focus.workspace
+
+    init() {
+        let content = Workspace.all.map { WorkspaceTabSnapshot($0) }
+        items = content.map { WorkspaceSidebarUndoWorkspace($0) }
+        recentWindows = content.flatMap { WorkspaceTabSnapshot.windowsByRecency(in: $0.workspace) }
+    }
 
     var windows: [WorkspaceSidebarUndoWindow] { items.flatMap { $0.windows } }
 
@@ -260,12 +266,6 @@ struct WorkspaceSidebarTabUndoSnapshot {
     }
 }
 
-@MainActor
-private func workspaceSidebarUndoWindowRecency(_ node: TreeNode) -> [Window] {
-    if let window = node as? Window { return [window] }
-    return node.childrenByMostRecentUse.flatMap { workspaceSidebarUndoWindowRecency($0) }
-}
-
 private struct WorkspaceSidebarUndoWorkspace: Equatable {
     let workspace: Workspace
     let projectId: WorkspaceProjectId
@@ -279,7 +279,8 @@ private struct WorkspaceSidebarUndoWorkspace: Equatable {
     let floating: [WorkspaceSidebarUndoWindow]
     let unconventional: [WorkspaceSidebarUndoWindow]
 
-    @MainActor init(_ workspace: Workspace) {
+    @MainActor init(_ content: WorkspaceTabSnapshot) {
+        let workspace = content.workspace
         self.workspace = workspace
         projectId = workspace.projectId
         namingStyle = workspace.namingStyle
@@ -288,12 +289,11 @@ private struct WorkspaceSidebarUndoWorkspace: Equatable {
         lastWindowClosed = workspace.lastWindowClosed
         preferredMonitorPoint = workspace.preferredMonitorPoint
         retainsEmptyAfterProjectMove = workspace.retainsEmptyAfterProjectMove
-        tree = .init(workspace.rootTilingContainer)
-        floating = workspace.floatingWindows.map { WorkspaceSidebarUndoWindow($0) }
-        unconventional = (workspaceOwnedMinimizedWindows(workspace) +
-            (workspace.existingMacOsNativeHiddenAppsWindowsContainer?.allLeafWindowsRecursive ?? []) +
-            (workspace.existingMacOsNativeFullscreenWindowsContainer?.allLeafWindowsRecursive ?? []))
-            .map { WorkspaceSidebarUndoWindow($0) }
+        tree = .init(content.root)
+        floating = content.floatingMembers.map { WorkspaceSidebarUndoWindow($0.window) }
+        unconventional = [.minimized, .hiddenWithApp, .nativeFullscreen].flatMap { state in
+            content.lifecycleMembers.filter { $0.state == state }.map { WorkspaceSidebarUndoWindow($0.window) }
+        }
     }
 
     var windows: [WorkspaceSidebarUndoWindow] { tree.windows + floating + unconventional }
@@ -342,13 +342,13 @@ private indirect enum WorkspaceSidebarUndoTree: Equatable {
         }
     }
 
-    @MainActor init(_ node: TreeNode) {
-        if let window = node as? Window { self = .window(.init(window)) }
-        else if let container = node as? TilingContainer {
-            self = .container(container.orientation, container.layout,
-                (container.parent as? TilingContainer).map { container.getWeight($0.orientation) } ?? 1,
-                container.children.map { Self($0) })
-        } else { preconditionFailure("A tab layout contains only windows and tiling containers") }
+    @MainActor init(_ container: WorkspaceTabLayoutContainer) {
+        self = .container(container.orientation, container.layout, container.weight, container.children.map { node in
+            switch node {
+                case .window(let leaf): .window(.init(leaf.window, weight: leaf.weight))
+                case .container(let nested): Self(nested)
+            }
+        })
     }
 
     var windows: [WorkspaceSidebarUndoWindow] {
@@ -383,10 +383,10 @@ struct WorkspaceSidebarUndoWindow: Equatable {
             lhs.noOuterGaps == rhs.noOuterGaps && lhs.layoutReason == rhs.layoutReason && lhs.floatingSize == rhs.floatingSize
     }
 
-    @MainActor init(_ window: Window) {
+    @MainActor init(_ window: Window, weight: CGFloat? = nil) {
         self.window = window
         originalParent = window.parent
-        weight = (window.parent as? TilingContainer).map { window.getWeight($0.orientation) } ?? 1
+        self.weight = weight ?? (window.parent as? TilingContainer).map { window.getWeight($0.orientation) } ?? 1
         isFullscreen = window.isFullscreen
         noOuterGaps = window.noOuterGapsInFullscreen
         layoutReason = window.layoutReason

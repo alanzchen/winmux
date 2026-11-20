@@ -1,15 +1,13 @@
-extension Window {
-    @MainActor
+extension WorkspaceTabMember {
     var agentLayoutDescription: String {
-        guard let parent else { return "unbound" }
-        return switch getChildParentRelation(child: self, parent: parent) {
-            case .floatingWindow: "floating"
-            case .tiling(let parent): "\(parent.orientation.rawValue)_\(parent.layout.rawValue)"
-            case .macosNativeFullscreenWindow: "macos_native_fullscreen"
-            case .macosNativeHiddenAppWindow: "macos_native_hidden_app"
-            case .macosNativeMinimizedWindow: "macos_native_minimized"
-            case .macosPopupWindow: "macos_popup"
-            case .rootTilingContainer, .shimContainerRelation: "internal"
+        switch state {
+            case .laidOut:
+                guard let tilingLayout else { preconditionFailure("A tiled member must capture its container layout") }
+                return "\(tilingLayout.orientation.rawValue)_\(tilingLayout.layout.rawValue)"
+            case .floating: return "floating"
+            case .nativeFullscreen: return "macos_native_fullscreen"
+            case .hiddenWithApp: return "macos_native_hidden_app"
+            case .minimized, .notPresentable: return "macos_native_minimized"
         }
     }
 }

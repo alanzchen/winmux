@@ -44,15 +44,20 @@ private func makeWorkspaceSidebarWorkspaceViewModel(
     availableMonitors: [Monitor],
     runningApps: [String: [SavedRunningApp]]?,
 ) async -> WorkspaceSidebarWorkspaceViewModel {
+    let content = WorkspaceTabSnapshot(workspace)
     let workspaceMonitor = workspace.workspaceMonitor
-    let isPinned = workspaceSidebarOrganizationStore.state.workspaces[workspace.name]?.isFavorite == true
+    let appearance = workspaceSidebarOrganizationStore.state.workspaces[workspace.name] ?? .init()
+    let isPinned = appearance.isFavorite
+    let savedState = runningApps.flatMap { workspaceSidebarSavedState(for: workspace, runningApps: $0) }
+    let isLeftEmpty = config.usesBrowserTabs && !workspaceTabIsShown(workspace)
+    let recallsWindows = isPinned && workspaceSidebarPinRecallsWindows(workspace)
     var lentWindow: WorkspaceSidebarWindowViewModel?
-    if isPinned, let lent = workspaceSidebarLentWindow(of: workspace), !lent.isNotPresentable {
+    if isPinned, let member = content.lentMember, !member.window.isNotPresentable {
+        let lent = member.window
         lentWindow = await makeWorkspaceSidebarWindowViewModel(for: lent, workspaceName: lent.nodeWorkspace?.name ?? workspace.name,
-            currentFocus: currentFocus)
+            currentFocus: currentFocus, state: member.state)
     }
-    let (items, associated) = workspaceSidebarSeparatingAssociatedWindows(
-        await buildWorkspaceSidebarItems(for: workspace, currentFocus: currentFocus), in: workspace, isPinned: isPinned)
+    let (items, associated) = await buildWorkspaceSidebarItems(for: content, currentFocus: currentFocus)
     var viewModel = WorkspaceSidebarWorkspaceViewModel(
         name: workspace.name,
         projectId: workspace.projectId,
@@ -64,10 +69,10 @@ private func makeWorkspaceSidebarWorkspaceViewModel(
         isFocused: currentFocus.workspace == workspace,
         isVisible: workspace.isVisible,
         items: items,
-        apps: buildWorkspaceSidebarAppSummaries(for: workspace),
-        savedState: runningApps.flatMap { workspaceSidebarSavedState(for: workspace, runningApps: $0) },
-        appearance: workspaceSidebarOrganizationStore.state.workspaces[workspace.name] ?? .init(),
-        isLeftEmpty: config.usesBrowserTabs && !workspaceTabIsShown(workspace),
+        apps: buildWorkspaceSidebarAppSummaries(content),
+        savedState: savedState,
+        appearance: appearance,
+        isLeftEmpty: isLeftEmpty,
         knownDisplay: availableMonitors.count > 1 && config.workspaceSidebar.sharesPinnedTabs && isPinned
             ? workspaceSidebarTabKnownDisplay(workspace, among: availableMonitors) : nil,
         // Kept whether or not pins are shared: turning sharing on shows the pins before their
@@ -76,8 +81,8 @@ private func makeWorkspaceSidebarWorkspaceViewModel(
         heldMonitorScopeId: availableMonitors.count > 1 ? workspaceSidebarTabHeldMonitorScopeId(workspace) : nil,
         displayMoveBlock: availableMonitors.count > 1 ? workspaceSidebarTabDisplayMoveBlock(workspace) : nil,
         lentWindow: lentWindow,
-        recallsWindows: isPinned && workspaceSidebarPinRecallsWindows(workspace),
-        offscreenMembers: workspaceSidebarOffscreenMembers(workspace),
+        recallsWindows: recallsWindows,
+        offscreenMembers: workspaceSidebarOffscreenMembers(content),
     )
     viewModel.associatedWindows = associated
     if isPinned, config.usesBrowserTabs { viewModel.pinHome = workspaceSidebarPinHome(for: workspace) }
@@ -87,7 +92,12 @@ private func makeWorkspaceSidebarWorkspaceViewModel(
 /// The tab's windows it doesn't show now, for its row and its Close.
 @MainActor
 func workspaceSidebarOffscreenMembers(_ workspace: Workspace) -> [WorkspaceSidebarOffscreenMember] {
-    workspaceTabMembers(workspace).filter(\.state.isOffscreen).map { member in
+    workspaceSidebarOffscreenMembers(WorkspaceTabSnapshot(workspace))
+}
+
+@MainActor
+private func workspaceSidebarOffscreenMembers(_ content: WorkspaceTabSnapshot) -> [WorkspaceSidebarOffscreenMember] {
+    content.lifecycleMembers.filter(\.state.isOffscreen).map { member in
         WorkspaceSidebarOffscreenMember(windowId: member.window.windowId,
             appName: member.window.app.name ?? member.window.app.rawAppBundleId ?? "Unknown App",
             appBundleId: member.window.app.rawAppBundleId, appBundlePath: member.window.app.bundlePath, title: cachedWindowTitle(for: member.window),

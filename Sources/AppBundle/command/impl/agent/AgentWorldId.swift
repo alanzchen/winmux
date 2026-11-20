@@ -8,47 +8,50 @@ func currentAgentWorldId() -> String {
     for workspace in workspaces {
         lines += agentWorldLines(for: workspace)
     }
-    for window in macosMinimizedWindowsContainer.children.filterIsInstance(of: Window.self).sortedBy(\.windowId) {
-        lines.append(agentMinimizedWorldLine(for: window))
+    for member in WorkspaceTabSnapshot.minimizedMembers.sortedBy({ $0.window.windowId }) {
+        lines.append(agentMinimizedWorldLine(for: member))
     }
     return stableAgentHash(lines.joined(separator: "\n"))
 }
 
 @MainActor
 private func agentWorldLines(for workspace: Workspace) -> [String] {
+    let content = WorkspaceTabSnapshot(workspace)
     var lines = ["workspace|\(workspace.name)|visible:\(workspace.isVisible)|monitor:\(workspace.workspaceMonitor.monitorId_oneBased?.description ?? "nil")"]
-    lines.append(contentsOf: workspace.rootTilingContainer.agentWorldLines(prefix: "tree|\(workspace.name)"))
-    for window in workspace.allLeafWindowsRecursive.sortedBy(\.windowId) {
-        lines.append(agentWorldLine(for: window))
+    lines.append(contentsOf: content.root.agentWorldLines(prefix: "tree|\(workspace.name)"))
+    for member in content.treeMembers.sortedBy({ $0.window.windowId }) {
+        lines.append(agentWorldLine(for: member))
     }
-    for group in workspace.rootTilingContainer.allAgentTabGroupsRecursive.sortedBy({ agentTabGroupId($0) }) {
+    for group in content.root.agentTabGroups.map(\.source).sortedBy({ agentTabGroupId($0) }) {
         lines.append(agentWorldLine(for: group))
     }
     return lines
 }
 
 @MainActor
-private func agentWorldLine(for window: Window) -> String {
-    [
+private func agentWorldLine(for member: WorkspaceTabMember) -> String {
+    let window = member.window
+    return [
         "window",
         window.windowId.description,
         window.nodeWorkspace?.name ?? "nil",
         window.agentPaneId ?? "nil",
         window.nearestWindowTabGroup.map(agentTabGroupId) ?? "nil",
-        window.agentLayoutDescription,
+        member.agentLayoutDescription,
         "fullscreen:\(window.isFullscreen)",
         "noOuterGaps:\(window.noOuterGapsInFullscreen)",
     ].joined(separator: "|")
 }
 
 @MainActor
-private func agentMinimizedWorldLine(for window: Window) -> String {
+private func agentMinimizedWorldLine(for member: WorkspaceTabMember) -> String {
+    let window = member.window
     let origin = switch window.layoutReason {
         case .standard: "standard"
         case .macos(let previousParentKind, let previousWorkspaceName):
             "\(previousParentKind.rawValue):\(previousWorkspaceName ?? "nil")"
     }
-    return agentWorldLine(for: window) + "|origin:\(origin)"
+    return agentWorldLine(for: member) + "|origin:\(origin)"
 }
 
 @MainActor

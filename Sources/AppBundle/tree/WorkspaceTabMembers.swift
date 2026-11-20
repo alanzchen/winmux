@@ -1,18 +1,20 @@
 import AppKit
+import Common
 
 /// Where a window that belongs to a tab is now. Laid out and floating windows are on screen; the
 /// others still belong to the tab, which keeps its place for them, but aren't shown in it.
-enum WorkspaceTabMemberState: String, Equatable, Sendable {
+enum WorkspaceTabMemberState: String, Hashable, Sendable {
     case laidOut
     case floating
     case hiddenWithApp
     case nativeFullscreen
     case minimized
+    case notPresentable
 
     var isOffscreen: Bool {
         switch self {
             case .laidOut, .floating: false
-            case .hiddenWithApp, .nativeFullscreen, .minimized: true
+            case .hiddenWithApp, .nativeFullscreen, .minimized, .notPresentable: true
         }
     }
 }
@@ -20,6 +22,11 @@ enum WorkspaceTabMemberState: String, Equatable, Sendable {
 struct WorkspaceTabMember {
     let window: Window
     let state: WorkspaceTabMemberState
+    let tilingLayout: (orientation: Orientation, layout: Layout)?
+    let membership: WorkspaceTabMembership
+    let attachment: WorkspaceTabAttachment?
+    let parking: CornerParkOutcome?
+    let pinHomeName: String?
 }
 
 /// Every window that belongs to `tab`, each once, in a stable order: laid out, floating, hidden with
@@ -28,19 +35,7 @@ struct WorkspaceTabMember {
 /// (`workspaceHasLifecycleWindows`), and closing it means all of them.
 @MainActor
 func workspaceTabMembers(_ tab: Workspace) -> [WorkspaceTabMember] {
-    var seen: Set<UInt32> = []
-    var members: [WorkspaceTabMember] = []
-    func add(_ windows: [Window], _ state: WorkspaceTabMemberState) {
-        for window in windows where window.isBound && seen.insert(window.windowId).inserted {
-            members.append(WorkspaceTabMember(window: window, state: state))
-        }
-    }
-    add(tab.rootTilingContainer.allLeafWindowsRecursive, .laidOut)
-    add(tab.floatingWindows, .floating)
-    add(tab.existingMacOsNativeHiddenAppsWindowsContainer?.allLeafWindowsRecursive ?? [], .hiddenWithApp)
-    add(tab.existingMacOsNativeFullscreenWindowsContainer?.allLeafWindowsRecursive ?? [], .nativeFullscreen)
-    add(workspaceOwnedMinimizedWindows(tab), .minimized)
-    return members
+    WorkspaceTabSnapshot(tab).lifecycleMembers
 }
 
 /// Of a tab's `members`, its recognized auxiliary windows, in any state, whether listed under their
@@ -48,7 +43,7 @@ func workspaceTabMembers(_ tab: Workspace) -> [WorkspaceTabMember] {
 /// that asks to be saved stops it before anything else closes.
 @MainActor
 func workspaceTabAuxiliaryMembers(_ members: [WorkspaceTabMember]) -> [WorkspaceTabMember] {
-    members.filter { AuxiliaryWindowRegistry.shared.role(of: $0.window) != nil }
+    members.filter { $0.attachment != nil }
 }
 
 /// Whether `window` belongs to `tab` now, in whichever state.
@@ -109,7 +104,7 @@ func showWorkspaceSidebarOffscreenTab(_ name: String, targetMonitorScopeId: Stri
                 }
             case .nativeFullscreen:
                 if !window.focusWindow() { _ = tab.focusWorkspace() }
-            case .laidOut, .floating:
+            case .laidOut, .floating, .notPresentable:
                 break
         }
         await updateWorkspaceSidebarModel()
@@ -125,7 +120,7 @@ enum WorkspaceTabCloseConsequence: Equatable {
 
     init(_ state: WorkspaceTabMemberState) {
         self = switch state {
-            case .laidOut, .floating: .onScreen
+            case .laidOut, .floating, .notPresentable: .onScreen
             case .hiddenWithApp: .hiddenWithApp
             case .minimized: .minimized
             case .nativeFullscreen: .nativeFullscreen
@@ -162,7 +157,7 @@ struct WorkspaceTabClosePlan {
     private var auxiliaryLine: String? {
         var counts: [(kind: String, count: Int)] = []
         for member in auxiliary {
-            guard let role = AuxiliaryWindowRegistry.shared.role(of: member.window) else { continue }
+            guard let role = member.attachment?.role else { continue }
             let kind = workspaceSidebarAuxiliaryWindowKind(role, appName: member.window.app.name ?? "An app")
             if let index = counts.firstIndex(where: { $0.kind == kind }) { counts[index].count += 1 } else { counts.append((kind, 1)) }
         }
@@ -200,7 +195,7 @@ struct WorkspaceTabClosePlan {
                     case .hiddenWithApp: "• \(app): hidden with its app"
                     case .minimized: "• \(app): minimized"
                     case .nativeFullscreen: "• \(app): in full screen"
-                    case .laidOut, .floating: "• \(app)"
+                    case .laidOut, .floating, .notPresentable: "• \(app)"
                 }
             }
             let more = away.count > 8 ? ["• and \(away.count - 8) more"] : []
@@ -534,7 +529,7 @@ private func showWorkspaceTabCloseStopped(_ window: Window, in tab: Workspace, o
         case .hiddenWithApp: ", hidden with its app,"
         case .minimized: ", minimized,"
         case .nativeFullscreen: ", in full screen,"
-        case .laidOut, .floating: ""
+        case .laidOut, .floating, .notPresentable: ""
     }
     let body = switch outcome {
         case .unknown: "WinMux couldn't tell whether \(app) closed its window\(place) so it stopped there."

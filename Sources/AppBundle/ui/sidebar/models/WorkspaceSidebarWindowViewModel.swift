@@ -6,6 +6,7 @@ struct WorkspaceSidebarWindowViewModel: Hashable, Identifiable {
     let appBundlePath: String?
     let title: String?
     let isFocused: Bool
+    var state: WorkspaceTabMemberState = .laidOut
 
     var id: UInt32 { windowId }
 }

@@ -5,8 +5,7 @@ func orderedUserFacingWorkspaces(in projectId: WorkspaceProjectId) -> [Workspace
 
 @MainActor
 func workspaceHasSidebarVisibleWindows(_ workspace: Workspace) -> Bool {
-    !workspace.rootTilingContainer.isEffectivelyEmpty ||
-        !workspace.floatingWindows.isEmpty
+    WorkspaceTabSnapshot.hasPresentMembers(workspace)
 }
 
 @MainActor
@@ -21,7 +20,7 @@ func workspaceOwnedMinimizedWindows(_ workspace: Workspace) -> [Window] {
 
 @MainActor
 func workspaceHasLifecycleWindows(_ workspace: Workspace) -> Bool {
-    !workspace.isEffectivelyEmpty || !workspaceOwnedMinimizedWindows(workspace).isEmpty
+    WorkspaceTabSnapshot.hasLifecycleMembers(workspace)
 }
 
 /// Tabs mode: whether a tab is shown. The one rule for the list and everything that goes by it:

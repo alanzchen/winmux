@@ -87,7 +87,7 @@ func workspaceSidebarPinHome(for workspace: Workspace) -> WorkspaceSidebarPinHom
 /// The pin's one window, if it has exactly one, as the reading needs it.
 @MainActor
 func workspaceSidebarPinHomeWindow(_ workspace: Workspace) -> Window? {
-    let windows = workspace.allLeafWindowsRecursive
+    let windows = WorkspaceTabSnapshot(workspace).treeMembers.map(\.window)
     return windows.count == 1 ? windows.first : nil
 }
 

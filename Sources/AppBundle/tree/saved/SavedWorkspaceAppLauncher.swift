@@ -9,22 +9,22 @@ func missingSavedWorkspaceApps(
     workspaceNames: [String]?,
     runningApps: [String: [SavedRunningApp]]? = nil,
 ) -> [(bundleId: String, appName: String?, bundlePath: String?)] {
+    missingSavedWorkspaceAppSlots(workspaceNames: workspaceNames, runningApps: runningApps).map {
+        ($0.slot.bundleId, $0.slot.appName, $0.slot.bundlePath)
+    }
+}
+
+@MainActor
+private func missingSavedWorkspaceAppSlots(workspaceNames: [String]?, runningApps: [String: [SavedRunningApp]]? = nil) -> [SavedSlotLocation] {
     let runningApps = runningApps ?? savedWorkspaceRuntime.environment.runningApps()
     let records = workspaceNames.map { $0.compactMap(savedWorkspaceStore.record(named:)) } ?? savedWorkspaceStore.records
+    let claims = savedWorkspaceRestoreSlots(in: records, explicitlyOpening: Set(workspaceNames ?? []))
     var seen: Set<String> = []
-    var result: [(bundleId: String, appName: String?, bundlePath: String?)] = []
-    for record in records {
-        for slot in record.layout.allSlots {
-            guard runningApps[slot.bundleId] == nil,
-                  slot.bundleId != aeroSpaceAppId,
-                  slot.bundleId != lockScreenAppBundleId,
-                  !savedWorkspaceAppIsHelper(bundlePath: slot.bundlePath),
-                  seen.insert(slot.bundleId).inserted
-            else { continue }
-            result.append((slot.bundleId, slot.appName, slot.bundlePath))
-        }
+    return claims.filter { location in
+        let slot = location.slot
+        return runningApps[slot.bundleId] == nil && slot.bundleId != aeroSpaceAppId && slot.bundleId != lockScreenAppBundleId &&
+            !savedWorkspaceAppIsHelper(bundlePath: slot.bundlePath) && seen.insert(slot.bundleId).inserted
     }
-    return result
 }
 
 func savedWorkspaceAppDisplayName(bundleId: String, appName: String?, bundlePath: String?) -> String {
@@ -48,7 +48,7 @@ func openMissingSavedWorkspaceApps(workspaceNames: [String]?) async -> SavedWork
     let runtime = savedWorkspaceRuntime
     let now = runtime.now
     runtime.manualArmUntilByBundleId = runtime.manualArmUntilByBundleId.filter { $0.value > now }
-    let apps = missingSavedWorkspaceApps(workspaceNames: workspaceNames)
+    let apps = missingSavedWorkspaceAppSlots(workspaceNames: workspaceNames)
     // A few at a time, each worker starting the next app as soon as its own opened: one slow
     // app doesn't hold back the others, and at login they don't all compete with the apps
     // macOS reopens.
@@ -60,7 +60,9 @@ func openMissingSavedWorkspaceApps(workspaceNames: [String]?) async -> SavedWork
             while nextIndex < apps.count {
                 let index = nextIndex
                 nextIndex += 1
-                let app = apps[index]
+                let location = apps[index]
+                let app = location.slot
+                if workspaceNames != nil { runtime.preferRestoring(bundleId: app.bundleId, into: location.workspaceName) }
                 // Armed as it starts, so waiting for earlier launches doesn't eat into its time.
                 runtime.manualArmUntilByBundleId[app.bundleId] = runtime.now.addingTimeInterval(SavedWorkspaceTiming.restoreWindow)
                 didOpen[index] = await openApplication(app.bundleId, app.bundlePath)
@@ -71,7 +73,8 @@ func openMissingSavedWorkspaceApps(workspaceNames: [String]?) async -> SavedWork
         await worker.value
     }
     var result = SavedWorkspaceAppLaunchResult()
-    for (app, opened) in zip(apps, didOpen) {
+    for (location, opened) in zip(apps, didOpen) {
+        let app = location.slot
         let name = savedWorkspaceAppDisplayName(bundleId: app.bundleId, appName: app.appName, bundlePath: app.bundlePath)
         if opened == true {
             result.opened.append(name)

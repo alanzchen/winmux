@@ -1,56 +1,34 @@
 @MainActor
-func buildWorkspaceSidebarItems(
-    from node: TreeNode,
+func buildWorkspaceSidebarContainerItems(
+    _ container: WorkspaceTabLayoutContainer,
+    windows: [UInt32: WorkspaceSidebarWindowViewModel],
     workspaceName: String,
     currentFocus: LiveFocus,
-) async -> [WorkspaceSidebarItemViewModel] {
-    switch node.nodeCases {
-        case .window(let window):
-            guard window.isBound else { return [] }
-            return [.init(kind: .window(await makeWorkspaceSidebarWindowViewModel(
-                for: window,
-                workspaceName: workspaceName,
-                currentFocus: currentFocus,
-            )))]
-        case .tilingContainer(let container):
-            return await buildWorkspaceSidebarContainerItems(
-                container,
-                workspaceName: workspaceName,
-                currentFocus: currentFocus,
-            )
-        case .workspace(let workspace):
-            return await buildWorkspaceSidebarItems(
-                from: workspace.rootTilingContainer,
-                workspaceName: workspaceName,
-                currentFocus: currentFocus,
-            )
-        case .macosMinimizedWindowsContainer, .macosFullscreenWindowsContainer,
-             .macosPopupWindowsContainer, .macosHiddenAppsWindowsContainer:
-            return []
+) -> [WorkspaceSidebarItemViewModel] {
+    if container.layout == .tabGroup, container.children.count > 1 {
+        return makeWorkspaceSidebarTabGroupViewModel(for: container, windows: windows,
+            workspaceName: workspaceName, currentFocus: currentFocus).map { [.init(kind: .tabGroup($0))] } ?? []
+    }
+    return container.children.flatMap { child -> [WorkspaceSidebarItemViewModel] in
+        switch child {
+            case .window(let leaf): return windows[leaf.window.windowId].map { [WorkspaceSidebarItemViewModel(kind: .window($0))] } ?? []
+            case .container(let nested): return buildWorkspaceSidebarContainerItems(nested, windows: windows,
+                workspaceName: workspaceName, currentFocus: currentFocus)
+        }
     }
 }
 
-@MainActor
-func buildWorkspaceSidebarContainerItems(
-    _ container: TilingContainer,
-    workspaceName: String,
-    currentFocus: LiveFocus,
-) async -> [WorkspaceSidebarItemViewModel] {
-    if container.layout == .tabGroup, container.children.count > 1 {
-        let group = await makeWorkspaceSidebarTabGroupViewModel(
-            for: container,
-            workspaceName: workspaceName,
-            currentFocus: currentFocus,
-        )
-        return group.map { [.init(kind: .tabGroup($0))] } ?? []
+extension WorkspaceTabLayoutContainer {
+    /// Rendering projection only: compact stacks need representatives, Tabs mode lists every member.
+    @MainActor var sidebarWindows: [Window] {
+        if layout == .tabGroup, children.count > 1 {
+            return config.workspaceSidebar.usesTabsList ? windows : tabRepresentatives
+        }
+        return children.flatMap { child in
+            switch child {
+                case .window(let leaf): [leaf.window]
+                case .container(let nested): nested.sidebarWindows
+            }
+        }
     }
-    var items: [WorkspaceSidebarItemViewModel] = []
-    for child in container.children {
-        items.append(contentsOf: await buildWorkspaceSidebarItems(
-            from: child,
-            workspaceName: workspaceName,
-            currentFocus: currentFocus,
-        ))
-    }
-    return items
 }

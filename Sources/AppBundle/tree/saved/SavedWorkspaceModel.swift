@@ -1,14 +1,14 @@
 import AppKit
 import Common
 
-let savedWorkspacesFileVersion = 1
+let savedWorkspacesFileVersion = 2
 let savedWorkspaceMaxSlotsPerWorkspace = 64
 let savedWorkspaceMaxTitleLength = 256
 
 /// On-disk form of every saved workspace. Records are kept in presentation order.
 ///
-/// Every field except the identities decodes with a default, so adding a field never needs a
-/// version bump. Bump `savedWorkspacesFileVersion` only for changes an older build would misread.
+/// Additive metadata has decoding defaults. Ownership semantics require a version and encoding
+/// boundary: version 2 stores layout as `content`, so older readers see no restoration claims.
 struct SavedWorkspacesFile: Codable, Equatable, Sendable {
     var version: Int = savedWorkspacesFileVersion
     var nextVisibilitySequence: Int = 1
@@ -90,9 +90,11 @@ struct SavedWorkspaceRecord: Codable, Equatable, Sendable {
         case isPinnedToDisplay
         case keepWhenEmpty
         case lastVisibleSequence
-        case layout
+        case layout = "content"
         case launchApps
     }
+
+    private enum LegacyCodingKeys: String, CodingKey { case layout }
 
     init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -105,7 +107,11 @@ struct SavedWorkspaceRecord: Codable, Equatable, Sendable {
         isPinnedToDisplay = try container.decodeIfPresent(Bool.self, forKey: .isPinnedToDisplay) ?? false
         keepWhenEmpty = try container.decodeIfPresent(Bool.self, forKey: .keepWhenEmpty)
         lastVisibleSequence = try container.decodeIfPresent(Int.self, forKey: .lastVisibleSequence)
-        layout = try container.decodeIfPresent(SavedWorkspaceLayout.self, forKey: .layout) ?? .init()
+        // A downgraded v1 reader is read-only and cannot see this v2 ownership-bearing field.
+        // Re-upgrading reads it intact; pre-v2 layouts remain valid migration inputs.
+        layout = try container.decodeIfPresent(SavedWorkspaceLayout.self, forKey: .layout)
+            ?? decoder.container(keyedBy: LegacyCodingKeys.self).decodeIfPresent(SavedWorkspaceLayout.self, forKey: .layout)
+            ?? .init()
         launchApps = try container.decodeIfPresent([SavedLaunchApp].self, forKey: .launchApps)
     }
 }
@@ -331,6 +337,8 @@ struct SavedWindowSlot: Codable, Equatable, Sendable {
     var isMostRecentInParent: Bool = false
     var lastWindowId: UInt32?
     var lastPid: Int32?
+    /// Nil is resident (including older files). A loan retains a resource slot, not a live claim.
+    var membership: WorkspaceTabMembership? = nil
 
     init(
         id: String = newSavedWindowSlotId(),
@@ -367,6 +375,7 @@ struct SavedWindowSlot: Codable, Equatable, Sendable {
         case isMostRecentInParent
         case lastWindowId
         case lastPid
+        case membership
     }
 
     init(from decoder: any Decoder) throws {
@@ -381,6 +390,7 @@ struct SavedWindowSlot: Codable, Equatable, Sendable {
         isMostRecentInParent = try container.decodeIfPresent(Bool.self, forKey: .isMostRecentInParent) ?? false
         lastWindowId = try container.decodeIfPresent(UInt32.self, forKey: .lastWindowId)
         lastPid = try container.decodeIfPresent(Int32.self, forKey: .lastPid)
+        membership = try container.decodeIfPresent(WorkspaceTabMembership.self, forKey: .membership)
     }
 }
 

@@ -46,10 +46,17 @@ private func workspaceSidebarTabSearchSelections(
 ) -> [WorkspaceSidebarSearchSelection] {
     let presentation = workspaceSidebarTabPresentation(workspace)
     if case .split = presentation {
-        return splitSelections(workspace, browserTabs: browserTabs, query: query, projects: projects, collections: collections)
+        return splitSelections(workspace, windows: workspaceSidebarPinnedTabWindows(workspace), browserTabs: browserTabs, query: query, projects: projects, collections: collections)
     }
     if case .multiple = presentation {
-        return splitSelections(workspace, browserTabs: browserTabs, query: query, projects: projects, collections: collections)
+        return splitSelections(workspace, windows: workspaceSidebarPinnedTabWindows(workspace), browserTabs: browserTabs, query: query, projects: projects, collections: collections)
+    }
+    if case .mixed(let tiled, let floating) = presentation {
+        return splitSelections(workspace, windows: tiled, browserTabs: browserTabs, query: query,
+            projects: projects, collections: collections) + floating.flatMap { window in
+            splitSelections(workspace, windows: [window], browserTabs: browserTabs, query: query,
+                projects: projects, collections: collections)
+        }
     }
     let itemSelections = workspace.items.flatMap { item -> [WorkspaceSidebarSearchSelection] in
         switch item.kind {
@@ -73,10 +80,9 @@ private func workspaceSidebarTabSearchSelections(
     return workspace.associatedWindows.isEmpty ? [.workspace(workspace.name)] : []
 }
 
-private func splitSelections(_ workspace: WorkspaceSidebarWorkspaceViewModel,
+private func splitSelections(_ workspace: WorkspaceSidebarWorkspaceViewModel, windows: [WorkspaceSidebarWindowViewModel],
     browserTabs: [UInt32: BrowserWindowTabs], query: String,
     projects: [WorkspaceSidebarProjectViewModel], collections: [WorkspaceTabCollection]) -> [WorkspaceSidebarSearchSelection] {
-    let windows = workspaceSidebarPinnedTabWindows(workspace)
     let context = workspaceSidebarBrowserSearchContext(workspace, projects: projects, collections: collections)
     var headers: [WorkspaceSidebarSearchSelection] = []
     var children: [WorkspaceSidebarSearchSelection] = []

@@ -6,7 +6,7 @@ struct AgentWindowTarget: Decodable {
     func resolveWindow() async throws -> Window? {
         if let windowId { return Window.get(byId: windowId) }
         guard let match else { return nil }
-        for window in Workspace.all.flatMap(\.allLeafWindowsRecursive) {
+        for window in Workspace.all.lazy.flatMap({ WorkspaceTabSnapshot($0).treeMembers.map(\.window) }) {
             if try await match.matches(window) {
                 return window
             }

@@ -13,21 +13,7 @@ struct FrozenContainer: Codable, Sendable {
     let weight: CGFloat
 
     @MainActor init(_ container: TilingContainer) {
-        children = container.children.map {
-            switch $0.nodeCases {
-                case .window(let w): .window(FrozenWindow(w))
-                case .tilingContainer(let c): .container(FrozenContainer(c))
-                case .workspace,
-                     .macosMinimizedWindowsContainer,
-                     .macosHiddenAppsWindowsContainer,
-                     .macosFullscreenWindowsContainer,
-                     .macosPopupWindowsContainer:
-                    illegalChildParentRelation(child: $0, parent: container)
-            }
-        }
-        layout = container.layout
-        orientation = container.orientation
-        weight = getWeightOrNil(container) ?? 1
+        self.init(content: WorkspaceTabSnapshot.layout(of: container)) // WINMUX-HOOK(tabContent)
     }
 }
 

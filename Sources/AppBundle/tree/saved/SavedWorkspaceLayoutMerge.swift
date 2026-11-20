@@ -67,7 +67,7 @@ func mergeSavedLayout(
         let normalizedProjection = normalizeSavedLayout(projection, context.normalization)
         let normalizedLive = normalizeSavedLayout(live.root, context.normalization)
         if savedLayoutShapeEqual(.container(normalizedProjection), .container(normalizedLive)) {
-            root = copyLiveWeights(copyLiveSlotData(kept, liveSlotById), liveBySlotSet: containersBySlotSet(live.root), waiting: waiting)
+            root = copyLiveWeights(copySavedSlotData(kept, liveSlotById), liveBySlotSet: containersBySlotSet(live.root), waiting: waiting)
         } else {
             root = reinsertWaitingUnits(kept: kept, live: live.root, waiting: waiting)
         }
@@ -190,20 +190,23 @@ private func slotIds(_ node: SavedLayoutNode, excluding: Set<String> = []) -> Se
 /// Copies titles and window identities of live slots. Weights and the most recent child are
 /// handled separately because they are relative to the live parent, which may be a different
 /// container.
-private func copyLiveSlotData(_ container: SavedLayoutContainer, _ liveSlotById: [String: SavedWindowSlot]) -> SavedLayoutContainer {
+func copySavedSlotData(_ container: SavedLayoutContainer, _ liveSlotById: [String: SavedWindowSlot]) -> SavedLayoutContainer {
     var result = container
     result.children = container.children.map { child in
         switch child {
-            case .slot(let slot):
-                guard var live = liveSlotById[slot.id] else { return child }
-                live.weight = slot.weight
-                live.isMostRecentInParent = slot.isMostRecentInParent
-                return .slot(live)
+            case .slot(let slot): return .slot(copySavedSlotData(slot, liveSlotById))
             case .container(let nested):
-                return .container(copyLiveSlotData(nested, liveSlotById))
+                return .container(copySavedSlotData(nested, liveSlotById))
         }
     }
     return result
+}
+
+func copySavedSlotData(_ slot: SavedWindowSlot, _ replacements: [String: SavedWindowSlot]) -> SavedWindowSlot {
+    guard var replacement = replacements[slot.id] else { return slot }
+    replacement.weight = slot.weight
+    replacement.isMostRecentInParent = slot.isMostRecentInParent
+    return replacement
 }
 
 /// Live containers by the slots they hold, outermost first. Without flattening, a chain of

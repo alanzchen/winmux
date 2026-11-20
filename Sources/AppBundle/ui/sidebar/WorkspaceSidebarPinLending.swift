@@ -72,10 +72,7 @@ func workspaceSidebarIsPinned(_ workspace: Workspace) -> Bool {
 /// One set aside as not presentable isn't: the pin keeps it on record, to lend it again once it's back. Nor is one
 /// while the pin holds a window of its own (taken in meanwhile).
 func workspaceSidebarLentWindow(of pin: Workspace) -> Window? {
-    guard config.usesBrowserTabs, let appearance = workspaceSidebarOrganizationStore.state.workspaces[pin.name],
-          appearance.isFavorite, let window = appearance.lentWindow?.live, window.nodeWorkspace !== pin,
-          !window.isSetAsideAsNotPresentable, workspaceSidebarPinResourceWindows(pin).isEmpty else { return nil }
-    return window
+    WorkspaceTabSnapshot(pin).lentMember?.window
 }
 
 /// What a move does with a pin it's made with.
@@ -112,23 +109,24 @@ enum WorkspaceSidebarPinSplitRole: Equatable {
 /// those opened from one of them, a draft or a dialog, which are still the pin's to focus and close.
 @MainActor
 func workspaceSidebarPinResourceWindows(_ pin: Workspace) -> [Window] {
-    pin.allLeafWindowsRecursive.filter { !isAuxiliaryWindowOfOpenParent($0) }
+    WorkspaceTabSnapshot(pin).pinResources.map(\.window)
 }
 
 @MainActor
 func workspaceSidebarPinSplitRole(_ pin: Workspace) -> WorkspaceSidebarPinSplitRole {
     let state = workspaceSidebarOrganizationStore.state
     if state.workspaces[pin.name]?.composition != nil { return .composition }
-    let windows = workspaceSidebarPinResourceWindows(pin)
-    if windows.isEmpty { return workspaceSidebarLentWindow(of: pin) == nil ? .empty : .refuses }
-    let tiled = windows.filter { $0.parent is TilingContainer }
+    let content = WorkspaceTabSnapshot(pin)
+    let members = content.pinResources
+    if members.isEmpty { return content.lentMember == nil ? .empty : .refuses }
+    let tiled = members.filter { $0.state == .laidOut }
     // A pinned split from before they were recorded, until it is: then only the record says.
     if state.pinnedSplitsRecorded != true, tiled.count > 1 { return .composition }
-    guard windows.count == 1, let window = windows.first else { return .refuses }
-    return switch window.parent {
-        case is TilingContainer: .single(window)
-        case is MacosHiddenAppsWindowsContainer: .hidden(window)
-        case is MacosFullscreenWindowsContainer: .fullscreen(window)
+    guard members.count == 1, let member = members.first else { return .refuses }
+    return switch member.state {
+        case .laidOut: .single(member.window)
+        case .hiddenWithApp: .hidden(member.window)
+        case .nativeFullscreen: .fullscreen(member.window)
         default: .refuses
     }
 }
@@ -354,7 +352,7 @@ private func workspaceSidebarPinRefusal(_ pin: Workspace, taking count: Int) -> 
 @MainActor
 func workspaceSidebarPinLayoutRefusal(_ windows: [Window], for target: Workspace) -> WorkspaceSidebarPinPolicyRefusal? {
     guard config.usesBrowserTabs, workspaceSidebarIsPinned(target) else { return nil }
-    let own = Set(target.allLeafWindowsRecursive.map(\.windowId))
+    let own = Set(WorkspaceTabSnapshot(target).treeMembers.map { $0.window.windowId })
     guard windows.contains(where: { !own.contains($0.windowId) }) else { return nil }
     switch workspaceSidebarPinSplitRole(target) {
         // A pinned split may be laid out with other windows, and stays one.
@@ -385,8 +383,9 @@ func workspaceSidebarNewComposition(for workspace: Workspace) -> WorkspaceSideba
 
 @MainActor
 private func workspaceSidebarCompositionOfTree(_ workspace: Workspace) -> WorkspaceSidebarPinComposition? {
-    guard workspace.rootTilingContainer.allLeafWindowsRecursive.count > 1 else { return nil }
-    return .init(layout: workspaceSidebarCompositionLayout(of: workspace.rootTilingContainer, weight: 1))
+    let layout = WorkspaceTabSnapshot.layout(of: workspace.rootTilingContainer)
+    guard layout.windows.count > 1 else { return nil }
+    return .init(layout: workspaceSidebarCompositionLayout(of: .container(layout)))
 }
 
 /// A pinned split from before they were recorded, as it's recorded: a pin with two laid-out windows or
@@ -470,7 +469,7 @@ func saveWorkspaceSidebarPinCompositions(of workspaces: [Workspace]) throws {
 @MainActor
 private func workspaceSidebarCompositionNewcomers(_ composition: WorkspaceSidebarPinComposition, in split: Workspace) -> [Window] {
     let known = composition.layout.windows + composition.away.map(\.window)
-    return split.rootTilingContainer.allLeafWindowsRecursive.filter { window in !known.contains { $0.live === window } }
+    return WorkspaceTabSnapshot.layout(of: split.rootTilingContainer).windows.filter { window in !known.contains { $0.live === window } }
 }
 
 /// `composition` taking `newcomers`, windows in `split` it doesn't know, in as its own. Its record stays
@@ -482,10 +481,10 @@ private func workspaceSidebarComposition(_ composition: WorkspaceSidebarPinCompo
                                          in split: Workspace) -> WorkspaceSidebarPinComposition {
     var result = composition
     guard !composition.layout.windows.isEmpty else {
-        result.layout = workspaceSidebarCompositionLayout(of: split.rootTilingContainer, weight: 1)
+        result.layout = workspaceSidebarCompositionLayout(of: .container(WorkspaceTabSnapshot.layout(of: split.rootTilingContainer)))
         return result
     }
-    let present = split.rootTilingContainer.allLeafWindowsRecursive
+    let present = WorkspaceTabSnapshot.layout(of: split.rootTilingContainer).windows
     for window in newcomers {
         let link = WorkspaceSidebarPinWindow(window)
         let orientation = (window.parent as? TilingContainer)?.orientation ?? .h
@@ -528,13 +527,12 @@ func workspaceSidebarNewCompositions(for workspaces: [Workspace]) -> [String: Wo
 }
 
 @MainActor
-private func workspaceSidebarCompositionLayout(of node: TreeNode, weight: CGFloat) -> WorkspaceSidebarCompositionNode {
-    if let window = node as? Window { return .window(.init(window), weight: weight) }
-    let container = node as? TilingContainer
-    let orientation = container?.orientation ?? .h
-    return .split(orientation, weight: weight, children: node.children.map {
-        workspaceSidebarCompositionLayout(of: $0, weight: $0.getWeight(orientation))
-    })
+private func workspaceSidebarCompositionLayout(of node: WorkspaceTabLayoutNode) -> WorkspaceSidebarCompositionNode {
+    switch node {
+        case .window(let leaf): return .window(.init(leaf.window), weight: leaf.weight)
+        case .container(let container): return .split(container.orientation, weight: container.weight,
+            children: container.children.map { workspaceSidebarCompositionLayout(of: $0) })
+    }
 }
 
 extension WorkspaceSidebarCompositionNode {
@@ -640,19 +638,16 @@ private func workspaceSidebarAwayWindows(of composition: WorkspaceSidebarPinComp
     var recallable: [(Window, Workspace?)] = []
     var hidden: [Window] = []
     var elsewhere: [Window] = []
-    var seen: Set<UInt32> = []
-    let homes = Dictionary(composition.away.map { ($0.window, $0.pinName) }, uniquingKeysWith: { first, _ in first })
-    for link in composition.away.map(\.window) + composition.layout.windows {
-        // One set aside as not presentable isn't open anywhere: it comes back to its place by itself.
-        guard let window = link.live, !window.isSetAsideAsNotPresentable, window.nodeWorkspace !== split,
-              seen.insert(window.windowId).inserted else { continue }
-        let home = homes[link].flatMap { Workspace.existing(byName: $0) }.flatMap { workspaceSidebarIsPinned($0) ? $0 : nil }
+    for member in WorkspaceTabSnapshot(split, composition: composition).members where member.membership == .awayFromComposition {
+        guard member.state != .notPresentable else { continue }
+        let window = member.window
+        let home = member.pinHomeName.flatMap { Workspace.existing(byName: $0) }.flatMap { workspaceSidebarIsPinned($0) ? $0 : nil }
         let tab = window.nodeWorkspace
         let inHome = tab != nil && tab === home && home.map(workspaceSidebarPinResourceWindows)?.count == 1
         let inOrdinaryTab = tab.map { !workspaceSidebarIsPinned($0) } ?? false
-        if inHome && window.parent is TilingContainer || inOrdinaryTab && (window.parent is TilingContainer || window.isFloating) {
+        if inHome && member.state == .laidOut || inOrdinaryTab && (member.state == .laidOut || member.state == .floating) {
             recallable.append((window, home))
-        } else if inHome || inOrdinaryTab, window.parent is MacosHiddenAppsWindowsContainer {
+        } else if inHome || inOrdinaryTab, member.state == .hiddenWithApp {
             hidden.append(window)
         } else {
             elsewhere.append(window)
@@ -768,7 +763,7 @@ private func recallWorkspaceSidebarComposition(_ split: Workspace) throws -> Wor
     let away = workspaceSidebarAwayWindows(of: composition, from: split)
     let elsewhere = away.hidden + away.elsewhere
     guard !away.recallable.isEmpty else { return elsewhere.isEmpty ? .nothing : .recalled([], elsewhere: elsewhere) }
-    let present = split.rootTilingContainer.allLeafWindowsRecursive
+    let present = WorkspaceTabSnapshot.layout(of: split.rootTilingContainer).windows
     let back = away.recallable.map(\.window)
     // The ordinary tabs they come from, which mustn't stay behind empty.
     let froms = back.compactMap(\.nodeWorkspace).filter { !workspaceSidebarIsPinned($0) }

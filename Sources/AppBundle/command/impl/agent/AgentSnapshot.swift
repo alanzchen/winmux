@@ -61,7 +61,7 @@ struct AgentSnapshot: Encodable {
 
 @MainActor
 private struct AgentSnapshotCapture {
-    let windows: [Window]
+    let windows: [WorkspaceTabMember]
     let tabGroups: [TilingContainer]
     let workspaceInfos: [AgentWorkspaceInfo]
     let panes: [AgentPaneInfo]
@@ -70,7 +70,7 @@ private struct AgentSnapshotCapture {
 
     init() {
         let workspaces = userFacingWorkspaces(Workspace.all)
-        var windowNodes: [Window] = []
+        var windowNodes: [WorkspaceTabMember] = []
         var tabGroupNodes: [TilingContainer] = []
         var workspaceInfos: [AgentWorkspaceInfo] = []
         var allPanes: [AgentPaneInfo] = []
@@ -78,11 +78,12 @@ private struct AgentSnapshotCapture {
         var rawTrees: [AgentRawWorkspaceTree] = []
 
         for workspace in workspaces {
-            let panes = workspace.agentPaneInfos()
-            let relations = workspace.agentPaneRelations()
+            let content = WorkspaceTabSnapshot(workspace)
+            let panes = workspace.agentPaneInfos(content: content)
+            let relations = workspace.agentPaneRelations(content: content)
             allPanes.append(contentsOf: panes)
             allRelations.append(contentsOf: relations)
-            rawTrees.append(AgentRawWorkspaceTree(workspace: workspace.name, tree: workspace.rootTilingContainer.agentRawLayoutNode()))
+            rawTrees.append(AgentRawWorkspaceTree(workspace: workspace.name, tree: content.root.agentRawLayoutNode()))
             workspaceInfos.append(AgentWorkspaceInfo(
                 name: workspace.name,
                 displayName: workspaceDisplayName(workspace.name),
@@ -91,13 +92,13 @@ private struct AgentSnapshotCapture {
                 monitorId: workspace.workspaceMonitor.monitorId_oneBased,
                 panes: panes.map(\.paneId),
             ))
-            tabGroupNodes.append(contentsOf: workspace.rootTilingContainer.allAgentTabGroupsRecursive)
-            windowNodes.append(contentsOf: workspace.allLeafWindowsRecursive)
+            tabGroupNodes.append(contentsOf: content.root.agentTabGroups.map(\.source))
+            windowNodes.append(contentsOf: content.treeMembers)
         }
-        windowNodes.append(contentsOf: macosMinimizedWindowsContainer.children.filterIsInstance(of: Window.self))
+        windowNodes.append(contentsOf: WorkspaceTabSnapshot.minimizedMembers)
 
         var seenWindowIds: Set<UInt32> = []
-        windows = windowNodes.filter { seenWindowIds.insert($0.windowId).inserted }
+        windows = windowNodes.filter { seenWindowIds.insert($0.window.windowId).inserted }
         tabGroups = tabGroupNodes
         self.workspaceInfos = workspaceInfos
         panes = allPanes
@@ -169,7 +170,8 @@ struct AgentWindowInfo: Encodable {
     let frame: AgentRect?
 
     @MainActor
-    init(_ window: Window) async throws {
+    init(_ member: WorkspaceTabMember) async throws {
+        let window = member.window
         windowId = window.windowId
         title = try await window.title
         appName = window.app.name
@@ -181,7 +183,7 @@ struct AgentWindowInfo: Encodable {
         focused = focus.windowOrNil == window
         winMuxFullscreen = window.isFullscreen
         noOuterGapsInFullscreen = window.noOuterGapsInFullscreen
-        layout = window.agentLayoutDescription
+        layout = member.agentLayoutDescription
         let sizingNode = window.agentPaneSizingNode
         size = sizingNode.agentSizeRatio
         sizeAxis = sizingNode.agentSizeAxis

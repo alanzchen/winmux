@@ -128,10 +128,11 @@ extension Workspace {
 
     @MainActor
     func refreshEmptyLifecycle() {
-        if isVisible || workspaceHasLifecycleWindows(self) {
+        let hasWindows = workspaceHasLifecycleWindows(self)
+        if isVisible || hasWindows {
             retainsEmptyAfterProjectMove = false
         }
-        if workspaceHasLifecycleWindows(self) {
+        if hasWindows {
             hasHadWindows = true
             lastWindowClosed = false
             if lifecycle == .transient { lifecycle = .durable }

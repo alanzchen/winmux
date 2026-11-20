@@ -218,7 +218,7 @@ func workspaceIsPinnedResource(named name: String) -> Bool {
 @MainActor
 func pinDocumentSourceWindow(_ tab: Workspace) -> Result<Window, PinDocumentRefusal> {
     if workspaceSidebarOrganizationStore.state.workspaces[tab.name]?.composition != nil { return .failure(.split) }
-    let windows = tab.allLeafWindowsRecursive
+    let windows = WorkspaceTabSnapshot(tab).treeMembers.map(\.window)
     if windows.isEmpty { return .failure(.noWindow) }
     guard windows.count == 1, let window = windows.first else { return .failure(.severalWindows) }
     return .success(window)

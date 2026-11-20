@@ -246,6 +246,19 @@ func routeNewWindowToSavedWorkspaceIfNeeded(_ window: Window, isRegularWindow: B
     return try await placeWindowInSavedSlot(window, location)
 }
 
+/// The one restoration-ownership rule shared by discovery and routing. A retained loan is
+/// available only to an explicit reopen of its pin, never to automatic/startup restoration.
+@MainActor
+func savedWorkspaceRestoreSlots(in records: [SavedWorkspaceRecord], explicitlyOpening names: Set<String> = []) -> [SavedSlotLocation] {
+    records.flatMap { record in
+        let slots = record.layout.root.allSlots.map { ($0, false) } + record.layout.floating.map { ($0, true) }
+        return slots.compactMap { slot, isFloating -> SavedSlotLocation? in
+            guard slot.membership != .lentFromPin || names.contains(record.workspaceName) else { return nil }
+            return SavedSlotLocation(workspaceName: record.workspaceName, slot: slot, isFloating: isFloating)
+        }
+    }
+}
+
 /// Slots of the app that no registered window fills, in saved order: records, then tiling slots
 /// depth-first, then floating slots. Slots whose saved window is alive but still registering are
 /// left for that window.
@@ -253,23 +266,23 @@ func routeNewWindowToSavedWorkspaceIfNeeded(_ window: Window, isRegularWindow: B
 func waitingSavedSlots(bundleId: String, routingWindow: Window) -> [SavedSlotLocation] {
     let runtime = savedWorkspaceRuntime
     var result: [SavedSlotLocation] = []
-    for record in savedWorkspaceStore.records {
-        guard let workspace = Workspace.existing(byName: record.workspaceName), !workspace.isArchived else { continue }
-        let slots = record.layout.root.allSlots.map { ($0, false) } + record.layout.floating.map { ($0, true) }
-        for (slot, isFloating) in slots where slot.bundleId == bundleId {
-            if let windowId = slot.lastWindowId, let pid = slot.lastPid {
-                if windowId != routingWindow.windowId, let window = Window.get(byId: windowId), window.app.pid == pid {
-                    continue
-                }
-                if windowId != routingWindow.windowId, runtime.aliveWindowPidsDuringRefresh[windowId] == pid {
-                    continue
-                }
+    let preferred = runtime.preferredRestoreWorkspace(bundleId: bundleId)
+    let claims = savedWorkspaceRestoreSlots(in: savedWorkspaceStore.records, explicitlyOpening: Set(preferred.map { [$0] } ?? []))
+    for location in claims where location.slot.bundleId == bundleId {
+        guard let workspace = Workspace.existing(byName: location.workspaceName), !workspace.isArchived else { continue }
+        let slot = location.slot
+        if let windowId = slot.lastWindowId, let pid = slot.lastPid {
+            if windowId != routingWindow.windowId, let window = Window.get(byId: windowId), window.app.pid == pid {
+                continue
             }
-            result.append(SavedSlotLocation(workspaceName: record.workspaceName, slot: slot, isFloating: isFloating))
+            if windowId != routingWindow.windowId, runtime.aliveWindowPidsDuringRefresh[windowId] == pid {
+                continue
+            }
         }
+        result.append(location)
     }
     // Reopened from one of its tabs: that tab's slots come first, so ties go to it.
-    if let preferred = runtime.preferredRestoreWorkspace(bundleId: bundleId) {
+    if let preferred {
         result = result.enumerated().sorted { ($0.element.workspaceName == preferred ? 0 : 1, $0.offset) <
             ($1.element.workspaceName == preferred ? 0 : 1, $1.offset) }.map(\.element)
     }
@@ -359,6 +372,7 @@ private func claimSavedSlot(_ layout: SavedWorkspaceLayout, slotId: String, wind
         var claimed = slot
         claimed.lastWindowId = window.windowId
         claimed.lastPid = window.app.pid
+        claimed.membership = nil
         return claimed
     }
     func claim(_ container: SavedLayoutContainer) -> SavedLayoutContainer {

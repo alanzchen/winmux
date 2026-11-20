@@ -89,18 +89,14 @@ func workspaceTopicIsBrowser(_ bundleId: String?) -> Bool {
 /// native hidden-app and full-screen containers. A split is judged by all of them.
 @MainActor
 func workspaceTopicLiveWindows(_ workspace: Workspace) -> [Window] {
-    let all = workspace.allLeafWindowsRecursive + workspace.floatingWindows + workspaceOwnedMinimizedWindows(workspace) +
-        (workspace.existingMacOsNativeHiddenAppsWindowsContainer?.allLeafWindowsRecursive ?? []) +
-        (workspace.existingMacOsNativeFullscreenWindowsContainer?.allLeafWindowsRecursive ?? [])
-    var seen: Set<ObjectIdentifier> = []
-    return all.filter { seen.insert(ObjectIdentifier($0)).inserted }
+    WorkspaceTabSnapshot(workspace).lifecycleMembers.map(\.window)
 }
 
 /// The windows of the tab the sidebar lists, and so can be read: its layout and floating ones.
 /// Minimized ones and those in a native container aren't.
 @MainActor
 func workspaceTopicReadableWindows(_ workspace: Workspace) -> [Window] {
-    workspace.rootTilingContainer.allLeafWindowsRecursive + workspace.floatingWindows.filter(\.isBound)
+    WorkspaceTabSnapshot(workspace).presentMembers.map(\.window)
 }
 
 /// Whether the tab, as it is now, belongs to a list of `listedScopeId`'s tabs: every display's,

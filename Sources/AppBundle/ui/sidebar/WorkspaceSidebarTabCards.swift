@@ -13,6 +13,7 @@ enum WorkspaceSidebarTabPresentation: Equatable {
     case single(WorkspaceSidebarWindowViewModel)
     case split(WorkspaceSidebarWindowViewModel, WorkspaceSidebarWindowViewModel)
     case multiple([WorkspaceSidebarWindowViewModel])
+    case mixed(tiled: [WorkspaceSidebarWindowViewModel], floating: [WorkspaceSidebarWindowViewModel])
     case folder
 }
 
@@ -44,6 +45,9 @@ func workspaceSidebarTabPresentation(_ workspace: WorkspaceSidebarWorkspaceViewM
     }
     // A stack keeps the folder that shows it as a group.
     guard !workspace.preservesFolderPresentation, windows.count == workspace.items.count else { return .folder }
+    if windows.count > 1, windows.contains(where: { $0.state == .floating }) {
+        return .mixed(tiled: windows.filter { $0.state != .floating }, floating: windows.filter { $0.state == .floating })
+    }
     switch windows.count {
         case 0: return workspace.offscreenMembers.isEmpty ? .empty : .offscreen(workspace.offscreenMembers)
         case 1: return .single(windows[0])
@@ -227,7 +231,7 @@ struct WorkspaceSidebarTabCardView: View {
         if selectedSearchTarget == .workspace(workspace.name) { return 0.1 }
         switch presentation {
             // Two windows share one tab, shown as one.
-            case .split, .multiple: return isActive ? 0.1 : 0.04
+            case .split, .multiple, .mixed: return isActive ? 0.1 : 0.04
             // The tab on screen stays marked even while its window isn't the focused one. One with
             // windows listed under its own reads as one card, as a split does.
             case .single: return isActive ? 0.1 : (hasAssociatedWindows ? 0.04 : drawsNowPlaying ? 0.05 : 0)
@@ -279,6 +283,32 @@ struct WorkspaceSidebarTabCardView: View {
         }
     }
 
+    /// A standalone member heads its own browser tabs, including when other members float beside it.
+    @ViewBuilder
+    private func mixedWindowRow(_ window: WorkspaceSidebarWindowViewModel, usesWorkspaceIdentity: Bool = true) -> some View {
+        if !workspaceSidebarMatchingBrowserTabs(browserTabs[window.windowId], window: window, workspace: workspace,
+            query: browserQuery, context: browserSearchContext).isEmpty {
+            browserGroup(window, cornerRadius: indent.rowCornerRadius) { count in
+                mixedWindowHeader(window, usesWorkspaceIdentity: usesWorkspaceIdentity,
+                    indent: workspaceSidebarTabIndentStep, trailingCount: count)
+            }
+        } else {
+            mixedWindowHeader(window, usesWorkspaceIdentity: usesWorkspaceIdentity)
+        }
+    }
+
+    private func mixedWindowHeader(_ window: WorkspaceSidebarWindowViewModel, usesWorkspaceIdentity: Bool,
+                                   indent: CGFloat = 0, trailingCount: Int? = nil) -> some View {
+        HStack(spacing: 2) {
+            row(window, isSplitHalf: false, usesWorkspaceIdentity: usesWorkspaceIdentity, indent: indent, trailingCount: trailingCount)
+            if window.state == .floating {
+                Image(systemName: "rectangle.on.rectangle")
+                    .font(.system(size: 10)).foregroundStyle(.secondary).padding(.trailing, 6)
+                    .accessibilityLabel("Floating window")
+            }
+        }
+    }
+
     @ViewBuilder
     private var content: some View {
         switch presentation {
@@ -319,6 +349,19 @@ struct WorkspaceSidebarTabCardView: View {
                 }
                 .accessibilityElement(children: .contain)
                 .accessibilityLabel("Split: \(windows.map { $0.title ?? $0.appName }.joined(separator: ", "))")
+            case .mixed(let tiled, let floating):
+                VStack(spacing: 2) {
+                    if tiled.count == 1, let window = tiled.first { mixedWindowRow(window) }
+                    else if !tiled.isEmpty {
+                        splitRows(tiled)
+                        browserMembers(tiled)
+                    }
+                    ForEach(floating) { window in
+                        mixedWindowRow(window, usesWorkspaceIdentity: tiled.isEmpty && window.id == floating.first?.id)
+                    }
+                }
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel("\(workspace.displayName), \(tiled.count) tiled, \(floating.count) floating")
             case .empty where hasAssociatedWindows:
                 // A pin whose window is lent to another tab, found by its draft: that window named as
                 // context, not an empty tab, heading the windows opened from it.
@@ -381,7 +424,7 @@ struct WorkspaceSidebarTabCardView: View {
         }.frame(height: workspaceSidebarTabRowHeight)
     }
 
-    private func row(_ window: WorkspaceSidebarWindowViewModel, isSplitHalf: Bool, iconOnly: Bool = false,
+    private func row(_ window: WorkspaceSidebarWindowViewModel, isSplitHalf: Bool, usesWorkspaceIdentity: Bool = true, iconOnly: Bool = false,
                      showsCountOnIcon: Bool = false, iconSize: CGFloat = workspaceSidebarTabIconSize,
                      followsIndent: Bool = true, indent: CGFloat = 0, trailingCount: Int? = nil,
                      groupTint: Color? = nil) -> some View {
@@ -404,9 +447,9 @@ struct WorkspaceSidebarTabCardView: View {
             trailingCount: trailingCount,
             groupTint: groupTint,
             onSelect: { activation.select(.selectWindow(window.windowId), send: actions.send) },
-            titleOverride: !isSplitHalf ? (!workspace.sidebarLabel.isEmpty ? workspace.displayName
+            titleOverride: !isSplitHalf ? (usesWorkspaceIdentity && !workspace.sidebarLabel.isEmpty ? workspace.displayName
                 : browserTabs[window.windowId]?.isGroup == true ? window.appName : nil) : nil,
-            emojiOverride: !isSplitHalf ? workspace.appearance.emoji : nil,
+            emojiOverride: !isSplitHalf && usesWorkspaceIdentity ? workspace.appearance.emoji : nil,
             badgeModel: badgeModel,
         )
         .id("window:\(window.windowId)")

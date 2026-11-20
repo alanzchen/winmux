@@ -35,7 +35,7 @@ func registeredSavedWorkspaceWindowPids() -> Set<Int32> {
 @MainActor
 func registeredSavedWorkspaceWindows() -> [Window] {
     guard isUnitTest else { return MacWindow.allWindows }
-    return Workspace.all.flatMap(\.allLeafWindowsRecursive) +
+    return Workspace.all.flatMap { WorkspaceTabSnapshot($0).treeMembers.map(\.window) } +
         macosMinimizedWindowsContainer.children.filterIsInstance(of: Window.self) +
         macosNotPresentableWindowsContainer.children.filterIsInstance(of: Window.self) +
         macosPopupWindowsContainer.children.filterIsInstance(of: Window.self)
@@ -82,7 +82,8 @@ func runSavedWorkspaceCheckpoint() async {
     var titles: [UInt32: String] = [:]
     for record in savedWorkspaceStore.records {
         guard let workspace = Workspace.existing(byName: record.workspaceName) else { continue }
-        for window in workspace.rootTilingContainer.allLeafWindowsRecursive + workspace.floatingWindows {
+        for member in WorkspaceTabSnapshot(workspace).members where !member.state.isOffscreen {
+            let window = member.window
             if let title = await getCachedWindowTitle(window, maxAge: SavedWorkspaceTiming.titleMaxAge) {
                 titles[window.windowId] = title
             }
@@ -184,7 +185,7 @@ func captureSavedWorkspace(
     // its app's places: they wait for it, whatever their grace.
     let appsChoosingAPlace = Set(runtime.routingInFlightWindowIds.union(runtime.windowsAwaitingTitle.keys)
         .compactMap { Window.get(byId: $0)?.app.rawAppBundleId })
-    let protectedSlotIds = forceKeepSlotIds.union(previousSlots.filter { slot in
+    let protectedSlotIds = forceKeepSlotIds.union(snapshot.retainedSlots.map(\.id)).union(previousSlots.filter { slot in
         slot.lastWindowId.map(excludedWindowIds.contains) == true || appsChoosingAPlace.contains(slot.bundleId)
     }.map(\.id))
     let missingSlots = previousSlots.filter {
@@ -219,6 +220,11 @@ func captureSavedWorkspace(
             protectedSlotIds: protectedSlotIds,
         ),
     )
+    if !snapshot.retainedSlots.isEmpty {
+        let retained = Dictionary(uniqueKeysWithValues: snapshot.retainedSlots.map { ($0.id, $0) })
+        updated.layout.root = copySavedSlotData(updated.layout.root, retained)
+        updated.layout.floating = updated.layout.floating.map { copySavedSlotData($0, retained) }
+    }
     let remaining = Set(updated.layout.allSlots.map(\.id))
     for slot in previousSlots where !remaining.contains(slot.id) {
         runtime.vanishedSlots.removeValue(forKey: slot.id)
@@ -312,8 +318,9 @@ struct SavedLiveSnapshot {
     var layout: SavedWorkspaceLayout
     var liveTiled: Set<String>
     var liveFloating: Set<String>
-    /// Slots of windows that are minimized, hidden with their app, or in native fullscreen.
+    /// Retained slots whose windows are offscreen or lent to another tab, without a live claim here.
     var detached: Set<String>
+    var retainedSlots: [SavedWindowSlot]
 }
 
 @MainActor
@@ -323,6 +330,7 @@ func snapshotLiveSavedLayout(
     titleByWindowId: [UInt32: String],
     excludingWindowIds: Set<UInt32> = [],
 ) -> SavedLiveSnapshot {
+    let content = WorkspaceTabSnapshot(workspace)
     var previousByWindow: [SavedWindowIdentity: SavedWindowSlot] = [:]
     for slot in previous.allSlots {
         guard let windowId = slot.lastWindowId, let pid = slot.lastPid else { continue }
@@ -331,10 +339,11 @@ func snapshotLiveSavedLayout(
     var liveTiled: Set<String> = []
     var liveFloating: Set<String> = []
 
-    func slot(for window: Window, weight: CGFloat, isMostRecent: Bool) -> SavedWindowSlot? {
+    func slot(for member: WorkspaceTabMember, weight: CGFloat, isMostRecent: Bool) -> SavedWindowSlot? {
+        let window = member.window
         // A draft or a message opened to read goes when it's done, and an app's helper comes with the app:
         // a saved tab or pin records neither.
-        guard !excludingWindowIds.contains(window.windowId), !isEphemeralAuxiliaryWindow(window),
+        guard !excludingWindowIds.contains(window.windowId), !member.isEphemeral,
               !savedWorkspaceAppIsHelper(bundlePath: window.app.bundlePath),
               let bundleId = window.app.rawAppBundleId else { return nil }
         let previousSlot = previousByWindow[SavedWindowIdentity(windowId: window.windowId, pid: window.app.pid)]
@@ -348,50 +357,55 @@ func snapshotLiveSavedLayout(
         slot.isMostRecentInParent = isMostRecent
         slot.lastWindowId = window.windowId
         slot.lastPid = window.app.pid
+        slot.membership = member.membership == .lentFromPin ? .lentFromPin : nil
         return slot
     }
 
-    func snapshot(_ container: TilingContainer, weight: CGFloat) -> SavedLayoutContainer {
-        let mostRecent = container.mostRecentChild
-        var result = SavedLayoutContainer(layout: container.layout, orientation: container.orientation, weight: weight)
+    func snapshot(_ container: WorkspaceTabLayoutContainer) -> SavedLayoutContainer {
+        var result = SavedLayoutContainer(layout: container.layout, orientation: container.orientation, weight: container.weight)
+        result.isMostRecentInParent = container.isMostRecentInParent
         for child in container.children {
-            let childWeight = child.getWeight(container.orientation)
-            switch child.nodeCases {
-                case .window(let window):
-                    if let slot = slot(for: window, weight: childWeight, isMostRecent: mostRecent === child) {
+            switch child {
+                case .window(let leaf):
+                    if let member = content.member(leaf.window.windowId),
+                       let slot = slot(for: member, weight: leaf.weight, isMostRecent: leaf.isMostRecentInParent) {
                         liveTiled.insert(slot.id)
                         result.children.append(.slot(slot))
                     }
-                case .tilingContainer(let nested):
-                    var nestedSnapshot = snapshot(nested, weight: childWeight)
-                    guard !nestedSnapshot.children.isEmpty else { continue }
-                    nestedSnapshot.isMostRecentInParent = mostRecent === child
-                    result.children.append(.container(nestedSnapshot))
-                case .workspace, .macosMinimizedWindowsContainer, .macosHiddenAppsWindowsContainer,
-                     .macosFullscreenWindowsContainer, .macosPopupWindowsContainer:
-                    break
+                case .container(let nested):
+                    let nestedSnapshot = snapshot(nested)
+                    if !nestedSnapshot.children.isEmpty { result.children.append(.container(nestedSnapshot)) }
             }
         }
         return result
     }
 
-    let root = snapshot(workspace.rootTilingContainer, weight: 1)
-    let floating = workspace.floatingWindows.compactMap { window -> SavedWindowSlot? in
-        guard let slot = slot(for: window, weight: 1, isMostRecent: false) else { return nil }
+    var root = snapshot(content.root)
+    let floating = content.floatingMembers.compactMap { member -> SavedWindowSlot? in
+        guard let slot = slot(for: member, weight: 1, isMostRecent: false) else { return nil }
         liveFloating.insert(slot.id)
         return slot
     }
-    let detachedWindows = workspaceOwnedMinimizedWindows(workspace) + workspaceOwnedNotPresentableWindows(workspace) +
-        (workspace.existingMacOsNativeHiddenAppsWindowsContainer?.children.filterIsInstance(of: Window.self) ?? []) +
-        (workspace.existingMacOsNativeFullscreenWindowsContainer?.children.filterIsInstance(of: Window.self) ?? [])
-    let detached = detachedWindows.compactMap { window in
-        previousByWindow[SavedWindowIdentity(windowId: window.windowId, pid: window.app.pid)]?.id
+    var detached = content.residentMembers.filter(\.state.isOffscreen).compactMap { member in
+        previousByWindow[SavedWindowIdentity(windowId: member.window.windowId, pid: member.window.app.pid)]?.id
     }.toSet()
+    var retainedSlots: [SavedWindowSlot] = []
+    // Retain the resource without claiming the borrower's live placement. On a first capture
+    // there is no previous tree to retain it in, so introduce its slot once.
+    if let lent = content.loanedMember {
+        let previousSlot = previousByWindow[SavedWindowIdentity(windowId: lent.window.windowId, pid: lent.window.app.pid)]
+        if let slot = slot(for: lent, weight: previousSlot?.weight ?? 1, isMostRecent: root.children.isEmpty) {
+            if previousSlot == nil { root.children.append(.slot(slot)) }
+            detached.insert(slot.id)
+            retainedSlots.append(slot)
+        }
+    }
     return SavedLiveSnapshot(
         layout: SavedWorkspaceLayout(root: root, floating: floating),
         liveTiled: liveTiled,
         liveFloating: liveFloating,
         detached: detached,
+        retainedSlots: retainedSlots,
     )
 }
 

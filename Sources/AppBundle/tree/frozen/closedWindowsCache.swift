@@ -43,16 +43,7 @@ struct FrozenWorkspace: Codable, Sendable {
     }
 
     @MainActor init(_ workspace: Workspace) {
-        name = workspace.name
-        projectId = workspace.projectId
-        namingStyle = workspace.namingStyle
-        monitor = FrozenMonitor(workspace.workspaceMonitor)
-        rootTilingNode = FrozenContainer(workspace.rootTilingContainer)
-        floatingWindows = workspace.floatingWindows.map(FrozenWindow.init)
-        macosUnconventionalWindows =
-            workspaceOwnedMinimizedWindows(workspace).map(FrozenWindow.init) +
-            (workspace.existingMacOsNativeHiddenAppsWindowsContainer?.children.filterIsInstance(of: Window.self).map(FrozenWindow.init) ?? []) +
-            (workspace.existingMacOsNativeFullscreenWindowsContainer?.children.filterIsInstance(of: Window.self).map(FrozenWindow.init) ?? [])
+        self.init(content: WorkspaceTabSnapshot(workspace)) // WINMUX-HOOK(tabContent)
     }
 
     init(from decoder: any Decoder) throws {

@@ -66,10 +66,15 @@ func mcpDebugSnapshot(_ options: MCPDebugSnapshotOptions) async -> MCPJSON {
     var toRead: [UInt32] = []
     var seen: Set<UInt32> = []
     for id in rows.flatMap(debugSnapshotWindowIds) + unlisted.map(\.windowId) where seen.insert(id).inserted { toRead.append(id) }
+    let nativeReads = await debugSnapshotReads(toRead, includeTitles: options.includeTitles)
+    let contents = Workspace.all.map { WorkspaceTabSnapshot($0) }
+    let members = Dictionary(contents.flatMap(\.residentMembers).map { ($0.window.windowId, $0) },
+        uniquingKeysWith: { first, _ in first })
     let snapshot = DebugSnapshotWriter(
         includeTitles: options.includeTitles,
         windows: Dictionary(live.map { ($0.windowId, $0) }, uniquingKeysWith: { first, _ in first }),
-        reads: await debugSnapshotReads(toRead, includeTitles: options.includeTitles))
+        reads: nativeReads,
+        contents: Dictionary(uniqueKeysWithValues: contents.map { ($0.workspace.name, $0) }), members: members)
 
     let focusedMonitor = focus.workspace.workspaceMonitor
     let events = WindowLifecycleLog.shared.events.filter { event in
@@ -196,7 +201,7 @@ func debugSnapshotRowsInPanel(_ rows: [WorkspaceSidebarWorkspaceViewModel]) -> S
 @MainActor
 private func debugSnapshotLiveWindows() -> [Window] {
     var seen: Set<UInt32> = []
-    let inTree = Workspace.all.flatMap(\.allLeafWindowsRecursive) + macosMinimizedWindowsContainer.allLeafWindowsRecursive
+    let inTree = Workspace.all.flatMap { WorkspaceTabSnapshot($0).treeMembers.map(\.window) } + macosMinimizedWindowsContainer.allLeafWindowsRecursive
         + macosNotPresentableWindowsContainer.allLeafWindowsRecursive + macosPopupWindowsContainer.allLeafWindowsRecursive
     let registered: [Window] = MacWindow.allWindows.sorted { $0.windowId < $1.windowId }
     return (inTree + registered).filter { seen.insert($0.windowId).inserted }
@@ -334,6 +339,8 @@ private struct DebugSnapshotWriter {
     let includeTitles: Bool
     let windows: [UInt32: Window]
     let reads: [UInt32: DebugSnapshotRead]
+    let contents: [String: WorkspaceTabSnapshot]
+    let members: [UInt32: WorkspaceTabMember]
 
     func row(_ row: WorkspaceSidebarWorkspaceViewModel, inPanel: Bool) -> MCPJSON {
         let items: [MCPJSON] = row.items.map { item in
@@ -364,6 +371,13 @@ private struct DebugSnapshotWriter {
             "pinOrder": row.appearance.pinOrder.map(MCPJSON.int) ?? .null,
             "pinScope": row.appearance.pinScope.map { .string("\($0)") } ?? .null,
             "items": .array(items),
+            "contentMembers": .array((contents[row.name]?.members ?? []).map { member in
+                .object(["windowId": .int(Int(member.window.windowId)), "placement": .string(member.state.rawValue),
+                    "membership": .string(member.membership.rawValue),
+                    "auxiliaryRole": member.attachment.map { .string($0.role.rawValue) } ?? .null,
+                    "openerWindowId": member.attachment?.parentWindowId.map { .int(Int($0)) } ?? .null,
+                    "parkOutcome": debugSnapshotParkOutcome(member.parking)])
+            }),
             "auxiliary": .array(row.associatedWindows.map { associated in
                 .object(["member": member(associated.window), "parentWindowId": .int(Int(associated.parentWindowId)),
                          "role": .string(associated.role.rawValue)])
@@ -429,8 +443,8 @@ private struct DebugSnapshotWriter {
         let path = window.app.bundlePath
         object["appPathKind"] = .string(debugSnapshotAppPathKind(path, isHelper: savedWorkspaceAppIsHelper(bundlePath: path)))
         object["workspace"] = window.nodeWorkspace.map { .string($0.name) } ?? .null
-        object["placement"] = .string(debugSnapshotPlacement(window.parent))
-        object["floating"] = .bool(window.parent is Workspace)
+        object["placement"] = .string(members[windowId].map { debugSnapshotPlacement($0.state) } ?? debugSnapshotPlacement(window.parent))
+        object["floating"] = .bool(members[windowId].map { $0.state == .floating } ?? (window.parent is Workspace))
         object["parent"] = debugSnapshotParent(window)
         object["auxiliary"] = auxiliary(window)
         object["state"] = state(window)
@@ -462,28 +476,27 @@ private struct DebugSnapshotWriter {
     }
 
     private func auxiliary(_ window: Window) -> MCPJSON {
-        let registry = AuxiliaryWindowRegistry.shared
-        let children = registry.entries.filter { $0.value.parentWindowId == window.windowId && $0.value.pid == window.app.pid }
-            .keys.sorted().map { MCPJSON.int(Int($0)) }
-        guard let role = registry.role(of: window) else {
+        let children = WorkspaceTabSnapshot.auxiliaryChildren(of: window).map { MCPJSON.int(Int($0)) }
+        guard let attachment = members[window.windowId]?.attachment ?? WorkspaceTabSnapshot.attachment(of: window) else {
             return children.isEmpty ? .null : .object(["children": .array(children)])
         }
         return .object([
-            "role": .string(role.rawValue),
-            "parentWindowId": registry.parentWindowId(of: window).map { .int(Int($0)) } ?? .null,
-            "listedUnder": auxiliaryWindowParent(of: window).map { .int(Int($0.windowId)) } ?? .null,
+            "role": .string(attachment.role.rawValue),
+            "parentWindowId": attachment.parentWindowId.map { .int(Int($0)) } ?? .null,
+            "listedUnder": attachment.listedUnderWindowId.map { .int(Int($0)) } ?? .null,
             "children": .array(children),
         ])
     }
 
     private func state(_ window: Window) -> MCPJSON {
+        let placement = members[window.windowId]?.state
         let parentKind = window.parent.map(\.kind)
         var object: [String: MCPJSON] = [
-            "hiddenWithApp": .bool(parentKind == .macosHiddenAppsWindowsContainer),
-            "minimized": .bool(window.parent === macosMinimizedWindowsContainer),
+            "hiddenWithApp": .bool(placement.map { $0 == .hiddenWithApp } ?? (parentKind == .macosHiddenAppsWindowsContainer)),
+            "minimized": .bool(placement.map { $0 == .minimized } ?? (window.parent === macosMinimizedWindowsContainer)),
             "notPresentable": .bool(window.isNotPresentable),
-            "setAsideNotPresentable": .bool(window.parent === macosNotPresentableWindowsContainer),
-            "nativeFullscreen": .bool(parentKind == .macosFullscreenWindowsContainer),
+            "setAsideNotPresentable": .bool(placement.map { $0 == .notPresentable } ?? (window.parent === macosNotPresentableWindowsContainer)),
+            "nativeFullscreen": .bool(placement.map { $0 == .nativeFullscreen } ?? (parentKind == .macosFullscreenWindowsContainer)),
             "winmuxFullscreen": .bool(window.isFullscreen),
             "parkedInCorner": .bool(window.isHiddenInCorner),
             "lastKnownNativeMinimized": window.lastKnownNativeMinimized.map(MCPJSON.bool) ?? .null,
@@ -502,7 +515,7 @@ private struct DebugSnapshotWriter {
         } else {
             object["park"] = .null
         }
-        object["parkOutcome"] = debugSnapshotParkOutcome(window.cornerParkingForDebug?.outcome)
+        object["parkOutcome"] = debugSnapshotParkOutcome(members[window.windowId]?.parking ?? window.cornerParkingForDebug?.outcome)
         return .object(object)
     }
 
@@ -520,6 +533,14 @@ private struct DebugSnapshotWriter {
             object["ax"] = .null
         }
         return .object(object)
+    }
+}
+
+private func debugSnapshotPlacement(_ state: WorkspaceTabMemberState) -> String {
+    switch state {
+        case .laidOut: "tiling"
+        case .notPresentable: "setAsideNotPresentable"
+        default: state.rawValue
     }
 }
 

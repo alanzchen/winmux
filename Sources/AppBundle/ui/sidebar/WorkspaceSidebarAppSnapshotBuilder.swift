@@ -1,17 +1,16 @@
 @MainActor
 func workspaceSidebarWindowsForAppSummary(_ workspace: Workspace) -> [Window] {
-    // Tab-group rows contain only representative windows. Walk every tiled leaf so an
-    // app in a nested group is still included, then append independent floating windows.
-    (workspace.rootTilingContainer.allLeafWindowsRecursive + workspace.floatingWindows
-        + workspaceOwnedMinimizedWindows(workspace)
-        + workspace.macOsNativeHiddenAppsWindowsContainer.allLeafWindowsRecursive
-        + workspace.macOsNativeFullscreenWindowsContainer.allLeafWindowsRecursive)
-        .filter(\.isBound)
+    WorkspaceTabSnapshot(workspace).lifecycleMembers.map(\.window)
 }
 
 @MainActor
 func buildWorkspaceSidebarAppSummaries(for workspace: Workspace) -> [WorkspaceSidebarAppViewModel] {
-    let windows = workspaceSidebarWindowsForAppSummary(workspace)
+    buildWorkspaceSidebarAppSummaries(WorkspaceTabSnapshot(workspace))
+}
+
+@MainActor
+func buildWorkspaceSidebarAppSummaries(_ content: WorkspaceTabSnapshot) -> [WorkspaceSidebarAppViewModel] {
+    let windows = content.lifecycleMembers.map(\.window)
     let grouped = Dictionary(grouping: windows, by: workspaceSidebarAppIdentity)
     return uniqueWorkspaceSidebarApps(grouped.values.compactMap { matching in
         guard let window = matching.first else { return nil }

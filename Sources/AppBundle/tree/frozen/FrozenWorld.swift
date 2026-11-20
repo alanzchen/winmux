@@ -9,12 +9,14 @@ struct FrozenWorld: Codable, Sendable {
 
 @MainActor
 func snapshotCurrentFrozenWorld() -> FrozenWorld {
-    let workspaces = restorableWorkspaces(Workspace.all)
+    // WINMUX-HOOK-BEGIN(tabContent)
+    let contents = Workspace.all.map { WorkspaceTabSnapshot($0) }.filter { !$0.lifecycleMembers.isEmpty }
     return FrozenWorld(
-        workspaces: workspaces.map(FrozenWorkspace.init),
+        workspaces: contents.map { FrozenWorkspace(content: $0) },
         monitors: monitors.map(FrozenMonitor.init),
-        windowIds: workspaces.flatMap { collectAllWindowIds(workspace: $0) }.toSet(),
+        windowIds: contents.flatMap { $0.lifecycleMembers.map(\.window.windowId) }.toSet(),
     )
+    // WINMUX-HOOK-END(tabContent)
 }
 
 @MainActor
@@ -24,26 +26,7 @@ func restorableWorkspaces(_ workspaces: [Workspace]) -> [Workspace] {
 
 @MainActor
 func collectAllWindowIds(workspace: Workspace) -> [UInt32] {
-    workspace.floatingWindows.map { $0.windowId } +
-        workspaceOwnedMinimizedWindows(workspace).map { $0.windowId } +
-        (workspace.existingMacOsNativeFullscreenWindowsContainer?.children.filterIsInstance(of: Window.self).map { $0.windowId } ?? []) +
-        (workspace.existingMacOsNativeHiddenAppsWindowsContainer?.children.filterIsInstance(of: Window.self).map { $0.windowId } ?? []) +
-        collectAllWindowIdsRecursive(workspace.rootTilingContainer)
-}
-
-func collectAllWindowIdsRecursive(_ node: TreeNode) -> [UInt32] {
-    switch node.nodeCases {
-        case .macosFullscreenWindowsContainer,
-             .macosHiddenAppsWindowsContainer,
-             .macosMinimizedWindowsContainer,
-             .macosPopupWindowsContainer,
-             .workspace: []
-        case .tilingContainer(let c):
-            c.children.reduce(into: [UInt32]()) { partialResult, elem in
-                partialResult += collectAllWindowIdsRecursive(elem)
-            }
-        case .window(let w): [w.windowId]
-    }
+    WorkspaceTabSnapshot(workspace).lifecycleMembers.map { $0.window.windowId } // WINMUX-HOOK(tabContent)
 }
 
 /// The user put `window` in `workspace` on purpose, as reopening an app from its tab does.

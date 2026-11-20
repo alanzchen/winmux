@@ -31,7 +31,7 @@ struct ListWindowsCommand: Command {
                 if monitors.isEmpty { return .fail }
                 workspaces = workspaces.filter { monitors.contains($0.workspaceMonitor.rect.topLeftCorner) }
             }
-            windows = workspaces.flatMap(\.allLeafWindowsRecursive)
+            windows = workspaces.flatMap { WorkspaceTabSnapshot($0).treeMembers.map(\.window) } // WINMUX-HOOK: typed tab ownership
             if let pid = args.filteringOptions.pidFilter {
                 windows = windows.filter { $0.app.pid == pid }
             }
