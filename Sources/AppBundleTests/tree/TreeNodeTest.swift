@@ -277,26 +277,28 @@ final class TreeNodeTest: XCTestCase {
         )
     }
 
-    func testReconcileWorkspaceStatePreservesCollectedDraftWorkspaceLabel() {
+    func testReconcileWorkspaceStateKeepsLabelledEmptyDraftWorkspace() {
         config.workspaceSidebar.workspaceLabels["__sidebar_draft_workspace_1"] = "Old Name"
-        _ = Workspace.get(byName: "__sidebar_draft_workspace_1")
+        let draft = Workspace.get(byName: "__sidebar_draft_workspace_1")
 
         Workspace.reconcileWorkspaceState()
 
-        XCTAssertNil(Workspace.existing(byName: "__sidebar_draft_workspace_1"))
+        XCTAssertTrue(Workspace.existing(byName: "__sidebar_draft_workspace_1") === draft)
         XCTAssertEqual(config.workspaceSidebar.workspaceLabels["__sidebar_draft_workspace_1"], "Old Name")
         XCTAssertEqual(workspaceDisplayName("__sidebar_draft_workspace_1"), "Old Name")
     }
 
-    func testReconcileWorkspaceStatePreservesCollectedWorkspaceLabel() {
+    func testReconcileWorkspaceStateKeepsLabelledEmptyWorkspaceAndPrunesUnlabelled() {
         config.workspaceSidebar.workspaceLabels["ghost"] = "Ghost Name"
-        _ = Workspace.get(byName: "ghost")
+        let labelled = Workspace.get(byName: "ghost")
+        _ = Workspace.get(byName: "unlabelled")
 
         Workspace.reconcileWorkspaceState()
 
-        XCTAssertNil(Workspace.existing(byName: "ghost"))
+        XCTAssertTrue(Workspace.existing(byName: "ghost") === labelled)
         XCTAssertEqual(config.workspaceSidebar.workspaceLabels["ghost"], "Ghost Name")
         XCTAssertEqual(workspaceDisplayName("ghost"), "Ghost Name")
+        XCTAssertNil(Workspace.existing(byName: "unlabelled"))
     }
 
     func testReconcileWorkspaceStatePreservesUncreatedWorkspaceLabels() {

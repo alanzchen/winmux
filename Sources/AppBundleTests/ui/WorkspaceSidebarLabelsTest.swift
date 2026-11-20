@@ -180,7 +180,7 @@ final class WorkspaceSidebarLabelsTest: XCTestCase {
         XCTAssertEqual(config.workspaceSidebar.workspaceLabels["3"], "id/c")
     }
 
-    func testLabelledPersistentWorkspaceKeepsLabelWhenPrunedAndAppliesWhenRecreated() async throws {
+    func testLabelledPersistentWorkspaceSurvivesEmptyReconcileAndStaysInSidebar() async throws {
         let text = """
             config-version = 2
             persistent-workspaces = ['1', '2', '3']
@@ -199,26 +199,16 @@ final class WorkspaceSidebarLabelsTest: XCTestCase {
         let reloaded = try await reload(file)
         XCTAssertTrue(reloaded.isOk)
 
-        // Visit persistent workspace "2" while empty, then leave it.
+        // Visit persistent labelled workspace "2" while empty, then leave it and reconcile.
         let two = Workspace.get(byName: "2")
         XCTAssertTrue(two.focusWorkspace())
         XCTAssertEqual(workspaceDisplayName("2"), "id/a")
         XCTAssertTrue(one.focusWorkspace())
         Workspace.reconcileWorkspaceState()
 
-        // Even when an empty persistent workspace is automatically pruned, its configured label stays.
-        removeWorkspaceFromRegistry(two, reason: .pruned)
-        Workspace.reconcileWorkspaceState()
-
-        XCTAssertNil(Workspace.existing(byName: "2"))
+        XCTAssertTrue(Workspace.existing(byName: "2") === two)
+        XCTAssertTrue(isUserFacingWorkspace(two))
         XCTAssertEqual(config.workspaceSidebar.workspaceLabels["2"], "id/a")
-        XCTAssertEqual(try Data(contentsOf: file), before)
-
-        // Re-creating workspace "2" restores its label in display names and sidebar view models.
-        let recreated = Workspace.get(byName: "2")
-        _ = TestWindow.new(id: 2, parent: recreated.rootTilingContainer)
-        Workspace.reconcileWorkspaceState()
-
         XCTAssertEqual(workspaceDisplayName("2"), "id/a")
         let viewModels = await buildWorkspaceSidebarWorkspaceViewModels(
             currentFocus: focus,
@@ -229,7 +219,7 @@ final class WorkspaceSidebarLabelsTest: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: file), before)
     }
 
-    func testNonPersistentRuleCreatedWorkspaceKeepsLabelAfterPruneAndAppliesWhenRecreated() async throws {
+    func testNonPersistentRuleCreatedWorkspaceWithLabelSurvivesLastWindowCloseUntilDeleted() async throws {
         let text = """
             config-version = 2
 
@@ -259,28 +249,85 @@ final class WorkspaceSidebarLabelsTest: XCTestCase {
         XCTAssertTrue(firstDiscord.nodeWorkspace === chat)
         XCTAssertEqual(workspaceDisplayName("chat"), "id/c")
 
-        // Close the last window in the non-persistent rule-created workspace so it is pruned automatically.
+        // Closing the last window leaves the labelled workspace empty, yet permanent.
         firstDiscord.unbindFromParent()
         Workspace.reconcileWorkspaceState()
 
-        XCTAssertNil(Workspace.existing(byName: "chat"), "Empty non-persistent workspace should be pruned")
-        XCTAssertEqual(config.workspaceSidebar.workspaceLabels["chat"], "id/c", "Configured label must survive automatic pruning")
+        XCTAssertTrue(Workspace.existing(byName: "chat") === chat, "Labelled workspace must survive empty reconcile")
+        XCTAssertTrue(isUserFacingWorkspace(chat))
+        XCTAssertEqual(config.workspaceSidebar.workspaceLabels["chat"], "id/c")
+        XCTAssertEqual(workspaceDisplayName("chat"), "id/c")
+        let emptyViewModels = await buildWorkspaceSidebarWorkspaceViewModels(
+            currentFocus: focus,
+            workspaceLabels: effectiveWorkspaceSidebarLabels(),
+            availableMonitors: sortedMonitors,
+        )
+        XCTAssertEqual(emptyViewModels.first(where: { $0.name == "chat" })?.displayName, "id/c")
         XCTAssertEqual(try Data(contentsOf: file), before, "Config file on disk must remain unchanged")
 
-        // Re-opening Discord recreates workspace "chat" and reapplies its configured label.
+        // Re-opening Discord routes back into the surviving labelled workspace.
         let secondDiscord = TestWindow.new(id: 11, parent: one.rootTilingContainer, app: discordApp)
         try await tryOnWindowDetected(secondDiscord)
         Workspace.reconcileWorkspaceState()
-
-        let recreatedChat = try XCTUnwrap(Workspace.existing(byName: "chat"))
-        XCTAssertTrue(secondDiscord.nodeWorkspace === recreatedChat)
+        XCTAssertTrue(secondDiscord.nodeWorkspace === chat)
         XCTAssertEqual(workspaceDisplayName("chat"), "id/c")
+        XCTAssertEqual(try Data(contentsOf: file), before)
+
+        // Explicit deletion still removes the workspace and clears its label.
+        try deleteWorkspaceForSidebar(workspaceName: "chat")
+        Workspace.reconcileWorkspaceState()
+        XCTAssertNil(Workspace.existing(byName: "chat"))
+        XCTAssertNil(config.workspaceSidebar.workspaceLabels["chat"])
+    }
+
+    func testUIRenamedTemporaryWorkspaceSurvivesLastWindowCloseKeepsAutoNumberAndPrunesAfterLabelReset() async throws {
+        config.workspaceSidebar.saveNamedWorkspaces = false
+        let one = Workspace.get(byName: "1")
+        one.markAsAutomaticallyNamed()
+        _ = TestWindow.new(id: 1, parent: one.rootTilingContainer)
+        _ = one.focusWorkspace()
+        Workspace.reconcileWorkspaceState()
+
+        let temp = createBlankWorkspace(projectId: workspaceProjectDefaultId, monitor: mainMonitor)
+        XCTAssertEqual(temp.name, "2")
+        let window = TestWindow.new(id: 2, parent: temp.rootTilingContainer)
+        Workspace.reconcileWorkspaceState()
+
+        try renameWorkspaceForSidebar(workspaceName: temp.name, displayName: "Scratch")
+        XCTAssertFalse(temp.isSaved)
+        XCTAssertEqual(workspaceDisplayName("2"), "Scratch")
+
+        // Closing the last window leaves the UI-renamed workspace alive in the sidebar, keeping number "2".
+        window.unbindFromParent()
+        Workspace.reconcileWorkspaceState()
+
+        XCTAssertTrue(Workspace.existing(byName: "2") === temp)
+        XCTAssertTrue(isUserFacingWorkspace(temp))
+        XCTAssertEqual(config.workspaceSidebar.workspaceLabels["2"], "Scratch")
+        XCTAssertEqual(workspaceDisplayName("2"), "Scratch")
         let viewModels = await buildWorkspaceSidebarWorkspaceViewModels(
             currentFocus: focus,
             workspaceLabels: effectiveWorkspaceSidebarLabels(),
             availableMonitors: sortedMonitors,
         )
-        XCTAssertEqual(viewModels.first(where: { $0.name == "chat" })?.displayName, "id/c")
-        XCTAssertEqual(try Data(contentsOf: file), before)
+        XCTAssertEqual(viewModels.first(where: { $0.name == "2" })?.displayName, "Scratch")
+
+        // Creating a new automatic workspace must get a different number ("3") and never inherit "Scratch".
+        let next = createBlankWorkspace(projectId: workspaceProjectDefaultId, monitor: mainMonitor)
+        XCTAssertEqual(next.name, "3")
+        XCTAssertNil(config.workspaceSidebar.workspaceLabels["3"])
+        XCTAssertNotEqual(workspaceDisplayName("3"), "Scratch")
+
+        // An unlabelled empty workspace still prunes automatically.
+        Workspace.reconcileWorkspaceState()
+        XCTAssertNil(Workspace.existing(byName: "3"))
+        XCTAssertTrue(Workspace.existing(byName: "2") === temp)
+
+        // Resetting the label in the UI makes workspace "2" unlabelled again, so it prunes on reconcile.
+        try resetWorkspaceSidebarName(workspaceName: "2")
+        Workspace.reconcileWorkspaceState()
+
+        XCTAssertNil(Workspace.existing(byName: "2"))
+        XCTAssertNil(config.workspaceSidebar.workspaceLabels["2"])
     }
 }

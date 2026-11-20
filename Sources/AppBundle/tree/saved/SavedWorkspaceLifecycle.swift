@@ -6,11 +6,11 @@ extension Workspace {
     @MainActor
     var isSaved: Bool { savedWorkspaceStore.contains(workspaceName: name) }
 
-    /// A saved tab stays when its windows go, unless it closes with its last window: see
-    /// `workspaceTabClosesWithLastWindow`.
+    /// A persistent, labelled, or saved tab stays when its windows go, unless an unlabelled saved
+    /// tab closes with its last window: see `workspaceTabClosesWithLastWindow`.
     @MainActor
     var isKeptWhenEmpty: Bool {
-        isConfiguredPersistent || !workspaceTabClosesWithLastWindow(self) &&
+        isConfiguredPersistent || hasConfiguredLabel || !workspaceTabClosesWithLastWindow(self) &&
             savedWorkspaceStore.record(named: name).map { $0.keepWhenEmpty != false } == true
     }
 

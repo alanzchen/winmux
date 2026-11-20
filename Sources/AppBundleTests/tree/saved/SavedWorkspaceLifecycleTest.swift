@@ -91,7 +91,7 @@ final class SavedWorkspaceLifecycleTest: XCTestCase {
         XCTAssertEqual(Workspace.existing(byName: "code")?.lifecycle, .durable)
     }
 
-    func testForgetKeepsWindowsAndNameThenEmptyIsPrunedPreservingConfiguredLabel() throws {
+    func testForgetKeepsLabelledWorkspaceWhenEmptyUntilLabelIsCleared() throws {
         config.workspaceSidebar.saveNamedWorkspaces = true
         let workspace = Workspace.get(byName: "2")
         workspace.markAsAutomaticallyNamed()
@@ -107,8 +107,14 @@ final class SavedWorkspaceLifecycleTest: XCTestCase {
 
         window.unbindFromParent()
         Workspace.reconcileWorkspaceState()
-        XCTAssertNil(Workspace.existing(byName: "2"))
+        XCTAssertTrue(Workspace.existing(byName: "2") === workspace, "Labelled workspace stays when empty")
         XCTAssertEqual(config.workspaceSidebar.workspaceLabels["2"], "Code")
+        XCTAssertTrue(isUserFacingWorkspace(workspace))
+
+        try resetWorkspaceSidebarName(workspaceName: "2")
+        Workspace.reconcileWorkspaceState()
+        XCTAssertNil(Workspace.existing(byName: "2"), "Unlabelled empty workspace prunes after label is cleared")
+        XCTAssertNil(config.workspaceSidebar.workspaceLabels["2"])
     }
 
     func testDeleteWorkspaceForgetsRecordAndClearsLabel() throws {

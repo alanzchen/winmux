@@ -172,7 +172,7 @@ func closeUnusedNewTab(_ newTab: WorkspaceLauncherNewTab) {
         winMuxWorkspaceState.workspaceById[previous.id] === previous && !previous.isArchived && !previous.isVisible &&
             previous.workspaceMonitor.rect == tab.workspaceMonitor.rect ? previous : nil
     }
-    if newTab.isNew, newTab.discardsSavedPlaceholderOnCancel, !tab.isConfiguredPersistent {
+    if newTab.isNew, newTab.discardsSavedPlaceholderOnCancel, !tab.isConfiguredPersistent, !tab.hasConfiguredLabel {
         if tab.isVisible, let previous {
             if tab === focus.workspace { _ = previous.focusWorkspace() }
             else { _ = tab.workspaceMonitor.setActiveWorkspace(previous) }

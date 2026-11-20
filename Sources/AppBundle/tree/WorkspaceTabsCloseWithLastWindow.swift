@@ -20,6 +20,7 @@ enum WorkspaceTabClosePolicy {
 @MainActor
 func workspaceTabClosesWithLastWindow(_ tab: Workspace) -> Bool {
     tab.lastWindowClosed && config.usesBrowserTabs && !tab.isArchived && !tab.isConfiguredPersistent &&
+        !tab.hasConfiguredLabel &&
         workspaceSidebarOrganizationStore.state.workspaces[tab.name]?.isFavorite != true &&
         !isStartup && !savedWorkspaceRuntime.isStartupRestoreActive &&
         !serverArgs.isReadOnly && !savedWorkspaceStore.isReadOnly && workspaceSidebarOrganizationStore.readOnlyReason == nil &&
@@ -41,7 +42,7 @@ func workspaceTabCloseIsHeld(_ tab: Workspace) -> Bool {
 func noteWindowClosed(_ window: Window, from parent: NonLeafTreeNodeObject) {
     guard config.usesBrowserTabs else { return }
     let tab = parent.nodeWorkspace ?? minimizedWindowOwner(window, parent)
-    guard let tab, !workspaceHasLifecycleWindows(tab), !tab.isConfiguredPersistent,
+    guard let tab, !workspaceHasLifecycleWindows(tab), !tab.isConfiguredPersistent, !tab.hasConfiguredLabel,
           workspaceSidebarOrganizationStore.state.workspaces[tab.name]?.isFavorite != true
     else { return }
     tab.hasHadWindows = true

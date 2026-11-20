@@ -143,6 +143,15 @@ extension Workspace {
         config.persistentWorkspaces.contains(name)
     }
 
+    /// Whether this workspace has a non-empty label in `[workspace-sidebar.workspace-labels]`
+    /// (from `winmux.toml` or set by renaming in the sidebar/UI).
+    @MainActor
+    var hasConfiguredLabel: Bool {
+        config.workspaceSidebar.workspaceLabels[name]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .isEmpty == false
+    }
+
     @MainActor
     var isOrdinaryEmptySlot: Bool {
         !workspaceHasLifecycleWindows(self) && !isKeptWhenEmpty && !isSaved
