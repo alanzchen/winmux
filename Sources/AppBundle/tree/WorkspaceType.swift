@@ -147,9 +147,7 @@ extension Workspace {
     /// (from `winmux.toml` or set by renaming in the sidebar/UI).
     @MainActor
     var hasConfiguredLabel: Bool {
-        config.workspaceSidebar.workspaceLabels[name]?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .isEmpty == false
+        workspaceNameHasConfiguredLabel(name)
     }
 
     @MainActor

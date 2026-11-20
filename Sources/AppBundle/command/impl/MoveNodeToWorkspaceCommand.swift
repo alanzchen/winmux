@@ -81,6 +81,12 @@ private func resolveMoveTargetWorkspace(
     listedAtSequenceStart: Set<WorkspaceId>,
 ) -> Workspace? {
     if let targetIndex = parsePositiveWorkspaceDisplayIndex(workspaceName) {
+        if Workspace.existing(byName: workspaceName) == nil, workspaceNameHasConfiguredLabel(workspaceName) {
+            let workspace = Workspace.get(byName: workspaceName)
+            workspace.assignProject(workspaceContextProjectId(of: sourceWorkspace))
+            workspace.seedMonitorIfNeeded(sourceMonitor)
+            return workspace
+        }
         if let workspace = numberedWorkspaceNavigationTabs(current: sourceWorkspace, listedAtSequenceStart: listedAtSequenceStart)
             .getOrNil(atIndex: targetIndex - 1) {
             return workspace

@@ -186,10 +186,12 @@ func closeWorkspaceSidebarTabs(_ names: [String], requestClose: (@MainActor (Win
     }
 }
 
-/// Closes an empty tab from the sidebar: a saved one is deleted, as its Close Tab does.
+/// Closes an empty tab from the sidebar: a saved or labelled one is deleted, as its Close Tab does.
 @MainActor
 func closeWorkspaceSidebarEmptyTab(_ workspace: Workspace) throws {
-    if config.usesBrowserTabs, workspace.isSaved, !workspace.isConfiguredPersistent, !workspaceHasLifecycleWindows(workspace) {
+    if config.usesBrowserTabs, workspace.isSaved || workspace.hasConfiguredLabel,
+       !workspace.isConfiguredPersistent, !workspaceHasLifecycleWindows(workspace)
+    {
         try deleteWorkspace(workspace)
     } else { closeEmptyTab(workspace) }
 }

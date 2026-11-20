@@ -15,6 +15,15 @@ func sidebarDraftWorkspaceIndex(_ name: String) -> Int? {
     return Int(suffix)
 }
 
+/// Whether `workspaceName` has a non-empty label in `[workspace-sidebar.workspace-labels]`
+/// (from `winmux.toml` or set by renaming in the sidebar/UI).
+@MainActor
+func workspaceNameHasConfiguredLabel(_ workspaceName: String) -> Bool {
+    config.workspaceSidebar.workspaceLabels[workspaceName]?
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+        .isEmpty == false
+}
+
 @MainActor
 func clearWorkspaceSidebarLabelIfNeeded(_ workspaceName: String) {
     // D-S3-1: the live config may be an incomplete reading of the file; its labels stay, in memory and on disk.

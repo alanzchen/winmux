@@ -12,6 +12,7 @@ final class WorkspaceSidebarLabelsTest: XCTestCase {
 
     override func setUp() async throws {
         setUpWorkspacesForTests()
+        workspaceSidebarOrganizationStore = .init()
         previousConfig = config
         previousConfigUrl = configUrl
         savedActiveMode = activeMode
@@ -25,6 +26,7 @@ final class WorkspaceSidebarLabelsTest: XCTestCase {
         activeMode = savedActiveMode
         config = previousConfig
         configUrl = previousConfigUrl
+        workspaceSidebarOrganizationStore = .init()
         resetConfigErrorStateForTests()
         TrayMenuModel.shared.lastReloadConfigContainedWarnings = false
         try? FileManager.default.removeItem(at: directory)
@@ -329,5 +331,110 @@ final class WorkspaceSidebarLabelsTest: XCTestCase {
 
         XCTAssertNil(Workspace.existing(byName: "2"))
         XCTAssertNil(config.workspaceSidebar.workspaceLabels["2"])
+    }
+
+    func testAutomaticTabCreationSkipsConfiguredLabelNamesAndCancellingDiscardsItWhileExplicitTargetsUseLabel() async throws {
+        let text = """
+            config-version = 2
+
+            [workspace-sidebar]
+            enabled = true
+            mode = 'tabs'
+
+            [workspace-sidebar.workspace-labels]
+                "1" = "id/w"
+                "2" = "id/a"
+                "3" = "id/c"
+
+            [[on-window-detected]]
+                if.app-name-regex-substring = 'discord'
+                run = ['move-node-to-workspace 3']
+            """
+        let file = try writeConfig(text)
+        let before = try Data(contentsOf: file)
+
+        let one = Workspace.get(byName: "1")
+        _ = TestWindow.new(id: 1, parent: one.rootTilingContainer)
+        _ = one.focusWorkspace()
+        let reloaded = try await reload(file)
+        XCTAssertTrue(reloaded.isOk)
+        Workspace.reconcileWorkspaceState()
+
+        // Automatic tab creation must skip uncreated names that have a configured label ("2", "3").
+        let newTab = newTabWorkspace(projectId: one.projectId, monitor: mainMonitor)
+        XCTAssertEqual(newTab.workspace.name, "4")
+        XCTAssertTrue(newTab.workspace.focusWorkspace())
+        closeUnusedNewTab(newTab)
+        Workspace.reconcileWorkspaceState()
+
+        XCTAssertNil(Workspace.existing(byName: "4"))
+        XCTAssertNil(Workspace.existing(byName: "2"))
+        XCTAssertNil(Workspace.existing(byName: "3"))
+        XCTAssertTrue(focus.workspace === one)
+
+        // Cancelling a new placeholder tab inside a sidebar group also skips "2"/"3" and discards cleanly.
+        let group = try workspaceSidebarOrganizationStore.create(projectId: one.projectId, workspaceNames: [])
+        let groupTab = try XCTUnwrap(newTabInSidebarCollection(group.id, monitor: mainMonitor))
+        XCTAssertEqual(groupTab.workspace.name, "4")
+        XCTAssertTrue(groupTab.workspace.focusWorkspace())
+        closeUnusedNewTab(groupTab)
+        Workspace.reconcileWorkspaceState()
+
+        XCTAssertNil(Workspace.existing(byName: "4"))
+        XCTAssertNil(Workspace.existing(byName: "2"))
+        XCTAssertNil(Workspace.existing(byName: "3"))
+        XCTAssertEqual(config.workspaceSidebar.workspaceLabels, ["1": "id/w", "2": "id/a", "3": "id/c"])
+        XCTAssertEqual(try Data(contentsOf: file), before)
+
+        // Explicitly focusing workspace "2" by command creates "2" with its configured label "id/a".
+        let focusTwo = try await parseCommand("workspace 2").cmdOrDie.run(.defaultEnv, .emptyStdin)
+        XCTAssertEqual(focusTwo.exitCode.rawValue, 0, "\(focusTwo.stderr)")
+        XCTAssertEqual(focus.workspace.name, "2")
+        XCTAssertEqual(workspaceDisplayName("2"), "id/a")
+
+        // Explicitly moving a window to workspace "3" via on-window-detected creates "3" with label "id/c".
+        let discordApp = TestApp(pid: 42, bundleId: "com.hnc.Discord", name: "Discord")
+        let discordWindow = TestWindow.new(id: 30, parent: one.rootTilingContainer, app: discordApp)
+        try await tryOnWindowDetected(discordWindow)
+        Workspace.reconcileWorkspaceState()
+
+        let three = try XCTUnwrap(Workspace.existing(byName: "3"))
+        XCTAssertTrue(discordWindow.nodeWorkspace === three)
+        XCTAssertEqual(workspaceDisplayName("3"), "id/c")
+        XCTAssertEqual(try Data(contentsOf: file), before)
+    }
+
+    func testClosingEmptyLabelledUnsavedTabFromSidebarDeletesTabAndClearsLabel() async throws {
+        config.workspaceSidebar.enabled = true
+        config.workspaceSidebar.mode = .tabs
+        config.workspaceSidebar.saveNamedWorkspaces = false
+
+        let one = Workspace.get(byName: "1")
+        _ = TestWindow.new(id: 1, parent: one.rootTilingContainer)
+        _ = one.focusWorkspace()
+
+        let two = createBlankWorkspace(projectId: one.projectId, monitor: mainMonitor)
+        let window = TestWindow.new(id: 2, parent: two.rootTilingContainer)
+        try renameWorkspaceForSidebar(workspaceName: two.name, displayName: "Scratch")
+        XCTAssertFalse(two.isSaved)
+        XCTAssertTrue(two.hasConfiguredLabel)
+
+        // Automatic pruning keeps the empty labelled tab.
+        window.unbindFromParent()
+        Workspace.reconcileWorkspaceState()
+        XCTAssertTrue(Workspace.existing(byName: two.name) === two)
+        XCTAssertEqual(config.workspaceSidebar.workspaceLabels[two.name], "Scratch")
+
+        // Automatic closeEmptyTab leaves a labelled tab intact.
+        closeEmptyTab(two)
+        XCTAssertTrue(Workspace.existing(byName: two.name) === two)
+        XCTAssertEqual(config.workspaceSidebar.workspaceLabels[two.name], "Scratch")
+
+        // Clicking Close on the empty labelled unsaved tab in the sidebar deletes it and clears its label.
+        try closeWorkspaceSidebarEmptyTab(two)
+        Workspace.reconcileWorkspaceState()
+
+        XCTAssertNil(Workspace.existing(byName: two.name))
+        XCTAssertNil(config.workspaceSidebar.workspaceLabels[two.name])
     }
 }

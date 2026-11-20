@@ -60,6 +60,12 @@ struct WorkspaceCommand: Command {
         if args.autoBackAndForth && focusedWs.name == workspaceName {
             return .backAndForth
         }
+        if Workspace.existing(byName: workspaceName) == nil, workspaceNameHasConfiguredLabel(workspaceName) {
+            let workspace = Workspace.get(byName: workspaceName)
+            workspace.assignProject(workspaceContextProjectId(of: focusedWs))
+            workspace.seedMonitorIfNeeded(focusedWs.workspaceMonitor)
+            return .focus(workspace)
+        }
         guard let workspace = createAdjacentTransientBlankWorkspaceIfAllowed(named: workspaceName, from: focusedWs,
             listedAtSequenceStart: listedAtSequenceStart) else {
             _ = io.err("Workspace '\(workspaceName)' doesn't exist")
