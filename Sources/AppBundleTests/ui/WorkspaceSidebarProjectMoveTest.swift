@@ -126,7 +126,14 @@ final class WorkspaceSidebarProjectMoveTest: XCTestCase {
         XCTAssertFalse(blank.retainsEmptyAfterProjectMove)
         _ = occupied.focusWorkspace()
         Workspace.reconcileWorkspaceState()
+        XCTAssertTrue(Workspace.existing(byName: blank.name) === blank, "Named workspace stays after visit-and-leave")
+        XCTAssertTrue(isUserFacingWorkspace(blank))
+        XCTAssertEqual(config.workspaceSidebar.workspaceLabels[blank.name], "Next task")
+
+        try resetWorkspaceSidebarName(workspaceName: blank.name)
+        Workspace.reconcileWorkspaceState()
         XCTAssertNil(Workspace.existing(byName: blank.name))
+        XCTAssertNil(config.workspaceSidebar.workspaceLabels[blank.name])
     }
 
     func testWorkspaceProviderRoundTripAndWindowPayloadIsolation() async {
