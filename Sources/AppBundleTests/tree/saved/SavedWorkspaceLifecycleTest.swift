@@ -70,28 +70,16 @@ final class SavedWorkspaceLifecycleTest: XCTestCase {
         XCTAssertFalse(saved.isOrdinaryEmptySlot)
     }
 
-    func testOrphanLabelClearingSkipsSavedNames() {
+    func testReconcilePreservesLabelsOfSavedAndUncreatedWorkspaces() {
         savedWorkspaceStore.insert(SavedWorkspaceRecord(workspaceName: "7", displayName: "Seven"))
         config.workspaceSidebar.workspaceLabels["7"] = "Seven"
         config.workspaceSidebar.workspaceLabels["8"] = "Eight"
 
-        clearOrphanedWorkspaceSidebarLabels()
+        Workspace.reconcileWorkspaceState()
 
         XCTAssertEqual(config.workspaceSidebar.workspaceLabels["7"], "Seven")
-        XCTAssertNil(config.workspaceSidebar.workspaceLabels["8"])
-    }
-
-    func testStartupKeepsLabelsOfWorkspacesNotRestoredYet() {
-        config.workspaceSidebar.workspaceLabels["3"] = "Restored later"
-        isDeferringOrphanedWorkspaceLabelCleanup = true
-        defer { isDeferringOrphanedWorkspaceLabelCleanup = false }
-
-        Workspace.reconcileWorkspaceState()
-        XCTAssertEqual(config.workspaceSidebar.workspaceLabels["3"], "Restored later")
-
-        isDeferringOrphanedWorkspaceLabelCleanup = false
-        clearOrphanedWorkspaceSidebarLabels()
-        XCTAssertNil(config.workspaceSidebar.workspaceLabels["3"])
+        XCTAssertEqual(config.workspaceSidebar.workspaceLabels["8"], "Eight")
+        XCTAssertNil(Workspace.existing(byName: "8"))
     }
 
     func testReconcileRecreatesMissingSavedWorkspace() {

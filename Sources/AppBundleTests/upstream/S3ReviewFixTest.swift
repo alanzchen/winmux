@@ -115,7 +115,6 @@ final class S3ReviewFixTest: XCTestCase {
         XCTAssertTrue(configWriteBackSuspended)
 
         Workspace.reconcileWorkspaceState()
-        clearOrphanedWorkspaceSidebarLabels()
         clearWorkspaceSidebarLabelIfNeeded("2")
         try persistWorkspaceSidebarLabel(workspaceName: "2", label: nil, targetUrl: file)
         try persistWorkspaceSidebarProjectOrder(["p1"], targetUrl: file)

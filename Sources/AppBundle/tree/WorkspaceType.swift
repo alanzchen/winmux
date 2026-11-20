@@ -81,7 +81,6 @@ final class Workspace: TreeNode, NonLeafTreeNodeObject, Hashable, Comparable {
         // Once every display shows a workspace it may, so a replacement can't break another's.
         leaveTabsLeftEmptyOnScreen()
         pruneEmptyWorkspaces()
-        clearOrphanedWorkspaceSidebarLabels()
         ensureVisibleActiveProjectWorkspaces()
         checkWorkspaceHierarchyInvariants(requireActiveMonitorViewports: true)
         scheduleSavedWorkspaceCheckpoint()
