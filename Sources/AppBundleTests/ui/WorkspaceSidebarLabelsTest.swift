@@ -437,4 +437,74 @@ final class WorkspaceSidebarLabelsTest: XCTestCase {
         XCTAssertNil(Workspace.existing(byName: two.name))
         XCTAssertNil(config.workspaceSidebar.workspaceLabels[two.name])
     }
+
+    func testWorkspaceAndMoveCommandsAgreeOnLabelledNumericWorkspaceEvenWhenAutoTabsOccupyPosition() async throws {
+        let text = """
+            config-version = 2
+
+            [workspace-sidebar]
+            enabled = true
+            mode = 'tabs'
+
+            [workspace-sidebar.workspace-labels]
+                "1" = "id/w"
+                "2" = "Notes"
+                "3" = "Chat"
+            """
+        let file = try writeConfig(text)
+        let before = try Data(contentsOf: file)
+
+        let one = Workspace.get(byName: "1")
+        let win1 = TestWindow.new(id: 1, parent: one.rootTilingContainer)
+        _ = win1.focusWindow()
+        let reloaded = try await reload(file)
+        XCTAssertTrue(reloaded.isOk)
+        Workspace.reconcileWorkspaceState()
+
+        // Create two automatic tabs while "2" and "3" are absent: they get auto-named "4" and "5"
+        // and sit at display positions 2 and 3.
+        let tab4 = newTabWorkspace(projectId: one.projectId, monitor: mainMonitor).workspace
+        XCTAssertEqual(tab4.name, "4")
+        let win4 = TestWindow.new(id: 4, parent: tab4.rootTilingContainer)
+        XCTAssertTrue(tab4.focusWorkspace())
+        let tab5 = newTabWorkspace(projectId: one.projectId, monitor: mainMonitor).workspace
+        XCTAssertEqual(tab5.name, "5")
+        _ = TestWindow.new(id: 5, parent: tab5.rootTilingContainer)
+        XCTAssertTrue(win1.focusWindow())
+        Workspace.reconcileWorkspaceState()
+
+        XCTAssertNil(Workspace.existing(byName: "2"))
+        XCTAssertNil(Workspace.existing(byName: "3"))
+        XCTAssertEqual(numberedWorkspaceNavigationTabs(current: one).map(\.name), ["1", "4", "5"])
+
+        // `workspace 2` must create and focus workspace "2" ("Notes"), never tab "4" (the 2nd tab).
+        let focusTwo = try await parseCommand("workspace 2").cmdOrDie.run(.defaultEnv, .emptyStdin)
+        XCTAssertEqual(focusTwo.exitCode.rawValue, 0, "\(focusTwo.stderr)")
+        let two = try XCTUnwrap(Workspace.existing(byName: "2"))
+        XCTAssertTrue(focus.workspace === two)
+        XCTAssertEqual(workspaceDisplayName(two.name), "Notes")
+
+        // `move-node-to-workspace 2` must target the same workspace "2" ("Notes"), never tab "4".
+        XCTAssertTrue(win1.focusWindow())
+        let moveToTwo = try await parseCommand("move-node-to-workspace 2").cmdOrDie.run(.defaultEnv, .emptyStdin)
+        XCTAssertEqual(moveToTwo.exitCode.rawValue, 0, "\(moveToTwo.stderr)")
+        XCTAssertTrue(win1.nodeWorkspace === two)
+        XCTAssertEqual(workspaceDisplayName(two.name), "Notes")
+
+        // Reverse order for "3" ("Chat"): `move-node-to-workspace 3` creates "3" (not 3rd tab "5"),
+        // then `workspace 3` focuses that same workspace "3" even though it is not at position 3.
+        XCTAssertTrue(win4.focusWindow())
+        let moveToThree = try await parseCommand("move-node-to-workspace 3").cmdOrDie.run(.defaultEnv, .emptyStdin)
+        XCTAssertEqual(moveToThree.exitCode.rawValue, 0, "\(moveToThree.stderr)")
+        let three = try XCTUnwrap(Workspace.existing(byName: "3"))
+        XCTAssertTrue(win4.nodeWorkspace === three)
+        XCTAssertEqual(workspaceDisplayName(three.name), "Chat")
+
+        XCTAssertTrue(tab5.focusWorkspace())
+        let focusThree = try await parseCommand("workspace 3").cmdOrDie.run(.defaultEnv, .emptyStdin)
+        XCTAssertEqual(focusThree.exitCode.rawValue, 0, "\(focusThree.stderr)")
+        XCTAssertTrue(focus.workspace === three)
+        XCTAssertEqual(workspaceDisplayName(three.name), "Chat")
+        XCTAssertEqual(try Data(contentsOf: file), before)
+    }
 }

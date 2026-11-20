@@ -54,17 +54,18 @@ struct WorkspaceCommand: Command {
     @MainActor
     private func resolveDirectWorkspaceTarget(named workspaceName: String, from focusedWs: Workspace, io: CmdIo,
                                               listedAtSequenceStart: Set<WorkspaceId>) -> ResolvedWorkspaceTarget {
+        if let workspace = resolveConfiguredLabelWorkspaceTarget(
+            named: workspaceName,
+            from: focusedWs,
+            monitor: focusedWs.workspaceMonitor,
+        ) {
+            return args.autoBackAndForth && workspace == focusedWs ? .backAndForth : .focus(workspace)
+        }
         if let workspace = findDirectWorkspaceTarget(named: workspaceName, from: focusedWs, listedAtSequenceStart: listedAtSequenceStart) {
             return args.autoBackAndForth && workspace == focusedWs ? .backAndForth : .focus(workspace)
         }
         if args.autoBackAndForth && focusedWs.name == workspaceName {
             return .backAndForth
-        }
-        if Workspace.existing(byName: workspaceName) == nil, workspaceNameHasConfiguredLabel(workspaceName) {
-            let workspace = Workspace.get(byName: workspaceName)
-            workspace.assignProject(workspaceContextProjectId(of: focusedWs))
-            workspace.seedMonitorIfNeeded(focusedWs.workspaceMonitor)
-            return .focus(workspace)
         }
         guard let workspace = createAdjacentTransientBlankWorkspaceIfAllowed(named: workspaceName, from: focusedWs,
             listedAtSequenceStart: listedAtSequenceStart) else {

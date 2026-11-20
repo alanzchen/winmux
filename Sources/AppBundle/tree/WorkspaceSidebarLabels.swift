@@ -24,6 +24,25 @@ func workspaceNameHasConfiguredLabel(_ workspaceName: String) -> Bool {
         .isEmpty == false
 }
 
+/// Resolves a direct workspace target that has a configured label: first to an existing
+/// workspace with that name, otherwise creating it in the active project on `monitor`.
+/// Returns nil when `workspaceName` has no configured label so callers use their normal fallback.
+@MainActor
+func resolveConfiguredLabelWorkspaceTarget(
+    named workspaceName: String,
+    from current: Workspace,
+    monitor: Monitor,
+) -> Workspace? {
+    guard workspaceNameHasConfiguredLabel(workspaceName) else { return nil }
+    if let existing = Workspace.existing(byName: workspaceName), !existing.isArchived {
+        return existing
+    }
+    let workspace = Workspace.get(byName: workspaceName)
+    workspace.assignProject(workspaceContextProjectId(of: current))
+    workspace.seedMonitorIfNeeded(monitor)
+    return workspace
+}
+
 @MainActor
 func clearWorkspaceSidebarLabelIfNeeded(_ workspaceName: String) {
     // D-S3-1: the live config may be an incomplete reading of the file; its labels stay, in memory and on disk.
