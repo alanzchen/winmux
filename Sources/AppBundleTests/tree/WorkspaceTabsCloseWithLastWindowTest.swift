@@ -155,7 +155,6 @@ final class WorkspaceTabsCloseWithLastWindowTest: XCTestCase {
     private func assertClosed(_ tab: Workspace, file: StaticString = #filePath, line: UInt = #line) {
         XCTAssertNil(Workspace.existing(byName: tab.name), "The tab closed", file: file, line: line)
         XCTAssertNil(savedWorkspaceStore.record(named: tab.name), "Its saved record went with it", file: file, line: line)
-        XCTAssertNil(config.workspaceSidebar.workspaceLabels[tab.name], "and its label", file: file, line: line)
         XCTAssertNil(workspaceSidebarOrganizationStore.state.workspaces[tab.name], file: file, line: line)
         XCTAssertNil(workspaceSidebarOrganizationStore.collection(containing: tab.name), "and its place in a group",
             file: file, line: line)

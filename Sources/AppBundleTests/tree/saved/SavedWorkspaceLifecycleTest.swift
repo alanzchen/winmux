@@ -91,7 +91,7 @@ final class SavedWorkspaceLifecycleTest: XCTestCase {
         XCTAssertEqual(Workspace.existing(byName: "code")?.lifecycle, .durable)
     }
 
-    func testForgetKeepsWindowsAndNameThenEmptyIsPrunedAndLabelCleared() throws {
+    func testForgetKeepsWindowsAndNameThenEmptyIsPrunedPreservingConfiguredLabel() throws {
         config.workspaceSidebar.saveNamedWorkspaces = true
         let workspace = Workspace.get(byName: "2")
         workspace.markAsAutomaticallyNamed()
@@ -108,7 +108,7 @@ final class SavedWorkspaceLifecycleTest: XCTestCase {
         window.unbindFromParent()
         Workspace.reconcileWorkspaceState()
         XCTAssertNil(Workspace.existing(byName: "2"))
-        XCTAssertNil(config.workspaceSidebar.workspaceLabels["2"])
+        XCTAssertEqual(config.workspaceSidebar.workspaceLabels["2"], "Code")
     }
 
     func testDeleteWorkspaceForgetsRecordAndClearsLabel() throws {
