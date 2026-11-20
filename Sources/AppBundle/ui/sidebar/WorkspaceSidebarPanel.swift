@@ -38,8 +38,6 @@ let workspaceSidebarHoverAnimation: Animation = MotionToken.hover
 let workspaceSidebarReducedMotionHoverAnimation: Animation = MotionToken.quick
 let workspaceSidebarProjectSwipeIntentThreshold: CGFloat = 5
 let workspaceSidebarProjectSwipeNavigateThreshold: CGFloat = 44
-let workspaceSidebarProjectSwipeCreateThreshold: CGFloat = 104
-let workspaceSidebarProjectSwipeFormationStart: CGFloat = 22
 let workspaceSidebarHoverOpenThresholdFraction: CGFloat = 0.75
 let workspaceSidebarDisplayEdgeCompactionMargin: CGFloat = 12
 
@@ -375,24 +373,22 @@ private let workspaceSidebarInlineTextEventTapCallback: CGEventTapCallBack = { _
         let handled = MainActor.assumeIsolated {
             guard config.usesBrowserTabs,
                   let panel = WorkspaceSidebarPanel.inputSession.owner as? WorkspaceSidebarPanel,
-                  panel.canCaptureSidebarInput, !panel.inlineTextEditingCancelsOnPointerExit,
+                  panel.canCaptureSidebarInput, panel.sidebarInputPurpose == .textEditing, !panel.inlineTextEditingCancelsOnPointerExit,
                   WorkspaceSidebarTabUndo.shared.title != nil else { return false }
             runWorkspaceSidebarSession { try WorkspaceSidebarTabUndo.shared.undo() }
             return true
         }
         if handled { return nil }
     }
-    let key = workspaceSidebarInlineTextKey(from: event)
-    if case .ignored = key {
-        return Unmanaged.passUnretained(event)
-    }
+    let purpose = MainActor.assumeIsolated { WorkspaceSidebarPanel.inputSession.owner?.sidebarInputPurpose ?? .textEditing }
+    let key = workspaceSidebarInlineTextKey(from: event, purpose: purpose)
     // Installed on the main run loop: decide before swallowing the event, not in
     // a deferred task that may run after the user has switched applications.
     let handled = MainActor.assumeIsolated { WorkspaceSidebarPanel.inputSession.handle(key) }
     return handled ? nil : Unmanaged.passUnretained(event)
 }
 
-private func workspaceSidebarInlineTextKey(from event: CGEvent) -> WorkspaceSidebarInlineTextKey {
+func workspaceSidebarInlineTextKey(from event: CGEvent, purpose: WorkspaceSidebarInputPurpose = .textEditing) -> WorkspaceSidebarInlineTextKey {
     let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
     let flags = event.flags
     let usesCommand = flags.contains(.maskCommand)
@@ -400,9 +396,9 @@ private func workspaceSidebarInlineTextKey(from event: CGEvent) -> WorkspaceSide
     let usesControl = flags.contains(.maskControl)
     switch keyCode {
         case 36, 76:
-            return .commit
+            return purpose.acceptsNavigationKey(modifiers: flags) ? .commit : .ignored
         case 53:
-            return .cancel
+            return purpose.acceptsNavigationKey(modifiers: flags) ? .cancel : .ignored
         case 51:
             if usesCommand {
                 return .deleteToBeginningOfLine
@@ -438,46 +434,16 @@ private func workspaceSidebarInlineTextKey(from event: CGEvent) -> WorkspaceSide
 
 extension WorkspaceSidebarPanel {
     func inlineTextKey(from event: NSEvent) -> WorkspaceSidebarInlineTextKey {
-        let usesCommand = event.modifierFlags.contains(.command)
-        let usesOption = event.modifierFlags.contains(.option)
-        let usesControl = event.modifierFlags.contains(.control)
-        switch event.keyCode {
-            case 36, 76:
-                return .commit
-            case 53:
-                return .cancel
-            case 51:
-                if usesCommand {
-                    return .deleteToBeginningOfLine
-                }
-                if usesOption {
-                    return .deleteWordBackward
-                }
-                return .deleteBackward
-            case 117:
-                return .deleteForward
-            case 126:
-                return .moveUp
-            case 125:
-                return .moveDown
-            default:
-                break
-        }
-
-        guard !usesCommand, !usesOption, !usesControl,
-              let text = event.characters,
-              !text.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) })
-        else {
-            return .ignored
-        }
-        return text.isEmpty ? .ignored : .text(text)
+        event.cgEvent.map { workspaceSidebarInlineTextKey(from: $0, purpose: inlineTextEditingPurpose) } ?? .ignored
     }
 
     func beginInlineTextEditing(
+        purpose: WorkspaceSidebarInputPurpose = .textEditing,
         locksExpansion: Bool = true,
         cancelsOnPointerExit: Bool = true,
+        expandsSidebar: Bool = true,
         onCancel: (@MainActor () -> Void)? = nil,
-        onKeyDown: (@MainActor (WorkspaceSidebarInlineTextKey) -> Void)? = nil
+        onKeyDown: (@MainActor (WorkspaceSidebarInlineTextKey) -> Bool)? = nil
     ) {
         guard NSApp.modalWindow == nil else { return }
         debugWorkspaceSidebarRenameLog("beginInlineTextEditing isKeyBefore=\(isKeyWindow) firstResponder=\(String(describing: firstResponder)) mouseInside=\(isMouseInsideVisibleRegion())")
@@ -489,43 +455,50 @@ extension WorkspaceSidebarPanel {
                 ? frontmost : (focus.windowOrNil?.app as? MacApp)?.nsApp
         }
         inlineTextEditingActive = true
+        inlineTextEditingPurpose = purpose
         inlineTextEditingLocksExpansion = locksExpansion
         inlineTextEditingCancelsOnPointerExit = cancelsOnPointerExit
         inlineTextEditingCancel = onCancel
         inlineTextEditingKeyDown = onKeyDown
         inlineTextEditingStartedAt = .now
         inlineTextEditingPointerEnteredVisibleRegion = isMouseInsideVisibleRegion()
-        prepareForInlineTextEditing()
+        // A navigation page owns only its command keys; typing stays in the current app.
+        if purpose.activatesPanel { prepareForInlineTextEditing(expandsSidebar: expandsSidebar) }
         installInlineTextEditingEventMonitors()
         installInlineTextEditingKeyEventTap()
     }
 
-    func endInlineTextEditing() {
+    func endInlineTextEditing(restorePreviousApplication: Bool = false, afterPassingKey: Bool = false) {
         guard inlineTextEditingActive else { return }
         debugWorkspaceSidebarRenameLog("endInlineTextEditing isKey=\(isKeyWindow) firstResponder=\(String(describing: firstResponder))")
         inlineTextEditingActive = false
+        inlineTextEditingPurpose = .textEditing
         inlineTextEditingLocksExpansion = true
         inlineTextEditingCancelsOnPointerExit = true
         WorkspaceSidebarPanel.inputSession.release(self)
         inlineTextEditingCancel = nil
         inlineTextEditingKeyDown = nil
         inlineTextEditingPointerEnteredVisibleRegion = false
+        let previousApplication = inlineTextEditingPreviousApplication
         inlineTextEditingPreviousApplication = nil
         removeInlineTextEditingEventMonitors()
-        removeInlineTextEditingKeyEventTap()
+        removeInlineTextEditingKeyEventTap(afterPassingKey: afterPassingKey)
         clearWorkspaceSidebarCommandInputState(self)
         NotificationCenter.default.post(name: workspaceSidebarInputDidEndNotification, object: self)
+        if restorePreviousApplication, NSApp.isActive {
+            previousApplication?.activate(options: .activateIgnoringOtherApps)
+        }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.04) { [weak self] in
             self?.updateHoverStateFromMousePosition()
         }
     }
 
-    func prepareForInlineTextEditing() {
+    func prepareForInlineTextEditing(expandsSidebar: Bool = true) {
         guard NSApp.modalWindow == nil else { return }
         guard currentSidebarPanelLayout() != nil else { return }
         debugWorkspaceSidebarRenameLog("prepareForInlineTextEditing before visible=\(isVisible) isKey=\(isKeyWindow) ignoresMouse=\(ignoresMouseEvents) firstResponder=\(String(describing: firstResponder))")
         cancelExpansionWork()
-        expandSidebar(to: CGFloat(sidebarSettings.width))
+        if expandsSidebar { expandSidebar(to: CGFloat(sidebarSettings.width)) }
         ignoresMouseEvents = false
         orderFrontRegardless()
         makeKeyAndOrderFront(nil)
@@ -545,11 +518,8 @@ extension WorkspaceSidebarPanel {
     func handleInlineTextEditingKey(_ key: WorkspaceSidebarInlineTextKey) -> Bool {
         guard inlineTextEditingActive, let inlineTextEditingKeyDown else { return false }
         debugWorkspaceSidebarRenameLog("handleInlineTextEditingKey key=\(key)")
-        inlineTextEditingKeyDown(key)
-        if case .ignored = key {
-            return false
-        }
-        return true
+        if case .ignored = key, inlineTextEditingPurpose != .projectCreation { return false }
+        return inlineTextEditingKeyDown(key)
     }
 
     func shouldCancelInlineTextEditingForOutsidePointer(isMouseDown: Bool) -> Bool {
@@ -607,8 +577,8 @@ extension WorkspaceSidebarPanel {
             guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
                   app.processIdentifier != ProcessInfo.processInfo.processIdentifier else { return }
             MainActor.assumeIsolated {
-                guard let self, workspaceSidebarInlineTextEditingCancelsForActivation(startedAt: self.inlineTextEditingStartedAt)
-                else { return }
+                guard let self else { return }
+                if !workspaceSidebarInlineTextEditingCancelsForActivation(startedAt: self.inlineTextEditingStartedAt) { return }
                 self.cancelInlineTextEditing()
             }
         }
@@ -651,15 +621,19 @@ extension WorkspaceSidebarPanel {
         debugWorkspaceSidebarRenameLog("installKeyEventTap ok")
     }
 
-    func removeInlineTextEditingKeyEventTap() {
-        if let source = inlineTextEditingKeyEventTapRunLoopSource {
-            CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes)
-        }
-        if let tap = inlineTextEditingKeyEventTap {
-            CFMachPortInvalidate(tap)
-        }
+    func removeInlineTextEditingKeyEventTap(afterPassingKey: Bool = false) {
+        let source = inlineTextEditingKeyEventTapRunLoopSource
+        let tap = inlineTextEditingKeyEventTap
         inlineTextEditingKeyEventTap = nil
         inlineTextEditingKeyEventTapRunLoopSource = nil
+        let invalidate = {
+            if let source { CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes) }
+            if let tap { CFMachPortInvalidate(tap) }
+        }
+        // Return the unused event to its original app before invalidating the delivering port.
+        // Session ownership is already released; a new session cannot be torn down by this block.
+        if afterPassingKey { DispatchQueue.main.async(execute: invalidate) }
+        else { invalidate() }
     }
 
     func isEventInsideVisibleRegion(_ event: NSEvent) -> Bool {

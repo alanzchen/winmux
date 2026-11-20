@@ -515,77 +515,55 @@ final class WorkspaceSidebarDragTest: XCTestCase {
             workspaceSidebarProjectIndexAfterSwipe(currentIndex: 1, projectCount: 3, direction: -1),
             0,
         )
-        XCTAssertNil(
+        XCTAssertEqual(
             workspaceSidebarProjectIndexAfterSwipe(currentIndex: 2, projectCount: 3, direction: 1),
+            3, "The final page is a creation page, not a new project",
         )
+        XCTAssertNil(workspaceSidebarProjectIndexAfterSwipe(currentIndex: 3, projectCount: 3, direction: 1))
+        XCTAssertEqual(workspaceSidebarProjectIndexAfterSwipe(currentIndex: 3, projectCount: 3, direction: -1), 2)
         XCTAssertNil(
             workspaceSidebarProjectIndexAfterSwipe(currentIndex: 0, projectCount: 3, direction: -1),
         )
     }
 
-    func testProjectSwipeCreatesOnlyPastEdgesAfterBreakPoint() {
-        XCTAssertFalse(
-            shouldCreateWorkspaceSidebarProjectAfterSwipe(
-                currentIndex: 1,
-                projectCount: 3,
-                direction: 1,
-                distance: 120,
-            ),
-        )
-        XCTAssertFalse(
-            shouldCreateWorkspaceSidebarProjectAfterSwipe(
-                currentIndex: 2,
-                projectCount: 3,
-                direction: 1,
-                distance: 96,
-            ),
-        )
-        XCTAssertTrue(
-            shouldCreateWorkspaceSidebarProjectAfterSwipe(
-                currentIndex: 2,
-                projectCount: 3,
-                direction: 1,
-                distance: 110,
-            ),
-        )
-        XCTAssertTrue(
-            shouldCreateWorkspaceSidebarProjectAfterSwipe(
-                currentIndex: 0,
-                projectCount: 3,
-                direction: -1,
-                distance: 110,
-            ),
-        )
+    func testProjectSwipeLandsOnCreationPageOnlyAfterNavigationThreshold() {
+        XCTAssertNil(workspaceSidebarProjectSwipeTargetIndex(currentIndex: 2, projectCount: 3, direction: 1, distance: 43))
+        XCTAssertEqual(workspaceSidebarProjectSwipeTargetIndex(currentIndex: 2, projectCount: 3, direction: 1, distance: 44), 3)
+        XCTAssertEqual(workspaceSidebarProjectSwipeTargetIndex(currentIndex: 2, projectCount: 3, direction: 1, distance: 110), 3)
+        XCTAssertEqual(workspaceSidebarProjectSwipeTargetIndex(currentIndex: 3, projectCount: 3, direction: -1, distance: 44), 2)
     }
 
-    func testProjectSwipeFormationProgressOnlyAtEdges() {
-        XCTAssertEqual(
-            workspaceSidebarProjectEdgeCreationProgress(
-                currentIndex: 1,
-                projectCount: 3,
-                direction: 1,
-                distance: 100,
-            ),
-            0,
-        )
-        XCTAssertEqual(
-            workspaceSidebarProjectEdgeCreationProgress(
-                currentIndex: 2,
-                projectCount: 3,
-                direction: 1,
-                distance: 22,
-            ),
-            0,
-        )
-        XCTAssertEqual(
-            workspaceSidebarProjectEdgeCreationProgress(
-                currentIndex: 2,
-                projectCount: 3,
-                direction: 1,
-                distance: 104,
-            ),
-            1,
-        )
+    func testProjectSwipeRubberBandsAtBothEdgesRegardlessOfDistance() {
+        for distance: CGFloat in [44, 104, 1000] {
+            XCTAssertNil(workspaceSidebarProjectSwipeTargetIndex(currentIndex: 0, projectCount: 3, direction: -1, distance: distance))
+            XCTAssertNil(workspaceSidebarProjectSwipeTargetIndex(currentIndex: 3, projectCount: 3, direction: 1, distance: distance))
+        }
+        XCTAssertNil(workspaceSidebarProjectSwipeTargetIndex(currentIndex: nil, projectCount: 3, direction: 1, distance: 1000))
+        XCTAssertNil(workspaceSidebarProjectSwipeTargetIndex(currentIndex: 0, projectCount: 0, direction: 1, distance: 1000))
+    }
+
+    func testProjectCreationPageKeyboardRequiresExplicitConfirmation() {
+        XCTAssertEqual(workspaceSidebarProjectCreationAction(for: .commit), .create)
+        XCTAssertEqual(workspaceSidebarProjectCreationAction(for: .cancel), .leave)
+        XCTAssertNil(workspaceSidebarProjectCreationAction(for: .text("a")))
+        XCTAssertNil(workspaceSidebarProjectCreationAction(for: .moveDown))
+        XCTAssertNil(workspaceSidebarProjectCreationAction(for: .ignored))
+    }
+
+    @MainActor
+    func testCancelledProjectSwipeDoesNotNavigate() {
+        let capture = WorkspaceSidebarProjectSwipeScrollCapture.Coordinator()
+        var cancelled = 0
+        var ended = 0
+        capture.onCancelled = { cancelled += 1 }
+        capture.onEnded = { _, _ in ended += 1 }
+        capture.hasLockedHorizontalIntent = true
+        capture.horizontalTranslation = -110
+        capture.finishLockedSwipe(cancelled: true)
+        XCTAssertEqual(cancelled, 1)
+        XCTAssertEqual(ended, 0)
+        XCTAssertFalse(capture.hasLockedHorizontalIntent)
+        XCTAssertEqual(capture.horizontalTranslation, 0)
     }
 
     func testProjectSwipeSwitchProgressReachesOneAtNavigationThreshold() {
@@ -629,7 +607,7 @@ final class WorkspaceSidebarDragTest: XCTestCase {
         XCTAssertEqual(
             workspaceSidebarProjectPagerDragOffset(
                 horizontalTranslation: -120,
-                currentIndex: 0,
+                currentIndex: 1,
                 projectCount: 1,
                 pageWidth: 200,
             ),

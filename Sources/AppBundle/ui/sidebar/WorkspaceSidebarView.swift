@@ -3,6 +3,7 @@ import Common
 import SwiftUI
 
 struct WorkspaceSidebarView: View {
+    var inspectMountedView: ((WorkspaceSidebarView) -> Void)? = nil
     var snapshot: WorkspaceSidebarSnapshot
     let actions: WorkspaceSidebarActions
     let dockBadgeModel: WorkspaceSidebarDockBadgeModel
@@ -42,6 +43,9 @@ struct WorkspaceSidebarView: View {
         browserWatchScope = watch.scope
         browserTabsModel.watch(watch.windowIds, sidebar: watch.scope)
     }
+    @State var showsProjectCreationPage = false
+    @State var projectSwipeNavigationSerial = 0
+    @State var projectCreationInputPanel: WorkspaceSidebarPanel?
     @State var projectSwipeTranslation: CGFloat = 0
     @State var projectSwipeStartProjectId: WorkspaceProjectId? = nil
     @State var projectSwipeDidCrossBreakPoint = false
@@ -219,6 +223,7 @@ struct WorkspaceSidebarView: View {
             }
         }
         .onAppear {
+            inspectMountedView?(self)
             lastActiveProjectId = snapshot.activeProjectId
             updateBrowserWatch(browserWatch)
             refreshSidebarSearchKeyHandler()
@@ -226,6 +231,7 @@ struct WorkspaceSidebarView: View {
         .onChange(of: snapshot) { refreshSidebarSearch(for: $0) }
         .onChange(of: browserWatch) { updateBrowserWatch($0) }
         .onDisappear {
+            leaveProjectCreationPage()
             if let scope = browserWatchScope { browserTabsModel.watch([], sidebar: scope) }
             // The handler holds a copy of this view, which holds the relay.
             searchKeyRelay.handler = nil
@@ -238,6 +244,7 @@ struct WorkspaceSidebarView: View {
             debugWorkspaceSidebarProjectLog(
                 "snapshotActiveProjectChanged active=\(projectId.rawValue) visibleWidth=\(snapshot.visibleWidth) projects=\(snapshot.projects.map(\.id.rawValue))"
             )
+            leaveProjectCreationPage()
             let previousProjectId = lastActiveProjectId
             let wasBrowsingAnotherProject = browsedProjectId != nil
             let swipeSlidPages = projectSwipeCommit?.projectId == projectId
@@ -255,6 +262,7 @@ struct WorkspaceSidebarView: View {
             }
         }
         .onChange(of: browseMode) { mode in
+            if mode.isSplit { leaveProjectCreationPage() }
             endProjectPageTransition()
             guard let panel = WorkspaceSidebarPanel.panel(for: snapshot.targetMonitorScopeId) else { return }
             guard panel.updateProjectBrowsing(mode.isSplit, expandedWidth: expandedWidth, collapsedWidth: collapsedWidth) else { return }
@@ -263,6 +271,7 @@ struct WorkspaceSidebarView: View {
             isSidebarExpanding = false
         }
         .onChange(of: snapshot.projects) { _ in
+            leaveProjectCreationPage()
             if let browsedProjectId, !snapshot.projects.contains(where: { $0.id == browsedProjectId }) {
                 browseMode = .activeProject
             }
@@ -297,8 +306,9 @@ struct WorkspaceSidebarView: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: workspaceSidebarInputDidEndNotification)) { notification in
-            guard let panel = notificationPanel(from: notification), searchEditingPanel === panel else { return }
-            finishSidebarSearch(clearText: true)
+            guard let panel = notificationPanel(from: notification) else { return }
+            if projectCreationInputPanel === panel { leaveProjectCreationPage() }
+            if searchEditingPanel === panel { finishSidebarSearch(clearText: true) }
         }
         .onChange(of: snapshot.selectedMonitorScopeId) { _ in
             activeInUseOverrideWorkspaceName = nil
@@ -343,6 +353,7 @@ struct WorkspaceSidebarView: View {
     }
 
     func beginSidebarSearchIfNeeded(panel: WorkspaceSidebarPanel? = nil) {
+        guard !showsProjectCreationPage else { return }
         guard !isSearchEditing else { return }
         guard snapshot.visibleWidth > snapshot.configuration.expansionStartWidth + 0.5 || isSidebarExpanding else { return }
         let editingPanel = panel ?? currentPanel() ?? WorkspaceSidebarPanel.shared
@@ -350,6 +361,7 @@ struct WorkspaceSidebarView: View {
     }
 
     func adoptCommandSidebarSearchIfNeeded(panel editingPanel: WorkspaceSidebarPanel) {
+        leaveProjectCreationPage()
         if !isSearchEditing {
             isSearchEditing = true
             searchEditingPanel = editingPanel
@@ -365,6 +377,7 @@ struct WorkspaceSidebarView: View {
             },
             onKeyDown: { [searchKeyRelay] key in
                 searchKeyRelay.send(key)
+                return true
             },
         )
         let bufferedKeys = editingPanel.bufferedCommandSidebarSearchKeys
@@ -563,7 +576,7 @@ extension WorkspaceSidebarView {
         visibleWorkspacesByProject: [WorkspaceProjectId: [WorkspaceSidebarWorkspaceViewModel]],
         swipeDirection: Int?,
     ) -> some View {
-        if usesExpandedProjectList, !snapshot.projects.isEmpty, expansionProgress >= workspaceSidebarRowsRevealProgress {
+        if !showsProjectCreationPage, usesExpandedProjectList, !snapshot.projects.isEmpty, expansionProgress >= workspaceSidebarRowsRevealProgress {
             allProjectsContent(
                 layout: layout,
                 leadingInset: leadingInset,
@@ -646,6 +659,10 @@ extension WorkspaceSidebarView {
                         swipeDirection: swipeDirection,
                     )
                 }
+                projectCreationPage
+                    .frame(width: pageWidth, height: geometry.size.height)
+                    .allowsHitTesting(displayIndex == snapshot.projects.count && projectSwipeTranslation == 0)
+                    .accessibilityHidden(displayIndex != snapshot.projects.count)
             }
             .offset(x: -CGFloat(displayIndex) * pageWidth + dragOffset)
             .onAppear { projectPagerWidth = pageWidth }
@@ -660,9 +677,6 @@ extension WorkspaceSidebarView {
         expansionProgress: CGFloat,
         leadingInset: CGFloat,
         trailingInset: CGFloat,
-        swipeDirection: Int?,
-        switchProgress: CGFloat,
-        edgeProgress: CGFloat,
     ) -> some View {
         WorkspaceSidebarProjectPager(
             projects: snapshot.projects,
@@ -673,6 +687,7 @@ extension WorkspaceSidebarView {
                 debugWorkspaceSidebarProjectLog(
                     "pagerSectionSelect project=\(projectId.rawValue) active=\(snapshot.activeProjectId.rawValue) browsed=\(browsedProjectId?.rawValue ?? "nil")"
                 )
+                leaveProjectCreationPage(restorePreviousApplication: projectId == snapshot.activeProjectId)
                 browseMode = .activeProject
                 actions.send(.selectProject(projectId))
             },
@@ -706,34 +721,39 @@ extension WorkspaceSidebarView {
         )
     }
 
-    func finishProjectSwipeNavigation(to projectId: WorkspaceProjectId, direction: Int) {
+    func finishProjectSwipeNavigation(to projectId: WorkspaceProjectId?, direction: Int) {
+        projectSwipeNavigationSerial += 1
+        let serial = projectSwipeNavigationSerial
         let startProjectId = projectSwipeStartProjectId
+        let startedOnCreationPage = showsProjectCreationPage
         let fullPageOffset = -CGFloat(direction) * max(projectPagerWidth, snapshot.configuration.expandedWidth, 1)
         withAnimation(.easeOut(duration: 0.12)) {
             projectSwipeTranslation = fullPageOffset
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
-            guard projectSwipeStartProjectId == startProjectId else { return }
-            projectPageTransitionSerial += 1
-            let commit = WorkspaceSidebarProjectSwipeCommit(projectId: projectId, serial: projectPageTransitionSerial)
-            projectSwipeCommit = commit
-            // Only the switch this swipe asks for; if none arrives, a later one still slides.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-                if projectSwipeCommit == commit { projectSwipeCommit = nil }
-            }
-            actions.send(.selectProject(projectId))
-            resetProjectSwipeWithoutAnimation()
+            completeProjectSwipeNavigation(to: projectId, startProjectId: startProjectId, startedOnCreationPage: startedOnCreationPage, serial: serial)
         }
     }
 
-    func finishProjectSwipeCreation() {
-        withAnimation(.interactiveSpring(response: 0.16, dampingFraction: 0.9)) {
-            resetProjectSwipe()
+    func completeProjectSwipeNavigation(to projectId: WorkspaceProjectId?, startProjectId: WorkspaceProjectId?,
+                                        startedOnCreationPage: Bool, serial: Int) {
+        guard serial == projectSwipeNavigationSerial, projectSwipeStartProjectId == startProjectId,
+              showsProjectCreationPage == startedOnCreationPage else { return }
+        guard let projectId else {
+            showProjectCreationPage()
+            resetProjectSwipeWithoutAnimation()
+            return
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
-            guard projectSwipeStartProjectId == nil else { return }
-            actions.send(.createProject)
+        leaveProjectCreationPage(restorePreviousApplication: projectId == snapshot.activeProjectId)
+        projectPageTransitionSerial += 1
+        let commit = WorkspaceSidebarProjectSwipeCommit(projectId: projectId, serial: projectPageTransitionSerial)
+        projectSwipeCommit = commit
+        // Only the switch this swipe asks for; if none arrives, a later one still slides.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+            if projectSwipeCommit == commit { projectSwipeCommit = nil }
         }
+        actions.send(.selectProject(projectId))
+        resetProjectSwipeWithoutAnimation()
     }
 }
 extension WorkspaceSidebarView {
@@ -750,12 +770,9 @@ extension WorkspaceSidebarView {
             finishProjectSwipeSnapBack()
             return
         }
-        if projectSwipeStartProjectId == nil,
+        if !showsProjectCreationPage, projectSwipeStartProjectId == nil,
            let selectedProjectIndex {
             projectSwipeStartProjectId = snapshot.projects[selectedProjectIndex].id
-        }
-        if finishProjectSwipeCreationIfNeeded(direction: direction, distance: abs(horizontalTranslation)) {
-            return
         }
         finishProjectSwipeNavigationIfNeeded(direction: direction, distance: abs(horizontalTranslation))
     }
@@ -766,31 +783,19 @@ extension WorkspaceSidebarView {
         }
     }
 
-    private func finishProjectSwipeCreationIfNeeded(direction: Int, distance: CGFloat) -> Bool {
-        guard shouldCreateWorkspaceSidebarProjectAfterSwipe(
+    private func finishProjectSwipeNavigationIfNeeded(direction: Int, distance: CGFloat) {
+        guard let nextIndex = workspaceSidebarProjectSwipeTargetIndex(
             currentIndex: projectPagerDisplayIndex,
             projectCount: snapshot.projects.count,
             direction: direction,
             distance: distance,
         ) else {
-            return false
-        }
-        performWorkspaceSidebarProjectHaptic(.levelChange)
-        finishProjectSwipeCreation()
-        return true
-    }
-
-    private func finishProjectSwipeNavigationIfNeeded(direction: Int, distance: CGFloat) {
-        guard let nextIndex = workspaceSidebarProjectIndexAfterSwipe(
-            currentIndex: projectPagerDisplayIndex,
-            projectCount: snapshot.projects.count,
-            direction: direction,
-        ), distance >= workspaceSidebarProjectSwipeNavigateThreshold else {
             performWorkspaceSidebarProjectHaptic(.alignment)
             finishProjectSwipeSnapBack()
             return
         }
-        finishProjectSwipeNavigation(to: snapshot.projects[nextIndex].id, direction: direction)
+        let projectId = snapshot.projects.indices.contains(nextIndex) ? snapshot.projects[nextIndex].id : nil
+        finishProjectSwipeNavigation(to: projectId, direction: direction)
     }
 }
 extension WorkspaceSidebarView {
@@ -801,6 +806,7 @@ extension WorkspaceSidebarView {
     }
 
     var projectPagerDisplayIndex: Int? {
+        if showsProjectCreationPage { return snapshot.projects.count }
         if let projectSwipeStartProjectId,
            let index = snapshot.projects.firstIndex(where: { $0.id == projectSwipeStartProjectId }) {
             return index
@@ -809,6 +815,7 @@ extension WorkspaceSidebarView {
     }
 
     func resetProjectSwipe() {
+        projectSwipeNavigationSerial += 1
         projectSwipeTranslation = 0
         projectSwipeStartProjectId = nil
         projectSwipeDidCrossBreakPoint = false
@@ -1021,8 +1028,7 @@ extension WorkspaceSidebarView {
 
     func sidebarSwipeCaptureOverlay(expansionProgress: CGFloat) -> some View {
         WorkspaceSidebarProjectSwipeScrollCapture(
-            isEnabled: !snapshot.projects.isEmpty &&
-                !(showsAllProjects && expansionProgress >= workspaceSidebarRowsRevealProgress),
+            isEnabled: isProjectSwipeEnabled(expansionProgress: expansionProgress),
             onChanged: { horizontalTranslation, verticalTranslation in
                 handleProjectSwipeChanged(
                     horizontalTranslation: horizontalTranslation,
@@ -1030,6 +1036,7 @@ extension WorkspaceSidebarView {
                     expansionProgress: expansionProgress,
                 )
             },
+            onCancelled: { finishProjectSwipeSnapBack() },
             onEnded: { horizontalTranslation, verticalTranslation in
                 handleProjectSwipeEnded(
                     horizontalTranslation: horizontalTranslation,
@@ -1120,6 +1127,10 @@ extension WorkspaceSidebarView {
             swipeDirection: swipeDirection,
             projectCount: snapshot.projects.count,
         ) {
+            Group {
+                if layout.usesTabsList, expansionProgress < workspaceSidebarRowsRevealProgress {
+                    compactTabsProjectPage(projectId: project.id, railTabs: visibleWorkspacesByProject[project.id] ?? [])
+                } else {
             workspacePage(
                 layout: layout,
                 projectId: project.id,
@@ -1133,6 +1144,8 @@ extension WorkspaceSidebarView {
                 showsCreateWorkspace: browsedProjectId == nil,
                 allowsActivation: allowsWorkspaceActivation(projectId: project.id),
             )
+                }
+            }
                     .frame(width: pageWidth, alignment: .topLeading)
                     .offset(x: transitionPlacement?.offset ?? 0)
                     .opacity(transitionPlacement?.opacity ?? 1)
@@ -1482,7 +1495,7 @@ extension WorkspaceSidebarView {
         }
         if reduceDockMotion { blockers.insert(.reduceMotion) }
         if dockMenuTracking { blockers.insert(.menu) }
-        if isSearchEditing { blockers.insert(.editing) }
+        if isSearchEditing || showsProjectCreationPage { blockers.insert(.editing) }
         if snapshot.dropPreview != nil { blockers.insert(.drop) }
         if projectSwipeTranslation != 0 { blockers.insert(.swipe) }
         return blockers
@@ -1577,7 +1590,7 @@ extension WorkspaceSidebarView {
                 currentIndex: index,
                 projectCount: snapshot.projects.count,
                 direction: direction
-            ) {
+            ), snapshot.projects.indices.contains(nextIndex) {
                 projectIds.append(snapshot.projects[nextIndex].id)
             }
         }

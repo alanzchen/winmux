@@ -26,13 +26,14 @@ extension WorkspaceSidebarView {
                 if expanded {
                     // The project's emoji and name sit on the tabs' icon and title columns.
                     HStack(spacing: 9) {
-                        if let emoji = project?.emoji {
+                        if !showsProjectCreationPage, let emoji = project?.emoji {
                             Text(emoji).font(.system(size: 15)).frame(width: workspaceSidebarTabIconSize)
                         }
-                        Text(project?.displayName ?? "Work").font(.system(size: 15, weight: .semibold)).lineLimit(1)
+                        Text(showsProjectCreationPage ? "New Project" : project?.displayName ?? "Work").font(.system(size: 15, weight: .semibold)).lineLimit(1)
                     }
                     .opacity(reveal)
                     .sidebarIdentityMenu(.project(snapshot.activeProjectId))
+                    .allowsHitTesting(!showsProjectCreationPage)
                     Spacer(minLength: 0)
                 }
                 Button { actions.send(.toggleTabsSidebar) } label: {
@@ -49,7 +50,7 @@ extension WorkspaceSidebarView {
             .overlay {
                 // With nothing pinned in All Projects, dragging a tab offers that over the header, above
                 // where those pins go, so nothing below moves under the pointer.
-                if expanded, !isSearchActive {
+                if expanded, !isSearchActive, !showsProjectCreationPage {
                     WorkspaceSidebarTabsPinDropZone(projectId: snapshot.activeProjectId, monitorScopeId: tabsListScopeId,
                         hasPins: (visible[snapshot.activeProjectId] ?? []).contains(where: \.appearance.isPinnedInAllProjects),
                         isDropTarget: workspaceSidebarPinDropZoneIsTarget(snapshot.dropPreview, section: .allProjects,
@@ -60,7 +61,14 @@ extension WorkspaceSidebarView {
                 }
             }
 
-            if expanded {
+            if !expanded {
+                projectPagerPages(layout: layout, expansionProgress: 0, leadingInset: 0, trailingInset: 0,
+                    topPadding: 0, visibleWorkspacesByProject: visible,
+                    swipeDirection: workspaceSidebarProjectSwipeDirection(horizontalTranslation: projectSwipeTranslation,
+                        verticalTranslation: 0, minimumDistance: 1))
+                    .frame(maxHeight: .infinity)
+                    .opacity(railOpacity)
+            } else {
                 if showsTabsDisplayMenu {
                     let menuScopes = workspaceSidebarMonitorScopeMenu(snapshot.monitorScopes,
                         targetScopeId: snapshot.targetMonitorScopeId)
@@ -81,31 +89,33 @@ extension WorkspaceSidebarView {
                     .padding(.trailing, 16).padding(.bottom, 10)
                     .opacity(reveal)
                 }
-                if !isSearchActive {
+                if !isSearchActive, !showsProjectCreationPage {
                     tabsFavorites(visible[snapshot.activeProjectId] ?? [])
                         .opacity(reveal)
                         .transition(.opacity.combined(with: .move(edge: .top)))
                 }
-                WorkspaceSidebarTabsSearchRow(text: searchText, isEditing: isSearchEditing,
-                    onBegin: { beginSidebarSearchIfNeeded() },
-                    onClear: {
-                        finishSidebarSearch(clearText: true)
-                        beginSidebarSearchIfNeeded()
-                    })
-                    .overlay {
-                        // With none of the project's own pins, dragging a tab offers pinning over the search
-                        // row, so the list doesn't move under the pointer. Below pins in All Projects, it
-                        // names the project.
-                        let shown = visible[snapshot.activeProjectId] ?? []
-                        let pinsEverywhere = shown.contains(where: \.appearance.isPinnedInAllProjects)
-                        WorkspaceSidebarTabsPinDropZone(projectId: snapshot.activeProjectId, monitorScopeId: tabsListScopeId,
-                            hasPins: shown.contains { $0.appearance.isFavorite && !$0.appearance.isPinnedInAllProjects },
-                            isDropTarget: workspaceSidebarPinDropZoneIsTarget(snapshot.dropPreview, section: .project,
-                                projectId: snapshot.activeProjectId, list: tabsListScopeId),
-                            label: pinsEverywhere ? "Pin to “\(project?.displayName ?? "This Project")”" : "Drop to Pin")
-                    }
-                    .padding(.horizontal, workspaceSidebarTabsListInset).padding(.bottom, 4)
-                    .opacity(reveal)
+                if !showsProjectCreationPage {
+                    WorkspaceSidebarTabsSearchRow(text: searchText, isEditing: isSearchEditing,
+                        onBegin: { beginSidebarSearchIfNeeded() },
+                        onClear: {
+                            finishSidebarSearch(clearText: true)
+                            beginSidebarSearchIfNeeded()
+                        })
+                        .overlay {
+                            // With none of the project's own pins, dragging a tab offers pinning over the search
+                            // row, so the list doesn't move under the pointer. Below pins in All Projects, it
+                            // names the project.
+                            let shown = visible[snapshot.activeProjectId] ?? []
+                            let pinsEverywhere = shown.contains(where: \.appearance.isPinnedInAllProjects)
+                            WorkspaceSidebarTabsPinDropZone(projectId: snapshot.activeProjectId, monitorScopeId: tabsListScopeId,
+                                hasPins: shown.contains { $0.appearance.isFavorite && !$0.appearance.isPinnedInAllProjects },
+                                isDropTarget: workspaceSidebarPinDropZoneIsTarget(snapshot.dropPreview, section: .project,
+                                    projectId: snapshot.activeProjectId, list: tabsListScopeId),
+                                label: pinsEverywhere ? "Pin to “\(project?.displayName ?? "This Project")”" : "Drop to Pin")
+                        }
+                        .padding(.horizontal, workspaceSidebarTabsListInset).padding(.bottom, 4)
+                        .opacity(reveal)
+                }
                 ZStack(alignment: .topLeading) {
                     if isSearchActive {
                         tabsSearchResults.transition(.opacity)
@@ -120,45 +130,6 @@ extension WorkspaceSidebarView {
                 }
                 .frame(maxHeight: .infinity, alignment: .topLeading)
                 .opacity(reveal)
-            } else {
-                let railTabs = visible[snapshot.activeProjectId] ?? []
-                // The pins come first; the shortcuts follow them, before the other tabs.
-                let railPinCount = railTabs.prefix { $0.appearance.isFavorite }.count
-                let railShortcuts = snapshot.resourceShortcuts.shown(in: snapshot.activeProjectId)
-                let railShortcutList = railShortcuts.allProjects + railShortcuts.project
-                ScrollView {
-                    VStack(spacing: 5) {
-                        ForEach(Array(railTabs.enumerated()), id: \.element.id) { index, workspace in
-                            let tabs = railTabs
-                            if index == railPinCount { railShortcutTiles(railShortcutList) }
-                            if index == railPinCount, index > 0 || !railShortcutList.isEmpty {
-                                Divider().padding(.horizontal, 8).padding(.vertical, 3)
-                            } else if index > 0, tabs[index - 1].appearance.isPinnedInAllProjects, !workspace.appearance.isPinnedInAllProjects {
-                                // Pins in All Projects, then the project's own.
-                                Divider().opacity(0.6).padding(.horizontal, 12).padding(.vertical, 2)
-                            }
-                            WorkspaceSidebarPinnedTab(workspace: workspace, badgeModel: dockBadgeModel, compact: true,
-                                targetMonitorScopeId: snapshot.targetMonitorScopeId,
-                                onOpenSavedApps: { selectTabWorkspace(workspace, action: .openSavedTab(workspace.name)) },
-                                sharedPinLocation: snapshot.sharedPinLocation(of: workspace),
-                                onRecall: pinRecall(workspace), onBringHere: pinBringHere(workspace),
-                                onReturnHome: pinReturnHome(workspace)) { windowId in
-                                selectTabWorkspace(workspace, windowId: windowId)
-                            }
-                            .frame(width: 34, height: 34)
-                            .overlay(alignment: .leading) {
-                                if let group = snapshot.configuration.tabCollections.first(where: { $0.workspaceNames.contains(workspace.name) }) {
-                                    Capsule().fill(group.colorHex.flatMap(workspaceSidebarColor) ?? .secondary)
-                                        .frame(width: 3, height: 23).offset(x: -4).allowsHitTesting(false)
-                                }
-                            }
-                            .help(snapshot.sharedPinLocation(of: workspace).map { "\(workspace.displayName)\n\($0.help())" }
-                                ?? workspace.displayName)
-                        }
-                        if railPinCount == railTabs.count { railShortcutTiles(railShortcutList) }
-                    }.frame(maxWidth: .infinity)
-                }
-                .opacity(railOpacity)
             }
             if expanded { WorkspaceSidebarTabUndoButton(actions: actions, reducesMotion: reduceDockMotion).opacity(reveal) }
             if expanded, snapshot.configuration.musicPlayerAtBottom {
@@ -166,9 +137,7 @@ extension WorkspaceSidebarView {
                     .opacity(reveal)
             }
             projectPagerSection(layout: layout, expansionProgress: expansionProgress,
-                leadingInset: pagerInset, trailingInset: pagerInset,
-                swipeDirection: workspaceSidebarProjectSwipeDirection(horizontalTranslation: projectSwipeTranslation,
-                    verticalTranslation: 0, minimumDistance: 1), switchProgress: 0, edgeProgress: 0)
+                leadingInset: pagerInset, trailingInset: pagerInset)
             if expanded {
                 HStack {
                     Button { ShortcutSettingsModel.shared.requestPanelSettings() } label: {
@@ -176,13 +145,15 @@ extension WorkspaceSidebarView {
                     }
                     .help("Tabs Settings").accessibilityLabel("Tabs Settings")
                     Spacer()
-                    if !isSearchActive, let move = snapshot.displayMove {
+                    if !showsProjectCreationPage, !isSearchActive, let move = snapshot.displayMove {
                         WorkspaceSidebarDisplayMoveButton(move: move) { target in
                             actions.send(.moveTabsToDisplay(projectId: move.projectId, from: move.source, to: target))
                         }
                     }
-                    Text("\((visible[snapshot.activeProjectId] ?? []).count) tabs").font(.system(size: 11)).foregroundStyle(.secondary)
-                        .contentTransition(.numericText())
+                    if !showsProjectCreationPage {
+                        Text("\((visible[snapshot.activeProjectId] ?? []).count) tabs").font(.system(size: 11)).foregroundStyle(.secondary)
+                            .contentTransition(.numericText())
+                    }
                 }
                 .buttonStyle(.plain)
                 .padding(.leading, workspaceSidebarTabsListInset + workspaceSidebarTabLeadingPadding)
@@ -316,10 +287,10 @@ extension WorkspaceSidebarView {
     }
 
     /// The compact rail's shortcuts, the size of its pins.
-    private func railShortcutTiles(_ shortcuts: [WorkspaceSidebarResourceShortcutViewModel]) -> some View {
-        let projectName = snapshot.projects.first { $0.id == snapshot.activeProjectId }?.displayName ?? "This Project"
+    private func railShortcutTiles(_ shortcuts: [WorkspaceSidebarResourceShortcutViewModel], projectId: WorkspaceProjectId) -> some View {
+        let projectName = snapshot.projects.first { $0.id == projectId }?.displayName ?? "This Project"
         return ForEach(shortcuts) { shortcut in
-            WorkspaceSidebarResourceShortcutTile(shortcut: shortcut, compact: true, contextProjectId: snapshot.activeProjectId,
+            WorkspaceSidebarResourceShortcutTile(shortcut: shortcut, compact: true, contextProjectId: projectId,
                 contextProjectName: projectName, send: actions.send)
                 .frame(width: 34, height: 34)
         }
@@ -631,5 +602,47 @@ struct WorkspaceSidebarTabsPinDropZone: View {
         }
         .animation(reducesMotion ? nil : WorkspaceSidebarTabMotion.feedback, value: drag.isDragging)
         .animation(WorkspaceSidebarTabMotion.feedback, value: isDropTarget)
+    }
+}
+
+extension WorkspaceSidebarView {
+    func compactTabsProjectPage(projectId: WorkspaceProjectId,
+                                railTabs: [WorkspaceSidebarWorkspaceViewModel]) -> some View {
+        // The pins come first; the shortcuts follow them, before the other tabs.
+        let railPinCount = railTabs.prefix { $0.appearance.isFavorite }.count
+        let railShortcuts = snapshot.resourceShortcuts.shown(in: projectId)
+        let railShortcutList = railShortcuts.allProjects + railShortcuts.project
+        return ScrollView {
+            VStack(spacing: 5) {
+                ForEach(Array(railTabs.enumerated()), id: \.element.id) { index, workspace in
+                    let tabs = railTabs
+                    if index == railPinCount { railShortcutTiles(railShortcutList, projectId: projectId) }
+                    if index == railPinCount, index > 0 || !railShortcutList.isEmpty {
+                        Divider().padding(.horizontal, 8).padding(.vertical, 3)
+                    } else if index > 0, tabs[index - 1].appearance.isPinnedInAllProjects, !workspace.appearance.isPinnedInAllProjects {
+                        // Pins in All Projects, then the project's own.
+                        Divider().opacity(0.6).padding(.horizontal, 12).padding(.vertical, 2)
+                    }
+                    WorkspaceSidebarPinnedTab(workspace: workspace, badgeModel: dockBadgeModel, compact: true,
+                        targetMonitorScopeId: snapshot.targetMonitorScopeId,
+                        onOpenSavedApps: { selectTabWorkspace(workspace, action: .openSavedTab(workspace.name)) },
+                        sharedPinLocation: snapshot.sharedPinLocation(of: workspace),
+                        onRecall: pinRecall(workspace), onBringHere: pinBringHere(workspace),
+                        onReturnHome: pinReturnHome(workspace)) { windowId in
+                        selectTabWorkspace(workspace, windowId: windowId)
+                    }
+                    .frame(width: 34, height: 34)
+                    .overlay(alignment: .leading) {
+                        if let group = snapshot.configuration.tabCollections.first(where: { $0.workspaceNames.contains(workspace.name) }) {
+                            Capsule().fill(group.colorHex.flatMap(workspaceSidebarColor) ?? .secondary)
+                                .frame(width: 3, height: 23).offset(x: -4).allowsHitTesting(false)
+                        }
+                    }
+                    .help(snapshot.sharedPinLocation(of: workspace).map { "\(workspace.displayName)\n\($0.help())" }
+                        ?? workspace.displayName)
+                }
+                if railPinCount == railTabs.count { railShortcutTiles(railShortcutList, projectId: projectId) }
+            }.frame(maxWidth: .infinity)
+        }
     }
 }

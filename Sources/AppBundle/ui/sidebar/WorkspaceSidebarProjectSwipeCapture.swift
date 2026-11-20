@@ -5,6 +5,7 @@ import SwiftUI
 struct WorkspaceSidebarProjectSwipeScrollCapture: NSViewRepresentable {
     let isEnabled: Bool
     let onChanged: (CGFloat, CGFloat) -> Void
+    let onCancelled: () -> Void
     let onEnded: (CGFloat, CGFloat) -> Void
 
     func makeCoordinator() -> Coordinator {
@@ -22,6 +23,7 @@ struct WorkspaceSidebarProjectSwipeScrollCapture: NSViewRepresentable {
         context.coordinator.isEnabled = isEnabled
         context.coordinator.onChanged = onChanged
         context.coordinator.onEnded = onEnded
+        context.coordinator.onCancelled = onCancelled
         if isEnabled {
             context.coordinator.installMonitor()
         } else {
@@ -38,6 +40,7 @@ struct WorkspaceSidebarProjectSwipeScrollCapture: NSViewRepresentable {
         weak var view: NSView?
         var isEnabled = false
         var onChanged: ((CGFloat, CGFloat) -> Void)?
+        var onCancelled: (() -> Void)?
         var onEnded: ((CGFloat, CGFloat) -> Void)?
         var monitor: Any?
         var horizontalTranslation: CGFloat = 0
@@ -82,8 +85,10 @@ struct WorkspaceSidebarProjectSwipeScrollCapture: NSViewRepresentable {
                 return event
             }
             let point = view.convert(event.locationInWindow, from: nil)
+            let panel = window as? WorkspaceSidebarPanel
             guard hasLockedHorizontalIntent || (view.bounds.contains(point)
-                && (window as? WorkspaceSidebarPanel)?.isEventInsideVisibleRegion(event) != false) else {
+                && panel?.isEventInsideVisibleRegion(event) != false
+                && panel?.isScreenPointInsideExpandedSurface(window.convertPoint(toScreen: event.locationInWindow)) != true) else {
                 resetIfNeededForExternalEvent(event)
                 return event
             }
@@ -111,7 +116,7 @@ struct WorkspaceSidebarProjectSwipeScrollCapture: NSViewRepresentable {
 
             onChanged?(horizontalTranslation, verticalTranslation)
             if event.phase.contains(.ended) || event.phase.contains(.cancelled) {
-                finishLockedSwipe()
+                finishLockedSwipe(cancelled: event.phase.contains(.cancelled))
             } else {
                 scheduleEndTimer()
             }
@@ -124,7 +129,7 @@ struct WorkspaceSidebarProjectSwipeScrollCapture: NSViewRepresentable {
             else {
                 return
             }
-            finishLockedSwipe()
+            finishLockedSwipe(cancelled: event.phase.contains(.cancelled))
         }
 
         func scheduleEndTimer() {
@@ -136,7 +141,7 @@ struct WorkspaceSidebarProjectSwipeScrollCapture: NSViewRepresentable {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.12, execute: workItem)
         }
 
-        func finishLockedSwipe() {
+        func finishLockedSwipe(cancelled: Bool = false) {
             guard hasLockedHorizontalIntent else {
                 resetAccumulatedScroll()
                 return
@@ -144,7 +149,11 @@ struct WorkspaceSidebarProjectSwipeScrollCapture: NSViewRepresentable {
             let finalHorizontalTranslation = horizontalTranslation
             let finalVerticalTranslation = verticalTranslation
             resetAccumulatedScroll()
-            onEnded?(finalHorizontalTranslation, finalVerticalTranslation)
+            if cancelled {
+                onCancelled?()
+            } else {
+                onEnded?(finalHorizontalTranslation, finalVerticalTranslation)
+            }
         }
     }
 }

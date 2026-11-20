@@ -7,8 +7,10 @@ final class WorkspaceSidebarPanel: NSPanelHud, WorkspaceSidebarInputOwner {
     static let shared = WorkspaceSidebarPanel(monitor: mainMonitor)
     private static var panelsByMonitorScopeId: [String: WorkspaceSidebarPanel] = [:]
     static let inputSession = WorkspaceSidebarInputSession()
+    var sidebarInputPurpose: WorkspaceSidebarInputPurpose { inlineTextEditingPurpose }
     var canCaptureSidebarInput: Bool {
-        inlineTextEditingActive && isVisible && autoHideReason == nil && isKeyWindow && NSApp.isActive &&
+        inlineTextEditingActive && isVisible && autoHideReason == nil &&
+            (inlineTextEditingPurpose == .projectCreation ? isMouseInsideVisibleRegion() : isKeyWindow && NSApp.isActive) &&
             config.workspaceSidebar.enabled && TrayMenuModel.shared.isEnabled
     }
 
@@ -37,7 +39,8 @@ final class WorkspaceSidebarPanel: NSPanelHud, WorkspaceSidebarInputOwner {
     var inlineTextEditingLocksExpansion = true
     var inlineTextEditingCancelsOnPointerExit = true
     var inlineTextEditingCancel: (@MainActor () -> Void)?
-    var inlineTextEditingKeyDown: (@MainActor (WorkspaceSidebarInlineTextKey) -> Void)?
+    var inlineTextEditingPurpose: WorkspaceSidebarInputPurpose = .textEditing
+    var inlineTextEditingKeyDown: (@MainActor (WorkspaceSidebarInlineTextKey) -> Bool)?
     var inlineTextEditingEventMonitors: [Any] = []
     var inlineTextEditingActivationObserver: NSObjectProtocol?
     var inlineTextEditingKeyEventTap: CFMachPort?

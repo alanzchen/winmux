@@ -7,7 +7,7 @@ extension WorkspaceSidebarView {
         ProcessInfo.processInfo.environment["WINMUX_NATIVE_DOCK"] != "0"
             && snapshot.configuration.showAppIcons
             && dockVisibleWidth <= snapshot.configuration.expansionStartWidth
-            && browsedProjectId == nil && projectSwipeTranslation == 0
+            && browsedProjectId == nil && projectSwipeTranslation == 0 && !showsProjectCreationPage
     }
 
     func nativeDock(layout: WorkspaceSidebarConfiguration) -> some View {
@@ -73,8 +73,7 @@ extension WorkspaceSidebarView {
             HStack(spacing: 0) {
                 nativeDockExpand(layout: layout)
                 if snapshot.projects.count > 1 {
-                    projectPagerSection(layout: layout, expansionProgress: 0, leadingInset: 0, trailingInset: 0,
-                        swipeDirection: nil, switchProgress: 0, edgeProgress: 0).padding(.horizontal, 4)
+                    projectPagerSection(layout: layout, expansionProgress: 0, leadingInset: 0, trailingInset: 0).padding(.horizontal, 4)
                 }
                 if layout.showsClock {
                     WorkspaceSidebarStatusView(sectionWidth: 112, isCompact: true,
@@ -88,8 +87,7 @@ extension WorkspaceSidebarView {
             VStack(spacing: 0) {
                 if layout.dockMagnification { nativeDockExpand(layout: layout).padding(.bottom, 4) }
                 projectPagerSection(layout: layout, expansionProgress: 0,
-                    leadingInset: layout.compactHorizontalInset, trailingInset: layout.compactHorizontalInset,
-                    swipeDirection: nil, switchProgress: 0, edgeProgress: 0)
+                    leadingInset: layout.compactHorizontalInset, trailingInset: layout.compactHorizontalInset)
                 if layout.showsClock {
                     statusSection(layout: layout, expansionProgress: 0, isCompact: true,
                         leadingInset: layout.compactHorizontalInset, trailingInset: layout.compactHorizontalInset)

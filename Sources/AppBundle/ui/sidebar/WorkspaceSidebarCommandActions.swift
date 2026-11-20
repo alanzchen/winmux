@@ -28,7 +28,7 @@ func openWorkspaceSidebarFromCommand() {
                 case .cancel:
                     closeWorkspaceSidebarFromCommand(panel, restorePreviousApplication: true)
                 case .ignored:
-                    break
+                    return false
                 default:
                     panel.bufferedCommandSidebarSearchKeys.append(key)
                     NotificationCenter.default.post(
@@ -40,6 +40,7 @@ func openWorkspaceSidebarFromCommand() {
                         ]
                     )
             }
+            return true
         },
     )
 }

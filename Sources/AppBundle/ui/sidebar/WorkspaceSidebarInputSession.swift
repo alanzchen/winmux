@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 
 enum WorkspaceSidebarExpansionReason {
     case passive
@@ -9,11 +9,26 @@ enum WorkspaceSidebarExpansionReason {
     }
 }
 
+enum WorkspaceSidebarInputPurpose {
+    case textEditing, projectCreation
+
+    var activatesPanel: Bool { self == .textEditing }
+
+    func acceptsNavigationKey(modifiers: CGEventFlags) -> Bool {
+        self == .textEditing || modifiers.intersection([.maskCommand, .maskAlternate, .maskControl, .maskShift]).isEmpty
+    }
+}
+
 @MainActor
 protocol WorkspaceSidebarInputOwner: AnyObject {
     var canCaptureSidebarInput: Bool { get }
+    var sidebarInputPurpose: WorkspaceSidebarInputPurpose { get }
     func cancelInlineTextEditing()
     func handleInlineTextEditingKey(_ key: WorkspaceSidebarInlineTextKey) -> Bool
+}
+
+extension WorkspaceSidebarInputOwner {
+    var sidebarInputPurpose: WorkspaceSidebarInputPurpose { .textEditing }
 }
 
 /// A session event tap must have exactly one live owner, even with multiple sidebars.
@@ -34,8 +49,13 @@ final class WorkspaceSidebarInputSession {
     }
 
     func handle(_ key: WorkspaceSidebarInlineTextKey) -> Bool {
-        guard let owner, owner.canCaptureSidebarInput else { return false }
-        if case .ignored = key { return false }
+        guard let owner else { return false }
+        if owner.sidebarInputPurpose == .projectCreation, !owner.canCaptureSidebarInput {
+            // Even when the pointer has left without a mouse event, keyboard work disarms the page.
+            return owner.handleInlineTextEditingKey(.ignored)
+        }
+        guard owner.canCaptureSidebarInput else { return false }
+        if case .ignored = key, owner.sidebarInputPurpose != .projectCreation { return false }
         return owner.handleInlineTextEditingKey(key)
     }
 }

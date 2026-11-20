@@ -50,11 +50,23 @@ extension WorkspaceSidebarView {
                     })
                     .padding(.trailing, 4)
             }
-            workspacePage(layout: layout, projectId: projectId, workspaces: workspaces,
-                expansionProgress: 0, leadingInset: layout.compactHorizontalInset,
-                trailingInset: layout.compactHorizontalInset, topPadding: 10,
-                isInteractive: true, showsCreateWorkspace: browsedProjectId == nil)
-                .frame(maxWidth: .infinity)
+            if !snapshot.projects.isEmpty {
+                projectPagerPages(layout: layout, expansionProgress: 0,
+                    leadingInset: layout.compactHorizontalInset, trailingInset: layout.compactHorizontalInset,
+                    topPadding: 10,
+                    visibleWorkspacesByProject: workspaceSidebarVisibleWorkspacesByProject(workspaces: snapshot.workspaces,
+                        selectedScopeId: snapshot.selectedMonitorScopeId, focusedMonitorScopeId: snapshot.focusedMonitorScopeId,
+                        browsedProjectId: browsedProjectId),
+                    swipeDirection: workspaceSidebarProjectSwipeDirection(horizontalTranslation: projectSwipeTranslation,
+                        verticalTranslation: 0, minimumDistance: 1))
+                    .frame(maxWidth: .infinity)
+            } else {
+                workspacePage(layout: layout, projectId: projectId, workspaces: workspaces,
+                    expansionProgress: 0, leadingInset: layout.compactHorizontalInset,
+                    trailingInset: layout.compactHorizontalInset, topPadding: 10,
+                    isInteractive: true, showsCreateWorkspace: browsedProjectId == nil)
+                    .frame(maxWidth: .infinity)
+            }
             Button {
                 guard !isWorkspaceSidebarDragInProgress() else { return }
                 dockMotion.reset()
@@ -70,7 +82,7 @@ extension WorkspaceSidebarView {
             .help("Expand sidebar")
             if snapshot.projects.count > 1 {
                 projectPagerSection(layout: layout, expansionProgress: 0, leadingInset: 0,
-                    trailingInset: 0, swipeDirection: nil, switchProgress: 0, edgeProgress: 0)
+                    trailingInset: 0)
                     .padding(.horizontal, 4)
             }
             if layout.showsClock {

@@ -12,10 +12,16 @@ func workspaceSidebarProjectSwipeDirection(
     return horizontalTranslation < 0 ? 1 : -1
 }
 
+/// The final page (index `projectCount`) is the creation page. Neither edge wraps or creates.
 func workspaceSidebarProjectIndexAfterSwipe(currentIndex: Int?, projectCount: Int, direction: Int) -> Int? {
-    guard let currentIndex, projectCount > 0, (0 ..< projectCount).contains(currentIndex) else { return nil }
+    guard let currentIndex, projectCount > 0, (0 ... projectCount).contains(currentIndex) else { return nil }
     let nextIndex = currentIndex + direction
-    return (0 ..< projectCount).contains(nextIndex) ? nextIndex : nil
+    return (0 ... projectCount).contains(nextIndex) ? nextIndex : nil
+}
+
+func workspaceSidebarProjectSwipeTargetIndex(currentIndex: Int?, projectCount: Int, direction: Int, distance: CGFloat) -> Int? {
+    guard distance >= workspaceSidebarProjectSwipeNavigateThreshold else { return nil }
+    return workspaceSidebarProjectIndexAfterSwipe(currentIndex: currentIndex, projectCount: projectCount, direction: direction)
 }
 
 func shouldRenderWorkspaceSidebarProjectPage(index: Int, displayIndex: Int, swipeDirection: Int?, projectCount: Int) -> Bool {
@@ -26,31 +32,6 @@ func shouldRenderWorkspaceSidebarProjectPage(index: Int, displayIndex: Int, swip
         projectCount: projectCount,
         direction: swipeDirection,
     )
-}
-func shouldCreateWorkspaceSidebarProjectAfterSwipe(
-    currentIndex: Int?,
-    projectCount: Int,
-    direction: Int,
-    distance: CGFloat,
-) -> Bool {
-    guard let currentIndex, projectCount > 0 else { return false }
-    let pulledBeforeFirst = direction < 0 && currentIndex == 0
-    let pulledAfterLast = direction > 0 && currentIndex == projectCount - 1
-    return (pulledBeforeFirst || pulledAfterLast) && distance >= workspaceSidebarProjectSwipeCreateThreshold
-}
-
-func workspaceSidebarProjectEdgeCreationProgress(
-    currentIndex: Int?,
-    projectCount: Int,
-    direction: Int?,
-    distance: CGFloat,
-) -> CGFloat {
-    guard let currentIndex, let direction, projectCount > 0 else { return 0 }
-    let pulledBeforeFirst = direction < 0 && currentIndex == 0
-    let pulledAfterLast = direction > 0 && currentIndex == projectCount - 1
-    guard pulledBeforeFirst || pulledAfterLast else { return 0 }
-    let range = max(workspaceSidebarProjectSwipeCreateThreshold - workspaceSidebarProjectSwipeFormationStart, 1)
-    return min(max((distance - workspaceSidebarProjectSwipeFormationStart) / range, 0), 1)
 }
 func workspaceSidebarProjectResistedOffset(
     horizontalTranslation: CGFloat,
