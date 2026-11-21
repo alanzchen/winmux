@@ -429,7 +429,11 @@ winmux layout --for-next-detected-window --workspace coding floating
 is scoped to the selected workspace identity (the current workspace by default)
 and expires after eight seconds. A launcher request made in that time captures it,
 then applies its existing app/PID, preexisting-window, expiry, and cancellation
-checks. If a later launcher click moves that pending request to another workspace,
+checks. For a cold scripted launch, capture happens at the launcher choice before
+startup/session settling; only the fresh window requested afterwards receives the
+mode, even if startup takes longer than eight seconds. Failed or cancelled choices
+discard the captured mode. Normal opens without an adapter keep ordinary detection.
+If a later launcher click moves that pending request to another workspace,
 it drops the old workspace's mode and captures the new destination's current
 preference, if any. If the request's window was already observed before that
 preference was armed, its placement changes but the captured mode is discarded.

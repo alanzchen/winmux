@@ -174,6 +174,42 @@ final class SavedWorkspaceRoutingTest: XCTestCase {
         XCTAssertTrue(savedWorkspaceRuntime.windowsAwaitingTitle.isEmpty)
     }
 
+    func testSavedTitleWaitPreservesNextWindowModeForAFreshWindow() async throws {
+        let registry = NewWindowIntentRegistry.shared
+        registry.resetForTests()
+        defer { registry.resetForTests() }
+        registry.now = { 1000 }
+        replaceClosedWindowsCache(FrozenWorld(workspaces: [], monitors: [], windowIds: []))
+        defer { replaceClosedWindowsCache(FrozenWorld(workspaces: [], monitors: [], windowIds: [])) }
+        config.openNewWindowsInNewWorkspace = false
+        let source = focus.workspace
+        let first = SavedWorkspaceLayout(root: savedRoot(.tiles, .h, [savedSlot("one", bundleId: editor, title: "a.swift — ProjectOne", windowId: 11, pid: 900)]))
+        let second = SavedWorkspaceLayout(root: savedRoot(.tiles, .h, [savedSlot("two", bundleId: editor, title: "b.swift — ProjectTwo", windowId: 12, pid: 900)]))
+        savedWorkspaceStore.insert(SavedWorkspaceRecord(workspaceName: "one", layout: first))
+        savedWorkspaceStore.insert(SavedWorkspaceRecord(workspaceName: "two", layout: second))
+        materializeSavedWorkspaceNames()
+        registry.setNextWindowLayout(.floating, in: source)
+        let restored = newWindow(31, relaunched(editor, pid: 1001), title: "")
+
+        _ = try await restoreOrDetectNewWindow(restored, isRegularWindow: true, firstSeenUptime: 1000)
+
+        XCTAssertNotNil(savedWorkspaceRuntime.windowsAwaitingTitle[31])
+        XCTAssertFalse(restored.isFloating, "Saved-title candidates must not receive the fresh-window mode")
+        restored.customTitle = "c.swift — ProjectTwo"
+        await retrySavedWorkspaceRoutingForWindowsAwaitingTitles()
+        XCTAssertEqual(restored.nodeWorkspace?.name, "two")
+        XCTAssertFalse(restored.isFloating)
+        XCTAssertTrue(savedWorkspaceRuntime.windowsAwaitingTitle.isEmpty)
+
+        let fresh = TestWindow.new(id: 32, parent: source.rootTilingContainer,
+            app: TestApp(pid: 1002, bundleId: "com.test.fresh-window"), title: "Fresh window")
+        _ = try await restoreOrDetectNewWindow(fresh, isRegularWindow: true, firstSeenUptime: 1000)
+
+        XCTAssertTrue(fresh.nodeWorkspace === source)
+        XCTAssertTrue(fresh.isFloating, "The mode must remain available after saved placement finishes")
+        XCTAssertNil(registry.consumeNextWindowLayout(in: source, firstSeenUptime: 1000))
+    }
+
     func testFirstWindowLongAfterLaunchIsNotARestore() async throws {
         // An app that ran without windows for hours opens one.
         let code = saveCodeWorkspace()
