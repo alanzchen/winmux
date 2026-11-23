@@ -12,7 +12,7 @@ extension EnvironmentValues {
     }
 }
 
-/// The first window in sidebar order owns the app-wide count. Other windows show
+/// The first full-size window in sidebar order owns the app-wide count. Other windows show
 /// activity dots, so a shared Dock count does not look like several separate inboxes.
 func workspaceSidebarBadgeOwners(_ workspaces: [WorkspaceSidebarWorkspaceViewModel],
                                  collections: [WorkspaceTabCollection] = [],
@@ -20,7 +20,9 @@ func workspaceSidebarBadgeOwners(_ workspaces: [WorkspaceSidebarWorkspaceViewMod
     let hidden = Set(collections.filter { collapsedCollectionIds.contains($0.id) }.flatMap(\.workspaceNames))
     var result: [String: UInt32] = [:]
     for workspace in workspaces where workspace.appearance.isFavorite || !hidden.contains(workspace.name) {
-        for window in workspaceSidebarPinnedTabWindows(workspace) {
+        let windows = workspaceSidebarPinnedTabWindows(workspace)
+        let usesCompanions = workspace.appearance.isFavorite && !WorkspaceSidebarFloatCompanion.windows(in: windows).isEmpty
+        for window in windows where !usesCompanions || window.state != .floating {
             if let path = window.appBundlePath, result[path] == nil { result[path] = window.windowId }
         }
     }

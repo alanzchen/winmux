@@ -46,8 +46,9 @@ struct SavedWorkspaceRecord: Codable, Equatable, Sendable {
     /// The soft home display. nil until the workspace is seen on a display with an identity.
     var display: SavedDisplayAffinity?
     var isPinnedToDisplay: Bool = false
-    /// Automatic group inheritance reserves/restores an identity without keeping an empty
-    /// tab. nil preserves the behavior of records saved before this option existed.
+    /// true is an explicit Keep Tab When Empty choice. false is automatic group inheritance.
+    /// nil preserves legacy saved identities: in Tabs mode their last-window close ends the tab.
+    /// Renaming alone never promotes this to true.
     var keepWhenEmpty: Bool? = nil
     /// Bumped each time the workspace becomes visible on its home display.
     var lastVisibleSequence: Int?

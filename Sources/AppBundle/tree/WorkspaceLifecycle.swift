@@ -195,9 +195,7 @@ func removeWorkspaceFromRegistry(_ workspace: Workspace, reason: WorkspaceRemova
             }
     }
     try? workspaceSidebarOrganizationStore.removeWorkspace(workspace.name)
-    if reason == .deleted {
-        clearWorkspaceSidebarLabelIfNeeded(workspace.name)
-    }
+    clearWorkspaceSidebarLabelIfNeeded(workspace.name)
     _ = winMuxWorkspaceState.removeWorkspace(workspace)
 }
 

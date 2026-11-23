@@ -160,8 +160,19 @@ A project is a durable grouping with a stable ID, mutable name, color, and one
 or more workspaces. Workspaces are lazy: moving a window to `new` obtains a new
 workspace, and an ordinary workspace retires after its last window moves away.
 WinMux may keep a project's minimum empty workspace so the project remains
-navigable. Saved workspaces never retire; see
-[Saved workspaces](#saved-workspaces).
+navigable. In Tabs mode, a renamed tab leaves the list when its last window closes, and
+its saved identity retires after the normal grace. Pinning or **Keep Tab When Empty**
+retains it explicitly; see [Saved workspaces](#saved-workspaces).
+
+Canonical positive numbers in `workspace N` and `move-node-to-workspace N`
+refer to positions in the current project's workspace list, even when another workspace's internal name
+is that number. A configured nonnumeric binding such as `workspace Notes` can target the
+unique tab labelled `Notes` in the current project. Numeric bindings remain positional;
+use a nonnumeric label for an exact label binding. An existing literal workspace name takes
+precedence over a display-label alias. Label targets never select an archived tab
+or move a workspace into another project as a side effect. A CLI command, binding or
+`on-window-detected` rule targeting a labelled workspace in another project fails and leaves
+the window in place. An unlabelled workspace in another project remains reachable by name.
 
 ## Querying desktop state
 

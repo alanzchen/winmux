@@ -104,10 +104,11 @@ struct WorkspaceSidebarPinnedTab: View {
     @ObservedObject private var drag = WorkspaceSidebarTabDragState.shared
 
     private func windowTile(_ window: WorkspaceSidebarWindowViewModel, windowCount: Int, showsIdentity: Bool,
-                            summarizesWorkspace: Bool, tileHeight: CGFloat? = nil) -> some View {
+                            summarizesWorkspace: Bool, companions: [WorkspaceSidebarWindowViewModel] = []) -> some View {
         Button { (onRecall ?? onSelect)(summarizesWorkspace ? nil : window.windowId) } label: {
             icon(window, windowCount: windowCount)
-                .frame(maxWidth: .infinity, minHeight: tileHeight ?? (compact || showsIdentity ? 34 : 54))
+                .frame(maxWidth: .infinity, minHeight: compact || showsIdentity ? 34 : 54)
+                .mask(WorkspaceSidebarFloatCompanionCutout(mainIconSize: mainIconSize(windowCount: windowCount), count: companions.count))
                 .contentShape(Rectangle())
                 .overlay(alignment: .topTrailing) {
                     WorkspaceSidebarTabBadge(appName: window.appName, bundlePath: window.appBundlePath,
@@ -120,12 +121,6 @@ struct WorkspaceSidebarPinnedTab: View {
                 }
         }
         .buttonStyle(.plain)
-        .background {
-            if window.isFocused && isActiveHere {
-                RoundedRectangle(cornerRadius: compact ? 6 : 10)
-                    .fill(Color(nsColor: .controlBackgroundColor)).padding(compact ? 1 : 3)
-            }
-        }
         .help(helpWithLocation(summarizesWorkspace ? workspace.displayName
             : (window.title.map { "\(window.appName) — \($0)" } ?? window.appName)))
         .accessibilityLabel(summarizesWorkspace ? workspace.displayName : (window.title ?? window.appName))
@@ -133,6 +128,29 @@ struct WorkspaceSidebarPinnedTab: View {
         .workspaceSidebarBringHereAction(onBringHere)
         .accessibilityAddTraits(isActiveHere && (summarizesWorkspace ? workspace.isFocused : window.isFocused) ? .isSelected : [])
         .sidebarIdentityMenu(.tab(workspace.name, windowId: summarizesWorkspace ? nil : window.windowId))
+        .overlay {
+            let size = mainIconSize(windowCount: windowCount)
+            ZStack(alignment: .bottomTrailing) {
+                ForEach(Array(companions.enumerated().reversed()), id: \.element.id) { index, companion in
+                    WorkspaceSidebarFloatCompanion(window: companion, mainIconSize: size, stackIndex: index) {
+                        (onRecall ?? onSelect)(companion.windowId)
+                    }
+                    .help(helpWithLocation(companion.appName))
+                    .accessibilityHint(locationHelp ?? "")
+                    .accessibilityAddTraits(isActiveHere && companion.isFocused ? .isSelected : [])
+                    .workspaceSidebarBringHereAction(onBringHere)
+                    .sidebarIdentityMenu(.tab(workspace.name, windowId: companion.windowId))
+                    .offset(WorkspaceSidebarFloatCompanion.offset(at: index, mainIconSize: size))
+                }
+            }
+            .frame(width: size, height: size, alignment: .bottomTrailing)
+        }
+        .background {
+            if window.isFocused && isActiveHere {
+                RoundedRectangle(cornerRadius: compact ? 6 : 10)
+                    .fill(Color(nsColor: .controlBackgroundColor)).padding(compact ? 1 : 3)
+            }
+        }
     }
 
     /// Dragged, alone or as one of the chosen tabs it carries: dimmed until the drag ends.
@@ -144,6 +162,7 @@ struct WorkspaceSidebarPinnedTab: View {
         let showsIdentity = !compact && identity != nil
         let summarizesWorkspace = compact && windows.count > 2
         let displayedWindows = summarizesWorkspace ? Array(windows.prefix(1)) : windows
+        let companions = WorkspaceSidebarFloatCompanion.windows(in: windows)
         return VStack(spacing: 0) {
             if showsIdentity, let identity {
                 Button { (onRecall ?? onSelect)(nil) } label: {
@@ -212,16 +231,16 @@ struct WorkspaceSidebarPinnedTab: View {
                                     Rectangle().fill(.primary.opacity(0.14)).frame(width: 1, height: compact ? 14 : 24).accessibilityHidden(true)
                                 }
                                 windowTile(window, windowCount: tiles.count, showsIdentity: showsIdentity,
-                                    summarizesWorkspace: summarizesWorkspace)
+                                    summarizesWorkspace: summarizesWorkspace,
+                                    companions: window.id == tiles.last?.id ? companions : [])
                             }
                         }
-                        if !floats.isEmpty {
-                            HStack(spacing: tiles.isEmpty ? 0 : -4) {
+                        if tiles.isEmpty {
+                            HStack(spacing: 0) {
                                 ForEach(floats) { window in
                                     windowTile(window, windowCount: 1, showsIdentity: showsIdentity,
-                                        summarizesWorkspace: summarizesWorkspace,
-                                        tileHeight: tiles.isEmpty ? nil : (compact ? 24 : 32))
-                                        .frame(maxWidth: tiles.isEmpty ? .infinity : (compact ? 26 : 36))
+                                        summarizesWorkspace: summarizesWorkspace)
+                                        .frame(maxWidth: .infinity)
                                         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 5))
                                         .overlay(alignment: .bottomLeading) {
                                             Image(systemName: "rectangle.on.rectangle").font(.system(size: compact ? 7 : 9))
@@ -229,7 +248,6 @@ struct WorkspaceSidebarPinnedTab: View {
                                         }
                                 }
                             }
-                            .padding(tiles.isEmpty ? 0 : 2)
                         }
                     }
                     .frame(maxWidth: .infinity, minHeight: compact || showsIdentity ? 34 : 54,
@@ -332,8 +350,13 @@ struct WorkspaceSidebarPinnedTab: View {
         if windowCount <= 1, let emoji = workspace.appearance.emoji {
             Text(emoji).font(.system(size: compact ? 19 : 23))
         } else if let window {
-            WorkspaceSidebarWindowIcon(window: window, size: compact ? min(20, 26 / CGFloat(max(windowCount, 1))) : 22)
+            WorkspaceSidebarWindowIcon(window: window, size: mainIconSize(windowCount: windowCount))
         } else { Image(systemName: "macwindow").font(.system(size: compact ? 19 : 22)) }
+    }
+
+    private func mainIconSize(windowCount: Int) -> CGFloat {
+        if windowCount <= 1, workspace.appearance.emoji != nil { return compact ? 19 : 23 }
+        return compact ? min(20, 26 / CGFloat(max(windowCount, 1))) : 22
     }
 }
 

@@ -70,16 +70,28 @@ final class SavedWorkspaceLifecycleTest: XCTestCase {
         XCTAssertFalse(saved.isOrdinaryEmptySlot)
     }
 
-    func testReconcilePreservesLabelsOfSavedAndUncreatedWorkspaces() {
+    func testOrphanLabelClearingSkipsSavedNames() {
         savedWorkspaceStore.insert(SavedWorkspaceRecord(workspaceName: "7", displayName: "Seven"))
         config.workspaceSidebar.workspaceLabels["7"] = "Seven"
         config.workspaceSidebar.workspaceLabels["8"] = "Eight"
 
-        Workspace.reconcileWorkspaceState()
+        clearOrphanedWorkspaceSidebarLabels()
 
         XCTAssertEqual(config.workspaceSidebar.workspaceLabels["7"], "Seven")
-        XCTAssertEqual(config.workspaceSidebar.workspaceLabels["8"], "Eight")
-        XCTAssertNil(Workspace.existing(byName: "8"))
+        XCTAssertNil(config.workspaceSidebar.workspaceLabels["8"])
+    }
+
+    func testStartupKeepsLabelsOfWorkspacesNotRestoredYet() {
+        config.workspaceSidebar.workspaceLabels["3"] = "Restored later"
+        isDeferringOrphanedWorkspaceLabelCleanup = true
+        defer { isDeferringOrphanedWorkspaceLabelCleanup = false }
+
+        Workspace.reconcileWorkspaceState()
+        XCTAssertEqual(config.workspaceSidebar.workspaceLabels["3"], "Restored later")
+
+        isDeferringOrphanedWorkspaceLabelCleanup = false
+        clearOrphanedWorkspaceSidebarLabels()
+        XCTAssertNil(config.workspaceSidebar.workspaceLabels["3"])
     }
 
     func testReconcileRecreatesMissingSavedWorkspace() {
@@ -91,7 +103,7 @@ final class SavedWorkspaceLifecycleTest: XCTestCase {
         XCTAssertEqual(Workspace.existing(byName: "code")?.lifecycle, .durable)
     }
 
-    func testForgetKeepsLabelledWorkspaceWhenEmptyUntilLabelIsCleared() throws {
+    func testForgetKeepsWindowsAndNameThenEmptyIsPrunedAndLabelCleared() throws {
         config.workspaceSidebar.saveNamedWorkspaces = true
         let workspace = Workspace.get(byName: "2")
         workspace.markAsAutomaticallyNamed()
@@ -107,13 +119,7 @@ final class SavedWorkspaceLifecycleTest: XCTestCase {
 
         window.unbindFromParent()
         Workspace.reconcileWorkspaceState()
-        XCTAssertTrue(Workspace.existing(byName: "2") === workspace, "Labelled workspace stays when empty")
-        XCTAssertEqual(config.workspaceSidebar.workspaceLabels["2"], "Code")
-        XCTAssertTrue(isUserFacingWorkspace(workspace))
-
-        try resetWorkspaceSidebarName(workspaceName: "2")
-        Workspace.reconcileWorkspaceState()
-        XCTAssertNil(Workspace.existing(byName: "2"), "Unlabelled empty workspace prunes after label is cleared")
+        XCTAssertNil(Workspace.existing(byName: "2"))
         XCTAssertNil(config.workspaceSidebar.workspaceLabels["2"])
     }
 

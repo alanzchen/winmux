@@ -24,9 +24,40 @@ func workspaceNameHasConfiguredLabel(_ workspaceName: String) -> Bool {
         .isEmpty == false
 }
 
-/// Resolves a direct workspace target that has a configured label: first to an existing
-/// workspace with that name, otherwise creating it in the active project on `monitor`.
-/// Returns nil when `workspaceName` has no configured label so callers use their normal fallback.
+/// Canonical numbers always name positions. A nonnumeric configured binding
+/// can name the exact display label instead (for example `workspace Notes` for tab "2").
+/// Merely having the stock `workspace 2` binding never makes the backing name "2" an override.
+@MainActor
+func configuredLabelWorkspaceName(named target: String, from current: Workspace) -> String? {
+    if parsePositiveWorkspaceDisplayIndex(target) != nil { return nil }
+    if workspaceNameHasConfiguredLabel(target) { return target }
+    // Display labels are aliases; an existing literal workspace name keeps its meaning.
+    if Workspace.existing(byName: target) != nil { return nil }
+    let commands = config.modes.values.flatMap { mode in
+        mode.bindings.values.flatMap(\.commands) + mode.tapBindings.values.flatMap(\.commands) +
+            mode.sequenceBindings.values.flatMap(\.commands)
+    }
+    let isBound = commands.contains { command in
+        if let command = command as? WorkspaceCommand { return command.args.target.val.workspaceNameOrNil()?.raw == target }
+        if let command = command as? MoveNodeToWorkspaceCommand { return command.args.target.val.workspaceNameOrNil()?.raw == target }
+        return false
+    }
+    guard isBound else { return nil }
+    let project = workspaceContextProjectId(of: current)
+    let matches = config.workspaceSidebar.workspaceLabels.filter { _, label in
+        label.trimmingCharacters(in: .whitespacesAndNewlines) == target
+    }.keys
+    guard !matches.isEmpty else { return nil }
+    let local = matches.filter { name in
+        Workspace.existing(byName: name).map { !$0.isArchived && $0.projectId == project } == true
+    }
+    if local.count == 1 { return local.first }
+    // A known but unavailable/ambiguous label must not fall through and create another name.
+    return matches.count == 1 ? matches.first : target
+}
+
+/// Only an absent name can be assigned to the caller's project. Existing foreign or archived
+/// workspaces are unavailable; callers must not turn that rejection into an unscoped fallback.
 @MainActor
 func resolveConfiguredLabelWorkspaceTarget(
     named workspaceName: String,
@@ -34,11 +65,12 @@ func resolveConfiguredLabelWorkspaceTarget(
     monitor: Monitor,
 ) -> Workspace? {
     guard workspaceNameHasConfiguredLabel(workspaceName) else { return nil }
-    if let existing = Workspace.existing(byName: workspaceName), !existing.isArchived {
-        return existing
+    let project = workspaceContextProjectId(of: current)
+    if let existing = Workspace.existing(byName: workspaceName) {
+        return !existing.isArchived && existing.projectId == project ? existing : nil
     }
     let workspace = Workspace.get(byName: workspaceName)
-    workspace.assignProject(workspaceContextProjectId(of: current))
+    workspace.assignProject(project)
     workspace.seedMonitorIfNeeded(monitor)
     return workspace
 }
@@ -50,6 +82,21 @@ func clearWorkspaceSidebarLabelIfNeeded(_ workspaceName: String) {
     guard config.workspaceSidebar.workspaceLabels.removeValue(forKey: workspaceName) != nil else { return }
     if !isUnitTest {
         try? persistWorkspaceSidebarLabel(workspaceName: workspaceName, label: nil)
+    }
+}
+
+/// True while WinMux starts: workspaces restored from window-state.json don't exist until the
+/// startup refresh registers their windows, and clearing their labels before that would
+/// delete them from the config.
+@MainActor var isDeferringOrphanedWorkspaceLabelCleanup = false
+
+@MainActor
+func clearOrphanedWorkspaceSidebarLabels() {
+    guard !isDeferringOrphanedWorkspaceLabelCleanup else { return }
+    for workspaceName in config.workspaceSidebar.workspaceLabels.keys
+    where winMuxWorkspaceState.workspace(named: workspaceName) == nil && !savedWorkspaceStore.contains(workspaceName: workspaceName)
+    {
+        clearWorkspaceSidebarLabelIfNeeded(workspaceName)
     }
 }
 

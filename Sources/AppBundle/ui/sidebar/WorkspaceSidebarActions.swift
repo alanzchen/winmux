@@ -892,8 +892,13 @@ func renameWorkspaceFromSidebar(_ workspaceName: String, displayName: String) {
 @MainActor
 @discardableResult
 func saveWorkspaceFromSidebar(_ workspaceName: String) -> Task<Void, Never>? {
-    runWorkspaceSidebarSession {
-        try saveWorkspaceForSidebar(workspaceName: workspaceName, displayName: nil)
+    let keepsEmptyTab = config.usesBrowserTabs
+    return runWorkspaceSidebarSession {
+        if keepsEmptyTab {
+            try keepWorkspaceWhenEmptyForSidebar(workspaceName: workspaceName)
+        } else {
+            try saveWorkspaceForSidebar(workspaceName: workspaceName, displayName: nil)
+        }
         await updateWorkspaceSidebarModel()
     }
 }

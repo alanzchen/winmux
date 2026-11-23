@@ -81,6 +81,7 @@ final class Workspace: TreeNode, NonLeafTreeNodeObject, Hashable, Comparable {
         // Once every display shows a workspace it may, so a replacement can't break another's.
         leaveTabsLeftEmptyOnScreen()
         pruneEmptyWorkspaces()
+        clearOrphanedWorkspaceSidebarLabels()
         ensureVisibleActiveProjectWorkspaces()
         checkWorkspaceHierarchyInvariants(requireActiveMonitorViewports: true)
         scheduleSavedWorkspaceCheckpoint()
@@ -141,13 +142,6 @@ extension Workspace {
     @MainActor
     var isConfiguredPersistent: Bool {
         config.persistentWorkspaces.contains(name)
-    }
-
-    /// Whether this workspace has a non-empty label in `[workspace-sidebar.workspace-labels]`
-    /// (from `winmux.toml` or set by renaming in the sidebar/UI).
-    @MainActor
-    var hasConfiguredLabel: Bool {
-        workspaceNameHasConfiguredLabel(name)
     }
 
     @MainActor

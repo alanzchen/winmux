@@ -80,12 +80,8 @@ private func resolveMoveTargetWorkspace(
     sourceMonitor: Monitor,
     listedAtSequenceStart: Set<WorkspaceId>,
 ) -> Workspace? {
-    if let workspace = resolveConfiguredLabelWorkspaceTarget(
-        named: workspaceName,
-        from: sourceWorkspace,
-        monitor: sourceMonitor,
-    ) {
-        return workspace
+    if let name = configuredLabelWorkspaceName(named: workspaceName, from: sourceWorkspace) {
+        return resolveConfiguredLabelWorkspaceTarget(named: name, from: sourceWorkspace, monitor: sourceMonitor)
     }
     if let targetIndex = parsePositiveWorkspaceDisplayIndex(workspaceName) {
         if let workspace = numberedWorkspaceNavigationTabs(current: sourceWorkspace, listedAtSequenceStart: listedAtSequenceStart)
@@ -96,6 +92,7 @@ private func resolveMoveTargetWorkspace(
             listedAtSequenceStart: listedAtSequenceStart)
     }
 
+    if Workspace.existing(byName: workspaceName)?.isArchived == true { return nil }
     let existedBefore = Workspace.existing(byName: workspaceName) != nil
     let workspace = Workspace.get(byName: workspaceName)
     if !existedBefore {

@@ -6,11 +6,21 @@ extension Workspace {
     @MainActor
     var isSaved: Bool { savedWorkspaceStore.contains(workspaceName: name) }
 
-    /// A persistent, labelled, or saved tab stays when its windows go, unless an unlabelled saved
-    /// tab closes with its last window: see `workspaceTabClosesWithLastWindow`.
+    /// Explicit retention for Tabs visibility and menus, also included in the lifecycle rule. A label
+    /// or an implicit saved identity is not a request to keep a tab after its last window closes.
+    @MainActor
+    var isExplicitlyKeptTab: Bool {
+        workspaceSidebarOrganizationStore.state.workspaces[name]?.isFavorite == true ||
+            savedWorkspaceStore.record(named: name)?.keepWhenEmpty == true
+    }
+
+    /// A config-persistent identity survives too, but remains unlisted while empty as before.
+    @MainActor
+    var retainsTabAfterLastWindowCloses: Bool { isConfiguredPersistent || isExplicitlyKeptTab }
+
     @MainActor
     var isKeptWhenEmpty: Bool {
-        isConfiguredPersistent || hasConfiguredLabel || !workspaceTabClosesWithLastWindow(self) &&
+        retainsTabAfterLastWindowCloses || !workspaceTabClosesWithLastWindow(self) &&
             savedWorkspaceStore.record(named: name).map { $0.keepWhenEmpty != false } == true
     }
 
@@ -256,6 +266,30 @@ func saveWorkspaceForSidebar(workspaceName: String, displayName: String?) throws
         try renameWorkspaceForSidebar(workspaceName: workspaceName, displayName: displayName, forceSave: true)
     } else {
         try ensureSavedWorkspaceRecord(workspace)
+    }
+}
+
+/// The menu's explicit Keep action, distinct from saving a renamed/grouped identity for restore.
+@MainActor
+func keepWorkspaceWhenEmptyForSidebar(workspaceName: String) throws {
+    guard let workspace = Workspace.existing(byName: workspaceName) else {
+        throw WorkspaceMutationError.workspaceNotFound(workspaceName)
+    }
+    if let reason = savedWorkspaceStore.readOnlyReason {
+        throw WorkspaceMutationError.savedWorkspacesReadOnly(reason)
+    }
+    let savedBefore = savedWorkspaceStore.file
+    let runtimeBefore = SavedWorkspaceRuntimeIdentityState()
+    let lifecycleBefore = workspace.lifecycle
+    do {
+        try ensureSavedWorkspaceRecord(workspace, flush: false)
+        savedWorkspaceStore.update(named: workspaceName) { $0.keepWhenEmpty = true }
+        try savedWorkspaceStore.flushNowReportingFailure()
+    } catch {
+        savedWorkspaceStore.restoreForRollback(savedBefore)
+        runtimeBefore.restore()
+        workspace.lifecycle = lifecycleBefore
+        throw error
     }
 }
 

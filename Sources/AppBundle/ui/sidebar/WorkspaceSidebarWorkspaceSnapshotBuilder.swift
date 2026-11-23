@@ -139,7 +139,7 @@ func workspaceSidebarSavedState(for workspace: Workspace, runningApps: [String: 
         missingAppNames: missingSavedWorkspaceApps(workspaceNames: [workspace.name], runningApps: runningApps).map { app in
             savedWorkspaceAppDisplayName(bundleId: app.bundleId, appName: app.appName, bundlePath: app.bundlePath)
         },
-        keepWhenEmpty: record.keepWhenEmpty != false,
+        keepWhenEmpty: config.usesBrowserTabs ? workspace.isExplicitlyKeptTab : workspace.isKeptWhenEmpty,
         apps: workspaceSidebarPinnedLinkApp(workspace).map { [$0] } ?? workspaceSidebarSavedApps(for: workspace),
     )
 }

@@ -18,8 +18,9 @@ import Foundation
         try await waitForAccessibilityPermission()
         // Saved names must exist before anything (config reload, sidebar refresh, focus) can
         // hand them out as automatic workspace names.
-        // Also after a failed startup: otherwise every saved app would stay armed for routing
-        // and nothing would be captured.
+        isDeferringOrphanedWorkspaceLabelCleanup = true
+        // Also after a failed startup: otherwise every saved app would stay armed for routing,
+        // nothing would be captured, and labels would never be cleaned up.
         defer { finishSavedWorkspaceStartup() }
         loadSavedWorkspaceStoreForStartup()
         loadWorkspaceSidebarOrganization()
@@ -75,6 +76,11 @@ import Foundation
 @MainActor
 private func finishSavedWorkspaceStartup() {
     guard savedWorkspaceRuntime.runtimeReadyAt == nil else { return }
+    isDeferringOrphanedWorkspaceLabelCleanup = false
+    // After a failed startup the config may never have loaded; don't prune labels against it.
+    if savedWorkspaceRuntime.isConfigLoaded {
+        clearOrphanedWorkspaceSidebarLabels()
+    }
     savedWorkspaceRuntime.runtimeReadyAt = savedWorkspaceRuntime.now
     scheduleSavedWorkspaceCheckpoint()
 }

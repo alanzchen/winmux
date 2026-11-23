@@ -54,11 +54,12 @@ struct WorkspaceCommand: Command {
     @MainActor
     private func resolveDirectWorkspaceTarget(named workspaceName: String, from focusedWs: Workspace, io: CmdIo,
                                               listedAtSequenceStart: Set<WorkspaceId>) -> ResolvedWorkspaceTarget {
-        if let workspace = resolveConfiguredLabelWorkspaceTarget(
-            named: workspaceName,
-            from: focusedWs,
-            monitor: focusedWs.workspaceMonitor,
-        ) {
+        if let name = configuredLabelWorkspaceName(named: workspaceName, from: focusedWs) {
+            guard let workspace = resolveConfiguredLabelWorkspaceTarget(named: name, from: focusedWs,
+                monitor: focusedWs.workspaceMonitor) else {
+                _ = io.err("Workspace '\(workspaceName)' is unavailable in this project")
+                return .error
+            }
             return args.autoBackAndForth && workspace == focusedWs ? .backAndForth : .focus(workspace)
         }
         if let workspace = findDirectWorkspaceTarget(named: workspaceName, from: focusedWs, listedAtSequenceStart: listedAtSequenceStart) {

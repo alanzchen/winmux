@@ -87,38 +87,23 @@ final class PinReopenRestoreRaceTest: XCTestCase {
 
     /// Another app's window comes back; its restore of the old snapshot waits on an AX read of `held`
     /// until `release` runs. With `failing`, the read then throws.
-    private func restoreWaitingOnAX(_ other: Window, held: TestWindow, failing: (any Error)? = nil) async
-        -> (restore: Task<Bool, any Error>, release: () -> Void)
+    private func restoreWaitingOnAX(_ other: Window, held: TestWindow, failing: (any Error)? = nil) async throws
+        -> (restore: Task<Bool, any Error>, release: () async -> Void)
     {
-        var resume: CheckedContinuation<Void, Never>?
-        let restoresBefore = activeFrozenRestoreCount
-        held.nativeStateGate = {
-            await withCheckedContinuation { resume = $0 }
-            if let failing { throw failing }
-            try Task.checkCancellation()
-        }
-        let binding = bindingDataForNewRegularWindow(focus.workspace, window: nil)
-        other.bind(to: binding.parent, adaptiveWeight: binding.adaptiveWeight, index: binding.index)
-        let restore = Task { @MainActor in try await restoreOrDetectNewWindow(other, isRegularWindow: true) }
-        await letTasksRun()
-        XCTAssertNotNil(resume, "The restore waits on the AX read")
-        XCTAssertEqual(activeFrozenRestoreCount, restoresBefore + 1)
-        return (restore, {
-            held.nativeStateGate = nil
-            resume?.resume()
-        })
+        let suspension = try await FrozenRestoreTestSuspension.start(other, held: held, in: self, failing: failing)
+        return (suspension.restore, suspension.release)
     }
 
     func testAReopenClaimedWhileARestoreWaitsOnAXEndsInTheClickedTab() async throws {
         let (old, pin, q, held, reopened, sibling, other) = closedWorld()
-        let (restore, release) = await restoreWaitingOnAX(other, held: held)
+        let (restore, release) = try await restoreWaitingOnAX(other, held: held)
         var outcomes: [NewWindowRequestOutcome] = []
         clickPin(pin) { outcomes.append($0) }
         await letTasksRun()
         try await appShows(reopened)
         XCTAssertEqual(outcomes, [], "Not finished while a restore runs")
 
-        release()
+        await release()
         _ = try await restore.value
 
         XCTAssertTrue(reopened.nodeWorkspace === pin, "The older snapshot had it in \(old.name); the click asked for the pin")
@@ -134,6 +119,91 @@ final class PinReopenRestoreRaceTest: XCTestCase {
         XCTAssertTrue(reopened.nodeWorkspace === pin)
     }
 
+    func testNormalizationAndRestoreReleaseEveryHeldNativeRead() async throws {
+        let (_, pin, q, held, reopened, _, other) = closedWorld()
+        let (restore, release) = try await restoreWaitingOnAX(other, held: held)
+        let readsBefore = held.nativeStateFetchCount
+        let originalGate = try XCTUnwrap(held.nativeStateGate)
+        let normalizerEntered = AwaitableOneTimeBroadcastLatch()
+        held.nativeStateGate = {
+            await normalizerEntered.signalToAll()
+            try await originalGate()
+        }
+        // Force the same competing read that a sidebar switch's queued refresh performs,
+        // after the restore has entered the gate and before either read is released.
+        held.invalidateLastKnownNativeState()
+        let normalization = Task { @MainActor in try await normalizeLayoutReason() }
+        addTeardownBlock { @MainActor in
+            normalization.cancel()
+            _ = await normalization.result
+        }
+        try await normalizerEntered.await()
+        XCTAssertGreaterThan(held.nativeStateFetchCount, readsBefore)
+
+        var outcomes: [NewWindowRequestOutcome] = []
+        clickPin(pin) { outcomes.append($0) }
+        await letTasksRun()
+        try await appShows(reopened)
+        XCTAssertEqual(outcomes, [], "The reopen is held until restoration ends")
+
+        await release()
+        try await normalization.value
+        _ = try await restore.value
+        XCTAssertEqual(activeFrozenRestoreCount, 0)
+        XCTAssertEqual(outcomes, [.placed(windowId: 2)])
+        XCTAssertTrue(reopened.nodeWorkspace === pin)
+        XCTAssertTrue(other.nodeWorkspace === q)
+    }
+
+    func testCancellingAHeldRestoreResumesWithoutAnExplicitRelease() async throws {
+        let (_, _, _, held, _, _, other) = closedWorld()
+        let suspension = try await FrozenRestoreTestSuspension.start(other, held: held, in: self)
+        suspension.restore.cancel()
+        do {
+            _ = try await suspension.restore.value
+            XCTFail("Cancelling the held read must end restoration")
+        } catch is CancellationError { }
+        XCTAssertEqual(activeFrozenRestoreCount, 0)
+    }
+
+    func testSuspensionTeardownReleasesEveryReaderAndLateCapturedHooks() async throws {
+        let (_, _, _, held, _, _, other) = closedWorld()
+        let suspension = try await FrozenRestoreTestSuspension.start(other, held: held, in: self)
+        let capturedGate = try XCTUnwrap(held.nativeStateGate)
+        let readerEntered = AwaitableOneTimeBroadcastLatch()
+        let reader = Task { @MainActor in
+            await readerEntered.signalToAll()
+            try await capturedGate()
+        }
+        addTeardownBlock { @MainActor in
+            reader.cancel()
+            _ = await reader.result
+        }
+        try await readerEntered.await()
+        await suspension.finish()
+        try await reader.value
+        XCTAssertNil(held.nativeStateGate)
+        XCTAssertEqual(activeFrozenRestoreCount, 0)
+        try await capturedGate()
+
+        // Teardown after an explicit release must not clear a newer phase's hook.
+        held.nativeStateGate = {}
+        await suspension.finish()
+        XCTAssertNotNil(held.nativeStateGate)
+        held.nativeStateGate = nil
+    }
+
+    func testRestoreEndingBeforeTheHeldReadFailsSetupWithoutWaitingForever() async throws {
+        let (_, _, _, held, _, _, other) = closedWorld()
+        replaceClosedWindowsCache(FrozenWorld(workspaces: [], monitors: [], windowIds: []))
+        do {
+            _ = try await FrozenRestoreTestSuspension.start(other, held: held, in: self)
+            XCTFail("This snapshot never reads the held window")
+        } catch FrozenRestoreTestSuspension.FixtureError.restoreFinishedBeforeNativeRead { }
+        XCTAssertNil(held.nativeStateGate)
+        XCTAssertEqual(activeFrozenRestoreCount, 0)
+    }
+
     func testAPopupClaimedWhileARestoreReadsItIsLeftWhereTheClaimPutIt() async throws {
         let old = Workspace.get(byName: "old")
         let q = Workspace.get(byName: "q")
@@ -146,13 +216,13 @@ final class PinReopenRestoreRaceTest: XCTestCase {
         reopened.bind(to: macosPopupWindowsContainer, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
         other.unbindFromParent()
         _ = pin.focusWorkspace()
-        let (restore, release) = await restoreWaitingOnAX(other, held: reopened)
+        let (restore, release) = try await restoreWaitingOnAX(other, held: reopened)
         var outcomes: [NewWindowRequestOutcome] = []
         clickPin(pin) { outcomes.append($0) }
         await letTasksRun()
         try await appShows(reopened)
 
-        release()
+        await release()
         _ = try await restore.value
         XCTAssertTrue(reopened.nodeWorkspace === pin, "Checked again after the AX read")
         XCTAssertEqual(outcomes, [.placed(windowId: 2)])
@@ -165,12 +235,12 @@ final class PinReopenRestoreRaceTest: XCTestCase {
             window.isFullscreen = true
         }
         reopened.isFullscreen = false
-        let (restore, release) = await restoreWaitingOnAX(other, held: held)
+        let (restore, release) = try await restoreWaitingOnAX(other, held: held)
         clickPin(pin) { _ in }
         await letTasksRun()
         try await appShows(reopened)
 
-        release()
+        await release()
         _ = try await restore.value
         XCTAssertTrue(reopened.nodeWorkspace === pin)
         XCTAssertFalse(reopened.isFullscreen, "The old snapshot's state isn't applied to it")
@@ -235,13 +305,13 @@ final class PinReopenRestoreRaceTest: XCTestCase {
 
     func testARestoreThatFailsStillLetsTheReopenFinish() async throws {
         let (_, pin, _, held, reopened, _, other) = closedWorld()
-        let (restore, release) = await restoreWaitingOnAX(other, held: held, failing: CocoaError(.featureUnsupported))
+        let (restore, release) = try await restoreWaitingOnAX(other, held: held, failing: CocoaError(.featureUnsupported))
         var outcomes: [NewWindowRequestOutcome] = []
         clickPin(pin) { outcomes.append($0) }
         await letTasksRun()
         try await appShows(reopened)
 
-        release()
+        await release()
         do {
             _ = try await restore.value
             XCTFail("The AX read failed")
@@ -254,14 +324,14 @@ final class PinReopenRestoreRaceTest: XCTestCase {
 
     func testACancelledRestoreStillLetsTheReopenFinish() async throws {
         let (_, pin, _, held, reopened, _, other) = closedWorld()
-        let (restore, release) = await restoreWaitingOnAX(other, held: held)
+        let (restore, release) = try await restoreWaitingOnAX(other, held: held)
         var outcomes: [NewWindowRequestOutcome] = []
         clickPin(pin) { outcomes.append($0) }
         await letTasksRun()
         try await appShows(reopened)
 
         restore.cancel()
-        release()
+        await release()
         _ = try? await restore.value
 
         XCTAssertEqual(activeFrozenRestoreCount, 0)
@@ -273,7 +343,7 @@ final class PinReopenRestoreRaceTest: XCTestCase {
     /// replaces, so it waits on `held`'s AX read in its orphan pass (or fails there, with `failing`).
     /// The reopened window was claimed into the pin before, while another restore ran.
     private func restoreReplacingThePinsRoot(failing: (any Error)? = nil) async throws
-        -> (pin: Workspace, reopened: TestWindow, restore: Task<Bool, any Error>, release: () -> Void, outcomes: () -> [NewWindowRequestOutcome])
+        -> (pin: Workspace, reopened: TestWindow, restore: Task<Bool, any Error>, release: () async -> Void, outcomes: () -> [NewWindowRequestOutcome])
     {
         let old = Workspace.get(byName: "old")
         let q = Workspace.get(byName: "q")
@@ -293,7 +363,7 @@ final class PinReopenRestoreRaceTest: XCTestCase {
         await letTasksRun()
         try await appShows(reopened)
         XCTAssertEqual(pin.rootTilingContainer.allLeafWindowsRecursive.map(\.windowId), [5, 2])
-        let (restore, release) = await restoreWaitingOnAX(other, held: held, failing: failing)
+        let (restore, release) = try await restoreWaitingOnAX(other, held: held, failing: failing)
         XCTAssertEqual(activeFrozenRestoreCount, 2)
         return (pin, reopened, restore, release, { outcomes })
     }
@@ -305,7 +375,7 @@ final class PinReopenRestoreRaceTest: XCTestCase {
         _ = TestWindow.new(id: 7, parent: elsewhere.rootTilingContainer)
         reopened.bind(to: elsewhere.rootTilingContainer, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
 
-        release()
+        await release()
         _ = try await restore.value
         XCTAssertTrue(reopened.nodeWorkspace === elsewhere, "The orphan pass doesn't put it back in the pin")
         endFrozenRestore()
@@ -315,7 +385,7 @@ final class PinReopenRestoreRaceTest: XCTestCase {
 
     func testARestoreThatFailsAfterReplacingTheTabsRootLeavesTheReopenedWindowInTheTab() async throws {
         let (pin, reopened, restore, release, outcomes) = try await restoreReplacingThePinsRoot(failing: CocoaError(.featureUnsupported))
-        release()
+        await release()
         do {
             _ = try await restore.value
             XCTFail("The AX read failed")

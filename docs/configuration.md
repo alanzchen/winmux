@@ -187,7 +187,10 @@ tabs-always-expanded = true
   next tab, or the previous one. Moving the last window of the tab on screen into another
   tab follows it there. A new tab stays until something opens in it or you leave it. When
   a display has no other tab, it keeps showing the empty one, which the list leaves out.
-- Pinned and saved tabs stay when their last window closes, greyed and showing their
+- Renaming a tab does not keep it empty. When its last window closes, it leaves the list;
+  its saved name and places wait out the normal close grace, then are pruned. To keep an
+  empty tab, pin it or choose **Keep Tab When Empty** in its right-click menu.
+- Pinned and explicitly kept tabs stay when their last window closes, greyed and showing their
   apps' icons. A grey pin whose window is in another tab's split is different: clicking it
   brings that window back, and never opens another. Clicking any other selects it and
   opens those apps again: an app that quit
@@ -530,8 +533,13 @@ You can also edit this list in **Settings → Projects & Workspaces**.
 
 Naming a workspace saves it. A saved workspace keeps its name, project, layout,
 app windows, and home display, and comes back after WinMux, an app, or your Mac
-restarts. It is never removed when empty. Set these in the `[workspace-sidebar]`
-table, or in **Settings → Projects & Workspaces**:
+restarts while its saved identity remains. In Tabs mode, naming alone does not retain an empty
+tab after its last window closes: its identity is pruned after the normal close grace.
+Pin the tab or choose **Keep Tab When Empty** to retain it explicitly. Other sidebar modes
+keep saved workspaces as before. Labels alone are not reservations forever: after startup
+restoration, labels without a live or saved identity are removed from `winmux.toml`, and pruning
+an identity removes its label from the config file too. Set these in the `[workspace-sidebar]` table, or in
+**Settings → Projects & Workspaces**:
 
 ```toml
 [workspace-sidebar]

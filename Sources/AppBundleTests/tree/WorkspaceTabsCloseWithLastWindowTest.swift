@@ -78,12 +78,6 @@ final class WorkspaceTabsCloseWithLastWindowTest: XCTestCase {
         savedTestFacts(now: clock, runningApps: running, titles: titles)
     }
 
-    private func save(_ tab: Workspace) throws {
-        try ensureSavedWorkspaceRecord(tab, keepWhenEmpty: true)
-        XCTAssertTrue(tab.isKeptWhenEmpty)
-        captureSavedWorkspaces(facts: facts())
-    }
-
     private func rename(_ tab: Workspace, _ label: String = "Notes") throws {
         try saveWorkspaceForSidebar(workspaceName: tab.name, displayName: label)
         XCTAssertEqual(config.workspaceSidebar.workspaceLabels[tab.name], label)
@@ -175,17 +169,14 @@ final class WorkspaceTabsCloseWithLastWindowTest: XCTestCase {
 
     // MARK: It closes
 
-    func testARenamedTabStaysWhenItsLastWindowClosesUntilExplicitlyDeleted() throws {
+    func testARenamedTabLeavesTheListAtOnceAndItsIdentityGoesAfterTheGrace() async throws {
         let (_, b, _, window) = threeTabs()
         try rename(b)
         close(window)
+        let listed = await isListed(b)
+        XCTAssertFalse(listed, "Never shown greyed")
+        assertStays(b, "Its identity waits out the grace, out of sight")
         afterTheGrace()
-        assertStays(b, "A labelled tab is permanent until explicitly deleted")
-        XCTAssertEqual(config.workspaceSidebar.workspaceLabels[b.name], "Notes")
-        XCTAssertTrue(b.isKeptWhenEmpty)
-
-        try deleteWorkspaceForSidebar(workspaceName: b.name)
-        Workspace.reconcileWorkspaceState()
         assertClosed(b)
     }
 
@@ -225,7 +216,7 @@ final class WorkspaceTabsCloseWithLastWindowTest: XCTestCase {
 
     func testATabClosesAfterTheGraceWhenItsAppQuitsRatherThanWaitingForItToOpenAgain() throws {
         let (_, b, _, window) = threeTabs()
-        try save(b)
+        try rename(b)
         editorQuits()
         close(window)
         checkpoint(after: 5)
@@ -236,7 +227,7 @@ final class WorkspaceTabsCloseWithLastWindowTest: XCTestCase {
 
     func testATabWhoseOnlyWindowWasMinimizedClosesWhenItsAppQuits() throws {
         let (_, b, _, window) = threeTabs()
-        try save(b)
+        try rename(b)
         window.layoutReason = .macos(prevParentKind: .tilingContainer, prevWorkspaceName: b.name)
         window.bind(to: macosMinimizedWindowsContainer, adaptiveWeight: 1, index: INDEX_BIND_LAST)
         afterTheGrace()
@@ -274,19 +265,20 @@ final class WorkspaceTabsCloseWithLastWindowTest: XCTestCase {
 
     func testAWindowFoundAgainByALaterRefreshSessionGoesBackToItsTab() async throws {
         let (_, b, _, window) = threeTabs()
-        try save(b)
+        try rename(b)
         close(window)
         clock = clock.addingTimeInterval(10)
         try await runRefreshSession(findingAgain: (2, editor))
         assertStays(b)
         XCTAssertEqual(b.allLeafWindowsRecursive.map(\.windowId), [2], "Back in its tab")
+        XCTAssertEqual(config.workspaceSidebar.workspaceLabels[b.name], "Notes")
         let listed = await isListed(b)
         XCTAssertTrue(listed)
     }
 
     func testARefreshSessionThatDoesntFindTheWindowClosesItsTabOnceTheGraceIsOver() async throws {
         let (_, b, _, window) = threeTabs()
-        try save(b)
+        try rename(b)
         close(window)
         clock = clock.addingTimeInterval(10)
         try await runRefreshSession()
@@ -298,7 +290,7 @@ final class WorkspaceTabsCloseWithLastWindowTest: XCTestCase {
 
     func testALightSessionNeverDeletesATabWithinItsGrace() async throws {
         let (_, b, _, window) = threeTabs()
-        try save(b)
+        try rename(b)
         close(window)
         clock = clock.addingTimeInterval(10)
         appForTests = TestApp.shared
@@ -310,8 +302,8 @@ final class WorkspaceTabsCloseWithLastWindowTest: XCTestCase {
 
     func testWindowsOfTwoAppsGoingTogetherThenALateLockKeepBothTabsForTheirReturn() async throws {
         let (_, b, c, window) = threeTabs()
-        try save(b)
-        try save(c)
+        try rename(b)
+        try rename(c, "Mail")
         let world = snapshotCurrentFrozenWorld()
         let mail = try XCTUnwrap(c.allLeafWindowsRecursive.first)
         close(window, mail)
@@ -333,12 +325,13 @@ final class WorkspaceTabsCloseWithLastWindowTest: XCTestCase {
         assertStays(c)
         XCTAssertEqual(b.allLeafWindowsRecursive.map(\.windowId), [2])
         XCTAssertEqual(c.allLeafWindowsRecursive.map(\.windowId), [3])
+        XCTAssertEqual(config.workspaceSidebar.workspaceLabels[c.name], "Mail")
     }
 
     func testWindowsOfTwoAppsClosingTogetherCloseBothTabs() throws {
         let (_, b, c, window) = threeTabs()
-        try save(b)
-        try save(c)
+        try rename(b)
+        try rename(c, "Mail")
         close(window, try XCTUnwrap(c.allLeafWindowsRecursive.first))
         afterTheGrace()
         assertClosed(b)
@@ -355,8 +348,8 @@ final class WorkspaceTabsCloseWithLastWindowTest: XCTestCase {
         let second = TestWindow.new(id: 4, parent: d.rootTilingContainer, app: editor, title: "Notes C")
         XCTAssertTrue(a.allLeafWindowsRecursive[0].focusWindow())
         Workspace.reconcileWorkspaceState()
-        try save(b)
-        try save(d)
+        try rename(b, "B")
+        try rename(d, "C")
         captureSavedWorkspaces(facts: facts(titles: [2: "Notes B", 4: "Notes C"]))
         editorQuits()
         close(first, second)
@@ -377,6 +370,7 @@ final class WorkspaceTabsCloseWithLastWindowTest: XCTestCase {
         afterTheGrace()
         assertStays(b)
         assertStays(d)
+        XCTAssertEqual(config.workspaceSidebar.workspaceLabels[b.name], "B")
     }
 
     // MARK: Windows on their way back
@@ -386,7 +380,7 @@ final class WorkspaceTabsCloseWithLastWindowTest: XCTestCase {
     /// while the returning window waits in a, the tab in use.
     private func windowComingBackFromTheCache() throws -> (a: Workspace, b: Workspace, back: TestWindow, hidden: TestWindow) {
         let (a, b, _, window) = threeTabs()
-        try save(b)
+        try rename(b)
         let hidden = TestWindow.new(id: 7, parent: a.macOsNativeHiddenAppsWindowsContainer, app: other)
         hidden.layoutReason = .macos(prevParentKind: .tilingContainer, prevWorkspaceName: a.name)
         // As the refresh that no longer finds the window does, before it takes it out of the tree.
@@ -408,6 +402,7 @@ final class WorkspaceTabsCloseWithLastWindowTest: XCTestCase {
         openTheGate()
         try await detection.value
         XCTAssertTrue(back.nodeWorkspace === b)
+        XCTAssertEqual(config.workspaceSidebar.workspaceLabels[b.name], "Notes")
     }
 
     func testAnAppsWindowStillReadingItsTitleWhenItsArmingEndsKeepsItsSavedPlace() async throws {
@@ -419,8 +414,8 @@ final class WorkspaceTabsCloseWithLastWindowTest: XCTestCase {
         let second = TestWindow.new(id: 4, parent: d.rootTilingContainer, app: editor, title: "Notes C")
         XCTAssertTrue(a.allLeafWindowsRecursive[0].focusWindow())
         Workspace.reconcileWorkspaceState()
-        try save(b)
-        try save(d)
+        try rename(b, "B")
+        try rename(d, "C")
         captureSavedWorkspaces(facts: facts(titles: [2: "Notes B", 4: "Notes C"]))
         editorQuits()
         close(first, second)
@@ -446,13 +441,14 @@ final class WorkspaceTabsCloseWithLastWindowTest: XCTestCase {
         openTheGate()
         _ = try await routing.value
         XCTAssertTrue(forB.nodeWorkspace === b)
+        XCTAssertEqual(config.workspaceSidebar.workspaceLabels[b.name], "B")
     }
 
     // MARK: Undo
 
     func testUndoingAMoveIntoATabWaitingToCloseLeavesItWaitingToClose() throws {
         let (a, b, _, window) = threeTabs()
-        try save(b)
+        try rename(b)
         savedWorkspaceRuntime.runtimeReadyAt = clock.addingTimeInterval(-10)
         close(window)
         XCTAssertTrue(b.isKeptWhenEmpty, "Listed while windows come back after WinMux started")
@@ -476,7 +472,7 @@ final class WorkspaceTabsCloseWithLastWindowTest: XCTestCase {
         c.preferredMonitorPoint = left.rect.topLeftCorner
         XCTAssertTrue(right.setActiveWorkspace(b))
         XCTAssertTrue(a.allLeafWindowsRecursive[0].focusWindow())
-        try save(b)
+        try rename(b)
         editorQuits()
         close(window)
         let listed = await isListed(b)
@@ -501,7 +497,7 @@ final class WorkspaceTabsCloseWithLastWindowTest: XCTestCase {
 
     func testClosingTheTabInUseMovesFocusToTheNextTabAsForAnyTab() throws {
         let (_, b, c, window) = threeTabs()
-        try save(b)
+        try rename(b)
         XCTAssertTrue(window.focusWindow())
         close(window)
         XCTAssertTrue(focus.workspace === c, "The next tab, as closing a browser tab does")
@@ -678,7 +674,7 @@ final class WorkspaceTabsCloseWithLastWindowTest: XCTestCase {
         c.preferredMonitorPoint = right.rect.topLeftCorner
         XCTAssertTrue(right.setActiveWorkspace(b))
         XCTAssertTrue(a.allLeafWindowsRecursive[0].focusWindow())
-        try save(b)
+        try rename(b)
         close(window)
         XCTAssertTrue(right.activeWorkspace === c, "The other display shows its next tab at once")
         XCTAssertTrue(focus.workspace === a, "Focus stays where it was")
@@ -713,7 +709,7 @@ final class WorkspaceTabsCloseWithLastWindowTest: XCTestCase {
 
     func testAConfiguredPersistentWorkspaceStays() throws {
         let (_, b, _, window) = threeTabs()
-        try save(b)
+        try rename(b)
         config.persistentWorkspaces = [b.name]
         close(window)
         afterTheGrace()
@@ -722,7 +718,7 @@ final class WorkspaceTabsCloseWithLastWindowTest: XCTestCase {
 
     func testMinimizedHiddenAndFullScreenWindowsStillCount() throws {
         let (_, b, _, window) = threeTabs()
-        try save(b)
+        try rename(b)
         window.layoutReason = .macos(prevParentKind: .tilingContainer, prevWorkspaceName: b.name)
         window.bind(to: macosMinimizedWindowsContainer, adaptiveWeight: 1, index: INDEX_BIND_LAST)
         afterTheGrace()
@@ -737,7 +733,7 @@ final class WorkspaceTabsCloseWithLastWindowTest: XCTestCase {
 
     func testATabWhoseLastWindowMovedToAnotherTabStaysAsBefore() throws {
         let (_, b, c, window) = threeTabs()
-        try save(b)
+        try rename(b)
         window.bind(to: c.rootTilingContainer, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
         afterTheGrace()
         assertStays(b)
@@ -745,7 +741,7 @@ final class WorkspaceTabsCloseWithLastWindowTest: XCTestCase {
 
     func testNothingClosesDuringTheStartupRestoreThenTheTabCloses() throws {
         let (_, b, _, window) = threeTabs()
-        try save(b)
+        try rename(b)
         savedWorkspaceRuntime.runtimeReadyAt = clock.addingTimeInterval(-10)
         close(window)
         checkpoint(after: 20)
@@ -758,7 +754,7 @@ final class WorkspaceTabsCloseWithLastWindowTest: XCTestCase {
 
     func testATabWaitingForAWindowItAskedForStaysUntilTheRequestEnds() throws {
         let (_, b, _, window) = threeTabs()
-        try save(b)
+        try rename(b)
         let intent = try XCTUnwrap(NewWindowIntentRegistry.shared.register(bundleId: editorId, pid: 501, targetWorkspace: b,
             preexistingWindowIds: [2], focusGeneration: 0))
         close(window)
@@ -781,18 +777,19 @@ final class WorkspaceTabsCloseWithLastWindowTest: XCTestCase {
 
     func testReadOnlyModeChangesNothing() throws {
         let (_, b, _, window) = threeTabs()
-        try save(b)
+        try rename(b)
         setServerReadOnlyForTests(true)
         savedWorkspaceStore = SavedWorkspaceStore(file: savedWorkspaceStore.file, url: nil, readOnlyReason: "read-only")
         close(window)
         afterTheGrace()
         assertStays(b)
+        XCTAssertEqual(config.workspaceSidebar.workspaceLabels[b.name], "Notes")
     }
 
     func testSidebarModeKeepsSavedWorkspaces() throws {
         let (_, b, _, window) = threeTabs()
         config.workspaceSidebar.mode = .sidebar
-        try save(b)
+        try rename(b)
         close(window)
         afterTheGrace()
         assertStays(b)
@@ -803,7 +800,7 @@ final class WorkspaceTabsCloseWithLastWindowTest: XCTestCase {
     func testWithTheRelaunchPolicyOnATabWaitsForItsAppThatQuitAndGetsItsWindowBack() async throws {
         WorkspaceTabClosePolicy.waitsForAppRelaunch = true
         let (a, b, _, window) = threeTabs()
-        try save(b)
+        try rename(b)
         editorQuits()
         close(window)
         afterTheGrace()
@@ -827,7 +824,7 @@ final class WorkspaceTabsCloseWithLastWindowTest: XCTestCase {
 
     func testAClosedTabDoesntComeBackFromSavedState() throws {
         let (_, b, _, window) = threeTabs()
-        try save(b)
+        try rename(b)
         editorQuits()
         close(window)
         afterTheGrace()
@@ -839,7 +836,7 @@ final class WorkspaceTabsCloseWithLastWindowTest: XCTestCase {
 
     func testARelaunchAfterTheGraceOpensItsWindowInANewTab() async throws {
         let (a, b, _, window) = threeTabs()
-        try save(b)
+        try rename(b)
         editorQuits()
         close(window)
         afterTheGrace()
@@ -860,7 +857,7 @@ final class WorkspaceTabsCloseWithLastWindowTest: XCTestCase {
         materializeSavedWorkspaceNames()
         let pin = try XCTUnwrap(Workspace.existing(byName: "pin"))
         try setWorkspaceSidebarTabFavorite(pin, true)
-        try save(b)
+        try rename(b)
         editorQuits()
         close(window)
         afterTheGrace()
@@ -873,7 +870,7 @@ final class WorkspaceTabsCloseWithLastWindowTest: XCTestCase {
 
     func testARelaunchWithinTheGraceBringsTheTabBack() async throws {
         let (a, b, _, window) = threeTabs()
-        try save(b)
+        try rename(b)
         editorQuits()
         close(window)
         checkpoint(after: 5)
@@ -883,5 +880,6 @@ final class WorkspaceTabsCloseWithLastWindowTest: XCTestCase {
         XCTAssertTrue(next.nodeWorkspace === b)
         afterTheGrace()
         assertStays(b)
+        XCTAssertEqual(config.workspaceSidebar.workspaceLabels[b.name], "Notes")
     }
 }

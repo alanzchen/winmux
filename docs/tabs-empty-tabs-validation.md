@@ -1,5 +1,9 @@
 # No empty tabs in Tabs mode — September 28, 2026
 
+> Retention update (2026-11-23): the checks below describe their original revision.
+> Naming or implicitly saving a tab no longer keeps it after its last window closes.
+> Pin it or choose **Keep Tab When Empty**; see [the current policy](labelled-tabs-fix-20261123.md).
+
 Tabs mode no longer keeps empty tabs.
 
 - A tab whose last window goes closes, however the window went: closed, moved to another

@@ -11,17 +11,15 @@ enum WorkspaceTabClosePolicy {
 }
 
 /// Tabs mode: a tab that isn't pinned closes once its last window has closed, rather than staying
-/// greyed, whether or not it's saved (renamed, grouped, made from a topic), and whether its app
+/// greyed, whether or not its identity is saved (renamed, grouped, made from a topic), and whether its app
 /// keeps running or quit. It leaves the screen and the list at once. A saved one's name, label,
 /// group and saved places stay reserved, out of sight, until its saved places run out their grace,
 /// so a window back by then returns to it. A window moved to another tab didn't close. A workspace
-/// the config keeps stays; nothing changes while WinMux starts and restores windows, or can't save
-/// the change.
+/// the config keeps, or explicitly kept with Keep Tab When Empty, stays. Nothing changes while
+/// WinMux starts and restores windows, or can't save the change.
 @MainActor
 func workspaceTabClosesWithLastWindow(_ tab: Workspace) -> Bool {
-    tab.lastWindowClosed && config.usesBrowserTabs && !tab.isArchived && !tab.isConfiguredPersistent &&
-        !tab.hasConfiguredLabel &&
-        workspaceSidebarOrganizationStore.state.workspaces[tab.name]?.isFavorite != true &&
+    tab.lastWindowClosed && config.usesBrowserTabs && !tab.isArchived && !tab.retainsTabAfterLastWindowCloses &&
         !isStartup && !savedWorkspaceRuntime.isStartupRestoreActive &&
         !serverArgs.isReadOnly && !savedWorkspaceStore.isReadOnly && workspaceSidebarOrganizationStore.readOnlyReason == nil &&
         !workspaceHasLifecycleWindows(tab)
@@ -42,8 +40,7 @@ func workspaceTabCloseIsHeld(_ tab: Workspace) -> Bool {
 func noteWindowClosed(_ window: Window, from parent: NonLeafTreeNodeObject) {
     guard config.usesBrowserTabs else { return }
     let tab = parent.nodeWorkspace ?? minimizedWindowOwner(window, parent)
-    guard let tab, !workspaceHasLifecycleWindows(tab), !tab.isConfiguredPersistent, !tab.hasConfiguredLabel,
-          workspaceSidebarOrganizationStore.state.workspaces[tab.name]?.isFavorite != true
+    guard let tab, !workspaceHasLifecycleWindows(tab), !tab.retainsTabAfterLastWindowCloses
     else { return }
     tab.hasHadWindows = true
     tab.lastWindowClosed = true
